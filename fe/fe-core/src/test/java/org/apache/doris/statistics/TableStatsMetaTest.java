@@ -20,19 +20,17 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.OlapTable;
 
 import com.google.common.collect.Lists;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.HashSet;
-import java.util.List;
 
 class TableStatsMetaTest {
 
     @Test
-    void update(@Mocked OlapTable table) {
+    void update() {
+        OlapTable table = Mockito.mock(OlapTable.class);
         TableStatsMeta tableStatsMeta = new TableStatsMeta();
         AnalysisInfo jobInfo = new AnalysisInfoBuilder().setRowCount(4)
                 .setJobColumns(new HashSet<>()).setColName("col1").build();
@@ -51,16 +49,8 @@ class TableStatsMetaTest {
         Assertions.assertEquals(3, meta.getRowCount(3));
         Assertions.assertEquals(-1, meta.getRowCount(4));
 
-        new MockUp<OlapTable>() {
-            @Mock
-            public List<Long> getIndexIdList() {
-                List<Long> result = Lists.newArrayList();
-                result.add(1L);
-                return result;
-            }
-        };
-
-        OlapTable table = new OlapTable();
+        OlapTable table = Mockito.spy(new OlapTable());
+        Mockito.doReturn(Lists.newArrayList(1L)).when(table).getIndexIdList();
 
         meta.clearStaleIndexRowCount(table);
         Assertions.assertEquals(1, meta.getRowCount(1));

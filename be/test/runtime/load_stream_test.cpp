@@ -19,13 +19,13 @@
 #include <brpc/server.h>
 #include <brpc/stream.h>
 #include <butil/logging.h>
+#include <gen_cpp/BackendService_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gflags/gflags.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <olap/storage_engine.h>
-#include <service/internal_service.h>
 #include <unistd.h>
 
 #include <functional>
@@ -33,21 +33,21 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "exec/tablet_info.h"
-#include "gen_cpp/BackendService_types.h"
-#include "gen_cpp/FrontendService_types.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
-#include "olap/olap_define.h"
-#include "olap/options.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/tablet_manager.h"
-#include "olap/txn_manager.h"
+#include "load/channel/load_stream_mgr.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
-#include "runtime/load_stream_mgr.h"
+#include "runtime/runtime_profile.h"
+#include "service/internal_service.h"
+#include "storage/olap_define.h"
+#include "storage/options.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_manager.h"
+#include "storage/tablet_info.h"
+#include "storage/txn/txn_manager.h"
 #include "util/debug/leakcheck_disabler.h"
-#include "util/runtime_profile.h"
 
 using namespace brpc;
 

@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.common.FractionalFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.format.FractionalFormat;
 import org.apache.doris.nereids.types.DataType;
 
 import java.math.BigDecimal;
@@ -111,8 +111,9 @@ public abstract class FractionalLiteral extends NumericLiteral {
         if (object instanceof BigDecimal) {
             return getStringValue();
         }
-        double value = object instanceof Double ? (Double) object : new Double(String.valueOf(object));
-        return FractionalFormat.getFormatStringValue(value, this instanceof DoubleLiteral ? 16 : 7,
-                this instanceof DoubleLiteral ? "%.15E" : "%.6E");
+        if (object instanceof Float) {
+            return FractionalFormat.getFormatStringValue((Float) object);
+        }
+        return FractionalFormat.getFormatStringValue((Double) object);
     }
 }

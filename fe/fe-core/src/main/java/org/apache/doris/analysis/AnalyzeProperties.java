@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.foundation.util.BasicPrintableMap;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 
 import com.google.common.collect.ImmutableSet;
@@ -45,6 +45,7 @@ public class AnalyzeProperties {
     public static final String PROPERTY_FORCE_FULL = "force.full";
     public static final String PROPERTY_EXTERNAL_TABLE_USE_SQL = "external.table.use.sql";
     public static final String PROPERTY_USE_AUTO_ANALYZER = "use.auto.analyzer";
+    public static final String PROPERTY_COLLECT_HOT_VALUE = "collect.hot.value";
 
     public static final AnalyzeProperties DEFAULT_PROP = new AnalyzeProperties(new HashMap<String, String>() {
         {
@@ -74,6 +75,7 @@ public class AnalyzeProperties {
             .add(PROPERTY_FORCE_FULL)
             .add(PROPERTY_EXTERNAL_TABLE_USE_SQL)
             .add(PROPERTY_USE_AUTO_ANALYZER)
+            .add(PROPERTY_COLLECT_HOT_VALUE)
             .build();
 
     public AnalyzeProperties(Map<String, String> properties) {
@@ -96,6 +98,7 @@ public class AnalyzeProperties {
         checkAnalysisMode(msgTemplate);
         checkAnalysisType(msgTemplate);
         checkScheduleType(msgTemplate);
+        checkCollectHotValue(msgTemplate);
         checkPeriod();
     }
 
@@ -240,6 +243,15 @@ public class AnalyzeProperties {
         }
     }
 
+    private void checkCollectHotValue(String msgTemplate) throws AnalysisException {
+        if (properties.containsKey(PROPERTY_COLLECT_HOT_VALUE)) {
+            String value = properties.get(PROPERTY_COLLECT_HOT_VALUE);
+            if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
+                throw new AnalysisException(String.format(msgTemplate, PROPERTY_COLLECT_HOT_VALUE, value));
+            }
+        }
+    }
+
     private void checkPeriod() throws AnalysisException {
         if (properties.containsKey(PROPERTY_PERIOD_SECONDS)
                 && properties.containsKey(PROPERTY_PERIOD_CRON)) {
@@ -279,18 +291,22 @@ public class AnalyzeProperties {
         return properties.containsKey(PROPERTY_FORCE_FULL);
     }
 
-    public boolean isSampleRows() {
-        return properties.containsKey(PROPERTY_SAMPLE_ROWS);
-    }
-
     public boolean usingSqlForExternalTable() {
         return properties.containsKey(PROPERTY_EXTERNAL_TABLE_USE_SQL);
+    }
+
+    public boolean hasCollectHotValue() {
+        return properties.containsKey(PROPERTY_COLLECT_HOT_VALUE);
+    }
+
+    public boolean collectHotValue() {
+        return Boolean.parseBoolean(properties.get(PROPERTY_COLLECT_HOT_VALUE));
     }
 
     public String toSQL() {
         StringBuilder sb = new StringBuilder();
         sb.append("PROPERTIES(");
-        sb.append(new PrintableMap<>(properties, " = ",
+        sb.append(new BasicPrintableMap<>(properties, " = ",
                 true,
                 false));
         sb.append(")");

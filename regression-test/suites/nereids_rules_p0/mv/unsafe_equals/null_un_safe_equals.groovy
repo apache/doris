@@ -16,7 +16,7 @@ package mv.unsafe_equals
 // specific language governing permissions and limitations
 // under the License.
 
-suite("null_unsafe_equals") {
+suite("null_un_safe_equals") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
@@ -75,8 +75,21 @@ suite("null_unsafe_equals") {
             group by
             o_orderstatus, o_comment;
             """
+    // query contains length(o_comment), which only needs string offsets in a standalone filter,
+    // but the final output still needs full o_comment data after mv rewrite.
+    def query2_0 =
+            """
+            select count(*), o_orderstatus, o_comment
+            from orders
+            where length(o_comment) > 0
+            group by
+            o_orderstatus, o_comment;
+            """
     order_qt_query1_0_before "${query1_0}"
+    order_qt_query2_0_before "${query2_0}"
     async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    mv_rewrite_success(query2_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
+    order_qt_query2_0_after "${query2_0}"
+    // sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 }

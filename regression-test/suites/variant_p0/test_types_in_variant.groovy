@@ -81,7 +81,7 @@ suite("regression_test_variant_types", "var_view") {
         ) engine = olap
         duplicate key (id)
         distributed by hash(id) buckets 1
-        properties ("replication_num" = "1", "variant_enable_flatten_nested" = "true")
+        properties ("replication_num" = "1", "deprecated_variant_enable_flatten_nested" = "true")
     """
 
     sql """ set enable_variant_flatten_nested = false """
@@ -92,7 +92,8 @@ suite("regression_test_variant_types", "var_view") {
 
     qt_sql_array_largeint "desc ${table_name}"
     
-    sql """ insert into ${table_name} (id, var) values (2, '{"a": [{"b" : true}]}'); """
+    // Avoid relying on bool-to-number rendering when this path evolves to array<json>.
+    sql """ insert into ${table_name} (id, var) values (2, '{"a": [{"b" : 2}]}'); """
 
     qt_sql "select * from ${table_name} order by id"
 

@@ -18,14 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector.DistinctSelectorContext;
-import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
-import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -44,6 +42,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -60,9 +59,8 @@ public class SplitMultiDistinctStrategy {
                 .deepCopy(agg, new DeepCopierContext());
         LogicalCTEProducer<Plan> producer = new LogicalCTEProducer<>(ctx.statementContext.getNextCTEId(),
                 cloneAgg.child());
+        ctx.statementContext.setCteProducer(producer.getCteId(), producer);
         ctx.cteProducerList.add(producer);
-        StatsDerive derive = new StatsDerive(false);
-        producer.accept(derive, new DeriveContext());
 
         Map<Slot, Slot> originToProducerSlot = new HashMap<>();
         for (int i = 0; i < agg.child().getOutput().size(); ++i) {
@@ -151,27 +149,15 @@ public class SplitMultiDistinctStrategy {
         return consumer;
     }
 
-    private static boolean isDistinctMultiColumns(AggregateFunction func) {
-        if (func.arity() <= 1) {
-            return false;
-        }
-        for (int i = 1; i < func.arity(); ++i) {
-            // think about group_concat(distinct col_1, ',')
-            if (!(func.child(i) instanceof OrderExpression) && !func.child(i).getInputSlots().isEmpty()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private static void collectDistinctAndNonDistinctFunctions(LogicalAggregate<? extends Plan> agg,
             List<List<Alias>> aliases, List<Alias> otherAggFuncs) {
         Map<Set<Expression>, List<Alias>> distinctArgToAliasList = new LinkedHashMap<>();
         for (NamedExpression namedExpression : agg.getOutputExpressions()) {
-            if (!(namedExpression instanceof Alias) || !(namedExpression.child(0) instanceof AggregateFunction)) {
+            if (!(namedExpression instanceof Alias) || !namedExpression.containsType(AggregateFunction.class)) {
                 continue;
             }
-            AggregateFunction aggFunc = (AggregateFunction) namedExpression.child(0);
+            Optional<Expression> op = namedExpression.collectFirst(e -> e instanceof AggregateFunction);
+            AggregateFunction aggFunc = (AggregateFunction) op.get();
             if (aggFunc.isDistinct()) {
                 distinctArgToAliasList.computeIfAbsent(ImmutableSet.copyOf(aggFunc.getDistinctArguments()),
                         k -> new ArrayList<>()).add((Alias) namedExpression);

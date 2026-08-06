@@ -19,6 +19,9 @@ package org.apache.doris.common.util;
 
 import java.util.concurrent.atomic.AtomicLongArray;
 
+/**
+ * use for group commit
+ */
 public class SlidingWindowCounter {
     private final int windowSizeInSeconds;
     private final int numberOfBuckets;

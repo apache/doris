@@ -53,8 +53,8 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
 
     boolean inverted_index_ram_dir_enable = true
     boolean has_update_be_config = false
-    
-    def creata_table = { String tableName, String format -> 
+
+    def creata_table = { String tableName, String format ->
         sql "DROP TABLE IF EXISTS ${tableName}"
 
         sql """
@@ -83,7 +83,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
             );
         """
     }
-    
+
     def run_insert = { String tableName ->
         sql """ INSERT INTO ${tableName} VALUES (1, "andy", 10, [89, 80, 98], ["football", "basketball"], "andy is good at sports", ["andy has a good heart", "andy is so nice"]); """
         sql """ INSERT INTO ${tableName} VALUES (1, "bason", 11, [79, 85, 97], ["singing", "dancing"], "bason is good at singing", ["bason is very clever", "bason is very healthy"]); """
@@ -100,7 +100,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
     }
 
     def run_select = { String tableName, boolean normal ->
-        def result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE name MATCH 'andy'"
+        def result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE name MATCH 'andy'"
         assertEquals(3, result.size())
         assertEquals(1, result[0]['id'])
         assertEquals("andy", result[0]['name'])
@@ -109,7 +109,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         assertEquals(3, result[2]['id'])
         assertEquals("andy", result[2]['name'])
 
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE age < 11"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE age < 11"
         assertEquals(3, result.size())
         assertEquals("andy", result[0]['name'])
         assertEquals(2, result[1]['id'])
@@ -117,7 +117,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         assertEquals(3, result[2]['id'])
         assertEquals("andy", result[2]['name'])
 
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE description MATCH 'sports'"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE description MATCH 'sports'"
         assertEquals(3, result.size())
         assertEquals("andy", result[0]['name'])
         assertEquals("andy is good at sports", result[0]['description'])
@@ -127,7 +127,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         assertEquals("andy is good at sports", result[2]['description'])
 
         if (normal) {
-            result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(scores, 79)"
+            result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE array_contains(scores, 79)"
             assertEquals(3, result.size())
             assertEquals("bason", result[0]['name'])
             assertEquals("[79, 85, 97]", result[0]['scores'])
@@ -136,10 +136,10 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
             assertEquals("bason", result[2]['name'])
             assertEquals("[79, 85, 97]", result[2]['scores'])
         } else {
-            result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(scores, 79)"
+            result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE array_contains(scores, 79)"
             assertEquals(0, result.size())
         }
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(hobbies, 'football')"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE array_contains(hobbies, 'football')"
         assertEquals(3, result.size())
         assertEquals("andy", result[0]['name'])
         assertEquals('["football", "basketball"]', result[0]['hobbies'])
@@ -148,7 +148,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         assertEquals("andy", result[2]['name'])
         assertEquals('["football", "basketball"]', result[2]['hobbies'])
 
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(evaluation, 'andy is so nice')"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE array_contains(evaluation, 'andy is so nice')"
         assertEquals(3, result.size())
         assertEquals("andy", result[0]['name'])
         assertEquals('["andy has a good heart", "andy is so nice"]', result[0]['evaluation'])
@@ -186,7 +186,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         "DorisFSDirectory::fileExists_status_is_not_ok",
         "DorisFSDirectory::touchFile_status_is_not_ok",
         "DorisFSDirectory::fileLength_status_is_not_ok",
-        "DorisFSDirectory::close_close_with_error", 
+        "DorisFSDirectory::close_close_with_error",
         "DorisFSDirectory::doDeleteFile_status_is_not_ok",
         "DorisFSDirectory::deleteDirectory_throw_is_not_directory",
         "DorisFSDirectory::renameFile_exists_status_is_not_ok",
@@ -234,7 +234,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         String backend_id;
         backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
+
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def configList = parseJson(out.trim())

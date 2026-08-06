@@ -21,18 +21,23 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.connector.ConnectorStatementScopeImpl;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -54,9 +59,11 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShortCircuitQueryContext;
@@ -66,6 +73,7 @@ import org.apache.doris.system.Backend;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
+import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
@@ -81,10 +89,12 @@ import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -133,6 +143,9 @@ public class StatementContext implements Closeable {
     private int maxNAryInnerJoin = 0;
 
     private boolean isDpHyp = false;
+    private boolean isAfterDpHyper = false;
+
+    private boolean isDelete = false;
 
     private boolean hasNondeterministic = false;
 
@@ -156,9 +169,10 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
     private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
 
-    private final Map<CTEId, Statistics> cteIdToProducerStats = new HashMap<>();
+    private final Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer = new HashMap<>();
 
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
+    private final Map<RelationId, Long> consumerIdToLimitRows = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
@@ -185,6 +199,14 @@ public class StatementContext implements Closeable {
     // filter condition, group by expression
     private final Set<SlotReference> keySlots = Sets.newHashSet();
     private BitSet disableRules;
+
+    // A per-statement memoization arena for connectors: e.g. Iceberg loads a table once and shares that
+    // single object across read + write resolvers within the statement. Lazily built (see
+    // getOrCreateConnectorStatementScope), values stored opaquely by the connector. Like snapshots, it is
+    // NOT cleared on close()/releasePlannerResources -- it survives to statement GC. A reused
+    // prepared-statement context drops it per execution via resetConnectorStatementScope() (see
+    // ExecuteCommand) so one execution's cached tables never leak into the next.
+    private ConnectorStatementScope connectorStatementScope;
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
@@ -224,6 +246,10 @@ public class StatementContext implements Closeable {
     private final Map<List<String>, Pair<String, Map<String, String>>> viewInfos = Maps.newHashMap();
     // save insert into schema to avoid schema changed between two read locks
     private final List<Column> insertTargetSchema = new ArrayList<>();
+    // Execution-scoped connector writer schemas. These are resolved before DEFAULT/omitted-column expansion,
+    // intentionally separate from the cached table schema used by DESCRIBE/SHOW CREATE, and cleared together
+    // with the connector statement scope when a prepared StatementContext starts its next execution.
+    private final Map<Long, List<Column>> connectorWriteSchemas = new HashMap<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be
@@ -258,6 +284,12 @@ public class StatementContext implements Closeable {
     private Backend groupCommitMergeBackend;
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> latestSnapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> latestSnapshotFences = Maps.newHashMap();
+    private final Map<MvccTableInfo, Map<String, String>> resolvedSnapshotScanParams = Maps.newHashMap();
+    // Record external tables that can be preloaded before internal table locks are acquired.
+    private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
+    private ExternalMetadataPreloadResult externalMetadataPreloadResult;
 
     private boolean privChecked;
 
@@ -300,25 +332,34 @@ public class StatementContext implements Closeable {
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
     private boolean isInsert = false;
-    private boolean skipPrunePredicate = false;
-
     private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
 
-    // For Iceberg rewrite operations: store file scan tasks to be used by
-    // IcebergScanNode
-    // TODO: better solution?
-    private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
-    // For Iceberg rewrite operations: control whether to use GATHER distribution
-    // When true, data will be collected to a single node to avoid generating too many small files
-    private boolean useGatherForIcebergRewrite = false;
+    // The RAW data-file paths a distributed rewrite_data_files group must scope its scan to.
+    // PluginDrivenScanNode reads it and pins it onto the connector scan handle
+    // (metadata.applyRewriteFileScope), the engine-neutral rewrite scoping path.
+    private List<String> rewriteSourceFilePaths = null;
+    // Post-flip neutral counterpart of the legacy shared rewrite transaction: the one connector transaction a
+    // distributed rewrite_data_files driver opens and shares across the N per-group INSERT-SELECTs. The
+    // neutral rewrite executor (ConnectorRewriteExecutor) reads it here and binds it onto its sink session so
+    // the connector's planWrite resolves the SAME transaction (rather than each group opening its own).
+    private ConnectorTransaction rewriteSharedTransaction = null;
     private boolean hasNestedColumns;
+    private boolean queryStatsRecorded = false;
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
+    private final Set<String> usedAIResourceNames = new LinkedHashSet<>();
+
+    private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
+    private final Map<String, Integer> lowerCaseDatabaseNamesCache = Maps.newHashMap();
+
+    // CTEs that must be materialized (e.g., containing non-deterministic functions)
+    private final Set<CTEId> forceMaterializeCTEs = new HashSet<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
 
+    // For StatementScopeIdGenerator
     public StatementContext(int initialId) {
         this(ConnectContext.get(), null, initialId);
     }
@@ -330,7 +371,7 @@ public class StatementContext implements Closeable {
     /**
      * StatementContext
      */
-    public StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
+    private StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
@@ -414,6 +455,14 @@ public class StatementContext implements Closeable {
         return insertTargetSchema;
     }
 
+    public void setConnectorWriteSchema(long tableId, List<Column> columns) {
+        connectorWriteSchemas.put(tableId, ImmutableList.copyOf(columns));
+    }
+
+    public Optional<List<Column>> getConnectorWriteSchema(long tableId) {
+        return Optional.ofNullable(connectorWriteSchemas.get(tableId));
+    }
+
     public void setTables(Map<List<String>, TableIf> tables) {
         this.tables.clear();
         this.tables.putAll(tables);
@@ -454,6 +503,44 @@ public class StatementContext implements Closeable {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    public Set<String> getUsedAIResourceNames() {
+        return Collections.unmodifiableSet(usedAIResourceNames);
+    }
+
+    public void registerUsedAIResourceName(String resourceName) {
+        if (Strings.isNullOrEmpty(resourceName)) {
+            throw new AnalysisException("AI resource name can not be empty");
+        }
+        usedAIResourceNames.add(resourceName);
+    }
+
+    /**
+     * Register an external relation that may preload metadata before internal table locks are acquired.
+     *
+     * @param table external table referenced by the relation
+     * @param tableSnapshot optional explicit snapshot specification on the relation
+     * @param scanParams optional relation scan parameters such as branch or tag
+     */
+    public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        if (!(table instanceof ExternalTable) || !table.supportsExternalMetadataPreload()) {
+            return;
+        }
+        ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
+                id -> new ExternalTablePreloadInfo((ExternalTable) table));
+        // Any relation-scoped selector (FOR VERSION/TIME AS OF, @branch/@tag/@incr/@options) makes this
+        // reference non-latest, so the latest-schema warmup is skipped for it. An @options clause whose
+        // options happen NOT to select a version could keep the warmup, but deciding that needs the
+        // connector's option vocabulary, and this runs BEFORE binding resolves any pin. Skipping a warmup
+        // only costs latency (the metadata is then loaded lazily under the lock), so the selector-blind
+        // rule stays -- the same rule @branch/@tag/@incr already follow here.
+        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+            preloadInfo.markNonLatestRelation();
+        } else {
+            preloadInfo.markLatestRelation();
+        }
     }
 
     public void setOriginStatement(OriginStatement originStatement) {
@@ -527,6 +614,14 @@ public class StatementContext implements Closeable {
         isDpHyp = dpHyp;
     }
 
+    public boolean isAfterDpHyper() {
+        return isAfterDpHyper;
+    }
+
+    public void setAfterDpHyper(boolean isAfterDpHyper) {
+        this.isAfterDpHyper = isAfterDpHyper;
+    }
+
     public ExprId getNextExprId() {
         return exprIdGenerator.getNextId();
     }
@@ -574,6 +669,36 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Returns this statement's connector scope, lazily creating it on first use (mirrors
+     * {@link #getOrCacheDisableRules}). A connector reaches it through
+     * {@link org.apache.doris.connector.spi.ConnectorSession#getStatementScope()} to load a table once and
+     * share it across the statement's read + write resolvers.
+     */
+    public synchronized ConnectorStatementScope getOrCreateConnectorStatementScope() {
+        if (this.connectorStatementScope == null) {
+            this.connectorStatementScope = new ConnectorStatementScopeImpl();
+        }
+        return this.connectorStatementScope;
+    }
+
+    /**
+     * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
+     * Prepared-statement EXECUTE reuses one StatementContext across executions (see
+     * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
+     * this is called at the start of each, so a prior execution's / attempt's cached tables, pinned connector
+     * writer schema, and closeable state are released (closeAll is idempotent — a no-op if the query-finish
+     * callback already closed it) and never leak into the next. Callers invoke this only after the prior
+     * execution/attempt has finished (no off-thread pump still running), so close-before-drop is safe.
+     */
+    public synchronized void resetConnectorStatementScope() {
+        if (this.connectorStatementScope != null) {
+            this.connectorStatementScope.closeAll();
+        }
+        this.connectorStatementScope = null;
+        this.connectorWriteSchemas.clear();
+    }
+
+    /**
      * Some value of the cacheKey may change, invalid cache when value change
      */
     public synchronized void invalidCache(String cacheKey) {
@@ -609,6 +734,10 @@ public class StatementContext implements Closeable {
         return consumerIdToFilters;
     }
 
+    public Map<RelationId, Long> getConsumerIdToLimitRows() {
+        return consumerIdToLimitRows;
+    }
+
     public PlaceholderId getNextPlaceholderId() {
         return placeHolderIdGenerator.getNextId();
     }
@@ -633,6 +762,18 @@ public class StatementContext implements Closeable {
         return rewrittenCteConsumer;
     }
 
+    /** Clear CTE-related rewrite and memo state before rebuilding it from a new plan tree. */
+    public void clearCteEnvironment() {
+        cteIdToConsumers.clear();
+        cteIdToOutputIds.clear();
+        cteIdToProducer.clear();
+        consumerIdToFilters.clear();
+        consumerIdToLimitRows.clear();
+        cteIdToConsumerGroup.clear();
+        rewrittenCteProducer.clear();
+        rewrittenCteConsumer.clear();
+    }
+
     /**
      * Snapshot current CTE-related environment for temporary rewrite/optimization.
      */
@@ -640,8 +781,9 @@ public class StatementContext implements Closeable {
         return new CteEnvironmentSnapshot(
                 copyMapOfSets(cteIdToConsumers),
                 copyMapOfSets(cteIdToOutputIds),
-                new HashMap<>(cteIdToProducerStats),
+                new HashMap<>(cteIdToProducer),
                 copyMapOfSets(consumerIdToFilters),
+                new HashMap<>(consumerIdToLimitRows),
                 copyMapOfLists(cteIdToConsumerGroup),
                 new HashMap<>(rewrittenCteProducer),
                 new HashMap<>(rewrittenCteConsumer));
@@ -655,11 +797,14 @@ public class StatementContext implements Closeable {
         cteIdToOutputIds.clear();
         cteIdToOutputIds.putAll(snapshot.cteIdToOutputIds);
 
-        cteIdToProducerStats.clear();
-        cteIdToProducerStats.putAll(snapshot.cteIdToProducerStats);
+        cteIdToProducer.clear();
+        cteIdToProducer.putAll(snapshot.cteIdToProducer);
 
         consumerIdToFilters.clear();
         consumerIdToFilters.putAll(snapshot.consumerIdToFilters);
+
+        consumerIdToLimitRows.clear();
+        consumerIdToLimitRows.putAll(snapshot.consumerIdToLimitRows);
 
         cteIdToConsumerGroup.clear();
         cteIdToConsumerGroup.putAll(snapshot.cteIdToConsumerGroup);
@@ -691,8 +836,9 @@ public class StatementContext implements Closeable {
     public static class CteEnvironmentSnapshot {
         private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers;
         private final Map<CTEId, Set<Slot>> cteIdToOutputIds;
-        private final Map<CTEId, Statistics> cteIdToProducerStats;
+        private final Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer;
         private final Map<RelationId, Set<Expression>> consumerIdToFilters;
+        private final Map<RelationId, Long> consumerIdToLimitRows;
         private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup;
         private final Map<CTEId, LogicalPlan> rewrittenCteProducer;
         private final Map<CTEId, LogicalPlan> rewrittenCteConsumer;
@@ -703,15 +849,17 @@ public class StatementContext implements Closeable {
         public CteEnvironmentSnapshot(
                 Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers,
                 Map<CTEId, Set<Slot>> cteIdToOutputIds,
-                Map<CTEId, Statistics> cteIdToProducerStats,
+                Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer,
                 Map<RelationId, Set<Expression>> consumerIdToFilters,
+                Map<RelationId, Long> consumerIdToLimitRows,
                 Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup,
                 Map<CTEId, LogicalPlan> rewrittenCteProducer,
                 Map<CTEId, LogicalPlan> rewrittenCteConsumer) {
             this.cteIdToConsumers = cteIdToConsumers;
             this.cteIdToOutputIds = cteIdToOutputIds;
-            this.cteIdToProducerStats = cteIdToProducerStats;
+            this.cteIdToProducer = cteIdToProducer;
             this.consumerIdToFilters = consumerIdToFilters;
+            this.consumerIdToLimitRows = consumerIdToLimitRows;
             this.cteIdToConsumerGroup = cteIdToConsumerGroup;
             this.rewrittenCteProducer = rewrittenCteProducer;
             this.rewrittenCteConsumer = rewrittenCteConsumer;
@@ -858,6 +1006,17 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         releasePlannerResources();
+        // Fallback deterministic close of the per-statement connector scope, for statements that never reach the
+        // query-finish callback: external DDL / SHOW / DESCRIBE / EXPLAIN / foreground ANALYZE run via Command.run
+        // with no coordinator, so PluginDrivenScanNode.getSplits never registers a primary close for them. close()
+        // runs in ConnectProcessor's per-statement finally (direct connection) and the forwarded-request finally
+        // (master side), so it covers them. Guarded by isReturnResultFromLocal so an arrow-flight statement (which
+        // returns results asynchronously and defers cleanup to its own query-finish close) is not closed early
+        // here. Idempotent (closeAll is close-once), so a coordinated statement whose scope the primary already
+        // closed is a no-op. Command statements have no off-thread scan pump, so close-after-use holds.
+        if (connectorStatementScope != null && connectContext != null && connectContext.isReturnResultFromLocal()) {
+            connectorStatementScope.closeAll();
+        }
     }
 
     public List<Placeholder> getPlaceholders() {
@@ -901,16 +1060,67 @@ public class StatementContext implements Closeable {
     public void loadSnapshots(TableIf specificTable, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
         if (specificTable instanceof MvccTable) {
-            MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable);
+            MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable,
+                    versionKeyOf(tableSnapshot, scanParams));
             if (!snapshots.containsKey(mvccTableInfo)) {
-                snapshots.put(mvccTableInfo,
-                        ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
+                MvccTable mvccTable = (MvccTable) specificTable;
+                MvccSnapshot snapshot;
+                if (mvccTable.requiresLatestSnapshotFence(tableSnapshot, scanParams)) {
+                    MvccTableInfo latestKey = new MvccTableInfo(specificTable);
+                    MvccSnapshot latestFence = latestSnapshotFences.computeIfAbsent(latestKey,
+                            key -> latestSnapshots.containsKey(key)
+                                    ? latestSnapshots.get(key) : mvccTable.loadLatestSnapshotFence());
+                    // Different planning projections remain separate, but their version selector
+                    // comes from one statement fence instead of repeated mutable latest reads.
+                    snapshot = mvccTable.loadSnapshot(tableSnapshot, scanParams, Optional.of(latestFence));
+                } else if (!tableSnapshot.isPresent() && !scanParams.isPresent()) {
+                    snapshot = latestSnapshots.computeIfAbsent(mvccTableInfo,
+                            key -> latestSnapshotFences.containsKey(key)
+                                    ? mvccTable.loadSnapshot(tableSnapshot, scanParams,
+                                            Optional.of(latestSnapshotFences.get(key)))
+                                    : mvccTable.loadSnapshot(tableSnapshot, scanParams));
+                    // A full latest projection is also a valid version fence. Recording it makes
+                    // plain-first and options-first aliases pin the same statement version.
+                    latestSnapshotFences.putIfAbsent(mvccTableInfo, snapshot);
+                } else {
+                    snapshot = mvccTable.loadSnapshot(tableSnapshot, scanParams);
+                }
+                snapshots.put(mvccTableInfo, snapshot);
+                scanParams.flatMap(TableScanParams::getResolvedMapParams)
+                        .ifPresent(params -> resolvedSnapshotScanParams.put(mvccTableInfo, params));
+            } else if (scanParams.isPresent() && resolvedSnapshotScanParams.containsKey(mvccTableInfo)) {
+                // Snapshot de-duplication also de-duplicates dynamic option resolution. Seed later
+                // aliases so their scan phase consumes the selector used by the cached snapshot.
+                scanParams.get().reuseResolvedMapParams(resolvedSnapshotScanParams.get(mvccTableInfo));
             }
         }
     }
 
     /**
-     * Obtain snapshot information of mvcc
+     * Clear MVCC state retained by a prepared statement between executions. A snapshot fence belongs
+     * to one EXECUTE only; carrying it forward would make a later commit permanently invisible.
+     */
+    public void resetMvccSnapshots() {
+        snapshots.clear();
+        latestSnapshots.clear();
+        latestSnapshotFences.clear();
+        resolvedSnapshotScanParams.clear();
+        // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
+        // not suppress preloading after the next EXECUTE resets its snapshot generation.
+        externalMetadataPreloadResult = null;
+    }
+
+    /**
+     * Obtain snapshot information of mvcc, version-blind. Used by the metadata/schema/partition readers
+     * that do not thread the per-reference version. Resolution order:
+     * (1) the default ("" version) entry if present — covers a plain/latest reference, and is the
+     * deterministic choice when a statement pins both main and {@code @branch}/{@code @tag} of one table;
+     * (2) else, if EXACTLY ONE snapshot is pinned for this table (ignoring version) — e.g. a standalone
+     * {@code @branch}/{@code @tag}/FOR-TIME read — that lone entry, so those readers still see the pinned
+     * snapshot; (3) else (two or more non-default versions pinned and no default, e.g. {@code t@tag('v1')}
+     * joined with {@code t@tag('v2')}) the version is ambiguous here, so empty and the caller falls back to
+     * latest. The scan path always resolves the exact per-reference snapshot via
+     * {@link #getSnapshot(TableIf, Optional, Optional)} regardless.
      *
      * @param tableIf tableIf
      * @return MvccSnapshot
@@ -919,8 +1129,115 @@ public class StatementContext implements Closeable {
         if (!(tableIf instanceof MvccTable)) {
             return Optional.empty();
         }
-        MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
+        MvccTableInfo defaultKey = new MvccTableInfo(tableIf);
+        MvccSnapshot defaultSnapshot = snapshots.get(defaultKey);
+        if (defaultSnapshot != null) {
+            return Optional.of(defaultSnapshot);
+        }
+        MvccSnapshot only = null;
+        for (Map.Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
+            if (defaultKey.isSameTable(entry.getKey())) {
+                if (only != null) {
+                    return Optional.empty();
+                }
+                only = entry.getValue();
+            }
+        }
+        return Optional.ofNullable(only);
+    }
+
+    /**
+     * Obtain snapshot information of mvcc, version-aware: resolves the snapshot pinned for the SAME table
+     * reference (same {@code @branch}/{@code @tag}/FOR-TIME selector) the scan carries, so a statement
+     * mixing main and {@code @branch} of one table reads each at its own snapshot. Used by the scan path
+     * ({@code PluginDrivenScanNode.pinMvccSnapshot}); the version key is computed identically to
+     * {@link #loadSnapshots}, so a pinned reference always hits its own entry.
+     *
+     * @param tableIf       tableIf
+     * @param tableSnapshot the reference's FOR VERSION/TIME AS OF selector (if any)
+     * @param scanParams    the reference's {@code @branch}/{@code @tag} selector (if any)
+     * @return MvccSnapshot
+     */
+    public Optional<MvccSnapshot> getSnapshot(TableIf tableIf, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        if (!(tableIf instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf, versionKeyOf(tableSnapshot, scanParams));
         return Optional.ofNullable(snapshots.get(mvccTableInfo));
+    }
+
+    /**
+     * Derives the version key separating snapshots of the SAME table pinned at different selectors within
+     * one statement. A FOR VERSION/TIME AS OF selector keys on its type+value; a
+     * {@code @branch}/{@code @tag}/{@code @incr} selector keys on its paramType + map/list params; a plain
+     * (latest) reference keys on "". MUST be a pure function of the selector so {@link #loadSnapshots}
+     * (analysis) and the scan-time lookup compute the SAME key. (Not {@code TableSnapshot.toDigest}, which
+     * redacts the value to '?'.)
+     */
+    private static String versionKeyOf(Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        // Concatenate both selectors (rather than returning on the first) so the key stays injective even
+        // if a reference ever carried BOTH a snapshot and scan params. Today the two are mutually exclusive
+        // (e.g. IcebergUtils.getQuerySpecSnapshot rejects FOR-TIME together with @branch/@tag), so in every
+        // reachable case exactly one part is non-empty and the key is "v:...", "p:...", or "".
+        StringBuilder key = new StringBuilder();
+        if (tableSnapshot != null && tableSnapshot.isPresent()) {
+            TableSnapshot ts = tableSnapshot.get();
+            key.append('v');
+            appendVersionKeyPart(key, ts.getType());
+            appendVersionKeyPart(key, ts.getValue());
+        }
+        if (scanParams != null && scanParams.isPresent()) {
+            TableScanParams sp = scanParams.get();
+            key.append('p');
+            appendVersionKeyPart(key, sp.getParamType());
+            Map<String, String> sortedParams = new TreeMap<>(sp.getMapParams());
+            key.append('m').append(sortedParams.size()).append(':');
+            for (Map.Entry<String, String> entry : sortedParams.entrySet()) {
+                // Length prefixes preserve entry boundaries even when user values contain Map.toString()
+                // delimiters; sorting separately keeps semantically identical maps order-independent.
+                appendVersionKeyPart(key, entry.getKey());
+                appendVersionKeyPart(key, entry.getValue());
+            }
+            key.append('l').append(sp.getListParams().size()).append(':');
+            for (String value : sp.getListParams()) {
+                appendVersionKeyPart(key, value);
+            }
+        }
+        return key.toString();
+    }
+
+    private static void appendVersionKeyPart(StringBuilder key, Object value) {
+        String text = String.valueOf(value);
+        key.append(text.length()).append(':').append(text);
+    }
+
+    /**
+     * Resolves a GENUINE time-travel snapshot for this table &mdash; one pinned under a NON-default version
+     * key (a FOR VERSION/TIME AS OF or {@code @branch}/{@code @tag} selector), if exactly one such versioned
+     * reference is pinned. Returns empty for a plain/latest reference (version key {@code ""}) so the caller
+     * keeps its latest path, and empty when the versioned pin is ambiguous (e.g. {@code t@tag('v1')} joined
+     * with {@code t@tag('v2')}). Used by the row-count path to compute cardinality AT the pinned snapshot
+     * (versus the latest-keyed cross-statement row-count cache) ONLY when the statement actually time-travels,
+     * leaving the shared cache untouched for plain reads.
+     */
+    public Optional<MvccSnapshot> getVersionedSnapshot(TableIf tableIf) {
+        if (!(tableIf instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        MvccTableInfo defaultKey = new MvccTableInfo(tableIf);
+        MvccSnapshot only = null;
+        for (Map.Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
+            MvccTableInfo key = entry.getKey();
+            if (defaultKey.isSameTable(key) && !key.getVersion().isEmpty()) {
+                if (only != null) {
+                    return Optional.empty();
+                }
+                only = entry.getValue();
+            }
+        }
+        return Optional.ofNullable(only);
     }
 
     /**
@@ -930,7 +1247,41 @@ public class StatementContext implements Closeable {
      * @param snapshot      snapshot
      */
     public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
+        // Injected snapshots are execution fences (for example MTMV refresh); an unqualified
+        // relation and its option projections must not perform a newer live latest lookup.
+        latestSnapshots.put(mvccTableInfo, snapshot);
         snapshots.put(mvccTableInfo, snapshot);
+    }
+
+    public Collection<ExternalTablePreloadInfo> getExternalTablePreloadInfos() {
+        return Collections.unmodifiableCollection(externalTablePreloadInfos.values());
+    }
+
+    public int getExternalTablePreloadCandidateCount() {
+        return externalTablePreloadInfos.size();
+    }
+
+    public boolean hasAnyPlanReadLockTable() {
+        return containsPlanReadLockTable(tables.values())
+                || containsPlanReadLockTable(mtmvRelatedTables.values())
+                || containsPlanReadLockTable(insertTargetTables.values());
+    }
+
+    public Optional<ExternalMetadataPreloadResult> getExternalMetadataPreloadResult() {
+        return Optional.ofNullable(externalMetadataPreloadResult);
+    }
+
+    public void setExternalMetadataPreloadResult(ExternalMetadataPreloadResult result) {
+        this.externalMetadataPreloadResult = result;
+    }
+
+    private boolean containsPlanReadLockTable(Collection<TableIf> tableIfs) {
+        for (TableIf tableIf : tableIfs) {
+            if (tableIf.needReadLockWhenPlan()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static class CloseableResource implements Closeable {
@@ -1113,12 +1464,12 @@ public class StatementContext implements Closeable {
         return prepareStage;
     }
 
-    public Statistics getProducerStatsByCteId(CTEId id) {
-        return cteIdToProducerStats.get(id);
+    public LogicalCTEProducer<? extends Plan> getCteProducerByCteId(CTEId id) {
+        return cteIdToProducer.get(id);
     }
 
-    public void setProducerStats(CTEId id, Statistics stats) {
-        cteIdToProducerStats.put(id, stats);
+    public void setCteProducer(CTEId id, LogicalCTEProducer<? extends Plan> producer) {
+        cteIdToProducer.put(id, producer);
     }
 
     public void setIsInsert(boolean isInsert) {
@@ -1127,6 +1478,14 @@ public class StatementContext implements Closeable {
 
     public boolean isInsert() {
         return isInsert;
+    }
+
+    public boolean isQueryStatsRecorded() {
+        return queryStatsRecorded;
+    }
+
+    public void markQueryStatsRecorded() {
+        queryStatsRecorded = true;
     }
 
     public Optional<Map<TableIf, Set<Expression>>> getMvRefreshPredicates() {
@@ -1139,45 +1498,35 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * Set file scan tasks for Iceberg rewrite operations.
-     * This allows IcebergScanNode to use specific file scan tasks instead of
-     * scanning the full table.
+     * Set the RAW data-file paths a distributed rewrite group must scope its scan to (post-flip neutral
+     * path, consumed by {@link org.apache.doris.datasource.scan.PluginDrivenScanNode}).
      */
-    public void setIcebergRewriteFileScanTasks(List<org.apache.iceberg.FileScanTask> tasks) {
-        this.icebergRewriteFileScanTasks = tasks;
+    public void setRewriteSourceFilePaths(List<String> paths) {
+        this.rewriteSourceFilePaths = paths;
     }
 
     /**
-     * Get and consume file scan tasks for Iceberg rewrite operations.
-     * Returns the tasks and clears the field to prevent reuse.
+     * Get the per-group rewrite scan scope. NON-consuming (unlike the legacy iceberg getAndClear): the pin is
+     * applied at several scan-side handle-consumption points within one statement and must read the same scope
+     * each time (mirrors the non-consuming MVCC snapshot pin); the per-group StatementContext is single-use, so
+     * there is no stale-reuse risk. Returns {@code null} when no scope is set (full-table scan).
      */
-    public List<org.apache.iceberg.FileScanTask> getAndClearIcebergRewriteFileScanTasks() {
-        List<org.apache.iceberg.FileScanTask> tasks = this.icebergRewriteFileScanTasks;
-        this.icebergRewriteFileScanTasks = null;
-        return tasks;
+    public List<String> getRewriteSourceFilePaths() {
+        return this.rewriteSourceFilePaths;
     }
 
     /**
-     * Set whether to use GATHER distribution for Iceberg rewrite operations.
-     * When enabled, data will be collected to a single node to minimize output files.
+     * Set the shared connector transaction a distributed rewrite group's sink must bind onto its session.
      */
-    public void setUseGatherForIcebergRewrite(boolean useGather) {
-        this.useGatherForIcebergRewrite = useGather;
+    public void setRewriteSharedTransaction(ConnectorTransaction transaction) {
+        this.rewriteSharedTransaction = transaction;
     }
 
     /**
-     * Check if GATHER distribution should be used for Iceberg rewrite operations.
+     * Get the shared connector transaction for the current rewrite group (null outside a distributed rewrite).
      */
-    public boolean isUseGatherForIcebergRewrite() {
-        return this.useGatherForIcebergRewrite;
-    }
-
-    public boolean isSkipPrunePredicate() {
-        return skipPrunePredicate;
-    }
-
-    public void setSkipPrunePredicate(boolean skipPrunePredicate) {
-        this.skipPrunePredicate = skipPrunePredicate;
+    public ConnectorTransaction getRewriteSharedTransaction() {
+        return this.rewriteSharedTransaction;
     }
 
     public boolean hasNestedColumns() {
@@ -1194,5 +1543,39 @@ public class StatementContext implements Closeable {
 
     public Set<CTEId> getMustInlineCTEs() {
         return mustInlineCTE;
+    }
+
+    public void addForceMaterializeCTE(CTEId cteId) {
+        forceMaterializeCTEs.add(cteId);
+    }
+
+    public boolean isForceMaterializeCTE(CTEId cteId) {
+        return forceMaterializeCTEs.contains(cteId);
+    }
+
+    public Set<CTEId> getForceMaterializeCTEs() {
+        return forceMaterializeCTEs;
+    }
+
+    public int getLowerCaseTableNames(String catalogName) {
+        if (catalogName == null) {
+            return GlobalVariable.lowerCaseTableNames;
+        }
+        return lowerCaseTableNamesCache.computeIfAbsent(catalogName, Env::getLowerCaseTableNames);
+    }
+
+    public int getLowerCaseDatabaseNames(String catalogName) {
+        if (catalogName == null) {
+            return 0;
+        }
+        return lowerCaseDatabaseNamesCache.computeIfAbsent(catalogName, Env::getLowerCaseDatabaseNames);
+    }
+
+    public boolean isDelete() {
+        return isDelete;
+    }
+
+    public void setIsDelete(boolean del) {
+        isDelete = del;
     }
 }

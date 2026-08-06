@@ -54,7 +54,7 @@ suite("test_unique_schema_value_drop", "p0") {
             "              `j` JSON NULL COMMENT \"\"\n" +
             "          )\n" +
             "          UNIQUE KEY(`user_id`)\n" +
-            "          CLUSTER BY(SCORE, user_id)\n" +
+            "          ORDER BY(SCORE, user_id)\n" +
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
@@ -99,7 +99,7 @@ suite("test_unique_schema_value_drop", "p0") {
             "              `j` JSON NULL COMMENT \"\"\n" +
             "          )\n" +
             "          UNIQUE KEY(`user_id`)\n" +
-            "          CLUSTER BY(t_bigint, username, age)\n" +
+            "          ORDER BY(t_bigint, username, age)\n" +
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
@@ -151,7 +151,7 @@ suite("test_unique_schema_value_drop", "p0") {
             "              `j` JSON NULL COMMENT \"\"\n" +
             "          )\n" +
             "          UNIQUE KEY(`user_id`)\n" +
-            "          CLUSTER BY(t_bigint, USER_ID, username, age)\n" +
+            "          ORDER BY(t_bigint, USER_ID, username, age)\n" +
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
@@ -203,7 +203,7 @@ suite("test_unique_schema_value_drop", "p0") {
             "              `j` JSON NULL COMMENT \"\"\n" +
             "          )\n" +
             "          UNIQUE KEY(`user_id`)\n" +
-            "          CLUSTER BY(t_datev2, USER_ID, CITY)\n" +
+            "          ORDER BY(t_datev2, USER_ID, CITY)\n" +
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
@@ -255,7 +255,7 @@ suite("test_unique_schema_value_drop", "p0") {
             "              `j` JSON NULL COMMENT \"\"\n" +
             "          )\n" +
             "          UNIQUE KEY(`user_id`)\n" +
-            "          CLUSTER BY(t_datetimev2, USER_ID, t_datev2, CITY, age)\n" +
+            "          ORDER BY(t_datetimev2, USER_ID, t_datev2, CITY, age)\n" +
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
@@ -307,7 +307,7 @@ suite("test_unique_schema_value_drop", "p0") {
             "              `j` JSON NULL COMMENT \"\"\n" +
             "          )\n" +
             "          UNIQUE KEY(`user_id`)\n" +
-            "          CLUSTER BY(t_datetimev2, sex, t_datev2, age, city)\n" +
+            "          ORDER BY(t_datetimev2, sex, t_datev2, age, city)\n" +
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
@@ -359,7 +359,7 @@ suite("test_unique_schema_value_drop", "p0") {
             "              `j` JSON NULL COMMENT \"\"\n" +
             "          )\n" +
             "          UNIQUE KEY(`user_id`)\n" +
-            "          CLUSTER BY(score, t_date, sex, t_datev2, age)\n" +
+            "          ORDER BY(score, t_date, sex, t_datev2, age)\n" +
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +

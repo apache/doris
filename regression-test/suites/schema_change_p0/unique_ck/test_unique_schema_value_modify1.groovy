@@ -34,7 +34,7 @@ suite("test_unique_schema_value_modify1","p0") {
              "              `register_time` DATETIME COMMENT \"用户注册时间\"\n" +
              "          )\n" +
              "          UNIQUE KEY(`user_id`, `username`)\n" +
-             "          CLUSTER BY(phone, user_id, username)\n" +
+             "          ORDER BY(phone, user_id, username)\n" +
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
@@ -78,7 +78,7 @@ suite("test_unique_schema_value_modify1","p0") {
              "              `j` JSON NULL COMMENT \"\"\n" +
              "          )\n" +
              "          UNIQUE KEY(`user_id`, `username`)\n" +
-             "          CLUSTER BY(age, user_id, address)\n" +
+             "          ORDER BY(age, user_id, address)\n" +
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
@@ -331,7 +331,7 @@ suite("test_unique_schema_value_modify1","p0") {
              "              `j` JSON NULL COMMENT \"\"\n" +
              "          )\n" +
              "          UNIQUE KEY(`user_id`, `username`)\n" +
-             "          CLUSTER BY(address, age, sex)\n" +
+             "          ORDER BY(address, age, sex)\n" +
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
@@ -585,7 +585,7 @@ suite("test_unique_schema_value_modify1","p0") {
              "              `j` JSON NULL COMMENT \"\"\n" +
              "          )\n" +
              "          UNIQUE KEY(`user_id`, `username`)\n" +
-             "          CLUSTER BY(address, city, username)\n" +
+             "          ORDER BY(address, city, username)\n" +
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
@@ -837,7 +837,7 @@ suite("test_unique_schema_value_modify1","p0") {
              "              `j` JSON NULL COMMENT \"\"\n" +
              "          )\n" +
              "          UNIQUE KEY(`user_id`, `username`)\n" +
-             "          CLUSTER BY(phone, address, username)\n" +
+             "          ORDER BY(phone, address, username)\n" +
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +

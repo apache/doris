@@ -162,7 +162,62 @@ suite("test_retry_e-230", 'docker') {
                 // fe StmtExecutor retry time, at most 25 * 1.5s + 25 * 2.5s
                 assertTrue(cost > 4000 && cost < 100000)
 
+                def restoreTbl = 'test_retry_e_230_restore_tbl'
+                sql """ DROP TABLE IF EXISTS ${restoreTbl} """
+                sql """
+                    CREATE TABLE ${restoreTbl} (
+                    `k1` int(11) NULL,
+                    `k2` int(11) NULL
+                    )
+                    DUPLICATE KEY(`k1`, `k2`)
+                    COMMENT 'OLAP'
+                    DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+                    PROPERTIES (
+                    "replication_num"="1"
+                    );
+                    """
+                for (def i = 1; i <= 3; i++) {
+                    insert_sql """INSERT INTO ${restoreTbl} VALUES (${i}, ${100 * i})""", 1
+                }
+
+                sql """ set cloud_partition_version_cache_ttl_ms = 3600000 """
+                sql """ set cloud_table_version_cache_ttl_ms = 3600000 """
+                def row_cnt = sql """select count() from ${restoreTbl}"""
+                assertEquals(row_cnt[0][0], 3)
+
+                cluster.injectDebugPoints(NodeType.BE, ['CloudTablet.capture_rs_readers.return.e-230' : null])
+                cluster.injectDebugPoints(NodeType.FE, ['StmtExecutor.retry.longtime' : null])
+                insert_sql """INSERT INTO ${restoreTbl} VALUES (4, 400)""", 1
+
+                def futrue5 = thread {
+                    Thread.sleep(4000)
+                    cluster.clearBackendDebugPoints()
+                }
+
+                begin = System.currentTimeMillis();
+                def futrue6 = thread {
+                    def result = sql """select * from ${restoreTbl} order by k1"""
+                    log.info("select result: {}", result)
+                }
+
+                futrue6.get()
+                cost = System.currentTimeMillis() - begin;
+                log.info("time cost restore check : {}", cost)
+                futrue5.get()
+                assertTrue(cost > 4000 && cost < 100000)
+
+                def ttlRows = sql_return_maparray """
+                    select
+                        @@session.cloud_partition_version_cache_ttl_ms as partition_ttl,
+                        @@session.cloud_table_version_cache_ttl_ms as table_ttl
+                """
+                assertEquals("3600000", ttlRows[0].partition_ttl.toString())
+                assertEquals("3600000", ttlRows[0].table_ttl.toString())
+                row_cnt = sql """select count() from ${restoreTbl}"""
+                assertEquals(row_cnt[0][0], 4)
             } finally {
+                sql """ set cloud_partition_version_cache_ttl_ms = DEFAULT """
+                sql """ set cloud_table_version_cache_ttl_ms = DEFAULT """
                 cluster.clearFrontendDebugPoints()
                 cluster.clearBackendDebugPoints()   
             }

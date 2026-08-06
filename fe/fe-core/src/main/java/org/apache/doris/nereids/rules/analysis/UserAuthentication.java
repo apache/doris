@@ -22,18 +22,19 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.collections4.CollectionUtils;
 
+import java.util.Collections;
 import java.util.Set;
 
 /**
@@ -50,13 +51,23 @@ public class UserAuthentication {
         if (connectContext.getSessionVariable().isPlayNereidsDump()) {
             return;
         }
-        String tableName = table.getName();
-        DatabaseIf db = table.getDatabase();
+        TableIf authTable = table;
+        Set<String> authColumns = columns;
+        if (table instanceof PluginDrivenSysExternalTable) {
+            // After the SPI cutover a paimon sys-table ($snapshots/$files/...) is a
+            // PluginDrivenSysExternalTable; authorize against its source table (mirrors the
+            // legacy PaimonSysExternalTable branch above), so a user holding SELECT on db.tbl
+            // can query db.tbl$snapshots.
+            authTable = ((PluginDrivenSysExternalTable) table).getSourceTable();
+            authColumns = Collections.emptySet();
+        }
+        String tableName = authTable.getName();
+        DatabaseIf db = authTable.getDatabase();
         // when table instanceof FunctionGenTable, db will be null
         if (db == null) {
             return;
         }
-        String dbName = ClusterNamespace.getNameFromFullName(db.getFullName());
+        String dbName = db.getFullName();
 
         // Special handling: cluster snapshot related tables in information_schema
         // require privilege based on configuration
@@ -86,13 +97,14 @@ public class UserAuthentication {
         }
         String ctlName = catalog.getName();
         AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
-        if (CollectionUtils.isEmpty(columns)) {
+        if (CollectionUtils.isEmpty(authColumns)) {
             if (!accessManager.checkTblPriv(connectContext, ctlName, dbName, tableName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                         PrivPredicate.SELECT.getPrivs().toString(), tableName);
             }
         } else {
-            accessManager.checkColumnsPriv(connectContext, ctlName, dbName, tableName, columns, PrivPredicate.SELECT);
+            accessManager.checkColumnsPriv(connectContext, ctlName, dbName, tableName, authColumns,
+                    PrivPredicate.SELECT);
         }
     }
 }

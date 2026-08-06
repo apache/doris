@@ -40,10 +40,13 @@
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
+#include "resource-manager/resource_manager.h"
 
 using namespace std::chrono;
 
 namespace doris::cloud {
+
+static constexpr std::string_view kMetaSyncPointDummyKey = "__meta_service_sync_point_dummy_key__";
 
 struct TableStats {
     int64_t updated_row_count = 0;
@@ -652,12 +655,15 @@ void update_streaming_job_meta(MetaServiceCode& code, std::string& msg,
         }
         new_job_info.set_scanned_rows(new_job_info.scanned_rows() +
                                       commit_attachment.scanned_rows());
+        new_job_info.set_filtered_rows(new_job_info.filtered_rows() +
+                                       commit_attachment.filtered_rows());
         new_job_info.set_load_bytes(new_job_info.load_bytes() + commit_attachment.load_bytes());
         new_job_info.set_num_files(new_job_info.num_files() + commit_attachment.num_files());
         new_job_info.set_file_bytes(new_job_info.file_bytes() + commit_attachment.file_bytes());
     } else {
         new_job_info.set_job_id(commit_attachment.job_id());
         new_job_info.set_scanned_rows(commit_attachment.scanned_rows());
+        new_job_info.set_filtered_rows(commit_attachment.filtered_rows());
         new_job_info.set_load_bytes(commit_attachment.load_bytes());
         new_job_info.set_num_files(commit_attachment.num_files());
         new_job_info.set_file_bytes(commit_attachment.file_bytes());
@@ -978,6 +984,7 @@ void MetaServiceImpl::reset_streaming_job_offset(::google::protobuf::RpcControll
         // Preserve existing statistics if they exist
         if (prev_existed) {
             new_job_info.set_scanned_rows(prev_job_info.scanned_rows());
+            new_job_info.set_filtered_rows(prev_job_info.filtered_rows());
             new_job_info.set_load_bytes(prev_job_info.load_bytes());
             new_job_info.set_num_files(prev_job_info.num_files());
             new_job_info.set_file_bytes(prev_job_info.file_bytes());
@@ -1134,7 +1141,7 @@ void scan_tmp_rowset(
     };
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(rs_tmp_key0, rs_tmp_key1, &it, true);
         if (err == TxnErrorCode::TXN_TOO_OLD) {
             err = txn_kv->create_txn(&txn);
@@ -1174,10 +1181,52 @@ void scan_tmp_rowset(
             if (!it->has_next()) rs_tmp_key0 = k;
         }
         rs_tmp_key0.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
 
     VLOG_DEBUG << "txn_id=" << txn_id << " tmp_rowsets_meta.size()=" << tmp_rowsets_meta->size();
     return;
+}
+
+// Update the last active cluster info for a tablet
+void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
+                                       const std::string& cluster_id,
+                                       std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
+                                       std::string& msg) {
+    if (cluster_id.empty()) {
+        return;
+    }
+
+    std::string key;
+    stats_tablet_key(info, &key);
+    std::string val;
+    TxnErrorCode err = txn->get(key, &val);
+    if (err != TxnErrorCode::TXN_OK) {
+        // If tablet stats not found, skip (will be created later)
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            return;
+        }
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get tablet stats for cluster update, err={} tablet_id={}", err,
+                          std::get<4>(info));
+        return;
+    }
+
+    TabletStatsPB stats_pb;
+    if (!stats_pb.ParseFromString(val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("malformed tablet stats value for cluster update, key={}", hex(key));
+        return;
+    }
+
+    stats_pb.set_last_active_cluster_id(cluster_id);
+    stats_pb.set_last_active_time_ms(::time(nullptr) * 1000);
+    // Clear the mtime when updating cluster to allow dynamic filling on next get_rowset
+    stats_pb.clear_last_active_cluster_status_mtime_ms();
+
+    stats_pb.SerializeToString(&val);
+    txn->put(key, val);
+    LOG(INFO) << "update last_active_cluster, key=" << hex(key) << " cluster_id=" << cluster_id
+              << " tablet_id=" << std::get<4>(info);
 }
 
 void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stats,
@@ -1494,6 +1543,9 @@ void MetaServiceImpl::commit_txn_immediately(
             LOG(WARNING) << msg;
             return;
         }
+        if (is_versioned_write) {
+            txn->enable_get_versionstamp();
+        }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
             stats.get_bytes += txn->get_bytes();
@@ -1782,6 +1834,8 @@ void MetaServiceImpl::commit_txn_immediately(
             response->add_versions(new_version);
         }
 
+        // table_id -> version, for response
+        std::map<int64_t, int64_t> table_version_map;
         // Save table versions
         for (auto& i : table_id_tablet_ids) {
             if (is_versioned_read) {
@@ -1794,6 +1848,33 @@ void MetaServiceImpl::commit_txn_immediately(
                     LOG(WARNING) << msg;
                     return;
                 }
+            } else {
+                // set table versions in response
+                int64_t table_id = i.first;
+                std::string ver_key = table_version_key({instance_id, db_id, table_id});
+                std::string ver_val;
+                // snapshot read: the returned table version is only a hint for FE's version
+                // cache; the real increment is done by update_table_version() via atomic_add.
+                // A non-snapshot read would add ver_key to the read-conflict set and make
+                // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+                err = txn->get(ver_key, &ver_val, true);
+                int64_t table_version = 0;
+                if (err == TxnErrorCode::TXN_OK) {
+                    if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        ss << "malformed table version value, err=" << err
+                           << " table_id=" << i.first;
+                        msg = ss.str();
+                        LOG(WARNING) << msg;
+                        return;
+                    }
+                } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get table version, err=" << err << " table_id=" << table_id;
+                    msg = ss.str();
+                    return;
+                }
+                table_version_map[table_id] = table_version + 1;
             }
             update_table_version(txn.get(), instance_id, db_id, i.first);
             commit_txn_log.add_table_ids(i.first);
@@ -1847,6 +1928,14 @@ void MetaServiceImpl::commit_txn_immediately(
                       << " versioned tablet stats, txn_id=" << txn_id;
         }
 
+        // Get cluster_id for updating last active cluster.
+        // Use load_cluster_id stored in TxnInfoPB by prepare_rowset (called by BE),
+        // because commit_txn is called by FE whose cloud_unique_id resolves to SQL server cluster.
+        std::string requester_cluster_id;
+        if (txn_info.has_load_cluster_id()) {
+            requester_cluster_id = txn_info.load_cluster_id();
+        }
+
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
             DCHECK(tablet_ids.count(tablet_id));
@@ -1855,6 +1944,12 @@ void MetaServiceImpl::commit_txn_immediately(
                                      tablet_idx.partition_id(), tablet_id};
             update_tablet_stats(info, stats, txn, code, msg);
             if (code != MetaServiceCode::OK) return;
+
+            // Update last active cluster if load has data
+            if (!requester_cluster_id.empty() && stats.num_segs > 0) {
+                update_tablet_last_active_cluster(info, requester_cluster_id, txn, code, msg);
+                if (code != MetaServiceCode::OK) return;
+            }
 
             if (is_versioned_write) {
                 TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
@@ -1945,20 +2040,40 @@ void MetaServiceImpl::commit_txn_immediately(
             return;
         }
 
+        // set table versions in response
+        if (is_versioned_read) {
+            Versionstamp vs;
+            err = txn->get_versionstamp(&vs);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get kv txn versionstamp, txn_id=" << txn_id << " err=" << err;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            int64_t version = vs.version();
+            for (auto& i : table_id_tablet_ids) {
+                int64_t table_id = i.first;
+                table_version_map[table_id] = version;
+            }
+        }
+
         // calculate table stats from tablets stats
         std::map<int64_t /*table_id*/, TableStats> table_stats;
         std::vector<int64_t> base_tablet_ids(request->base_tablet_ids().begin(),
                                              request->base_tablet_ids().end());
         calc_table_stats(tablet_ids, tablet_stats, table_stats, base_tablet_ids);
-        for (const auto& pair : table_stats) {
+        for (const auto& pair : table_version_map) {
             TableStatsPB* stats_pb = response->add_table_stats();
             auto table_id = pair.first;
-            auto stats = pair.second;
-            get_pb_from_tablestats(stats, stats_pb);
             stats_pb->set_table_id(table_id);
-            VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
-                       << " table_id=" << table_id
-                       << " updated_row_count=" << stats_pb->updated_row_count();
+            stats_pb->set_table_version(pair.second);
+            if (auto it = table_stats.find(table_id); it != table_stats.end()) {
+                get_pb_from_tablestats(it->second, stats_pb);
+                VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
+                           << " table_id=" << table_id
+                           << " updated_row_count=" << stats_pb->updated_row_count();
+            }
         }
         response->mutable_txn_info()->CopyFrom(txn_info);
         TEST_SYNC_POINT_CALLBACK("commit_txn_immediately::finish", &code);
@@ -2079,6 +2194,7 @@ void MetaServiceImpl::commit_txn_eventually(
         std::string& msg, const std::string& instance_id, int64_t db_id,
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         KVStats& stats) {
+    response->set_is_lazy_commit(true);
     StopWatch sw;
     DORIS_CLOUD_DEFER {
         if (config::use_detailed_metrics && !instance_id.empty()) {
@@ -2176,6 +2292,9 @@ void MetaServiceImpl::commit_txn_eventually(
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
+        }
+        if (is_versioned_write) {
+            txn->enable_get_versionstamp();
         }
 
         CommitTxnLogPB commit_txn_log;
@@ -2423,6 +2542,8 @@ void MetaServiceImpl::commit_txn_eventually(
             }
         }
 
+        // table_id -> version, for response
+        std::map<int64_t, int64_t> table_version_map;
         // Save table versions
         for (auto& i : table_id_tablet_ids) {
             if (is_versioned_read) {
@@ -2435,6 +2556,33 @@ void MetaServiceImpl::commit_txn_eventually(
                     LOG(WARNING) << msg;
                     return;
                 }
+            } else {
+                // set table versions in response
+                int64_t table_id = i.first;
+                std::string ver_key = table_version_key({instance_id, db_id, table_id});
+                std::string ver_val;
+                // snapshot read: the returned table version is only a hint for FE's version
+                // cache; the real increment is done by update_table_version() via atomic_add.
+                // A non-snapshot read would add ver_key to the read-conflict set and make
+                // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+                err = txn->get(ver_key, &ver_val, true);
+                int64_t table_version = 0;
+                if (err == TxnErrorCode::TXN_OK) {
+                    if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        ss << "malformed table version value, err=" << err
+                           << " table_id=" << i.first;
+                        msg = ss.str();
+                        LOG(WARNING) << msg;
+                        return;
+                    }
+                } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get table version, err=" << err << " table_id=" << table_id;
+                    msg = ss.str();
+                    return;
+                }
+                table_version_map[table_id] = table_version + 1;
             }
             update_table_version(txn.get(), instance_id, db_id, i.first);
             commit_txn_log.add_table_ids(i.first);
@@ -2473,6 +2621,26 @@ void MetaServiceImpl::commit_txn_eventually(
             return;
         }
 
+        response->set_is_lazy_commit_incomplete(true);
+
+        // set table versions in response
+        if (is_versioned_read) {
+            Versionstamp vs;
+            err = txn->get_versionstamp(&vs);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get kv txn versionstamp, txn_id=" << txn_id << " err=" << err;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            int64_t version = vs.version();
+            for (auto& i : table_id_tablet_ids) {
+                int64_t table_id = i.first;
+                table_version_map[table_id] = version;
+            }
+        }
+
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::abort_txn_after_mark_txn_commited");
 
         TEST_SYNC_POINT_RETURN_WITH_VOID("commit_txn_eventually::txn_lazy_committer_submit",
@@ -2484,6 +2652,8 @@ void MetaServiceImpl::commit_txn_eventually(
         if (ret.first != MetaServiceCode::OK) {
             LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
                          << " msg=" << ret.second;
+        } else {
+            response->set_is_lazy_commit_incomplete(false);
         }
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
@@ -2503,15 +2673,17 @@ void MetaServiceImpl::commit_txn_eventually(
         std::vector<int64_t> base_tablet_ids(request->base_tablet_ids().begin(),
                                              request->base_tablet_ids().end());
         calc_table_stats(tablet_ids, tablet_stats, table_stats, base_tablet_ids);
-        for (const auto& pair : table_stats) {
+        for (const auto& pair : table_version_map) {
             TableStatsPB* stats_pb = response->add_table_stats();
             auto table_id = pair.first;
-            auto stats = pair.second;
-            get_pb_from_tablestats(stats, stats_pb);
             stats_pb->set_table_id(table_id);
-            VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
-                       << " table_id=" << table_id
-                       << " updated_row_count=" << stats_pb->updated_row_count();
+            stats_pb->set_table_version(pair.second);
+            if (auto it = table_stats.find(table_id); it != table_stats.end()) {
+                get_pb_from_tablestats(it->second, stats_pb);
+                VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
+                           << " table_id=" << table_id
+                           << " updated_row_count=" << stats_pb->updated_row_count();
+            }
         }
 
         // txn set visible for fe callback
@@ -2570,6 +2742,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         }
         sub_txn_to_tmp_rowsets_meta.emplace(sub_txn_id, std::move(tmp_rowsets_meta));
     }
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
     do {
         TEST_SYNC_POINT_CALLBACK("commit_txn_with_sub_txn:begin", &txn_id);
         // Create a readonly txn for scan tmp rowset
@@ -2581,6 +2755,9 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
+        }
+        if (is_versioned_write) {
+            txn->enable_get_versionstamp();
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
@@ -2642,8 +2819,6 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
         AnnotateTag txn_tag("txn_id", txn_id);
 
-        bool is_versioned_write = is_version_write_enabled(instance_id);
-        bool is_versioned_read = is_version_read_enabled(instance_id);
         CloneChainReader meta_reader(instance_id, resource_mgr_.get());
 
         // Prepare rowset meta and new_versions
@@ -2719,6 +2894,9 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             last_pending_txn_id = 0;
             continue;
         }
+
+        record_txn_commit_stats(txn.get(), instance_id, partition_indexes.size(), tablet_ids.size(),
+                                txn_id);
 
         CommitTxnLogPB commit_txn_log;
         commit_txn_log.set_txn_id(txn_id);
@@ -2825,10 +3003,14 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         }
 
         // Save versions
+        int64_t version_update_time_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        response->set_version_update_time_ms(version_update_time_ms);
         for (auto& [partition_id, new_version] : new_versions) {
             std::string ver_val;
             VersionPB version_pb;
             version_pb.set_version(new_version);
+            version_pb.set_update_time_ms(version_update_time_ms);
             if (!version_pb.SerializeToString(&ver_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 ss << "failed to serialize version_pb when saving, txn_id=" << txn_id;
@@ -2842,7 +3024,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             txn->put(version_key, ver_val);
             LOG(INFO) << "put partition_version_key=" << hex(version_key)
                       << " version:" << new_version << " txn_id=" << txn_id
-                      << " partition_id=" << partition_id;
+                      << " partition_id=" << partition_id
+                      << " update_time=" << version_update_time_ms;
 
             VLOG_DEBUG << "txn_id=" << txn_id << " table_id=" << table_id
                        << " partition_id=" << partition_id << " version=" << new_version;
@@ -2861,6 +3044,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             response->add_versions(new_version);
         }
 
+        // table_id -> version, for response
+        std::map<int64_t, int64_t> table_version_map;
         // Save table versions
         for (auto& i : table_id_tablet_ids) {
             if (is_versioned_read) {
@@ -2873,6 +3058,33 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                     LOG(WARNING) << msg;
                     return;
                 }
+            } else {
+                // set table versions in response
+                int64_t table_id = i.first;
+                std::string ver_key = table_version_key({instance_id, db_id, table_id});
+                std::string ver_val;
+                // snapshot read: the returned table version is only a hint for FE's version
+                // cache; the real increment is done by update_table_version() via atomic_add.
+                // A non-snapshot read would add ver_key to the read-conflict set and make
+                // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+                err = txn->get(ver_key, &ver_val, true);
+                int64_t table_version = 0;
+                if (err == TxnErrorCode::TXN_OK) {
+                    if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        ss << "malformed table version value, err=" << err
+                           << " table_id=" << i.first;
+                        msg = ss.str();
+                        LOG(WARNING) << msg;
+                        return;
+                    }
+                } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get table version, err=" << err << " table_id=" << table_id;
+                    msg = ss.str();
+                    return;
+                }
+                table_version_map[table_id] = table_version + 1;
             }
             update_table_version(txn.get(), instance_id, db_id, i.first);
             commit_txn_log.add_table_ids(i.first);
@@ -2925,6 +3137,13 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                       << " versioned tablet stats, txn_id=" << txn_id;
         }
 
+        // Get cluster_id for updating last active cluster.
+        // Use load_cluster_id stored in TxnInfoPB by prepare_rowset (called by BE).
+        std::string requester_cluster_id_ev;
+        if (txn_info.has_load_cluster_id()) {
+            requester_cluster_id_ev = txn_info.load_cluster_id();
+        }
+
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
             DCHECK(tablet_ids.count(tablet_id));
@@ -2933,6 +3152,12 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                                      tablet_idx.partition_id(), tablet_id};
             update_tablet_stats(info, stats, txn, code, msg);
             if (code != MetaServiceCode::OK) return;
+
+            // Update last active cluster if load has data
+            if (!requester_cluster_id_ev.empty() && stats.num_segs > 0) {
+                update_tablet_last_active_cluster(info, requester_cluster_id_ev, txn, code, msg);
+                if (code != MetaServiceCode::OK) return;
+            }
 
             if (is_versioned_write) {
                 TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
@@ -3010,20 +3235,40 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             return;
         }
 
+        // set table versions in response
+        if (is_versioned_read) {
+            Versionstamp vs;
+            err = txn->get_versionstamp(&vs);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get kv txn versionstamp, txn_id=" << txn_id << " err=" << err;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            int64_t version = vs.version();
+            for (auto& i : table_id_tablet_ids) {
+                int64_t table_id = i.first;
+                table_version_map[table_id] = version;
+            }
+        }
+
         // calculate table stats from tablets stats
         std::map<int64_t /*table_id*/, TableStats> table_stats;
         std::vector<int64_t> base_tablet_ids(request->base_tablet_ids().begin(),
                                              request->base_tablet_ids().end());
         calc_table_stats(tablet_ids, tablet_stats, table_stats, base_tablet_ids);
-        for (const auto& pair : table_stats) {
+        for (const auto& pair : table_version_map) {
             TableStatsPB* stats_pb = response->add_table_stats();
             auto table_id = pair.first;
-            auto stats = pair.second;
-            get_pb_from_tablestats(stats, stats_pb);
             stats_pb->set_table_id(table_id);
-            VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
-                       << " table_id=" << table_id
-                       << " updated_row_count=" << stats_pb->updated_row_count();
+            stats_pb->set_table_version(table_version_map[table_id]);
+            if (auto it = table_stats.find(table_id); it != table_stats.end()) {
+                get_pb_from_tablestats(it->second, stats_pb);
+                VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
+                           << " table_id=" << table_id
+                           << " updated_row_count=" << stats_pb->updated_row_count();
+            }
         }
 
         response->mutable_txn_info()->CopyFrom(txn_info);
@@ -3042,6 +3287,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                  const CommitTxnRequest* request, CommitTxnResponse* response,
                                  ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(commit_txn, get, put, del);
+    response->set_is_lazy_commit(false);
     if (!request->has_txn_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid argument, missing txn id";
@@ -3558,6 +3804,60 @@ void MetaServiceImpl::get_current_max_txn_id(::google::protobuf::RpcController* 
     response->set_current_max_txn_id(current_max_txn_id);
 }
 
+void MetaServiceImpl::create_meta_sync_point(::google::protobuf::RpcController* controller,
+                                             const CreateMetaSyncPointRequest* request,
+                                             CreateMetaSyncPointResponse* response,
+                                             ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(create_meta_sync_point, del);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(create_meta_sync_point)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        msg = "failed to create txn";
+        code = cast_as<ErrCategory::CREATE>(err);
+        return;
+    }
+
+    txn->enable_get_versionstamp();
+    txn->remove(kMetaSyncPointDummyKey);
+
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "txn->commit() failed, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    int64_t committed_version = 0;
+    err = txn->get_committed_version(&committed_version);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "get committed version failed, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    Versionstamp versionstamp;
+    err = txn->get_versionstamp(&versionstamp);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "get versionstamp failed, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    response->set_committed_version(committed_version);
+    response->set_versionstamp(versionstamp.to_string());
+}
+
 /**
  * 1. Generate a sub_txn_id
  *
@@ -3918,7 +4218,7 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
     int64_t abort_txn_cnt = 0;
     int64_t total_iteration_cnt = 0;
     bool need_commit = false;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(begin_info_key, end_info_key, &it, true);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
@@ -3960,7 +4260,7 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
             }
         }
         begin_info_key.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
     LOG(INFO) << "abort txn count: " << abort_txn_cnt
               << " total iteration count: " << total_iteration_cnt;
     if (need_commit) {
@@ -4122,7 +4422,7 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
     int64_t skip_timeout_txn_cnt = 0;
     int total_iteration_cnt = 0;
     bool finished = true;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(begin_running_key, end_running_key, &it, true);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
@@ -4200,7 +4500,7 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
             }
         }
         begin_running_key.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
     LOG(INFO) << "skip timeout txn count: " << skip_timeout_txn_cnt
               << " conflict txn count: " << response->conflict_txns_size()
               << " total iteration count: " << total_iteration_cnt;
@@ -4424,7 +4724,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
         bool snapshot = true;
         int limit = 1000;
         TEST_SYNC_POINT_CALLBACK("clean_txn_label:limit", &limit);
-        do {
+        while (it == nullptr /* may be not init */ || it->more()) {
             std::unique_ptr<Transaction> txn;
             auto err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
@@ -4470,7 +4770,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
                 }
             }
             begin_label_key.push_back('\x00');
-        } while (it->more());
+        }
     } else {
         const std::string& label = request->labels(0);
         const std::string label_key = txn_label_key({instance_id, db_id, label});

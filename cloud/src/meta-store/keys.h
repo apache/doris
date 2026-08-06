@@ -322,10 +322,6 @@ using MetaDeleteBitmapInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int
 //                                                      0:instance_id  1:tablet_id  2:rowset_id
 using DataRowsetRefCountKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, std::string>>;
 
-// 0x03 "meta" ${instance_id} "rowset" ${tablet_id} ${rowset_id}            -> RowsetMetaPB
-//                                                      0:instance_id  1:tablet_id  2:rowset_id
-using MetaRowsetKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, std::string>>;
-
 // 0x03 "snapshot" ${instance_id} "full" ${timestamp}                       -> SnapshotPB
 //                                                      0:instance_id
 using SnapshotFullKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string>>;
@@ -532,9 +528,6 @@ static inline std::string meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in)
 
 void data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in, std::string* out);
 static inline std::string data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in) { std::string s; data_rowset_ref_count_key(in, &s); return s; }
-
-void meta_rowset_key(const MetaRowsetKeyInfo& in, std::string* out);
-static inline std::string meta_rowset_key(const MetaRowsetKeyInfo& in) { std::string s; meta_rowset_key(in, &s); return s; }
 
 void snapshot_full_key(const SnapshotFullKeyInfo& in, std::string* out);
 static inline std::string snapshot_full_key(const SnapshotFullKeyInfo& in) { std::string s; snapshot_full_key(in, &s); return s; }

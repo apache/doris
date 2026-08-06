@@ -37,11 +37,12 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -52,18 +53,14 @@ import java.io.IOException;
 
 public class SystemInfoServiceTest {
 
-    @Mocked
-    private EditLog editLog;
-    @Mocked
-    private Env env;
-    @Mocked
-    private InternalCatalog catalog;
+    private EditLog editLog = Mockito.mock(EditLog.class);
+    private Env env = Mockito.mock(Env.class);
+    private InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
     private SystemInfoService systemInfoService;
     private TabletInvertedIndex invertedIndex;
-    @Mocked
-    private Database db;
-    @Mocked
-    private Table table;
+    private Database db = Mockito.mock(Database.class);
+    private Table table = Mockito.mock(Table.class);
+    private MockedStatic<Env> mockedEnvStatic;
 
 
     private String hostPort;
@@ -72,66 +69,29 @@ public class SystemInfoServiceTest {
 
     @Before
     public void setUp() throws IOException {
-        new Expectations() {
-            {
-                editLog.logAddBackend((Backend) any);
-                minTimes = 0;
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
 
-                editLog.logDropBackend((Backend) any);
-                minTimes = 0;
+        Mockito.when(env.getNextId()).thenReturn(backendId);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(db);
+        Mockito.when(db.getTableNullable(Mockito.anyLong())).thenReturn(table);
 
-                editLog.logBackendStateChange((Backend) any);
-                minTimes = 0;
+        systemInfoService = new SystemInfoService();
+        invertedIndex = new LocalTabletInvertedIndex();
 
-                table.readLock();
-                minTimes = 0;
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+        mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
+        mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
+    }
 
-                table.readUnlock();
-                minTimes = 0;
-
-                env.getNextId();
-                minTimes = 0;
-                result = backendId;
-
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = db;
-
-                db.getTableNullable(anyLong);
-                minTimes = 0;
-                result = table;
-
-                env.clear();
-                minTimes = 0;
-
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                systemInfoService = new SystemInfoService();
-                Env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                invertedIndex = new LocalTabletInvertedIndex();
-                Env.getCurrentInvertedIndex();
-                minTimes = 0;
-                result = invertedIndex;
-
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeConstants.meta_version;
-            }
-        };
-
+    @After
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
     }
 
     public void mkdir(String dirString) {

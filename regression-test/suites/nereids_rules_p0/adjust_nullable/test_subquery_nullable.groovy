@@ -16,6 +16,7 @@
 // under the License.
 
 suite('test_subquery_nullable') {
+    sql "set parallel_pipeline_task_num=2"
     sql 'set enable_parallel_result_sink=false;'
     sql 'DROP TABLE IF EXISTS test_subquery_nullable_t1 FORCE'
     sql 'DROP TABLE IF EXISTS test_subquery_nullable_t2 FORCE'

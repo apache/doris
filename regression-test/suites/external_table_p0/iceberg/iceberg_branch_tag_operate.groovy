@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_docker_doris,branch_tag") {
+suite("iceberg_branch_tag_operate", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -88,7 +88,7 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
     assertTrue(update_time2 > update_time1);
     sleep(1000)
 
-    List<List<Object>> snapshots = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db.${table_name}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots = sql """ select snapshot_id from ${catalog_name}.test_db.${table_name}\$snapshots order by committed_at; """
     String s0 = snapshots.get(0)[0]
     String s1 = snapshots.get(1)[0]
     String s2 = snapshots.get(2)[0]
@@ -273,11 +273,11 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
     sql """ alter table ${table_name} drop tag if exists t3 """
     test {
         sql """ select * from ${table_name}@tag(t2) """
-        exception "does not have tag named t2"
+        exception "can't find snapshot by tag: t2"
     }
     test {
         sql """ select * from ${table_name}@tag(t3) """
-        exception "does not have tag named t3"
+        exception "can't find snapshot by tag: t3"
     }
 
     // drop branch success, then read
@@ -285,10 +285,10 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
     sql """ alter table ${table_name} drop branch if exists b3 """
     test {
         sql """ select * from ${table_name}@branch(b2) """
-        exception "does not have branch named b2"
+        exception "can't find branch: b2"
     }
     test {
         sql """ select * from ${table_name}@branch(b3) """
-        exception "does not have branch named b3"
+        exception "can't find branch: b3"
     }
 }

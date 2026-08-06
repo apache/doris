@@ -21,7 +21,7 @@ import java.time.temporal.ChronoField
 import java.time.LocalDateTime
 import java.time.ZoneId
 
-suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_optimize_actions_ddl", "p0,external") {
     DateTimeFormatter unifiedFormatter = new DateTimeFormatterBuilder()
             .appendPattern("yyyy-MM-dd")
             .optionalStart()
@@ -264,6 +264,23 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     logger.info("Rollback timestamp result: ${rollbackTimestampResult}")
     qt_after_rollback_to_timestamp """SELECT * FROM test_rollback_timestamp ORDER BY id"""
 
+    String epochMillisSnapshotTime = String.valueOf(
+            dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+
+    List<List<Object>> rollbackTimestampEpochResult = sql """
+        ALTER TABLE ${catalog_name}.${db_name}.test_rollback_timestamp
+        EXECUTE rollback_to_timestamp("timestamp" = "${epochMillisSnapshotTime}")
+    """
+    logger.info("Rollback epoch millis result: ${rollbackTimestampEpochResult}")
+
+    List<List<Object>> rowsAfterEpochRollback = sql """
+        SELECT id, version FROM test_rollback_timestamp ORDER BY id
+    """
+    assertTrue(rowsAfterEpochRollback.size() == 2,
+            "Expected rollback_to_timestamp with epoch millis to keep exactly 2 rows")
+    assertTrue(rowsAfterEpochRollback[0][0] == 1 && rowsAfterEpochRollback[1][0] == 2,
+            "Expected rollback_to_timestamp with epoch millis to restore the first two snapshots")
+
 
     // =====================================================================================
     // Test Case 3: set_current_snapshot action
@@ -484,6 +501,19 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
         exception "Invalid target-file-size-bytes format: not-a-number"
     }
 
+    // Test rewrite_data_files with invalid min/max file size relationship
+    test {
+        sql """
+            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE rewrite_data_files
+            (
+                "target-file-size-bytes" = "536870912",
+                "min-file-size-bytes" = "1073741824",
+                "max-file-size-bytes" = "536870912"
+            )
+        """
+        exception "min-file-size-bytes must be less than or equal to max-file-size-bytes"
+    }
+
     // Test set_current_snapshot with both snapshot_id and ref
     test {
         sql """
@@ -627,7 +657,9 @@ test {
         ALTER TABLE ${catalog_name}.${db_name}.${table_name}
         EXECUTE publish_changes ("wap_id" = "test_wap_001") WHERE id > 0
     """
-    exception "Action 'publish_changes' does not support WHERE condition"
+    // Engine-layer generic wording for any SINGLE_CALL EXECUTE action (see ConnectorExecuteAction) — the same
+    // message test_iceberg_rewrite_manifests aligned to in commit 8b4eefcd349 (异常文案对齐).
+    exception "WHERE condition is not supported for this EXECUTE action"
 }
 
   

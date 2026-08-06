@@ -94,4 +94,10 @@ suite("test_width_bucket_function", "arrow_flight_sql") {
       sql "select width_bucket(4, 0, 8, 0)"
       exception "buckets must be a positive integer value"
     }
+
+
+    test {
+      sql "SELECT k1, width_bucket(v2, 200000, 600000, k1) FROM ${tableName2} ORDER BY k1"
+      exception "The fourth argument of WidthBucket must be a constant"
+    }
 }

@@ -36,8 +36,12 @@ public class QueryPlanningErrors {
      * @return exception with timeout message
      */
     public static AnalysisException planTimeoutError(long elapsedS, long timeoutS, SummaryProfile profile) {
-        long parseTime = profile.getParseSqlTimeMs();
-        String planTime = profile.getPlanTime();
+        long parseTime = -1;
+        String planTime = "N/A";
+        if (profile != null) {
+            parseTime = profile.getParseSqlTimeMs();
+            planTime = profile.getPlanTime();
+        }
         return new AnalysisException(String.format("Nereids cost too much time (%ss > %ss)."
                         + " You should increment timeout by set '%s'"
                         + " or disable check timeout by set '%s' to false."

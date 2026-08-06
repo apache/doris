@@ -78,6 +78,21 @@
 {"key1":1, "key2":2}
 
 -- !sql --
+{"a":2}
+
+-- !sql --
+1
+
+-- !sql --
+2
+
+-- !sql --
+{"outer":{"a":2}}
+
+-- !sql --
+2
+
+-- !sql --
 {"key1":1, "key2":2}	2
 
 -- !sql --
@@ -101,6 +116,10 @@ value1
 
 -- !sql --
 20
+
+-- !element_at_short_circuit_evaluation_test --
+\N
+\N
 
 -- !sql --
 0

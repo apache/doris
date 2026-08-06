@@ -17,7 +17,11 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -31,7 +35,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.ResultRow;
 
-import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -58,6 +61,13 @@ import java.util.stream.Stream;
  */
 public class Utils {
     public static final boolean enableAssert;
+
+    /**
+     * Check whether two objects are non-null and have the same concrete class.
+     */
+    public static boolean isSameClass(Object left, Object right) {
+        return left != null && right != null && left.getClass() == right.getClass();
+    }
 
     static {
         boolean enabled = false;
@@ -128,6 +138,22 @@ public class Utils {
     }
 
     /**
+     * Whether {@code a + b} overflows the signed long range. {@code a} and {@code b} are expected to
+     * be non-negative (e.g. a limit and an offset).
+     *
+     * <p>When combining a {@code limit} and an {@code offset} into the number of rows a child must
+     * keep (e.g. pushing a TopN/Limit down, or building a two-phase sort), the raw {@code limit +
+     * offset} can exceed the long range when both are close to {@code BIGINT_MAX}; it then wraps to a
+     * negative number, which is an illegal limit and produces a broken plan. Overflow here means the
+     * child would need more rows than any relation can hold (no relation exceeds {@code
+     * Long.MAX_VALUE} rows), so the optimization cannot reduce anything: callers should skip the
+     * rewrite and fall back to the correct unoptimized execution.
+     */
+    public static boolean addOverflows(long a, long b) {
+        return a > Long.MAX_VALUE - b;
+    }
+
+    /**
      * Wrapper to a function without return value.
      */
     public interface FuncWrapper {
@@ -174,6 +200,18 @@ public class Utils {
             qualifierWithBackquote.add('`' + escapeQualifier + '`');
         }
         return StringUtils.join(qualifierWithBackquote, ".");
+    }
+
+    public static boolean isBelongStableCG(OlapTable olapTable) {
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+        return colocateTableIndex.isColocateTable(olapTable.getId())
+                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()))
+                && olapTable.getCatalogId() == Env.getCurrentInternalCatalog().getId();
+    }
+
+    public static boolean isSelectUnpartition(OlapTable olapTable, Collection<Long> selectedPartitionIds) {
+        return olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
+                || selectedPartitionIds.size() == 1;
     }
 
     /**
@@ -441,19 +479,6 @@ public class Utils {
     }
 
     /**
-     * Normalize the name to lower underscore style, return default name if the name is empty.
-     */
-    public static String normalizeName(String name, String defaultName) {
-        if (StringUtils.isEmpty(name)) {
-            return defaultName;
-        }
-        if (name.contains("$")) {
-            name = name.replace("$", "_");
-        }
-        return CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, name);
-    }
-
-    /**
      * Check the content if contains chinese or not, if true when contains chinese or false
      */
     public static boolean containChinese(String text) {
@@ -649,7 +674,7 @@ public class Utils {
         for (AliasInfo aliasInfo : selectList) {
             columnJoiner.add(aliasInfo.toString());
         }
-        String sql = "SELECT " + columnJoiner.toString() + " FROM " + tableName.toFullyQualified() + " " + whereClause;
+        String sql = "SELECT " + columnJoiner + " FROM " + tableName.toSql() + " " + whereClause;
         return new NereidsParser().parseSingle(sql);
     }
 

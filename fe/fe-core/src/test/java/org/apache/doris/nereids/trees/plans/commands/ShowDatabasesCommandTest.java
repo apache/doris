@@ -27,46 +27,48 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class ShowDatabasesCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
-    @Mocked
     private Env env;
-    @Mocked
     private AccessControllerManager accessManager;
-    @Mocked
     private ConnectContext ctx;
-    @Mocked
     private InternalCatalog catalog;
-    @Mocked
     private CatalogMgr catalogMgr;
+    private MockedStatic<Env> envMockedStatic;
+
+    @BeforeEach
+    public void setUp() {
+        env = Mockito.mock(Env.class);
+        accessManager = Mockito.mock(AccessControllerManager.class);
+        ctx = Mockito.mock(ConnectContext.class);
+        catalog = Mockito.mock(InternalCatalog.class);
+        catalogMgr = Mockito.mock(CatalogMgr.class);
+
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+    }
 
     @Test
     void testValidate() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = catalogMgr;
-
-                catalogMgr.getCatalog(anyString);
-                minTimes = 0;
-                result = catalog;
-            }
-        };
         EqualTo equalTo = new EqualTo(new UnboundSlot("schema_name"),
                 new StringLiteral(CatalogMocker.TEST_DB_NAME));
 

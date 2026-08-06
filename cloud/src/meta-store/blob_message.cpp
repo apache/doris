@@ -123,17 +123,16 @@ TxnErrorCode ValueBuf::get(Transaction* txn, std::string_view key, bool snapshot
     }
     begin_key = it->next_begin_key();
     iters.push_back(std::move(it));
-    do {
+    while (it == nullptr /* may be not init */ || more) {
         err = txn->get(begin_key, end_key, &it, snapshot);
         if (err != TxnErrorCode::TXN_OK) {
             return err;
         }
+        begin_key = it->next_begin_key();
         more = it->more();
-        if (more) {
-            begin_key = it->next_begin_key();
-        }
         iters.push_back(std::move(it));
-    } while (more);
+        if (!more) break;
+    }
     return TxnErrorCode::TXN_OK;
 }
 

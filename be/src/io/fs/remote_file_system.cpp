@@ -54,11 +54,12 @@ Status RemoteFileSystem::download(const Path& remote_file, const Path& local) {
 Status RemoteFileSystem::open_file_impl(const Path& path, FileReaderSPtr* reader,
                                         const FileReaderOptions* opts) {
     FileReaderSPtr raw_reader;
-    if (!opts) {
-        opts = &FileReaderOptions::DEFAULT;
+    FileReaderOptions effective_opts = opts ? *opts : FileReaderOptions::DEFAULT;
+    if (effective_opts.storage_resource_id.empty()) {
+        effective_opts.storage_resource_id = id();
     }
-    RETURN_IF_ERROR(open_file_internal(path, &raw_reader, *opts));
-    *reader = DORIS_TRY(create_cached_file_reader(raw_reader, *opts));
+    RETURN_IF_ERROR(open_file_internal(path, &raw_reader, effective_opts));
+    *reader = DORIS_TRY(create_cached_file_reader(raw_reader, effective_opts));
     return Status::OK();
 }
 

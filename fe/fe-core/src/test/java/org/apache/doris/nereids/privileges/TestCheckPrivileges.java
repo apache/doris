@@ -25,6 +25,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.test.TestExternalCatalog.TestCatalogProvider;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -50,11 +51,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import mockit.Expectations;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -133,13 +134,10 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
 
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
         CatalogAccessController catalogAccessController = accessManager.getAccessControllerOrDefault(catalog);
-        new Expectations(accessManager) {
-            {
-                accessManager.getAccessControllerOrDefault("internal");
-                minTimes = 0;
-                result = catalogAccessController;
-            }
-        };
+        AccessControllerManager spyAccessManager = Mockito.spy(accessManager);
+        Mockito.doReturn(catalogAccessController).when(spyAccessManager)
+                .getAccessControllerOrDefault("internal");
+        Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", spyAccessManager);
 
         withPrivileges(privileges, () -> {
                 // test base table
@@ -162,6 +160,33 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
                     // no table privilege
                     Assertions.assertThrows(AnalysisException.class, () ->
                             query("select * from custom_catalog.test_db.test_tbl3")
+                    );
+                }
+
+                // test CTE with JOIN privilege checking
+                // Verifies that column-level privileges are enforced when CTE is
+                // referenced multiple times via JOIN (CTE won't be inlined due to
+                // inlineCTEReferencedThreshold). CheckPrivileges.visitLogicalCTEConsumer
+                // explicitly traverses the CTE producer plan to check privileges.
+                {
+                    // CTE + JOIN on fully-privileged table should succeed
+                    query("WITH cte AS (SELECT id, name FROM custom_catalog.test_db.test_tbl1) "
+                            + "SELECT a.id FROM cte a LEFT JOIN cte b ON a.id = b.id");
+
+                    // CTE + JOIN accessing restricted column should be denied
+                    Assertions.assertThrows(AnalysisException.class, () ->
+                            query("WITH cte AS (SELECT * FROM custom_catalog.test_db.test_tbl2) "
+                                    + "SELECT a.id FROM cte a LEFT JOIN cte b ON a.id = b.id")
+                    );
+
+                    // CTE + JOIN accessing only allowed columns should succeed
+                    query("WITH cte AS (SELECT id FROM custom_catalog.test_db.test_tbl2) "
+                            + "SELECT a.id FROM cte a LEFT JOIN cte b ON a.id = b.id");
+
+                    // CTE + INNER JOIN accessing restricted column should also be denied
+                    Assertions.assertThrows(AnalysisException.class, () ->
+                            query("WITH cte AS (SELECT * FROM custom_catalog.test_db.test_tbl2) "
+                                    + "SELECT a.id FROM cte a INNER JOIN cte b ON a.id = b.id")
                     );
                 }
 

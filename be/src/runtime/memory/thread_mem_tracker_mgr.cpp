@@ -19,14 +19,36 @@
 
 #include <gen_cpp/types.pb.h>
 
+#include "common/exception.h"
+#include "common/signal_handler.h"
 #include "runtime/exec_env.h"
+#include "runtime/workload_group/workload_group.h"
+#include "util/pretty_printer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
+    if (UNLIKELY(!mem_tracker)) {
+        // Without this guard, _limiter_tracker silently becomes null and any
+        // later allocation on this thread would dereference it inside the
+        // allocator's memory check path, surfacing as a generic NPE far from
+        // the real call site that fed the null tracker. The query id is
+        // read from signal-handler thread-local storage; it does not depend
+        // on any object that may already be torn down. Note: do not call
+        // print_debug_string() here — it itself dereferences _limiter_tracker
+        // (via make_profile_str()), which on a fresh ThreadMemTrackerMgr is
+        // still null and would crash inside the format call before the
+        // intended FatalError is thrown.
+        throw Exception(Status::FatalError(
+                "ThreadMemTrackerMgr::attach_limiter_tracker called with null mem_tracker. "
+                "previous limiter label={}, snapshot_stack_depth={}, "
+                "query_id={:x}-{:x}",
+                _limiter_tracker ? _limiter_tracker->label() : "<null>",
+                _last_attach_snapshots_stack.size(), doris::signal::query_id_hi,
+                doris::signal::query_id_lo));
+    }
     CHECK(init());
     flush_untracked_mem();
     _last_attach_snapshots_stack.push_back(
@@ -55,7 +77,25 @@ void ThreadMemTrackerMgr::detach_limiter_tracker() {
     CHECK(init());
     flush_untracked_mem();
     shrink_reserved();
+    if (UNLIKELY(_last_attach_snapshots_stack.empty())) {
+        // detach_limiter_tracker() is invoked from RAII destructors that are
+        // noexcept; throwing would call std::terminate without a useful
+        // message. A LOG(FATAL) gives a controlled abort with a flushed
+        // message and a glog-captured stack trace.
+        LOG(FATAL) << "ThreadMemTrackerMgr::detach_limiter_tracker called with empty snapshot "
+                      "stack. current limiter label="
+                   << (_limiter_tracker ? _limiter_tracker->label() : "<null>")
+                   << ", query_id=" << std::hex << doris::signal::query_id_hi << "-"
+                   << doris::signal::query_id_lo << std::dec;
+    }
     DCHECK(!_last_attach_snapshots_stack.empty());
+    if (UNLIKELY(!_last_attach_snapshots_stack.back().limiter_tracker)) {
+        // Same noexcept-destructor rationale as above.
+        LOG(FATAL) << "ThreadMemTrackerMgr::detach_limiter_tracker restored null limiter from "
+                      "snapshot. stack_depth_before_pop="
+                   << _last_attach_snapshots_stack.size() << ", query_id=" << std::hex
+                   << doris::signal::query_id_hi << "-" << doris::signal::query_id_lo << std::dec;
+    }
     _limiter_tracker_sptr = _last_attach_snapshots_stack.back().limiter_tracker;
     _limiter_tracker = _limiter_tracker_sptr.get();
     _wg_wptr = _last_attach_snapshots_stack.back().wg_wptr;
@@ -64,5 +104,87 @@ void ThreadMemTrackerMgr::detach_limiter_tracker() {
     _last_attach_snapshots_stack.pop_back();
 }
 
-#include "common/compile_check_end.h"
+doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size, TryReserveChecker checker) {
+    DCHECK(size >= 0);
+    CHECK(init());
+    DCHECK(_limiter_tracker);
+    memory_orphan_check();
+    // if _reserved_mem not equal to 0, repeat reserve,
+    // _untracked_mem store bytes that not synchronized to process reserved memory.
+    flush_untracked_mem();
+    auto wg_ptr = _wg_wptr.lock();
+
+    bool task_limit_checker = static_cast<int>(checker) & 1;
+    bool workload_group_limit_checker = static_cast<int>(checker) & 2;
+    bool process_limit_checker = static_cast<int>(checker) & 4;
+
+    if (task_limit_checker) {
+        if (!_limiter_tracker->try_reserve(size)) {
+            auto err_msg = fmt::format(
+                    "reserve memory failed, size: {}, because query memory exceeded, memory "
+                    "tracker: {}, "
+                    "consumption: {}, limit: {}, peak: {}",
+                    PrettyPrinter::print_bytes(size), _limiter_tracker->label(),
+                    PrettyPrinter::print_bytes(_limiter_tracker->consumption()),
+                    PrettyPrinter::print_bytes(_limiter_tracker->limit()),
+                    PrettyPrinter::print_bytes(_limiter_tracker->peak_consumption()));
+            return doris::Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(err_msg);
+        }
+    } else {
+        _limiter_tracker->reserve(size);
+    }
+
+    if (wg_ptr) {
+        if (workload_group_limit_checker) {
+            if (!wg_ptr->try_add_wg_refresh_interval_memory_growth(size)) {
+                auto err_msg = fmt::format(
+                        "reserve memory failed, size: {}, because workload group memory exceeded, "
+                        "workload group: {}",
+                        PrettyPrinter::print_bytes(size), wg_ptr->memory_debug_string());
+                _limiter_tracker->release(size);         // rollback
+                _limiter_tracker->shrink_reserved(size); // rollback
+                return doris::Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>(err_msg);
+            }
+        } else {
+            wg_ptr->add_wg_refresh_interval_memory_growth(size);
+        }
+    }
+
+    if (process_limit_checker) {
+        if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
+            auto err_msg = fmt::format(
+                    "reserve memory failed, size: {}, because proccess memory exceeded, {}",
+                    PrettyPrinter::print_bytes(size),
+                    GlobalMemoryArbitrator::process_mem_log_str());
+            _limiter_tracker->release(size);         // rollback
+            _limiter_tracker->shrink_reserved(size); // rollback
+            if (wg_ptr) {
+                wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
+            }
+            return doris::Status::Error<ErrorCode::PROCESS_MEMORY_EXCEEDED>(err_msg);
+        }
+    } else {
+        doris::GlobalMemoryArbitrator::reserve_process_memory(size);
+    }
+
+    _reserved_mem += size;
+    DCHECK(_reserved_mem >= 0);
+    return doris::Status::OK();
+}
+
+void ThreadMemTrackerMgr::shrink_reserved() {
+    if (_reserved_mem != 0) {
+        memory_orphan_check();
+        doris::GlobalMemoryArbitrator::shrink_process_reserved(_reserved_mem + _untracked_mem);
+        _limiter_tracker->shrink_reserved(_reserved_mem + _untracked_mem);
+        _limiter_tracker->release(_reserved_mem);
+        auto wg_ptr = _wg_wptr.lock();
+        if (wg_ptr) {
+            wg_ptr->sub_wg_refresh_interval_memory_growth(_reserved_mem);
+        }
+        _untracked_mem = 0;
+        _reserved_mem = 0;
+    }
+}
+
 } // namespace doris

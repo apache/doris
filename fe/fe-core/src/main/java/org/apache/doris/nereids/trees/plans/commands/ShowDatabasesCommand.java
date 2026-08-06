@@ -21,14 +21,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -141,7 +140,7 @@ public class ShowDatabasesCommand extends ShowCommand {
         }
         Set<String> dbNameSet = Sets.newTreeSet();
         for (String fullName : dbNames) {
-            final String db = ClusterNamespace.getNameFromFullName(fullName);
+            final String db = fullName;
             // Filter dbname
             if (matcher != null && !matcher.match(db)) {
                 continue;

@@ -32,7 +32,6 @@
 namespace doris {
 using namespace ErrorCode;
 namespace zlib {
-#include "common/compile_check_begin.h"
 
 namespace {
 Status ZlibResultToStatus(int rc) {
@@ -116,7 +115,6 @@ Status Uncompress(Slice compressed, std::ostream* out) {
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace zlib
 } // namespace doris

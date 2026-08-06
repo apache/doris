@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_schema_change_ddl", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -193,7 +193,7 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
         sql """ ALTER TABLE ${table_name} MODIFY COLUMN non_col bigint"""
         exception "Column non_col does not exist"
     }
-    // not comment, the comment will be removed
+    // Omitted COMMENT preserves the existing comment.
     qt_before_no_comment "desc ${table_name}" 
     sql """ ALTER TABLE ${table_name} MODIFY COLUMN col1 DOUBLE"""
     qt_after_no_comment "desc ${table_name}"
@@ -204,7 +204,7 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     // Add test columns for type conversion tests
     sql """ ALTER TABLE ${table_name} ADD COLUMN test_float FLOAT """
     sql """ ALTER TABLE ${table_name} ADD COLUMN test_decimal DECIMAL(5,2) """
-    sql """ INSERT INTO ${table_name} (id, test_float, test_decimal) VALUES (7, 3.14, 123.45) """
+    sql """ INSERT INTO ${table_name} (id, grade, test_float, test_decimal) VALUES (7, 0, 3.14, 123.45) """
     
     // Positive case: float -> double
     sql """ ALTER TABLE ${table_name} MODIFY COLUMN test_float DOUBLE """
@@ -305,12 +305,12 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     // struct/complex type changes
     test {
         sql """ ALTER TABLE ${table_name} MODIFY COLUMN address STRING """
-        exception "Cannot change column type"
+        exception "Modify column type from complex to primitive is not supported"
     }
     
     test {
         sql """ ALTER TABLE ${table_name} MODIFY COLUMN email STRUCT<name: STRING> """
-        exception "Modify column type to non-primitive type is not supported"
+        exception "Modify column type from non-complex to complex is not supported"
     }
 
     // Test 8: reorder columns
@@ -445,4 +445,3 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     // Clean up
     sql """ drop table if exists ${int_partition_table_name} """
 }
-

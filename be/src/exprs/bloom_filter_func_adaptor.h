@@ -18,13 +18,13 @@
 #pragma once
 
 #include "common/status.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/data_type/primitive_type.h"
+#include "core/string_ref.h"
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/filter_base.h"
 #include "exprs/hybrid_set.h"
-#include "runtime/primitive_type.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -50,7 +50,7 @@ public:
         return _bloom_filter->init_from_directory(log_space, data, data_size, false, 0);
     }
 
-    char* data() { return (char*)_bloom_filter->directory().data; }
+    char* data() { return _bloom_filter->directory().data; }
 
     size_t size() { return _bloom_filter->directory().size; }
 
@@ -80,11 +80,19 @@ private:
 
 template <typename fixed_len_to_uint32_method, class T>
 struct CommonFindOp {
-    static uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                           const uint8_t* nullmap, uint16_t* offsets, int number,
+    static uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter,
+                                           const doris::IColumn& column, const uint8_t* nullmap,
+                                           uint16_t* offsets, int number,
                                            const bool is_parse_column) {
-        return find_batch_olap<fixed_len_to_uint32_method, T>(bloom_filter, data, nullmap, offsets,
-                                                              number, is_parse_column);
+        // This path reinterpret-casts the column's raw data as a contiguous T[], which is only
+        // valid for fixed-length types. String types (StringRef/String) are not laid out this way
+        // and must go through StringFindOp instead.
+        static_assert(!std::is_same_v<T, StringRef> && !std::is_same_v<T, String>,
+                      "find_batch_olap_engine does not support string types; use StringFindOp");
+        const T* __restrict data = reinterpret_cast<const T*>(column.get_raw_data().data);
+        return find_batch_olap_impl<fixed_len_to_uint32_method>(
+                bloom_filter, [data](int i) { return data[i]; }, nullmap, offsets, number,
+                is_parse_column);
     }
 
     template <typename Func>
@@ -102,15 +110,13 @@ struct CommonFindOp {
         }
     }
 
-    static void insert_batch(BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
+    static void insert_batch(BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
                              size_t start) {
         const auto size = column->size();
-        if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+        if (is_column_nullable(*column)) {
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
-            const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
 
             const T* data = (T*)col.get_raw_data().data;
             for (size_t i = start; i < size; i++) {
@@ -136,18 +142,14 @@ struct CommonFindOp {
         }
     }
 
-    static void find_batch(const BloomFilterAdaptor& bloom_filter,
-                           const vectorized::ColumnPtr& column, uint8_t* results,
-                           const uint8_t* __restrict filter) {
+    static void find_batch(const BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
+                           uint8_t* results, const uint8_t* __restrict filter) {
         const T* __restrict data = nullptr;
         const uint8_t* __restrict nullmap = nullptr;
-        if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+        if (is_column_nullable(*column)) {
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             if (nullable->has_null()) {
-                nullmap =
-                        assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                                .get_data()
-                                .data();
+                nullmap = nullable->get_null_map_column().get_data().data();
             }
             data = (T*)nullable->get_nested_column().get_raw_data().data;
         } else {
@@ -177,7 +179,17 @@ template <typename fixed_len_to_uint32_method>
 struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
     using CommonFindOp<fixed_len_to_uint32_method, StringRef>::for_each_with_filter;
 
-    static void insert_batch(BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
+    static uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter,
+                                           const doris::IColumn& column, const uint8_t* nullmap,
+                                           uint16_t* offsets, int number,
+                                           const bool is_parse_column) {
+        const auto& col = assert_cast<const ColumnString&>(column);
+        return find_batch_olap_impl<fixed_len_to_uint32_method>(
+                bloom_filter, [&col](int i) { return col.get_data_at(i); }, nullmap, offsets,
+                number, is_parse_column);
+    }
+
+    static void insert_batch(BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
                              size_t start) {
         auto _insert_batch_col_str = [&](const auto& col, const uint8_t* __restrict nullmap,
                                          size_t start, size_t size) {
@@ -190,41 +202,35 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
             }
         };
 
-        if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
-            const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+        if (is_column_nullable(*column)) {
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
+            const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->get_nested_column().is_column_string64()) {
-                _insert_batch_col_str(assert_cast<const vectorized::ColumnString64&>(
-                                              nullable->get_nested_column()),
-                                      nullmap.data(), start, nullmap.size());
+                _insert_batch_col_str(
+                        assert_cast<const ColumnString64&>(nullable->get_nested_column()),
+                        nullmap.data(), start, nullmap.size());
             } else {
                 _insert_batch_col_str(
-                        assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column()),
+                        assert_cast<const ColumnString&>(nullable->get_nested_column()),
                         nullmap.data(), start, nullmap.size());
             }
         } else {
             if (column->is_column_string64()) {
-                _insert_batch_col_str(assert_cast<const vectorized::ColumnString64&>(*column),
-                                      nullptr, start, column->size());
+                _insert_batch_col_str(assert_cast<const ColumnString64&>(*column), nullptr, start,
+                                      column->size());
             } else {
-                _insert_batch_col_str(assert_cast<const vectorized::ColumnString&>(*column),
-                                      nullptr, start, column->size());
+                _insert_batch_col_str(assert_cast<const ColumnString&>(*column), nullptr, start,
+                                      column->size());
             }
         }
     }
 
-    static void find_batch(const BloomFilterAdaptor& bloom_filter,
-                           const vectorized::ColumnPtr& column, uint8_t* results,
-                           const uint8_t* __restrict filter) {
-        if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
-            const auto& col =
-                    assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column());
-            const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+    static void find_batch(const BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
+                           uint8_t* results, const uint8_t* __restrict filter) {
+        if (is_column_nullable(*column)) {
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
+            const auto& col = assert_cast<const ColumnString&>(nullable->get_nested_column());
+            const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->has_null()) {
                 auto update = [&](size_t i) {
                     if (!nullmap[i]) {
@@ -243,7 +249,7 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
                 for_each_with_filter(column->size(), filter, update);
             }
         } else {
-            const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
+            const auto& col = assert_cast<const ColumnString*>(column.get());
 
             auto update = [&](size_t i) {
                 results[i] =
@@ -255,18 +261,6 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
     }
 };
 
-// We do not need to judge whether data is empty, because null will not appear
-// when filer used by the storage engine
-template <typename fixed_len_to_uint32_method>
-struct FixedStringFindOp : public StringFindOp<fixed_len_to_uint32_method> {
-    static uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                           const uint8_t* nullmap, uint16_t* offsets, int number,
-                                           const bool is_parse_column) {
-        return find_batch_olap<fixed_len_to_uint32_method, StringRef, true>(
-                bloom_filter, data, nullmap, offsets, number, is_parse_column);
-    }
-};
-
 template <typename fixed_len_to_uint32_method, PrimitiveType type>
 struct BloomFilterTypeTraits {
     using T = typename PrimitiveTypeTraits<type>::CppType;
@@ -275,7 +269,7 @@ struct BloomFilterTypeTraits {
 
 template <typename fixed_len_to_uint32_method>
 struct BloomFilterTypeTraits<fixed_len_to_uint32_method, TYPE_CHAR> {
-    using FindOp = FixedStringFindOp<fixed_len_to_uint32_method>;
+    using FindOp = StringFindOp<fixed_len_to_uint32_method>;
 };
 
 template <typename fixed_len_to_uint32_method>

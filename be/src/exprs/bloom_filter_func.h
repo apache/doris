@@ -17,15 +17,17 @@
 
 #pragma once
 
+#include <cstring>
+
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/column/column_dictionary.h"
+#include "core/field.h"
+#include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/bloom_filter_func_impl.h"
 #include "exprs/filter_base.h"
-#include "runtime_filter/runtime_filter_definitions.h"
-#include "vec/columns/column_dictionary.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // Only Used In RuntimeFilter
 class BloomFilterFuncBase : public FilterBase {
 public:
@@ -132,12 +134,22 @@ public:
 
     virtual void insert_set(std::shared_ptr<HybridSetBase> set) = 0;
 
-    virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
+    virtual void insert_fixed_len(const ColumnPtr& column, size_t start) = 0;
 
-    virtual void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results,
+    virtual void find_fixed_len(const ColumnPtr& column, uint8_t* results,
                                 const uint8_t* __restrict filter = nullptr) = 0;
 
-    virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap,
+    virtual PrimitiveType primitive_type() const = 0;
+    virtual bool supports_raw_fixed_values() const = 0;
+    virtual size_t raw_fixed_value_size() const = 0;
+    virtual Status find_batch_raw_fixed(const uint8_t* values, size_t rows, size_t value_width,
+                                        uint8_t* matches) const = 0;
+    virtual bool supports_raw_binary_values() const = 0;
+    virtual Status find_batch_raw_binary(const StringRef* values, size_t rows,
+                                         uint8_t* matches) const = 0;
+    virtual bool test_field(const Field& field) const = 0;
+
+    virtual uint16_t find_fixed_len_olap_engine(const IColumn& column, const uint8_t* nullmap,
                                                 uint16_t* offsets, int number,
                                                 bool is_parse_column) = 0;
 
@@ -172,18 +184,88 @@ public:
         _bloom_filter->set_contain_null(set->contain_null());
     }
 
-    void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+    void insert_fixed_len(const ColumnPtr& column, size_t start) override {
         DCHECK(_bloom_filter != nullptr);
         OpV2::insert_batch(*_bloom_filter, column, start);
     }
 
-    void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results,
+    void find_fixed_len(const ColumnPtr& column, uint8_t* results,
                         const uint8_t* __restrict filter = nullptr) override {
         OpV2::find_batch(*_bloom_filter, column, results, filter);
     }
 
+    PrimitiveType primitive_type() const override { return type; }
+
+    bool supports_raw_fixed_values() const override { return !is_string_type(type); }
+
+    size_t raw_fixed_value_size() const override {
+        if constexpr (is_string_type(type)) {
+            return 0;
+        } else {
+            return sizeof(typename PrimitiveTypeTraits<type>::CppType);
+        }
+    }
+
+    Status find_batch_raw_fixed(const uint8_t* values, size_t rows, size_t value_width,
+                                uint8_t* matches) const override {
+        if constexpr (is_string_type(type)) {
+            return Status::NotSupported("String Bloom filter cannot probe fixed-width values");
+        } else {
+            using ValueType = typename PrimitiveTypeTraits<type>::CppType;
+            if (_bloom_filter == nullptr) {
+                return Status::InternalError("Bloom filter is not initialized");
+            }
+            if (value_width != sizeof(ValueType)) {
+                return Status::Corruption("Raw Bloom filter width {} does not match expected {}",
+                                          value_width, sizeof(ValueType));
+            }
+            DORIS_CHECK(values != nullptr || rows == 0);
+            DORIS_CHECK(matches != nullptr || rows == 0);
+            for (size_t row = 0; row < rows; ++row) {
+                ValueType value;
+                std::memcpy(&value, values + row * sizeof(ValueType), sizeof(ValueType));
+                matches[row] &= _bloom_filter->test_element<fixed_len_to_uint32_v2>(value) ? 1 : 0;
+            }
+            return Status::OK();
+        }
+    }
+
+    bool supports_raw_binary_values() const override { return is_string_type(type); }
+
+    Status find_batch_raw_binary(const StringRef* values, size_t rows,
+                                 uint8_t* matches) const override {
+        if constexpr (!is_string_type(type)) {
+            return Status::NotSupported("Non-string Bloom filter cannot probe binary values");
+        } else {
+            if (_bloom_filter == nullptr) {
+                return Status::InternalError("Bloom filter is not initialized");
+            }
+            DORIS_CHECK(values != nullptr || rows == 0);
+            DORIS_CHECK(matches != nullptr || rows == 0);
+            for (size_t row = 0; row < rows; ++row) {
+                matches[row] &=
+                        _bloom_filter->test_element<fixed_len_to_uint32_v2>(values[row]) ? 1 : 0;
+            }
+            return Status::OK();
+        }
+    }
+
+    bool test_field(const Field& field) const override {
+        DORIS_CHECK(_bloom_filter != nullptr);
+        if (field.is_null()) {
+            return _bloom_filter->contain_null();
+        }
+        if constexpr (is_string_type(type)) {
+            const auto& value = field.get<type>();
+            return _bloom_filter->test_element<fixed_len_to_uint32_v2>(
+                    StringRef(value.data(), value.size()));
+        } else {
+            return _bloom_filter->test_element<fixed_len_to_uint32_v2>(field.get<type>());
+        }
+    }
+
     template <bool is_nullable>
-    uint16_t find_dict_olap_engine(const vectorized::ColumnDictI32* column, const uint8_t* nullmap,
+    uint16_t find_dict_olap_engine(const ColumnDictI32* column, const uint8_t* nullmap,
                                    uint16_t* offsets, int number) {
         uint16_t new_size = 0;
         for (uint16_t i = 0; i < number; i++) {
@@ -199,14 +281,14 @@ public:
         return new_size;
     }
 
-    uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap, uint16_t* offsets,
-                                        int number, bool is_parse_column) override {
-        return OpV2::find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number,
+    uint16_t find_fixed_len_olap_engine(const IColumn& column, const uint8_t* nullmap,
+                                        uint16_t* offsets, int number,
+                                        bool is_parse_column) override {
+        return OpV2::find_batch_olap_engine(*_bloom_filter, column, nullmap, offsets, number,
                                             is_parse_column);
     }
 
 private:
     using OpV2 = typename BloomFilterTypeTraits<fixed_len_to_uint32_v2, type>::FindOp;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -24,6 +24,7 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
     String pwd = 'C123_567p'
     String dbName = 'test_dml_delete_table_auth_db'
     String tableName = 'test_dml_delete_table_auth_tb'
+    String fromTableName = 'test_dml_delete_table_auth_from_tb'
 
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
@@ -42,9 +43,11 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
                 id BIGINT,
                 username VARCHAR(20)
             )
+            UNIQUE KEY(`id`)
             DISTRIBUTED BY HASH(id) BUCKETS 2
             PROPERTIES (
-                "replication_num" = "1"
+                "replication_num" = "1",
+                "enable_mow_light_delete" = "true"
             );"""
     sql """
         insert into ${dbName}.`${tableName}` values 
@@ -53,6 +56,46 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
         (3, "333");
         """
 
+    sql """create table ${dbName}.${fromTableName} (
+                id BIGINT,
+                username VARCHAR(20)
+            )
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );"""
+    sql """
+        insert into ${dbName}.`${fromTableName}` values 
+        (1, "111"),
+        (2, "222"),
+        (3, "333");
+        """
+    sql """
+        insert into ${dbName}.`${fromTableName}` select * from ${dbName}.${fromTableName};
+        """
+    sql """
+        insert into ${dbName}.`${fromTableName}` select * from ${dbName}.${fromTableName};
+        """
+    sql """
+        insert into ${dbName}.`${fromTableName}` select * from ${dbName}.${fromTableName};
+        """
+    sql """
+        insert into ${dbName}.`${fromTableName}` select * from ${dbName}.${fromTableName};
+        """
+    sql """
+        insert into ${dbName}.`${fromTableName}` select * from ${dbName}.${fromTableName};
+        """
+    sql """
+        insert into ${dbName}.`${fromTableName}` select * from ${dbName}.${fromTableName};
+        """
+    sql """
+        insert into ${dbName}.`${fromTableName}` select * from ${dbName}.${fromTableName};
+        """
+    sql """
+        analyze table ${dbName}.`${fromTableName}` WITH SYNC;
+        """
+
+    // 1. delete when no privilege  /////////////////////////////////////////////////
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
@@ -62,6 +105,25 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
         def del_res = sql """show DELETE from ${dbName}"""
         assertTrue(del_res.size() == 0)
     }
+    Thread.sleep(70000) // wait for row count report of the tables just loaded, optimizer will choose right anti join
+    connect(user, "${pwd}", context.config.jdbcUrl) {
+        test {
+            sql """DELETE FROM ${dbName}.${tableName} 
+                        WHERE NOT EXISTS 
+                        (
+                            SELECT 1 FROM ${dbName}.${fromTableName} 
+                            WHERE ${dbName}.${fromTableName}.id = ${dbName}.${tableName}.id
+                            AND ${dbName}.${fromTableName}.username = '333'
+                        );"""
+            // LOAD command denied to user xx for table '$dbName.$tableName'
+            exception tableName
+        }
+        checkNereidsExecute("show DELETE from ${dbName}")
+        def del_res = sql """show DELETE from ${dbName}"""
+        assertTrue(del_res.size() == 0)
+    }
+
+    // 2. delete when has load privilege  /////////////////////////////////////////////////
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
@@ -69,9 +131,23 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
         logger.info("del_res: " + del_res)
         assertTrue(del_res.size() == 1)
     }
-
     def res = sql """select count(*) from ${dbName}.${tableName};"""
     assertTrue(res[0][0] == 2)
+    
+    connect(user, "${pwd}", context.config.jdbcUrl) {
+        sql """DELETE FROM ${dbName}.${tableName} 
+                    WHERE NOT EXISTS 
+                    (
+                        SELECT 1 FROM ${dbName}.${fromTableName} 
+                        WHERE ${dbName}.${fromTableName}.id = ${dbName}.${tableName}.id
+                        AND ${dbName}.${fromTableName}.username = '111'
+                    );"""
+        def del_res = sql """show DELETE from ${dbName}"""
+        assertTrue(del_res.size() == 1)  // use delete from using
+    }
+
+    def res2 = sql """select count(*) from ${dbName}.${tableName};"""
+    assertTrue(res2[0][0] == 1)
 
     String tableName1 = 'test_dml_delete_table_auth_tb1'
     String tableName2 = 'test_dml_delete_table_auth_tb2'
@@ -139,3 +215,4 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
     sql """drop database if exists ${dbName}"""
     try_sql("DROP USER ${user}")
 }
+

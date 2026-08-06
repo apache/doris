@@ -52,6 +52,12 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlArgs;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlCommand;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlOp;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlRegistry;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlTransform;
+import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -82,7 +88,7 @@ import java.util.Optional;
 /**
  * merge into table
  */
-public class MergeIntoCommand extends Command implements ForwardWithSync, Explainable {
+public class MergeIntoCommand extends Command implements ForwardWithSync, Explainable, SupportProfile {
     private static final String BRANCH_LABEL = "__DORIS_MERGE_INTO_BRANCH_LABEL__";
 
     private final List<String> targetNameParts;
@@ -119,8 +125,24 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
                 Objects.requireNonNull(notMatchedClauses, "notMatchedClauses should not be null"));
     }
 
+    /** Return every relation root retained across prepared executions. */
+    public List<LogicalPlan> getRelationRoots() {
+        ImmutableList.Builder<LogicalPlan> roots = ImmutableList.builder();
+        cte.ifPresent(roots::add);
+        roots.add(source);
+        return roots.build();
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        TableIf table = getTargetTableIf(ctx);
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = RowLevelDmlArgs.forMerge(table, targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses);
+            new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.MERGE).run(ctx, executor);
+            return;
+        }
         new InsertIntoTableCommand(completeQueryPlan(ctx), Optional.empty(), Optional.empty(),
                 Optional.empty(), true, Optional.empty()).run(ctx, executor);
     }
@@ -132,12 +154,28 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        TableIf table = getTargetTableIf(ctx);
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = RowLevelDmlArgs.forMerge(table, targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses);
+            return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.MERGE).getExplainPlan(ctx);
+        }
         return completeQueryPlan(ctx);
     }
 
-    private OlapTable getTargetTable(ConnectContext ctx) {
+    private TableIf getTargetTableIf(ConnectContext ctx) {
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, targetNameParts);
-        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+        return RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+    }
+
+    @Override
+    public List<String> getTargetTableNameParts() {
+        return targetNameParts;
+    }
+
+    private OlapTable getTargetTable(ConnectContext ctx) {
+        TableIf table = getTargetTableIf(ctx);
         if (!(table instanceof OlapTable) || !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
             throw new AnalysisException("merge into command only support MOW unique key olapTable");
         }

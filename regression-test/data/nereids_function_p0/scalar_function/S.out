@@ -994,6 +994,9 @@ false
 false
 false
 
+-- !sql_signbit_negative_zero --
+false	true
+
 -- !sql_sin_Double --
 \N
 0.09983341664682815

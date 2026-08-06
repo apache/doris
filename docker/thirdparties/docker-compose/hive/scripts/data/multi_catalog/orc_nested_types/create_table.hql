@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `nested_types1_orc` (
+drop table if exists `nested_types1_orc`;
+
+create table `nested_types1_orc` (
     `id` INT,
     `array_col` ARRAY<INT>,
     `nested_array_col` ARRAY<ARRAY<INT>>,
@@ -27,6 +29,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
 LOCATION
   '/user/doris/suites/multi_catalog/nested_types1_orc';
-
-msck repair table nested_types1_orc;
-

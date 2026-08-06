@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.qe.ConnectContext;
 
@@ -57,8 +57,6 @@ public class ModifyPartitionOp extends AlterTableOp {
         // 2. modify data property
         // 3. modify in memory
         // And these 3 operations does not require table to be stable.
-        // If other kinds of operations be added later, "needTableStable" may be changed.
-        this.needTableStable = false;
         this.isTempPartition = isTempPartition;
     }
 
@@ -70,7 +68,6 @@ public class ModifyPartitionOp extends AlterTableOp {
             this.properties.putAll(properties);
         }
         this.needExpand = true;
-        this.needTableStable = false;
         this.isTempPartition = isTempPartition;
     }
 
@@ -148,6 +145,12 @@ public class ModifyPartitionOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Modify partition does not change schema, allow on row binlog tables.
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("MODIFY PARTITION ");
@@ -162,7 +165,7 @@ public class ModifyPartitionOp extends AlterTableOp {
         }
         sb.append(")");
         sb.append(" SET (");
-        sb.append(new PrintableMap<String, String>(properties, "=", true, false));
+        sb.append(new DatasourcePrintableMap<String, String>(properties, "=", true, false));
         sb.append(")");
 
         return sb.toString();

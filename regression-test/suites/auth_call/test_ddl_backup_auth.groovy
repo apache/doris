@@ -18,7 +18,7 @@
 import org.junit.Assert;
 import java.util.UUID
 
-suite("test_ddl_backup_auth","p0,auth_call") {
+suite("test_ddl_backup_auth","p0,auth_call,nonConcurrent") {
     UUID uuid = UUID.randomUUID()
     String randomValue = uuid.toString()
     int hashCode = randomValue.hashCode()

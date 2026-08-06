@@ -29,7 +29,8 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
             `string_array` ARRAY<STRING>,
             `date_array` ARRAY<DATE>,
             `ipv4_array` ARRAY<IPV4>,
-            `ipv6_array` ARRAY<IPV6>
+            `ipv6_array` ARRAY<IPV6>,
+            `largeint_array` ARRAY<LARGEINT>
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         properties("replication_num" = "1")
@@ -38,37 +39,43 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     // insert into fn_test_nullsafe_array with null element
     sql """
         INSERT INTO fn_test_nullsafe_array VALUES
-        (1, [1, 2, 3, 4, 5], [1.1, 2.2, 3.3, 4.4, 5.5], ['a', 'b', 'c', 'd', 'e'], ['2023-01-01', '2023-01-02', '2023-01-03'], ['192.168.1.1', '192.168.1.2'], ['2001:db8::1', '2001:db8::2']),
-        (2, [1, null, 3, null, 5], [1.1, null, 3.3, null, 5.5], ['a', null, 'c', null, 'e'], ['2023-01-01', null, '2023-01-03'], ['192.168.1.1', null, '192.168.1.3'], ['2001:db8::1', null, '2001:db8::3']),
-        (3, [1, 1, 2, 2, 2, 3, 1, 4], [1.1, 1.1, 2.2, 2.2, 2.2, 3.3, 1.1, 4.4], ['a', 'a', 'b', 'b', 'c'], ['2023-01-01', '2023-01-01', '2023-01-02'], ['192.168.1.1', '192.168.1.1', '192.168.1.2'], ['2001:db8::1', '2001:db8::1', '2001:db8::2']),
-        (4, [], [], [], [], [], []),
-        (5, NULL, NULL, NULL, NULL, NULL, NULL)
+        (1, [1, 2, 3, 4, 5], [1.1, 2.2, 3.3, 4.4, 5.5], ['a', 'b', 'c', 'd', 'e'], ['2023-01-01', '2023-01-02', '2023-01-03'], ['192.168.1.1', '192.168.1.2'], ['2001:db8::1', '2001:db8::2'], [170141183460469231731687303715884105727, 170141183460469231731687303715884105726, 170141183460469231731687303715884105725]),
+        (2, [1, null, 3, null, 5], [1.1, null, 3.3, null, 5.5], ['a', null, 'c', null, 'e'], ['2023-01-01', null, '2023-01-03'], ['192.168.1.1', null, '192.168.1.3'], ['2001:db8::1', null, '2001:db8::3'], [1, null, 3, null, 5]),
+        (3, [1, 1, 2, 2, 2, 3, 1, 4], [1.1, 1.1, 2.2, 2.2, 2.2, 3.3, 1.1, 4.4], ['a', 'a', 'b', 'b', 'c'], ['2023-01-01', '2023-01-01', '2023-01-02'], ['192.168.1.1', '192.168.1.1', '192.168.1.2'], ['2001:db8::1', '2001:db8::1', '2001:db8::2'], [1, 1, 2, 2, 2, 3, 1, 4]),
+        (4, [], [], [], [], [], [], []),
+        (5, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
     """
 
     // test function behavior with nullsafe array
     // array_apply nullsafe tests
     qt_sql_array_apply1 "SELECT array_apply(int_array, '>', 2) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_apply2 "SELECT array_apply(double_array, '<', 1.1) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_apply3 "SELECT array_apply(largeint_array, '>', 2) FROM fn_test_nullsafe_array order by id"
 
     // array_compact nullsafe tests
     qt_sql_array_compact4 "SELECT array_compact(date_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_compact5 "SELECT array_compact(ipv4_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_compact6 "SELECT array_compact(ipv6_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_compact7 "SELECT array_compact(largeint_array) FROM fn_test_nullsafe_array order by id"
 
     // array_concat nullsafe tests
     qt_sql_array_concat1 "SELECT array_concat(int_array, [6, 7, 8]) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_concat2 "SELECT array_concat(string_array, NULL) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_concat3 "SELECT array_concat(double_array, []) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_concat4 "SELECT array_concat(largeint_array, [6, 7, 8]) FROM fn_test_nullsafe_array order by id"
 
     // array-contains nullsafe tests
     qt_sql_array_contains2 "SELECT array_contains(int_array, 3) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_contains4 "SELECT array_contains(ipv4_array, null) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_contains5 "SELECT array_contains(ipv6_array, '2001:db8::1') FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_contains6 "SELECT array_contains(largeint_array, 3) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_contains7 "SELECT array_contains(largeint_array, null) FROM fn_test_nullsafe_array order by id"
     
     // array-count nullsafe tests
     qt_sql_array_count1 "SELECT array_count(x -> x > 2, int_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_count2 "SELECT array_count(x -> x is null, string_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_count3 "SELECT array_count(x -> x > '192.168.1.1', ipv4_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_count4 "SELECT array_count(x -> x > 2, largeint_array) FROM fn_test_nullsafe_array order by id"
     
     // array-cum-sum nullsafe tests
     qt_sql_array_cum_sum1 "SELECT array_cum_sum(int_array) FROM fn_test_nullsafe_array order by id"
@@ -79,17 +86,20 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     // array-difference nullsafe tests
     qt_sql_array_difference1 "SELECT array_difference(double_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_difference3 "SELECT array_difference(string_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_difference4 "SELECT array_difference(largeint_array) FROM fn_test_nullsafe_array order by id"
     
     // array-distinct nullsafe tests
     qt_sql_array_distinct2 "SELECT array_distinct(string_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_distinct3 "SELECT array_distinct(ipv4_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_distinct4 "SELECT array_distinct(ipv6_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_distinct5 "SELECT array_distinct(largeint_array) FROM fn_test_nullsafe_array order by id"
     
     // array-except nullsafe tests
     qt_sql_array_except1 "SELECT array_except(int_array, [2, 4]) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_except2 "SELECT array_except(string_array, [null, 3]) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_except3 "SELECT array_except(ipv4_array, []) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_except4 "SELECT array_except(ipv6_array, NULL) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_except5 "SELECT array_except(largeint_array, [2, 4]) FROM fn_test_nullsafe_array order by id"
 
     // array-filter nullsafe tests
     qt_sql_array_filter1 "SELECT array_filter(x -> x > 2, int_array) FROM fn_test_nullsafe_array order by id"
@@ -97,18 +107,21 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_array_filter3 "SELECT array_filter(x -> x > 2.2, double_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_filter4 "SELECT array_filter(x -> x > '2023-01-02', date_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_filter5 "SELECT array_filter(x -> x = '192.168.1.2', ipv4_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_filter6 "SELECT array_filter(x -> x > 2, largeint_array) FROM fn_test_nullsafe_array order by id"
 
     // array-enumerate-unique nullsafe tests
     qt_sql_array_enumerate_uniq1 "SELECT array_enumerate_uniq(int_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_enumerate_uniq2 "SELECT array_enumerate_uniq(string_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_enumerate_uniq3 "SELECT array_enumerate_uniq(ipv4_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_enumerate_uniq4 "SELECT array_enumerate_uniq(ipv6_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_enumerate_uniq5 "SELECT array_enumerate_uniq(largeint_array) FROM fn_test_nullsafe_array order by id"
 
     // array-enumerate nullsafe tests
     qt_sql_array_enumerate1 "SELECT array_enumerate(int_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_enumerate2 "SELECT array_enumerate(string_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_enumerate3 "SELECT array_enumerate(ipv4_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_enumerate4 "SELECT array_enumerate(ipv6_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_enumerate5 "SELECT array_enumerate(largeint_array) FROM fn_test_nullsafe_array order by id"
 
     // array-exists nullsafe tests
     qt_sql_array_exists1 "SELECT array_exists(x -> x is null, int_array) FROM fn_test_nullsafe_array order by id"
@@ -117,6 +130,7 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_array_exists4 "SELECT array_exists(x -> x is null, date_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_exists5 "SELECT array_exists(x -> x is null, ipv4_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_exists6 "SELECT array_exists(x -> x is null, ipv6_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_exists7 "SELECT array_exists(x -> x is null, largeint_array) FROM fn_test_nullsafe_array order by id"
     
     // array-first nullsafe tests
     qt_sql_array_first1 "SELECT array_first(x -> x is null, int_array) FROM fn_test_nullsafe_array order by id"
@@ -125,6 +139,7 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_array_first4 "SELECT array_first(x -> x is null, date_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_first5 "SELECT array_first(x -> x is null, ipv4_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_first6 "SELECT array_first(x -> x is null, ipv6_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_first7 "SELECT array_first(x -> x is null, largeint_array) FROM fn_test_nullsafe_array order by id"
 
     // array-last nullsafe tests
     qt_sql_array_last1 "SELECT array_last(x -> x is null, int_array) FROM fn_test_nullsafe_array order by id"
@@ -133,6 +148,7 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_array_last4 "SELECT array_last(x -> x is null, date_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_last5 "SELECT array_last(x -> x is null, ipv4_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_last6 "SELECT array_last(x -> x is null, ipv6_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_last7 "SELECT array_last(x -> x is null, largeint_array) FROM fn_test_nullsafe_array order by id"
 
     // array-first-index nullsafe tests
     qt_sql_array_first_index1 "SELECT array_first_index(x -> x is null, int_array) FROM fn_test_nullsafe_array order by id"
@@ -141,6 +157,7 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_array_first_index4 "SELECT array_first_index(x -> x is null, date_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_first_index5 "SELECT array_first_index(x -> x is null, ipv4_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_first_index6 "SELECT array_first_index(x -> x is null, ipv6_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_first_index7 "SELECT array_first_index(x -> x is null, largeint_array) FROM fn_test_nullsafe_array order by id"
 
     // array-last-index nullsafe tests
     qt_sql_array_last_index1 "SELECT array_last_index(x -> x is null, int_array) FROM fn_test_nullsafe_array order by id"
@@ -149,12 +166,14 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_array_last_index4 "SELECT array_last_index(x -> x is null, date_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_last_index5 "SELECT array_last_index(x -> x is null, ipv4_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_last_index6 "SELECT array_last_index(x -> x is null, ipv6_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_last_index7 "SELECT array_last_index(x -> x is null, largeint_array) FROM fn_test_nullsafe_array order by id"
 
     // array-intersect nullsafe tests
     qt_sql_array_intersect1 "SELECT array_intersect(int_array, [2, 4]) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_intersect2 "SELECT array_intersect(string_array, [null, '3']) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_intersect3 "SELECT array_intersect(ipv4_array, []) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_intersect4 "SELECT array_intersect(ipv6_array, NULL) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_intersect5 "SELECT array_intersect(largeint_array, [2, 4]) FROM fn_test_nullsafe_array order by id"
 
     // array-map nullsafe tests
     qt_sql_array_map1 "SELECT array_map(x -> x + 1, int_array) FROM fn_test_nullsafe_array order by id"
@@ -170,6 +189,8 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_array_map10 "SELECT array_map(x -> x is null, date_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_map11 "SELECT array_map(x -> x is null, ipv4_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_map12 "SELECT array_map(x -> x is null, ipv6_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_map13 "SELECT array_map(x -> x + 1, largeint_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_map14 "SELECT array_map(x -> x is null, largeint_array) FROM fn_test_nullsafe_array order by id"
 
 
     // array-position nullsafe tests
@@ -180,6 +201,8 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_array_position5 "SELECT array_position(ipv4_array, '192.168.1.2') FROM fn_test_nullsafe_array order by id"
     qt_sql_array_position6 "SELECT array_position(ipv6_array, '2001:db8::1') FROM fn_test_nullsafe_array order by id"
     qt_sql_array_position7 "SELECT array_position(string_array, null) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_position8 "SELECT array_position(largeint_array, 3) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_position9 "SELECT array_position(largeint_array, null) FROM fn_test_nullsafe_array order by id"
 
     // literal nullsafe tests for functions 
     qt_sql_literal_array_apply "SELECT array_apply([1, null, 3], '>', 2)"
@@ -231,6 +254,7 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     // array_avg
     qt_sql_array_avg "SELECT array_avg(int_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_avg "SELECT array_avg(double_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_avg "SELECT array_avg(largeint_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_avg "SELECT array_avg(null) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_avg "SELECT array_avg([]) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_avg "SELECT array_avg([null]) FROM fn_test_nullsafe_array order by id"
@@ -239,6 +263,7 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     // array_max
     qt_sql_array_max "SELECT array_max(int_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_max "SELECT array_max(double_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_max "SELECT array_max(largeint_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_max "SELECT array_max(null) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_max "SELECT array_max([]) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_max "SELECT array_max([null]) FROM fn_test_nullsafe_array order by id"
@@ -247,6 +272,7 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     // array_min
     qt_sql_array_min "SELECT array_min(int_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_min "SELECT array_min(double_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_min "SELECT array_min(largeint_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_min "SELECT array_min(null) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_min "SELECT array_min([]) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_min "SELECT array_min([null]) FROM fn_test_nullsafe_array order by id"

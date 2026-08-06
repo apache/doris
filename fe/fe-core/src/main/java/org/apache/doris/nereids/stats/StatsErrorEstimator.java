@@ -120,18 +120,6 @@ public class StatsErrorEstimator {
         return Integer.parseInt(m.group(1));
     }
 
-    private Double extractRowsReturned(String rowsReturnedStr) {
-        if (rowsReturnedStr == null) {
-            return 0.0;
-        }
-        Pattern p = Pattern.compile("\\((\\d+)\\)");
-        Matcher m = p.matcher(rowsReturnedStr);
-        if (!m.find()) {
-            return 0.0;
-        }
-        return Double.parseDouble(m.group(1));
-    }
-
     private double oneIfZero(double d) {
         return d == 0.0 ? 1.0 : d;
     }

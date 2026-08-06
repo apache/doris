@@ -52,6 +52,10 @@ public class ConfigBase {
 
         boolean masterOnly() default false;
 
+        // If true, the value is a secret (e.g. a token or password) and is masked in every
+        // config dump API (Config.dump / getConfigInfo), so it is never returned in plaintext.
+        boolean sensitive() default false;
+
         String comment() default "";
 
         VariableAnnotation varType() default VariableAnnotation.NONE;
@@ -160,6 +164,48 @@ public class ConfigBase {
         }
         replacedByEnv(props);
         setFields(props, isLdapConfig);
+        warnUnknownConfigKeys(confFile, props);
+    }
+
+    // Keys that start with an uppercase letter and consist only of uppercase letters,
+    // digits and underscores (e.g. JAVA_OPTS, LOG_DIR) are exported as environment
+    // variables by bin/start_fe.sh and are not Doris config fields, so they must not
+    // be reported as unknown.
+    private static final Pattern ENV_STYLE_KEY_PATTERN = Pattern.compile("[A-Z][A-Z0-9_]*");
+
+    // Emit a warning for every key present in the config file that does not correspond
+    // to a known config field. Such keys (typos or configs removed in a newer version)
+    // are silently ignored by setFields(), so without this warning operators would have
+    // no feedback that the value is not taking effect. FE startup is not affected.
+    private void warnUnknownConfigKeys(String confFile, Properties props) {
+        Map<String, Field> fieldMap = isLdapConfig ? ldapConfFields : confFields;
+        if (fieldMap == null) {
+            return;
+        }
+        for (String key : props.stringPropertyNames()) {
+            if (ENV_STYLE_KEY_PATTERN.matcher(key).matches()) {
+                continue;
+            }
+            if (fieldMap.containsKey(key)) {
+                continue;
+            }
+            System.err.println(String.format(
+                    "[WARN] Unknown config '%s' in %s is ignored, please check whether it is a typo "
+                            + "or has been removed in this version.", key, confFile));
+        }
+    }
+
+    // Placeholder returned instead of a sensitive config's real value in any dump API.
+    public static final String SENSITIVE_CONF_MASK = "********";
+
+    // Mask the value of a sensitive config (a non-empty secret) so it is never dumped in plaintext.
+    // An empty value is left as-is: it reveals nothing and keeps "unset" visible.
+    private static String maskIfSensitive(Field field, String value) {
+        ConfField anno = field.getAnnotation(ConfField.class);
+        if (anno != null && anno.sensitive() && !Strings.isNullOrEmpty(value)) {
+            return SENSITIVE_CONF_MASK;
+        }
+        return value;
     }
 
     public static HashMap<String, String> dump() {
@@ -168,7 +214,7 @@ public class ConfigBase {
         for (Field f : fields) {
             ConfField anno = f.getAnnotation(ConfField.class);
             if (anno != null) {
-                map.put(f.getName(), getConfValue(f));
+                map.put(f.getName(), maskIfSensitive(f, getConfValue(f)));
             }
         }
         return map;
@@ -412,6 +458,7 @@ public class ConfigBase {
                 if (confKey.equals("sys_log_dir") && Strings.isNullOrEmpty(value)) {
                     value = System.getenv("DORIS_HOME") + "/log";
                 }
+                value = maskIfSensitive(f, value);
                 config.add(value);
                 config.add(f.getType().getSimpleName());
                 config.add(String.valueOf(confField.mutable()));

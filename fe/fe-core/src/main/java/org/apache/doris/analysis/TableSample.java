@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
-
 /*
  * To represent following stmt:
  *      TABLESAMPLE (10 PERCENT)
@@ -66,14 +64,7 @@ public class TableSample implements ParseNode {
     }
 
     @Override
-    public void analyze() throws AnalysisException {
-        if (sampleValue <= 0 || (isPercent && sampleValue > 100)) {
-            throw new AnalysisException("table sample value must be greater than 0, percent need less than 100.");
-        }
-    }
-
-    @Override
-    public String toSql() {
+    public String toString() {
         if (sampleValue == null) {
             return "";
         }
@@ -91,10 +82,5 @@ public class TableSample implements ParseNode {
             sb.append(seek);
         }
         return sb.toString();
-    }
-
-    @Override
-    public String toString() {
-        return toSql();
     }
 }

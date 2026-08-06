@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -80,7 +79,7 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                         // RIGHT_OUTER_JOIN should be eliminated in rewrite phase
                         // TODO: when top join is ANTI JOIN,  bottomJoin may be RIGHT_OUTER_JOIN
                         // Can we also do the transformation?
-                        if (bottomJoin.getJoinType() == JoinType.RIGHT_OUTER_JOIN) {
+                        if (bottomJoin.getJoinType().isRightOuterJoin()) {
                             return null;
                         }
 
@@ -100,7 +99,7 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                         // LEFT_OUTER_JOIN should be eliminated in rewrite phase
                         // TODO: when top join is ANTI JOIN,  bottomJoin may be RIGHT_OUTER_JOIN
                         // Can we also do the transformation?
-                        if (bottomJoin.getJoinType() == JoinType.LEFT_OUTER_JOIN) {
+                        if (bottomJoin.getJoinType().isLeftOuterJoin()) {
                             return null;
                         }
 

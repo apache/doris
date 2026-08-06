@@ -27,7 +27,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.BackendsProcDir;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -45,25 +44,18 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
-import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
-import org.apache.doris.utframe.MockedFrontend.FeStartException;
-import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.UUID;
 
 /*
  * This demo shows how to run unit test with mocked FE and BE.
@@ -73,25 +65,26 @@ import java.util.UUID;
  *  3. Make a schema change to tbl.
  *  4. send a query and get query plan
  */
-public class DemoMultiBackendsTest {
+public class DemoMultiBackendsTest extends TestWithFeService {
 
-    // use a unique dir so that it won't be conflict with other unit test which
-    // may also start a Mocked Frontend
-    private static String runningDirBase = "fe";
-    private static String runningDir = runningDirBase + "/mocked/DemoMultiBackendsTest/" + UUID.randomUUID().toString() + "/";
-    private static List<Backend> backends = Lists.newArrayList();
+    private List<Backend> backends = Lists.newArrayList();
     private static Random random = new Random(System.currentTimeMillis());
 
-    @BeforeClass
-    public static void beforeClass() throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, UserException, InterruptedException {
+    @Override
+    protected int backendNum() {
+        return 3;
+    }
+
+    @Override
+    protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.runningUnitTest = true;
         FeConstants.default_scheduler_interval_millisecond = 100;
         Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
+    }
 
-        UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 3);
-
+    @Override
+    protected void runBeforeAll() throws Exception {
         // must set disk info, or the tablet scheduler won't work
         backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
@@ -118,11 +111,6 @@ public class DemoMultiBackendsTest {
 
             be.updateDisks(backendDisks);
         }
-    }
-
-    @AfterClass
-    public static void tearDown() {
-        UtFrameUtils.cleanDorisFeDir(runningDirBase);
     }
 
     @Test
@@ -154,14 +142,14 @@ public class DemoMultiBackendsTest {
 
         // 4. get and test the created db and table
         Database db = Env.getCurrentInternalCatalog().getDbNullable("db1");
-        Assert.assertNotNull(db);
+        Assertions.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
         tbl.readLock();
         try {
-            Assert.assertNotNull(tbl);
+            Assertions.assertNotNull(tbl);
             System.out.println(tbl.getName());
-            Assert.assertEquals("Doris", tbl.getEngine());
-            Assert.assertEquals(1, tbl.getBaseSchema().size());
+            Assertions.assertEquals("Doris", tbl.getEngine());
+            Assertions.assertEquals(1, tbl.getBaseSchema().size());
         } finally {
             tbl.readUnlock();
         }
@@ -170,24 +158,24 @@ public class DemoMultiBackendsTest {
         alterTable(alterStmtStr, ctx);
         // 6. check alter job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
-        Assert.assertEquals(1, alterJobs.size());
+        Assertions.assertEquals(1, alterJobs.size());
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println("alter job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
                 Thread.sleep(1000);
             }
             System.out.println("alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
-            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Assertions.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
         }
 
         OlapTable tbl1 = (OlapTable) db.getTableNullable("tbl1");
         tbl1.readLock();
         try {
-            Assert.assertEquals(2, tbl1.getBaseSchema().size());
+            Assertions.assertEquals(2, tbl1.getBaseSchema().size());
             String baseIndexName = tbl1.getIndexNameById(tbl.getBaseIndexId());
-            Assert.assertEquals(baseIndexName, tbl1.getName());
+            Assertions.assertEquals(baseIndexName, tbl1.getName());
             MaterializedIndexMeta indexMeta = tbl1.getIndexMetaByIndexId(tbl1.getBaseIndexId());
-            Assert.assertNotNull(indexMeta);
+            Assertions.assertNotNull(indexMeta);
         } finally {
             tbl1.readUnlock();
         }
@@ -201,25 +189,25 @@ public class DemoMultiBackendsTest {
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
         List<PlanFragment> fragments = planner.getFragments();
-        Assert.assertEquals(2, fragments.size());
+        Assertions.assertEquals(2, fragments.size());
         PlanFragment fragment = fragments.get(1);
-        Assert.assertTrue(fragment.getPlanRoot() instanceof OlapScanNode);
-        Assert.assertEquals(0, fragment.getChildren().size());
+        Assertions.assertTrue(fragment.getPlanRoot() instanceof OlapScanNode);
+        Assertions.assertEquals(0, fragment.getChildren().size());
 
         // test show backends;
         BackendsProcDir dir = new BackendsProcDir(Env.getCurrentSystemInfo());
         ProcResult result = dir.fetchResult();
         ImmutableList<String> backendsTitleNames = BackendsTableValuedFunction.getBackendsTitleNames();
-        Assert.assertEquals(backendsTitleNames.size(), result.getColumnNames().size());
-        Assert.assertEquals("{\"location\" : \"default\"}",
+        Assertions.assertEquals(backendsTitleNames.size(), result.getColumnNames().size());
+        Assertions.assertEquals("{\"location\" : \"default\"}",
                 result.getRows().get(0).get(backendsTitleNames.size() - 10));
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 "{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,"
                         + "\"isLoadDisabled\":false,\"isActive\":true,\"isShutdown\":false,\"currentFragmentNum\":0,"
                         + "\"lastFragmentUpdateTime\":0}",
                 result.getRows().get(0).get(backendsTitleNames.size() - 7));
-        Assert.assertEquals("0", result.getRows().get(0).get(backendsTitleNames.size() - 6));
-        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(backendsTitleNames.size() - 5));
+        Assertions.assertEquals("0", result.getRows().get(0).get(backendsTitleNames.size() - 6));
+        Assertions.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(backendsTitleNames.size() - 1));
     }
 
     protected void alterTable(String sql, ConnectContext connectContext) throws Exception {

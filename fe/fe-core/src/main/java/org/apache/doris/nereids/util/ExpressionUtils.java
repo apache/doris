@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -52,8 +51,10 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -68,11 +69,14 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -119,6 +123,9 @@ import java.util.stream.Collectors;
 public class ExpressionUtils {
 
     public static final List<Expression> EMPTY_CONDITION = ImmutableList.of();
+    private static final int MAX_INFER_NOT_NULL_EXPR_WIDTH = 256;
+    private static final int MAX_INFER_NOT_NULL_EXPR_DEPTH = 64;
+    private static final int MAX_INFER_NOT_NULL_INPUT_SLOTS = 32;
 
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
@@ -211,14 +218,57 @@ public class ExpressionUtils {
     }
 
     /**
-     *  AND / OR expression, also remove duplicate expression, boolean literal
+     * Rebuild expression tree and refresh BoundFunction signatures.
+     * If an expression is a BoundFunction, recreate it with rebuilt children and
+     * reset its signature.
+     * Other expressions are recreated only when children change.
+     *
+     * @return rebuilt expression (may be the same instance when unchanged and
+     *         non-BoundFunction)
+     */
+    public static Expression rebuildSignature(Expression expr) {
+        List<Expression> newChildren = expr.children().stream()
+                .map(ExpressionUtils::rebuildSignature)
+                .collect(Collectors.toList());
+        return MoreFieldsThread.keepFunctionSignature(false,
+                () -> {
+                    boolean childrenUnchanged = true;
+                    List<Expression> originChildren = expr.children();
+                    if (originChildren.size() != newChildren.size()) {
+                        childrenUnchanged = false;
+                    } else {
+                        for (int i = 0; i < originChildren.size(); i++) {
+                            if (originChildren.get(i) != newChildren.get(i)) {
+                                childrenUnchanged = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (expr instanceof BoundFunction) {
+                        BoundFunction fn = (BoundFunction) expr;
+                        BoundFunction rebuilt = (BoundFunction) fn.withChildren(newChildren);
+                        rebuilt = (BoundFunction) TypeCoercionUtils.processBoundFunction(rebuilt);
+                        return rebuilt;
+                    }
+
+                    if (childrenUnchanged) {
+                        return expr;
+                    }
+                    return expr.withChildren(newChildren);
+                });
+
+    }
+
+    /**
+     * AND / OR expression, also remove duplicate expression, boolean literal
      */
     public static Expression compound(boolean isAnd, Collection<Expression> expressions) {
         return isAnd ? and(expressions) : or(expressions);
     }
 
     /**
-     *  AND expression, also remove duplicate expression, boolean literal
+     * AND expression, also remove duplicate expression, boolean literal
      */
     public static Expression and(Collection<Expression> expressions) {
         if (expressions.size() == 1) {
@@ -244,7 +294,7 @@ public class ExpressionUtils {
     }
 
     /**
-     *  AND expression, also remove duplicate expression, boolean literal
+     * AND expression, also remove duplicate expression, boolean literal
      */
     public static Expression and(Expression... expressions) {
         return and(Lists.newArrayList(expressions));
@@ -259,14 +309,14 @@ public class ExpressionUtils {
     }
 
     /**
-     *  OR expression, also remove duplicate expression, boolean literal
+     * OR expression, also remove duplicate expression, boolean literal
      */
     public static Expression or(Expression... expressions) {
         return or(Lists.newArrayList(expressions));
     }
 
     /**
-     *  OR expression, also remove duplicate expression, boolean literal
+     * OR expression, also remove duplicate expression, boolean literal
      */
     public static Expression or(Collection<Expression> expressions) {
         if (expressions.size() == 1) {
@@ -368,41 +418,6 @@ public class ExpressionUtils {
             }
         }
         return minSlot;
-    }
-
-    /**
-     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * <p>
-     * for example:
-     * - SlotReference to a column:
-     * col
-     * - Cast on SlotReference:
-     * cast(int_col as string)
-     * cast(cast(int_col as long) as string)
-     *
-     * @param expr input expression
-     * @return Return Optional[ExprId] of underlying slot reference if input expression is a slot or cast on slot.
-     *         Otherwise, return empty optional result.
-     */
-    public static Optional<ExprId> isSlotOrCastOnSlot(Expression expr) {
-        return extractSlotOrCastOnSlot(expr).map(Slot::getExprId);
-    }
-
-    /**
-     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     */
-    public static Optional<Slot> extractSlotOrCastOnSlot(Expression expr) {
-        while (expr instanceof Cast) {
-            expr = expr.child(0);
-        }
-
-        if (expr instanceof SlotReference) {
-            return Optional.of((Slot) expr);
-        } else {
-            return Optional.empty();
-        }
     }
 
     /**
@@ -597,11 +612,12 @@ public class ExpressionUtils {
     }
 
     /**
-     * set ignore unique id for unique functions
+     * Set ignore unique id for volatile expressions.
      */
-    public static Expression setIgnoreUniqueIdForUniqueFunc(Expression expression, boolean ignoreUniqueId) {
+    public static Expression setIgnoreUniqueIdForVolatileExpression(Expression expression, boolean ignoreUniqueId) {
         return expression.rewriteDownShortCircuit(e ->
-                e instanceof UniqueFunction ? ((UniqueFunction) e).withIgnoreUniqueId(ignoreUniqueId) : e);
+                e.isVolatile()
+                        ? ((VolatileExpression) e).withIgnoreUniqueId(ignoreUniqueId) : e);
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
@@ -676,10 +692,9 @@ public class ExpressionUtils {
          * the mark slot can be non-nullable boolean
          * and in semi join, we can safely change the mark conjunct to hash conjunct
          */
-        ImmutableList<Literal> literals =
-                ImmutableList.of(NullLiteral.BOOLEAN_INSTANCE, BooleanLiteral.FALSE);
-        List<MarkJoinSlotReference> markJoinSlotReferenceList =
-                new ArrayList<>((predicate.collect(MarkJoinSlotReference.class::isInstance)));
+        ImmutableList<Literal> literals = ImmutableList.of(NullLiteral.BOOLEAN_INSTANCE, BooleanLiteral.FALSE);
+        List<MarkJoinSlotReference> markJoinSlotReferenceList = new ArrayList<>(
+                (predicate.collect(MarkJoinSlotReference.class::isInstance)));
         int markSlotSize = markJoinSlotReferenceList.size();
         int maxMarkSlotCount = 4;
         // if the conjunct has mark slot, and maximum 4 mark slots(for performance)
@@ -688,9 +703,9 @@ public class ExpressionUtils {
             boolean meetTrue = false;
             boolean meetNullOrFalse = false;
             /*
-             * markSlotSize = 1 -> loopCount = 2  ---- 0, 1
-             * markSlotSize = 2 -> loopCount = 4  ---- 00, 01, 10, 11
-             * markSlotSize = 3 -> loopCount = 8  ---- 000, 001, 010, 011, 100, 101, 110, 111
+             * markSlotSize = 1 -> loopCount = 2 ---- 0, 1
+             * markSlotSize = 2 -> loopCount = 4 ---- 00, 01, 10, 11
+             * markSlotSize = 3 -> loopCount = 8 ---- 000, 001, 010, 011, 100, 101, 110, 111
              * markSlotSize = 4 -> loopCount = 16 ---- 0000, 0001, ... 1111
              */
             int loopCount = 1 << markSlotSize;
@@ -706,8 +721,7 @@ public class ExpressionUtils {
                 }
                 Expression evalResult = FoldConstantRule.evaluate(
                         ExpressionUtils.replace(predicate, replaceMap),
-                        ctx
-                );
+                        ctx);
 
                 if (evalResult.equals(BooleanLiteral.TRUE)) {
                     if (meetNullOrFalse) {
@@ -738,22 +752,68 @@ public class ExpressionUtils {
      * infer notNulls slot from predicate
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
-        ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(predicates.size());
+        Set<Slot> targetSlots = new HashSet<>();
         for (Expression predicate : predicates) {
             for (Slot slot : predicate.getInputSlots()) {
-                Map<Expression, Expression> replaceMap = new HashMap<>();
-                Literal nullLiteral = new NullLiteral(slot.getDataType());
-                replaceMap.put(slot, nullLiteral);
-                Expression evalExpr = FoldConstantRule.evaluate(
-                        ExpressionUtils.replace(predicate, replaceMap),
-                        new ExpressionRewriteContext(cascadesContext)
-                );
-                if (evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr)) {
+                if (!(slot instanceof MarkJoinSlotReference)) {
+                    targetSlots.add(slot);
+                }
+            }
+        }
+        return inferNotNullSlots(predicates, targetSlots, cascadesContext);
+    }
+
+    /**
+     * infer notNulls slot from predicate but these slots must be in the given target slots.
+     */
+    public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, Set<Slot> targetSlots,
+            CascadesContext cascadesContext) {
+        ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(targetSlots.size());
+        Set<Slot> inputSlots = new HashSet<>();
+        for (Expression predicate : predicates) {
+            if (predicate.getWidth() > MAX_INFER_NOT_NULL_EXPR_WIDTH
+                    || predicate.getDepth() > MAX_INFER_NOT_NULL_EXPR_DEPTH) {
+                continue;
+            }
+            Set<Slot> predicateInputSlots = predicate.getInputSlots();
+            Set<Slot> candidateSlots = Sets.intersection(predicateInputSlots, targetSlots);
+            if (candidateSlots.isEmpty()) {
+                continue;
+            }
+            Optional<Set<Slot>> mergedInputSlots = mergeInputSlotsWithinLimit(inputSlots, predicateInputSlots);
+            if (!mergedInputSlots.isPresent()) {
+                continue;
+            }
+            inputSlots = mergedInputSlots.get();
+            for (Slot slot : candidateSlots) {
+                if (isNullRejecting(predicate, slot, cascadesContext)) {
                     notNullSlots.add(slot);
                 }
             }
         }
         return notNullSlots.build();
+    }
+
+    private static boolean isNullRejecting(Expression predicate, Slot slot, CascadesContext cascadesContext) {
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        Literal nullLiteral = new NullLiteral(slot.getDataType());
+        replaceMap.put(slot, nullLiteral);
+        Expression evalExpr = FoldConstantRule.evaluate(
+                ExpressionUtils.replace(predicate, replaceMap),
+                new ExpressionRewriteContext(cascadesContext));
+        return evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr);
+    }
+
+    private static Optional<Set<Slot>> mergeInputSlotsWithinLimit(Set<Slot> inputSlots, Set<Slot> predicateInputSlots) {
+        if (predicateInputSlots.size() > MAX_INFER_NOT_NULL_INPUT_SLOTS) {
+            return Optional.empty();
+        }
+        Set<Slot> mergedInputSlots = new HashSet<>(inputSlots);
+        mergedInputSlots.addAll(predicateInputSlots);
+        if (mergedInputSlots.size() > MAX_INFER_NOT_NULL_INPUT_SLOTS) {
+            return Optional.empty();
+        }
+        return Optional.of(mergedInputSlots);
     }
 
     /**
@@ -767,20 +827,6 @@ public class ExpressionUtils {
         return newPredicates.build();
     }
 
-    /**
-     * infer notNulls slot from predicate but these slots must be in the given slots.
-     */
-    public static Set<Expression> inferNotNull(Set<Expression> predicates, Set<Slot> slots,
-            CascadesContext cascadesContext) {
-        ImmutableSet.Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size());
-        for (Slot slot : inferNotNullSlots(predicates, cascadesContext)) {
-            if (slots.contains(slot)) {
-                newPredicates.add(new Not(new IsNull(slot), true));
-            }
-        }
-        return newPredicates.build();
-    }
-
     public static boolean isGeneratedNotNull(Expression expression) {
         return expression instanceof Not
                 && ((Not) expression).isGeneratedIsNotNull()
@@ -788,13 +834,13 @@ public class ExpressionUtils {
     }
 
     /** flatExpressions */
-    public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressionLists) {
+    public static <E extends Expression> Set<E> flatExpressions(List<List<E>> expressionLists) {
         int num = 0;
         for (List<E> expressionList : expressionLists) {
             num += expressionList.size();
         }
 
-        ImmutableList.Builder<E> flatten = ImmutableList.builderWithExpectedSize(num);
+        ImmutableSet.Builder<E> flatten = ImmutableSet.builderWithExpectedSize(num);
         for (List<E> expressionList : expressionLists) {
             flatten.addAll(expressionList);
         }
@@ -913,6 +959,15 @@ public class ExpressionUtils {
         if (expression instanceof EqualTo) {
             if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
                 builder.put((Slot) expression.child(0), expression.child(1));
+            } else {
+                // length(str_col)=0 => str_col=''
+                if (expression.child(0) instanceof Length
+                        && expression.child(1).equals(new IntegerLiteral(0))) {
+                    Length len = (Length) expression.child(0);
+                    if (len.child() instanceof Slot && len.child().getDataType().isStringLikeType()) {
+                        builder.put((Slot) len.child(), new StringLiteral(""));
+                    }
+                }
             }
         }
         return builder.build();
@@ -923,7 +978,7 @@ public class ExpressionUtils {
         return expression instanceof Slot;
     }
 
-    // if the input is unique,  the output of agg is unique, too
+    // if the input is unique, the output of agg is unique, too
     public static boolean isInjectiveAgg(Expression agg) {
         return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
     }
@@ -941,7 +996,8 @@ public class ExpressionUtils {
     public static <E> List<E> collectAll(Collection<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
         switch (expressions.size()) {
-            case 0: return ImmutableList.of();
+            case 0:
+                return ImmutableList.of();
             default: {
                 ImmutableList.Builder<E> result = ImmutableList.builder();
                 for (Expression expr : expressions) {
@@ -1027,6 +1083,20 @@ public class ExpressionUtils {
     }
 
     /**
+     * Strip only casts that preserve distinctness of the child expression.
+     */
+    public static Expression getExpressionCoveredBySafetyCast(Expression expression) {
+        while (expression instanceof Cast) {
+            if (((Cast) expression).child().getDataType().isInjectiveCastTo(expression.getDataType())) {
+                expression = ((Cast) expression).child();
+            } else {
+                break;
+            }
+        }
+        return expression;
+    }
+
+    /**
      * the expressions can be used as runtime filter targets
      */
     public static Expression getSingleNumericSlotOrExpressionCoveredByCast(Expression expression) {
@@ -1050,14 +1120,13 @@ public class ExpressionUtils {
      */
     public static boolean checkSlotConstant(Slot slot, Set<Expression> predicates) {
         return predicates.stream().anyMatch(predicate -> {
-                    if (predicate instanceof EqualTo) {
-                        EqualTo equalTo = (EqualTo) predicate;
-                        return (equalTo.left() instanceof Literal && equalTo.right().equals(slot))
-                                || (equalTo.right() instanceof Literal && equalTo.left().equals(slot));
-                    }
-                    return false;
-                }
-        );
+            if (predicate instanceof EqualTo) {
+                EqualTo equalTo = (EqualTo) predicate;
+                return (equalTo.left() instanceof Literal && equalTo.right().equals(slot))
+                        || (equalTo.right() instanceof Literal && equalTo.left().equals(slot));
+            }
+            return false;
+        });
     }
 
     /**
@@ -1157,6 +1226,13 @@ public class ExpressionUtils {
         return Optional.empty();
     }
 
+    public static Optional<Literal> getLiteralAfterUnwrapNullable(Expression expr) {
+        while (expr instanceof Nullable || expr instanceof NonNullable) {
+            expr = expr.child(0);
+        }
+        return expr instanceof Literal ? Optional.of((Literal) expr) : Optional.empty();
+    }
+
     /** analyze the unbound expression and fold it to literal */
     public static Literal analyzeAndFoldToLiteral(ConnectContext ctx, Expression expression) throws UserException {
         Scope scope = new Scope(new ArrayList<>());
@@ -1175,8 +1251,7 @@ public class ExpressionUtils {
         }
         ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
         ExpressionRuleExecutor executor = new ExpressionRuleExecutor(ImmutableList.of(
-                ExpressionRewrite.bottomUp(ReplaceVariableByLiteral.INSTANCE)
-        ));
+                ExpressionRewrite.bottomUp(ReplaceVariableByLiteral.INSTANCE)));
         Expression rewrittenExpression = executor.rewrite(analyzedExpr, context);
         Expression foldExpression = FoldConstantRule.evaluate(rewrittenExpression, context);
         if (foldExpression instanceof Literal) {
@@ -1251,8 +1326,8 @@ public class ExpressionUtils {
     public static Optional<List<Expression>> getCaseWhenLikeBranchResults(Expression expression) {
         if (expression instanceof CaseWhen) {
             CaseWhen caseWhen = (CaseWhen) expression;
-            ImmutableList.Builder<Expression> builder
-                    = ImmutableList.builderWithExpectedSize(caseWhen.getWhenClauses().size() + 1);
+            ImmutableList.Builder<Expression> builder = ImmutableList
+                    .builderWithExpectedSize(caseWhen.getWhenClauses().size() + 1);
             for (WhenClause whenClause : caseWhen.getWhenClauses()) {
                 builder.add(whenClause.getResult());
             }
@@ -1292,13 +1367,13 @@ public class ExpressionUtils {
     }
 
     /**
-     * check if the expressions contain a unique function which exists multiple times
+     * check if the expressions contain a volatile expression which exists multiple times
      */
-    public static boolean containUniqueFunctionExistMultiple(Collection<? extends Expression> expressions) {
-        Set<UniqueFunction> counterSet = Sets.newHashSet();
+    public static boolean containVolatileExpressionExistMultiple(Collection<? extends Expression> expressions) {
+        Set<Expression> counterSet = Sets.newHashSet();
         for (Expression expression : expressions) {
             if (expression.anyMatch(
-                    expr -> expr instanceof UniqueFunction && !counterSet.add((UniqueFunction) expr))) {
+                    expr -> ((Expression) expr).isVolatile() && !counterSet.add((Expression) expr))) {
                 return true;
             }
         }

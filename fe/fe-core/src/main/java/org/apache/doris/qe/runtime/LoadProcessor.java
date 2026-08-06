@@ -21,16 +21,15 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.datasource.hive.HMSTransaction;
-import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AbstractJobProcessor;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.LoadContext;
 import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.TReportExecStatusParams;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.CommitDataSerializer;
+import org.apache.doris.transaction.Transaction;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -52,7 +51,6 @@ public class LoadProcessor extends AbstractJobProcessor {
     //  key: fragmentId, value: backendId
     private volatile Optional<MarkedCountDownLatch<Integer, Long>> latch;
     private volatile Optional<MarkedCountDownLatch<Integer, Long>> topFragmentLatch;
-    private volatile List<SingleFragmentPipelineTask> topFragmentTasks;
 
     public LoadProcessor(CoordinatorContext coordinatorContext, long jobId) {
         super(coordinatorContext);
@@ -74,8 +72,6 @@ public class LoadProcessor extends AbstractJobProcessor {
         Env.getCurrentEnv().getProgressManager().addTotalScanNums(
                 String.valueOf(jobId), coordinatorContext.scanRangeNum.get()
         );
-
-        topFragmentTasks = Lists.newArrayList();
 
         LOG.info("dispatch load job: {} to {}",
                 DebugUtil.printId(queryId), coordinatorContext.backends.get().keySet()
@@ -104,8 +100,6 @@ public class LoadProcessor extends AbstractJobProcessor {
                 }
             }
         }
-        this.topFragmentTasks = topFragmentTasks;
-
         // only wait top fragments
         MarkedCountDownLatch<Integer, Long> topFragmentLatch = new MarkedCountDownLatch<>(topFragmentTasks.size());
         for (SingleFragmentPipelineTask topFragmentTask : topFragmentTasks) {
@@ -169,6 +163,12 @@ public class LoadProcessor extends AbstractJobProcessor {
     @Override
     protected void doProcessReportExecStatus(TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {
         if (params.isSetLoadedRows() && jobId != -1) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("doProcessReportExecStatus: forwarding load progress to LoadManager, "
+                                + "jobId={}, beId={}, queryId={}, loadedRows={}, loadedBytes={}, isDone={}",
+                        jobId, params.getBackendId(), DebugUtil.printId(params.getQueryId()),
+                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+            }
             if (params.isSetFragmentInstanceReports()) {
                 for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
                     Env.getCurrentEnv().getLoadManager().updateJobProgress(
@@ -221,13 +221,17 @@ public class LoadProcessor extends AbstractJobProcessor {
             loadContext.updateErrorTabletInfos(params.getErrorTabletInfos());
         }
         long txnId = loadContext.getTransactionId();
-        if (params.isSetHivePartitionUpdates()) {
-            ((HMSTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
-                    .updateHivePartitionUpdates(params.getHivePartitionUpdates());
-        }
-        if (params.isSetIcebergCommitDatas()) {
-            ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
-                    .updateIcebergCommitData(params.getIcebergCommitDatas());
+        if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas()) {
+            Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId);
+            if (params.isSetHivePartitionUpdates()) {
+                CommitDataSerializer.feed(txn, params.getHivePartitionUpdates());
+            }
+            if (params.isSetIcebergCommitDatas()) {
+                CommitDataSerializer.feed(txn, params.getIcebergCommitDatas());
+            }
+            if (params.isSetMcCommitDatas()) {
+                CommitDataSerializer.feed(txn, params.getMcCommitDatas());
+            }
         }
 
         if (fragmentTask.isDone()) {
@@ -250,16 +254,14 @@ public class LoadProcessor extends AbstractJobProcessor {
         }
     }
 
-    /*
-     * Check the state of backends in needCheckBackendExecStates.
-     * return true if all of them are OK. Otherwise, return false.
-     */
+    // Check backend health for every unfinished load fragment task.
     private boolean checkHealthy() {
-        for (SingleFragmentPipelineTask topFragmentTask : topFragmentTasks) {
-            if (!topFragmentTask.isBackendHealthy(jobId)) {
-                long backendId = topFragmentTask.getBackend().getId();
-                Status unhealthyStatus = new Status(
-                        TStatusCode.INTERNAL_ERROR, "backend " + backendId + " is down");
+        for (SingleFragmentPipelineTask fragmentTask : backendFragmentTasks.get().values()) {
+            if (fragmentTask.isDone()) {
+                continue;
+            }
+            Status unhealthyStatus = fragmentTask.getBackendHealthStatus(jobId);
+            if (!unhealthyStatus.ok()) {
                 coordinatorContext.updateStatusIfOk(unhealthyStatus);
                 return false;
             }

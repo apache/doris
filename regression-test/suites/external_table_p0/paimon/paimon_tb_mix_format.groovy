@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("paimon_tb_mix_format", "p0,external,doris,external_docker,external_docker_doris") {
+suite("paimon_tb_mix_format", "p0,external") {
 
     logger.info("start paimon test")
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
@@ -52,7 +52,7 @@ suite("paimon_tb_mix_format", "p0,external,doris,external_docker,external_docker
 
         explain {
             sql("verbose select * from test_tb_mix_format")
-            contains("... other 16 paimon split stats ...")
+            contains("... other 16")
         }
     } finally {
         sql """set force_jni_scanner=false"""

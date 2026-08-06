@@ -21,10 +21,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.util.DBObjects;
@@ -135,7 +135,7 @@ public class StatisticsRepository {
             return columnStatistic;
         }
         try {
-            columnStatistic = ColumnStatistic.fromResultRow(resultRow, true);
+            columnStatistic = ColumnStatistic.fromResultRow(resultRow);
         } catch (Exception e) {
             LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), resultRow);
             if (LOG.isDebugEnabled()) {
@@ -361,8 +361,7 @@ public class StatisticsRepository {
         }
         if (ndv != null) {
             try {
-                double avgOccurrences = 1 / Double.parseDouble(ndv);
-                builder.setHotValues(StatisticsUtil.getHotValues(hotValues, column.getType(), avgOccurrences));
+                builder.setHotValues(StatisticsUtil.getHotValues(hotValues, column.getType()));
             } catch (Exception e) {
                 if (SessionVariable.isFeDebug()) {
                     throw e;

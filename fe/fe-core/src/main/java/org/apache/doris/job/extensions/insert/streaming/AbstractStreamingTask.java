@@ -33,6 +33,8 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Log4j2
@@ -41,6 +43,8 @@ public abstract class AbstractStreamingTask {
     private static final int MAX_RETRY = 3;
     private static final String LABEL_SPLITTER = "_";
     private int retryCount = 0;
+    // in-place retry would reuse this taskId, breaking ownership-based zombie isolation
+    protected volatile boolean noRetry;
     protected String labelName;
     protected Offset runningOffset;
     protected UserIdentity userIdentity;
@@ -68,9 +72,26 @@ public abstract class AbstractStreamingTask {
 
     public abstract void run() throws JobException;
 
+    /**
+     * Returns the IDs of backends that ran the scan node for this task.
+     * Subclasses backed by a TVF query (e.g. StreamingInsertTask) override this
+     * to return the actual scan backend IDs from the coordinator.
+     */
+    public List<Long> getScanBackendIds() {
+        return Collections.emptyList();
+    }
+
     public abstract boolean onSuccess() throws JobException;
 
     public abstract void closeOrReleaseResources();
+
+    // Release the remote cdc reader (keep slot). No-op for tasks without a cdc reader (e.g. TVF).
+    public void releaseRemoteReader() {
+    }
+
+    public long getRunningBackendId() {
+        return -1;
+    }
 
     public void execute() throws JobException {
         while (retryCount <= MAX_RETRY) {
@@ -85,8 +106,9 @@ public abstract class AbstractStreamingTask {
                 }
                 this.errMsg = e.getMessage();
                 retryCount++;
-                if (retryCount > MAX_RETRY) {
-                    log.error("Task execution failed after {} retries.", MAX_RETRY, e);
+                if (noRetry || retryCount > MAX_RETRY) {
+                    log.error("Task execution failed, job id {}, task id {}, noRetry {}, retry {}.",
+                            jobId, taskId, noRetry, retryCount, e);
                     onFail(e.getMessage());
                     return;
                 }
@@ -129,15 +151,15 @@ public abstract class AbstractStreamingTask {
     }
 
     public void cancel(boolean needWaitCancelComplete) {
+        // Flip isCanceled even on terminal states so late BE callbacks short-circuit.
+        if (getIsCanceled().getAndSet(true)) {
+            return;
+        }
         if (TaskStatus.SUCCESS.equals(status) || TaskStatus.FAILED.equals(status)
                 || TaskStatus.CANCELED.equals(status)) {
             return;
         }
         status = TaskStatus.CANCELED;
-        if (getIsCanceled().get()) {
-            return;
-        }
-        getIsCanceled().getAndSet(true);
         this.errMsg = "task cancelled";
     }
 

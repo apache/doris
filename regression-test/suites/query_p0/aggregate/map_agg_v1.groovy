@@ -30,8 +30,7 @@ suite("map_agg_v1") {
         "replication_allocation" = "tag.location.default: 1",
         "storage_format" = "V2",
         "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
         );
      """
 
@@ -68,8 +67,7 @@ suite("map_agg_v1") {
           "replication_allocation" = "tag.location.default: 1",
           "storage_format" = "V2",
           "light_schema_change" = "true",
-          "disable_auto_compaction" = "false",
-          "enable_single_replica_compaction" = "false"
+          "disable_auto_compaction" = "false"
           );
      """
     sql """
@@ -105,8 +103,7 @@ suite("map_agg_v1") {
         "replication_allocation" = "tag.location.default: 1",
         "storage_format" = "V2",
         "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
         );
       """
 
@@ -143,8 +140,7 @@ suite("map_agg_v1") {
          "replication_allocation" = "tag.location.default: 1",
          "storage_format" = "V2",
          "light_schema_change" = "true",
-         "disable_auto_compaction" = "false",
-         "enable_single_replica_compaction" = "false"
+         "disable_auto_compaction" = "false"
          );
     """
 

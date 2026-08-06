@@ -63,8 +63,7 @@ suite("explode") {
             "is_being_synced" = "false",
             "storage_format" = "V2",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false"
+            "disable_auto_compaction" = "false"
             );
         """
     sql "insert into baseall_explode_numbers values(1),(2),(3),(4),(5),(6),(7),(8),(9),(10),(11),(12),(13),(14),(15);"
@@ -89,8 +88,7 @@ suite("explode") {
         "is_being_synced" = "false",
         "storage_format" = "V2",
         "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
         );
     """
 
@@ -158,7 +156,6 @@ suite("explode") {
     "storage_format" = "V2",
     "light_schema_change" = "true",
     "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false",
     "group_commit_interval_ms" = "10000",
     "group_commit_data_bytes" = "134217728"
     );

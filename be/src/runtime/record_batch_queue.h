@@ -32,9 +32,7 @@ class RecordBatch;
 
 namespace doris {
 
-namespace pipeline {
 class Dependency;
-}
 
 // The RecordBatchQueue is created and managed by the ResultQueueMgr to
 // cache external query results, as well as query status. Where both
@@ -61,13 +59,13 @@ public:
     void shutdown();
 
     size_t size() { return _queue.get_size(); }
-    void set_dep(std::shared_ptr<pipeline::Dependency> dep) { _dep = dep; }
+    void set_dep(std::shared_ptr<Dependency> dep) { _dep = dep; }
 
 private:
     BlockingQueue<std::shared_ptr<arrow::RecordBatch>> _queue;
     std::mutex _status_lock;
     Status _status;
-    std::shared_ptr<pipeline::Dependency> _dep = nullptr;
+    std::shared_ptr<Dependency> _dep = nullptr;
 };
 
 } // namespace doris

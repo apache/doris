@@ -41,10 +41,11 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
+#include "common/metrics/system_metrics.h"
 #include "common/status.h"
-#include "olap/memtable_memory_limiter.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/be_proc_monitor.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -54,12 +55,12 @@
 #include "runtime/process_profile.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_manager.h"
 #include "util/algorithm_util.h"
-#include "util/doris_metrics.h"
 #include "util/mem_info.h"
-#include "util/metrics.h"
 #include "util/perf_counters.h"
-#include "util/system_metrics.h"
+#include "util/s3_rate_limiter_manager.h"
 #include "util/time.h"
 
 namespace doris {
@@ -328,6 +329,7 @@ void memory_gc() {
 }
 
 void Daemon::memory_maintenance_thread() {
+    doris::enable_profile_counter_check = 0;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::memory_maintenance_sleep_time_ms))) {
         // step 1. Refresh process memory metrics.
@@ -581,6 +583,18 @@ void Daemon::calculate_workload_group_metrics_thread() {
     }
 }
 
+void Daemon::s3_rate_limiter_refresh_thread() {
+    // Single trigger for dynamic rate limiter changes: picks up both mutable
+    // s3_{get,put}_* config updates and cgroup CPU quota changes (serverless BEs can
+    // be resized in place). refresh() is idempotent and compares against the buckets'
+    // own parameters, so quiet iterations are cheap no-ops.
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
+        if (config::enable_s3_rate_limiter) {
+            S3RateLimiterManager::instance().refresh();
+        }
+    }
+}
+
 void Daemon::start() {
     Status st;
     st = Thread::create(
@@ -602,6 +616,10 @@ void Daemon::start() {
                 [this]() { this->calculate_metrics_thread(); }, &_threads.emplace_back());
         CHECK(st.ok()) << st;
     }
+    st = Thread::create(
+            "Daemon", "s3_rate_limiter_refresh_thread",
+            [this]() { this->s3_rate_limiter_refresh_thread(); }, &_threads.emplace_back());
+    CHECK(st.ok()) << st;
     st = Thread::create(
             "Daemon", "je_reset_dirty_decay_thread",
             [this]() { this->je_reset_dirty_decay_thread(); }, &_threads.emplace_back());

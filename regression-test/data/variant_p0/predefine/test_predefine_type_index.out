@@ -13,6 +13,14 @@
 4	{"path":{"decimal":100.100123456789,"int":100,"string":"world"}}
 5	{"path":{"decimal":111.111111111111,"int":111,"string":"hello"}}
 
+-- !count_on_index_with_segment_limit_disabled --
+1
+
+-- !match_with_segment_limit_disabled --
+1
+3
+5
+
 -- !sql --
 1
 

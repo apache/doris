@@ -18,7 +18,7 @@ import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static groovy.test.GroovyAssert.shouldFail
 
-suite("refactor_storage_backup_restore_object_storage", "p0,external,external_docker") {
+suite("refactor_storage_backup_restore_object_storage", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableRefactorParamsTest")
     if (enabled == null || enabled.equalsIgnoreCase("false")) {
         return
@@ -113,7 +113,9 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external,external_do
         SHOW SNAPSHOT ON ${repoName} WHERE SNAPSHOT =  '${backupLabel}';
         """
         println querySnapshotResult
-        def snapshotTimes = querySnapshotResult.get(0).get(1).split('\n')
+        def rawTimestamp = querySnapshotResult.get(0).get(1)
+        assertNotNull(rawTimestamp, "SHOW SNAPSHOT returned null timestamp for snapshot '${backupLabel}'")
+        def snapshotTimes = rawTimestamp.split('\n')
         def snapshotTime = snapshotTimes[0]
 
         sql """

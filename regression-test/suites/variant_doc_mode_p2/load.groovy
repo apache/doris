@@ -91,8 +91,8 @@ suite("test_doc_value_p2", "nonConcurrent,p2"){
             -- INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 1 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "false", "inverted_index_storage_format"= "v2");
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "deprecated_variant_enable_flatten_nested" = "false", "inverted_index_storage_format"= "v2");
     """
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
@@ -123,7 +123,7 @@ suite("test_doc_value_p2", "nonConcurrent,p2"){
             exception "The idx_var index can not be built on the v column, because it is a variant type column"
         }
     }
-    
+
 
     // // add bloom filter at the end of loading data
 
@@ -132,7 +132,7 @@ suite("test_doc_value_p2", "nonConcurrent,p2"){
     trigger_and_wait_compaction("github_events", "full")
 
     sql """set enable_match_without_inverted_index = false"""
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     // filter by bloom filter
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
 
@@ -145,7 +145,7 @@ suite("test_doc_value_p2", "nonConcurrent,p2"){
 
     qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""
     sql """select * from github_events order by k limit 10"""
-    
+
     sql "DROP TABLE IF EXISTS github_events2"
     sql """
      CREATE TABLE IF NOT EXISTS github_events2 (
@@ -153,8 +153,8 @@ suite("test_doc_value_p2", "nonConcurrent,p2"){
             v variant<properties("variant_max_subcolumns_count" = "${rand_subcolumns_count}")> not null
         )
         UNIQUE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false", "bloom_filter_columns" = "v");
+        DISTRIBUTED BY HASH(k) BUCKETS 4
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "deprecated_variant_enable_flatten_nested" = "false", "bloom_filter_columns" = "v");
         """
     sql """insert into github_events2 select * from github_events order by k"""
     sql """select v['payload']['commits'] from github_events order by k ;"""

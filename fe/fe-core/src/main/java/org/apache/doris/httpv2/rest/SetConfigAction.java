@@ -22,8 +22,6 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.Lists;
@@ -59,8 +57,8 @@ public class SetConfigAction extends RestBaseController {
 
     @RequestMapping(path = "/api/_set_config", method = RequestMethod.GET)
     protected Object set_config(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         boolean needPersist = false;
         boolean resetPersist = true;

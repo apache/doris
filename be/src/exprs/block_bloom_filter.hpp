@@ -22,7 +22,7 @@
 
 #include <crc32c/crc32c.h>
 
-#include "vec/common/string_ref.h"
+#include "core/string_ref.h"
 #ifdef __AVX2__
 #include <immintrin.h>
 #elif defined(__ARM_NEON)
@@ -37,7 +37,6 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // https://github.com/apache/kudu/blob/master/src/kudu/util/block_bloom_filter.h
 // BlockBloomFilter is modified based on Impala's BlockBloomFilter.
@@ -276,4 +275,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

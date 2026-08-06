@@ -106,7 +106,7 @@ suite("test_index_match_phrase_select", "inverted_index_select"){
         ("san zhang", "grade 5", "", "", "", 10, "2017-10-01", "tall:100cm, weight: 30kg, hobbies:", "", ""),
         ("li sisi", "grade 6", "li ba", "li liuliu", "", 11, "2016-10-01", "tall:150cm, weight: 40kg, hobbies: sing, dancing, running", "good at handiwork and beaty", "")
     """
-    
+
     for (int i = 0; i < 2; i++) {
         logger.info("select table with index times " + i)
         // case1: match phrase with index but support_phrase=fasle
@@ -155,7 +155,7 @@ suite("test_index_match_phrase_select", "inverted_index_select"){
                 wait_for_build_index_on_partition_finish(indexTbName1, timeout)
             }
         }
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         // case1: test match_phrase ""
         try {

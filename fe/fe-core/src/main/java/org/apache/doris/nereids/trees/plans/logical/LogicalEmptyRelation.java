@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -72,14 +73,16 @@ public class LogicalEmptyRelation extends LogicalRelation
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalEmptyRelation(relationId, projects,
-                groupExpression, Optional.of(logicalPropertiesSupplier.get()));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalEmptyRelation(relationId, projects,
+                groupExpression, Optional.of(logicalPropertiesSupplier.get())));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalEmptyRelation(relationId, projects, groupExpression, logicalProperties);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalEmptyRelation(relationId, projects, groupExpression, logicalProperties));
     }
 
     @Override
@@ -88,11 +91,13 @@ public class LogicalEmptyRelation extends LogicalRelation
     }
 
     public LogicalEmptyRelation withProjects(List<NamedExpression> projects) {
-        return new LogicalEmptyRelation(relationId, projects);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalEmptyRelation(relationId, projects));
     }
 
     public LogicalEmptyRelation withRelationIdAndProjects(RelationId relationId, List<NamedExpression> projects) {
-        return new LogicalEmptyRelation(relationId, projects);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalEmptyRelation(relationId, projects));
     }
 
     @Override

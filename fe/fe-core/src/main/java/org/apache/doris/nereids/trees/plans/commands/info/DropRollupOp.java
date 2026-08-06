@@ -37,7 +37,6 @@ public class DropRollupOp extends AlterTableOp {
         super(AlterOpType.DROP_ROLLUP);
         this.rollupName = rollupName;
         this.properties = properties;
-        this.needTableStable = false;
     }
 
     @Override
@@ -60,6 +59,12 @@ public class DropRollupOp extends AlterTableOp {
     @Override
     public boolean needChangeMTMVState() {
         return false;
+    }
+
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Dropping rollup index is allowed for row binlog tables.
+        return true;
     }
 
     @Override

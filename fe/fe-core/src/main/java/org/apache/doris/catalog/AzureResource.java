@@ -17,16 +17,15 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.property.storage.AzureProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.obj.AzureObjStorage;
-import org.apache.doris.fs.obj.ObjStorage;
-import org.apache.doris.fs.obj.RemoteObjects;
+import org.apache.doris.common.util.DatasourcePrintableMap;
+import org.apache.doris.datasource.storage.S3ResourceCompat;
+import org.apache.doris.filesystem.UploadPartResult;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.ObjStorage;
+import org.apache.doris.filesystem.spi.RequestBody;
+import org.apache.doris.fs.FileSystemFactory;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -36,7 +35,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,7 +60,7 @@ public class AzureResource extends Resource {
         Preconditions.checkState(newProperties != null);
         this.properties = Maps.newHashMap(newProperties);
         // check properties
-        S3Properties.requiredS3PingProperties(this.properties);
+        S3ResourceCompat.requiredS3PingProperties(this.properties);
         // default need check resource conf valid, so need fix ut and regression case
         boolean needCheck = isNeedCheck(this.properties);
         if (LOG.isDebugEnabled()) {
@@ -67,20 +68,20 @@ public class AzureResource extends Resource {
         }
 
         // the endpoint for ping need add uri scheme.
-        String pingEndpoint = this.properties.get(S3Properties.ENDPOINT);
-        if (!pingEndpoint.startsWith("http://")) {
-            pingEndpoint = "http://" + this.properties.get(S3Properties.ENDPOINT);
-            this.properties.put(S3Properties.ENDPOINT, pingEndpoint);
-            this.properties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
+        String pingEndpoint = this.properties.get(S3ResourceCompat.ENDPOINT);
+        if (!pingEndpoint.contains("://")) {
+            pingEndpoint = "https://" + pingEndpoint;
+            this.properties.put(S3ResourceCompat.ENDPOINT, pingEndpoint);
+            this.properties.put(S3ResourceCompat.Env.ENDPOINT, pingEndpoint);
         }
 
         if (needCheck) {
-            String bucketName = this.properties.get(S3Properties.BUCKET);
-            String rootPath = this.properties.get(S3Properties.ROOT_PATH);
+            String bucketName = this.properties.get(S3ResourceCompat.BUCKET);
+            String rootPath = this.properties.get(S3ResourceCompat.ROOT_PATH);
             pingAzure(bucketName, rootPath, this.properties);
         }
         // optional
-        S3Properties.optionalS3Property(this.properties);
+        S3ResourceCompat.optionalS3Property(this.properties);
     }
 
     protected static void pingAzure(String bucketName, String rootPath,
@@ -91,50 +92,89 @@ public class AzureResource extends Resource {
         String testObj = "s3://" + bucketName + "/" + rootPath
                 + "/doris-test-object-valid-" + timestamp + ".txt";
 
-        byte[] contentData = new byte[2 * ObjStorage.CHUNK_SIZE];
+        // 5MB per chunk — same as the multipart upload minimum
+        final int chunkSize = 5 * 1024 * 1024;
+        byte[] contentData = new byte[2 * chunkSize];
         Arrays.fill(contentData, (byte) 'A');
-        AzureProperties azureProperties = (AzureProperties) StorageProperties.createPrimary(newProperties);
-        AzureObjStorage azureObjStorage = new AzureObjStorage(azureProperties);
 
-        Status status = azureObjStorage.putObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
-        if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "ping azure failed(put), status: " + status + ", properties: " + new PrintableMap<>(
-                            newProperties, "=", true, false, true, false));
+        try {
+            org.apache.doris.filesystem.FileSystem fileSystem =
+                    FileSystemFactory.getFileSystem(newProperties);
+            Preconditions.checkState(fileSystem instanceof ObjFileSystem,
+                    "Expected object-storage filesystem for Azure resource");
+            ObjStorage<?> objStorage = ((ObjFileSystem) fileSystem).getObjStorage();
+
+            try {
+                objStorage.putObject(testObj,
+                        RequestBody.of(new ByteArrayInputStream(contentData), contentData.length));
+            } catch (IOException e) {
+                throw new DdlException("ping azure failed(put), err: " + e.getMessage()
+                        + ", properties: " + new DatasourcePrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+
+            try {
+                objStorage.headObject(testObj);
+            } catch (IOException e) {
+                throw new DdlException("ping azure failed(head), err: " + e.getMessage()
+                        + ", properties: " + new DatasourcePrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+
+            try {
+                org.apache.doris.filesystem.spi.RemoteObjects remoteObjects =
+                        objStorage.listObjects(testObj, null);
+                LOG.info("remoteObjects: {}", remoteObjects);
+                Preconditions.checkArgument(remoteObjects.getObjectList().size() == 1,
+                        "remoteObjects.size() must equal 1");
+            } catch (IOException e) {
+                throw new DdlException("ping azure failed(list), err: " + e.getMessage()
+                        + ", properties: " + new DatasourcePrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+
+            try {
+                objStorage.deleteObject(testObj);
+            } catch (IOException e) {
+                throw new DdlException("ping azure failed(delete), err: " + e.getMessage()
+                        + ", properties: " + new DatasourcePrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+
+            // multipart upload: initiate → upload one part → complete
+            try {
+                String uploadId = objStorage.initiateMultipartUpload(testObj);
+                try {
+                    UploadPartResult partResult = objStorage.uploadPart(testObj, uploadId, 1,
+                            RequestBody.of(new ByteArrayInputStream(contentData), contentData.length));
+                    objStorage.completeMultipartUpload(testObj, uploadId, Collections.singletonList(partResult));
+                } catch (IOException e) {
+                    try {
+                        objStorage.abortMultipartUpload(testObj, uploadId);
+                    } catch (Exception ignored) {
+                        // best-effort cleanup
+                    }
+                    throw e;
+                }
+            } catch (IOException e) {
+                throw new DdlException("ping azure failed(multiPartPut), err: " + e.getMessage()
+                        + ", properties: " + new DatasourcePrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+
+            try {
+                objStorage.deleteObject(testObj);
+            } catch (IOException e) {
+                throw new DdlException("ping azure failed(delete), err: " + e.getMessage()
+                        + ", properties: " + new DatasourcePrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+        } catch (DdlException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new DdlException("ping azure failed: " + e.getMessage());
         }
 
-        status = azureObjStorage.headObject(testObj);
-        if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "ping azure failed(head), status: " + status + ", properties: " + new PrintableMap<>(
-                            newProperties, "=", true, false, true, false));
-        }
-
-        RemoteObjects remoteObjects = azureObjStorage.listObjects(testObj, null);
-        LOG.info("remoteObjects: {}", remoteObjects);
-        Preconditions.checkArgument(remoteObjects.getObjectList().size() == 1, "remoteObjects.size() must equal 1");
-
-        status = azureObjStorage.deleteObject(testObj);
-        if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "ping azure failed(delete), status: " + status + ", properties: " + new PrintableMap<>(
-                            newProperties, "=", true, false, true, false));
-        }
-
-        status = azureObjStorage.multipartUpload(testObj,
-                new ByteArrayInputStream(contentData), contentData.length);
-        if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "ping azure failed(multiPartPut), status: " + status + ", properties: " + new PrintableMap<>(
-                            newProperties, "=", true, false, true, false));
-        }
-
-        status = azureObjStorage.deleteObject(testObj);
-        if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "ping azure failed(delete), status: " + status + ", properties: " + new PrintableMap<>(
-                            newProperties, "=", true, false, true, false));
-        }
         LOG.info("Success to ping azure blob storage.");
     }
 
@@ -142,28 +182,29 @@ public class AzureResource extends Resource {
     public void modifyProperties(Map<String, String> newProperties) throws DdlException {
         if (references.containsValue(ReferenceType.POLICY)) {
             // can't change, because remote fs use it info to find data.
-            List<String> cantChangeProperties = Arrays.asList(S3Properties.ENDPOINT, S3Properties.REGION,
-                    S3Properties.ROOT_PATH, S3Properties.BUCKET, S3Properties.Env.ENDPOINT, S3Properties.Env.REGION,
-                    S3Properties.Env.ROOT_PATH, S3Properties.Env.BUCKET);
+            List<String> cantChangeProperties = Arrays.asList(S3ResourceCompat.ENDPOINT, S3ResourceCompat.REGION,
+                    S3ResourceCompat.ROOT_PATH, S3ResourceCompat.BUCKET, S3ResourceCompat.Env.ENDPOINT,
+                    S3ResourceCompat.Env.REGION,
+                    S3ResourceCompat.Env.ROOT_PATH, S3ResourceCompat.Env.BUCKET);
             Optional<String> any = cantChangeProperties.stream().filter(newProperties::containsKey).findAny();
             if (any.isPresent()) {
                 throw new DdlException("current not support modify property : " + any.get());
             }
         }
         // compatible with old version, Need convert if modified properties map uses old properties.
-        S3Properties.convertToStdProperties(newProperties);
+        S3ResourceCompat.convertToStdProperties(newProperties);
         boolean needCheck = isNeedCheck(newProperties);
         if (LOG.isDebugEnabled()) {
             LOG.debug("s3 info need check validity : {}", needCheck);
         }
         if (needCheck) {
-            S3Properties.requiredS3PingProperties(this.properties);
+            S3ResourceCompat.requiredS3PingProperties(this.properties);
             Map<String, String> changedProperties = new HashMap<>(this.properties);
             changedProperties.putAll(newProperties);
-            String bucketName = newProperties.getOrDefault(S3Properties.BUCKET,
-                    this.properties.get(S3Properties.BUCKET));
-            String rootPath = newProperties.getOrDefault(S3Properties.ROOT_PATH,
-                    this.properties.get(S3Properties.ROOT_PATH));
+            String bucketName = newProperties.getOrDefault(S3ResourceCompat.BUCKET,
+                    this.properties.get(S3ResourceCompat.BUCKET));
+            String rootPath = newProperties.getOrDefault(S3ResourceCompat.ROOT_PATH,
+                    this.properties.get(S3ResourceCompat.ROOT_PATH));
 
             pingAzure(bucketName, rootPath, changedProperties);
         }
@@ -172,8 +213,8 @@ public class AzureResource extends Resource {
         writeLock();
         for (Map.Entry<String, String> kv : newProperties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
-            if (kv.getKey().equals(S3Properties.Env.TOKEN)
-                    || kv.getKey().equals(S3Properties.SESSION_TOKEN)) {
+            if (kv.getKey().equals(S3ResourceCompat.Env.TOKEN)
+                    || kv.getKey().equals(S3ResourceCompat.SESSION_TOKEN)) {
                 this.properties.put(kv.getKey(), kv.getValue());
             }
         }
@@ -183,10 +224,10 @@ public class AzureResource extends Resource {
     }
 
     private boolean isNeedCheck(Map<String, String> newProperties) {
-        boolean needCheck = !this.properties.containsKey(S3Properties.VALIDITY_CHECK)
-                || Boolean.parseBoolean(this.properties.get(S3Properties.VALIDITY_CHECK));
-        if (newProperties != null && newProperties.containsKey(S3Properties.VALIDITY_CHECK)) {
-            needCheck = Boolean.parseBoolean(newProperties.get(S3Properties.VALIDITY_CHECK));
+        boolean needCheck = !this.properties.containsKey(S3ResourceCompat.VALIDITY_CHECK)
+                || Boolean.parseBoolean(this.properties.get(S3ResourceCompat.VALIDITY_CHECK));
+        if (newProperties != null && newProperties.containsKey(S3ResourceCompat.VALIDITY_CHECK)) {
+            needCheck = Boolean.parseBoolean(newProperties.get(S3ResourceCompat.VALIDITY_CHECK));
         }
         return needCheck;
     }
@@ -203,15 +244,15 @@ public class AzureResource extends Resource {
         readLock();
         result.addRow(Lists.newArrayList(name, lowerCaseType, "version", String.valueOf(version)));
         for (Map.Entry<String, String> entry : this.properties.entrySet()) {
-            if (PrintableMap.HIDDEN_KEY.contains(entry.getKey())) {
+            if (DatasourcePrintableMap.HIDDEN_KEY.contains(entry.getKey())) {
                 continue;
             }
             // it's dangerous to show password in show odbc resource,
             // so we use empty string to replace the real password
-            if (entry.getKey().equals(S3Properties.Env.SECRET_KEY)
-                    || entry.getKey().equals(S3Properties.SECRET_KEY)
-                    || entry.getKey().equals(S3Properties.Env.TOKEN)
-                    || entry.getKey().equals(S3Properties.SESSION_TOKEN)) {
+            if (entry.getKey().equals(S3ResourceCompat.Env.SECRET_KEY)
+                    || entry.getKey().equals(S3ResourceCompat.SECRET_KEY)
+                    || entry.getKey().equals(S3ResourceCompat.Env.TOKEN)
+                    || entry.getKey().equals(S3ResourceCompat.SESSION_TOKEN)) {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), "******"));
             } else {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));

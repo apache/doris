@@ -22,6 +22,7 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
+import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 
 import com.google.common.base.Strings;
@@ -39,16 +40,39 @@ public class StreamingJobAction extends RestBaseController {
 
     @RequestMapping(path = "/api/streaming/commit_offset", method = RequestMethod.PUT)
     public Object commitOffset(@RequestBody CommitOffsetRequest offsetRequest, HttpServletRequest request) {
+        checkAuth(request);
+        return updateOffset(offsetRequest);
+    }
+
+    @RequestMapping(path = "/api/streaming/report_task_failure", method = RequestMethod.PUT)
+    public Object reportTaskFailure(@RequestBody TaskFailureRequest failureRequest, HttpServletRequest request) {
+        checkAuth(request);
+        return failTask(failureRequest);
+    }
+
+    private void checkAuth(HttpServletRequest request) {
         String authToken = request.getHeader("token");
-        // if auth token is not null, check it first
-        if (!Strings.isNullOrEmpty(authToken)) {
-            if (!checkClusterToken(authToken)) {
-                throw new UnauthorizedException("Invalid token: " + authToken);
-            }
-            return updateOffset(offsetRequest);
-        } else {
-            // only use for token
+        if (Strings.isNullOrEmpty(authToken)) {
             throw new UnauthorizedException("Miss token");
+        }
+        if (!checkClusterToken(authToken)) {
+            throw new UnauthorizedException("Invalid token: " + authToken);
+        }
+    }
+
+    private Object failTask(TaskFailureRequest failureRequest) {
+        AbstractJob job = Env.getCurrentEnv().getJobManager().getJob(failureRequest.getJobId());
+        if (!(job instanceof StreamingInsertJob)) {
+            return ResponseEntityBuilder
+                    .okWithCommonError("Job " + failureRequest.getJobId() + " is not a streaming job");
+        }
+        try {
+            LOG.info("Reporting task failure with {}", failureRequest.toString());
+            ((StreamingInsertJob) job).reportTaskFailure(failureRequest);
+            return ResponseEntityBuilder.ok("Task failure reported successfully");
+        } catch (Exception e) {
+            LOG.warn("Failed to report task failure for job {}: {}", failureRequest.getJobId(), e.getMessage());
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
     }
 

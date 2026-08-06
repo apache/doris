@@ -594,13 +594,13 @@ suite('test_manager_interface_1',"p0") {
         assertTrue(x == 1);
 
         
-        sql """ admin set frontend config("query_metadata_name_ids_timeout"= "${val}")"""
-        result = sql """ 
-            admin show frontend config 
+        sql """ admin set all frontends config("query_metadata_name_ids_timeout"= "${val}")"""
+        result = sql """
+            admin show frontend config
         """
         logger.info("result = ${result}" )
 
-        x = 0 
+        x = 0
         for(int i = 0 ;i<result.size();i++) {
             if (result[i][0] == "query_metadata_name_ids_timeout"){
                 x = 1
@@ -611,9 +611,9 @@ suite('test_manager_interface_1',"p0") {
             }
         }
         assertTrue(x == 1);
-    
-        val -= 2 
-        sql """ admin set frontend config("query_metadata_name_ids_timeout"= "${val}")"""
+
+        val -= 2
+        sql """ admin set all frontends config("query_metadata_name_ids_timeout"= "${val}")"""
         logger.info("result = ${result}" )
 
         

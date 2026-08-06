@@ -38,20 +38,239 @@ suite("query_stats_test") {
         ) engine=olap
         DISTRIBUTED BY HASH(`k1`) BUCKETS 1 properties("replication_num" = "1")
         """
-    sql "admin set frontend config (\"enable_query_hit_stats\"=\"true\");"
+
+    def origNereids = sql("select @@enable_nereids_planner")[0][0]
+    def origCache   = sql("select @@enable_query_cache")[0][0]
+
+    sql "admin set all frontends config (\"enable_query_hit_stats\"=\"true\");"
+    sql "set enable_nereids_planner = true"
+    sql "set enable_query_cache = false"
+
+    sql """INSERT INTO ${tbName} VALUES
+            (true,  1,   100,  1000,  10000,  123.456, 'A1234', '2024-01-01', '2024-01-01 10:00:00', 'alpha',   1.23,  4.56, 'text1',  12345678901234567890),
+            (false, -5,  200,  2000,  20000,  234.567, 'B2345', '2024-02-02', '2024-02-02 11:30:00', 'beta',    2.34,  5.67, 'text2',  22345678901234567890),
+            (true,  10, -300,  3000,  30000,  345.678, 'C3456', '2024-03-03', '2024-03-03 12:45:00', 'gamma',   3.45,  6.78, 'text3',  32345678901234567890),
+            (NULL,   0,    0,     0,      0,    0.000, 'D4567', '2024-04-04', '2024-04-04 00:00:00', 'delta',   0.00,  0.00, 'text4',  42345678901234567890),
+            (false, 127, 32767, 2147483647, 9223372036854775807, 999.999, 'E5678', '2024-05-05', '2024-05-05 23:59:59', 'epsilon', 9.99, 9.99, 'text5', 52345678901234567890)"""
+
     sql "clean all query stats"
-    sql "set enable_nereids_planner=true"
-    explain {
-        sql("select k1 from ${tbName} where k1 = 1")
+
+    explain { sql("select k1 from ${tbName} where k1 = 1") }
+    def explainStats = sql "show query stats from ${tbName}"
+    for (row in explainStats) {
+        assertEquals(0, row[1] as int)
+        assertEquals(0, row[2] as int)
     }
 
-    qt_sql "show query stats from ${tbName}"
-
+    // Counts may exceed 1 in multi-FE clusters; verify right columns hit, wrong ones stay 0.
     sql "select k1 from ${tbName} where k0 = 1"
     sql "select k4 from ${tbName} where k2 = 1991"
+    def stats1 = sql "show query stats from ${tbName}"
+    def s1k1 = stats1.find { it[0] == "k1" }
+    def s1k0 = stats1.find { it[0] == "k0" }
+    def s1k4 = stats1.find { it[0] == "k4" }
+    def s1k2 = stats1.find { it[0] == "k2" }
+    assertNotNull(s1k1)
+    assertNotNull(s1k0)
+    assertNotNull(s1k4)
+    assertNotNull(s1k2)
+    assertTrue((s1k1[1] as int) >= 1)
+    assertTrue((s1k0[2] as int) >= 1)
+    assertTrue((s1k4[1] as int) >= 1)
+    assertTrue((s1k2[2] as int) >= 1)
+    assertEquals(0, s1k1[2] as int)
+    assertEquals(0, s1k0[1] as int)
+    for (col in ["k3", "k5", "k6", "k10", "k11", "k7", "k8", "k9", "k12", "k13"]) {
+        def row = stats1.find { it[0] == col }
+        assertNotNull(row)
+        assertEquals(0, row[1] as int)
+        assertEquals(0, row[2] as int)
+    }
+    def allStats1 = sql "show query stats from ${tbName} all"
+    assertTrue((allStats1[0][1] as int) >= 2)
+    def verboseStats1 = sql "show query stats from ${tbName} all verbose"
+    assertTrue(verboseStats1.size() > 0)
 
-    qt_sql "show query stats from ${tbName}"
-    qt_sql "show query stats from ${tbName} all"
-    qt_sql "show query stats from ${tbName} all verbose"
-    sql "admin set frontend config (\"enable_query_hit_stats\"=\"false\");"
+    sql "clean all query stats"
+    sql "select k3 from ${tbName} where k5 = 1.0"
+    def stats2 = sql "show query stats from ${tbName}"
+    def s2k3 = stats2.find { it[0] == "k3" }
+    def s2k5 = stats2.find { it[0] == "k5" }
+    assertNotNull(s2k3)
+    assertNotNull(s2k5)
+    assertTrue((s2k3[1] as int) >= 1)
+    assertTrue((s2k5[2] as int) >= 1)
+    assertEquals(0, s2k3[2] as int)
+    assertEquals(0, s2k5[1] as int)
+    for (col in ["k0", "k1", "k2", "k4", "k6", "k10", "k11", "k7", "k8", "k9", "k12", "k13"]) {
+        def row = stats2.find { it[0] == col }
+        assertNotNull(row)
+        assertEquals(0, row[1] as int)
+        assertEquals(0, row[2] as int)
+    }
+    def allStats2 = sql "show query stats from ${tbName} all"
+    assertTrue((allStats2[0][1] as int) >= 1)
+
+    // Column in both SELECT and WHERE.
+    sql "clean all query stats"
+    sql "select k1 from ${tbName} where k1 = 1"
+    def stats3 = sql "show query stats from ${tbName}"
+    def s3k1 = stats3.find { it[0] == "k1" }
+    assertNotNull(s3k1)
+    assertTrue((s3k1[1] as int) >= 1)
+    assertTrue((s3k1[2] as int) >= 1)
+    for (col in ["k0", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9", "k12", "k13"]) {
+        def row = stats3.find { it[0] == col }
+        assertNotNull(row)
+        assertEquals(0, row[1] as int)
+        assertEquals(0, row[2] as int)
+    }
+
+    // INSERT INTO ... SELECT must not record stats.
+    sql "clean all query stats"
+    sql "insert into ${tbName} select * from ${tbName} where k1 > 0"
+    def insertStats = sql "show query stats from ${tbName}"
+    for (row in insertStats) {
+        assertEquals(0, row[1] as int)
+        assertEquals(0, row[2] as int)
+    }
+
+    // Alias: k1.queryHit >= 1 now that alias is unwrapped; k2.filterHit >= 1 from WHERE.
+    sql "clean all query stats"
+    sql "select k1 as x from ${tbName} where k2 = 1"
+    def aliasResult = sql "show query stats from ${tbName}"
+    def arK1 = aliasResult.find { it[0] == "k1" }
+    def arK2 = aliasResult.find { it[0] == "k2" }
+    assertNotNull(arK1)
+    assertNotNull(arK2)
+    assertTrue((arK1[1] as int) >= 1)
+    assertTrue((arK2[2] as int) >= 1)
+
+    // GROUP BY: k1 queryHit from GROUP BY key, k2 queryHit from SUM(k2) aggregate input.
+    sql "clean all query stats"
+    sql "select k1, sum(k2) from ${tbName} group by k1"
+    def gbResult = sql "show query stats from ${tbName}"
+    def gbK1 = gbResult.find { it[0] == "k1" }
+    def gbK2 = gbResult.find { it[0] == "k2" }
+    assertNotNull(gbK1)
+    assertNotNull(gbK2)
+    assertTrue((gbK1[1] as int) >= 1)
+    assertTrue((gbK2[1] as int) >= 1)
+
+    // ORDER BY: k3 queryHit from SELECT, k4 queryHit from ORDER BY.
+    sql "clean all query stats"
+    sql "select k3 from ${tbName} order by k4"
+    def obResult = sql "show query stats from ${tbName}"
+    def obK3 = obResult.find { it[0] == "k3" }
+    def obK4 = obResult.find { it[0] == "k4" }
+    assertNotNull(obK3)
+    assertNotNull(obK4)
+    assertTrue((obK3[1] as int) >= 1)
+    assertTrue((obK4[1] as int) >= 1)
+
+    // JOIN: k1 filterHit from ON condition (same-type columns avoid cast-alias edge cases).
+    sql "clean all query stats"
+    sql """select a.k3 from ${tbName} a join ${tbName} b on a.k1 = b.k1"""
+    def joinOnResult = sql "show query stats from ${tbName}"
+    def jK1 = joinOnResult.find { it[0] == "k1" }
+    assertNotNull(jK1)
+    assertTrue((jK1[2] as int) >= 1)
+
+    // Window value column: k2 queryHit from SUM(k2), k0 from PARTITION BY, k1 from ORDER BY.
+    sql "clean all query stats"
+    sql "select sum(k2) over (partition by k0 order by k1) from ${tbName}"
+    def winResult = sql "show query stats from ${tbName}"
+    def wK0 = winResult.find { it[0] == "k0" }
+    def wK1 = winResult.find { it[0] == "k1" }
+    def wK2 = winResult.find { it[0] == "k2" }
+    assertNotNull(wK0)
+    assertNotNull(wK1)
+    assertNotNull(wK2)
+    assertTrue((wK0[1] as int) >= 1)
+    assertTrue((wK1[1] as int) >= 1)
+    assertTrue((wK2[1] as int) >= 1)
+
+    // Self-join: StatsDelta dedup keeps table count = 1 per FE.
+    // Use >= 1 rather than == 1: show query stats all aggregates across all FEs
+    // in a multi-FE cluster, so the total may exceed 1 even for a single query.
+    sql "clean all query stats"
+    sql "select a.k1 from ${tbName} a, ${tbName} b where a.k1 = b.k1"
+    def joinResult = sql "show query stats from ${tbName} all"
+    assertTrue((joinResult[0][1] as int) >= 1)
+
+    // UNION ALL: both branches contribute queryHit for k1; WHERE on right branch adds k2.filterHit.
+    sql "clean all query stats"
+    sql "select k1 from ${tbName} union all select k1 from ${tbName} where k2 = 100"
+    def unionStats = sql "show query stats from ${tbName}"
+    def uK1 = unionStats.find { it[0] == "k1" }
+    def uK2 = unionStats.find { it[0] == "k2" }
+    assertNotNull(uK1)
+    assertNotNull(uK2)
+    assertTrue((uK1[1] as int) >= 1, "k1: UNION ALL queryHit")
+    assertTrue((uK2[2] as int) >= 1, "k2: WHERE on right UNION branch filterHit")
+
+    // HAVING: k1 queryHit from GROUP BY + SELECT, k2 queryHit from SUM input,
+    // k2 filterHit from HAVING SUM(k2) > -1000.
+    sql "clean all query stats"
+    sql "select k1, sum(k2) from ${tbName} group by k1 having sum(k2) > -1000"
+    def havingStats = sql "show query stats from ${tbName}"
+    def hvK1 = havingStats.find { it[0] == "k1" }
+    def hvK2 = havingStats.find { it[0] == "k2" }
+    assertNotNull(hvK1)
+    assertNotNull(hvK2)
+    assertTrue((hvK1[1] as int) >= 1, "k1: GROUP BY / SELECT queryHit")
+    assertTrue((hvK2[1] as int) >= 1, "k2: SUM aggregate input queryHit")
+    assertTrue((hvK2[2] as int) >= 1, "k2: HAVING SUM(k2) filterHit")
+
+    // CTE: consumer query records queryHit on k2 and filterHit on k1.
+    // Force materialization so the plan keeps PhysicalCTEProducer/Consumer instead of
+    // CTEInline collapsing the single-reference CTE into a plain scan+filter.
+    sql "clean all query stats"
+    sql "set inline_cte_referenced_threshold = 0"
+    sql """with cte as (select k2 from ${tbName} where k1 = 1) select k2 from cte"""
+    sql "set inline_cte_referenced_threshold = 1"
+    def cteStats = sql "show query stats from ${tbName}"
+    def cteK2 = cteStats.find { it[0] == "k2" }
+    def cteK1 = cteStats.find { it[0] == "k1" }
+    assertNotNull(cteK2)
+    assertNotNull(cteK1)
+    assertTrue((cteK2[1] as int) >= 1, "k2: CTE consumer queryHit")
+    assertTrue((cteK1[2] as int) >= 1, "k1: CTE WHERE filterHit")
+
+    // LATERAL VIEW / EXPLODE: the generator input column (k7, a varchar) gets queryHit
+    // because it is the source expression fed into the generator; the synthetic output
+    // slot (e1) is skipped by the PhysicalGenerate handler.
+    sql "clean all query stats"
+    sql "select e1 from ${tbName} lateral view explode_split(k7, ',') tmp as e1"
+    def lateralStats = sql "show query stats from ${tbName}"
+    def lvK7 = lateralStats.find { it[0] == "k7" }
+    assertNotNull(lvK7, "k7 must appear after LATERAL VIEW EXPLODE_SPLIT")
+    assertTrue((lvK7[1] as int) >= 1, "k7: LATERAL VIEW input column queryHit")
+
+    // Table-function join ON predicate: PhysicalGenerate.getConjuncts() is sent straight to
+    // TableFunctionNode and actually filters at execution — must record filterHit too.
+    // The predicate must reference a real column (k7), not just the generator's own
+    // synthetic output (val) — filtering on val alone has no scan column to attribute to.
+    sql "clean all query stats"
+    sql """select s.val from ${tbName} left join lateral unnest(split(k7, ',')) s(val) on k7 != ''"""
+    def genStats = sql "show query stats from ${tbName}"
+    def genK7 = genStats.find { it[0] == "k7" }
+    assertNotNull(genK7)
+    assertTrue((genK7[2] as int) >= 1, "k7: table-function join ON predicate filterHit")
+
+    // Computed SELECT: SELECT k1+k2 — both input columns get queryHit even though
+    // the output expression is not a plain slot reference.
+    sql "clean all query stats"
+    sql "select k1 + k2 from ${tbName}"
+    def computedStats = sql "show query stats from ${tbName}"
+    def cmpK1 = computedStats.find { it[0] == "k1" }
+    def cmpK2 = computedStats.find { it[0] == "k2" }
+    assertNotNull(cmpK1, "k1 must appear in computed SELECT k1+k2")
+    assertNotNull(cmpK2, "k2 must appear in computed SELECT k1+k2")
+    assertTrue((cmpK1[1] as int) >= 1, "k1: computed SELECT queryHit")
+    assertTrue((cmpK2[1] as int) >= 1, "k2: computed SELECT queryHit")
+
+    sql "admin set all frontends config (\"enable_query_hit_stats\"=\"false\");"
+    sql "set enable_nereids_planner = ${origNereids}"
+    sql "set enable_query_cache = ${origCache}"
 }

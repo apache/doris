@@ -1,4 +1,5 @@
-CREATE TABLE `parquet_partition_table`(
+drop table if exists `parquet_partition_table`;
+create table `parquet_partition_table`(
   `l_orderkey` int,
   `l_partkey` int,
   `l_suppkey` int,

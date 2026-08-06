@@ -146,6 +146,36 @@ public class PushCountIntoUnionAllTest extends TestWithFeService implements Memo
     }
 
     @Test
+    void testCountNullPushedAsCountNullNotCountStar() {
+        // count(null) in a union-all query should be pushed down as count(null), NOT as count(*).
+        // CountLiteralRewrite skips count(null) when it is the sole aggregate with no GROUP BY
+        // (it would produce an empty aggregate, which is invalid), so PushCountIntoUnionAll
+        // does see count(null). With the fix, isCountStar() returns false for count(null),
+        // so it is pushed as count(null) into each branch — not misclassified as count(*).
+        String sql = "select count(null) from (select id,a from t1 union all select id,a from t1 where id>10) t;";
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite();
+
+        // PushCountIntoUnionAll fires: upper agg uses Sum0 over pushed-down counts
+        checker.matches(
+                logicalAggregate(
+                        logicalUnion(logicalAggregate(), logicalAggregate())
+                ).when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Sum0.class))
+        );
+
+        // count(null) was pushed as count(null), not promoted to count(*)
+        checker.nonMatch(
+                logicalAggregate(
+                        logicalUnion(
+                                logicalAggregate().when(agg -> agg.getOutputExpressions().stream()
+                                        .anyMatch(e -> e.anyMatch(
+                                                expr -> expr instanceof Count && ((Count) expr).isCountStar()))),
+                                logicalAggregate()
+                        )
+                )
+        );
+    }
+
+    @Test
     void testNotPushCountBecauseUnion() {
         String sql = "select count(1), sum(id) from (select id,a from t1 union select id,a from t1 where id>10) t;";
         PlanChecker.from(connectContext)

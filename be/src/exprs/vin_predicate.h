@@ -1,0 +1,110 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <string>
+#include <vector>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "core/field.h"
+#include "exprs/function/function.h"
+#include "exprs/function_context.h"
+#include "exprs/vexpr.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+class Block;
+class VExprContext;
+class HybridSetBase;
+} // namespace doris
+
+namespace doris {
+class VInPredicate MOCK_REMOVE(final) : public VExpr {
+    ENABLE_FACTORY_CREATOR(VInPredicate);
+
+public:
+    VInPredicate(const TExprNode& node);
+#ifdef BE_TEST
+    VInPredicate() = default;
+#endif
+    ~VInPredicate() override = default;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
+    size_t estimate_memory(const size_t rows) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    const std::string& expr_name() const override;
+
+    std::string debug_string() const override;
+
+    const FunctionBasePtr function() { return _function; }
+
+    bool is_not_in() const { return _is_not_in; };
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
+    bool can_evaluate_zonemap_filter() const override;
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const override;
+    bool can_evaluate_dictionary_filter() const override;
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override;
+    bool can_evaluate_bloom_filter() const override;
+
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override;
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override;
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override;
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override;
+
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto node = clone_texpr_node();
+        TInPredicate in_predicate;
+        in_predicate.__set_is_not_in(_is_not_in);
+        node.__set_in_predicate(in_predicate);
+        *cloned_expr = VInPredicate::create_shared(node);
+        return Status::OK();
+    }
+
+private:
+    Status _materialize_for_zonemap_filter(VExprContext* context);
+
+    FunctionBasePtr _function;
+    std::string _expr_name;
+
+    MOCK_REMOVE(const) bool _is_not_in;
+    static const constexpr char* function_name = "in";
+    uint32_t _in_list_value_count_threshold = 10;
+    bool _is_args_all_constant = false;
+    bool _zonemap_materialized = false;
+    bool _seg_filter_contains_null = false;
+    std::shared_ptr<HybridSetBase> _direct_filter_set;
+    std::vector<Field> _seg_filter_values;
+    Field _seg_filter_min;
+    Field _seg_filter_max;
+};
+} // namespace doris

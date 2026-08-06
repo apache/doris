@@ -28,10 +28,24 @@ under the License.
     </parent>
     <artifactId>fe-core</artifactId>
     <packaging>jar</packaging>
+    <name>Doris FE Core</name>
+    <description>Doris Frontend</description>
     <properties>
         <doris.home>${basedir}/../../</doris.home>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <fe_ut_parallel>1</fe_ut_parallel>
+
+        <!--
+          The LINEAGE plugin API version, declared exactly once. Filtered into this module's
+          META-INF/doris/lineage-plugin-api-version.properties, which is what the FE kernel expects
+          of a plugin. It lives here rather than in a dedicated SPI module because the lineage SPI
+          (org.apache.doris.nereids.lineage) is part of fe-core itself.
+
+          Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the lineage SPI
+          surface - additions included. A change to fe-extension-spi means bumping all four families.
+          See plan-doc/designs/2026-07-29-plugin-api-version-check-design.md.
+        -->
+        <lineage.plugin.api.version>1.0</lineage.plugin.api.version>
     </properties>
     <profiles>
         <profile>
@@ -56,35 +70,275 @@ under the License.
                 <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
             </properties>
         </profile>
-        <profile>
-            <id>protoc_rosetta</id>
-            <activation>
-                <os>
-                    <family>mac</family>
-                    <arch>aarch64</arch>
-                </os>
-            </activation>
-            <properties>
-                <protoc.artifact>com.google.protobuf:protoc:${protobuf.version}:exe:osx-x86_64</protoc.artifact>
-                <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc-java.version}:exe:osx-x86_64</grpc.java.artifact>
-            </properties>
-        </profile>
-        <profile>
-            <id>protoc_command</id>
-            <activation>
-                <file>
-                    <exists>${doris.thirdparty}/installed/bin/protoc</exists>
-                </file>
-            </activation>
-            <properties>
-                <protoc.command>${doris.thirdparty}/installed/bin/protoc</protoc.command>
-            </properties>
-        </profile>
     </profiles>
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-kerberos</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
+            <version>${project.version}</version>
+            <exclusions>
+                <!-- fe-common transitively drags in io.trino:trino-main, which brings the Jetty
+                     Servlet 5.0 API repackage. Its jakarta.servlet.http.Cookie lacks getAttributes()
+                     and would shadow the Servlet 6.1 jakarta.servlet-api that Jetty 12.0.34 needs,
+                     re-introducing the NoSuchMethodError. Keep it off fe-core's classpath. -->
+                <exclusion>
+                    <groupId>org.eclipse.jetty.toolchain</groupId>
+                    <artifactId>jetty-jakarta-servlet-api</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- fe-filesystem-api: consumer-facing filesystem API (FileSystem, Location, FileEntry, etc.) -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- fe-filesystem-spi: provider contracts (ObjFileSystem, ObjStorage, etc.) —
+             needed by S3Resource which directly invokes ObjStorage for connectivity validation. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- fe-connector-spi: the whole connector plugin contract - ConnectorProvider and
+             ConnectorContext, plus Connector, ConnectorMetadata, handles and value types. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Connector impl modules, TEST SCOPE ONLY. Production loads these from the
+             plugins/connector/ directory via ConnectorPluginManager; fe-core must never depend on a
+             connector at compile or runtime scope. Same arrangement as the fe-filesystem-* modules below.
+
+             They exist here for exactly one assertion that cannot be made without them:
+             Legacy413ProviderTypeContractTest pins that the catalog type string an upgraded 4.1.3 catalog
+             recovers from its persisted logType is a string a REAL SHIPPED provider answers to. Both halves
+             of that contract are string literals in different modules: rename
+             TrinoConnectorProvider.getType() to "trino" and every other test in this repository stays green
+             while every migrated trino catalog is permanently dead. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-hive</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-iceberg</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-paimon</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-es</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-jdbc</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-maxcompute</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-trino</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- hudi is the only provider with isStandaloneCatalogType()==false; it is here so the contract
+             test can pin that a sibling-only connector never becomes a creatable catalog type. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-hudi</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- fe-filesystem impl modules: runtime dependencies removed in Phase 4 P4.1.
+             Providers are now loaded from plugins/filesystem/ directory at startup
+             via FileSystemPluginManager + DirectoryPluginRuntimeManager. -->
+        <!-- fe-filesystem-local: test-scope only, used for unit testing FileSystemTransferUtil etc. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-local</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- All remaining fe-filesystem impl modules, TEST scope only: gives the SPI-vs-fe-core
+             bind-parity golden tests real providers via ServiceLoader on the test classpath.
+             Production still loads providers from the plugins/filesystem/ directory. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-hdfs</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-oss-hdfs</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-jfs</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-s3</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-oss</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-obs</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+            <!-- The cloud SDK's okhttp (3.x/5.x) must not shadow fe-core's own okhttp on the
+                 test classpath; the bind-parity tests never open SDK http connections. -->
+            <exclusions>
+                <exclusion>
+                    <groupId>com.squareup.okhttp3</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.squareup.okio</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-cos</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+            <!-- The cloud SDK's okhttp (3.x/5.x) must not shadow fe-core's own okhttp on the
+                 test classpath; the bind-parity tests never open SDK http connections. -->
+            <exclusions>
+                <exclusion>
+                    <groupId>com.squareup.okhttp3</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.squareup.okio</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-gcs</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-minio</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-ozone</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-azure</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-http</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-broker</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-grpc</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-type</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-catalog</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-extension-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-extension-loader</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-handler</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-role-mapping</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -127,15 +381,22 @@ under the License.
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-azure</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.aliyun.oss</groupId>
-            <artifactId>aliyun-sdk-oss</artifactId>
-            <version>${aliyun-sdk-oss.version}</version>
-        </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
+        </dependency>
+        <!-- Runtime-only, and still LOAD-BEARING after hadoop-huaweicloud moved out of this module:
+             OBSFileSystem calls org.apache.commons.lang.StringUtils while declaring no commons-lang of its
+             own, and the plugins that now carry hadoop-huaweicloud (fe-filesystem-obs, fe-connector-paimon)
+             do not declare commons-lang either — their child-first loaders miss it and fall through to
+             fe/lib, i.e. to this declaration. Dropping it compiles green and then NoClassDefFoundErrors on
+             OBS access. scope=runtime keeps it off the compile classpath, so fe source stays
+             commons-lang(2.x)-free. -->
+        <dependency>
+            <groupId>commons-lang</groupId>
+            <artifactId>commons-lang</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -166,6 +427,10 @@ under the License.
             <artifactId>guava-testlib</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-ratelimiter</artifactId>
+        </dependency>
         <!-- https://mvnrepository.com/artifact/com.googlecode.java-ipv6/java-ipv6 -->
         <dependency>
             <groupId>com.googlecode.java-ipv6</groupId>
@@ -179,6 +444,12 @@ under the License.
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <!-- oshi: used by HardwareInfoController. Previously satisfied only transitively via
+             io.trino:trino-main (now off fe-core's classpath); declared explicitly here. -->
+        <dependency>
+            <groupId>com.github.oshi</groupId>
+            <artifactId>oshi-core</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
@@ -198,6 +469,35 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- Used directly by org.apache.doris.scheduler.disruptor.*; until the hudi-common removal
+             it only arrived transitively. Version from the parent's dependencyManagement. -->
+        <dependency>
+            <groupId>com.lmax</groupId>
+            <artifactId>disruptor</artifactId>
+        </dependency>
+        <!-- Used directly by fe source (@Nullable/@NotNull); until the hudi-common removal it only
+             arrived transitively, and dropping the declaration would silently drift the version to
+             whatever else on the graph happens to win mediation. -->
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+        </dependency>
+        <!-- Caffeine: used directly by the FE caches (MetaCache, StatisticsCache, FileSystemCache,
+             ExternalRowCountCache, ...). Version comes from the spring-boot-dependencies BOM (3.2.3).
+             It used to arrive transitively via hudi-common, and hive-catalog-shade's bundled
+             unrelocated Caffeine 2.x shadowed it at runtime; both are gone, so declare it directly. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+        <!-- Provides the org.json API (JSONObject/JSONArray) that fe source uses directly.
+             Open JSON is the Apache-2.0 clean-room implementation; the org.json:json reference
+             implementation must not be used (its license is ASF category X, which is why the
+             parent pom excludes it from hadoop-cos). -->
+        <dependency>
+            <groupId>com.tdunning</groupId>
+            <artifactId>json</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
@@ -206,11 +506,6 @@ under the License.
         <dependency>
             <groupId>org.objenesis</groupId>
             <artifactId>objenesis</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
-        <dependency>
-            <groupId>com.google.protobuf</groupId>
-            <artifactId>protobuf-java</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.squareup/protoparser -->
         <dependency>
@@ -257,30 +552,6 @@ under the License.
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-s3</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-glue</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-dynamodb</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-logs</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-sts</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.huaweicloud</groupId>
-            <artifactId>hadoop-huaweicloud</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.qcloud.cos</groupId>
-            <artifactId>hadoop-cos</artifactId>
-        </dependency>
         <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
             when upgrade doris antlr-runtime version, should take care of trino-parser.-->
         <dependency>
@@ -289,24 +560,9 @@ under the License.
             <version>${antlr4.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.aliyun.odps</groupId>
-            <artifactId>odps-sdk-core</artifactId>
-            <version>${maxcompute.version}</version>
-            <exclusions>
-                <exclusion>
-                    <artifactId>antlr-runtime</artifactId>
-                    <groupId>org.antlr</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>antlr4</artifactId>
-                    <groupId>org.antlr</groupId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>com.aliyun.odps</groupId>
-            <artifactId>odps-sdk-table-api</artifactId>
-            <version>${maxcompute.version}</version>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-sql-parser</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
         <dependency>
@@ -345,22 +601,14 @@ under the License.
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
         </dependency>
-        <!-- tencent cloud sts -->
-        <dependency>
-            <groupId>com.tencentcloudapi</groupId>
-            <artifactId>tencentcloud-sdk-java-sts</artifactId>
-        </dependency>
-        <!-- huawei cloud sts -->
-        <dependency>
-            <groupId>com.huaweicloud.sdk</groupId>
-            <artifactId>huaweicloud-sdk-iam</artifactId>
-        </dependency>
         <!-- ICU4J for unicode normalization -->
         <dependency>
             <groupId>com.ibm.icu</groupId>
             <artifactId>icu4j</artifactId>
         </dependency>
-        <!-- Fix it-->
+        <!-- Must stay: the parent pom declares awaitility test-scoped, so this scope-less
+             redeclaration is what keeps it on fe-core's compile classpath for
+             InsertOverwriteTableCommand. Do not delete as a "duplicate of the parent". -->
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
@@ -374,18 +622,6 @@ under the License.
             <artifactId>tree-printer</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-netty-shaded</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-protobuf</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-stub</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.apache.httpcomponents</groupId>
             <artifactId>httpclient</artifactId>
         </dependency>
@@ -393,9 +629,22 @@ under the License.
             <groupId>com.google.flatbuffers</groupId>
             <artifactId>flatbuffers-java</artifactId>
         </dependency>
+        <!-- Runtime-only: the FE half of the Hive-UDF-compat shipping contract, and the mirror of
+             be-java-extensions/java-udf, which bundles the same base classes so BE can execute such
+             UDFs. CreateFunctionCommand validates a user JAVA_UDF jar by loading its symbol class in
+             a throwaway URLClassLoader parented to the FE app classloader; deriving a class resolves
+             its supertypes, so a symbol extending org.apache.hadoop.hive.ql.exec.UDF fails CREATE
+             FUNCTION unless fe/lib carries that base class. Nothing in fe source references hive:
+             scope=runtime keeps it off the compile classpath, so fe-core source stays hive-free.
+             This is a UDF-engine dependency, not a catalog one. It is declared here because it was
+             previously satisfied only by accident, as a passenger inside the hive-catalog-shade
+             uber-jar; no compile-time reference reveals it, so removing that jar compiled green and
+             broke CREATE FUNCTION for every hive-derived UDF at runtime. -->
         <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-exec</artifactId>
+            <classifier>core</classifier>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
@@ -414,135 +663,10 @@ under the License.
             <artifactId>hadoop-aws</artifactId>
         </dependency>
 
-        <!-- lakesoul -->
-        <dependency>
-            <groupId>com.dmetasoul</groupId>
-            <artifactId>lakesoul-io-java</artifactId>
-            <version>${lakesoul.version}</version>
-            <scope>provided</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-vector</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-memory-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-memory-netty</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-memory-netty-buffer-patch</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-format</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.spark</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.datatype</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.commons</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.scala-lang</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.json4s</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.ow2.asm</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.postgresql</groupId>
-                    <artifactId>postgresql</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <!-- LakeSoul dependencies - provided scope as lakesoul is deprecated -->
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-            <version>42.7.3</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.scala-lang</groupId>
-            <artifactId>scala-library</artifactId>
-            <version>${scala.version}</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-core</artifactId>
-            <version>${iceberg.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-aws</artifactId>
-            <version>${iceberg.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-core</artifactId>
-            <version>${paimon.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-common</artifactId>
-            <version>${paimon.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-format</artifactId>
-            <version>${paimon.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-s3</artifactId>
-            <version>${paimon.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-oss</artifactId>
-            <version>${paimon.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>glue</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>software.amazon.awssdk</groupId>
-                    <artifactId>apache-client</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
+        <!-- Required at runtime by hadoop-aws: its S3 I/O paths use
+             software.amazon.awssdk.transfer.s3.S3TransferManager / ObjectTransfer and related classes
+             from this jar.  Without it the FE classloader throws NoClassDefFoundError when loading the
+             object-store filesystem. -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3-transfer-manager</artifactId>
@@ -563,32 +687,20 @@ under the License.
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
-            <artifactId>aws-json-protocol</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
             <artifactId>protocol-core</artifactId>
         </dependency>
-        <!-- For Iceberg, must be consistent with Iceberg version -->
-        <dependency>
-            <groupId>org.apache.avro</groupId>
-            <artifactId>avro</artifactId>
-        </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
+        <!-- Parquet reader used by the HTTP import-sampling path (common/parquet/ParquetReader):
+             needs parquet-hadoop (ParquetFileReader / ParquetReadOptions) + parquet-column
+             (column / schema / example.data / io record readers). Replaces the old parquet-avro
+             declaration, whose only extra was the unused avro bridge. -->
         <dependency>
-            <groupId>org.apache.hudi</groupId>
-            <artifactId>hudi-common</artifactId>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->
-        <dependency>
-            <groupId>org.apache.hudi</groupId>
-            <artifactId>hudi-hadoop-mr</artifactId>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.parquet</groupId>
-            <artifactId>parquet-avro</artifactId>
+            <artifactId>parquet-column</artifactId>
         </dependency>
         <dependency>
             <groupId>org.mariadb.jdbc</groupId>
@@ -605,42 +717,15 @@ under the License.
         </dependency>
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp</artifactId>
+            <artifactId>okhttp-jvm</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>com.qcloud</groupId>
-            <artifactId>cos_api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.qcloud</groupId>
-            <artifactId>qcloud-java-sdk</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.huaweicloud</groupId>
-            <artifactId>esdk-obs-java-bundle</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.baidubce</groupId>
-            <artifactId>bce-java-sdk</artifactId>
-            <version>0.10.212</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-classic</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
         <dependency>
             <groupId>org.apache.ranger</groupId>
             <artifactId>ranger-plugins-common</artifactId>
         </dependency>
 
-        <!-- for hudi catalog -->
+        <!-- Provides com.esotericsoftware.minlog.Log used by WorkloadSchedPolicy (not a datasource dep) -->
         <dependency>
             <groupId>com.esotericsoftware</groupId>
             <artifactId>kryo-shaded</artifactId>
@@ -704,10 +789,6 @@ under the License.
             <artifactId>arrow-vector</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.hamcrest</groupId>
-            <artifactId>hamcrest</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.apache.arrow</groupId>
             <artifactId>flight-sql</artifactId>
         </dependency>
@@ -715,9 +796,15 @@ under the License.
             <groupId>org.immutables</groupId>
             <artifactId>value</artifactId>
         </dependency>
+        <!-- The FE HTTP server runs on Jetty 12.0.34, which calls jakarta.servlet.http.Cookie
+             #getAttributes() (a Jakarta Servlet 6.1 method) whenever it writes a Set-Cookie header.
+             Declare the servlet API explicitly so fe-core resolves 6.1.0 instead of the transitive
+             6.0.0 from spring-boot; otherwise the server throws NoSuchMethodError while setting the
+             session cookie (surfaced by removing io.trino:trino-main; see RemoteDorisRestClientTest). -->
         <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-main</artifactId>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <version>${jakarta.servlet-api.version}</version>
         </dependency>
         <dependency>
             <groupId>io.airlift</groupId>
@@ -727,28 +814,6 @@ under the License.
             <groupId>me.bechberger</groupId>
             <artifactId>ap-loader-all</artifactId>
             <version>3.0-8</version>
-        </dependency>
-        <dependency>
-            <groupId>com.azure</groupId>
-            <artifactId>azure-storage-blob</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.azure</groupId>
-            <artifactId>azure-identity</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.azure</groupId>
-            <artifactId>azure-storage-blob-batch</artifactId>
-            <version>${azure.sdk.batch.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>s3tables</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.s3tables</groupId>
-            <artifactId>s3-tables-catalog-for-iceberg</artifactId>
-            <version>${s3tables.catalog.version}</version>
         </dependency>
         <!-- AWS SDK Core -->
         <dependency>
@@ -770,20 +835,25 @@ under the License.
             <artifactId>mockito-inline</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- @SuppressModernizer in TestEvictableCache (a Trino-derived test). Previously satisfied only
+             transitively via io.trino:trino-main (now off fe-core's classpath); declared explicitly. -->
+        <dependency>
+            <groupId>org.gaul</groupId>
+            <artifactId>modernizer-maven-annotations</artifactId>
+            <version>2.7.0</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- fastutil-core: fastutil used directly by FE catalog/tablet-index code
+             (e.g. Long2ObjectOpenHashMap). This used to need a maven-shade-plugin execution that
+             bundled it into doris-fe.jar (pinned first on the FE classpath by bin/start_fe.sh),
+             because hive-catalog-shade bundled an ancient unrelocated fastutil (6.5.6) whose
+             Long2ObjectOpenHashMap lacks computeIfAbsent. That jar is gone, so the override is
+             gone with it, so fe-core declares fastutil-core directly below. -->
+        <dependency>
+            <groupId>it.unimi.dsi</groupId>
+            <artifactId>fastutil-core</artifactId>
+        </dependency>
     </dependencies>
-    <repositories>
-        <!-- for hive-catalog-shade -->
-        <repository>
-            <id>central</id>
-            <name>central maven repo https</name>
-            <url>https://repo.maven.apache.org/maven2</url>
-        </repository>
-        <!-- for huawei obs sdk -->
-        <repository>
-            <id>huawei-obs-sdk</id>
-            <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
-        </repository>
-    </repositories>
     <build>
         <finalName>doris-fe</finalName>
         <directory>${project.basedir}/target/</directory>
@@ -797,8 +867,42 @@ under the License.
                     <include>**/*.*</include>
                 </includes>
             </resource>
+            <!--
+              Kept apart from src/main/resources so that ${...} substitution applies ONLY to the
+              lineage plugin API version file and never rewrites any of fe-core's other resources.
+            -->
+            <resource>
+                <directory>src/main/resources-filtered</directory>
+                <filtering>true</filtering>
+            </resource>
         </resources>
         <plugins>
+            <!--
+              Stamps the declared LINEAGE plugin API version into doris-fe.jar.
+
+              This tree ships zero lineage plugins, so nothing READS the attribute yet - a
+              third-party plugin stamps its own. The block is still mandatory, for a reason that is
+              not obvious: maven-build-cache-extension (enabled in fe/.mvn) hashes a module from its
+              src/** files, its dependencies and its <build><plugins>, and NOT from <properties>.
+              The filtered resource's source text is the literal ${...} placeholder, whose hash never
+              moves. Without the value appearing somewhere inside <build><plugins>, bumping the
+              property alone would leave the module checksum unchanged, so `mvn clean package` would
+              restore the cached jar and ship the OLD version in
+              META-INF/doris/lineage-plugin-api-version.properties - the FE would then serve a
+              contract nobody declared. (Reproduced on the sibling fe-authentication-spi module
+              before this block existed: 1.0 -> 2.0 gave an identical checksum and a stale jar.)
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Doris-Lineage-Plugin-Api-Version>${lineage.plugin.api.version}</Doris-Lineage-Plugin-Api-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
             <!--antlr-->
             <plugin>
                 <groupId>org.antlr</groupId>
@@ -815,19 +919,10 @@ under the License.
                 <configuration>
                     <visitor>true</visitor>
                     <sourceDirectory>src/main/antlr4</sourceDirectory>
-                    <!-->import DorisParser in PLParser.g4 will prompt warning options { tokenVocab = DorisLexer; }
-                    ignored, this is expected behavior, antlr/antlr4#2209, hope to ignore this warning alone,
-                    but it seems that can only delete this treatWarningsAsErrors.
-                    Other warnings should not be ignored.<-->
-                    <!--<treatWarningsAsErrors>true</treatWarningsAsErrors>-->
+                    <treatWarningsAsErrors>true</treatWarningsAsErrors>
                     <libDirectory>src/main/antlr4/org/apache/doris/nereids</libDirectory>
                 </configuration>
             </plugin>
-            <!-- jmockit -->
-            <!--fixme  Unify mocking framework usage across the project.
-            Currently, multiple mocking libraries (e.g., JMockit, Powermock) are used, 
-            which increases maintenance complexity and may cause agent conflicts (e.g., with JaCoCo).
-            Evaluate existing usages and standardize on a single framework where possible.-->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -838,7 +933,7 @@ under the License.
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
                     <argLine>
-                        -Xmx1024m -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar @{argLine}
+                        -Xmx1024m --add-reads=org.apache.arrow.flight.core=ALL-UNNAMED --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED @{argLine}
                     </argLine>
                 </configuration>
             </plugin>
@@ -849,94 +944,12 @@ under the License.
                     <skip>true</skip>
                 </configuration>
             </plugin>
-            <!-- protobuf -->
-            <plugin>
-                <groupId>com.github.os72</groupId>
-                <artifactId>protoc-jar-maven-plugin</artifactId>
-                <version>3.11.4</version>
-                <executions>
-                    <execution>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>run</goal>
-                        </goals>
-                        <configuration>
-                            <protocCommand>${protoc.command}</protocCommand>
-                            <!--You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools-->
-                            <protocArtifact>${protoc.artifact}</protocArtifact>
-                            <protocVersion>${protobuf.version}</protocVersion>
-                            <inputDirectories>
-                                <include>${doris.home}/gensrc/proto</include>
-                            </inputDirectories>
-                            <outputTargets>
-                                <outputTarget>
-                                    <type>java</type>
-                                </outputTarget>
-                                <outputTarget>
-                                    <type>grpc-java</type>
-                                    <pluginArtifact>${grpc.java.artifact}</pluginArtifact>
-                                </outputTarget>
-                            </outputTargets>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <!-- run make to generate Version and builtin -->
-            <!-- also parse the proto for FE -->
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>3.1.0</version>
-                <executions>
-                    <execution>
-                        <id>gensrc</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <environmentVariables>
-                                <DORIS_HOME>${doris.home}</DORIS_HOME>
-                            </environmentVariables>
-                            <environmentScript>${doris.home}/env.sh</environmentScript>
-                            <executable>make</executable>
-                            <arguments>
-                                <argument>-C</argument>
-                                <argument>${doris.home}/gensrc/script</argument>
-                            </arguments>
-                            <skip>${skip.plugin}</skip>
-                        </configuration>
-                    </execution>
-                    <!--execution>
-                        <id>doc</id>
-                        <phase>process-classes</phase>
-                        <goals>
-                            <goal>java</goal>
-                        </goals>
-                        <configuration>
-                            <mainClass>org.apache.doris.common.util.DocGenerator</mainClass>
-                            <arguments>
-                                <argument>${doris.home}/docs/en/docs/admin-manual/config/fe-config-template.md</argument>
-                                <argument>${doris.home}/docs/zh-CN/docs/admin-manual/config/fe-config-template.md</argument>
-                                <argument>${doris.home}/docs/en/docs/admin-manual/config/fe-config.md</argument>
-                                <argument>${doris.home}/docs/zh-CN/docs/admin-manual/config/fe-config.md</argument>
-                                <argument>${doris.home}/docs/en/docs/advanced/variables-template.md</argument>
-                                <argument>${doris.home}/docs/zh-CN/docs/advanced/variables-template.md</argument>
-                                <argument>${doris.home}/docs/en/docs/advanced/variables.md</argument>
-                                <argument>${doris.home}/docs/zh-CN/docs/advanced/variables.md</argument>
-                            </arguments>
-                            <skip>${skip.doc}</skip>
-                        </configuration>
-                    </execution-->
-                </executions>
-            </plugin>
-
             <!-- annotation processor -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <release>8</release>
+                    <release>17</release>
                 </configuration>
                 <executions>
                     <!-- first: compile annotation and annotation processor -->
@@ -1006,32 +1019,30 @@ under the License.
                         <configuration>
                             <sources>
                                 <!-- add arbitrary num of src dirs here -->
-                                <source>${basedir}/target/generated-sources/build/</source>
                                 <source>${basedir}/target/generated-sources/</source>
                             </sources>
                         </configuration>
                     </execution>
                 </executions>
             </plugin>
-            <!-- copy all dependency libs to target lib dir -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <configuration>
+                    <appendAssemblyId>true</appendAssemblyId>
+                    <outputDirectory>${project.build.directory}</outputDirectory>
+                    <recompressZippedFiles>false</recompressZippedFiles>
+                    <descriptors>
+                        <descriptor>src/main/assembly/fe-lib.xml</descriptor>
+                    </descriptors>
+                </configuration>
                 <executions>
                     <execution>
-                        <id>copy-dependencies</id>
+                        <id>make-fe-lib</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>copy-dependencies</goal>
+                            <goal>single</goal>
                         </goals>
-                        <configuration>
-                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
-                            <overWriteReleases>false</overWriteReleases>
-                            <overWriteSnapshots>false</overWriteSnapshots>
-                            <overWriteIfNewer>true</overWriteIfNewer>
-                            <includeScope>runtime</includeScope>
-                            <skip>${skip.plugin}</skip>
-                        </configuration>
                     </execution>
                 </executions>
             </plugin>
@@ -1045,30 +1056,31 @@ under the License.
                     </check>
                 </configuration>
             </plugin>
-            <!-- clean fe/target dir before building -->
+            <!--
+              Arch gate: the per-statement ConnectorMetadata funnel. Every fe-core read / scan /
+              DDL / MVCC seam must acquire metadata through PluginDrivenMetadata.get(session, connector),
+              so a statement reuses ONE ConnectorMetadata per catalog (closed deterministically at
+              statement end). A bare connector.getMetadata(session) elsewhere in fe-core is a build
+              error. See build-support/check-fe-core-metadata-funnel.sh
+              (self-test build-support/tests/test-fe-core-metadata-funnel.sh).
+            -->
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-clean-plugin</artifactId>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
-                <configuration>
-                    <skip>${skip.clean}</skip>
-                    <excludeDefaultDirectories>true</excludeDefaultDirectories>
-                    <filesets>
-                        <fileset>
-                            <directory>target</directory>
-                            <excludes>
-                                <exclude>checkstyle-cachefile</exclude>
-                            </excludes>
-                        </fileset>
-                    </filesets>
-                </configuration>
                 <executions>
                     <execution>
-                        <id>auto-clean</id>
-                        <phase>initialize</phase>
+                        <id>check-fe-core-metadata-funnel</id>
+                        <phase>validate</phase>
                         <goals>
-                            <goal>clean</goal>
+                            <goal>exec</goal>
                         </goals>
+                        <configuration>
+                            <executable>${project.basedir}/../../build-support/check-fe-core-metadata-funnel.sh</executable>
+                            <arguments>
+                                <argument>${project.basedir}</argument>
+                            </arguments>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

@@ -981,7 +981,7 @@ public class StructInfo {
         return Pair.of(MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
-        }, queryPlanWithUnionFilter, queryPlan, false), true);
+        }, queryPlanWithUnionFilter, queryPlan, false, true), true);
     }
 
     /**

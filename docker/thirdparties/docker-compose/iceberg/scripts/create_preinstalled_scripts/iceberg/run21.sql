@@ -8,7 +8,8 @@ use demo.test_db;
 -- =====================================================================================
 
 -- Table 1: For baseline test (rewrite without WHERE condition)
-CREATE TABLE IF NOT EXISTS test_rewrite_where_conditions_baseline (
+DROP TABLE IF EXISTS test_rewrite_where_conditions_baseline;
+CREATE TABLE test_rewrite_where_conditions_baseline (
     id BIGINT,
     name STRING,
     age INT,
@@ -56,7 +57,8 @@ INSERT INTO test_rewrite_where_conditions_baseline VALUES
 (30, 'Dana', 49, 99000.0);
 
 -- Table 2: For test with WHERE condition matching subset (id >= 11 AND id <= 20)
-CREATE TABLE IF NOT EXISTS test_rewrite_where_conditions_with_where (
+DROP TABLE IF EXISTS test_rewrite_where_conditions_with_where;
+CREATE TABLE test_rewrite_where_conditions_with_where (
     id BIGINT,
     name STRING,
     age INT,
@@ -104,7 +106,8 @@ INSERT INTO test_rewrite_where_conditions_with_where VALUES
 (30, 'Dana', 49, 99000.0);
 
 -- Table 3: For test with WHERE condition matching no data (id = 99999)
-CREATE TABLE IF NOT EXISTS test_rewrite_where_conditions_no_match (
+DROP TABLE IF EXISTS test_rewrite_where_conditions_no_match;
+CREATE TABLE test_rewrite_where_conditions_no_match (
     id BIGINT,
     name STRING,
     age INT,

@@ -184,4 +184,30 @@ void MetaServiceImpl::drop_snapshot(::google::protobuf::RpcController* controlle
     msg = response->status().msg();
 }
 
+void MetaServiceImpl::compact_snapshot(::google::protobuf::RpcController* controller,
+                                       const CompactSnapshotRequest* request,
+                                       CompactSnapshotResponse* response,
+                                       ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(compact_snapshot, get, put);
+
+    if (!request->instance_id().empty()) {
+        instance_id = request->instance_id();
+    } else if (request->has_cloud_unique_id() && !request->cloud_unique_id().empty()) {
+        instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+        if (instance_id.empty()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "empty instance_id";
+            return;
+        }
+    } else {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "instance_id or cloud_unique_id is required";
+        return;
+    }
+
+    RPC_RATE_LIMIT(compact_snapshot);
+
+    std::tie(code, msg) = snapshot_manager_->compact_snapshot(instance_id);
+}
+
 } // namespace doris::cloud

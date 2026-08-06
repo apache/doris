@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `nested_cross_page1_parquet`(
+drop table if exists `nested_cross_page1_parquet`;
+
+create table `nested_cross_page1_parquet`(
     `id` int,
     `array_col` array<int>,
     `description` string)
@@ -13,10 +15,8 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/suites/multi_catalog/nested_cross_page1_parquet';
-
-msck repair table nested_cross_page1_parquet;
-
-CREATE TABLE `nested_cross_page2_parquet`(
+drop table if exists `nested_cross_page2_parquet`;
+create table `nested_cross_page2_parquet`(
     id INT,
     nested_array_col ARRAY<ARRAY<INT>>,
     array_struct_col ARRAY<STRUCT<x:INT, y:STRING>>,
@@ -38,10 +38,8 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/suites/multi_catalog/nested_cross_page2_parquet';
-
-msck repair table nested_cross_page2_parquet;
-
-CREATE TABLE `nested_cross_page3_parquet`(
+drop table if exists `nested_cross_page3_parquet`;
+create table `nested_cross_page3_parquet`(
     `id` int,
     `array_col` array<int>,
     `description` string)
@@ -53,6 +51,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/suites/multi_catalog/nested_cross_page3_parquet';
-
-msck repair table nested_cross_page3_parquet;
-

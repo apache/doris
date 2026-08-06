@@ -20,7 +20,7 @@ import org.apache.hadoop.fs.Path
 
 import java.net.URI
 
-suite("test_hive_staging_dir", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_staging_dir", "p0,external") {
     def getHiveTableLocation = { String db, String tbl ->
         def rows = hive_docker """describe formatted `${db}`.`${tbl}`"""
         for (def row : rows) {
@@ -136,9 +136,6 @@ suite("test_hive_staging_dir", "p0,external,hive,external_docker,external_docker
             try_hive_docker """drop table if exists `${dbName}`.`${tableAbs}`"""
             try_sql """drop catalog if exists ${catalogName}"""
             if (fs != null) {
-                if (stagingDefaultWithUser != null) {
-                    fs.delete(new Path(stagingDefaultWithUser), true)
-                }
                 if (stagingRelPath != null) {
                     fs.delete(new Path(stagingRelPath), true)
                 }

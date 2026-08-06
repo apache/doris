@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.DiffOutputInAsterisk;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -101,20 +102,23 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalAssertNumRows<>(assertNumRowsElement, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalAssertNumRows<>(assertNumRowsElement, children.get(0)));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalAssertNumRows<>(assertNumRowsElement,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalAssertNumRows<>(assertNumRowsElement,
+                groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalAssertNumRows<>(assertNumRowsElement, groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalAssertNumRows<>(assertNumRowsElement, groupExpression, logicalProperties, children.get(0)));
     }
 
     @Override

@@ -17,21 +17,20 @@
 
 #pragma once
 
-#include <gen_cpp/data.pb.h>
-
 #include <memory>
 
 #include "common/factory_creator.h"
 #include "common/multi_version.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/runtime_profile.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "runtime/workload_management/cpu_context.h"
 #include "runtime/workload_management/io_context.h"
 #include "runtime/workload_management/memory_context.h"
 #include "runtime/workload_management/task_controller.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
+
+class TQueryStatistics;
 
 // Every task should have its own resource context. And BE may adjust the resource
 // context during running.
@@ -111,5 +110,4 @@ private:
     MultiVersion<RuntimeProfile> resource_profile_;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -38,7 +38,7 @@ suite('test_mix_partial_update') {
                     `c3` int,
                     `seq` int
                     )UNIQUE KEY(k1)
-                CLUSTER BY(c1, c2)    
+                ORDER BY(c1, c2)    
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "disable_auto_compaction" = "true",
@@ -106,7 +106,7 @@ suite('test_mix_partial_update') {
                     `c3` int,
                     `seq` int
                     )UNIQUE KEY(k1)
-                CLUSTER BY(c1)    
+                ORDER BY(c1)    
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "disable_auto_compaction" = "true",
@@ -272,7 +272,7 @@ suite('test_mix_partial_update') {
                     `c5` datetimev2(3) DEFAULT CURRENT_TIMESTAMP,
                     `c6` datetimev2(3) DEFAULT CURRENT_TIMESTAMP
                     )UNIQUE KEY(k1)
-                CLUSTER BY(c2, c1)    
+                ORDER BY(c2, c1)    
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "disable_auto_compaction" = "true",
@@ -334,7 +334,7 @@ suite('test_mix_partial_update') {
                     `c5` datetimev2(3) DEFAULT CURRENT_TIMESTAMP,
                     `c6` datetimev2(3) DEFAULT CURRENT_TIMESTAMP
                     )UNIQUE KEY(k1)
-                CLUSTER BY(c2, k1, c1)    
+                ORDER BY(c2, k1, c1)    
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "disable_auto_compaction" = "true",

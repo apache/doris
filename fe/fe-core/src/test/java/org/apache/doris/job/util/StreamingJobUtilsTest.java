@@ -21,18 +21,24 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.common.DataSourceType;
+import org.apache.doris.job.exception.JobException;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class StreamingJobUtilsTest {
 
@@ -236,5 +242,32 @@ public class StreamingJobUtilsTest {
                 .orElse(null);
         Assert.assertNotNull(normalVarcharColumn);
         Assert.assertEquals(150, normalVarcharColumn.getType().getLength()); // 50 * 3
+    }
+
+    @Test
+    public void testGetOceanBaseRemoteDbName() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DataSourceConfigKeys.DATABASE, "test_db");
+
+        Assert.assertEquals("test_db",
+                StreamingJobUtils.getRemoteDbName(DataSourceType.OCEANBASE, properties));
+    }
+
+    @Test
+    public void testGenerateCreateTableCmdsClosesJdbcClientOnFailure() {
+        Map<String, String> properties = new HashMap<>();
+        try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            utils.when(() -> StreamingJobUtils.getJdbcClient(DataSourceType.OCEANBASE, properties))
+                    .thenReturn(jdbcClient);
+            utils.when(() -> StreamingJobUtils.getRemoteDbName(DataSourceType.OCEANBASE, properties))
+                    .thenReturn("test_db");
+            Mockito.when(jdbcClient.getTablesNameList("test_db")).thenReturn(new ArrayList<>());
+
+            Assert.assertThrows(JobException.class, () -> StreamingJobUtils.generateCreateTableCmds(
+                    "target_db", DataSourceType.OCEANBASE, properties, new HashMap<>()));
+
+            Mockito.verify(jdbcClient).closeClient();
+        }
     }
 }

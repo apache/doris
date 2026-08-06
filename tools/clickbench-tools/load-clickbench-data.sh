@@ -126,9 +126,9 @@ function load() {
     need_download=false
     cd $DATA_DIR
     for i in $(seq 0 9); do
-        if [ ! -f "$DATA_DIR/hits_split${i}" ]; then
-            echo "will download hits_split${i} to $DATA_DIR"
-            wget --continue "https://doris-test-data.oss-cn-hongkong.aliyuncs.com/ClickBench/hits_split${i}" &
+        if [ ! -f "$DATA_DIR/hits_split${i}.tsv" ]; then
+            echo "will download hits_split${i}.tsv to $DATA_DIR"
+            wget --continue "https://bench-dataset.oss-cn-beijing.aliyuncs.com/clickhouse/hits_compatible/hits_split${i}.tsv" &
             PID=$!
             wget_pids[${#wget_pids[@]}]=$PID
         fi
@@ -145,14 +145,14 @@ function load() {
         if [[ -z ${TXN_ID} ]]; then
             curl --location-trusted \
                 -u $USER:$PASSWORD \
-                -T "$DATA_DIR/hits_split${i}" \
+                -T "$DATA_DIR/hits_split${i}.tsv" \
                 -H "Expect: 100-continue" \
                 -H "columns:WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
                 http://$FE_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load
         else
             curl --location-trusted \
                 -u $USER:$PASSWORD \
-                -T "$DATA_DIR/hits_split${i}" \
+                -T "$DATA_DIR/hits_split${i}.tsv" \
                 -H "Expect: 100-continue" \
                 -H "label:${TXN_ID}_${i}" \
                 -H "columns:WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_usage_restrictions") {
+suite("test_search_usage_restrictions", "p0") {
     def tableName = "search_usage_test_table"
     def tableName2 = "search_usage_test_table2"
 
@@ -70,53 +70,53 @@ suite("test_search_usage_restrictions") {
     // ============ Valid Usage Tests ============
 
     // Test 1: search() in WHERE clause is allowed
-    qt_valid_where "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Learning') ORDER BY id"
+    qt_valid_where "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Learning') ORDER BY id"
 
     // Test 2: search() with AND/OR in WHERE is allowed
-    qt_valid_where_complex "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('title:Learning') AND id > 1 ORDER BY id"
+    qt_valid_where_complex "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('title:Learning') AND id > 1 ORDER BY id"
 
     // Test 3: Multiple search() in WHERE is allowed
-    qt_valid_multiple_search "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('title:Learning') OR search('content:tutorial') ORDER BY id"
+    qt_valid_multiple_search "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('title:Learning') OR search('content:tutorial') ORDER BY id"
 
     // Test 4: search() with LIMIT is allowed
-    qt_valid_with_limit "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('title:Learning') LIMIT 2"
+    qt_valid_with_limit "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('title:Learning') LIMIT 2"
 
     // ============ Invalid Usage Tests - Should Fail ============
 
     // Test 5: search() in GROUP BY should fail
     test {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName} GROUP BY search('title:Learning')"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName} GROUP BY search('title:Learning')"
         exception "predicates are only supported inside WHERE filters on single-table scans"
     }
 
     // Test 6: search() in SELECT then GROUP BY alias should fail
     test {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ search('title:Learning') as s, count(*) FROM ${tableName} GROUP BY s"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ search('title:Learning') as s, count(*) FROM ${tableName} GROUP BY s"
         exception "search()"
     }
 
     // Test 7: search() in SELECT projection (without WHERE) should fail
     test {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ search('title:Learning'), title FROM ${tableName}"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ search('title:Learning'), title FROM ${tableName}"
         exception "search()"
     }
 
     // Test 8: search() in aggregate output should fail
     test {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(search('title:Learning')) FROM ${tableName}"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(search('title:Learning')) FROM ${tableName}"
         exception "search()"
     }
 
     // Test 9: search() in HAVING clause should fail
     test {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ category, count(*) FROM ${tableName} GROUP BY category HAVING search('title:Learning')"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ category, count(*) FROM ${tableName} GROUP BY category HAVING search('title:Learning')"
         exception "predicates are only supported inside WHERE filters on single-table scans"
     }
 
     // Test 10: search() with JOIN should fail (not single table)
     test {
         sql """
-            SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ t1.id FROM ${tableName} t1
+            SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ t1.id FROM ${tableName} t1
             JOIN ${tableName2} t2 ON t1.id = t2.id
             WHERE search('title:Learning')
         """
@@ -125,25 +125,25 @@ suite("test_search_usage_restrictions") {
 
     // Test 11: search() in ORDER BY should fail
     test {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} ORDER BY search('title:Learning')"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} ORDER BY search('title:Learning')"
         exception "search()"
     }
 
     // Test 12: search() in CASE WHEN (outside WHERE) should fail
     test {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ CASE WHEN search('title:Learning') THEN 1 ELSE 0 END FROM ${tableName}"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ CASE WHEN search('title:Learning') THEN 1 ELSE 0 END FROM ${tableName}"
         exception "search()"
     }
 
     // Test 13: search() in aggregate function context should fail
     test {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ max(search('title:Learning')) FROM ${tableName}"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ max(search('title:Learning')) FROM ${tableName}"
         exception "search()"
     }
 
     // Test 14: search() in window function should fail
     test {
-        sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, row_number() OVER (ORDER BY search('title:Learning')) FROM ${tableName}"
+        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, row_number() OVER (ORDER BY search('title:Learning')) FROM ${tableName}"
         exception "search()"
     }
 
@@ -151,24 +151,24 @@ suite("test_search_usage_restrictions") {
 
     // Test 15: search() in subquery WHERE is allowed (subquery is single table)
     qt_valid_subquery """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ * FROM (
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ * FROM (
             SELECT id, title FROM ${tableName} WHERE search('title:Learning')
         ) t WHERE id > 1 ORDER BY id
     """
 
     // Test 16: Multiple fields in search() DSL is allowed
-    qt_valid_multi_field "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('title:Learning AND content:tutorial') ORDER BY id"
+    qt_valid_multi_field "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('title:Learning AND content:tutorial') ORDER BY id"
 
     // Test 17: search() with complex boolean logic in WHERE is allowed
     qt_valid_complex_where """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName}
         WHERE (search('title:Learning') OR id = 1) AND category = 'Technology'
         ORDER BY id
     """
 
     // Test 18: search() in UNION queries (each part valid) should work
     qt_valid_union """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('title:Learning')
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('title:Learning')
         UNION ALL
         SELECT id FROM ${tableName} WHERE search('content:tutorial')
         ORDER BY id

@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+        <artifactId>fe</artifactId>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>fe-authentication</artifactId>
+    <packaging>pom</packaging>
+    <name>Doris FE Authentication</name>
+
+    <properties>
+        <!--
+          The AUTHENTICATION plugin API version, declared exactly once. Filtered into
+          fe-authentication-spi's META-INF/doris/authentication-plugin-api-version.properties, which
+          is what the FE kernel expects of a plugin.
+
+          Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the authentication
+          SPI surface - additions included. A change to fe-extension-spi means bumping all four
+          families. See plan-doc/designs/2026-07-29-plugin-api-version-check-design.md.
+        -->
+        <authentication.plugin.api.version>1.0</authentication.plugin.api.version>
+    </properties>
+
+    <build>
+        <plugins>
+            <!--
+              Stamps the declared AUTHENTICATION plugin API version into every jar built here.
+
+              This tree ships zero authentication plugin zips today, so nothing READS the attribute
+              yet - a third-party plugin stamps its own. The block is still mandatory, for a reason
+              that is not obvious: maven-build-cache-extension (enabled in fe/.mvn) hashes a module
+              from its src/** files, its dependencies and its <build><plugins>, and NOT from
+              <properties>. The filtered resource's source text is the literal ${...} placeholder,
+              whose hash never moves. Without the value appearing somewhere inside <build><plugins>,
+              bumping the property alone leaves the module checksum unchanged, so `mvn clean package`
+              restores the cached jar and ships the OLD version in
+              META-INF/doris/authentication-plugin-api-version.properties - the FE would then serve a
+              contract nobody declared. Reproduced before this block existed: 1.0 -> 2.0 gave the
+              identical checksum 4c1d34a6e04836c6 and a jar still saying api.version=1.0.
+
+              It also means the first in-tree authentication plugin zip needs no pom change.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Doris-Authentication-Plugin-Api-Version>${authentication.plugin.api.version}</Doris-Authentication-Plugin-Api-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <modules>
+        <module>fe-authentication-api</module>
+        <module>fe-authentication-role-mapping</module>
+        <module>fe-authentication-spi</module>
+        <module>fe-authentication-handler</module>
+        <module>fe-authentication-plugins</module>
+    </modules>
+</project>

@@ -7,7 +7,7 @@
 5	\N	\N	\N	{"f1":null, "f2":null, "f3":null}
 6	\N	\N	\N	{"f1":"NULL", "f2":"null", "f3":null}
 
--- !select_struct_element_1 --
+-- !select_element_at_1 --
 1	2	3	4	5
 1	1000	10000000	100000000000	100000000000
 5	4	3	2	1
@@ -15,7 +15,7 @@
 \N	\N	\N	\N	\N
 \N	\N	\N	\N	\N
 
--- !select_struct_element_2 --
+-- !select_element_at_2 --
 1.0	3.33	0.001
 1.0	2.143	0.001
 2.3	23.3	0.333
@@ -23,7 +23,7 @@
 \N	\N	\N
 \N	\N	\N
 
--- !select_struct_element_3 --
+-- !select_element_at_3 --
 2023-04-01	2023-04-01T12:00	2023-04-01	2023-04-01T12:00:01
 2023-04-01	2023-04-01T12:00	2023-04-01	2023-04-01T12:00:01
 2023-04-01	2023-04-01T12:00	2023-04-01	2023-04-01T12:00:01
@@ -31,13 +31,80 @@
 \N	\N	\N	\N
 \N	\N	\N	\N
 
--- !select_struct_element_4 --
+-- !select_element_at_4 --
 a	abc	abc
 hi	doris	hello doris
 a	abc	abc
 a	\N	abc
 \N	\N	\N
 NULL	null	\N
+
+-- !select_struct_element_alias_1 --
+1	2	3	4	5
+1	1000	10000000	100000000000	100000000000
+5	4	3	2	1
+1	\N	3	\N	5
+\N	\N	\N	\N	\N
+\N	\N	\N	\N	\N
+
+-- !select_struct_element_alias_2 --
+1.0	3.33	0.001
+1.0	2.143	0.001
+2.3	23.3	0.333
+2.0	\N	0.001
+\N	\N	\N
+\N	\N	\N
+
+-- !select_struct_element_alias_3 --
+2023-04-01	2023-04-01T12:00	2023-04-01	2023-04-01T12:00:01
+2023-04-01	2023-04-01T12:00	2023-04-01	2023-04-01T12:00:01
+2023-04-01	2023-04-01T12:00	2023-04-01	2023-04-01T12:00:01
+2023-04-01	\N	2023-04-01	\N
+\N	\N	\N	\N
+\N	\N	\N	\N
+
+-- !select_struct_element_alias_4 --
+a	abc	abc
+hi	doris	hello doris
+a	abc	abc
+a	\N	abc
+\N	\N	\N
+NULL	null	\N
+
+-- !select_struct_subscript_1 --
+1	2	3	4	5
+1	1000	10000000	100000000000	100000000000
+5	4	3	2	1
+1	\N	3	\N	5
+\N	\N	\N	\N	\N
+\N	\N	\N	\N	\N
+
+-- !select_struct_subscript_2 --
+1.0	3.33	0.001
+1.0	2.143	0.001
+2.3	23.3	0.333
+2.0	\N	0.001
+\N	\N	\N
+\N	\N	\N
+
+-- !select_struct_subscript_3 --
+2023-04-01	2023-04-01T12:00	2023-04-01	2023-04-01T12:00:01
+2023-04-01	2023-04-01T12:00	2023-04-01	2023-04-01T12:00:01
+2023-04-01	2023-04-01T12:00	2023-04-01	2023-04-01T12:00:01
+2023-04-01	\N	2023-04-01	\N
+\N	\N	\N	\N
+\N	\N	\N	\N
+
+-- !select_struct_subscript_4 --
+a	abc	abc
+hi	doris	hello doris
+a	abc	abc
+a	\N	abc
+\N	\N	\N
+NULL	null	\N
+
+-- !select_struct_subscript_null --
+\N
 
 -- !sql_before --
 {"col_11":123.321, "col_12":{"col":1, "col1":345.24}}

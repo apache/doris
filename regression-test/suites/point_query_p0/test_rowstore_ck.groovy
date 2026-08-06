@@ -43,7 +43,7 @@ suite("test_rowstore_ck", "p0,nonConcurrent") {
                 `v4` datetime NULL COMMENT ""
               ) ENGINE=OLAP
               UNIQUE KEY(`k1`)
-              CLUSTER BY(`v2`)
+              ORDER BY(`v2`)
               DISTRIBUTED BY HASH(`k1`) BUCKETS 1
               PROPERTIES (
               "replication_allocation" = "tag.location.default: 1",
@@ -71,7 +71,7 @@ suite("test_rowstore_ck", "p0,nonConcurrent") {
                 `v4` datetime NULL COMMENT ""
               ) ENGINE=OLAP
               UNIQUE KEY(`k1`)
-              CLUSTER BY(`v4`, `v2`)
+              ORDER BY(`v4`, `v2`)
               DISTRIBUTED BY HASH(`k1`) BUCKETS 1
               PROPERTIES (
               "replication_allocation" = "tag.location.default: 1",
@@ -99,7 +99,7 @@ suite("test_rowstore_ck", "p0,nonConcurrent") {
                 `v4` datetime NULL COMMENT ""
               ) ENGINE=OLAP
               UNIQUE KEY(`k1`)
-              CLUSTER BY(`v2`, `v4`)
+              ORDER BY(`v2`, `v4`)
               DISTRIBUTED BY HASH(`k1`) BUCKETS 1
               PROPERTIES (
               "replication_allocation" = "tag.location.default: 1",
@@ -126,7 +126,7 @@ suite("test_rowstore_ck", "p0,nonConcurrent") {
                 `v4` datetime NULL COMMENT ""
               ) ENGINE=OLAP
               UNIQUE KEY(`k1`)
-              CLUSTER BY(`v2`, `k1`)
+              ORDER BY(`v2`, `k1`)
               DISTRIBUTED BY HASH(`k1`) BUCKETS 1
               PROPERTIES (
               "replication_allocation" = "tag.location.default: 1",
@@ -164,7 +164,7 @@ suite("test_rowstore_ck", "p0,nonConcurrent") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`)
-            CLUSTER BY(`max_dwell_time`) 
+            ORDER BY(`max_dwell_time`) 
             DISTRIBUTED BY HASH(`user_id`)
             PROPERTIES ( "replication_num" = "1",
                     "enable_unique_key_merge_on_write" = "true",
@@ -278,7 +278,7 @@ suite("test_rowstore_ck", "p0,nonConcurrent") {
                  `v4` datetime NULL COMMENT ""
                ) ENGINE=OLAP
                UNIQUE KEY(`k1`)
-               CLUSTER BY(`v4`, `k1`, `v2`)
+               ORDER BY(`v4`, `k1`, `v2`)
                DISTRIBUTED BY HASH(`k1`) BUCKETS 1
                PROPERTIES (
                "replication_allocation" = "tag.location.default: 1",
@@ -299,7 +299,7 @@ suite("test_rowstore_ck", "p0,nonConcurrent") {
                 `v2` DECIMALv3(50, 18) NULL COMMENT ""
               ) ENGINE=OLAP
               UNIQUE KEY(`k1`)
-              CLUSTER BY(`v2`)
+              ORDER BY(`v2`)
               DISTRIBUTED BY HASH(`k1`) BUCKETS 1
               PROPERTIES (
               "replication_allocation" = "tag.location.default: 1",

@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_complex_types", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_complex_types", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_complex_types"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -38,7 +38,7 @@ suite("test_complex_types", "p0,external,hive,external_docker,external_docker_hi
         
         sql """ use multi_catalog """
 
-        qt_null_struct_element """select count(struct_element(favor, 'tip')) from byd where id % 13 = 0"""
+        qt_null_element_at """select count(element_at(favor, 'tip')) from byd where id % 13 = 0"""
 
         qt_map_key_select """select id, singles["p0X72J-mkMe40O-vOa-opfI"] as map_key from byd where singles["p0X72J-mkMe40O-vOa-opfI"] is not null"""
 
@@ -54,7 +54,7 @@ suite("test_complex_types", "p0,external,hive,external_docker,external_docker_hi
 
         // qt_array_last """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
 
-        qt_null_struct_element_orc """select count(struct_element(favor, 'tip')) from byd where id % 13 = 0"""
+        qt_null_element_at_orc """select count(element_at(favor, 'tip')) from byd where id % 13 = 0"""
 
         qt_map_key_select_orc """select id, singles["p0X72J-mkMe40O-vOa-opfI"] as map_key from byd where singles["p0X72J-mkMe40O-vOa-opfI"] is not null"""
 

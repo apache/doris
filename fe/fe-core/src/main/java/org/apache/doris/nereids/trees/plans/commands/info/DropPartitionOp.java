@@ -45,7 +45,6 @@ public class DropPartitionOp extends AlterTableOp {
         this.ifExists = ifExists;
         this.partitionName = partitionName;
         this.isTempPartition = isTempPartition;
-        this.needTableStable = false;
         this.forceDrop = forceDrop;
     }
 
@@ -85,6 +84,12 @@ public class DropPartitionOp extends AlterTableOp {
     @Override
     public boolean needChangeMTMVState() {
         return false;
+    }
+
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Dropping partition is allowed for row binlog tables.
+        return true;
     }
 
     @Override

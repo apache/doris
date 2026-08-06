@@ -1085,7 +1085,7 @@ The Apache Software License, Version 2.0
     * fastjson:
         - com.alibaba:fastjson:1.2.58 (https://github.com/alibaba/fastjson)
     * fastutil:
-        - it.unimi.dsi:fastutil:6.5.6 (http://fasutil.dsi.unimi.it/)
+        - it.unimi.dsi:fastutil:8.5.18 (http://fastutil.di.unimi.it/)
     * fe-common:
         - org.apache.doris:fe-common:0.15-SNAPSHOT (https://doris.apache.org/fe-common/)
     * hadoop-mapreduce-client-app:
@@ -1463,6 +1463,9 @@ The Apache Software License, Version 2.0
     * brpc: 1.1.0
     * rocksdb: 5.14.2
     * arrow: 7.0.0
+    * arrow-adbc: 1.12.0
+        - source: https://github.com/apache/arrow-adbc
+        - only the driver manager (C++) is linked into the BE binary
     * S2: 0.10.0
     * croaringbitmap: 0.4.0
     * Abseil LTS 20220623
@@ -1476,6 +1479,9 @@ The Apache Software License, Version 2.0
     * opentelemetry-proto: 0.18.0
     * opentelemetry-cpp: 1.4.0
     * clucene: 2.4.6
+    * lance-c: 0.1.2
+        - source: https://github.com/lance-format/lance-c
+        - transitive Rust crate licenses: licenses/LICENSE-lance-c-rust-crates.txt
 
 The MIT License -- licenses/LICENSE-MIT.txt
     * datatables: 1.12.1

@@ -18,9 +18,8 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.common.Version;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import jakarta.servlet.http.HttpServletRequest;
@@ -43,8 +42,8 @@ public class FeVersionInfoAction extends RestBaseController {
 
     @RequestMapping(path = "/api/fe_version_info", method = RequestMethod.GET)
     protected Object profile(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         Map<String, Object> feVersionInfo = Maps.newHashMap();
         feVersionInfo.put("dorisBuildVersionPrefix", Version.DORIS_BUILD_VERSION_PREFIX);

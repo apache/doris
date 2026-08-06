@@ -48,6 +48,7 @@ public class ForEachCombinator extends NullableAggregateFunction
             add("percentile");
             add("percentile_array");
             add("percentile_approx");
+            add("percentile_approx_array");
             add("percentile_approx_weighted");
         }
     });
@@ -119,7 +120,7 @@ public class ForEachCombinator extends NullableAggregateFunction
 
     @Override
     public DataType getDataType() {
-        return ArrayType.of(nested.getDataType(), true);
+        return ArrayType.of(nested.getDataType());
     }
 
     @Override

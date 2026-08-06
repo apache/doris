@@ -56,13 +56,13 @@ suite("test_arithmetic_operators", "query,p0") {
     qt_arith_op19 "select k1*k2*k3*k5*k8*k9 from ${tableName} order by k1, k2, k3, k4"
     qt_arith_op20 "select k1*10000/k4/k8/k9 from ${tableName} order by k1, k2, k3, k4"
     
-    // for( i in [1, 2, 3, 5, 8, 9]) {
-    //     for( j in [1, 2, 3, 5, 8, 9]) {
-    //         qt_arith_op21 "select k${i}*k${j}, k${i}+k${j}, k${i}-k${j}, k${i}/k${j} from ${tableName} \
-	// 		    where abs(k${i})<9223372036854775807 and k${j}<>0 and\
-	// 		    abs(k${i})<922337203685477580 order by k1, k2, k3, k4"
-    //     }
-    // }
+    for( i in [1, 2, 3, 5, 8, 9]) {
+        for( j in [1, 2, 3, 5, 8, 9]) {
+            qt_arith_op21 "select k${i}*k${j}, k${i}+k${j}, k${i}-k${j}, k${i}/k${j} from ${tableName} \
+			    where abs(k${i})<9223372036854775807 and k${j}<>0 and\
+			    abs(k${i})<922337203685477580 order by k1, k2, k3, k4"
+        }
+    }
     
     qt_arith_op22 "select 1.1*1.1 + k2 from ${tableName} order by 1 limit 10"
     qt_arith_op23 "select 1.1*1.1 + k5 from ${tableName} order by 1 limit 10"
@@ -74,4 +74,7 @@ suite("test_arithmetic_operators", "query,p0") {
     qt_arith_op27 "select -10.2 / 0.0, -10.2 / 0, -10.2 % 0.0, -10.2 % 0"
     qt_arith_op28 "select k5 / 0, k8 / 0, k9 / 0 from ${tableName} order by k1,k2,k3,k4"
     qt_arith_op29 "select k5 % 0, k8 % 0, k9 % 0 from ${tableName} order by k1,k2,k3,k4"
+
+    qt_arith_op30 "select k5 MOD 3, k8 mod 2, k9 Mod 1 from ${tableName} order by k1,k2,k3,k4"
+    qt_arith_op31 "select k5 MOD 3, MOD(k8, 2), (k9 MOD 1) as MOD from ${tableName} order by k1,k2,k3,k4"
 }

@@ -29,9 +29,11 @@
 
 #include "common/compiler_util.h"
 #include "common/status.h"
+#include "format/arrow/arrow_utils.h"
+#include "runtime/exec_env.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udf_runtime.h"
-#include "util/arrow/utils.h"
+#include "util/unaligned.h"
 
 namespace doris {
 
@@ -42,6 +44,7 @@ namespace doris {
 // - ACCUMULATE: use success + rows_processed (number of rows processed)
 // - SERIALIZE: use success + data (serialized_state)
 // - FINALIZE: use success + data (serialized result, may be null)
+// - Any failed operation: use success=false + data (UTF-8 error message)
 //
 // This unified schema allows all operations to return consistent format,
 // solving Arrow Flight's limitation that all responses must have the same schema.
@@ -50,6 +53,47 @@ static const std::shared_ptr<arrow::Schema> kUnifiedUDAFResponseSchema = arrow::
         arrow::field("rows_processed", arrow::int64()),
         arrow::field("serialized_data", arrow::binary()),
 });
+
+Status PythonUDAFClient::make_udaf_failure_status(
+        const std::shared_ptr<arrow::RecordBatch>& response, const char* operation,
+        int64_t place_id) {
+    if (response == nullptr || response->num_rows() != 1 ||
+        response->num_columns() != kUnifiedUDAFResponseSchema->num_fields()) [[unlikely]] {
+        return Status::InternalError("Invalid {} failure response for place_id={}", operation,
+                                     place_id);
+    }
+
+    auto data_array = std::static_pointer_cast<arrow::BinaryArray>(response->column(2));
+    if (data_array->IsNull(0)) {
+        return Status::InternalError("{} operation failed for place_id={}", operation, place_id);
+    }
+
+    const auto* offsets = data_array->raw_value_offsets();
+    if (offsets == nullptr) [[unlikely]] {
+        return Status::InternalError("Invalid {} failure response for place_id={}: null offsets",
+                                     operation, place_id);
+    }
+    // Arrow Flight buffers may be unaligned after IPC deserialization
+    int32_t offset_start = unaligned_load<int32_t>(offsets);
+    int32_t offset_end = unaligned_load<int32_t>(offsets + 1);
+
+    int32_t length = offset_end - offset_start;
+    if (length <= 0) {
+        return Status::InternalError("{} operation failed for place_id={}", operation, place_id);
+    }
+    const uint8_t* data = data_array->value_data()->data() + offset_start;
+    std::string error_message(reinterpret_cast<const char*>(data), length);
+    return Status::InternalError("{} operation failed for place_id={}: {}", operation, place_id,
+                                 error_message);
+}
+
+#ifdef BE_TEST
+Status PythonUDAFClient::make_udaf_failure_status_for_test(
+        const std::shared_ptr<arrow::RecordBatch>& response, const char* operation,
+        int64_t place_id) {
+    return make_udaf_failure_status(response, operation, place_id);
+}
+#endif
 
 Status PythonUDAFClient::create(const PythonUDFMeta& func_meta, ProcessPtr process,
                                 const std::shared_ptr<arrow::Schema>& data_schema,
@@ -89,7 +133,7 @@ Status PythonUDAFClient::create(int64_t place_id) {
 
     auto success_array = std::static_pointer_cast<arrow::BooleanArray>(response_batch->column(0));
     if (!success_array->Value(0)) {
-        return Status::InternalError("CREATE operation failed for place_id={}", place_id);
+        return make_udaf_failure_status(response_batch, "CREATE", place_id);
     }
 
     _created_place_id = place_id;
@@ -142,16 +186,15 @@ Status PythonUDAFClient::accumulate(int64_t place_id, bool is_single_place,
     auto rows_processed_array = std::static_pointer_cast<arrow::Int64Array>(response->column(1));
 
     if (!success_array->Value(0)) {
-        return Status::InternalError("ACCUMULATE operation failed for place_id={}", place_id);
+        return make_udaf_failure_status(response, "ACCUMULATE", place_id);
     }
 
-    // Cast to uint8_t* first to avoid UBSAN misaligned pointer errors
-    const uint8_t* raw_ptr = reinterpret_cast<const uint8_t*>(rows_processed_array->raw_values());
+    // Arrow Flight buffers may be unaligned after IPC deserialization.
+    const auto* raw_ptr = rows_processed_array->raw_values();
     if (raw_ptr == nullptr) {
         return Status::InternalError("ACCUMULATE response has null rows_processed array");
     }
-    int64_t rows_processed;
-    memcpy(&rows_processed, raw_ptr, sizeof(int64_t));
+    int64_t rows_processed = unaligned_load<int64_t>(raw_ptr);
 
     int64_t expected_rows = row_end - row_start;
 
@@ -185,17 +228,16 @@ Status PythonUDAFClient::serialize(int64_t place_id,
     auto data_array = std::static_pointer_cast<arrow::BinaryArray>(response->column(2));
 
     if (!success_array->Value(0)) {
-        return Status::InternalError("SERIALIZE operation failed for place_id={}", place_id);
+        return make_udaf_failure_status(response, "SERIALIZE", place_id);
     }
 
-    // Cast to uint8_t* first to avoid UBSAN misaligned pointer errors
-    const uint8_t* offsets = reinterpret_cast<const uint8_t*>(data_array->raw_value_offsets());
+    // Arrow Flight buffers may be unaligned after IPC deserialization.
+    const auto* offsets = data_array->raw_value_offsets();
     if (offsets == nullptr) {
         return Status::InternalError("SERIALIZE response has null offsets");
     }
-    int32_t offset_start, offset_end;
-    memcpy(&offset_start, offsets, sizeof(int32_t));
-    memcpy(&offset_end, offsets + sizeof(int32_t), sizeof(int32_t));
+    int32_t offset_start = unaligned_load<int32_t>(offsets);
+    int32_t offset_end = unaligned_load<int32_t>(offsets + 1);
 
     int32_t length = offset_end - offset_start;
 
@@ -233,7 +275,7 @@ Status PythonUDAFClient::merge(int64_t place_id,
 
     auto success_array = std::static_pointer_cast<arrow::BooleanArray>(response->column(0));
     if (!success_array->Value(0)) {
-        return Status::InternalError("MERGE operation failed for place_id={}", place_id);
+        return make_udaf_failure_status(response, "MERGE", place_id);
     }
 
     return Status::OK();
@@ -260,17 +302,16 @@ Status PythonUDAFClient::finalize(int64_t place_id, std::shared_ptr<arrow::Recor
     auto data_array = std::static_pointer_cast<arrow::BinaryArray>(response_batch->column(2));
 
     if (!success_array->Value(0)) {
-        return Status::InternalError("FINALIZE operation failed for place_id={}", place_id);
+        return make_udaf_failure_status(response_batch, "FINALIZE", place_id);
     }
 
-    // Cast to uint8_t* first to avoid UBSAN misaligned pointer errors
-    const uint8_t* offsets = reinterpret_cast<const uint8_t*>(data_array->raw_value_offsets());
+    // Arrow Flight buffers may be unaligned after IPC deserialization.
+    const auto* offsets = data_array->raw_value_offsets();
     if (offsets == nullptr) {
         return Status::InternalError("FINALIZE response has null offsets");
     }
-    int32_t offset_start, offset_end;
-    memcpy(&offset_start, offsets, sizeof(int32_t));
-    memcpy(&offset_end, offsets + sizeof(int32_t), sizeof(int32_t));
+    int32_t offset_start = unaligned_load<int32_t>(offsets);
+    int32_t offset_end = unaligned_load<int32_t>(offsets + 1);
 
     int32_t length = offset_end - offset_start;
 
@@ -324,7 +365,7 @@ Status PythonUDAFClient::reset(int64_t place_id) {
 
     auto success_array = std::static_pointer_cast<arrow::BooleanArray>(response->column(0));
     if (!success_array->Value(0)) {
-        return Status::InternalError("RESET operation failed for place_id={}", place_id);
+        return make_udaf_failure_status(response, "RESET", place_id);
     }
 
     return Status::OK();
@@ -363,7 +404,7 @@ Status PythonUDAFClient::destroy(int64_t place_id) {
 
     if (!success_array->Value(0)) {
         LOG(WARNING) << "DESTROY operation failed for place_id=" << place_id;
-        return Status::InternalError("DESTROY operation failed for place_id={}", place_id);
+        return make_udaf_failure_status(response, "DESTROY", place_id);
     }
 
     return Status::OK();
@@ -469,7 +510,7 @@ Status PythonUDAFClient::_create_data_request_batch(const arrow::RecordBatch& in
         columns.push_back(input_data.column(num_input_columns - 1));
     } else {
         // Create NULL places column for single-place mode
-        arrow::Int64Builder places_builder;
+        arrow::Int64Builder places_builder(ExecEnv::GetInstance()->arrow_memory_pool());
         std::shared_ptr<arrow::Array> places_array;
         RETURN_DORIS_STATUS_IF_ERROR(places_builder.AppendNulls(input_data.num_rows()));
         RETURN_DORIS_STATUS_IF_ERROR(places_builder.Finish(&places_array));
@@ -477,7 +518,7 @@ Status PythonUDAFClient::_create_data_request_batch(const arrow::RecordBatch& in
     }
 
     // Add NULL binary_data column
-    arrow::BinaryBuilder binary_builder;
+    arrow::BinaryBuilder binary_builder(ExecEnv::GetInstance()->arrow_memory_pool());
     std::shared_ptr<arrow::Array> binary_array;
     RETURN_DORIS_STATUS_IF_ERROR(binary_builder.AppendNulls(input_data.num_rows()));
     RETURN_DORIS_STATUS_IF_ERROR(binary_builder.Finish(&binary_array));
@@ -498,7 +539,7 @@ Status PythonUDAFClient::_create_binary_request_batch(
     for (int i = 0; i < num_data_columns; ++i) {
         std::unique_ptr<arrow::ArrayBuilder> builder;
         std::shared_ptr<arrow::Array> null_array;
-        RETURN_DORIS_STATUS_IF_ERROR(arrow::MakeBuilder(arrow::default_memory_pool(),
+        RETURN_DORIS_STATUS_IF_ERROR(arrow::MakeBuilder(ExecEnv::GetInstance()->arrow_memory_pool(),
                                                         _schema->field(i)->type(), &builder));
         RETURN_DORIS_STATUS_IF_ERROR(builder->AppendNull());
         RETURN_DORIS_STATUS_IF_ERROR(builder->Finish(&null_array));
@@ -506,7 +547,7 @@ Status PythonUDAFClient::_create_binary_request_batch(
     }
 
     // Create binary_data column
-    arrow::BinaryBuilder binary_builder;
+    arrow::BinaryBuilder binary_builder(ExecEnv::GetInstance()->arrow_memory_pool());
     std::shared_ptr<arrow::Array> binary_array;
     RETURN_DORIS_STATUS_IF_ERROR(
             binary_builder.Append(binary_data->data(), static_cast<int32_t>(binary_data->size())));
@@ -531,8 +572,8 @@ Status PythonUDAFClient::_get_empty_request_batch(std::shared_ptr<arrow::RecordB
         auto field = _schema->field(i);
         std::unique_ptr<arrow::ArrayBuilder> builder;
         std::shared_ptr<arrow::Array> null_array;
-        RETURN_DORIS_STATUS_IF_ERROR(
-                arrow::MakeBuilder(arrow::default_memory_pool(), field->type(), &builder));
+        RETURN_DORIS_STATUS_IF_ERROR(arrow::MakeBuilder(ExecEnv::GetInstance()->arrow_memory_pool(),
+                                                        field->type(), &builder));
         RETURN_DORIS_STATUS_IF_ERROR(builder->AppendNull());
         RETURN_DORIS_STATUS_IF_ERROR(builder->Finish(&null_array));
         columns.push_back(null_array);

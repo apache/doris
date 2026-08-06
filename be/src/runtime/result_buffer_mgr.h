@@ -30,9 +30,9 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
-#include "vec/sink/varrow_flight_result_writer.h"
 
 namespace arrow {
 class RecordBatch;
@@ -46,11 +46,9 @@ class PUniqueId;
 class RuntimeState;
 class MemTrackerLimiter;
 class Thread;
-namespace vectorized {
 class GetArrowResultBatchCtx;
 class GetResultBatchCtx;
 class Block;
-} // namespace vectorized
 
 // manage all result buffer control block in one backend. here we use uniform id `unique_id` to identify buffer slots.
 // for parallel result sink, it's `instance_id`, for non-parallel sink, it's `query_id`.

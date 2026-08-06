@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <artifactId>fe-connector</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>fe-connector-maxcompute</artifactId>
+    <packaging>jar</packaging>
+    <name>Doris FE Connector - MaxCompute</name>
+    <description>
+        MaxCompute (ODPS) connector plugin for Doris FE.
+        Provides metadata operations (list databases, list tables, get schema)
+        via the connector SPI. Scan planning remains in fe-core temporarily.
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- fe-connector-cache: the shared external meta-cache framework (CacheSpec property validation +
+             MetaCacheEntry/CacheFactory). fe-core does NOT depend on it, so under the parent-first
+             org.apache.doris.connector.* prefix these classes resolve parent→miss→CHILD, i.e. they load from
+             this plugin's own bundled jar and link against THIS plugin's Caffeine (below). The maxcompute
+             connector's partition-listing cache (MaxComputePartitionCache) is backed by MetaCacheEntry, which
+             needs Caffeine at runtime — see the caffeine dependency next. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Caffeine: the runtime library the shared meta-cache framework (fe-connector-cache's MetaCacheEntry/
+             CacheFactory) links against. fe-connector-cache declares Caffeine `provided` (compiles against, never
+             bundles), so each consuming plugin must carry its own Caffeine. Unlike the iceberg plugin (which gets
+             2.9.3 transitively from iceberg-core), maxcompute has no Caffeine on its classpath, so declare it here
+             so it is bundled into the maxcompute plugin zip (mirrors fe-connector-hive/paimon). Pinned to 2.9.3 to
+             match the version fe-connector-cache is compiled against (the lowest common version across consuming
+             plugins). -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>2.9.3</version>
+        </dependency>
+
+        <!-- Thrift types for constructing TTableFormatFileDesc in populateRangeParams -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- MaxCompute (ODPS) SDK -->
+        <dependency>
+            <groupId>com.aliyun.odps</groupId>
+            <artifactId>odps-sdk-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aliyun.odps</groupId>
+            <artifactId>odps-sdk-table-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>doris-fe-connector-maxcompute</finalName>
+        <plugins>
+            <plugin>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <configuration>
+                    <appendAssemblyId>false</appendAssemblyId>
+                    <descriptors>
+                        <descriptor>src/main/assembly/plugin-zip.xml</descriptor>
+                    </descriptors>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

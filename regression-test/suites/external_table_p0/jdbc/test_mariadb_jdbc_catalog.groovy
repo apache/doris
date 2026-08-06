@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mariadb_jdbc_catalog", "p0,external,mariadb,external_docker,external_docker_mariadb") {
+suite("test_mariadb_jdbc_catalog", "p0,external") {
     qt_sql """select current_catalog()"""
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")

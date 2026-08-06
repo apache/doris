@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.LockTableInfo;
@@ -48,7 +48,7 @@ public class LockTablesCommand extends Command implements NoForward {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         for (LockTableInfo lockTable : lockTables) {
             TableNameInfo tableNameInfo = lockTable.getTableNameInfo();
-            tableNameInfo.analyze(ctx);
+            tableNameInfo.analyze(ctx.getNameSpaceContext());
             Database db = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(tableNameInfo.getDb());
             db.getTableOrAnalysisException(tableNameInfo.getTbl());
 

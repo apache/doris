@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "index_policy_mgr.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/split.hpp>

@@ -67,7 +67,7 @@ public class LocalShuffleWithBucketJoinTest extends TestWithFeService {
         PipelineDistributedPlan distributedPlan
                 = (PipelineDistributedPlan) distributedPlans.get(0);
         List<AssignedJob> instances = distributedPlan.getInstanceJobs();
-        Assertions.assertEquals(beNum * parallelPipelineTaskNum, instances.size());
+        Assertions.assertEquals(beNum * bucketNum, instances.size());
         Assertions.assertTrue(instances.stream().allMatch(LocalShuffleBucketJoinAssignedJob.class::isInstance));
 
         long assignedBucketInstanceNum = instances.stream().map(LocalShuffleBucketJoinAssignedJob.class::cast)
@@ -80,7 +80,7 @@ public class LocalShuffleWithBucketJoinTest extends TestWithFeService {
             workerToInstances.put(instance.getAssignedWorker(), instance);
         }
         for (Collection<AssignedJob> instancePerBe : workerToInstances.asMap().values()) {
-            Assertions.assertEquals(parallelPipelineTaskNum, instancePerBe.size());
+            Assertions.assertEquals(bucketNum, instancePerBe.size());
         }
     }
 }

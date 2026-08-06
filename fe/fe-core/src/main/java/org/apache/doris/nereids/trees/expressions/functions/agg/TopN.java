@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -97,6 +98,19 @@ public class TopN extends NullableAggregateFunction
         }
     }
 
+    @Override
+    public void checkLegalityAfterRewrite() {
+        Expression topNCount = getArgument(1);
+        if (topNCount.isNullLiteral()) {
+            return;
+        }
+        if (!(topNCount instanceof Literal) || ((Literal) topNCount).getDouble() <= 0) {
+            throw new AnalysisException(
+                    "topn requires second parameter must be a constant positive integer: "
+                            + this.toSql());
+        }
+    }
+
     /**
      * withDistinctAndChildren.
      */
@@ -119,5 +133,10 @@ public class TopN extends NullableAggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(0)) : ImmutableList.of();
     }
 }

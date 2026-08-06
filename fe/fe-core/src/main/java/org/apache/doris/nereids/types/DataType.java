@@ -443,7 +443,8 @@ public abstract class DataType {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
                 List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
                         .collect(Collectors.toList());
-                return new AggStateType(catalogType.getFunctionName(), types, catalogType.getSubTypeNullables());
+                return new AggStateType(catalogType.getFunctionName(), types,
+                        catalogType.getSubTypeNullables(), catalogType.getResultIsNullable());
             }
             case DECIMALV2: {
                 ScalarType scalarType = (ScalarType) type;
@@ -467,7 +468,8 @@ public abstract class DataType {
         if (type.isStructType()) {
             List<StructField> structFields = ((org.apache.doris.catalog.StructType) (type)).getFields().stream()
                     .map(cf -> new StructField(cf.getName(), fromCatalogType(cf.getType()),
-                            cf.getContainsNull(), cf.getComment() == null ? "" : cf.getComment()))
+                            cf.getContainsNull(), cf.getComment() == null ? "" : cf.getComment(),
+                            cf.isCommentSpecified()))
                     .collect(ImmutableList.toImmutableList());
             return new StructType(structFields);
         } else if (type.isMapType()) {
@@ -475,7 +477,7 @@ public abstract class DataType {
             return MapType.of(fromCatalogType(mapType.getKeyType()), fromCatalogType(mapType.getValueType()));
         } else if (type.isArrayType()) {
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
-            return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
+            return ArrayType.of(fromCatalogType(arrayType.getItemType()));
         } else if (type.isVariantType()) {
             // In the past, variant metadata used the ScalarType type.
             // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
@@ -492,7 +494,9 @@ public abstract class DataType {
                         ((org.apache.doris.catalog.VariantType) type).getVariantSparseHashShardCount(),
                         ((org.apache.doris.catalog.VariantType) type).getEnableVariantDocMode(),
                         ((org.apache.doris.catalog.VariantType) type).getvariantDocMaterializationMinRows(),
-                        ((org.apache.doris.catalog.VariantType) type).getVariantDocShardCount());
+                        ((org.apache.doris.catalog.VariantType) type).getVariantDocShardCount(),
+                        ((org.apache.doris.catalog.VariantType) type).getEnableNestedGroup(),
+                        ((org.apache.doris.catalog.VariantType) type).isComputeV2());
             }
             return VariantType.INSTANCE;
         } else {
@@ -801,7 +805,7 @@ public abstract class DataType {
             return arrayType.getItemType()
                     .getAllPromotions()
                     .stream()
-                    .map(promotionType -> ArrayType.of(promotionType, arrayType.containsNull()))
+                    .map(promotionType -> ArrayType.of(promotionType))
                     .collect(ImmutableList.toImmutableList());
         }
 
@@ -810,6 +814,10 @@ public abstract class DataType {
     }
 
     public abstract int width();
+
+    public boolean isInjectiveCastTo(DataType target) {
+        return this.equals(target);
+    }
 
     public static List<DataType> trivialTypes() {
         return Type.getTrivialTypes()
@@ -896,22 +904,20 @@ public abstract class DataType {
         if (catalogType.isScalarType()) {
             validateScalarType((ScalarType) catalogType);
         } else if (catalogType.isComplexType()) {
-            // now we not support array / map / struct nesting complex type
             if (catalogType.isArrayType()) {
                 Type itemType = ((org.apache.doris.catalog.ArrayType) catalogType).getItemType();
-                if (itemType instanceof ScalarType) {
-                    validateNestedType(catalogType, (ScalarType) itemType);
-                }
+                validateNestedType(catalogType, itemType);
             }
             if (catalogType.isMapType()) {
                 org.apache.doris.catalog.MapType mt =
                         (org.apache.doris.catalog.MapType) catalogType;
-                if (mt.getKeyType() instanceof ScalarType) {
-                    validateNestedType(catalogType, (ScalarType) mt.getKeyType());
+                Type mapKeyType = mt.getKeyType();
+                if (mapKeyType.isComplexType()) {
+                    throw new AnalysisException(
+                            "MAP key type must be a primitive type but get " + mapKeyType.toSql());
                 }
-                if (mt.getValueType() instanceof ScalarType) {
-                    validateNestedType(catalogType, (ScalarType) mt.getValueType());
-                }
+                validateNestedType(catalogType, mapKeyType);
+                validateNestedType(catalogType, mt.getValueType());
             }
             if (catalogType.isStructType()) {
                 ArrayList<org.apache.doris.catalog.StructField> fields =
@@ -919,12 +925,10 @@ public abstract class DataType {
                 Set<String> fieldNames = new HashSet<>();
                 for (org.apache.doris.catalog.StructField field : fields) {
                     Type fieldType = field.getType();
-                    if (fieldType instanceof ScalarType) {
-                        validateNestedType(catalogType, (ScalarType) fieldType);
-                        if (!fieldNames.add(field.getName())) {
-                            throw new AnalysisException("Duplicate field name " + field.getName()
-                                    + " in struct " + catalogType.toSql());
-                        }
+                    validateNestedType(catalogType, fieldType);
+                    if (!fieldNames.add(field.getName())) {
+                        throw new AnalysisException("Duplicate field name " + field.getName()
+                                + " in struct " + catalogType.toSql());
                     }
                 }
             }

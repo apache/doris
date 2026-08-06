@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_filter", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_filter", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
@@ -65,7 +65,7 @@ suite("test_iceberg_filter", "p0,external,doris,external_docker,external_docker_
             explain {
                 sql("select * from ${tb_ts_filter} where ts < '2024-05-30 20:34:56'")
                 contains "inputSplitNum=0"
-                contains "table: test_iceberg_filter.multi_catalog.tb_ts_filter"
+                contains "TABLE: test_iceberg_filter.multi_catalog.tb_ts_filter"
             }
             explain {
                 sql("select * from ${tb_ts_filter} where ts < '2024-05-30 20:34:56.12'")

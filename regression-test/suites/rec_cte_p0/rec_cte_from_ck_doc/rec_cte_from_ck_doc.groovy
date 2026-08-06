@@ -118,6 +118,24 @@ suite ("rec_cte_from_ck_doc") {
 
     // test global rf
     sql "set enable_runtime_filter_prune = false;"
+    sql "set runtime_filter_wait_infinitely = false;"
+    test {
+        sql """
+        WITH RECURSIVE search_graph AS (
+            SELECT c_from, c_to, label FROM graph g
+            UNION ALL
+            SELECT g.c_from, g.c_to, g.label
+            FROM graph g join [shuffle] search_graph sg
+            on g.c_from = sg.c_to
+        )
+        SELECT DISTINCT * FROM search_graph ORDER BY c_from, c_to;
+        """
+        exception "ABORTED"
+    }
+
+    // test global rf
+    sql "set enable_runtime_filter_prune = false;"
+    sql "set runtime_filter_wait_infinitely = true;"
     test {
         sql """
         WITH RECURSIVE search_graph AS (

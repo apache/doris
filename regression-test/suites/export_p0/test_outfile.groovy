@@ -44,10 +44,14 @@ suite("test_outfile") {
     assertEquals(response.msg, "success")
     def configJson = response.data.rows
     boolean enableOutfileToLocal = false
+    boolean enableDeleteExistingFiles = false
     for (Object conf: configJson) {
         assert conf instanceof Map
         if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
             enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
+        }
+        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_delete_existing_files") {
+            enableDeleteExistingFiles = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
         }
     }
     if (!enableOutfileToLocal) {
@@ -82,19 +86,19 @@ suite("test_outfile") {
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
-        StringBuilder sb = new StringBuilder()
+        List<String> rows = []
         int i = 1
         for (; i < 1000; i ++) {
-            sb.append("""
-                (${i}, '2017-10-01', '2017-10-01 00:00:00', '2017-10-01', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', 'Beijing', ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}', ${i}),
+            rows.add("""
+                (${i}, '2017-10-01', '2017-10-01 00:00:00', '2017-10-01', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', 'Beijing', ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}', ${i})
             """)
         }
-        sb.append("""
+        rows.add("""
                 (${i}, '2017-10-01', '2017-10-01 00:00:00', '2017-10-01', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
             """)
-        sql """ INSERT INTO ${tableName} VALUES
-             ${sb.toString()}
-            """
+        rows.collate(500).each { batch ->
+            sql """ INSERT INTO ${tableName} VALUES ${batch.join(",")} """
+        }
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         // check outfile
@@ -231,6 +235,16 @@ suite("test_outfile") {
                 f.delete();
             }
             path.delete();
+        }
+    }
+
+    if (enableDeleteExistingFiles) {
+        test {
+            sql """
+                SELECT 1 INTO OUTFILE "file://${outFile}/test_outfile_delete_existing_files_${uuid}/"
+                PROPERTIES("delete_existing_files" = "true");
+            """
+            exception "Local file system does not support delete existing files"
         }
     }
 }

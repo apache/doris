@@ -43,6 +43,7 @@ suite('test_balance_use_compute_group_properties', 'docker') {
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
         "enable_packed_file=${enablePackedFile}",
+        'skip_writing_empty_rowset_metadata=false',
     ]
     options.setFeNum(1)
     options.setBeNum(1)
@@ -174,7 +175,7 @@ suite('test_balance_use_compute_group_properties', 'docker') {
         logger.info("after add be balance every cluster cache {}", afterBalanceEveryClusterCache)
 
         // assert first map keys
-        def assertFirstMapKeys = { clusterRet, expectedEqual ->
+        def assertFirstMapKeys = { clusterName, clusterRet, expectedEqual ->
             def firstMap = clusterRet[0]
             def keys = firstMap.keySet().toList()
             logger.info("debug: clusterName {} keys {}", clusterName, keys)
@@ -185,27 +186,46 @@ suite('test_balance_use_compute_group_properties', 'docker') {
             }
         }
 
+        def waitUntilFirstMapKeysNotEqual = { clusterName, clusterRet ->
+            awaitUntil(20, 1) {
+                sql """ use @$clusterName """
+                sql """ select * from $table """
+                def currentGetFromFe = getTabletAndBeHostFromFe(table)
+                def keys = currentGetFromFe.keySet().toList()
+                logger.info("wait clusterName {} fe tablets {}", clusterName, currentGetFromFe)
+                if (keys.size() < 2) {
+                    return false
+                }
+                if (currentGetFromFe[keys[0]] != currentGetFromFe[keys[1]]) {
+                    clusterRet[0] = currentGetFromFe
+                    return true
+                }
+                return false
+            }
+        }
+
         // check afterBalanceEveryClusterCache
         // fe config cloud_warm_up_for_rebalance_type=sync_warmup
         def global_config_cluster_ret = afterBalanceEveryClusterCache[global_config_cluster]
         logger.info("global_config_cluster_ret {}", global_config_cluster_ret)
         // fe tablets not changed
-        assertFirstMapKeys(global_config_cluster_ret, true)
+        assertFirstMapKeys(global_config_cluster, global_config_cluster_ret, true)
 
         def without_warmup_cluster_ret = afterBalanceEveryClusterCache[without_warmup_cluster]
         logger.info("without_warmup_cluster_ret {}", without_warmup_cluster_ret)
         // fe tablets has changed
-        assertFirstMapKeys(without_warmup_cluster_ret, false)
+        assertFirstMapKeys(without_warmup_cluster, without_warmup_cluster_ret, false)
 
         def async_warmup_cluster_ret = afterBalanceEveryClusterCache[async_warmup_cluster]
         logger.info("async_warmup_cluster_ret {}", async_warmup_cluster_ret)
         // fe tablets has changed, due to task timeout
-        assertFirstMapKeys(async_warmup_cluster_ret, false)
+        waitUntilFirstMapKeysNotEqual(async_warmup_cluster, async_warmup_cluster_ret)
+        assertFirstMapKeys(async_warmup_cluster, async_warmup_cluster_ret, false)
 
         def sync_warmup_cluster_ret = afterBalanceEveryClusterCache[sync_warmup_cluster]
         logger.info("sync_warmup_cluster_ret {}", sync_warmup_cluster_ret)
         // fe tablets not changed
-        assertFirstMapKeys(sync_warmup_cluster_ret, true)
+        assertFirstMapKeys(sync_warmup_cluster, sync_warmup_cluster_ret, true)
 
         logger.info("success check after balance every cluster cache, cluster's balance type is worked")
     }

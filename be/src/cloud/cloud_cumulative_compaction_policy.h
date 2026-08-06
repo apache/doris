@@ -26,11 +26,10 @@
 
 #include "cloud/cloud_tablet.h"
 #include "common/config.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_meta.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_meta.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Tablet;
 struct Version;
@@ -131,5 +130,4 @@ public:
 void find_longest_consecutive_empty_rowsets(std::vector<RowsetSharedPtr>* result,
                                             const std::vector<RowsetSharedPtr>& candidate_rowsets);
 
-#include "common/compile_check_end.h"
 } // namespace doris

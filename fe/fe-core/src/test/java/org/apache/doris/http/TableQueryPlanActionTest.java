@@ -28,7 +28,6 @@ import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -37,14 +36,6 @@ import java.util.Base64;
 public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
     private static String PATH_URI = "/_query_plan";
-    protected static String ES_TABLE_URL;
-
-    @Override
-    @Before
-    public void setUp() {
-        super.setUp();
-        ES_TABLE_URL = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/es_table";
-    }
 
     @Test
     public void testQueryPlanAction() throws IOException, TException {
@@ -176,7 +167,7 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
         Request request = new Request.Builder()
                 .post(body)
                 .addHeader("Authorization", rootAuth)
-                .url(ES_TABLE_URL + PATH_URI)
+                .url(URI + PATH_URI)
                 .build();
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
@@ -188,24 +179,7 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
         Assert.assertTrue(exception.startsWith("malformed json"));
     }
 
-    @Test
-    public void testNotOlapTableFailure() throws IOException {
-        RequestBody body = RequestBody.create(
-                "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + ".es_table" + " \" }", JSON);
-        Request request = new Request.Builder()
-                .post(body)
-                .addHeader("Authorization", rootAuth)
-                .url(ES_TABLE_URL + PATH_URI)
-                .build();
-        Response response = networkClient.newCall(request).execute();
-        Assert.assertNotNull(response.body());
-        String respStr = response.body().string();
-        Assert.assertNotNull(respStr);
-        JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
-        Assert.assertEquals(1, (long) jsonObject.get("code"));
-        String exception = (String) jsonObject.get("data");
-        Assert.assertTrue(exception.contains("table type is not OLAP"));
-    }
+
 
     @Test
     public void testHasAggFailure() throws IOException {

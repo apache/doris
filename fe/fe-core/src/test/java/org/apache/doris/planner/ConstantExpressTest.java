@@ -17,33 +17,30 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.util.UUID;
+public class ConstantExpressTest extends TestWithFeService {
 
-public class ConstantExpressTest {
-    // use a unique dir so that it won't be conflict with other unit test which
-    // may also start a Mocked Frontend
-    private static String runningDir = "fe/mocked/ConstantExpressTest/" + UUID.randomUUID().toString() + "/";
+    // This suite only ever started a bare FE (UtFrameUtils.startFEServer), never a BE.
+    // backendNum() == 0 reproduces that: the create-backend loop does not run and the
+    // heartbeat check returns immediately on an empty list.
+    @Override
+    protected int backendNum() {
+        return 0;
+    }
 
-    private static ConnectContext connectContext;
-
-    @BeforeClass
-    public static void beforeClass() throws Exception {
-        UtFrameUtils.startFEServer(runningDir);
-        connectContext = UtFrameUtils.createDefaultCtx();
+    @Override
+    protected void runBeforeAll() throws Exception {
         connectContext.getSessionVariable().setEnableFoldConstantByBe(false);
     }
 
-    private static void testConstantExpressResult(String sql, String result) throws Exception {
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+    private void testConstantExpressResult(String sql, String result) throws Exception {
+        String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("constant exprs: \n         " + result));
+        Assertions.assertTrue(explainString.contains("constant exprs: \n         " + result));
     }
 
     @Test
@@ -183,53 +180,53 @@ public class ConstantExpressTest {
         connectContext.setDatabase("test");
         // for constant NOT IN PREDICATE
         String sql = "select 1 not in (1, 2);";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("FALSE"));
+        String explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("FALSE"));
 
         sql = "select 1 not in (2, 3);";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("TRUE"));
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("TRUE"));
 
         sql = "select 1 not in (2, null);";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("NULL"));
 
         sql = "select 1 not in (1, 2, null);";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("FALSE"));
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("FALSE"));
 
         sql = "select null not in (1, 2);";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("NULL"));
 
         sql = "select null not in (null);";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("NULL"));
 
         // for constant IN PREDICATE
         sql = "select 1 in (1, 2);";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("TRUE"));
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("TRUE"));
 
         sql = "select 1 in (2, 3);";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("FALSE"));
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("FALSE"));
 
         sql = "select 1 in (1, 2, NULL);";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("TRUE"));
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("TRUE"));
 
         sql = "select 1 in (2, NULL);";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("NULL"));
 
         sql = "select null in (2);";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("NULL"));
 
         sql = "select null in (null);";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("NULL"));
     }
 
     @Test

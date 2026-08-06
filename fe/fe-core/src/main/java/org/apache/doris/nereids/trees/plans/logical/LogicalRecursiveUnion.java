@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.RecursiveCte;
@@ -241,7 +242,8 @@ public class LogicalRecursiveUnion<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYP
 
     @Override
     public LogicalRecursiveUnion<Plan, Plan> withChildren(List<Plan> children) {
-        return new LogicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs, children));
     }
 
     public LogicalRecursiveUnion<Plan, Plan> withChildrenAndTheirOutputs(List<Plan> children,
@@ -249,32 +251,37 @@ public class LogicalRecursiveUnion<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYP
         Preconditions.checkArgument(children.size() == childrenOutputs.size(),
                 "children size %s is not equals with children outputs size %s",
                 children.size(), childrenOutputs.size());
-        return new LogicalRecursiveUnion<>(cteName, qualifier, outputs, childrenOutputs, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRecursiveUnion<>(cteName, qualifier, outputs, childrenOutputs, children));
     }
 
     @Override
     public LogicalRecursiveUnion<Plan, Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
-                groupExpression, Optional.of(getLogicalProperties()), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
+                groupExpression, Optional.of(getLogicalProperties()), children));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
-                groupExpression, logicalProperties, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
+                groupExpression, logicalProperties, children));
     }
 
     public LogicalRecursiveUnion<Plan, Plan> withNewOutputs(List<NamedExpression> newOutputs) {
-        return new LogicalRecursiveUnion<>(cteName, qualifier, newOutputs, regularChildrenOutputs,
-                Optional.empty(), Optional.empty(), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRecursiveUnion<>(cteName, qualifier, newOutputs, regularChildrenOutputs,
+                Optional.empty(), Optional.empty(), children));
     }
 
     public LogicalRecursiveUnion<Plan, Plan> withNewOutputsAndChildren(List<NamedExpression> newOutputs,
             List<Plan> children,
             List<List<SlotReference>> childrenOutputs) {
-        return new LogicalRecursiveUnion<>(cteName, qualifier, newOutputs, childrenOutputs,
-                Optional.empty(), Optional.empty(), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRecursiveUnion<>(cteName, qualifier, newOutputs, childrenOutputs,
+                Optional.empty(), Optional.empty(), children));
     }
 
     @Override

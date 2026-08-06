@@ -25,11 +25,14 @@ import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -41,42 +44,51 @@ public class AlterStoragePolicyCommandTest {
 
     private static final String policyName = "test_policy";
 
-    @Mocked
     private Env env;
-    @Mocked
     private ConnectContext ctx;
-    @Mocked
     private AccessControllerManager accessManager;
-    @Mocked
     private PolicyMgr policyMgr;
-    @Mocked
     private StoragePolicy mockPolicy;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
+
+    @BeforeEach
+    public void setUp() {
+        env = Mockito.mock(Env.class);
+        ctx = Mockito.mock(ConnectContext.class);
+        accessManager = Mockito.mock(AccessControllerManager.class);
+        policyMgr = Mockito.mock(PolicyMgr.class);
+        mockPolicy = Mockito.mock(StoragePolicy.class);
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(ctx);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(env.getPolicyMgr()).thenReturn(policyMgr);
+        Mockito.when(accessManager.checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN))).thenReturn(true);
+        Mockito.when(ctx.getState()).thenReturn(new QueryState());
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
+    }
 
     @Test
     public void testValidate_success() throws Exception {
         Map<String, String> props = new HashMap<>();
         props.put("cooldown_ttl", "86400");
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                result = env;
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv(ctx, PrivPredicate.ADMIN);
-                result = true;
-
-                env.getPolicyMgr();
-                result = policyMgr;
-                policyMgr.findPolicy(policyName, PolicyTypeEnum.ROW);
-                result = Optional.empty();
-                policyMgr.getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
-                result = Collections.singletonList(mockPolicy);
-                mockPolicy.getPolicyName();
-                result = policyName;
-                mockPolicy.checkProperties(props);
-            }
-        };
+        Mockito.when(policyMgr.findPolicy(policyName, PolicyTypeEnum.ROW)).thenReturn(Optional.empty());
+        Mockito.when(policyMgr.getCopiedPoliciesByType(PolicyTypeEnum.STORAGE))
+                .thenReturn(Collections.singletonList(mockPolicy));
+        Mockito.when(mockPolicy.getPolicyName()).thenReturn(policyName);
 
         AlterStoragePolicyCommand command = new AlterStoragePolicyCommand(policyName, props);
         Assertions.assertDoesNotThrow(() -> command.doRun(ctx, null));
@@ -87,23 +99,9 @@ public class AlterStoragePolicyCommandTest {
         Map<String, String> props = new HashMap<>();
         props.put("some_key", "value");
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                result = env;
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv(ctx, PrivPredicate.ADMIN);
-                result = true;
-
-                env.getPolicyMgr();
-                result = policyMgr;
-                policyMgr.findPolicy(policyName, PolicyTypeEnum.ROW);
-                result = Optional.empty();
-                policyMgr.getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
-                result = new ArrayList<>();
-            }
-        };
+        Mockito.when(policyMgr.findPolicy(policyName, PolicyTypeEnum.ROW)).thenReturn(Optional.empty());
+        Mockito.when(policyMgr.getCopiedPoliciesByType(PolicyTypeEnum.STORAGE))
+                .thenReturn(new ArrayList<>());
 
         AlterStoragePolicyCommand command = new AlterStoragePolicyCommand(policyName, props);
         Assertions.assertThrows(AnalysisException.class, () -> command.doRun(ctx, null));
@@ -111,17 +109,6 @@ public class AlterStoragePolicyCommandTest {
 
     @Test
     public void testValidate_nullProps() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                result = env;
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv(ctx, PrivPredicate.ADMIN);
-                result = true;
-            }
-        };
-
         AlterStoragePolicyCommand command = new AlterStoragePolicyCommand(policyName, null);
         Assertions.assertThrows(AnalysisException.class, () -> command.doRun(ctx, null));
     }
@@ -131,25 +118,10 @@ public class AlterStoragePolicyCommandTest {
         Map<String, String> props = new HashMap<>();
         props.put("storage_resource", "s3_resource");
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                result = env;
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv(ctx, PrivPredicate.ADMIN);
-                result = true;
-
-                env.getPolicyMgr();
-                result = policyMgr;
-                policyMgr.findPolicy(policyName, PolicyTypeEnum.ROW);
-                result = Optional.empty();
-                policyMgr.getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
-                result = Collections.singletonList(mockPolicy);
-                mockPolicy.getPolicyName();
-                result = policyName;
-            }
-        };
+        Mockito.when(policyMgr.findPolicy(policyName, PolicyTypeEnum.ROW)).thenReturn(Optional.empty());
+        Mockito.when(policyMgr.getCopiedPoliciesByType(PolicyTypeEnum.STORAGE))
+                .thenReturn(Collections.singletonList(mockPolicy));
+        Mockito.when(mockPolicy.getPolicyName()).thenReturn(policyName);
 
         AlterStoragePolicyCommand command = new AlterStoragePolicyCommand(policyName, props);
         Assertions.assertThrows(AnalysisException.class, () -> command.doRun(ctx, null));

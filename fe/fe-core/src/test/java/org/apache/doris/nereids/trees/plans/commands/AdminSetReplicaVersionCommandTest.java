@@ -24,6 +24,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -33,7 +35,9 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class AdminSetReplicaVersionCommandTest extends TestWithFeService {
     @Override
@@ -138,5 +142,28 @@ public class AdminSetReplicaVersionCommandTest extends TestWithFeService {
 
         Assertions.assertDoesNotThrow(() -> ((AdminSetReplicaVersionCommand) plan4).run(connectContext, null));
         Assertions.assertEquals(-1L, replica.getLastFailedVersion());
+    }
+
+    @Test
+    public void testUnsupportedInCloudMode() {
+        String originDeployMode = Config.deploy_mode;
+        String originCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.deploy_mode = "cloud";
+            Config.cloud_unique_id = "";
+
+            Map<String, String> properties = new HashMap<>();
+            properties.put("tablet_id", "1");
+            properties.put("backend_id", "2");
+            properties.put("version", "3");
+            AdminSetReplicaVersionCommand command = new AdminSetReplicaVersionCommand(properties);
+
+            DdlException ex = Assertions.assertThrows(DdlException.class,
+                    () -> command.verifyCommandSupported(connectContext));
+            Assertions.assertTrue(ex.getMessage().contains("Unsupported operation"));
+        } finally {
+            Config.deploy_mode = originDeployMode;
+            Config.cloud_unique_id = originCloudUniqueId;
+        }
     }
 }

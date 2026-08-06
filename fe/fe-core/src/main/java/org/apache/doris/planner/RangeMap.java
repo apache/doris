@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
-import java.util.stream.Collectors;
 
 public class RangeMap<C extends Comparable<C>, V> {
 
@@ -35,13 +34,11 @@ public class RangeMap<C extends Comparable<C>, V> {
     }
 
     public List<V> getOverlappingRangeValues(Range<C> searchRange) {
-        return getOverlappingRanges(searchRange).stream()
-                .map(Map.Entry::getValue)
-                .collect(Collectors.toList());
+        return getOverlappingRanges(searchRange);
     }
 
-    public List<Map.Entry<Range<C>, V>> getOverlappingRanges(Range<C> searchRange) {
-        List<Map.Entry<Range<C>, V>> overlappingRanges = new ArrayList<>();
+    private List<V> getOverlappingRanges(Range<C> searchRange) {
+        List<V> overlappingRanges = new ArrayList<>();
 
         // Find the possible starting point for the search
         Map.Entry<Range<C>, V> floorEntry = rangeMap.floorEntry(searchRange);
@@ -58,7 +55,7 @@ public class RangeMap<C extends Comparable<C>, V> {
                 break; // No more overlapping ranges possible
             }
             if (entry.getKey().isConnected(searchRange) && !entry.getKey().intersection(searchRange).isEmpty()) {
-                overlappingRanges.add(entry);
+                overlappingRanges.add(entry.getValue());
             }
         }
         return overlappingRanges;

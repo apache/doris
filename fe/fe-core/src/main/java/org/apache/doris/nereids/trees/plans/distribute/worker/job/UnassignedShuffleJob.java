@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -49,19 +50,37 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         super(statementContext, fragment, ImmutableList.of(), exchangeToChildJob);
     }
 
+    /**
+     * Compute assigned jobs for a shuffle (data redistribution) fragment.
+     * The instance count is determined by the parallelism of the largest child
+     * fragment. When the expected instance count is lower than the child count
+     * (e.g. due to session variable limits or query cache constraints), workers
+     * are shuffled to spread instances across different backends for load balancing.
+     * When more instances are needed, worker assignment follows the child layout.
+     * <p>
+     * If {@code useSerialSource} is true, multiple local shuffle instances are
+     * created per worker to add intra-machine parallelism without rescanning data.
+     *
+     * @param distributeContext the distribute context for worker selection
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs,
+     *                  used to determine the largest child fragment's instance layout
+     * @return assigned shuffle jobs with workers selected from child fragment layout
+     */
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         useSerialSource = fragment.useSerialSource(
                 distributeContext.isLoadJob ? null : statementContext.getConnectContext());
 
-        int expectInstanceNum = degreeOfParallelism();
         List<AssignedJob> biggestParallelChildFragment = getInstancesOfBiggestParallelChildFragment(inputJobs);
+        int expectInstanceNum = degreeOfParallelism(biggestParallelChildFragment.size(), inputJobs);
 
         if (expectInstanceNum > 0 && expectInstanceNum < biggestParallelChildFragment.size()) {
             // When group by cardinality is smaller than number of backend, only some backends always
             // process while other has no data to process.
             // So we shuffle instances to make different backends handle different queries.
+            // Additional: when query cache limits instance count, the shuffling still applies to
+            // spread the reduced set of instances across distinct workers to avoid cache thrashing.
             List<DistributedPlanWorker> shuffleWorkersInBiggestParallelChildFragment
                     = distinctShuffleWorkers(biggestParallelChildFragment);
             Function<Integer, DistributedPlanWorker> workerSelector = instanceIndex -> {
@@ -79,13 +98,26 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         }
     }
 
-    protected int degreeOfParallelism() {
+    protected int degreeOfParallelism(int childInstanceNum, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         // TODO: check we use nested loop join do right outer / semi / anti join,
         //       we should add an exchange node with gather distribute under the nested loop join
         int expectInstanceNum = -1;
         ConnectContext connectContext = statementContext.getConnectContext();
         if (connectContext != null && connectContext.getSessionVariable() != null) {
             expectInstanceNum = connectContext.getSessionVariable().getExchangeInstanceParallel();
+        }
+        // If child fragment uses query cache, limit instance num to avoid too many instances
+        if (childInstanceNum > 0 && connectContext != null && connectContext.getSessionVariable() != null) {
+            boolean childHasQueryCacheParam = inputJobs.values().stream()
+                    .anyMatch(job -> job.unassignedJob().getFragment().queryCacheParam != null);
+            if (childHasQueryCacheParam) {
+                String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
+                int maxInstanceNum = connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName)
+                        * Env.getCurrentSystemInfo().getBackendsNumber(false);
+                expectInstanceNum = expectInstanceNum > 0
+                        ? Math.min(expectInstanceNum, Math.min(childInstanceNum, maxInstanceNum))
+                        : Math.min(childInstanceNum, maxInstanceNum);
+            }
         }
         return expectInstanceNum;
     }

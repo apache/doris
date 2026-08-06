@@ -790,7 +790,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         jobInfo.add(TimeUtils.longToTimeString(finishTimestamp));
         // tracking url
         jobInfo.add(loadingStatus.getTrackingUrl());
-        jobInfo.add(loadStatistic.toJson());
+        jobInfo.add(getJobDetailsJson());
         // transaction id
         jobInfo.add(transactionId);
         // error tablets
@@ -818,6 +818,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
     public String getResourceName() {
         return "N/A";
+    }
+
+    protected String getJobDetailsJson() {
+        return loadStatistic.toJson();
     }
 
     protected long getEtlStartTimestamp() {

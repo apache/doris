@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -27,18 +27,11 @@ import java.util.List;
 /** UniqueFunctionParams */
 public class UniqueFunctionParams extends ScalarFunctionParams {
 
-    public final ExprId uniqueId;
-    public final boolean ignoreUniqueId;
+    public final VolatileIdentity volatileIdentity;
 
-    public UniqueFunctionParams(String functionName, ExprId uniqueId, boolean ignoreUniqueId,
-            List<Expression> arguments) {
-        this(null, functionName, uniqueId, ignoreUniqueId, arguments, false);
-    }
-
-    public UniqueFunctionParams(@Nullable UniqueFunction originFunction, String functionName, ExprId uniqueId,
-            boolean ignoreUniqueId, List<Expression> arguments, boolean inferred) {
+    public UniqueFunctionParams(@Nullable UniqueFunction originFunction, String functionName,
+            VolatileIdentity volatileIdentity, List<Expression> arguments, boolean inferred) {
         super(originFunction, functionName, arguments, inferred);
-        this.uniqueId = uniqueId;
-        this.ignoreUniqueId = ignoreUniqueId;
+        this.volatileIdentity = volatileIdentity;
     }
 }

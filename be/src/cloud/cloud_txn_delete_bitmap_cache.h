@@ -19,13 +19,13 @@
 
 #include <mutex>
 
-#include "olap/lru_cache.h"
-#include "olap/olap_common.h"
-#include "olap/partial_update_info.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet_meta.h"
-#include "olap/txn_manager.h"
+#include "storage/olap_common.h"
+#include "storage/partial_update_info.h"
+#include "storage/rowset/rowset.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/txn/txn_manager.h"
 #include "util/countdown_latch.h"
+#include "util/lru_cache.h"
 
 namespace doris {
 
@@ -76,6 +76,10 @@ public:
     Status get_delete_bitmap(TTransactionId transaction_id, int64_t tablet_id,
                              DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids,
                              std::shared_ptr<PublishStatus>* publish_status);
+
+    // the caller should guarantee that the txn `transaction_id` has been published successfully in MS
+    Result<std::pair<RowsetSharedPtr, DeleteBitmapPtr>> get_rowset_and_delete_bitmap(
+            TTransactionId transaction_id, int64_t tablet_id);
 
 private:
     void _clean_thread_callback();

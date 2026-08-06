@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.datasource.InternalCatalog;
-
 import java.util.Objects;
 
 public class DbName {
@@ -49,7 +47,7 @@ public class DbName {
     @Override
     public String toString() {
         StringBuilder stringBuilder = new StringBuilder();
-        if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+        if (ctl != null) {
             stringBuilder.append(ctl).append(".");
         }
         stringBuilder.append(db);
@@ -74,7 +72,7 @@ public class DbName {
 
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
-        if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+        if (ctl != null) {
             stringBuilder.append("`").append(ctl).append("`.");
         }
         stringBuilder.append("`").append(db).append("`");

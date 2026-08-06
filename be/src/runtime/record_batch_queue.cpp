@@ -19,7 +19,7 @@
 
 #include <mutex>
 
-#include "pipeline/dependency.h"
+#include "exec/pipeline/dependency.h"
 
 namespace doris {
 

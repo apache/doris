@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -40,7 +41,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.VarAttrDef;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -106,9 +107,11 @@ public class MinidumpUtils {
     public static void saveMinidumpString(JSONObject minidump, String querId) {
         String dumpPath = MinidumpUtils.DUMP_PATH + File.separator + "_" + querId;
         String feAddress = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv()).getHost();
-        int feHttpPort = Config.http_port;
+        int feHttpPort = HttpURLUtil.getHttpPort();
+        String scheme = Config.enable_https ? "https" : "http";
         MinidumpUtils.DUMP_FILE_FULL_PATH = dumpPath + ".json";
-        MinidumpUtils.HTTP_GET_STRING = "http://" + feAddress + ":" + feHttpPort + "/api/minidump?query_id=" + querId;
+        MinidumpUtils.HTTP_GET_STRING = scheme + "://" + feAddress + ":" + feHttpPort
+                + "/api/minidump?query_id=" + querId;
         String jsonMinidump = minidump.toString(4);
         try (FileWriter file = new FileWriter(MinidumpUtils.DUMP_FILE_FULL_PATH)) {
             file.write(jsonMinidump);
@@ -482,7 +485,7 @@ public class MinidumpUtils {
         JSONObject root = new JSONObject();
         try {
             for (Field field : SessionVariable.class.getDeclaredFields()) {
-                VariableMgr.VarAttr attr = field.getAnnotation(VariableMgr.VarAttr.class);
+                VarAttrDef.VarAttr attr = field.getAnnotation(VarAttrDef.VarAttr.class);
                 if (attr == null) {
                     continue;
                 }

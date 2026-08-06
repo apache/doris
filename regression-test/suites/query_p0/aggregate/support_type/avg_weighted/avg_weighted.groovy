@@ -43,4 +43,18 @@ suite("avg_weighted") {
     """
     
     qt_sql_double """select avg_weighted(col_double, weight_double) from d_table;"""
+
+    // weight sum is zero, should return NaN instead of +/-Infinity
+    sql """
+        drop table if exists test_avg_weighted_zero;
+    """
+    sql """
+        create table test_avg_weighted_zero (f1 int, f2 int)
+        distributed BY hash(f1) buckets 1
+        properties("replication_num" = "1");
+    """
+    sql """
+        insert into test_avg_weighted_zero values (1, 1), (2, -1);
+    """
+    qt_sql_zero_weight """select avg_weighted(f1, f2) from test_avg_weighted_zero;"""
 }

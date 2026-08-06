@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_hive_rename_column_orc_parquet", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_rename_column_orc_parquet", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hivePrefix  ="hive3";

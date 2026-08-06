@@ -61,7 +61,7 @@ public class ArrayDistinct extends ScalarFunction
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child(0).getDataType();
+        DataType argType = getArgument(0).getDataType();
         if (argType.isArrayType()) {
             DataType itemType = ((ArrayType) argType).getItemType();
             if (itemType.isMapType() || itemType.isStructType()) {

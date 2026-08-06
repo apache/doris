@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -91,14 +92,16 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                 return root.accept(this, null);
             } else {
                 ConnectContext connectContext = ConnectContext.get();
+                LogicalCTEProducer<?> cteProducer = (LogicalCTEProducer<?>) cteAnchor.left();
                 if (connectContext.getSessionVariable().enableCTEMaterialize
-                        && consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold) {
+                        && (consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold
+                                || containsNondeterministicFunction(cteProducer))) {
                     // not inline
                     Plan right = cteAnchor.right().accept(this, null);
                     return cteAnchor.withChildren(cteAnchor.left(), right);
                 } else {
                     // should inline
-                    Plan root = cteAnchor.right().accept(this, (LogicalCTEProducer<?>) cteAnchor.left());
+                    Plan root = cteAnchor.right().accept(this, cteProducer);
                     // process child
                     return root.accept(this, null);
                 }
@@ -125,5 +128,11 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
             return new LogicalProject<>(projects, inlinedPlan);
         }
         return cteConsumer;
+    }
+
+    private boolean containsNondeterministicFunction(LogicalCTEProducer<?> producer) {
+        List<Expression> nondeterministicFunctions = new ArrayList<>();
+        producer.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
+        return !nondeterministicFunctions.isEmpty();
     }
 }

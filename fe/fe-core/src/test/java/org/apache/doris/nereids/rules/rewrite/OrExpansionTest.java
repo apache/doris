@@ -31,7 +31,7 @@ class OrExpansionTest extends TestWithFeService implements MemoPatternMatchSuppo
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         createTables(
                 "CREATE TABLE IF NOT EXISTS t1 (\n"
                         + "    id1 int not null,\n"

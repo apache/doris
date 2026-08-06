@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CTEContext;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.StatementContext.TableFrom;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -139,6 +141,10 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     private Plan collectFromUnboundSink(MatchingContext<UnboundLogicalSink<Plan>> ctx) {
+        // TVF sink (local/s3/hdfs) is not a real table, skip table collection
+        if (ctx.root instanceof UnboundTVFTableSink) {
+            return null;
+        }
         List<String> nameParts = ctx.root.getNameParts();
         switch (nameParts.size()) {
             case 1:
@@ -203,6 +209,11 @@ public class CollectRelation implements AnalysisRuleFactory {
         } else {
             StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
             table = statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+            // Record relation-level metadata so the planner can preload latest external metadata before locking.
+            if (tableFrom == TableFrom.QUERY && unboundRelation.isPresent()) {
+                statementContext.registerExternalTableForPreload(table, unboundRelation.get().getTableSnapshot(),
+                        Optional.ofNullable(unboundRelation.get().getScanParams()));
+            }
             if (firstLevel) {
                 statementContext.getOneLevelTables().put(tableQualifier, table);
             }
@@ -223,6 +234,10 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
         if (table instanceof View) {
             parseAndCollectFromView(tableQualifier, (View) table, cascadesContext);
+        }
+        // we need to collect stream table's base table as well
+        if (table instanceof BaseTableStream) {
+            collectFromTableStream((BaseTableStream) table, cascadesContext, tableFrom, unboundRelation);
         }
     }
 
@@ -296,5 +311,12 @@ public class CollectRelation implements AnalysisRuleFactory {
         viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(),
                 () -> viewContext.newTableCollector(false).collect());
         parentContext.addPlanProcesses(viewContext.getPlanProcesses());
+    }
+
+    private void collectFromTableStream(BaseTableStream tableStream, CascadesContext cascadesContext,
+                                        TableFrom tableFrom, Optional<UnboundRelation> unboundRelation) {
+        StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
+        List<String> tableQualifier = tableStream.getBaseTableFullQualifiers();
+        statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
     }
 }

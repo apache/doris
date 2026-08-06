@@ -1,0 +1,274 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "token_bucket_rate_limiter.h"
+
+#include <bthread/bthread.h>
+#include <glog/logging.h> // IWYU pragma: export
+
+#include <atomic>
+#include <chrono>
+#include <mutex>
+#include <thread>
+
+#if defined(__APPLE__)
+#include <ctime>
+#endif
+
+namespace doris {
+// Just 10^6.
+static constexpr auto NS = 1000000000UL;
+
+bvar::Adder<int64_t> s3_get_rate_limit_sleep_ns("s3_get_rate_limit_sleep_ns");
+bvar::Adder<int64_t> s3_get_rate_limit_sleep_count("s3_get_rate_limit_sleep_count");
+bvar::Adder<int64_t> s3_get_rate_limit_rejected_count("s3_get_rate_limit_rejected_count");
+bvar::Adder<int64_t> s3_put_rate_limit_sleep_ns("s3_put_rate_limit_sleep_ns");
+bvar::Adder<int64_t> s3_put_rate_limit_sleep_count("s3_put_rate_limit_sleep_count");
+bvar::Adder<int64_t> s3_put_rate_limit_rejected_count("s3_put_rate_limit_rejected_count");
+
+static std::atomic<int64_t> s3_get_rate_limit_sleep_log_count {0};
+static std::atomic<int64_t> s3_get_rate_limit_rejected_log_count {0};
+static std::atomic<int64_t> s3_put_rate_limit_sleep_log_count {0};
+static std::atomic<int64_t> s3_put_rate_limit_rejected_log_count {0};
+
+class TokenBucketRateLimiter::SimpleSpinLock {
+public:
+    SimpleSpinLock() = default;
+    ~SimpleSpinLock() = default;
+
+    void lock() {
+        int spin_count = 0;
+        static constexpr int MAX_SPIN_COUNT = 50;
+        while (_flag.test_and_set(std::memory_order_acq_rel)) {
+            spin_count++;
+            if (spin_count >= MAX_SPIN_COUNT) {
+                LOG(WARNING) << "Warning: Excessive spinning detected while acquiring lock. Spin "
+                                "count: "
+                             << spin_count;
+                spin_count = 0;
+            }
+            // Spin until we acquire the lock
+        }
+    }
+
+    void unlock() { _flag.clear(std::memory_order_release); }
+
+private:
+    std::atomic_flag _flag = ATOMIC_FLAG_INIT;
+};
+
+TokenBucketRateLimiter::TokenBucketRateLimiter(size_t max_speed, size_t max_burst, size_t limit)
+        : _max_speed(max_speed),
+          _max_burst(max_burst),
+          _limit(limit),
+          _mutex(std::make_unique<TokenBucketRateLimiter::SimpleSpinLock>()),
+          _remain_tokens(max_burst) {}
+
+TokenBucketRateLimiter::~TokenBucketRateLimiter() = default;
+
+TokenBucketRateLimiterHolder::~TokenBucketRateLimiterHolder() = default;
+
+std::pair<size_t, double> TokenBucketRateLimiter::_update_remain_token(long now, size_t amount) {
+    // Values obtained under lock to be checked after release
+    size_t count_value;
+    double tokens_value;
+    {
+        std::lock_guard<SimpleSpinLock> lock(*_mutex);
+        now = (now < _prev_ns_count) ? _prev_ns_count : now;
+        if (_max_speed) {
+            double delta_seconds =
+                    _prev_ns_count ? static_cast<double>(now - _prev_ns_count) / NS : 0;
+            _remain_tokens = std::min<double>(_remain_tokens + _max_speed * delta_seconds - amount,
+                                              _max_burst);
+        }
+        _count += amount;
+        count_value = _count;
+        if (_limit && count_value > _limit) {
+            // Keep rejection side-effect free. Roll back before releasing the lock so
+            // concurrent callers cannot observe debt from a request that will not run.
+            _count -= amount;
+            if (_max_speed) {
+                _remain_tokens = std::min<double>(_remain_tokens + amount, _max_burst);
+            }
+        }
+        tokens_value = _remain_tokens;
+        _prev_ns_count = now;
+    }
+    return {count_value, tokens_value};
+}
+
+int64_t TokenBucketRateLimiter::add(size_t amount) {
+    // Values obtained under lock to be checked after release
+    auto duration = std::chrono::steady_clock::now().time_since_epoch();
+    auto time_nano_count = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
+    auto [count_value, tokens_value] = _update_remain_token(time_nano_count, amount);
+
+    if (_limit && count_value > _limit) {
+        // CK would throw exception
+        return -1;
+    }
+
+    // Wait unless there is positive amount of remain_tokens - throttling
+    int64_t sleep_time_ns = 0;
+    if (_max_speed && tokens_value < 0) {
+        sleep_time_ns = static_cast<int64_t>(-tokens_value / _max_speed * NS);
+        bthread_usleep(sleep_time_ns / 1000);
+    }
+
+    return sleep_time_ns;
+}
+
+void TokenBucketRateLimiter::refund(size_t amount) {
+    std::lock_guard<SimpleSpinLock> lock(*_mutex);
+    if (_max_speed) {
+        _remain_tokens = std::min<double>(_remain_tokens + amount, _max_burst);
+    }
+    _count = (_count >= amount) ? _count - amount : 0;
+}
+
+TokenBucketRateLimiterHolder::TokenBucketRateLimiterHolder(size_t max_speed, size_t max_burst,
+                                                           size_t limit,
+                                                           std::function<void(int64_t)> metric_func)
+        : rate_limiter(std::make_shared<TokenBucketRateLimiter>(max_speed, max_burst, limit)),
+          _enabled(max_speed > 0 || limit > 0),
+          metric_func(std::move(metric_func)) {}
+
+int64_t TokenBucketRateLimiterHolder::add(size_t amount) {
+    return add_with_config(amount).sleep_duration;
+}
+
+TokenBucketRateLimiterResult TokenBucketRateLimiterHolder::add_with_config(size_t amount) {
+    // Snapshot the current limiter and call add() outside the read lock: add() may
+    // sleep for a long time when throttled, and holding the read lock across the
+    // sleep would block reset() (dynamic config update) for the whole duration.
+    std::shared_ptr<TokenBucketRateLimiter> limiter;
+    {
+        std::shared_lock read {rate_limiter_rw_lock};
+        limiter = rate_limiter;
+    }
+    TokenBucketRateLimiterResult result = {.sleep_duration = limiter->add(amount),
+                                           .max_speed = limiter->get_max_speed(),
+                                           .max_burst = limiter->get_max_burst(),
+                                           .limit = limiter->get_limit()};
+    metric_func(result.sleep_duration);
+    return result;
+}
+
+std::shared_ptr<TokenBucketRateLimiter> TokenBucketRateLimiterHolder::charge(size_t amount) {
+    std::shared_ptr<TokenBucketRateLimiter> limiter;
+    {
+        std::shared_lock read {rate_limiter_rw_lock};
+        limiter = rate_limiter;
+    }
+    int64_t sleep_duration = limiter->add(amount);
+    metric_func(sleep_duration);
+    return sleep_duration < 0 ? nullptr : limiter;
+}
+
+int TokenBucketRateLimiterHolder::reset(size_t max_speed, size_t max_burst, size_t limit) {
+    auto new_rate_limiter = std::make_shared<TokenBucketRateLimiter>(max_speed, max_burst, limit);
+    {
+        std::unique_lock write {rate_limiter_rw_lock};
+        rate_limiter = std::move(new_rate_limiter);
+        _enabled.store(max_speed > 0 || limit > 0, std::memory_order_release);
+    }
+    return 0;
+}
+
+size_t TokenBucketRateLimiterHolder::get_max_speed() const {
+    std::shared_lock read {rate_limiter_rw_lock};
+    return rate_limiter->get_max_speed();
+}
+
+size_t TokenBucketRateLimiterHolder::get_max_burst() const {
+    std::shared_lock read {rate_limiter_rw_lock};
+    return rate_limiter->get_max_burst();
+}
+
+size_t TokenBucketRateLimiterHolder::get_limit() const {
+    std::shared_lock read {rate_limiter_rw_lock};
+    return rate_limiter->get_limit();
+}
+
+std::string to_string(S3RateLimitType type) {
+    switch (type) {
+    case S3RateLimitType::GET:
+        return "get";
+    case S3RateLimitType::PUT:
+        return "put";
+    default:
+        return std::to_string(static_cast<size_t>(type));
+    }
+}
+
+S3RateLimitType string_to_s3_rate_limit_type(std::string_view value) {
+    if (value == "get") {
+        return S3RateLimitType::GET;
+    } else if (value == "put") {
+        return S3RateLimitType::PUT;
+    }
+    return S3RateLimitType::UNKNOWN;
+}
+
+std::function<void(int64_t)> s3_rate_limiter_metric_func(S3RateLimitType type) {
+    switch (type) {
+    case S3RateLimitType::GET:
+        return metric_func_factory(s3_get_rate_limit_sleep_ns, s3_get_rate_limit_sleep_count,
+                                   &s3_get_rate_limit_rejected_count);
+    case S3RateLimitType::PUT:
+        return metric_func_factory(s3_put_rate_limit_sleep_ns, s3_put_rate_limit_sleep_count,
+                                   &s3_put_rate_limit_rejected_count);
+    default:
+        return [](int64_t) {};
+    }
+}
+
+int64_t apply_s3_rate_limit(S3RateLimitType type, S3RateLimiterHolder* rate_limiter,
+                            int64_t log_interval) {
+    auto result = rate_limiter->add_with_config(1);
+    auto sleep_duration = result.sleep_duration;
+    if (log_interval <= 0 || sleep_duration == 0) {
+        return sleep_duration;
+    }
+
+    auto is_get = type == S3RateLimitType::GET;
+    auto* sleep_log_count =
+            is_get ? &s3_get_rate_limit_sleep_log_count : &s3_put_rate_limit_sleep_log_count;
+    auto* rejected_log_count =
+            is_get ? &s3_get_rate_limit_rejected_log_count : &s3_put_rate_limit_rejected_log_count;
+
+    if (sleep_duration > 0) {
+        int64_t count = sleep_log_count->fetch_add(1, std::memory_order_relaxed) + 1;
+        if (count == 1 || count % log_interval == 0) {
+            LOG(INFO) << "S3 " << to_string(type) << " request is throttled by local rate limiter"
+                      << ", sleep_ms=" << sleep_duration / 1000000 << ", sleep_count=" << count
+                      << ", token_per_second=" << result.max_speed
+                      << ", bucket_tokens=" << result.max_burst << ", token_limit=" << result.limit;
+        }
+    } else {
+        int64_t count = rejected_log_count->fetch_add(1, std::memory_order_relaxed) + 1;
+        if (count == 1 || count % log_interval == 0) {
+            LOG(WARNING) << "S3 " << to_string(type) << " request is rejected by local rate limiter"
+                         << ", rejected_count=" << count
+                         << ", token_per_second=" << result.max_speed
+                         << ", bucket_tokens=" << result.max_burst
+                         << ", token_limit=" << result.limit;
+        }
+    }
+    return sleep_duration;
+}
+} // namespace doris

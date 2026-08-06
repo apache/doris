@@ -18,9 +18,16 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.ToSqlParams;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.WindowFuncType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartTopNPhase;
 import org.apache.doris.thrift.TPartitionSortNode;
@@ -90,7 +97,7 @@ public class PartitionSortNode extends PlanNode {
             output.append(prefix).append("partition by: ");
 
             for (Expr partitionExpr : partitionExprs) {
-                strings.add(partitionExpr.toSql());
+                strings.add(partitionExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
 
             output.append(Joiner.on(", ").join(strings));
@@ -108,7 +115,7 @@ public class PartitionSortNode extends PlanNode {
             } else {
                 output.append(", ");
             }
-            output.append(expr.next().toSql()).append(" ");
+            output.append(expr.next().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append(" ");
             output.append(isAsc.next() ? "ASC" : "DESC");
         }
         output.append("\n");
@@ -159,11 +166,51 @@ public class PartitionSortNode extends PlanNode {
 
         TPartitionSortNode partitionSortNode = new TPartitionSortNode();
         partitionSortNode.setTopNAlgorithm(topNAlgorithm);
-        partitionSortNode.setPartitionExprs(Expr.treesToThrift(partitionExprs));
+        partitionSortNode.setPartitionExprs(ExprToThriftVisitor.treesToThrift(partitionExprs));
         partitionSortNode.setSortInfo(sortInfo);
         partitionSortNode.setHasGlobalLimit(hasGlobalLimit);
         partitionSortNode.setPartitionInnerLimit(partitionLimit);
         partitionSortNode.setPtopnPhase(pTopNPhase);
         msg.partition_sort_node = partitionSortNode;
+    }
+
+    // NOTE: unlike SortNode (analytic_sort) and AnalyticEvalNode (with PARTITION BY), we
+    // intentionally do NOT override requiresShuffleForCorrectness() here, mirroring BE's
+    // PartitionSortSinkOperatorX which does not override is_shuffled_operator() either
+    // (be/src/exec/operator/partition_sort_sink_operator.h).  The require on the child
+    // below is sufficient to insert the necessary HASH LE for TWO_PHASE_GLOBAL_PTOPN
+    // directly; the propagation flag would only matter if a SetOperationNode could sit
+    // between this node and the data source within the same fragment, which in practice
+    // does not happen because PartitionSort's two-phase shape places an ExchangeNode
+    // (fragment boundary) between the GLOBAL phase and the LOCAL phase / scans below.
+    // If FE ever plans PartitionSort + Union in a single fragment, both BE's
+    // is_shuffled_operator and this method must be updated together — never let FE
+    // diverge from BE here.
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        LocalExchangeTypeRequire requireChild;
+        LocalExchangeType outputType;
+        if (phase == PartitionTopnPhase.TWO_PHASE_GLOBAL_PTOPN) {
+            // Use requireHash() so resolveExchangeType() can downgrade to LOCAL_EXECUTION_HASH_SHUFFLE,
+            // matching BE-native behavior where _use_serial_source=true causes LOCAL (not GLOBAL) hash.
+            // Output type is derived from the child's actual output (may be LOCAL or GLOBAL depending
+            // on whether a new exchange was inserted or the existing upstream exchange already satisfied).
+            requireChild = LocalExchangeTypeRequire.requireHash();
+            outputType = null;
+        } else {
+            requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            outputType = LocalExchangeType.PASSTHROUGH;
+        }
+        Pair<PlanNode, LocalExchangeType> enforceResult
+                = enforceRequire(translatorContext, children.get(0), 0, requireChild);
+        this.children = Lists.newArrayList(enforceResult.first);
+        return Pair.of(this, outputType != null ? outputType : enforceResult.second);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return true;
     }
 }

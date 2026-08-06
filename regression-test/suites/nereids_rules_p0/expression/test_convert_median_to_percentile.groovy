@@ -18,6 +18,7 @@
 suite("test_convert_median_to_percentile") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set parallel_pipeline_task_num=2"
 
     sql "create database if not exists test_convert_median_to_percentile"
     sql "use test_convert_median_to_percentile"

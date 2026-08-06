@@ -20,23 +20,24 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
-#include "olap/options.h"
+#include "storage/options.h"
 namespace doris {
 class TUniqueId;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 namespace io {
 
@@ -49,6 +50,10 @@ public:
 
     Status create_file_cache(const std::string& cache_base_path,
                              FileCacheSettings file_cache_settings);
+
+    Status create_file_caches(
+            const std::vector<CachePath>& cache_paths,
+            const std::function<bool(const std::string&, const Status&)>& should_ignore_error);
 
     Status reload_file_cache(const std::vector<CachePath>& cache_base_paths);
 
@@ -86,6 +91,7 @@ public:
      * @return summary message
      */
     std::string clear_file_caches(bool sync);
+    Status clear_file_caches(bool sync, std::string* result);
 
     /**
      * dump lru queue info for all file cache instances
@@ -103,7 +109,7 @@ public:
      */
     std::string reset_capacity(const std::string& path, int64_t new_capacity);
 
-    void get_cache_stats_block(vectorized::Block* block);
+    void get_cache_stats_block(Block* block);
 
     // Get all cache instances for inspection
     const std::vector<std::unique_ptr<BlockFileCache>>& get_caches() const { return _caches; }

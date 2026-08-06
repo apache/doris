@@ -1,4 +1,5 @@
-CREATE TABLE `only_null`(
+drop table if exists `only_null`;
+create table `only_null`(
 `x` int
 ) ROW FORMAT SERDE
   'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
@@ -8,7 +9,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/parquet_table/only_null';
-
-msck repair table only_null;
-
-

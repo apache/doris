@@ -42,11 +42,11 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.commons.math3.util.Precision;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -55,26 +55,25 @@ import java.util.Optional;
 
 public class DeriveStatsJobTest {
 
-    @Mocked
-    ConnectContext context;
+    ConnectContext context = Mockito.mock(ConnectContext.class);
 
     SlotReference slot1;
 
     @Test
     public void testExecute() throws Exception {
-        MockedAuth.mockedConnectContext(context, "root", "192.168.1.1");
-
-        LogicalOlapScan olapScan = constructOlapSCan();
-        LogicalAggregate agg = constructAgg(olapScan);
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(agg);
-        new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                new JobContext(cascadesContext, null)).execute();
-        while (!cascadesContext.getJobPool().isEmpty()) {
-            cascadesContext.getJobPool().pop().execute();
+        try (MockedStatic<ConnectContext> ignored = MockedAuth.mockedConnectContext(context, "root", "192.168.1.1")) {
+            LogicalOlapScan olapScan = constructOlapSCan();
+            LogicalAggregate agg = constructAgg(olapScan);
+            CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(agg);
+            new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
+                    new JobContext(cascadesContext, null)).execute();
+            while (!cascadesContext.getJobPool().isEmpty()) {
+                cascadesContext.getJobPool().pop().execute();
+            }
+            Statistics statistics = cascadesContext.getMemo().getRoot().getStatistics();
+            Assertions.assertNotNull(statistics);
+            Assertions.assertTrue(Precision.equals(1, statistics.getRowCount(), 0.1));
         }
-        Statistics statistics = cascadesContext.getMemo().getRoot().getStatistics();
-        Assertions.assertNotNull(statistics);
-        Assertions.assertTrue(Precision.equals(1, statistics.getRowCount(), 0.1));
     }
 
     private LogicalOlapScan constructOlapSCan() {
@@ -84,10 +83,6 @@ public class DeriveStatsJobTest {
         slot1 = new SlotReference(new ExprId(1), "c1", IntegerType.INSTANCE, true, qualifier,
                 table1, new Column("e", PrimitiveType.INT),
                 table1, new Column("e", PrimitiveType.INT));
-        new Expectations() {{
-                ConnectContext.get();
-                result = context;
-            }};
 
         return (LogicalOlapScan) new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), table1,
                 Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hdfs_parquet_group4","external,hive,tvf,external_docker") {
+suite("test_hdfs_parquet_group4", "p0,external") {
     String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -865,7 +865,7 @@ suite("test_hdfs_parquet_group4","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'member0' is not supported"
+                exception "Parquet TIME with isAdjustedToUTC=true is not supported"
             }
 
 
@@ -2045,7 +2045,7 @@ suite("test_hdfs_parquet_group4","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'COLUMN1' is not supported"
+                exception "Parquet TIME with isAdjustedToUTC=true is not supported"
             }
 
 

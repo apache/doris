@@ -25,7 +25,6 @@
 #include "util/bit_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Utility classes to do run length encoding (RLE) for fixed bit width values.  If runs
 // are sufficiently long, RLE is used, otherwise, the values are just bit-packed
@@ -885,5 +884,4 @@ uint32_t RleBatchDecoder<T>::GetBatch(T* values, uint32_t batch_num) {
     }
     return num_consumed;
 }
-#include "common/compile_check_end.h"
 } // namespace doris

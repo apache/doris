@@ -111,4 +111,9 @@ public class PercentileArray extends NotNullableAggregateFunction
     public Expression resultForEmptyInput() {
         return new ArrayLiteral(new ArrayList<>(), this.getDataType());
     }
+
+    @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(0)) : ImmutableList.of();
+    }
 }

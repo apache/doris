@@ -24,6 +24,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -36,7 +37,7 @@ import java.util.Map;
 /**
  * Represents the command for ALTER REPOSITORY for properties.
  */
-public class AlterRepositoryCommand extends AlterCommand {
+public class AlterRepositoryCommand extends AlterCommand implements NeedAuditEncryption {
     private final String name;
     private Map<String, String> properties;
 
@@ -68,6 +69,11 @@ public class AlterRepositoryCommand extends AlterCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitAlterRepositoryCommand(this, context);
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 
 }

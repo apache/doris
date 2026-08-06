@@ -25,11 +25,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
@@ -41,19 +42,20 @@ import java.util.TimeZone;
 
 public class TimeUtilsTest {
 
-    @Mocked
-    TimeUtils timeUtils;
+    private MockedStatic<TimeUtils> mockedTimeUtils;
 
     @Before
     public void setUp() {
         TimeZone tz = TimeZone.getTimeZone(ZoneId.of("Asia/Shanghai"));
-        new Expectations(timeUtils) {
-            {
-                TimeUtils.getTimeZone();
-                minTimes = 0;
-                result = tz;
-            }
-        };
+        mockedTimeUtils = Mockito.mockStatic(TimeUtils.class, Mockito.CALLS_REAL_METHODS);
+        mockedTimeUtils.when(TimeUtils::getTimeZone).thenReturn(tz);
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedTimeUtils != null) {
+            mockedTimeUtils.close();
+        }
     }
 
     @Test
@@ -150,10 +152,10 @@ public class TimeUtilsTest {
         long timestamp = 1426125600000L;
         Assert.assertEquals("2015-03-12 10:00:00", TimeUtils.longToTimeString(timestamp));
 
-        DateLiteral date = new DateLiteral("2015-03-01", ScalarType.DATE);
+        DateLiteral date = new DateLiteral(2015, 3, 1, ScalarType.DATE);
         Assert.assertEquals(1031777L, date.getRealValue());
 
-        DateLiteral datetime = new DateLiteral("2015-03-01 12:00:00", ScalarType.DATETIME);
+        DateLiteral datetime = new DateLiteral(2015, 3, 1, 12, 0, 0, ScalarType.DATETIME);
         Assert.assertEquals(20150301120000L, datetime.getRealValue());
     }
 
@@ -251,5 +253,34 @@ public class TimeUtilsTest {
                 () -> TimeUtils.convertStringToDateTimeV2("2024:12:31", 0));
         ExceptionChecker.expectThrows(DateTimeParseException.class,
                 () -> TimeUtils.convertStringToDateTimeV2("2024-10-10 11:11:11", 6));
+    }
+
+    @Test
+    public void testLongToTimeStringWithTimeZoneAndOffset() {
+        // null/zero/negative → null_string
+        Assert.assertEquals(FeConstants.null_string,
+                TimeUtils.longToTimeStringWithTimeZoneAndOffset(null, "UTC"));
+        Assert.assertEquals(FeConstants.null_string,
+                TimeUtils.longToTimeStringWithTimeZoneAndOffset(0L, "UTC"));
+        Assert.assertEquals(FeConstants.null_string,
+                TimeUtils.longToTimeStringWithTimeZoneAndOffset(-1L, "Asia/Shanghai"));
+
+        long ts = org.apache.doris.catalog.DataProperty.MAX_COOLDOWN_TIME_MS;
+
+        // UTC → "9999-12-31 15:59:59Z"
+        String utcResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "UTC");
+        Assert.assertEquals("9999-12-31 15:59:59Z", utcResult);
+
+        // Asia/Shanghai (+08:00) → "9999-12-31 23:59:59+08:00"
+        String shanghaiResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "Asia/Shanghai");
+        Assert.assertEquals("9999-12-31 23:59:59+08:00", shanghaiResult);
+
+        // America/New_York (-05:00) → "9999-12-31 10:59:59-05:00"
+        String nyResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "America/New_York");
+        Assert.assertEquals("9999-12-31 10:59:59-05:00", nyResult);
+
+        // America/Chicago (-06:00) → "9999-12-31 09:59:59-06:00"
+        String chicagoResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "America/Chicago");
+        Assert.assertEquals("9999-12-31 09:59:59-06:00", chicagoResult);
     }
 }

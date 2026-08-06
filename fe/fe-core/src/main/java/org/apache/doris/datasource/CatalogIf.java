@@ -17,23 +17,26 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.ColumnPosition;
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -60,6 +63,10 @@ public interface CatalogIf<T extends DatabaseIf> {
     // Name of this catalog
     String getName();
 
+    /**
+     * Returns a read-only database-name snapshot.
+     * Callers that need to modify the result must create a copy.
+     */
     List<String> getDbNames();
 
     default String getErrorMsg() {
@@ -92,9 +99,6 @@ public interface CatalogIf<T extends DatabaseIf> {
     Map<String, String> getProperties();
 
     default void notifyPropertiesUpdated(Map<String, String> updatedProps) {
-        if (this instanceof ExternalCatalog) {
-            ((ExternalCatalog) this).resetToUninitialized(false);
-        }
     }
 
     void modifyCatalogName(String name);
@@ -156,8 +160,11 @@ public interface CatalogIf<T extends DatabaseIf> {
     }
 
     // Called when catalog is dropped
-    default void onClose() {
-        Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(getId());
+    void onClose();
+
+    // Called when catalog creation fails before the catalog is registered.
+    default void onCreateFailure() {
+        onClose();
     }
 
     String getComment();
@@ -179,7 +186,7 @@ public interface CatalogIf<T extends DatabaseIf> {
         return log;
     }
 
-    TableNameInfo getTableNameByTableId(Long tableId);
+    List<String> getTableNameByTableId(long tableId);
 
     // Return a copy of all db collection.
     Collection<DatabaseIf<? extends TableIf>> getAllDbs();
@@ -191,13 +198,39 @@ public interface CatalogIf<T extends DatabaseIf> {
     void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException;
 
     /**
+     * Validates an explicitly written {@code CREATE TABLE ... ENGINE=<name>} against this catalog, throwing
+     * if this catalog does not create tables under that engine name.
+     *
+     * <p>{@code ENGINE=} is legacy syntax that predates catalogs, and it is optional — omitting it is always
+     * legal and lets the catalog pick for itself. The engine therefore keeps no table of which name belongs
+     * to which data source: every catalog answers for itself, and an external catalog forwards the question
+     * to its connector. The default rejects any explicit engine, which is the right answer for a catalog that
+     * cannot create tables at all.</p>
+     *
+     * <p>Implementations must not force the catalog to initialize: this runs during analysis, where a remote
+     * round trip would turn a syntax mistake into a connection error.</p>
+     */
+    default void validateCreateTableEngine(String engineName) throws AnalysisException {
+        throw new AnalysisException(engineMismatchError(engineName, getName()));
+    }
+
+    /**
+     * The one wording for "that engine name is not this catalog's", so every catalog rejects alike. It names
+     * only what the user wrote and the catalog they wrote it against — deliberately not the engine name that
+     * would have been accepted, which is the connector's to know, not the engine's.
+     */
+    static String engineMismatchError(String engineName, String catalogName) {
+        return "Engine '" + engineName + "' does not match catalog '" + catalogName + "'.";
+    }
+
+    /**
      * @return if org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo.ifNotExists is true,
      * return true if table exists,
      * return false otherwise
      */
     boolean createTable(CreateTableInfo createTableInfo) throws UserException;
 
-    void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
+    void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream, boolean ifExists,
             boolean mustTemporary, boolean force) throws DdlException;
 
     default void renameTable(String dbName, String oldTableName, String newTableName) throws DdlException {
@@ -207,6 +240,13 @@ public interface CatalogIf<T extends DatabaseIf> {
     void truncateTable(String dbName, String tableName, PartitionNamesInfo partitionNamesInfo, boolean forceDrop,
                        String rawTruncateSql)
             throws DdlException;
+
+    int getLowerCaseTableNames();
+
+    /** For InternalCatalog, DB names are always case-sensitive (return 0). */
+    default int getLowerCaseDatabaseNames() {
+        return 0;
+    }
 
     // Convert from remote database name to local database name, overridden by subclass if necessary
     default String fromRemoteDatabaseName(String remoteDatabaseName) {
@@ -249,6 +289,15 @@ public interface CatalogIf<T extends DatabaseIf> {
         throw new UserException("Not support add column operation");
     }
 
+    default void addColumn(TableIf table, ColumnPath columnPath, Column column, ColumnPosition columnPosition)
+            throws UserException {
+        if (!columnPath.isNested()) {
+            addColumn(table, column, columnPosition);
+            return;
+        }
+        throw new UserException("Not support nested add column operation");
+    }
+
     default void addColumns(TableIf table, List<Column> columns) throws UserException {
         throw new UserException("Not support add columns operation");
     }
@@ -257,15 +306,62 @@ public interface CatalogIf<T extends DatabaseIf> {
         throw new UserException("Not support drop column operation");
     }
 
+    default void dropColumn(TableIf table, ColumnPath columnPath) throws UserException {
+        if (!columnPath.isNested()) {
+            dropColumn(table, columnPath.getTopLevelName());
+            return;
+        }
+        throw new UserException("Not support nested drop column operation");
+    }
+
     default void renameColumn(TableIf table, String oldName, String newName) throws UserException {
         throw new UserException("Not support rename column operation");
+    }
+
+    default void renameColumn(TableIf table, ColumnPath columnPath, String newName) throws UserException {
+        if (!columnPath.isNested()) {
+            renameColumn(table, columnPath.getTopLevelName(), newName);
+            return;
+        }
+        throw new UserException("Not support nested rename column operation");
     }
 
     default void modifyColumn(TableIf table, Column column, ColumnPosition columnPosition) throws UserException {
         throw new UserException("Not support update column operation");
     }
 
+    default void modifyColumn(TableIf table, ColumnPath columnPath, Column column, ColumnPosition columnPosition)
+            throws UserException {
+        if (!columnPath.isNested()) {
+            modifyColumn(table, column, columnPosition);
+            return;
+        }
+        throw new UserException("Not support nested modify column operation");
+    }
+
+    default void modifyColumnComment(TableIf table, String name, String comment) throws UserException {
+        modifyColumnComment(table, ColumnPath.of(name), comment);
+    }
+
+    default void modifyColumnComment(TableIf table, ColumnPath columnPath, String comment) throws UserException {
+        throw new UserException("Not support modify column comment operation");
+    }
+
     default void reorderColumns(TableIf table, List<String> newOrder) throws UserException {
         throw new UserException("Not support reorder columns operation");
+    }
+
+    // partition evolution operations (Iceberg): add / drop / replace a partition field
+
+    default void addPartitionField(TableIf table, AddPartitionFieldOp op) throws UserException {
+        throw new UserException("Not support add partition field operation");
+    }
+
+    default void dropPartitionField(TableIf table, DropPartitionFieldOp op) throws UserException {
+        throw new UserException("Not support drop partition field operation");
+    }
+
+    default void replacePartitionField(TableIf table, ReplacePartitionFieldOp op) throws UserException {
+        throw new UserException("Not support replace partition field operation");
     }
 }

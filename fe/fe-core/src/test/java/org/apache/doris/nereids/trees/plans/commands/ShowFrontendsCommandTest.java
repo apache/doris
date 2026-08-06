@@ -17,102 +17,129 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.tablefunction.FrontendsDisksTableValuedFunction;
+import org.apache.doris.tablefunction.FrontendsTableValuedFunction;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.util.List;
 
 public class ShowFrontendsCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     private static final String infoDB = InfoSchemaDb.DATABASE_NAME;
 
-    @Mocked
     private Env env;
-    @Mocked
     private ConnectContext ctx;
-    @Mocked
     private AccessControllerManager accessControllerManager;
-    @Mocked
     private InternalCatalog catalog;
-    @Mocked
     private CatalogMgr catalogMgr;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
 
-    private void runBefore() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+    @BeforeEach
+    public void setUp() {
+        env = Mockito.mock(Env.class);
+        ctx = Mockito.mock(ConnectContext.class);
+        accessControllerManager = Mockito.mock(AccessControllerManager.class);
+        catalog = Mockito.mock(InternalCatalog.class);
+        catalogMgr = Mockito.mock(CatalogMgr.class);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(ctx);
 
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = catalogMgr;
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
 
-                catalogMgr.getCatalog(anyString);
-                minTimes = 0;
-                result = catalog;
+        Mockito.when(ctx.getState()).thenReturn(new QueryState());
 
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
+        HAProtocol haProtocol = Mockito.mock(HAProtocol.class);
+        Mockito.when(env.getHaProtocol()).thenReturn(haProtocol);
+        Mockito.when(env.getSelfNode())
+                .thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9030));
+    }
 
-                accessControllerManager.checkDbPriv(ctx, internalCtl, infoDB, PrivPredicate.SELECT);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    @AfterEach
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
     }
 
     @Test
     public void testNormal() throws Exception {
-        runBefore();
+        Mockito.when(accessControllerManager.checkDbPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(internalCtl),
+                Mockito.eq(infoDB), Mockito.eq(PrivPredicate.SELECT))).thenReturn(true);
+
         ShowFrontendsCommand command = new ShowFrontendsCommand(null);
-        Assertions.assertDoesNotThrow(() -> command.doRun(ctx, null));
+        ShowResultSet showResultSet = command.doRun(ctx, null);
+        List<Column> columnList = showResultSet.getMetaData().getColumns();
+        ImmutableList<String> frontendsTitleNames = FrontendsTableValuedFunction.getFrontendsTitleNames();
+        Assertions.assertTrue(!columnList.isEmpty() && columnList.size() == frontendsTitleNames.size());
+        for (int i = 0; i < frontendsTitleNames.size(); i++) {
+            Assertions.assertTrue(columnList.get(i).getName().equalsIgnoreCase(frontendsTitleNames.get(i)));
+        }
     }
 
     @Test
     public void testNoPrivilege() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        Mockito.when(accessControllerManager.checkDbPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(internalCtl),
+                Mockito.eq(infoDB), Mockito.eq(PrivPredicate.SELECT))).thenReturn(false);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = catalogMgr;
-
-                catalogMgr.getCatalog(anyString);
-                minTimes = 0;
-                result = catalog;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-
-                accessControllerManager.checkDbPriv(ctx, internalCtl, infoDB, PrivPredicate.SELECT);
-                minTimes = 0;
-                result = false;
-            }
-        };
         ShowFrontendsCommand command = new ShowFrontendsCommand(null);
+        Assertions.assertThrows(AnalysisException.class, () -> command.doRun(ctx, null));
+    }
+
+    @Test
+    public void testNormalShowFrontendsDisks() throws Exception {
+        Mockito.when(accessControllerManager.checkDbPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(internalCtl),
+                Mockito.eq(infoDB), Mockito.eq(PrivPredicate.SELECT))).thenReturn(true);
+
+        ShowFrontendsCommand command = new ShowFrontendsCommand("disks");
+        ShowResultSet showResultSet = command.doRun(ctx, null);
+        List<Column> columnList = showResultSet.getMetaData().getColumns();
+        ImmutableList<String> frontendsDisksTitleNames = FrontendsDisksTableValuedFunction
+                .getFrontendsDisksTitleNames();
+        Assertions.assertTrue(!columnList.isEmpty() && columnList.size() == frontendsDisksTitleNames.size());
+        for (int i = 0; i < frontendsDisksTitleNames.size(); i++) {
+            Assertions.assertTrue(columnList.get(i).getName().equalsIgnoreCase(frontendsDisksTitleNames.get(i)));
+        }
+    }
+
+    @Test
+    public void testNoPrivilegeShowFrontendsDisks() throws Exception {
+        Mockito.when(accessControllerManager.checkDbPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(internalCtl),
+                Mockito.eq(infoDB), Mockito.eq(PrivPredicate.SELECT))).thenReturn(false);
+
+        ShowFrontendsCommand command = new ShowFrontendsCommand("disks");
         Assertions.assertThrows(AnalysisException.class, () -> command.doRun(ctx, null));
     }
 }

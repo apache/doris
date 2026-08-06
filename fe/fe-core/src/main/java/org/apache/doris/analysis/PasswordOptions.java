@@ -78,10 +78,6 @@ public class PasswordOptions {
         return historyPolicy;
     }
 
-    public int getReusePolicy() {
-        return reusePolicy;
-    }
-
     public int getLoginAttempts() {
         return loginAttempts;
     }

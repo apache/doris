@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
@@ -33,14 +32,14 @@ import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.FixMethodOrder;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.runners.MethodSorters;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentMap;
@@ -79,8 +78,11 @@ public class HistogramTaskTest extends TestWithFeService {
                 "ANALYZE TABLE t1(col1) WITH HISTOGRAM");
         Assertions.assertNotNull(executor);
 
+        Field f = AnalysisManager.class.getDeclaredField("analysisJobIdToTaskMap");
+        f.setAccessible(true);
+        @SuppressWarnings("unchecked")
         ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> taskMap =
-                Deencapsulation.getField(analysisManager, "analysisJobIdToTaskMap");
+                (ConcurrentMap<Long, Map<Long, BaseAnalysisTask>>) f.get(analysisManager);
         Assertions.assertEquals(1, taskMap.size());
 
         for (Entry<Long, Map<Long, BaseAnalysisTask>> infoMap : taskMap.entrySet()) {
@@ -95,38 +97,45 @@ public class HistogramTaskTest extends TestWithFeService {
     }
 
     @Test
-    public void test2TaskExecution(@Mocked InternalCatalog catalog, @Mocked Database database,
-            @Mocked OlapTable olapTable) throws Exception {
-        new MockUp<StatisticsUtil>() {
+    public void test2TaskExecution() throws Exception {
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
 
-            @Mock
-            public DBObjects convertIdToObjects(long catalogId, long dbId, long tblId) {
-                return new DBObjects(catalog, database, olapTable);
+        Mockito.when(olapTable.getColumn(Mockito.anyString()))
+                .thenReturn(new Column("col1", PrimitiveType.INT));
+
+        try (MockedStatic<StatisticsUtil> mockedStatisticsUtil =
+                     Mockito.mockStatic(StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedStatisticsUtil.when(() -> StatisticsUtil.convertIdToObjects(
+                    Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()))
+                    .thenReturn(new DBObjects(catalog, database, olapTable));
+
+            AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
+            AnalysisInfo analysisInfo = new AnalysisInfoBuilder()
+                    .setJobId(0).setTaskId(0).setCatalogId(0)
+                    .setDBId(0)
+                    .setTblId(0)
+                    .setColName("col1").setJobType(JobType.MANUAL)
+                    .setAnalysisMethod(AnalysisMethod.FULL)
+                    .setAnalysisType(AnalysisType.HISTOGRAM)
+                    .build();
+            HistogramTask task = new HistogramTask(analysisInfo);
+
+            // Spy the real AnalysisManager to make updateTaskStatus a no-op
+            AnalysisManager realManager = Env.getCurrentEnv().getAnalysisManager();
+            AnalysisManager spiedManager = Mockito.spy(realManager);
+            Mockito.doNothing().when(spiedManager).updateTaskStatus(
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyLong());
+
+            Field amField = Env.class.getDeclaredField("analysisManager");
+            amField.setAccessible(true);
+            amField.set(Env.getCurrentEnv(), spiedManager);
+            try {
+                analysisTaskExecutor.submitTask(task);
+            } finally {
+                amField.set(Env.getCurrentEnv(), realManager);
             }
-        };
-        new MockUp<OlapTable>() {
-
-            @Mock
-            public Column getColumn(String name) {
-                return new Column("col1", PrimitiveType.INT);
-            }
-        };
-        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
-        AnalysisInfo analysisInfo = new AnalysisInfoBuilder()
-                .setJobId(0).setTaskId(0).setCatalogId(0)
-                .setDBId(0)
-                .setTblId(0)
-                .setColName("col1").setJobType(JobType.MANUAL)
-                .setAnalysisMethod(AnalysisMethod.FULL)
-                .setAnalysisType(AnalysisType.HISTOGRAM)
-                .build();
-        HistogramTask task = new HistogramTask(analysisInfo);
-
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public void updateTaskStatus(AnalysisInfo info, AnalysisState jobState, String message, long time) {}
-        };
-
-        Deencapsulation.invoke(analysisTaskExecutor, "submitTask", task);
+        }
     }
 }

@@ -216,11 +216,25 @@ public class LoadManager implements Writable {
         LoadJob loadJob;
         if (idToLoadJob.containsKey(jobId)) {
             loadJob = idToLoadJob.get(jobId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("recordFinishedLoadJob: reuse existing load job, jobId={}, label={}, dbId={}, jobType={}",
+                        jobId, label, db.getId(), jobType);
+            }
             if (loadJob instanceof InsertLoadJob) {
                 ((InsertLoadJob) loadJob).setJobProperties(transactionId, tableId, createTimestamp,
                         failMsg, trackingUrl, firstErrorMsg, userInfo);
             }
         } else {
+            // The jobId received here does not exist in idToLoadJob. This means the InsertLoadJob
+            // that was registered during executor construction (and that accumulated BE-reported
+            // load statistics via updateJobProgress) is NOT the one we are about to snapshot here.
+            // A brand-new InsertLoadJob will be created below with an empty LoadStatistic, so
+            // SHOW LOAD's JobDetails (ScannedRows / LoadBytes / All backends) will be all zero.
+            // Logging this at WARN so CI failures of the form
+            // "test_insert_statistic: expected:<N> but was:<0>" can be diagnosed directly.
+            LOG.warn("recordFinishedLoadJob: jobId={} not found in idToLoadJob, creating a new "
+                            + "{} load job for label={}, dbId={}. JobDetails statistics will be empty.",
+                    jobId, jobType, label, db.getId());
             switch (jobType) {
                 case INSERT:
                     loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
@@ -813,6 +827,12 @@ public class LoadManager implements Writable {
     public void updateJobProgress(Long jobId, Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows,
                                   long scannedBytes, boolean isDone) {
         LoadJob job = idToLoadJob.get(jobId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("updateJobProgress: jobId={}, beId={}, scannedRows={}, scannedBytes={}, isDone={}, "
+                            + "found={}, jobIdMatched={}",
+                    jobId, beId, scannedRows, scannedBytes, isDone,
+                    idToLoadJob.containsKey(jobId), job == null ? -1L : job.getId());
+        }
         if (job != null) {
             job.updateProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, isDone);
         }

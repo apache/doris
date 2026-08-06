@@ -69,7 +69,7 @@ public class ArrayProduct extends ScalarFunction implements ExplicitlyCastableSi
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
+        DataType argType = getArgument(0).getDataType();
         if (argType instanceof ArrayType && ((ArrayType) argType).getItemType().isComplexType()) {
             throw new AnalysisException(toSql() + " does not support type: "
                                                     + ((ArrayType) argType).getItemType().toString());

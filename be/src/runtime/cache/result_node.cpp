@@ -25,8 +25,8 @@
 #include <utility>
 
 #include "common/config.h"
-#include "olap/olap_define.h"
 #include "runtime/cache/cache_utils.h"
+#include "storage/olap_define.h"
 
 namespace doris {
 

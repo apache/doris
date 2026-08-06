@@ -28,63 +28,65 @@
 #include "cloud/config.h"
 #include "cloud/injection_point_action.h"
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
-#include "http/action/adjust_log_level.h"
-#include "http/action/adjust_tracing_dump.h"
-#include "http/action/batch_download_action.h"
-#include "http/action/be_proc_thread_action.h"
-#include "http/action/calc_file_crc_action.h"
-#include "http/action/check_encryption_action.h"
-#include "http/action/check_rpc_channel_action.h"
-#include "http/action/check_tablet_segment_action.h"
-#include "http/action/checksum_action.h"
-#include "http/action/clear_cache_action.h"
-#include "http/action/compaction_action.h"
-#include "http/action/compaction_score_action.h"
-#include "http/action/config_action.h"
-#include "http/action/debug_point_action.h"
-#include "http/action/delete_bitmap_action.h"
-#include "http/action/dictionary_status_action.h"
-#include "http/action/download_action.h"
-#include "http/action/download_binlog_action.h"
-#include "http/action/file_cache_action.h"
-#include "http/action/health_action.h"
-#include "http/action/http_stream.h"
-#include "http/action/jeprofile_actions.h"
-#include "http/action/load_channel_action.h"
-#include "http/action/load_stream_action.h"
-#include "http/action/meta_action.h"
-#include "http/action/metrics_action.h"
-#include "http/action/pad_rowset_action.h"
-#include "http/action/pipeline_task_action.h"
-#include "http/action/pprof_actions.h"
-#include "http/action/reload_tablet_action.h"
-#include "http/action/report_action.h"
-#include "http/action/reset_rpc_channel_action.h"
-#include "http/action/restore_tablet_action.h"
-#include "http/action/show_hotspot_action.h"
-#include "http/action/show_nested_index_file_action.h"
-#include "http/action/shrink_mem_action.h"
-#include "http/action/snapshot_action.h"
-#include "http/action/stream_load.h"
-#include "http/action/stream_load_2pc.h"
-#include "http/action/stream_load_forward_handler.h"
-#include "http/action/tablet_migration_action.h"
-#include "http/action/tablets_distribution_action.h"
-#include "http/action/tablets_info_action.h"
-#include "http/action/version_action.h"
-#include "http/default_path_handlers.h"
-#include "http/ev_http_server.h"
-#include "http/http_method.h"
-#include "http/web_page_handler.h"
-#include "olap/options.h"
-#include "olap/storage_engine.h"
+#include "load/load_path_mgr.h"
 #include "runtime/exec_env.h"
-#include "runtime/load_path_mgr.h"
-#include "util/doris_metrics.h"
+#include "service/http/action/adjust_log_level.h"
+#include "service/http/action/batch_download_action.h"
+#include "service/http/action/be_proc_thread_action.h"
+#include "service/http/action/be_thread_stack_action.h"
+#include "service/http/action/calc_file_crc_action.h"
+#include "service/http/action/check_encryption_action.h"
+#include "service/http/action/check_rpc_channel_action.h"
+#include "service/http/action/check_tablet_segment_action.h"
+#include "service/http/action/checksum_action.h"
+#include "service/http/action/clear_cache_action.h"
+#include "service/http/action/compaction_action.h"
+#include "service/http/action/compaction_profile_action.h"
+#include "service/http/action/compaction_score_action.h"
+#include "service/http/action/config_action.h"
+#include "service/http/action/debug_point_action.h"
+#include "service/http/action/delete_bitmap_action.h"
+#include "service/http/action/dictionary_status_action.h"
+#include "service/http/action/download_action.h"
+#include "service/http/action/download_binlog_action.h"
+#include "service/http/action/file_cache_action.h"
+#include "service/http/action/health_action.h"
+#include "service/http/action/http_stream.h"
+#include "service/http/action/jeprofile_actions.h"
+#include "service/http/action/load_channel_action.h"
+#include "service/http/action/load_stream_action.h"
+#include "service/http/action/meta_action.h"
+#include "service/http/action/metrics_action.h"
+#include "service/http/action/pad_rowset_action.h"
+#include "service/http/action/peer_cache_action.h"
+#include "service/http/action/pipeline_task_action.h"
+#include "service/http/action/pprof_actions.h"
+#include "service/http/action/reload_tablet_action.h"
+#include "service/http/action/report_action.h"
+#include "service/http/action/reset_rpc_channel_action.h"
+#include "service/http/action/restore_tablet_action.h"
+#include "service/http/action/show_hotspot_action.h"
+#include "service/http/action/show_nested_index_file_action.h"
+#include "service/http/action/shrink_mem_action.h"
+#include "service/http/action/snapshot_action.h"
+#include "service/http/action/stream_load.h"
+#include "service/http/action/stream_load_2pc.h"
+#include "service/http/action/stream_load_forward_handler.h"
+#include "service/http/action/tablet_migration_action.h"
+#include "service/http/action/tablets_distribution_action.h"
+#include "service/http/action/tablets_info_action.h"
+#include "service/http/action/version_action.h"
+#include "service/http/action/warmup_stats_action.h"
+#include "service/http/default_path_handlers.h"
+#include "service/http/ev_http_server.h"
+#include "service/http/http_method.h"
+#include "service/http/web_page_handler.h"
+#include "storage/options.h"
+#include "storage/storage_engine.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace {
 std::shared_ptr<bufferevent_rate_limit_group> get_rate_limit_group(event_base* event_base) {
     auto rate_limit = config::download_binlog_rate_limit_kbs;
@@ -114,6 +116,11 @@ HttpService::HttpService(ExecEnv* env, int port, int num_threads)
           _ev_http_server(new EvHttpServer(port, num_threads)),
           _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
 
+HttpService::HttpService(ExecEnv* env, std::unique_ptr<EvHttpServer> http_server)
+        : _env(env),
+          _ev_http_server(std::move(http_server)),
+          _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
+
 HttpService::~HttpService() {
     stop();
 }
@@ -138,7 +145,7 @@ Status HttpService::start() {
                                       streamload_2pc_action);
 
     // register stream load forward handler
-    auto* forward_handler = _pool.add(new StreamLoadForwardHandler());
+    auto* forward_handler = _pool.add(new StreamLoadForwardHandler(_env));
     _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load_forward",
                                       forward_handler);
 
@@ -155,11 +162,6 @@ Status HttpService::start() {
 
     AdjustLogLevelAction* adjust_log_level_action = _pool.add(new AdjustLogLevelAction(_env));
     _ev_http_server->register_handler(HttpMethod::POST, "api/glog/adjust", adjust_log_level_action);
-
-    //TODO: add query GET interface
-    auto* adjust_tracing_dump = _pool.add(new AdjustTracingDump(_env));
-    _ev_http_server->register_handler(HttpMethod::POST, "api/pipeline/tracing",
-                                      adjust_tracing_dump);
 
     // Register BE version action
     VersionAction* version_action =
@@ -195,6 +197,10 @@ Status HttpService::start() {
     BeProcThreadAction* be_proc_thread_action = _pool.add(new BeProcThreadAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/be_process_thread_num",
                                       be_proc_thread_action);
+
+    // Dump C++ stack traces for current BE threads.
+    BeThreadStackAction* be_thread_stack_action = _pool.add(new BeThreadStackAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/stack_trace", be_thread_stack_action);
 
     // Register BE LoadStream action
     LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction(_env));
@@ -408,6 +414,11 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
 
+    CompactionProfileAction* compaction_profile_action = _pool.add(
+            new CompactionProfileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/profile",
+                                      compaction_profile_action);
+
     DeleteBitmapAction* count_delete_bitmap_action =
             _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_LOCAL, _env, engine,
                                              TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
@@ -471,6 +482,12 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
+
+    CompactionProfileAction* compaction_profile_action = _pool.add(
+            new CompactionProfileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/profile",
+                                      compaction_profile_action);
+
     DeleteBitmapAction* count_local_delete_bitmap_action =
             _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_LOCAL, _env, engine,
                                              TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
@@ -497,6 +514,10 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
     auto* show_hotspot_action = _pool.add(new ShowHotspotAction(engine, _env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/hotspot/tablet", show_hotspot_action);
 
+    auto* warmup_stats_action = _pool.add(new WarmUpStatsAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/warmup_event_driven_stats",
+                                      warmup_stats_action);
+
     CalcFileCrcAction* calc_crc_action = _pool.add(
             new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
@@ -513,6 +534,12 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
             _pool.add(new CheckEncryptionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ALL));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/check_tablet_encryption",
                                       check_encryption_action);
+
+    // Peer cache admin/debug endpoints
+    PeerCacheAction* peer_cache_get = _pool.add(new PeerCacheAction(_env, engine));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/peer_cache", peer_cache_get);
+    PeerCacheAction* peer_cache_post = _pool.add(new PeerCacheAction(_env, engine));
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/peer_cache", peer_cache_post);
 }
 // NOLINTEND(readability-function-size)
 
@@ -529,5 +556,4 @@ int HttpService::get_real_port() const {
     return _ev_http_server->get_real_port();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("variant_predefine_base_doc_value", "p0"){ 
+suite("variant_predefine_base_doc_value", "p0"){
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
     def count = new Random().nextInt(5)
@@ -52,7 +52,7 @@ suite("variant_predefine_base_doc_value", "p0"){
     qt_sql """ select count() from ${tableName} where cast(var['b?b'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['bb3'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['bxx'] as string) match '789' """
-    
+
 
     trigger_and_wait_compaction(tableName, "full")
 
@@ -93,7 +93,7 @@ suite("variant_predefine_base_doc_value", "p0"){
     qt_sql """ select count() from ${tableName} where cast(var['a']['b1'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['bxc'] as string) match '789' """
 qt_sql """ select count() from ${tableName} where cast(var['a']['c2323'] as string) match '789' """
-    
+
     trigger_and_wait_compaction(tableName, "full")
 
     qt_sql """select * from ${tableName} order by id"""
@@ -102,5 +102,5 @@ qt_sql """ select count() from ${tableName} where cast(var['a']['c2323'] as stri
     qt_sql """ select count() from ${tableName} where cast(var['a']['b1'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['bxc'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['c2323'] as string) match '789' """
-    
+
 }

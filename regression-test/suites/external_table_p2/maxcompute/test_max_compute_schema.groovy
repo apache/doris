@@ -87,7 +87,7 @@ INSERT INTO employee_salary VALUES
 (3, 'Mike', 'HR', 9800.00, CAST('2024-06-20' AS DATE)),
 (4, 'Lucy', 'IT', 13500.00, CAST('2022-11-05' AS DATE));
  */
-suite("test_max_compute_schema", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
+suite("test_max_compute_schema", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String ak = context.config.otherConfigs.get("ak")
@@ -106,32 +106,42 @@ suite("test_max_compute_schema", "p2,external,maxcompute,external_remote,externa
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
                 "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
-                "mc.enable.namespace.schema" = "true"
+                "mc.enable.namespace.schema" = "true",
+                "test_connection" = "true"
             );
         """
 
         sql """ switch ${mc_catalog_name};"""
-        order_qt_show_db_1 """ show databases; """
+        order_qt_show_db_analytics """ show databases like "analytics"; """
+        order_qt_show_db_default """ show databases like "default"; """
+        order_qt_show_db_information_schema """ show databases like "information\\_schema"; """
+        order_qt_show_db_iot """ show databases like "iot"; """
+        order_qt_show_db_mysql """ show databases like "mysql"; """
 
         sql  """ use `default`; """
-        order_qt_show_tb_1 """ show tables; """
+        order_qt_show_tb_order_detail """ show tables like "order\\_detail"; """
+        order_qt_show_tb_user_info """ show tables like "user\\_info"; """
         
 
         sql  """ use `analytics`; """
-        order_qt_show_tb_2 """ show tables; """
+        order_qt_show_tb_product_sales """ show tables like "product\\_sales"; """
+        order_qt_show_tb_web_log """ show tables like "web\\_log"; """
         
 
         sql  """ use `iot`; """
-        order_qt_show_tb_3 """ show tables; """
+        order_qt_show_tb_employee_salary """ show tables like "employee\\_salary"; """
 
         order_qt_show_par """  show partitions from `default`.order_detail; """
         order_qt_show_par2 """  show partitions from analytics.web_log; """
         qt_desc  """ desc  iot.employee_salary; """
 
         sql """ alter catalog ${mc_catalog_name} set  PROPERTIES("mc.enable.namespace.schema" = "false"); """
-        qt_show_db_2 """ show databases;"""
+        qt_show_db_information_schema """ show databases like "information\\_schema";"""
+        qt_show_db_mc_project """ show databases like "${mc_project.replace("_", "\\_")}";"""
+        qt_show_db_mysql """ show databases like "mysql";"""
         sql """ use ${mc_project}; """
-        order_qt_show_tb_4 """ show tables; """
+        order_qt_show_tb_order_detail """ show tables like "order\\_detail"; """
+        order_qt_show_tb_user_info """ show tables like "user\\_info"; """
 
         qt_mc_old_q1 """ SELECT * FROM user_info ORDER BY id;"""
         qt_mc_old_q2 """ SELECT * FROM order_detail ORDER BY id;"""
@@ -140,18 +150,24 @@ suite("test_max_compute_schema", "p2,external,maxcompute,external_remote,externa
        
 
 
-        order_qt_show_db_1 """ show databases; """
+        order_qt_show_db_analytics """ show databases like "analytics"; """
+        order_qt_show_db_default """ show databases like "default"; """
+        order_qt_show_db_information_schema """ show databases like "information\\_schema"; """
+        order_qt_show_db_iot """ show databases like "iot"; """
+        order_qt_show_db_mysql """ show databases like "mysql"; """
 
         sql  """ use `default`; """
-        order_qt_show_tb_1 """ show tables; """
+        order_qt_show_tb_order_detail """ show tables like "order\\_detail"; """
+        order_qt_show_tb_user_info """ show tables like "user\\_info"; """
         
 
         sql  """ use `analytics`; """
-        order_qt_show_tb_2 """ show tables; """
+        order_qt_show_tb_product_sales """ show tables like "product\\_sales"; """
+        order_qt_show_tb_web_log """ show tables like "web\\_log"; """
         
 
         sql  """ use `iot`; """
-        order_qt_show_tb_3 """ show tables; """
+        order_qt_show_tb_employee_salary """ show tables like "employee\\_salary"; """
 
         order_qt_show_par """  show partitions from `default`.order_detail; """
         order_qt_show_par2 """  show partitions from analytics.web_log; """

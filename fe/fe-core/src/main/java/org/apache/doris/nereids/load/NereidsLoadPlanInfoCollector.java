@@ -19,6 +19,7 @@ package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -32,12 +33,12 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -183,16 +184,29 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             params.setProperties(properties);
 
             for (Map.Entry<SlotId, Expr> entry : destSlotIdToExprMap.entrySet()) {
-                params.putToExprOfDestSlot(entry.getKey().asInt(), entry.getValue().treeToThrift());
+                params.putToExprOfDestSlot(entry.getKey().asInt(), ExprToThriftVisitor.treeToThrift(entry.getValue()));
+            }
+
+            // Build slot_id -> index map for required_slots to set default_value_expr inline.
+            Map<Integer, Integer> slotIdToRequiredIdx = Maps.newHashMap();
+            for (int i = 0; i < params.getRequiredSlots().size(); i++) {
+                slotIdToRequiredIdx.put(params.getRequiredSlots().get(i).getSlotId(), i);
             }
 
             for (Map.Entry<SlotId, Expr> entry : srcSlotIdToDefaultValueMap.entrySet()) {
+                TExpr defaultExpr;
                 if (entry.getValue() != null) {
-                    params.putToDefaultValueOfSrcSlot(entry.getKey().asInt(), entry.getValue().treeToThrift());
+                    defaultExpr = ExprToThriftVisitor.treeToThrift(entry.getValue());
                 } else {
-                    TExpr tExpr = new TExpr();
-                    tExpr.setNodes(Lists.newArrayList());
-                    params.putToDefaultValueOfSrcSlot(entry.getKey().asInt(), tExpr);
+                    defaultExpr = new TExpr();
+                    defaultExpr.setNodes(Lists.newArrayList());
+                }
+                // Populate legacy map (for backward compatibility with old BE)
+                params.putToDefaultValueOfSrcSlot(entry.getKey().asInt(), defaultExpr);
+                // Also embed default expr directly in the TFileScanSlotInfo
+                Integer idx = slotIdToRequiredIdx.get(entry.getKey().asInt());
+                if (idx != null) {
+                    params.getRequiredSlots().get(idx).setDefaultValueExpr(defaultExpr);
                 }
             }
 
@@ -209,7 +223,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
 
             if (preFilterExprList != null) {
                 for (Expr conjunct : preFilterExprList) {
-                    params.addToPreFilterExprsList(conjunct.treeToThrift());
+                    params.addToPreFilterExprsList(ExprToThriftVisitor.treeToThrift(conjunct));
                 }
             }
 
@@ -375,7 +389,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         if (loadPlanInfo.destTuple.getSlots().isEmpty()) {
             List<Slot> slotList = outputs.stream().map(NamedExpression::toSlot).collect(Collectors.toList());
             for (Slot slot : slotList) {
-                context.createSlotDesc(loadPlanInfo.destTuple, (SlotReference) slot, destTable);
+                context.createSlotDesc(loadPlanInfo.destTuple, (SlotReference) slot);
             }
         }
         logicalPostProject.child().accept(this, context);
@@ -462,7 +476,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(table);
         for (Slot slot : slotList) {
-            context.createSlotDesc(tupleDescriptor, (SlotReference) slot, table);
+            context.createSlotDesc(tupleDescriptor, (SlotReference) slot);
         }
         return tupleDescriptor;
     }

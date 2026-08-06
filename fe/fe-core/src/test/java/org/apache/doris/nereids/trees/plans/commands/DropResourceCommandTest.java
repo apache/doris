@@ -18,14 +18,15 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 
@@ -43,13 +44,10 @@ public class DropResourceCommandTest extends TestWithFeService {
     @Test
     public void testValidateNormal() throws Exception {
         runBefore();
-        new Expectations() {
-            {
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
         DropResourceCommand command = new DropResourceCommand(false, "test_resource");
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
     }

@@ -54,7 +54,7 @@ true
 true
 
 -- !TestJsonFunctions_19 --
-false
+true
 
 -- !TestJsonFunctions_20 --
 \N
@@ -72,7 +72,7 @@ true
 true
 
 -- !TestJsonFunctions_25 --
-false
+true
 
 -- !TestJsonFunctions_26 --
 \N
@@ -93,7 +93,7 @@ true
 true
 
 -- !TestJsonFunctions_32 --
-false
+true
 
 -- !TestJsonFunctions_33 --
 \N
@@ -114,7 +114,7 @@ true
 true
 
 -- !TestJsonFunctions_39 --
-false
+true
 
 -- !TestJsonFunctions_40 --
 \N
@@ -381,7 +381,7 @@ true
 true
 
 -- !TestJsonFunctions_128 --
-false
+true
 
 -- !TestJsonFunctions_129 --
 \N
@@ -399,7 +399,7 @@ true
 true
 
 -- !TestJsonFunctions_134 --
-false
+true
 
 -- !TestJsonFunctions_135 --
 \N
@@ -420,7 +420,7 @@ true
 true
 
 -- !TestJsonFunctions_141 --
-false
+true
 
 -- !TestJsonFunctions_142 --
 \N
@@ -438,7 +438,7 @@ true
 true
 
 -- !TestJsonFunctions_147 --
-false
+true
 
 -- !TestJsonFunctions_148 --
 \N

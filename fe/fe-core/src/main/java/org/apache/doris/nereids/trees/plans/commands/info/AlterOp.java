@@ -42,6 +42,13 @@ public abstract class AlterOp {
 
     public abstract boolean needChangeMTMVState();
 
+    // Whether this alter operation is allowed on tables that enable row binlog.
+    // Default is false, and only operations that are explicitly marked as safe
+    // for row binlog should override this to return true.
+    public boolean allowOpRowBinlog() {
+        return false;
+    }
+
     public Map<String, String> getProperties() {
         throw new NotImplementedException("AlterOp.getProperties() is not implemented");
     }

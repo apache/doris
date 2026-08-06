@@ -50,6 +50,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -139,19 +140,20 @@ public class PartitionCompensator {
                         .computeIfAbsent(baseTableNeedUnionTable.key(), k -> new HashSet<>())
                         .addAll(baseTableNeedUnionTable.value());
             }
-            // merge all partition to delete or union
-            Set<String> needRemovePartitionSet = new HashSet<>();
-            mvPartitionNeedRemoveNameMap.values().forEach(needRemovePartitionSet::addAll);
-            mvPartitionNeedRemoveNameMap.replaceAll((k, v) -> needRemovePartitionSet);
-
-            // consider multi base table partition name not same, how to handle it?
-            Set<String> needUnionPartitionSet = new HashSet<>();
-            baseTablePartitionNeedUnionNameMap.values().forEach(needUnionPartitionSet::addAll);
-            baseTablePartitionNeedUnionNameMap.replaceAll((k, v) -> needUnionPartitionSet);
         }
         if (allCompensateIsNull) {
             return null;
         }
+        // merge all partition to delete or union
+        Set<String> needRemovePartitionSet = new HashSet<>();
+        mvPartitionNeedRemoveNameMap.values().forEach(needRemovePartitionSet::addAll);
+        mvPartitionNeedRemoveNameMap.replaceAll((k, v) -> needRemovePartitionSet);
+
+        // consider multi base table partition name not same, how to handle it?
+        Set<String> needUnionPartitionSet = new HashSet<>();
+        baseTablePartitionNeedUnionNameMap.values().forEach(needUnionPartitionSet::addAll);
+        baseTablePartitionNeedUnionNameMap.replaceAll((k, v) -> needUnionPartitionSet);
+
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
     }
 
@@ -175,7 +177,8 @@ public class PartitionCompensator {
             Set<String> relatedBaseTablePartitions = partitionMapping.get(mvValidPartition.getName());
             if (relatedBaseTablePartitions != null) {
                 mvValidBaseTablePartitionNameSet.addAll(relatedBaseTablePartitions);
-                if (!mtmv.selectNonEmptyPartitionIds(ImmutableList.of(mvValidPartition.getId())).isEmpty()) {
+                if (!mtmv.selectNonEmptyPartitionIds(ImmutableList.of(mvValidPartition.getId()),
+                        Optional.empty()).isEmpty()) {
                     mvValidHasDataRelatedBaseTableNameSet.addAll(relatedBaseTablePartitions);
                 }
             }
@@ -197,7 +200,8 @@ public class PartitionCompensator {
                 // Base table partition maybe deleted, need not union
                 continue;
             }
-            baseTableNeedUnionPartitionNameSet.addAll(baseTablePartitions);
+            Sets.intersection(baseTablePartitions, queryUsedBaseTablePartitionNameSet)
+                    .copyInto(baseTableNeedUnionPartitionNameSet);
         }
         // If related base table creates partitions or mv is created with ttl, need base table union
         Sets.difference(queryUsedBaseTablePartitionNameSet, mvValidBaseTablePartitionNameSet)

@@ -18,7 +18,6 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.persist.EditLog;
@@ -32,13 +31,13 @@ import org.apache.doris.utframe.UtFrameUtils;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -97,34 +96,14 @@ public class AutoBucketUtilsTest {
         be.updateDisks(backendDisks);
     }
 
-    private void expectations(Env env, EditLog editLog, SystemInfoService systemInfoService,
-            ImmutableMap<Long, Backend> backends) throws AnalysisException {
-        new Expectations() {
-            {
-                Env.getServingEnv();
-                minTimes = 0;
-                result = env;
+    private void expectations(MockedStatic<Env> mockedEnv, Env env, EditLog editLog,
+            SystemInfoService systemInfoService, ImmutableMap<Long, Backend> backends) throws Exception {
+        mockedEnv.when(Env::getServingEnv).thenReturn(env);
+        mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
 
-                Env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                systemInfoService.getAllBackendsByAllCluster();
-                minTimes = 0;
-                result = backends;
-
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-
-                editLog.logBackendStateChange((Backend) any);
-                minTimes = 0;
-            }
-        };
+        Mockito.doReturn(backends).when(systemInfoService).getAllBackendsByAllCluster();
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
     }
 
     @Before
@@ -139,7 +118,11 @@ public class AutoBucketUtilsTest {
 
     @After
     public void tearDown() {
-        Env.getCurrentEnv().clear();
+        try {
+            Env.getCurrentEnv().clear();
+        } catch (Exception e) {
+            // ignore when env is not mocked
+        }
         UtFrameUtils.cleanDorisFeDir(runningDirBase);
     }
 
@@ -177,103 +160,143 @@ public class AutoBucketUtilsTest {
 
     @Ignore
     @Test
-    public void test100MB(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
-            throws Exception {
+    public void test100MB() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
         long estimatePartitionSize = AutoBucketUtils.SIZE_100MB;
         ImmutableMap<Long, Backend> backends = createBackends(10, 3, 2000000000);
-        expectations(env, editLog, systemInfoService, backends);
-        Assert.assertEquals(1, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            expectations(mockedEnv, env, editLog, systemInfoService, backends);
+            Assert.assertEquals(1, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        }
     }
 
     @Ignore
     @Test
-    public void test500MB(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
-            throws Exception {
+    public void test500MB() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
         long estimatePartitionSize = 5 * AutoBucketUtils.SIZE_100MB;
         ImmutableMap<Long, Backend> backends = createBackends(10, 3, 2000000000);
-        expectations(env, editLog, systemInfoService, backends);
-        Assert.assertEquals(1, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            expectations(mockedEnv, env, editLog, systemInfoService, backends);
+            Assert.assertEquals(1, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        }
     }
 
     @Ignore
     @Test
-    public void test1G(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
-            throws Exception {
+    public void test1G() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
         long estimatePartitionSize = AutoBucketUtils.SIZE_1GB;
         ImmutableMap<Long, Backend> backends = createBackends(3, 2, 500 * AutoBucketUtils.SIZE_1GB);
-        expectations(env, editLog, systemInfoService, backends);
-        Assert.assertEquals(2, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            expectations(mockedEnv, env, editLog, systemInfoService, backends);
+            Assert.assertEquals(2, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        }
     }
 
     @Ignore
     @Test
-    public void test100G(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
-            throws Exception {
+    public void test100G() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
         long estimatePartitionSize = 100 * AutoBucketUtils.SIZE_1GB;
         ImmutableMap<Long, Backend> backends = createBackends(3, 2, 500 * AutoBucketUtils.SIZE_1GB);
-        expectations(env, editLog, systemInfoService, backends);
-        Assert.assertEquals(20, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            expectations(mockedEnv, env, editLog, systemInfoService, backends);
+            Assert.assertEquals(20, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        }
     }
 
     @Ignore
     @Test
-    public void test500G_0(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
-            throws Exception {
+    public void test500G_0() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
         long estimatePartitionSize = 500 * AutoBucketUtils.SIZE_1GB;
         ImmutableMap<Long, Backend> backends = createBackends(3, 1, AutoBucketUtils.SIZE_1TB);
-        expectations(env, editLog, systemInfoService, backends);
-        Assert.assertEquals(63, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            expectations(mockedEnv, env, editLog, systemInfoService, backends);
+            Assert.assertEquals(63, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        }
     }
 
     @Ignore
     @Test
-    public void test500G_1(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
-            throws Exception {
+    public void test500G_1() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
         long estimatePartitionSize = 500 * AutoBucketUtils.SIZE_1GB;
         ImmutableMap<Long, Backend> backends = createBackends(10, 3, 2 * AutoBucketUtils.SIZE_1TB);
-        expectations(env, editLog, systemInfoService, backends);
-        Assert.assertEquals(100, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            expectations(mockedEnv, env, editLog, systemInfoService, backends);
+            Assert.assertEquals(100, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        }
     }
 
     @Ignore
     @Test
-    public void test500G_2(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
-            throws Exception {
+    public void test500G_2() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
         long estimatePartitionSize = 500 * AutoBucketUtils.SIZE_1GB;
         ImmutableMap<Long, Backend> backends = createBackends(1, 1, 100 * AutoBucketUtils.SIZE_1TB);
-        expectations(env, editLog, systemInfoService, backends);
-        Assert.assertEquals(100, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            expectations(mockedEnv, env, editLog, systemInfoService, backends);
+            Assert.assertEquals(100, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        }
     }
 
     @Ignore
     @Test
-    public void test1T_0(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
-            throws Exception {
+    public void test1T_0() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
         long estimatePartitionSize = AutoBucketUtils.SIZE_1TB;
         ImmutableMap<Long, Backend> backends = createBackends(10, 3, 2 * AutoBucketUtils.SIZE_1TB);
-        expectations(env, editLog, systemInfoService, backends);
-        Assert.assertEquals(128, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            expectations(mockedEnv, env, editLog, systemInfoService, backends);
+            Assert.assertEquals(128, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        }
     }
 
     @Ignore
     @Test
-    public void test1T_1(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
-            throws Exception {
+    public void test1T_1() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
         long estimatePartitionSize = AutoBucketUtils.SIZE_1TB;
         ImmutableMap<Long, Backend> backends = createBackends(200, 7, 4 * AutoBucketUtils.SIZE_1TB);
-        expectations(env, editLog, systemInfoService, backends);
-        Assert.assertEquals(128, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            expectations(mockedEnv, env, editLog, systemInfoService, backends);
+            Assert.assertEquals(128, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        }
     }
 
     @Ignore
     @Test
-    public void test1T_1_In_Cloud(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
-            throws Exception {
+    public void test1T_1_In_Cloud() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
         Config.autobucket_partition_size_per_bucket_gb = 5;
         Config.cloud_unique_id = "cloud_mode";
         long estimatePartitionSize = AutoBucketUtils.SIZE_1TB;
         ImmutableMap<Long, Backend> backends = createBackends(10, 7, 4 * AutoBucketUtils.SIZE_1TB);
-        expectations(env, editLog, systemInfoService, backends);
-        Assert.assertEquals(41, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            expectations(mockedEnv, env, editLog, systemInfoService, backends);
+            Assert.assertEquals(41, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        }
     }
 }

@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /*
     ** this class AutoPartitionCacheManager is used for solve the follow question :
@@ -59,10 +60,17 @@ public class AutoPartitionCacheManager {
     public static class PartitionTabletCache {
         public final List<TTabletLocation> tablets;
         public final List<TTabletLocation> slaveTablets;
+        public final long loadTabletIdx;
 
         public PartitionTabletCache(List<TTabletLocation> tablets, List<TTabletLocation> slaveTablets) {
+            this(tablets, slaveTablets, -1);
+        }
+
+        public PartitionTabletCache(List<TTabletLocation> tablets, List<TTabletLocation> slaveTablets,
+                long loadTabletIdx) {
             this.tablets = tablets;
             this.slaveTablets = slaveTablets;
+            this.loadTabletIdx = loadTabletIdx;
         }
     }
 
@@ -73,6 +81,14 @@ public class AutoPartitionCacheManager {
     // return true if cached, else false, this function only read cache
     public boolean getAutoPartitionInfo(Long txnId, Long partitionId,
             List<TTabletLocation> partitionTablets, List<TTabletLocation> partitionSlaveTablets) {
+        return getAutoPartitionInfo(txnId, partitionId, partitionTablets, partitionSlaveTablets,
+                new AtomicLong(-1));
+    }
+
+    // return true if cached, else false, this function only read cache
+    public boolean getAutoPartitionInfo(Long txnId, Long partitionId,
+            List<TTabletLocation> partitionTablets, List<TTabletLocation> partitionSlaveTablets,
+            AtomicLong loadTabletIdx) {
         ConcurrentHashMap<Long, PartitionTabletCache> partitionMap = autoPartitionInfo.get(txnId);
         if (partitionMap == null) {
             return false;
@@ -87,11 +103,18 @@ public class AutoPartitionCacheManager {
         partitionTablets.addAll(cached.tablets);
         partitionSlaveTablets.clear();
         partitionSlaveTablets.addAll(cached.slaveTablets);
+        loadTabletIdx.set(cached.loadTabletIdx);
         return true;
     }
 
     public void getOrSetAutoPartitionInfo(Long txnId, Long partitionId,
             List<TTabletLocation> partitionTablets, List<TTabletLocation> partitionSlaveTablets) {
+        getOrSetAutoPartitionInfo(txnId, partitionId, partitionTablets, partitionSlaveTablets, -1);
+    }
+
+    public long getOrSetAutoPartitionInfo(Long txnId, Long partitionId,
+            List<TTabletLocation> partitionTablets, List<TTabletLocation> partitionSlaveTablets,
+            long loadTabletIdx) {
         ConcurrentHashMap<Long, PartitionTabletCache> partitionMap =
                 autoPartitionInfo.computeIfAbsent(txnId, k -> new ConcurrentHashMap<>());
 
@@ -100,7 +123,8 @@ public class AutoPartitionCacheManager {
             needUpdate.set(true);
             return new PartitionTabletCache(
                     new ArrayList<>(partitionTablets),
-                    new ArrayList<>(partitionSlaveTablets)
+                    new ArrayList<>(partitionSlaveTablets),
+                    loadTabletIdx
             );
         });
 
@@ -110,13 +134,13 @@ public class AutoPartitionCacheManager {
             partitionTablets.addAll(cached.tablets);
             partitionSlaveTablets.addAll(cached.slaveTablets);
             LOG.debug("Get cached auto partition info from cache, txnId: {}, partitionId: {}, "
-                    + "tablets: {}, slaveTablets: {}", txnId, partitionId,
-                    cached.tablets.size(), cached.slaveTablets.size());
+                    + "tablets: {}, slaveTablets: {}, loadTabletIdx: {}", txnId, partitionId,
+                    cached.tablets.size(), cached.slaveTablets.size(), cached.loadTabletIdx);
         }
+        return cached.loadTabletIdx;
     }
 
     public void clearAutoPartitionInfo(Long txnId) {
         autoPartitionInfo.remove(txnId);
     }
 }
-

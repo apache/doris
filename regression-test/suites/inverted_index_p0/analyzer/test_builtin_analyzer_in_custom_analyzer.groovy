@@ -18,7 +18,7 @@
 suite("test_builtin_analyzer_in_custom_analyzer", "p0") {
     // Define all built-in analyzers
     def builtinAnalyzers = ["none", "standard", "unicode", "english", "chinese", "icu", "basic", "ik"]
-    
+
     // Helper function to test that creating analyzer with builtin name should fail
     def testBuiltinAnalyzerNameConflict = { String analyzerName ->
         test {
@@ -33,15 +33,15 @@ suite("test_builtin_analyzer_in_custom_analyzer", "p0") {
             exception "conflicts with built-in"
         }
     }
-    
+
     // Test: Cannot create custom analyzer with built-in analyzer names
     logger.info("Testing that built-in analyzer names cannot be used for custom analyzers")
-    
+
     builtinAnalyzers.each { analyzerName ->
         logger.info("Testing conflict with built-in analyzer: ${analyzerName}")
         testBuiltinAnalyzerNameConflict(analyzerName)
     }
-    
+
     // Define tokenize test cases: [testName, testText, analyzerName]
     def tokenizeTestCases = [
         ["standard", "Apache Doris is a fast MPP database", "standard"],
@@ -55,24 +55,24 @@ suite("test_builtin_analyzer_in_custom_analyzer", "p0") {
         ["empty", "", "standard"],
         ["mixed", "中文English日本語한국어", "icu"]
     ]
-    
+
     // Execute tokenize tests in a loop
     tokenizeTestCases.each { testCase ->
         def testName = testCase[0]
         def testText = testCase[1]
         def analyzerName = testCase[2]
-        
+
         logger.info("Testing tokenize with ${analyzerName}: ${testName}")
-        "qt_tokenize_${testName}"(""" 
-            select tokenize("${testText}", '"analyzer"="${analyzerName}"'); 
+        "qt_tokenize_${testName}"("""
+            select tokenize("${testText}", '"analyzer"="${analyzerName}"');
         """)
     }
 
     // Test table creation with analyzer_with_standard
     def indexTblName = "test_builtin_analyzer_table"
-    
+
     sql "DROP TABLE IF EXISTS ${indexTblName}"
-    
+
     sql """
         CREATE TABLE ${indexTblName} (
             `id` int(11) NOT NULL,
@@ -85,16 +85,16 @@ suite("test_builtin_analyzer_in_custom_analyzer", "p0") {
             "replication_allocation" = "tag.location.default: 1"
         );
     """
-    
+
     // Insert test data
     sql """ INSERT INTO ${indexTblName} VALUES (1, 'GET /images/logo.png HTTP/1.0'); """
     sql """ INSERT INTO ${indexTblName} VALUES (2, 'POST /api/v1/users HTTP/1.1'); """
     sql """ INSERT INTO ${indexTblName} VALUES (3, 'GET /docs/index.html HTTP/1.0'); """
-    
+
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
-        
+        sql """ set enable_segment_limit_pushdown = true; """
+
         // Test MATCH queries with analyzer_with_standard
         qt_sql_basic_match_logo """ SELECT * FROM ${indexTblName} WHERE url MATCH 'logo' ORDER BY id; """
         qt_sql_basic_match_images """ SELECT * FROM ${indexTblName} WHERE url MATCH 'images' ORDER BY id; """
@@ -102,12 +102,12 @@ suite("test_builtin_analyzer_in_custom_analyzer", "p0") {
 
     } finally {
     }
-    
+
     // Test with another analyzer - analyzer_with_basic
     def indexTblName2 = "test_builtin_analyzer_table_basic"
-    
+
     sql "DROP TABLE IF EXISTS ${indexTblName2}"
-    
+
     sql """
         CREATE TABLE ${indexTblName2} (
             `id` int(11) NOT NULL,
@@ -120,21 +120,21 @@ suite("test_builtin_analyzer_in_custom_analyzer", "p0") {
             "replication_allocation" = "tag.location.default: 1"
         );
     """
-    
+
     // Insert URL test data
     sql """ INSERT INTO ${indexTblName2} VALUES (1, 'GET /images/logo.png HTTP/1.0'); """
     sql """ INSERT INTO ${indexTblName2} VALUES (2, 'POST /api/v1/users HTTP/1.1'); """
     sql """ INSERT INTO ${indexTblName2} VALUES (3, 'GET /docs/index.html HTTP/1.0'); """
-    
+
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
-        
+        sql """ set enable_segment_limit_pushdown = true; """
+
         // Test basic analyzer on URL-like strings
         qt_sql_basic_match_logo """ SELECT * FROM ${indexTblName2} WHERE url MATCH 'logo' ORDER BY id; """
         qt_sql_basic_match_images """ SELECT * FROM ${indexTblName2} WHERE url MATCH 'images' ORDER BY id; """
         qt_sql_basic_match_api """ SELECT * FROM ${indexTblName2} WHERE url MATCH 'api' ORDER BY id; """
-        
+
     } finally {
     }
 }

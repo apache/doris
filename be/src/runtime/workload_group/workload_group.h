@@ -30,13 +30,16 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "service/backend_options.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
 
 class MemTrackerLimiter;
+class MemTableMemoryLimiter;
 class RuntimeProfile;
+class SystemMetrics;
 class ThreadPool;
 class ExecEnv;
 class CgroupCpuCtl;
@@ -44,13 +47,9 @@ class QueryContext;
 class IOThrottle;
 class ResourceContext;
 
-namespace vectorized {
 class ScannerScheduler;
-}
 
-namespace pipeline {
 class TaskScheduler;
-} // namespace pipeline
 
 class WorkloadGroup;
 struct WorkloadGroupInfo;
@@ -113,7 +112,13 @@ public:
     }
 
     void check_mem_used(bool* is_low_watermark, bool* is_high_watermark) const {
-        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+        check_mem_used(0, is_low_watermark, is_high_watermark);
+    }
+
+    void check_mem_used(size_t reserved_size, bool* is_low_watermark,
+                        bool* is_high_watermark) const {
+        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load() +
+                                       static_cast<int64_t>(reserved_size);
         *is_low_watermark = (realtime_total_mem_used >
                              ((double)_memory_limit *
                               _memory_low_watermark.load(std::memory_order_relaxed) / 100));
@@ -166,9 +171,9 @@ public:
 
     Status upsert_task_scheduler(WorkloadGroupInfo* tg_info);
 
-    virtual void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
-                                     vectorized::ScannerScheduler** scan_sched,
-                                     vectorized::ScannerScheduler** remote_scan_sched);
+    virtual void get_query_scheduler(doris::TaskScheduler** exec_sched,
+                                     ScannerScheduler** scan_sched,
+                                     ScannerScheduler** remote_scan_sched);
 
     void try_stop_schedulers();
 
@@ -215,6 +220,8 @@ private:
     void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
     Status upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                                       std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr);
+    void stop_schedulers_no_lock();
+    void destroy_schedulers();
 
     std::string _memory_debug_string() const;
 
@@ -252,9 +259,9 @@ private:
     // but also some global background threadpool which not owned by WorkloadGroup,
     // so it should be shared ptr;
     std::shared_ptr<CgroupCpuCtl> _cgroup_cpu_ctl {nullptr};
-    std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched {nullptr};
-    std::unique_ptr<vectorized::ScannerScheduler> _scan_task_sched {nullptr};
-    std::unique_ptr<vectorized::ScannerScheduler> _remote_scan_task_sched {nullptr};
+    std::unique_ptr<doris::TaskScheduler> _task_sched {nullptr};
+    std::unique_ptr<ScannerScheduler> _scan_task_sched {nullptr};
+    std::unique_ptr<ScannerScheduler> _remote_scan_task_sched {nullptr};
     std::unique_ptr<ThreadPool> _memtable_flush_pool {nullptr};
 
     std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;
@@ -262,8 +269,6 @@ private:
 
     std::shared_ptr<WorkloadGroupMetrics> _wg_metrics {nullptr};
 };
-
-using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
 
 struct WorkloadGroupInfo {
     const uint64_t id = 0;

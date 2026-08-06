@@ -32,6 +32,14 @@ public class BooleanType extends PrimitiveType {
     }
 
     @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        return target instanceof BooleanType || target.isIntegralType() || target.isFloatLikeType()
+                || (target instanceof DecimalV2Type && ((DecimalV2Type) target).getRange() >= 1)
+                || (target instanceof DecimalV3Type && ((DecimalV3Type) target).getRange() >= 1)
+                || target.isStringLikeType();
+    }
+
+    @Override
     public Type toCatalogDataType() {
         return Type.BOOLEAN;
     }

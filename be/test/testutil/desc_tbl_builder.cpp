@@ -20,8 +20,8 @@
 #include <gtest/gtest.h>
 
 #include "common/status.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_struct.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 
 namespace doris {
 
@@ -34,8 +34,7 @@ TupleDescBuilder& DescriptorTblBuilder::declare_tuple() {
 }
 
 // item_id of -1 indicates no itemTupleId
-static TSlotDescriptor make_slot_descriptor(int id, int parent_id,
-                                            const vectorized::DataTypePtr& type,
+static TSlotDescriptor make_slot_descriptor(int id, int parent_id, const DataTypePtr& type,
                                             const std::string& name, int slot_idx, int item_id) {
     int null_byte = slot_idx / 8;
     int null_bit = slot_idx % 8;
@@ -81,20 +80,18 @@ DescriptorTbl* DescriptorTblBuilder::build() {
     return desc_tbl;
 }
 
-TTupleDescriptor DescriptorTblBuilder::build_tuple(
-        const std::vector<vectorized::DataTypePtr>& slot_types,
-        const std::vector<std::string>& slot_names, TDescriptorTable* thrift_desc_tbl,
-        int* next_tuple_id, int* slot_id) {
+TTupleDescriptor DescriptorTblBuilder::build_tuple(const std::vector<DataTypePtr>& slot_types,
+                                                   const std::vector<std::string>& slot_names,
+                                                   TDescriptorTable* thrift_desc_tbl,
+                                                   int* next_tuple_id, int* slot_id) {
     // We never materialize struct slots (there's no in-memory representation of structs,
     // instead the materialized fields appear directly in the tuple), but array types can
     // still have a struct item type. In this case, the array item tuple contains the
     // "inlined" struct fields.
     if (slot_types.size() == 1 && slot_types[0]->get_primitive_type() == TYPE_STRUCT) {
-        return build_tuple(assert_cast<const vectorized::DataTypeStruct*>(
-                                   vectorized::remove_nullable(slot_types[0]).get())
+        return build_tuple(assert_cast<const DataTypeStruct*>(remove_nullable(slot_types[0]).get())
                                    ->get_elements(),
-                           assert_cast<const vectorized::DataTypeStruct*>(
-                                   vectorized::remove_nullable(slot_types[0]).get())
+                           assert_cast<const DataTypeStruct*>(remove_nullable(slot_types[0]).get())
                                    ->get_element_names(),
                            thrift_desc_tbl, next_tuple_id, slot_id);
     }

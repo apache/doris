@@ -24,6 +24,14 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/service")
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 list(REMOVE_ITEM SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/doris_main.cpp)
 
+if (ENABLE_TLS)
+    list(REMOVE_ITEM SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/server/oss/be_server_starter_factory.cpp)
+    file(GLOB_RECURSE EXTRA_SOURCES CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/../${TLS_MODULE_DIR}/*.cpp")
+    list(APPEND SRC_FILES ${EXTRA_SOURCES})
+    list(REMOVE_ITEM SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/../${TLS_MODULE_DIR}/client_connection_provider.cpp)
+endif()
+
 add_library(Service STATIC ${SRC_FILES})
 
 pch_reuse(Service)
@@ -40,6 +48,30 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
 
     # This permits libraries loaded by dlopen to link to the symbols in the program.
     set_target_properties(doris_be PROPERTIES ENABLE_EXPORTS 1)
+
+    # ...but not the symbols of the RocksDB we link statically. Exporting those makes this
+    # executable the definition every later-loaded library binds to, and a JNI library that
+    # carries its own RocksDB then runs half on ours: the fluss scanner bundles frocksdbjni,
+    # whose librocksdbjni.so defines 2576 rocksdb symbols under names identical to ours but
+    # was built against the pre-C++11 libstdc++ string ABI. Objects laid out by one and used
+    # by the other yield a garbage length, an std::bad_alloc that escapes the JNI frame, and
+    # an aborted BE. Hiding this archive lets that library bind to its own copy.
+    #
+    # Scoped to the archive rather than dropping ENABLE_EXPORTS: what needs the exports is
+    # native UDFs (runtime/user_function_cache.cpp dlopens them), and those use the Doris UDF
+    # ABI, which has nothing to do with RocksDB. Crash stacks do not need it either -- they are
+    # symbolized from debug info, which is why they name even anonymous-namespace functions.
+    #
+    # The same library also duplicates zstd, lz4, snappy, bzip2 and zlib symbols. Those are C
+    # ABIs, stable across versions and layout-free, so they are left alone until something
+    # shows otherwise -- unlike RocksDB, whose C++ objects are what actually corrupt.
+    #
+    # Linux-only: Apple's ld rejects --exclude-libs (a GNU ld option), and macOS does not
+    # need it -- dyld's two-level namespace already binds each loaded library to the copy
+    # it was linked against, so a JNI library carrying its own RocksDB never resolves to ours.
+    if (NOT OS_MACOSX)
+        target_link_options(doris_be PRIVATE "-Wl,--exclude-libs,librocksdb.a")
+    endif()
 
     target_link_libraries(doris_be
         ${DORIS_LINK_LIBS}

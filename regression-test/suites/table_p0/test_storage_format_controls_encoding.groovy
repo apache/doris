@@ -38,13 +38,11 @@ suite('test_storage_format_controls_encoding') {
     logger.info("begin curl ${metaUrl}")
     def jsonMeta = Http.GET(metaUrl, true, false)
 
+    assert jsonMeta.schema.storage_format == "TABLET_STORAGE_FORMAT_V3"
+    // V3 tablets redundantly emit the three legacy V3-flavor flags so that an old BE
+    // rolled back from a new deployment can still recognize the tablet as V3.
     assert jsonMeta.schema.integer_type_default_use_plain_encoding == true
     assert jsonMeta.schema.binary_plain_encoding_default_impl == "BINARY_PLAIN_ENCODING_V2"
-
-
-    def res = sql """show variables like "%use_v3_storage_format%";""";
-    logger.info("session var use_v3_storage_format: ${res}")
-    if (res[0][1] == "true") return
 
     tableName = "test_storage_format_controls_encoding2"
     sql """drop table if exists `${tableName}` force; """
@@ -53,12 +51,12 @@ suite('test_storage_format_controls_encoding') {
         CREATE TABLE ${tableName}
         (k int, v1 int, v2 varchar(100))
         duplicate KEY(k)
-        DISTRIBUTED BY HASH (k) 
+        DISTRIBUTED BY HASH (k)
         BUCKETS 1  PROPERTIES(
         "replication_num" = "1",
         "storage_format" = "V2");
         """
-    
+
     sql "insert into ${tableName} values(1, 1, 'aaa');"
     sql "select * from ${tableName};"
 
@@ -66,6 +64,9 @@ suite('test_storage_format_controls_encoding') {
     logger.info("begin curl ${metaUrl}")
     jsonMeta = Http.GET(metaUrl, true, false)
 
-    assert jsonMeta.schema.integer_type_default_use_plain_encoding == false
-    assert jsonMeta.schema.binary_plain_encoding_default_impl == "BINARY_PLAIN_ENCODING_V1"
+    assert jsonMeta.schema.storage_format == "TABLET_STORAGE_FORMAT_V2"
+    // V2 tablets intentionally omit the three legacy V3-flavor flags; absent fields are
+    // semantically equivalent to false / V1 for an old BE reading this PB.
+    assert (jsonMeta.schema.integer_type_default_use_plain_encoding ?: false) == false
+    assert (jsonMeta.schema.binary_plain_encoding_default_impl ?: "BINARY_PLAIN_ENCODING_V1") == "BINARY_PLAIN_ENCODING_V1"
 }

@@ -42,3 +42,9 @@ year	smallint	Yes	true	\N	NONE
 -- !sql --
 4
 
+-- !sql --
+alias_smallint_u	int	Yes	true	\N	NONE
+alias_tinyint_u	smallint	Yes	true	\N	NONE
+
+-- !sql --
+203	303

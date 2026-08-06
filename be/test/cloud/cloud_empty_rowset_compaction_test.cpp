@@ -26,11 +26,11 @@
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
 #include "json2pb/json_to_pb.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/tablet_meta.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/tablet/tablet_meta.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -123,7 +123,7 @@ public:
                                                      version2_meta, &version2_rowset);
         EXPECT_TRUE(status.ok());
         {
-            std::unique_lock<std::shared_mutex> lock(_tablet->get_header_lock());
+            std::unique_lock lock(_tablet->get_header_lock());
             _tablet->add_rowsets({version2_rowset}, false, lock, false);
         }
 

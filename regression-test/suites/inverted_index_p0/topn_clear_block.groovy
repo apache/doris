@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_clear_block") { 
+suite("test_clear_block") {
 
     // load data
     def load_data = { loadTableName, fileName ->
@@ -40,14 +40,14 @@ suite("test_clear_block") {
     }
 
     sql """ set enable_match_without_inverted_index = false; """
-    sql """ set enable_common_expr_pushdown = true """
-    // sql """ set 
+    sql """ set enable_segment_limit_pushdown = true """
+    // sql """ set
     def dupTableName = "dup_httplogs"
     sql """ drop table if exists ${dupTableName} """
     // create table
     sql """
         CREATE TABLE IF NOT EXISTS dup_httplogs
-        (   
+        (
             `id`          bigint NOT NULL AUTO_INCREMENT(100),
             `@timestamp` int(11) NULL,
             `clientip`   varchar(20) NULL,
@@ -83,7 +83,7 @@ suite("test_clear_block") {
     sql """ sync """
 
     qt_sql """ SELECT clientip from ${dupTableName} WHERE clientip NOT IN (NULL, '') or clientip IN ('17.0.0.0') ORDER BY id LIMIT 2 """
-        
+
     def result1 = sql """ SELECT clientip from ${dupTableName} WHERE clientip NOT IN (NULL, '') or clientip IN ('17.0.0.0') ORDER BY id LIMIT 5000 """
     def result2 = sql """ SELECT clientip from ${dupTableName} WHERE clientip NOT IN (NULL, '') or clientip IN ('17.0.0.0') ORDER BY id LIMIT 5000 """
     if (result1 != result2) {
@@ -91,5 +91,5 @@ suite("test_clear_block") {
         logger.info("result2 is: {}", result2)
         assertTrue(false)
     }
-    
+
 }

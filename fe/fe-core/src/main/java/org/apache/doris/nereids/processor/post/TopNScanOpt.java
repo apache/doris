@@ -19,12 +19,11 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDownContext;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.types.DataType;
 
 /**
  * topN opt
@@ -50,43 +49,31 @@ public class TopNScanOpt extends PlanPostProcessor {
     }
 
     boolean checkTopN(TopN topN) {
-        if (!(topN instanceof PhysicalTopN) && !(topN instanceof PhysicalDeferMaterializeTopN)) {
+        if (!(topN instanceof PhysicalTopN)) {
             return false;
         }
-        if (topN instanceof PhysicalTopN
-                && ((PhysicalTopN) topN).getSortPhase() != SortPhase.LOCAL_SORT) {
+        if (((PhysicalTopN) topN).getSortPhase() != SortPhase.LOCAL_SORT) {
             return false;
-        } else {
-            if (topN instanceof PhysicalDeferMaterializeTopN
-                    && ((PhysicalDeferMaterializeTopN) topN).getSortPhase() != SortPhase.LOCAL_SORT) {
-                return false;
-            }
         }
 
         if (topN.getOrderKeys().isEmpty()) {
             return false;
         }
 
-        Expression firstKey = topN.getOrderKeys().get(0).getExpr();
+        DataType firstKeyType = topN.getOrderKeys().get(0).getExpr().getDataType();
 
-        if (firstKey.getDataType().isFloatType()
-                || firstKey.getDataType().isDoubleType()) {
-            return false;
-        }
-        return true;
+        return isSupportedTopNRuntimeFilterType(firstKeyType);
     }
 
-    @Override
-    public Plan visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
-            CascadesContext ctx) {
-        topN.child().accept(this, ctx);
-        if (checkTopN(topN)) {
-            TopnFilterPushDownVisitor pusher = new TopnFilterPushDownVisitor(ctx.getTopnFilterContext());
-            TopnFilterPushDownVisitor.PushDownContext pushdownContext = new PushDownContext(topN,
-                    topN.getOrderKeys().get(0).getExpr(),
-                    topN.getOrderKeys().get(0).isNullFirst());
-            topN.accept(pusher, pushdownContext);
-        }
-        return topN;
+    private boolean isSupportedTopNRuntimeFilterType(DataType dataType) {
+        return dataType.isBooleanType()
+                || dataType.isIntegralType()
+                || dataType.isDecimalLikeType()
+                || dataType.isStringLikeType()
+                || dataType.isDateLikeType()
+                || dataType.isTimeType()
+                || dataType.isIPType()
+                || dataType.isVarBinaryType();
     }
+
 }

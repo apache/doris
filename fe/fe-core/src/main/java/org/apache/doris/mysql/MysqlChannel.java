@@ -32,10 +32,13 @@ import org.xnio.channels.Channels;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLPeerUnverifiedException;
 
 /**
  * This class used to read/write MySQL logical packet.
@@ -164,6 +167,21 @@ public class MysqlChannel implements BytesChannel {
 
     public void setSslHandshaking(boolean sslHandshaking) {
         isSslHandshaking = sslHandshaking;
+    }
+
+    public X509Certificate getClientCertificate() {
+        if (sslEngine == null) {
+            return null;
+        }
+        try {
+            Certificate[] peerCertificates = sslEngine.getSession().getPeerCertificates();
+            if (peerCertificates == null || peerCertificates.length == 0) {
+                return null;
+            }
+            return peerCertificates[0] instanceof X509Certificate ? (X509Certificate) peerCertificates[0] : null;
+        } catch (SSLPeerUnverifiedException e) {
+            return null;
+        }
     }
 
     private int packetId() {

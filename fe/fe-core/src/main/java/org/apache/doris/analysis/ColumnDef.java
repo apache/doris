@@ -23,7 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.GeneratedColumnInfo;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -34,8 +33,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -51,7 +48,6 @@ import java.util.regex.Pattern;
 //      id bigint key NOT NULL DEFAULT "-1" "user id"
 //      pv bigint sum NULL DEFAULT "-1" "page visit"
 public class ColumnDef {
-    private static final Logger LOG = LogManager.getLogger(ColumnDef.class);
 
     /*
      * User can set default value for a column
@@ -162,21 +158,19 @@ public class ColumnDef {
     }
 
     // parameter initialized in constructor
-    private String name;
-    private Type type;
-    private AggregateType aggregateType;
+    private final String name;
+    private final Type type;
+    private final AggregateType aggregateType;
 
     private boolean isKey;
     private boolean isAllowNull;
-    private boolean isAutoInc;
-    private long autoIncInitValue;
-    private KeysType keysType;
-    private DefaultValue defaultValue;
-    private String comment;
-    private boolean visible;
-    private int clusterKeyId = -1;
+    private final boolean isAutoInc;
+    private final long autoIncInitValue;
+    private final DefaultValue defaultValue;
+    private final String comment;
+    private final boolean visible;
     private Optional<GeneratedColumnInfo> generatedColumnInfo = Optional.empty();
-    private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
+    private final Set<String> generatedColumnsThatReferToThis = new HashSet<>();
 
     public ColumnDef(String name, Type type) {
         this(name, type, false, null, ColumnNullableType.NOT_NULLABLE, DefaultValue.NOT_SET, "");
@@ -293,24 +287,12 @@ public class ColumnDef {
         return name;
     }
 
-    public AggregateType getAggregateType() {
-        return aggregateType;
-    }
-
-    public void setAggregateType(AggregateType aggregateType) {
-        this.aggregateType = aggregateType;
-    }
-
     public boolean isKey() {
         return isKey;
     }
 
     public void setIsKey(boolean isKey) {
         this.isKey = isKey;
-    }
-
-    public void setKeysType(KeysType keysType) {
-        this.keysType = keysType;
     }
 
     public Type getType() {
@@ -324,18 +306,6 @@ public class ColumnDef {
     public boolean isVisible() {
         return visible;
     }
-
-    public int getClusterKeyId() {
-        return this.clusterKeyId;
-    }
-
-    public void setClusterKeyId(int clusterKeyId) {
-        this.clusterKeyId = clusterKeyId;
-    }
-
-    public void analyze(boolean isOlap) throws AnalysisException {
-    }
-
 
     @SuppressWarnings("checkstyle:Indentation")
     public static void validateDefaultValue(Type type, String defaultValue, DefaultValueExprDef defaultValueExprDef)
@@ -407,19 +377,19 @@ public class ColumnDef {
                 break;
             case DECIMALV2:
                 //no need to check precision and scale, since V2 is fixed point
-                new DecimalLiteral(defaultValue);
+                DecimalLiteralUtils.create(defaultValue);
                 break;
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
-                DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
+                DecimalLiteral decimalLiteral = DecimalLiteralUtils.create(defaultValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;
             case DATE:
             case DATEV2:
                 if (defaultValueExprDef == null) {
-                    new DateLiteral(defaultValue, scalarType);
+                    DateLiteralUtils.createDateLiteral(defaultValue, scalarType);
                 } else {
                     if (defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.CURRENT_DATE)) {
                         break;
@@ -432,7 +402,7 @@ public class ColumnDef {
             case DATETIMEV2:
             case TIMESTAMPTZ:
                 if (defaultValueExprDef == null) {
-                    new DateLiteral(defaultValue, scalarType);
+                    DateLiteralUtils.createDateLiteral(defaultValue, scalarType);
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
                         if (defaultValueExprDef.getPrecision() != null) {
@@ -528,7 +498,7 @@ public class ColumnDef {
     public Column toColumn() {
         return new Column(name, this.type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue.value,
             comment, visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE,
-            defaultValue.getValue(), clusterKeyId, generatedColumnInfo.orElse(null), generatedColumnsThatReferToThis);
+            defaultValue.getValue(), -1, generatedColumnInfo.orElse(null), generatedColumnsThatReferToThis);
     }
 
     @Override

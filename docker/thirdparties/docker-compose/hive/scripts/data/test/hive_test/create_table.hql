@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS test;
 USE test;
 
-CREATE TABLE `test.hive_test`(
+drop table if exists `test.hive_test`;
+
+create table `test.hive_test`(
   `a` int, 
   `b` string)
 ROW FORMAT SERDE 
@@ -16,5 +18,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/test/hive_test'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1670291786');
-
-msck repair table hive_test;

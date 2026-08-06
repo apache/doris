@@ -26,21 +26,25 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.insertoverwrite.InsertOverwriteManager;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
+import org.apache.doris.datasource.doris.RemoteOlapTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.insertoverwrite.AbstractInsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
+import org.apache.doris.insertoverwrite.RemoteInsertOverwriteManager;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
-import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.lineage.LineageInfoExtractor;
+import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -54,7 +58,6 @@ import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -100,6 +103,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     private AtomicBoolean isCancelled = new AtomicBoolean(false);
     private AtomicBoolean isRunning = new AtomicBoolean(false);
     private Optional<String> branchName;
+    private Optional<Plan> lineagePlan = Optional.empty();
 
     /**
      * constructor
@@ -130,9 +134,10 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
-        //check allow insert overwrite
+        // check allow insert overwrite
         if (!allowInsertOverwrite(targetTableIf)) {
-            String errMsg = "insert into overwrite only support OLAP and HMS/ICEBERG table."
+            String errMsg = "insert into overwrite only support OLAP/Remote OLAP table and external"
+                    + " tables (HMS/Iceberg, or a plugin-driven connector that supports overwrite)."
                     + " But current table type is " + targetTableIf.getType();
             LOG.error(errMsg);
             throw new AnalysisException(errMsg);
@@ -141,12 +146,23 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         if (targetTableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
             throw new AnalysisException("Not allowed to perform current operation on async materialized view");
         }
+        // Check the branch capability before resolving the branch-specific writer schema. Otherwise,
+        // an unsupported connector can fail while resolving a branch instead of reporting the
+        // INSERT OVERWRITE capability error.
+        if (branchName.isPresent() && !pluginConnectorSupportsWriteBranch(targetTableIf)) {
+            throw new AnalysisException(
+                    "Only support insert overwrite into iceberg table's branch");
+        }
         ctx.getStatementContext().setIsInsert(true);
         Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
         );
+        InsertUtils.pinConnectorWriteSchema(
+                ctx.getStatementContext(), targetTableIf, originLogicalQuery, branchName);
         this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(
-            originLogicalQuery, targetTableIf, analyzeContext, Optional.empty()));
+            originLogicalQuery, (targetTableIf instanceof RemoteDorisExternalTable)
+                        ? ((RemoteDorisExternalTable) targetTableIf).getOlapTable() : targetTableIf,
+                analyzeContext, Optional.empty()));
         if (cte.isPresent()) {
             LogicalPlan logicalQuery = this.logicalQuery.get();
             this.logicalQuery = Optional.of(
@@ -158,7 +174,10 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         LogicalPlan logicalQuery = this.logicalQuery.get();
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        LineageInfoExtractor.registerAnalyzePlanHook(ctx.getStatementContext(), planner);
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        Plan analyzedPlan = planner.getAnalyzedPlan();
+        lineagePlan = Optional.ofNullable(analyzedPlan);
         executor.checkBlockRules();
         if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
@@ -172,18 +191,19 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         List<String> partitionNames;
         boolean wholeTable = false;
         if (physicalTableSink instanceof PhysicalOlapTableSink) {
-            InternalDatabaseUtil
-                    .checkDatabase(((OlapTable) targetTable).getQualifiedDbName(), ConnectContext.get());
-            // check auth
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), targetTable.getDatabase().getCatalog().getName(),
-                            ((OlapTable) targetTable).getQualifiedDbName(),
-                            targetTable.getName(), PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                        ((OlapTable) targetTable).getQualifiedDbName() + ": " + targetTable.getName());
+            if (targetTable instanceof OlapTable) {
+                InternalDatabaseUtil
+                        .checkDatabase(((OlapTable) targetTable).getQualifiedDbName(), ConnectContext.get());
+                // check auth
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), targetTable.getDatabase().getCatalog().getName(),
+                                ((OlapTable) targetTable).getQualifiedDbName(),
+                                targetTable.getName(), PrivPredicate.LOAD)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                            ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                            ((OlapTable) targetTable).getQualifiedDbName() + ": " + targetTable.getName());
+                }
             }
-            ConnectContext.get().setSkipAuth(true);
             partitionNames = ((UnboundTableSink<?>) logicalQuery).getPartitions();
             // If not specific partition to overwrite, means it's a command to overwrite the table.
             // not we execute as overwrite every partitions.
@@ -201,25 +221,27 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             partitionNames = new ArrayList<>();
         }
 
-        // check branch
-        if (branchName.isPresent() && !(physicalTableSink instanceof PhysicalIcebergTableSink)) {
-            throw new AnalysisException(
-                    "Only support insert overwrite into iceberg table's branch");
-        }
-
-        InsertOverwriteManager insertOverwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
+        AbstractInsertOverwriteManager insertOverwriteManager = (targetTable instanceof RemoteOlapTable)
+                ? new RemoteInsertOverwriteManager(((RemoteOlapTable) targetTable).getCatalog())
+                : Env.getCurrentEnv().getInsertOverwriteManager();
         insertOverwriteManager.recordRunningTableOrException(targetTable.getDatabase(), targetTable);
         isRunning.set(true);
         long taskId = 0;
         try {
+            // OLAP overwrite runs its internal partition replacement with the auth check skipped.
+            // Set the flag here, inside the try, so the finally below always pairs the reset even if
+            // an earlier step (e.g. the @branch guard) throws before we get here.
+            if (physicalTableSink instanceof PhysicalOlapTableSink && targetTable instanceof OlapTable) {
+                ctx.setSkipAuth(true);
+            }
             if (isAutoDetectOverwrite(getLogicalQuery())) {
                 // taskId here is a group id. it contains all replace tasks made and registered in rpc process.
-                taskId = insertOverwriteManager.registerTaskGroup(targetTable.getId());
+                taskId = insertOverwriteManager.registerTaskGroup(targetTable);
                 // When inserting, BE will call to replace partition by FrontendService. FE will register new temp
                 // partitions and return. for transactional, the replacement will really occur when insert successed,
                 // i.e. `insertInto` finished. then we call taskGroupSuccess to make replacement.
                 insertIntoAutoDetect(ctx, executor, taskId);
-                insertOverwriteManager.taskGroupSuccess(taskId, (OlapTable) targetTable);
+                insertOverwriteManager.taskGroupSuccess(taskId, (OlapTable) targetTable, isForceDropPartition());
             } else {
                 // it's overwrite table(as all partitions) or specific partition(s)
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
@@ -228,8 +250,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                             ctx.getQueryIdentifier());
                     return;
                 }
-                taskId = insertOverwriteManager
-                        .registerTask(targetTable.getDatabase().getId(), targetTable.getId(), tempPartitionNames);
+                taskId = insertOverwriteManager.registerTask(targetTable, tempPartitionNames);
                 if (isCancelled.get()) {
                     LOG.info("insert overwrite is cancelled before addTempPartitions, queryId: {}",
                             ctx.getQueryIdentifier());
@@ -243,6 +264,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     insertOverwriteManager.taskFail(taskId);
                     return;
                 }
+                // todo: need to refresh remote target table after add temp partitions
                 insertIntoPartitions(ctx, executor, tempPartitionNames, wholeTable);
                 if (isCancelled.get()) {
                     LOG.info("insert overwrite is cancelled before replacePartition, queryId: {}",
@@ -259,7 +281,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                 insertOverwriteManager.taskSuccess(taskId);
             }
         } catch (Exception e) {
-            LOG.warn("insert into overwrite failed with task(or group) id " + taskId);
+            LOG.warn("insert into overwrite failed with task(or group) id {}", taskId, e);
             if (isAutoDetectOverwrite(getLogicalQuery())) {
                 insertOverwriteManager.taskGroupFail(taskId);
             } else {
@@ -268,10 +290,10 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             throw e;
         } finally {
             ConnectContext.get().setSkipAuth(false);
-            insertOverwriteManager
-                    .dropRunningRecord(targetTable.getDatabase().getId(), targetTable.getId());
+            insertOverwriteManager.dropRunningRecord(targetTable.getDatabase(), targetTable);
             isRunning.set(false);
         }
+        LineageUtils.submitLineageEventIfNeeded(executor, lineagePlan, getLogicalQuery(), getClass());
     }
 
     /**
@@ -295,17 +317,45 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     }
 
     private boolean allowInsertOverwrite(TableIf targetTable) {
-        if (targetTable instanceof OlapTable) {
+        if (targetTable instanceof OlapTable || targetTable instanceof RemoteDorisExternalTable) {
             return true;
         } else {
-            return targetTable instanceof HMSExternalTable || targetTable instanceof IcebergExternalTable;
+            return targetTable instanceof PluginDrivenExternalTable
+                    && pluginConnectorSupportsInsertOverwrite((PluginDrivenExternalTable) targetTable);
         }
+    }
+
+    /**
+     * A plugin-driven (SPI connector) table supports INSERT OVERWRITE only if its connector
+     * declares the capability. Connectors that support plain INSERT but not overwrite (e.g. jdbc)
+     * must be rejected here so the command fails loud, rather than reaching the sink and silently
+     * degrading OVERWRITE to a plain append. Mirrors the connector-access pattern in
+     * {@code PhysicalPlanTranslator}.
+     */
+    private static boolean pluginConnectorSupportsInsertOverwrite(PluginDrivenExternalTable table) {
+        // Per-handle write-op probe (a heterogeneous gateway answers per-table; OVERWRITE happens to be admitted
+        // by both hive and iceberg, but the probe is resolved uniformly with the other write-op admission gates).
+        return table.connectorSupportedWriteOperations().contains(WriteOperation.OVERWRITE);
+    }
+
+    /**
+     * A plugin-driven (SPI connector) table accepts an {@code INSERT OVERWRITE t@branch(name)} only if
+     * its connector declares {@code supportsWriteBranch()}. Connectors with no branch concept must be
+     * rejected here (fail loud) instead of reaching the generic sink, which would silently drop the
+     * branch and overwrite the table's default ref. Mirrors {@code pluginConnectorSupportsInsertOverwrite}.
+     */
+    private static boolean pluginConnectorSupportsWriteBranch(TableIf targetTable) {
+        if (!(targetTable instanceof PluginDrivenExternalTable)) {
+            return false;
+        }
+        // Per-handle: a heterogeneous gateway supports write-to-branch for its iceberg tables but not its hive.
+        return ((PluginDrivenExternalTable) targetTable).connectorSupportsWriteBranch();
     }
 
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
             ConnectContext ctx, StmtExecutor executor) throws Exception {
         InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
-                Optional.of(insertCtx), Optional.empty(), false, Optional.empty());
+                Optional.of(insertCtx), Optional.empty(), false, branchName);
         insertCommand.run(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -345,37 +395,31 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             // 2. we save and pass overwrite auto detect by insertCtx
             boolean allowAutoPartition = wholeTable && ctx.getSessionVariable().isEnableAutoCreateWhenOverwrite();
             insertCtx = new OlapInsertCommandContext(allowAutoPartition, true);
-        } else if (logicalQuery instanceof UnboundHiveTableSink) {
-            UnboundHiveTableSink<?> sink = (UnboundHiveTableSink<?>) logicalQuery;
+        } else if (logicalQuery instanceof UnboundConnectorTableSink) {
+            UnboundConnectorTableSink<?> sink = (UnboundConnectorTableSink<?>) logicalQuery;
             copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
-                    sink.getNameParts(),
-                    sink.getColNames(),
-                    sink.getHints(),
-                    false,
-                    sink.getPartitions(),
-                    false,
-                    TPartialUpdateNewRowPolicy.APPEND,
-                    sink.getDMLCommandType(),
-                    (LogicalPlan) (sink.child(0)));
-            insertCtx = new HiveInsertCommandContext();
-            ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
-        } else if (logicalQuery instanceof UnboundIcebergTableSink) {
-            UnboundIcebergTableSink<?> sink = (UnboundIcebergTableSink<?>) logicalQuery;
-            copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
-                    sink.getNameParts(),
-                    sink.getColNames(),
-                    sink.getHints(),
-                    false,
-                    sink.getPartitions(),
-                    false,
+                    sink.getNameParts(), sink.getColNames(), sink.getHints(),
+                    false, sink.getPartitions(), false,
                     TPartialUpdateNewRowPolicy.APPEND,
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)),
                     sink.getStaticPartitionKeyValues());
-            insertCtx = new IcebergInsertCommandContext();
-            ((IcebergInsertCommandContext) insertCtx).setOverwrite(true);
-            setStaticPartitionToContext(sink, (IcebergInsertCommandContext) insertCtx);
-            branchName.ifPresent(notUsed -> ((IcebergInsertCommandContext) insertCtx).setBranchName(branchName));
+            PluginDrivenInsertCommandContext pluginCtx = new PluginDrivenInsertCommandContext();
+            pluginCtx.setOverwrite(true);
+            // Thread the @branch target onto the generic write context (the inner InsertIntoTableCommand
+            // reuses this ctx) so the connector points the overwrite commit at the branch. The guard above
+            // already rejected @branch for connectors without supportsWriteBranch().
+            branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
+            if (sink.hasStaticPartition()) {
+                Map<String, String> staticSpec = Maps.newHashMap();
+                for (Map.Entry<String, Expression> e : sink.getStaticPartitionKeyValues().entrySet()) {
+                    if (e.getValue() instanceof Literal) {
+                        staticSpec.put(e.getKey(), ((Literal) e.getValue()).getStringValue());
+                    }
+                }
+                pluginCtx.setStaticPartitionSpec(staticSpec);
+            }
+            insertCtx = pluginCtx;
         } else {
             throw new UserException("Current catalog does not support insert overwrite yet.");
         }
@@ -397,34 +441,10 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             boolean allowAutoPartition = ctx.getSessionVariable().isEnableAutoCreateWhenOverwrite();
             insertCtx = new OlapInsertCommandContext(allowAutoPartition,
                     ((UnboundTableSink<?>) logicalQuery).isAutoDetectPartition(), groupId, true);
-        } else if (logicalQuery instanceof UnboundHiveTableSink) {
-            insertCtx = new HiveInsertCommandContext();
-            ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
         } else {
             throw new UserException("Current catalog does not support insert overwrite with auto-detect partition.");
         }
         runInsertCommand(logicalQuery, insertCtx, ctx, executor);
-    }
-
-    /**
-     * Extract static partition information from sink and set to context.
-     */
-    private void setStaticPartitionToContext(UnboundIcebergTableSink<?> sink,
-            IcebergInsertCommandContext insertCtx) {
-        if (sink.hasStaticPartition()) {
-            Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
-            Map<String, String> staticPartitionValues = Maps.newHashMap();
-            for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
-                Expression expr = entry.getValue();
-                if (expr instanceof Literal) {
-                    staticPartitionValues.put(entry.getKey(), ((Literal) expr).getStringValue());
-                } else {
-                    throw new AnalysisException(
-                            String.format("Static partition value must be a literal, but got: %s", expr));
-                }
-            }
-            insertCtx.setStaticPartitionValues(staticPartitionValues);
-        }
     }
 
     @Override
@@ -432,7 +452,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
         );
-        return InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery());
+        return InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery(), branchName);
     }
 
     @Override
@@ -449,7 +469,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     }
 
     public boolean isForceDropPartition() {
-        return false;
+        return true;
     }
 
     @Override

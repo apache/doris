@@ -26,7 +26,7 @@ suite("test_select", "arrow_flight_sql") {
     sql """INSERT INTO ${tableName} VALUES(222, "plsql222")"""
     sql """INSERT INTO ${tableName} VALUES(333, "plsql333")"""
     sql """INSERT INTO ${tableName} VALUES(111, "plsql333")"""
-    
+
     qt_arrow_flight_sql "select sum(id) as a, count(1) as b from ${tableName}"
 
     tableName = "test_select_datetime"
@@ -40,4 +40,38 @@ suite("test_select", "arrow_flight_sql") {
     sql """INSERT INTO ${tableName} VALUES(333, "plsql333","2024-07-21 12:00:00.123456","2024-07-21 12:00:00")"""
 
     qt_arrow_flight_sql_datetime "select * from ${tableName} order by id desc"
+
+    tableName = "test_select_jsonb"
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+        create table ${tableName} (id int, payload jsonb) DUPLICATE key(`id`) distributed by hash (`id`) buckets 4
+        properties ("replication_num"="1");
+        """
+    sql """
+        INSERT INTO ${tableName} VALUES
+            (1, '{"k1": 1, "k2": "v2"}'),
+            (2, '[1, 2, {"nested": true}]'),
+            (3, NULL)
+        """
+
+    qt_arrow_flight_sql_jsonb "select id, payload from ${tableName} order by id"
+
+    def largeJsonValueSize = 2100000
+    sql """
+        INSERT INTO ${tableName}
+        SELECT 4, CAST(CONCAT('{"large":"', REPEAT('x', ${largeJsonValueSize}), '"}') AS JSONB)
+        """
+
+    // This row exceeds MAX_ARROW_UTF8 and exercises JSONB -> LargeString serialization.
+    def largeJsonbResult = arrow_flight_sql """
+        select payload, length(cast(payload as string)) from ${tableName} where id = 4
+        """
+    assertEquals(1, largeJsonbResult.size())
+    assertEquals(2, largeJsonbResult[0].size())
+    def expectedLargeJsonbSize = largeJsonValueSize + '{"large":""}'.length()
+    def largeJsonb = largeJsonbResult[0][0].toString()
+    assertEquals(expectedLargeJsonbSize, largeJsonb.length())
+    assertEquals(expectedLargeJsonbSize, (largeJsonbResult[0][1] as Number).intValue())
+    assertTrue(largeJsonb.startsWith('{"large":"'))
+    assertTrue(largeJsonb.endsWith('"}'))
 }

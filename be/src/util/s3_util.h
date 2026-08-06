@@ -33,10 +33,10 @@
 #include <unordered_map>
 
 #include "common/status.h"
+#include "core/string_ref.h"
 #include "cpp/aws_common.h"
-#include "cpp/s3_rate_limiter.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
-#include "vec/common/string_ref.h"
 
 namespace Aws::S3 {
 class S3Client;
@@ -63,7 +63,6 @@ extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
 std::string hide_access_key(const std::string& ak);
-int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit);
 
 class S3URI;
 struct S3ClientConf {
@@ -85,6 +84,16 @@ struct S3ClientConf {
     CredProviderType cred_provider_type = CredProviderType::Default;
     std::string role_arn;
     std::string external_id;
+    // True when this client is bound to a Doris internal object storage bucket
+    // (a storage vault in cloud mode). S3ClientFactory wraps such clients with the
+    // shared rate limiter; external buckets (S3 load, TVF, external catalogs) are
+    // returned bare in cloud mode.
+    bool is_internal_bucket = false;
+
+    // Full-field identity. get_hash() is only good for picking an unordered_map
+    // bucket; distinct configurations can collide, so never treat hash equality as
+    // configuration equality.
+    bool operator==(const S3ClientConf&) const = default;
 
     uint64_t get_hash() const {
         uint64_t hash_code = 0;
@@ -103,6 +112,7 @@ struct S3ClientConf {
         hash_code ^= static_cast<int>(cred_provider_type);
         hash_code ^= crc32_hash(role_arn);
         hash_code ^= crc32_hash(external_id);
+        hash_code ^= is_internal_bucket;
         return hash_code;
     }
 
@@ -110,10 +120,16 @@ struct S3ClientConf {
         return fmt::format(
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
                 "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
-                "cred_provider_type={},role_arn={}, external_id={}",
+                "cred_provider_type={},role_arn={}, external_id={}, is_internal_bucket={}",
                 hide_access_key(ak), token, endpoint, region, bucket, max_connections,
                 request_timeout_ms, connect_timeout_ms, use_virtual_addressing, cred_provider_type,
-                role_arn, external_id);
+                role_arn, external_id, is_internal_bucket);
+    }
+};
+
+struct S3ClientConfHash {
+    size_t operator()(const S3ClientConf& conf) const {
+        return static_cast<size_t>(conf.get_hash());
     }
 };
 
@@ -150,10 +166,12 @@ public:
         // So here we use a static instance, and deep copy every time
         // to avoid unnecessary operations.
         static Aws::Client::ClientConfiguration instance;
+        instance.requestTimeoutMs = config::aws_client_request_timeout_ms;
         return instance;
     }
 
-    S3RateLimiterHolder* rate_limiter(S3RateLimitType type);
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
+            const S3ClientConf& s3_conf);
 
 #ifdef BE_TEST
     void set_client_creator_for_test(
@@ -171,16 +189,14 @@ private:
             const S3ClientConf& s3_conf);
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_credentials_provider(
             CredProviderType type);
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
-            const S3ClientConf& s3_conf);
 
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;
     std::mutex _lock;
-    std::unordered_map<uint64_t, std::shared_ptr<io::ObjStorageClient>> _cache;
+    std::unordered_map<S3ClientConf, std::shared_ptr<io::ObjStorageClient>, S3ClientConfHash>
+            _cache;
     std::string _ca_cert_file_path;
-    std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _rate_limiters;
 #ifdef BE_TEST
     std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> _test_client_creator;
 #endif

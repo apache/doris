@@ -19,14 +19,17 @@
 
 #include <google/protobuf/stubs/common.h>
 
-#include <atomic>
+#include <type_traits>
 #include <utility>
 
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
-#include "service/brpc.h"
+#include "service/brpc.h" // IWYU pragma: keep
 
 namespace doris {
+
+template <typename T>
+concept HasStatus = requires(T* response) { response->status(); };
 
 template <typename Response>
 class DummyBrpcCallback {
@@ -58,53 +61,68 @@ public:
     std::shared_ptr<Response> response_;
 };
 
+template <typename Response>
+class HandleErrorBrpcCallback : public DummyBrpcCallback<Response> {
+    ENABLE_FACTORY_CREATOR(HandleErrorBrpcCallback);
+
+public:
+    using ResponseType = Response;
+    // input context must be held by caller
+    HandleErrorBrpcCallback(std::weak_ptr<QueryContext> context = {})
+            : _context(std::move(context)) {}
+
+    ~HandleErrorBrpcCallback() override = default;
+
+    void call() override {
+        if (this->cntl_->Failed()) {
+            LOG(WARNING) << fmt::format("RPC meet failed: {}", this->cntl_->ErrorText());
+            if (auto ctx = _context.lock()) {
+                ctx->cancel(Status::NetworkError("RPC meet failed: {}", this->cntl_->ErrorText()));
+            }
+            return;
+        }
+        if constexpr (HasStatus<Response>) {
+            if (Status status = Status::create(this->response_->status()); !status.ok()) {
+                if (!status.is<ErrorCode::END_OF_FILE>()) {
+                    LOG(WARNING) << "RPC meet error status: " << status;
+                    if (auto ctx = _context.lock()) {
+                        ctx->cancel(std::move(status));
+                    }
+                }
+            }
+        }
+    }
+
+private:
+    std::weak_ptr<QueryContext> _context;
+};
+
 // The closure will be deleted after callback.
 // It could only be created by using shared ptr or unique ptr.
-// It will hold a weak ptr of T and call run of T
-// Callback() {
-//  xxxx;
-//  public
-//  void run() {
-//      logxxx
-//  }
-//  }
-//
-//  std::shared_ptr<Callback> b;
-//
+// Example:
 //  std::unique_ptr<AutoReleaseClosure> a(b);
 //  brpc_call(a.release());
-
-template <typename T>
-concept HasStatus = requires(T* response) { response->status(); };
-
+// the closure doesn't own the callback, so the callback MUST be kept alive outside.
+// closure only keep a weak ref. if outside owner destroyed (like query finish), the callback will be ignored.
 template <typename Request, typename Callback>
 class AutoReleaseClosure : public google::protobuf::Closure {
-    using Weak = typename std::shared_ptr<Callback>::weak_type;
     using ResponseType = typename Callback::ResponseType;
     ENABLE_FACTORY_CREATOR(AutoReleaseClosure);
 
 public:
-    AutoReleaseClosure(std::shared_ptr<Request> req, std::shared_ptr<Callback> callback,
-                       std::weak_ptr<QueryContext> context = {}, std::string_view error_msg = {})
-            : request_(req), callback_(callback), context_(std::move(context)) {
+    AutoReleaseClosure(std::shared_ptr<Request> req, std::shared_ptr<Callback> callback)
+            : request_(std::move(req)), callback_(callback) {
         this->cntl_ = callback->cntl_;
         this->response_ = callback->response_;
     }
 
     ~AutoReleaseClosure() override = default;
 
-    //  Will delete itself
+    // Will delete itself. all operations should be done in callback's call(). Run() only do one thing.
     void Run() override {
         Defer defer {[&]() { delete this; }};
-        // If lock failed, it means the callback object is deconstructed, then no need
-        // to deal with the callback any more.
         if (auto tmp = callback_.lock()) {
             tmp->call();
-        }
-        if (cntl_->Failed()) {
-            _process_if_rpc_failed();
-        } else {
-            _process_status<ResponseType>(response_.get());
         }
     }
 
@@ -116,45 +134,9 @@ public:
     // at any stage.
     std::shared_ptr<Request> request_;
     std::shared_ptr<ResponseType> response_;
-    std::string error_msg_;
-
-protected:
-    virtual void _process_if_rpc_failed() {
-        std::string error_msg =
-                fmt::format("RPC meet failed: {} {}", cntl_->ErrorText(), error_msg_);
-        if (auto ctx = context_.lock(); ctx) {
-            ctx->cancel(Status::NetworkError(error_msg));
-        } else {
-            LOG(WARNING) << error_msg;
-        }
-    }
-
-    virtual void _process_if_meet_error_status(const Status& status) {
-        if (status.is<ErrorCode::END_OF_FILE>()) {
-            // no need to log END_OF_FILE, reduce the unlessful log
-            return;
-        }
-        if (auto ctx = context_.lock(); ctx) {
-            ctx->cancel(status);
-        } else {
-            LOG(WARNING) << "RPC meet error status: " << status;
-        }
-    }
 
 private:
-    template <typename Response>
-    void _process_status(Response* response) {}
-
-    template <HasStatus Response>
-    void _process_status(Response* response) {
-        if (Status status = Status::create(response->status()); !status.ok()) {
-            _process_if_meet_error_status(status);
-        }
-    }
-    // Use a weak ptr to keep the callback, so that the callback can be deleted if the main
-    // thread is freed.
-    Weak callback_;
-    std::weak_ptr<QueryContext> context_;
+    std::weak_ptr<Callback> callback_;
 };
 
 } // namespace doris

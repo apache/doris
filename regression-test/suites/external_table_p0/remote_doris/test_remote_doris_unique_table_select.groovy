@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_remote_doris_unique_table_select", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_remote_doris_unique_table_select", "p0,external") {
     String remote_doris_host = context.config.otherConfigs.get("extArrowFlightSqlHost")
     String remote_doris_arrow_port = context.config.otherConfigs.get("extArrowFlightSqlPort")
     String remote_doris_http_port = context.config.otherConfigs.get("extArrowFlightHttpPort")
@@ -208,7 +208,7 @@ suite("test_remote_doris_unique_table_select", "p0,external,doris,external_docke
     test {
         sql "select typ_id, typ_name, hll_cardinality(pv) from `${catalog_arrow_name}`.`${db_name}`.test_remote_doris_unique_table_select_hll order by typ_id,typ_name"
         // check exception message contains
-        exception "[NOT_IMPLEMENTED_ERROR]read_column_from_arrow with type HLL. cur path: /dummyPath"
+        exception "[NOT_IMPLEMENTED_ERROR]read_column_from_arrow with type HLL"
     }
 
     // BITMAP
@@ -230,7 +230,7 @@ suite("test_remote_doris_unique_table_select", "p0,external,doris,external_docke
             ) final;
         """
         // check exception message contains
-        exception "[NOT_IMPLEMENTED_ERROR]read_column_from_arrow with type BITMAP. cur path: /dummyPath"
+        exception "[NOT_IMPLEMENTED_ERROR]read_column_from_arrow with type BITMAP"
     }
 
     sql """ DROP DATABASE IF EXISTS `${db_name}` """

@@ -42,7 +42,7 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
                     c2 string, 
                     c3 double, 
                     c4 date) unique key (id) 
-                CLUSTER BY(c4, c1)    
+                ORDER BY(c4, c1)    
                 distributed by hash(id) 
                 properties('replication_num'='1', 'enable_unique_key_merge_on_write' = 'true',"store_row_column" = "${use_row_store}"); """
 
@@ -52,7 +52,7 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
                     c2 string, 
                     c3 double, 
                     c4 date) unique key (id)
-                CLUSTER BY(c4) 
+                ORDER BY(c4) 
                 distributed by hash(id) 
                 properties('replication_num'='1', 'enable_unique_key_merge_on_write' = 'true',"store_row_column" = "${use_row_store}"); """
 

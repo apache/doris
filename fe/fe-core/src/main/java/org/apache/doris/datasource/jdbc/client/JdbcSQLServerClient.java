@@ -28,6 +28,13 @@ public class JdbcSQLServerClient extends JdbcClient {
     }
 
     @Override
+    protected String getSchemaPatternForDatabaseNameList() {
+        // "%" is a JDBC schemaPattern wildcard that matches all schemas. mssql-jdbc 13.4 filters
+        // built-in schemas when catalog is non-empty and schemaPattern is null.
+        return "%";
+    }
+
+    @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         String originSqlserverType = fieldSchema.getDataTypeName().orElse("unknown");
         // For sqlserver IDENTITY type, such as 'INT IDENTITY'

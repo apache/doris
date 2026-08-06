@@ -18,7 +18,7 @@
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
-suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_docker,external_docker_kerberos") {
+suite("test_information_schema_timezone", "p0,external") {
     /* 
      * In this test case, we compare the intervals between two time zones. 
      *      List<List<Object>> routines_res_1 = sql """ select CREATED,LAST_ALTERED from information_schema.routines where ROUTINE_NAME="TEST_INFORMATION_SCHEMA_TIMEZONE1" """
@@ -116,6 +116,9 @@ suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_do
                 "type" = "hms",
                 "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "hadoop.security.token.service.use_ip" = "false",
                 "hadoop.kerberos.min.seconds.before.relogin" = "5",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",

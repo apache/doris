@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -40,6 +41,8 @@ public class MilliSecondsDiff extends ScalarFunction implements BinaryExpression
         PropagateNullable, DateDiffMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BigIntType.INSTANCE)
+                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD),
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD)
             );

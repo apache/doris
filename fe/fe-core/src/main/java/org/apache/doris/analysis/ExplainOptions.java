@@ -53,10 +53,6 @@ public class ExplainOptions {
         return explainLevel == ExplainLevel.GRAPH || isGraph;
     }
 
-    public boolean hasExplainLevel() {
-        return explainLevel != null;
-    }
-
     public ExplainLevel getExplainLevel() {
         return explainLevel;
     }

@@ -93,6 +93,7 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     public void handleQuery(String query) throws ConnectionException {
         MysqlCommand command = MysqlCommand.COM_QUERY;
         prepare(command);
+        resolveWorkloadGroupName();
 
         ctx.setRunningQuery(query);
         super.handleQuery(query);
@@ -145,11 +146,11 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
                 }
                 endpointLoc.setResultPublicAccessAddr(resultPublicAccessAddr);
                 if (pResult.hasSchema() && pResult.getSchema().size() > 0) {
-                    RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);
-                    ArrowStreamReader arrowStreamReader = new ArrowStreamReader(
-                            new ByteArrayInputStream(pResult.getSchema().toByteArray()), rootAllocator);
-                    try {
+                    try (RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);
+                            ArrowStreamReader arrowStreamReader = new ArrowStreamReader(
+                                    new ByteArrayInputStream(pResult.getSchema().toByteArray()), rootAllocator)) {
                         Schema schema;
+                        // SchemaRoot belongs to ArrowStreamReader, it will be released when ArrowStreamReader is closed
                         VectorSchemaRoot root = arrowStreamReader.getVectorSchemaRoot();
                         List<FieldVector> fieldVectors = root.getFieldVectors();
                         if (fieldVectors.size() != resultOutputExprs.size()) {
@@ -195,11 +196,20 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     @Override
     public void close() throws Exception {
         ctx.setCommand(MysqlCommand.COM_SLEEP);
+        // Executors whose results are pulled from the BE keep their coordinator alive past
+        // GetFlightInfo (registered as deferred executors on the ConnectContext) so the BE can
+        // still fetch external-table splits during DoGet. Do NOT finalize those here; they are
+        // finalized when the next query starts or the connection is torn down. Executors that are
+        // not deferred (local results, or a query that already failed) are finalized now. See #62259.
         for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
-            asynExecutor.finalizeQuery();
+            if (!asynExecutor.isDeferredForArrowFlight()) {
+                asynExecutor.finalizeQuery();
+            }
         }
         returnResultFromRemoteExecutor.clear();
-        executor.finalizeQuery();
+        if (executor != null && !executor.isDeferredForArrowFlight()) {
+            executor.finalizeQuery();
+        }
         ctx.clear();
         ConnectContext.remove();
     }

@@ -30,6 +30,7 @@ public class StatisticDeriveTest extends TestWithFeService {
         // create database
         createDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 2;
 
         createTable(
                 "CREATE TABLE test.join1 (\n"

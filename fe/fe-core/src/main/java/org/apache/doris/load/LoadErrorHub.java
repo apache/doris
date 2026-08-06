@@ -19,7 +19,7 @@ package org.apache.doris.load;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
@@ -72,7 +72,8 @@ public abstract class LoadErrorHub {
             briefMap.put("password", passwd);
             briefMap.put("database", db);
             briefMap.put("table", table);
-            PrintableMap<String, String> printableMap = new PrintableMap<>(briefMap, "=", true, false, true);
+            DatasourcePrintableMap<String, String> printableMap =
+                    new DatasourcePrintableMap<>(briefMap, "=", true, false, true);
             return printableMap.toString();
         }
     }

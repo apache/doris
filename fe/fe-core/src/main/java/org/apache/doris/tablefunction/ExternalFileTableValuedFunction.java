@@ -38,7 +38,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
@@ -47,12 +46,16 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
-import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
@@ -88,6 +91,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -119,7 +123,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> backendConnectProperties = Maps.newHashMap();
-    protected StorageProperties storageProperties;
+    protected StorageAdapter storageAdapter;
     // Processed parameters derived from user input; includes normalization and default value filling.
     Map<String, String> processedParams;
     protected String filePath;
@@ -156,13 +160,33 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
-            if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
-                    && brokerDesc.getStorageProperties() instanceof ObjectStorageProperties) {
-                ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
-                String endpoint = storageProperties.getEndpoint();
-                S3Util.validateAndTestEndpoint(endpoint);
+            // "Object storage" here means an S3-compatible binding (S3/OSS/OBS/COS/GCS/MinIO/
+            // Ozone) — the exact implementor set of the legacy object-storage marker interface;
+            // Azure deliberately stays excluded, matching the legacy instanceof check.
+            StorageAdapter storageAdapter = brokerDesc.getStorageAdapter();
+            if (storageAdapter != null
+                    && storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {
+                S3Util.validateAndTestEndpoint(
+                        ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint());
             }
-            BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+            try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
+                List<FileEntry> entries;
+                // Always prefer glob semantics: for exact paths it ensures precise matching
+                // (prevents S3 prefix-based listing from including unintended files like
+                // "file.csv.bz2" when listing "file.csv"). Fall back to listFiles only
+                // when the filesystem does not support glob.
+                try {
+                    entries = fs.globListWithLimit(Location.of(path), "", 0, 0).getFiles();
+                } catch (UnsupportedOperationException ex) {
+                    entries = fs.listFiles(Location.of(path));
+                }
+                for (FileEntry e : entries) {
+                    fileStatuses.add(new TBrokerFileStatus(
+                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
+                }
+            } catch (IOException e) {
+                throw new UserException("list files failed for path " + path + ": " + e.getMessage(), e);
+            }
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
         } finally {
@@ -172,6 +196,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             }
         }
     }
+
 
     // The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
@@ -241,7 +266,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new TVFScanNode(id, desc, false, sv);
+        return new TVFScanNode(id, desc, false, sv,
+                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
     }
 
     @Override
@@ -394,15 +420,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         } else if (tPrimitiveType == TPrimitiveType.VARIANT) {
             // Preserve VARIANT-specific properties from PTypeNode, especially variant_max_subcolumns_count.
             int maxSubcolumns = typeNode.getVariantMaxSubcolumnsCount();
+            boolean enableDocMode = typeNode.hasVariantEnableDocMode()
+                    ? typeNode.getVariantEnableDocMode() : false;
             // Currently no predefined fields are carried in PTypeNode for VARIANT, so use empty list and default
             // values for other properties.
             type = new VariantType(new ArrayList<>(), maxSubcolumns,
                     /*enableTypedPathsToSparse*/ false,
                     /*variantMaxSparseColumnStatisticsSize*/ 10000,
                     /*variantSparseHashShardCount*/ 0,
-                    /*variantEnableDocMode*/ false,
+                    /*variantEnableDocMode*/ enableDocMode,
                     /*variantDocMaterializationMinRows*/ 0,
-                    /*variantDocShardCount*/ 0);
+                    /*variantDocShardCount*/ 0,
+                    /*enableNestedGroup*/ false);
             parsedNodes = 1;
         } else {
             type = ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),
@@ -462,8 +491,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(
-                    storageProperties.getBackendConfigProperties());
-            String fsName = storageProperties.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
+                    storageAdapter.getBackendConfigProperties());
+            String fsName = storageAdapter.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
             tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
@@ -555,4 +584,3 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 }
-

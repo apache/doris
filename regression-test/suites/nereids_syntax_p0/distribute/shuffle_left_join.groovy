@@ -18,6 +18,17 @@ import java.util.stream.Collectors
 // under the License.
 
 suite("shuffle_left_join") {
+    // The point of this suite is the left-to-right bucket shuffle: with the nereids distribute
+    // planner on, the aggregated left side is shuffled onto the right table's storage buckets, so
+    // the join becomes a bucket shuffle join that saves one exchange versus a plain partitioned
+    // shuffle. The planner chooses between the two candidates by cost, which depends on the scan
+    // row count and on the bucket-shuffle downgrade gate. Both are pinned below so the asserted
+    // plan is stable:
+    //   - `analyze ... with sync` fixes the row count (otherwise it is reported asynchronously
+    //     after the insert, and the plan flips depending on whether the report has landed yet);
+    //   - `bucket_shuffle_downgrade_ratio=0` disables the downgrade that turns bucket shuffle back
+    //     into a partitioned shuffle when the bucket count is small relative to the instance count,
+    //     which otherwise makes the plan depend on the number of backends.
     multi_sql """
         drop table if exists test_shuffle_left;
         
@@ -35,11 +46,14 @@ suite("shuffle_left_join") {
         
         sync;
 
+        analyze table test_shuffle_left with sync;
+
         set enable_nereids_distribute_planner=false;
         set enable_pipeline_x_engine=true;
         set disable_join_reorder=true;
         set enable_local_shuffle=false;
         set force_to_local_shuffle=false;
+        set bucket_shuffle_downgrade_ratio=0;
         """
 
     def extractFragment = { String sqlStr, String containsString, Closure<Integer> checkExchangeNum ->
@@ -95,8 +109,8 @@ suite("shuffle_left_join") {
         .collect(Collectors.joining("\n"))
     logger.info("Variables:\n${variableString}")
 
-    extractFragment(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
-        assertTrue(exchangeNum == 2)
+    extractFragment(sqlStr, "INNER JOIN(BUCKET_SHUFFLE)") { exchangeNum ->
+        assertTrue(exchangeNum == 1)
     }
 
     explain {

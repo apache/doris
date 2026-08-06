@@ -25,6 +25,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "common/bvars.h"
 #include "common/config.h"
@@ -34,12 +35,31 @@
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
+#include "meta-service/meta_service_rate_limit_helper.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
+inline MetaServiceCode get_legacy_code(MetaServiceCode code) {
+    switch (code) {
+    // MS_TOO_BUSY is a overload signal. Map it to KV_TXN_CONFLICT so the BE's existing
+    // conflict-retry path can retry the request.
+    case MetaServiceCode::MS_TOO_BUSY:
+        return MetaServiceCode::KV_TXN_CONFLICT;
+    default:
+        return code;
+    }
+}
+
+inline void set_response_code(MetaServiceResponseStatus* status, MetaServiceCode code,
+                              std::string msg) {
+    status->set_actual_code(static_cast<int32_t>(code));
+    status->set_code(get_legacy_code(code));
+    status->set_msg(std::move(msg));
+}
+
 inline std::string md5(const std::string& str) {
     unsigned char digest[MD5_DIGEST_LENGTH];
     MD5_CTX context;
@@ -311,6 +331,20 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     [[maybe_unused]] std::string instance_id;                                                 \
     [[maybe_unused]] bool drop_request = false;                                               \
     [[maybe_unused]] KVStats stats;                                                           \
+    [[maybe_unused]] MsStressDecision ms_stress_decision;                                     \
+    if (config::enable_ms_rate_limit || config::enable_ms_rate_limit_injection) {             \
+        ms_stress_decision = get_ms_stress_decision();                                        \
+        if (RpcRateLimitWhitelist::instance().should_rate_limit(#func_name) &&                \
+            ms_stress_decision.under_great_stress()) {                                        \
+            drop_request = true;                                                              \
+            msg = ms_stress_decision.debug_string();                                          \
+            code = MetaServiceCode::MS_TOO_BUSY;                                              \
+            response->mutable_status()->set_code(code);                                       \
+            response->mutable_status()->set_msg(msg);                                         \
+            finish_rpc(#func_name, ctrl, request, response);                                  \
+            return;                                                                           \
+        }                                                                                     \
+    }                                                                                         \
     DORIS_CLOUD_DEFER {                                                                       \
         response->mutable_status()->set_code(code);                                           \
         response->mutable_status()->set_msg(msg);                                             \

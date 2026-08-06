@@ -21,6 +21,7 @@ import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.exception.StreamLoadException;
 import org.apache.doris.cdcclient.utils.HttpUtil;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
+import org.apache.doris.job.cdc.request.TaskFailureRequest;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.annotation.VisibleForTesting;
@@ -56,6 +57,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.Setter;
@@ -75,6 +77,10 @@ public class DorisBatchStreamLoad implements Serializable {
     private final byte[] lineDelimiter = "\n".getBytes();
     private static final String LOAD_URL_PATTERN = "http://%s/api/%s/%s/_stream_load";
     private static final String COMMIT_URL_PATTERN = "http://%s/api/streaming/commit_offset";
+    private static final String REPORT_FAILURE_URL_PATTERN =
+            "http://%s/api/streaming/report_task_failure";
+    // best-effort notification: short timeout so an unreachable FE can't pin the data-write thread
+    private static final int REPORT_FAILURE_TIMEOUT_MS = 60 * 1000;
     private String hostPort;
     @Setter private String frontendAddress;
     private Map<String, BatchRecordBuffer> bufferMap = new ConcurrentHashMap<>();
@@ -92,13 +98,13 @@ public class DorisBatchStreamLoad implements Serializable {
     private final Map<String, ReadWriteLock> bufferMapLock = new ConcurrentHashMap<>();
     @Setter @Getter private String currentTaskId;
     private String targetDb;
-    private long jobId;
+    private String jobId;
     @Setter private String token;
     // stream load headers
     @Setter private Map<String, String> loadProps = new HashMap<>();
     @Getter private LoadStatistic loadStatistic;
 
-    public DorisBatchStreamLoad(long jobId, String targetDb) {
+    public DorisBatchStreamLoad(String jobId, String targetDb) {
         this.hostPort = Env.getCurrentEnv().getBackendHostPort();
         this.loadStatistic = new LoadStatistic();
         this.flushQueue = new LinkedBlockingDeque<>(1);
@@ -269,9 +275,12 @@ public class DorisBatchStreamLoad implements Serializable {
     }
 
     public void close() {
-        // close async executor
-        this.loadExecutorService.shutdown();
+        // Wake up any blocked producer and stop the loader to avoid writer thread leak.
         this.started.set(false);
+        this.loadThreadAlive = false;
+        this.flushQueue.clear();
+        this.currentCacheBytes.set(0);
+        this.loadExecutorService.shutdownNow();
     }
 
     @VisibleForTesting
@@ -328,9 +337,9 @@ public class DorisBatchStreamLoad implements Serializable {
     class LoadAsyncExecutor implements Runnable {
 
         private int flushQueueSize;
-        private long jobId;
+        private String jobId;
 
-        public LoadAsyncExecutor(int flushQueueSize, long jobId) {
+        public LoadAsyncExecutor(int flushQueueSize, String jobId) {
             this.flushQueueSize = flushQueueSize;
             this.jobId = jobId;
         }
@@ -416,7 +425,7 @@ public class DorisBatchStreamLoad implements Serializable {
                                     OBJECT_MAPPER.readValue(loadResult, RespContent.class);
                             if (DORIS_SUCCESS_STATUS.contains(respContent.getStatus())) {
                                 long cacheByteBeforeFlush =
-                                        currentCacheBytes.getAndAdd(-respContent.getLoadBytes());
+                                        currentCacheBytes.getAndAdd(-buffer.getBufferSizeBytes());
                                 LOG.info(
                                         "load success, cacheBeforeFlushBytes: {}, currentCacheBytes : {}",
                                         cacheByteBeforeFlush,
@@ -440,11 +449,16 @@ public class DorisBatchStreamLoad implements Serializable {
                                                     loadResult);
                                     throw new StreamLoadException(errMsg);
                                 } else {
-                                    errMsg =
-                                            String.format(
-                                                    "stream load error: %s, see more in %s",
-                                                    respContent.getMessage(),
-                                                    respContent.getErrorURL());
+                                    // Carry FirstErrorMsg (the first rejected row detail) so the
+                                    // task error surfaced to FE is actionable, not just an URL.
+                                    StringBuilder msg = new StringBuilder("stream load error: ");
+                                    msg.append(respContent.getMessage());
+                                    if (StringUtils.isNotBlank(respContent.getFirstErrorMsg())) {
+                                        msg.append(", first_error_msg: ")
+                                                .append(respContent.getFirstErrorMsg());
+                                    }
+                                    msg.append(", see more in ").append(respContent.getErrorURL());
+                                    errMsg = msg.toString();
                                 }
                                 throw new StreamLoadException(errMsg);
                             }
@@ -503,18 +517,20 @@ public class DorisBatchStreamLoad implements Serializable {
             String taskId,
             List<Map<String, String>> meta,
             long scannedRows,
-            LoadStatistic loadStatistic) {
+            LoadStatistic loadStatistic,
+            String tableSchemas) {
         try {
             String url = String.format(COMMIT_URL_PATTERN, frontendAddress, targetDb);
             CommitOffsetRequest commitRequest =
                     CommitOffsetRequest.builder()
                             .offset(OBJECT_MAPPER.writeValueAsString(meta))
-                            .jobId(jobId)
+                            .jobId(Long.parseLong(jobId))
                             .taskId(Long.parseLong(taskId))
                             .scannedRows(scannedRows)
                             .filteredRows(loadStatistic.getFilteredRows())
                             .loadedRows(loadStatistic.getLoadedRows())
                             .loadBytes(loadStatistic.getLoadBytes())
+                            .tableSchemas(tableSchemas)
                             .build();
             String param = OBJECT_MAPPER.writeValueAsString(commitRequest);
 
@@ -527,7 +543,11 @@ public class DorisBatchStreamLoad implements Serializable {
                             .commit()
                             .setEntity(new StringEntity(param));
 
-            LOG.info("commit offset for jobId {} taskId {}, params {}", jobId, taskId, param);
+            LOG.info(
+                    "commit offset for jobId {} taskId {}, commitRequest {}",
+                    jobId,
+                    taskId,
+                    commitRequest.toString());
             Throwable resEx = null;
             int retry = 0;
             while (retry <= RETRY) {
@@ -541,11 +561,15 @@ public class DorisBatchStreamLoad implements Serializable {
                                         : "";
                         LOG.info("commit result {}", responseBody);
                         if (statusCode == 200) {
-                            LOG.info("commit offset for jobId {} taskId {}", jobId, taskId);
-                            // A 200 response indicates that the request was successful, and
-                            // information such as offset and statistics may have already been
-                            // updated. Retrying may result in repeated updates.
-                            return;
+                            JsonNode root = OBJECT_MAPPER.readTree(responseBody);
+                            JsonNode code = root.get("code");
+                            if (code != null && code.asInt() == 0) {
+                                LOG.info(
+                                        "commit offset for jobId {} taskId {} successfully",
+                                        jobId,
+                                        taskId);
+                                return;
+                            }
                         }
                         LOG.error(
                                 "commit offset failed with {}, reason {}, to retry",
@@ -579,6 +603,42 @@ public class DorisBatchStreamLoad implements Serializable {
         } catch (Exception ex) {
             LOG.error("Failed to commit offset, jobId={}", jobId, ex);
             throw new StreamLoadException("Failed to commit offset", ex);
+        }
+    }
+
+    /**
+     * Best-effort push: tell the FE a running task hit a hard write failure so it is failed within
+     * seconds instead of waiting out the timeout budget. Never throws; if the push is lost the
+     * progress-aware timeout on the FE is the backstop.
+     */
+    public static void reportTaskFailure(
+            String frontendAddress, String token, String jobId, String taskId, String reason) {
+        try {
+            String url = String.format(REPORT_FAILURE_URL_PATTERN, frontendAddress);
+            String param =
+                    OBJECT_MAPPER.writeValueAsString(
+                            TaskFailureRequest.builder()
+                                    .jobId(Long.parseLong(jobId))
+                                    .taskId(Long.parseLong(taskId))
+                                    .reason(reason)
+                                    .build());
+            HttpPutBuilder builder =
+                    new HttpPutBuilder()
+                            .addCommonHeader()
+                            .addBodyContentType()
+                            .addTokenAuth(token)
+                            .setUrl(url)
+                            .setEntity(new StringEntity(param));
+            try (CloseableHttpClient client = HttpUtil.getHttpClient(REPORT_FAILURE_TIMEOUT_MS);
+                    CloseableHttpResponse resp = client.execute(builder.build())) {
+                LOG.info(
+                        "report task failure jobId={} taskId={} status={}",
+                        jobId,
+                        taskId,
+                        resp.getStatusLine().getStatusCode());
+            }
+        } catch (Exception ex) {
+            LOG.warn("report task failure failed, jobId={} taskId={}", jobId, taskId, ex);
         }
     }
 }

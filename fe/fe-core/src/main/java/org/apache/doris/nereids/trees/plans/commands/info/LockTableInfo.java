@@ -17,19 +17,39 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.LockTable;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 
 /**
  * LockTableInfo is a wrapper class for LockTable to support TableNameInfo
  * which uses ConnectContext for analysis.
  */
 public class LockTableInfo {
+
+    /**
+     * lock type.
+     */
+    public enum LockType {
+        READ("READ"),
+        READ_LOCAL("READ LOCAL"),
+        WRITE("WRITE"),
+        LOW_PRIORITY_WRITE("LOW_PRIORITY WRITE");
+        private String desc;
+
+        LockType(String description) {
+            this.desc = description;
+        }
+
+        @Override
+        public String toString() {
+            return desc;
+        }
+    }
+
     private TableNameInfo tableNameInfo;
     private String alias;
-    private LockTable.LockType lockType;
+    private LockType lockType;
 
-    public LockTableInfo(TableNameInfo tableNameInfo, String alias, LockTable.LockType lockType) {
+    public LockTableInfo(TableNameInfo tableNameInfo, String alias, LockType lockType) {
         this.tableNameInfo = tableNameInfo;
         this.alias = alias;
         this.lockType = lockType;
@@ -42,9 +62,4 @@ public class LockTableInfo {
     public String getAlias() {
         return alias;
     }
-
-    public LockTable.LockType getLockType() {
-        return lockType;
-    }
-
 }

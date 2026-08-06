@@ -17,14 +17,52 @@
 
 #include "io/fs/packed_file_system.h"
 
+#include <string_view>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/packed_file_reader.h"
 #include "io/fs/packed_file_writer.h"
 
 namespace doris::io {
+
+namespace {
+
+// Only keep packed-file aggregation for the first segment in a rowset.
+// The path handled here is expected to look like:
+//   local/remote segment file: .../{rowset_id}_{segment_id}.dat
+//   local/remote index file:   .../{rowset_id}_{segment_id}.idx
+// The .idx case here is V2 only. V1 inverted-index tablets are filtered before
+// PackedFileSystem is enabled, so V1 names like
+// {rowset_id}_{segment_id}_{index_id}@{suffix}.idx never reach this helper.
+// Multi-segment rowsets usually come from large loads or memory-pressure flushes,
+// and continuing to buffer later segments in packed files can amplify memory usage.
+// Non-rowset file names keep the legacy behavior to avoid changing unrelated callers.
+bool should_use_packed_writer(std::string_view file_name) {
+    constexpr std::string_view kSegmentSuffix = ".dat";
+    constexpr std::string_view kIndexSuffix = ".idx";
+
+    size_t suffix_len = 0;
+    if (file_name.ends_with(kSegmentSuffix)) {
+        suffix_len = kSegmentSuffix.size();
+    } else if (file_name.ends_with(kIndexSuffix)) {
+        suffix_len = kIndexSuffix.size();
+    } else {
+        return true;
+    }
+
+    file_name.remove_suffix(suffix_len);
+    size_t pos = file_name.rfind('_');
+    if (pos == std::string_view::npos || pos + 1 >= file_name.size()) {
+        return true;
+    }
+
+    return file_name.substr(pos + 1) == "0";
+}
+
+} // namespace
 
 PackedFileSystem::PackedFileSystem(FileSystemSPtr inner_fs, PackedAppendContext append_info)
         : FileSystem(inner_fs->id(), inner_fs->type()),
@@ -54,8 +92,18 @@ Status PackedFileSystem::create_file_impl(const Path& file, FileWriterPtr* write
     FileWriterPtr inner_writer;
     RETURN_IF_ERROR(_inner_fs->create_file(file, &inner_writer, opts));
 
+    if (!should_use_packed_writer(file.filename().native())) {
+        *writer = std::move(inner_writer);
+        return Status::OK();
+    }
+
+    auto append_info = _append_info;
+    if (config::enable_file_cache_write_index_file_only && opts != nullptr) {
+        append_info.write_file_cache = opts->write_file_cache;
+    }
+
     // Wrap with PackedFileWriter
-    *writer = std::make_unique<PackedFileWriter>(std::move(inner_writer), file, _append_info);
+    *writer = std::make_unique<PackedFileWriter>(std::move(inner_writer), file, append_info);
     return Status::OK();
 }
 
@@ -64,11 +112,19 @@ Status PackedFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader
     // Check if this file is in a packed file
     std::string file_path = file.native();
     auto it = _index_map.find(file_path);
-    bool is_packed_file = (it != _index_map.end());
+    PackedSliceLocation manager_location;
+    const PackedSliceLocation* packed_location = nullptr;
+    if (it != _index_map.end()) {
+        packed_location = &it->second;
+    } else if (PackedFileManager::instance()
+                       ->get_packed_slice_location(file_path, &manager_location)
+                       .ok()) {
+        packed_location = &manager_location;
+    }
 
-    if (is_packed_file) {
+    if (packed_location != nullptr) {
         // File is in packed file, open packed file and wrap with PackedFileReader
-        const auto& index = it->second;
+        const auto& index = *packed_location;
         FileReaderSPtr inner_reader;
 
         // Create options for opening the packed file

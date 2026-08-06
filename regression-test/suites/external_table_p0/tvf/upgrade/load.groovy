@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_tvf_upgrade_load", "p0,external,hive,external_docker,external_docker_hive,restart_fe,upgrade_case") {
+suite("test_tvf_upgrade_load", "p0,external") {
     String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 

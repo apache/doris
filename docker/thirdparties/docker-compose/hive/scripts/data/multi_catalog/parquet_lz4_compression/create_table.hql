@@ -1,7 +1,9 @@
 create database if not exists multi_catalog;
 use multi_catalog;
 
-CREATE TABLE `parquet_lz4_compression`(
+drop table if exists `parquet_lz4_compression`;
+
+create table `parquet_lz4_compression`(
   `col_int` int,
   `col_smallint` smallint,
   `col_tinyint` tinyint,
@@ -26,6 +28,3 @@ LOCATION
 TBLPROPERTIES (
   'parquet.compression'='LZ4',
   'transient_lastDdlTime'='1700723950');
-
-msck repair table parquet_lz4_compression;
-

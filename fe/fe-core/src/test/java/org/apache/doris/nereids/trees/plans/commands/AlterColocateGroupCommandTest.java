@@ -18,58 +18,43 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.ColocateGroupName;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class AlterColocateGroupCommandTest {
+public class AlterColocateGroupCommandTest extends TestWithFeService {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-    @Mocked
     private Env env;
-    @Mocked
     private AccessControllerManager accessControllerManager;
-    @Mocked
     private ConnectContext connectContext;
 
-    private void runBefore() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkDbPriv(connectContext, internalCtl, "test_db", PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
     }
 
     @Test
-    public void testValidate() {
+    public void testValidate() throws Exception {
         runBefore();
+        connectContext.setSkipAuth(true);
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkDbPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                Mockito.anyString(), Mockito.any(PrivPredicate.class));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
         ColocateGroupName groupName = new ColocateGroupName("test_db", "test_group");
         Map<String, String> properties = new HashMap<>();
         properties.put("k1", "v1");

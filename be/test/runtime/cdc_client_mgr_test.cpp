@@ -32,6 +32,8 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
@@ -66,6 +68,11 @@ public:
             setenv("LOG_DIR", _log_dir.c_str(), 1);
             _log_dir_set = true;
         }
+
+        auto* env = ExecEnv::GetInstance();
+        _cluster_info = std::make_unique<ClusterInfo>();
+        _cluster_info->token = "test_token";
+        env->set_cluster_info(_cluster_info.get());
     }
 
     void TearDown() override {
@@ -92,6 +99,8 @@ public:
         if (_jar_created && !_jar_path.empty()) {
             [[maybe_unused]] int cleanup_ret = system(("rm -f " + _jar_path).c_str());
         }
+
+        ExecEnv::GetInstance()->set_cluster_info(nullptr);
     }
 
 protected:
@@ -104,6 +113,7 @@ protected:
     const char* _original_java_home = nullptr;
     bool _jar_created = false;
     bool _log_dir_set = false;
+    std::unique_ptr<ClusterInfo> _cluster_info;
 };
 
 // Test stop method when there's no child process
@@ -626,6 +636,30 @@ TEST_F(CdcClientMgrTest, StartWithPreExistingResultStatus) {
     // Note: start_cdc_client only updates result status on error, not on success
     // So the pre-existing status (999) will remain unchanged
     EXPECT_EQ(result.status().status_code(), 999);
+}
+
+// Verify _adopted_external defaults to false and start_cdc_client (BE_TEST
+// short-circuit) does not alter it.
+TEST_F(CdcClientMgrTest, AdoptedExternalDefaultFalse) {
+    CdcClientMgr mgr;
+    EXPECT_FALSE(mgr.get_adopted_external_for_test());
+
+    PRequestCdcClientResult result;
+    Status status = mgr.start_cdc_client(&result);
+    EXPECT_TRUE(status.ok());
+    EXPECT_FALSE(mgr.get_adopted_external_for_test());
+}
+
+// Verify the _adopted_external flag round-trips through the setter/getter.
+TEST_F(CdcClientMgrTest, AdoptedExternalSetterRoundTrip) {
+    CdcClientMgr mgr;
+    EXPECT_FALSE(mgr.get_adopted_external_for_test());
+
+    mgr.set_adopted_external_for_test(true);
+    EXPECT_TRUE(mgr.get_adopted_external_for_test());
+
+    mgr.set_adopted_external_for_test(false);
+    EXPECT_FALSE(mgr.get_adopted_external_for_test());
 }
 
 // Test send_request_to_cdc_client with empty API

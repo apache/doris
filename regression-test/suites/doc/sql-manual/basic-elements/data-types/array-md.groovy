@@ -16,7 +16,7 @@
 // under the License.
 
 suite("array-md", "p0, nonConcurrent") {
-    
+
     def tableName = "array_table"
     sql """
         drop table if exists ${tableName};
@@ -80,7 +80,7 @@ suite("array-md", "p0, nonConcurrent") {
         """
         exception "Type exceeds the maximum nesting depth of 9"
     }
-    
+
     //    test {
     //        sql """ SELECT CAST(ARRAY(1, 2, 3) AS STRING) """
     //        exception "can not cast from origin type ARRAY<TINYINT> to target type=TEXT"
@@ -200,14 +200,14 @@ suite("array-md", "p0, nonConcurrent") {
         """
         exception "Aggregate type BITMAP_UNION is not compatible with primitive type ARRAY<INT>"
     }
-     
+
     test {
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 id INT,
                 array_int ARRAY<INT> QUANTILE_UNION
-            ) ENGINE=OLAP   
+            ) ENGINE=OLAP
             AGGREGATE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1
             PROPERTIES (
@@ -524,7 +524,7 @@ suite("array-md", "p0, nonConcurrent") {
     sql """ INSERT INTO ${tableName} (id, array_ipv6) VALUES (1, ['2001:0db8:85a3:0000:0000:8a2e:0370:7334', '2001:0db8:85a3:0000:0000:8a2e:0370:7334']), (2, ['2001:0db8:85a3:0000:0000:8a2e:0370:7334', '2001:0db8:85a3:0000:0000:8a2e:0370:7334']) """
 
     qt_sql """ select array_ipv6, count(*) from ${tableName} group by array_ipv6 order by array_ipv6 """
-   
+
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -571,7 +571,7 @@ suite("array-md", "p0, nonConcurrent") {
     }
 
     sql """ ALTER TABLE ${tableName} MODIFY COLUMN array_varchar ARRAY<VARCHAR(20)> """
-   
+
 
     qt_sql """ select array_varchar[0], array_varchar[1], array_varchar[2], array_varchar[3] from ${tableName} """
     qt_sql """ select element_at(array_varchar, 0), element_at(array_varchar, 1), element_at(array_varchar, 2), element_at(array_varchar, 3) from ${tableName} """
@@ -598,8 +598,8 @@ suite("array-md", "p0, nonConcurrent") {
           GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [filtered_rows: expectedFilteredRows])
           sql "set experimental_enable_parallel_scan = false"
           sql " set inverted_index_skip_threshold = 0 "
-          sql " set enable_common_expr_pushdown_for_inverted_index = true"
-          sql " set enable_common_expr_pushdown = true"
+          sql " set enable_segment_limit_pushdown = true"
+          sql " set enable_segment_limit_pushdown = true"
           sql " set enable_parallel_scan = false"
           sql "sync"
           sql "${sqlQuery}"
@@ -685,5 +685,5 @@ suite("array-md", "p0, nonConcurrent") {
     sql """ INSERT INTO ${tableName} VALUES (2, ARRAY(STRUCT(1, 'John'), STRUCT(2, 'Jane'))) """
 
     qt_sql """ SELECT array_struct[1], array_struct[2] FROM ${tableName} ORDER BY id """
-    
+
 }

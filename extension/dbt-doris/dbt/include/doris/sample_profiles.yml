@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# encoding: utf-8
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -22,9 +19,9 @@ default:
   outputs:
     dev:
       type: doris
-        host: <host>
-        port: <port_num>
-        username: <user>
-        password: <pass>
-        database: <db>
+      host: <host>
+      port: <port_num>
+      username: <user>
+      password: <pass>
+      schema: <db>
   target: dev

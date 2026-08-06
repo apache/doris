@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS partition_type;
 USE partition_type;
 
-CREATE TABLE `partition_type.float_partition`(
+drop table if exists `partition_type.float_partition`;
+
+create table `partition_type.float_partition`(
   `id` int)
 PARTITIONED BY ( 
   `float_part` float)

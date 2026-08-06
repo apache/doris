@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -76,25 +77,29 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
 
     @Override
     public LogicalTVFRelation withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalTVFRelation(relationId, function, operativeSlots,
-                groupExpression, Optional.of(getLogicalProperties()));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTVFRelation(relationId, function, operativeSlots,
+                groupExpression, Optional.of(getLogicalProperties())));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalTVFRelation(relationId, function, operativeSlots, groupExpression, logicalProperties);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTVFRelation(relationId, function, operativeSlots, groupExpression, logicalProperties));
     }
 
     @Override
     public LogicalTVFRelation withRelationId(RelationId relationId) {
-        return new LogicalTVFRelation(relationId, function, operativeSlots, Optional.empty(),
-                Optional.of(getLogicalProperties()));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTVFRelation(relationId, function, operativeSlots, Optional.empty(),
+                Optional.of(getLogicalProperties())));
     }
 
     public LogicalTVFRelation withOperativeSlots(Collection<Slot> operativeSlots) {
-        return new LogicalTVFRelation(relationId, function, Utils.fastToImmutableList(operativeSlots),
-                Optional.empty(), Optional.of(getLogicalProperties()));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTVFRelation(relationId, function, Utils.fastToImmutableList(operativeSlots),
+                Optional.empty(), Optional.of(getLogicalProperties())));
     }
 
     public List<Slot> getOperativeSlots() {
@@ -154,7 +159,8 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
     }
 
     public LogicalTVFRelation withCachedOutputs(List<Slot> replaceSlots) {
-        return new LogicalTVFRelation(relationId, function, Utils.fastToImmutableList(operativeSlots),
-                Optional.of(replaceSlots), Optional.empty(), Optional.empty());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTVFRelation(relationId, function, Utils.fastToImmutableList(operativeSlots),
+                Optional.of(replaceSlots), Optional.empty(), Optional.empty()));
     }
 }

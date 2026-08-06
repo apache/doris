@@ -43,7 +43,7 @@ suite("test_primary_key_partial_update_with_update_stmt", "p0") {
                         `test` int(11) NULL COMMENT "null test",
                         `dft` int(11) DEFAULT "4321")
                         UNIQUE KEY(`id`)
-                        CLUSTER BY(`test`, `name`) 
+                        ORDER BY(`test`, `name`) 
                         DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
                         "store_row_column" = "${use_row_store}"); """
@@ -82,7 +82,7 @@ suite("test_primary_key_partial_update_with_update_stmt", "p0") {
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `name` varchar(65533) NOT NULL COMMENT "用户姓名")
                         UNIQUE KEY(`id`)
-                        CLUSTER BY(`name`)  
+                        ORDER BY(`name`)  
                         DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
                         "store_row_column" = "${use_row_store}"); """
@@ -91,7 +91,7 @@ suite("test_primary_key_partial_update_with_update_stmt", "p0") {
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `score` int(11) NOT NULL COMMENT "用户得分")
                         UNIQUE KEY(`id`)
-                        CLUSTER BY(`score`)  
+                        ORDER BY(`score`)  
                         DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
                         "store_row_column" = "${use_row_store}"); """

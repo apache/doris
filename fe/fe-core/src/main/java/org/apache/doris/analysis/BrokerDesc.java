@@ -21,10 +21,8 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TFileType;
 
@@ -32,8 +30,6 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -49,7 +45,6 @@ import java.util.Map;
 //   "password" = "password0"
 // )
 public class BrokerDesc extends StorageDesc implements Writable {
-    private static final Logger LOG = LogManager.getLogger(BrokerDesc.class);
 
     // just for multi load
     public static final String MULTI_LOAD_BROKER = "__DORIS_MULTI_LOAD_BROKER__";
@@ -88,14 +83,14 @@ public class BrokerDesc extends StorageDesc implements Writable {
         // Try to determine the actual storage type from properties if available
         if (MapUtils.isNotEmpty(this.properties)) {
             try {
-                // Create primary storage properties from the given configuration
-                this.storageProperties = StorageProperties.createPrimary(this.properties);
+                // Bind the primary storage adapter from the given configuration
+                this.storageAdapter = StorageAdapter.of(this.properties);
                 // Override the storage type based on property configuration
-                this.storageType = StorageBackend.StorageType.valueOfIgnoreCase(storageProperties.getStorageName());
+                this.storageType = StorageBackend.StorageType.valueOfIgnoreCase(storageAdapter.getStorageName());
             } catch (StoragePropertiesException e) {
                 // Currently ignored: these properties might be broker-specific.
-                // Just keep the storage type as BROKER, and try to create BrokerProperties
-                this.storageProperties = BrokerProperties.of(name, properties);
+                // Just keep the storage type as BROKER, and bind a broker adapter
+                this.storageAdapter = StorageAdapter.ofBroker(name, this.properties);
                 this.storageType = StorageBackend.StorageType.BROKER;
             }
         }
@@ -113,17 +108,17 @@ public class BrokerDesc extends StorageDesc implements Writable {
             this.properties.putAll(properties);
         }
         if (StorageType.BROKER.equals(storageType)) {
-            this.storageProperties = BrokerProperties.of(name, properties);
+            this.storageAdapter = StorageAdapter.ofBroker(name, properties);
             return;
         }
         if (MapUtils.isNotEmpty(this.properties) && StorageType.REFACTOR_STORAGE_TYPES.contains(storageType)) {
-            this.storageProperties = StorageProperties.createPrimary(properties);
+            this.storageAdapter = StorageAdapter.of(properties);
         }
 
     }
 
     public String getFileLocation(String location) throws UserException {
-        return (null != storageProperties) ? storageProperties.validateAndNormalizeUri(location) : location;
+        return (null != storageAdapter) ? storageAdapter.validateAndNormalizeUri(location) : location;
     }
 
     public static BrokerDesc createForStreamLoad() {
@@ -141,12 +136,12 @@ public class BrokerDesc extends StorageDesc implements Writable {
             case S3:
                 return TFileType.FILE_S3;
             case HDFS:
+            case JFS:
                 return TFileType.FILE_HDFS;
             case STREAM:
                 return TFileType.FILE_STREAM;
             case BROKER:
             case OFS:
-            case JFS:
             default:
                 return TFileType.FILE_BROKER;
         }
@@ -164,19 +159,5 @@ public class BrokerDesc extends StorageDesc implements Writable {
 
     public static BrokerDesc read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), BrokerDesc.class);
-    }
-
-    public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        if (storageType == StorageBackend.StorageType.BROKER) {
-            sb.append("WITH BROKER ").append(name);
-        } else {
-            sb.append("WITH ").append(storageType.name());
-        }
-        if (properties != null && !properties.isEmpty()) {
-            PrintableMap<String, String> printableMap = new PrintableMap<>(properties, " = ", true, false, true);
-            sb.append(" (").append(printableMap.toString()).append(")");
-        }
-        return sb.toString();
     }
 }

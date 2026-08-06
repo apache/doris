@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -60,7 +61,7 @@ public class CTEContext {
         if ((parsedPlan == null && previousCteContext != null) || (parsedPlan != null && previousCteContext == null)) {
             throw new AnalysisException("Only first CteContext can contains null cte plan or previousCteContext");
         }
-        this.name = parsedPlan == null ? null : GlobalVariable.lowerCaseTableNames != 0
+        this.name = parsedPlan == null ? null : currentLowerCaseTableNames() != 0
                 ? parsedPlan.getAlias().toLowerCase(Locale.ROOT) : parsedPlan.getAlias();
         this.cteContextMap = previousCteContext == null
                 ? ImmutableMap.of()
@@ -78,10 +79,18 @@ public class CTEContext {
      */
     public CTEContext(CTEId cteId, String cteName, List<Slot> recursiveCteOutputs) {
         this.cteId = cteId;
-        this.name = GlobalVariable.lowerCaseTableNames != 0 ? cteName.toLowerCase(Locale.ROOT) : cteName;
+        this.name = currentLowerCaseTableNames() != 0 ? cteName.toLowerCase(Locale.ROOT) : cteName;
         this.recursiveCteOutputs = recursiveCteOutputs != null ? ImmutableList.copyOf(recursiveCteOutputs)
                 : ImmutableList.of();
         this.cteContextMap = ImmutableMap.of(name, this);
+    }
+
+    private static int currentLowerCaseTableNames() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getCurrentCatalog() != null) {
+            return ctx.getCurrentCatalog().getLowerCaseTableNames();
+        }
+        return GlobalVariable.lowerCaseTableNames;
     }
 
     public void setRecursiveCteOutputs(List<Slot> recursiveCteOutputs) {
@@ -110,7 +119,7 @@ public class CTEContext {
      * findCTEContext
      */
     public Optional<CTEContext> findCTEContext(String cteName) {
-        if (GlobalVariable.lowerCaseTableNames != 0) {
+        if (currentLowerCaseTableNames() != 0) {
             cteName = cteName.toLowerCase(Locale.ROOT);
         }
         if (cteName.equals(name)) {

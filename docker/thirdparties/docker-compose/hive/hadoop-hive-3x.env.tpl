@@ -22,6 +22,8 @@ HIVE_SITE_CONF_hive_metastore_transactional_event_listeners=org.apache.hive.hcat
 HIVE_SITE_CONF_hive_stats_column_autogather=false
 HIVE_SITE_CONF_fs_s3_impl=org.apache.hadoop.fs.s3a.S3AFileSystem
 HIVE_SITE_CONF_fs_s3a_impl=org.apache.hadoop.fs.s3a.S3AFileSystem
+HIVE_SITE_CONF_fs_jfs_impl=io.juicefs.JuiceFileSystem
+HIVE_SITE_CONF_juicefs_cluster_meta=${JFS_CLUSTER_META}
 HIVE_SITE_CONF_fs_s3a_access_key=${AWSAk}
 HIVE_SITE_CONF_fs_s3a_secret_key=${AWSSk}
 HIVE_SITE_CONF_fs_s3a_endpoint=${AWSEndpoint}
@@ -36,7 +38,9 @@ HIVE_SITE_CONF_fs_cosn_bucket_region=${COSRegion}
 HIVE_SITE_CONF_fs_cosn_impl=org.apache.hadoop.fs.CosFileSystem
 HIVE_SITE_CONF_fs_cos_impl=org.apache.hadoop.fs.CosFileSystem
 HIVE_SITE_CONF_fs_AbstractFileSystem_cosn_impl=org.apache.hadoop.fs.CosN
-HIVE_SITE_CONF_fs_oss_impl=org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem
+
+HIVE_SITE_CONF_fs_oss_impl=com.aliyun.jindodata.oss.JindoOssFileSystem
+HIVE_SITE_CONF_fs_AbstractFileSystem_oss_impl=com.aliyun.jindodata.oss.JindoOSS
 HIVE_SITE_CONF_fs_oss_accessKeyId=${OSSAk}
 HIVE_SITE_CONF_fs_oss_accessKeySecret=${OSSSk}
 HIVE_SITE_CONF_fs_oss_endpoint=${OSSEndpoint}
@@ -48,4 +52,3 @@ HIVE_SITE_CONF_fs_gs_auth_service_account_private_key_id=${GCSAccountPrivateKeyI
 HIVE_SITE_CONF_fs_gs_auth_service_account_private_key=${GCSAccountPrivateKey}
 HIVE_SITE_CONF_fs_gs_proxy_address=${GCSProxyAddress}
 enablePaimonHms=${enablePaimonHms}
-

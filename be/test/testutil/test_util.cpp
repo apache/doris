@@ -22,7 +22,6 @@
 #include <mach-o/dyld.h>
 #endif
 
-#include <common/config.h>
 #include <ctype.h>
 #include <glog/logging.h>
 #include <libgen.h>
@@ -34,6 +33,8 @@
 
 #include <algorithm>
 #include <string>
+
+#include "common/config.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <filesystem>
@@ -43,7 +44,7 @@
 
 #include "absl/strings/substitute.h"
 #include "gflags/gflags.h"
-#include "olap/olap_common.h"
+#include "storage/olap_common.h"
 
 DEFINE_bool(gen_out, false, "generate expected check data for test");
 DEFINE_bool(
@@ -157,10 +158,9 @@ std::string rand_rng_by_type(FieldType fieldType) {
     }
 }
 
-void load_columns_data_from_file(vectorized::MutableColumns& columns,
-                                 vectorized::DataTypeSerDeSPtrs serders, char col_spliter,
-                                 std::set<int> idxes, const std::string& column_data_file,
-                                 const cctz::time_zone* tz) {
+void load_columns_data_from_file(MutableColumns& columns, DataTypeSerDeSPtrs serders,
+                                 char col_spliter, std::set<int> idxes,
+                                 const std::string& column_data_file, const cctz::time_zone* tz) {
     ASSERT_EQ(serders.size(), columns.size());
     // Load column data and expected data from CSV files
     std::vector<std::vector<std::string>> res;
@@ -182,9 +182,9 @@ void load_columns_data_from_file(vectorized::MutableColumns& columns,
 }
 
 // Helper function to load data from CSV, with index which splited by spliter and load to columns
-void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
-                        vectorized::MutableColumns& columns, const std::string& file_path,
-                        const char spliter, const std::set<int> idxes, const cctz::time_zone* tz) {
+void load_data_from_csv(const DataTypeSerDeSPtrs serders, MutableColumns& columns,
+                        const std::string& file_path, const char spliter, const std::set<int> idxes,
+                        const cctz::time_zone* tz) {
     ASSERT_EQ(serders.size(), columns.size())
             << "serder size: " << serders.size() << " column size: " << columns.size();
     ASSERT_EQ(serders.size(), idxes.size())
@@ -198,7 +198,7 @@ void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
     }
 
     std::string line;
-    vectorized::DataTypeSerDe::FormatOptions options;
+    DataTypeSerDe::FormatOptions options;
     options.timezone = tz;
     while (std::getline(file, line)) {
         std::stringstream lineStream(line);

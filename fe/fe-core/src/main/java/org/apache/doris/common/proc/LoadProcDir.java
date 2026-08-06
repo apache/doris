@@ -110,10 +110,6 @@ public class LoadProcDir implements ProcDirInterface {
         return new LoadJobProcNode(loadManager, jobId);
     }
 
-    public static int analyzeCopyColumn(String columnName) throws AnalysisException {
-        return analyzeColumn(COPY_TITLE_NAMES, columnName);
-    }
-
     public static int analyzeColumn(String columnName) throws AnalysisException {
         for (String title : TITLE_NAMES) {
             if (title.equalsIgnoreCase(columnName)) {

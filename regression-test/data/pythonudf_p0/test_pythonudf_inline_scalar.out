@@ -23,3 +23,12 @@ false
 -- !select_zero --
 false
 
+-- !select_largeint_inc --
+101
+
+-- !select_largeint_inc_negative --
+-99999999999999999998
+
+-- !select_largeint_inc_null --
+\N
+

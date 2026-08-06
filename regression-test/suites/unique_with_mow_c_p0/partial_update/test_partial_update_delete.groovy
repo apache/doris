@@ -35,7 +35,7 @@ suite('test_partial_update_delete') {
                     `c3` int NOT NULL,
                     `c4` int
                     )UNIQUE KEY(k1)
-                CLUSTER BY(c2, c1, c3)
+                ORDER BY(c2, c1, c3)
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
@@ -88,7 +88,7 @@ suite('test_partial_update_delete') {
                     `c3` int,
                     `c4` int
                     )UNIQUE KEY(k1)
-                CLUSTER BY(c3, c4)    
+                ORDER BY(c3, c4)    
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",

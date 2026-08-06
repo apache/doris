@@ -70,6 +70,15 @@ public class Like extends StringRegexPredicate {
     }
 
     @Override
+    public String shapeInfo() {
+        if (arity() == 2) {
+            return super.shapeInfo();
+        }
+        return '(' + left().shapeInfo() + ' ' + getName() + ' ' + right().shapeInfo()
+                + " escape " + child(2).shapeInfo() + ')';
+    }
+
+    @Override
     public String toString() {
         if (arity() == 2) {
             return super.computeToSql();
@@ -96,8 +105,9 @@ public class Like extends StringRegexPredicate {
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (arity() == 3) {
-            if (child(2) instanceof StringLikeLiteral) {
-                String escapeChar = ((StringLikeLiteral) child(2)).getStringValue();
+            Expression escapeArgument = getArgument(2);
+            if (escapeArgument instanceof StringLikeLiteral) {
+                String escapeChar = ((StringLikeLiteral) escapeArgument).getStringValue();
                 if (escapeChar.getBytes().length != 1) {
                     throw new AnalysisException(
                             "like escape character must be a single ascii character: " + escapeChar);

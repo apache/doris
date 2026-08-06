@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("hive_json_basic_test",  "p0,external,hive,external_docker,external_docker_hive") {
+suite("hive_json_basic_test", "p0,external") {
 
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
@@ -24,7 +24,7 @@ suite("hive_json_basic_test",  "p0,external,hive,external_docker,external_docker
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         try {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")

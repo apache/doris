@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LimitElement;
@@ -29,6 +30,7 @@ import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -37,7 +39,10 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -70,6 +75,8 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
@@ -79,10 +86,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -94,6 +104,9 @@ import java.util.stream.Collectors;
  * show [temp] partitions' detail info within a table
  */
 public class PartitionsProcDir implements ProcDirInterface {
+    private static final Logger LOG = LogManager.getLogger(PartitionsProcDir.class);
+    static final String CLOUD_STORAGE_MEDIUM_DISPLAY = "OBJECT_STORAGE";
+
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionId").add("PartitionName")
             .add("VisibleVersion").add("VisibleVersionTime")
@@ -153,7 +166,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     default:
                         throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
                 }
-                leftVal = (new DateLiteral((String) element, type)).getLongValue();
+                leftVal = (DateLiteralUtils.createDateLiteral((String) element, type)).getLongValue();
                 rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
             } else {
                 leftVal = Long.parseLong(element.toString());
@@ -397,6 +410,68 @@ public class PartitionsProcDir implements ProcDirInterface {
         return partitionInfosInrernal.stream().map(pair -> pair.second).collect(Collectors.toList());
     }
 
+    public static String getStorageMediumDisplay(String storageMedium) {
+        return Config.isCloudMode() ? CLOUD_STORAGE_MEDIUM_DISPLAY : storageMedium;
+    }
+
+    public static String getReplicaAllocationDisplay(String replicaAllocation) {
+        return Config.isCloudMode() ? FeConstants.null_string : replicaAllocation;
+    }
+
+    private List<Long> getPartitionVersions(OlapTable olapTable, List<Long> partitionIds)
+            throws AnalysisException {
+        List<Long> partitionVersions;
+        if (Config.isNotCloudMode()) {
+            partitionVersions = partitionIds.stream().map(id -> olapTable.getPartition(id).getVisibleVersion())
+                    .collect(Collectors.toList());
+        } else if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().cloudForceSyncVersion) {
+            LOG.info("cloud force sync version for table: {}, partitionNum: {}", olapTable, partitionIds.size());
+            long dbId = olapTable.getDatabase().getId();
+            // sync table version
+            // Note: does not update table version cache to avoid that when getting partition version fails,
+            // the table version cache is updated but partition version cache is not updated.
+            List<Long> tableVersions = OlapTable.getVisibleVersionFromMeta(Lists.newArrayList(dbId),
+                    Lists.newArrayList(olapTable.getId()));
+            List<Pair<OlapTable, Long>> tableVersionMap = Lists.newArrayList(Pair.of(olapTable, tableVersions.get(0)));
+            // sync partition version
+            List<CloudPartition> partitions = partitionIds.stream()
+                    .map(id -> (CloudPartition) (olapTable.getPartition(id))).collect(Collectors.toList());
+            try {
+                partitionVersions = new ArrayList<>(partitionIds.size());
+                int batchSize = Config.cloud_get_version_task_batch_size;
+                for (int start = 0; start < partitions.size(); start += batchSize) {
+                    int end = Math.min(start + batchSize, partitions.size());
+                    List<CloudPartition> batch = partitions.subList(start, end);
+                    partitionVersions.addAll(CloudPartition.getSnapshotVisibleVersionFromMs(batch, false));
+                }
+            } catch (RpcException e) {
+                LOG.warn("get partition versions failed for table: {}", olapTable, e);
+                throw new AnalysisException("get partition versions failed", e);
+            }
+            Map<CloudPartition, Pair<Long, Long>> partitionVersionMap = new HashMap<>(partitionIds.size());
+            for (int i = 0; i < partitionIds.size(); i++) {
+                CloudPartition partition = partitions.get(i);
+                long version = partitionVersions.get(i);
+                partitionVersionMap.put(partition, Pair.of(version, partition.getVisibleVersionTime()));
+            }
+            // push to other fes
+            ((CloudEnv) (Env.getCurrentEnv())).getCloudFEVersionSynchronizer()
+                    .pushVersionAsync(dbId, tableVersionMap, partitionVersionMap);
+        } else {
+            List<CloudPartition> partitions = partitionIds.stream()
+                    .map(id -> (CloudPartition) (olapTable.getPartition(id))).collect(Collectors.toList());
+            try {
+                partitionVersions = CloudPartition.getSnapshotVisibleVersion(partitions);
+            } catch (RpcException e) {
+                LOG.warn("get partition versions failed for table: {}", olapTable, e);
+                throw new AnalysisException("get partition versions failed", e);
+            }
+        }
+        Preconditions.checkState(partitionVersions.size() == partitionIds.size(),
+                "versions size %s not equal partition size %s", partitionVersions.size(), partitionIds.size());
+        return partitionVersions;
+    }
+
     private List<Pair<List<Comparable>, TRow>> getPartitionInfosInrernal() throws AnalysisException {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(olapTable);
@@ -446,8 +521,10 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionIds = partitions.stream().map(Partition::getId).collect(Collectors.toList());
             }
 
+            List<Long> partitionVersions = getPartitionVersions(olapTable, partitionIds);
             Joiner joiner = Joiner.on(", ");
-            for (Long partitionId : partitionIds) {
+            for (int j = 0; j < partitionIds.size(); j++) {
+                long partitionId = partitionIds.get(j);
                 Partition partition = olapTable.getPartition(partitionId);
 
                 List<Comparable> partitionInfo = new ArrayList<Comparable>();
@@ -457,8 +534,9 @@ public class PartitionsProcDir implements ProcDirInterface {
                 trow.addToColumnValue(new TCell().setLongVal(partitionId));
                 partitionInfo.add(partitionName);
                 trow.addToColumnValue(new TCell().setStringVal(partitionName));
-                partitionInfo.add(partition.getVisibleVersion());
-                trow.addToColumnValue(new TCell().setLongVal(partition.getVisibleVersion()));
+                long partitionVersion = partitionVersions.get(j);
+                partitionInfo.add(partitionVersion);
+                trow.addToColumnValue(new TCell().setLongVal(partitionVersion));
                 String visibleTime = TimeUtils.longToTimeString(partition.getVisibleVersionTime());
                 partitionInfo.add(visibleTime);
                 trow.addToColumnValue(new TCell().setStringVal(visibleTime));
@@ -511,8 +589,9 @@ public class PartitionsProcDir implements ProcDirInterface {
                 trow.addToColumnValue(new TCell().setIntVal(totalReplicaNum));
 
                 DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
-                partitionInfo.add(dataProperty.getStorageMedium().name());
-                trow.addToColumnValue(new TCell().setStringVal(dataProperty.getStorageMedium().name()));
+                String storageMedium = getStorageMediumDisplay(dataProperty.getStorageMedium().name());
+                partitionInfo.add(storageMedium);
+                trow.addToColumnValue(new TCell().setStringVal(storageMedium));
                 String cooldownTimeStr = TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs());
                 partitionInfo.add(cooldownTimeStr);
                 trow.addToColumnValue(new TCell().setStringVal(cooldownTimeStr));
@@ -531,7 +610,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(isInMemory);
                 trow.addToColumnValue(new TCell().setBoolVal(isInMemory));
                 // replica allocation
-                String replica = tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt();
+                String replica = getReplicaAllocationDisplay(
+                        tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
                 partitionInfo.add(replica);
                 trow.addToColumnValue(new TCell().setStringVal(replica));
 

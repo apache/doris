@@ -24,10 +24,10 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.DataPartition;
@@ -36,6 +36,7 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -82,8 +83,6 @@ public class NereidsLoadingTaskPlanner {
     private List<PlanFragment> fragments = Lists.newArrayList();
     private List<ScanNode> scanNodes = Lists.newArrayList();
 
-    private int nextNodeId = 0;
-
     /**
      * NereidsLoadingTaskPlanner
      */
@@ -125,19 +124,15 @@ public class NereidsLoadingTaskPlanner {
 
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
+            List<NereidsImportColumnDesc> importColumnDescs = fileGroups.get(0).getColumnExprList();
             for (Column col : table.getFullSchema()) {
-                boolean existInExpr = false;
-                for (NereidsImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {
-                    if (importColumnDesc.getColumnName() != null
-                            && importColumnDesc.getColumnName().equals(col.getName())) {
-                        if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
-                            throw new UserException("Partial update should not include invisible column except"
-                                    + " delete sign column: " + col.getName());
-                        }
-                        partialUpdateInputColumns.add(col.getName());
-                        existInExpr = true;
-                        break;
+                boolean existInExpr = NereidsLoadUtils.hasImportColumn(importColumnDescs, col);
+                if (existInExpr) {
+                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                        throw new UserException("Partial update should not include invisible column except"
+                                + " delete sign column: " + col.getName());
                     }
+                    partialUpdateInputColumns.add(col.getName());
                 }
                 if (col.isKey() && !existInExpr) {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());
@@ -195,7 +190,10 @@ public class NereidsLoadingTaskPlanner {
         }
 
         // Create a single FileLoadScanNode for all file groups
-        FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfos.get(0).getDestTuple());
+        String clusterName = ConnectContext.get() == null ? ""
+                : ConnectContext.get().getSessionVariable().resolveCloudClusterName();
+        FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfos.get(0).getDestTuple(),
+                ScanContext.builder().clusterName(clusterName).build());
         fileScanNode.finalizeForNereids(loadId, fileGroupInfos, contexts, loadPlanInfos);
         scanNodes.add(fileScanNode);
 

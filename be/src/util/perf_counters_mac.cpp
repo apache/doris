@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "perf_counters.h"
+#include "util/perf_counters.h"
 
 namespace doris {
 

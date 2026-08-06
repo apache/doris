@@ -19,7 +19,7 @@
 
 #include <bthread/mutex.h>
 
-#include "olap/delta_writer.h"
+#include "load/delta_writer/delta_writer.h"
 #include "runtime/workload_management/resource_context.h"
 
 namespace doris {
@@ -33,9 +33,12 @@ public:
                      const UniqueId& load_id);
     ~CloudDeltaWriter() override;
 
-    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) override;
+    Status write(const Block* block, const TabletAddRowsPayload& rows,
+                 bool* memtable_flushed = nullptr) override;
 
     Status close() override;
+
+    Status flush_memtable_async() override;
 
     Status cancel_with_status(const Status& st) override;
 
@@ -51,7 +54,7 @@ public:
 
     Status commit_rowset();
 
-    Status set_txn_related_delete_bitmap();
+    Status set_txn_related_info();
     std::shared_ptr<ResourceContext> resource_context() { return _resource_ctx; }
 
 private:

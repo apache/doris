@@ -45,6 +45,7 @@ suite("test_array_last") {
         qt_select_03 " select array_last(x -> x>=5,[1,2,3,4,5]);"
         qt_select_04 " select array_last(x -> x > 'abc', ['a','b','c']);"
         qt_select_05 " select array_last(x -> x > 5.2 , [10.2, 5.3, 4]);"
+        qt_select_lambda_result_cast " select array_last(x -> x, [0, 1, 2]);"
 
         qt_select_06  "select * from ${tableName} order by id;"
         

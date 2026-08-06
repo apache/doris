@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
+suite("test_hdfs_tvf", "p0,external") {
     String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -253,6 +253,7 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
             format = "json"
 
             sql "set enable_insert_strict=false;"
+            sql "set enable_strict_cast=false;"
             sql "set insert_max_filter_ratio=0.2;"
             def result2 = sql """ insert into ${testTable}(id,city,code)
                     select cast (id as INT) as id, city, cast (code as INT) as code
@@ -268,6 +269,7 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
 
             try{
                 sql "set enable_insert_strict=true;"
+                sql "set enable_strict_cast=true;"
                 sql "set insert_max_filter_ratio=0.1;"
                 def result3 = sql """ insert into ${testTable}(id,city,code)
                         select cast (id as INT) as id, city, cast (code as INT) as code
@@ -286,6 +288,7 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
 
             try{
                 sql " set enable_insert_strict=true;"
+                sql "set enable_strict_cast=true;"
                 def result4 = sql """ insert into ${testTable}(id,city,code)
                         select cast (id as INT) as id, city, cast (code as INT) as code
                         from HDFS(

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -50,6 +51,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 
 /** push down project if the expression instance of PreferPushDownProject */
@@ -61,6 +63,9 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
                 logicalJoin().thenApply(this::pushDownJoinExpressions)
             ),
             RuleType.PUSH_DOWN_PROJECT_THROUGH_JOIN.build(
+                logicalFilter(logicalJoin()).thenApply(this::pushDownFilterExpressions)
+            ),
+            RuleType.PUSH_DOWN_PROJECT_THROUGH_JOIN.build(
                 logicalProject(logicalJoin()).thenApply(this::defaultPushDownProject)
             ),
             RuleType.PUSH_DOWN_PROJECT_THROUGH_WINDOW.build(
@@ -69,9 +74,6 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
             RuleType.PUSH_DOWN_PROJECT_THROUGH_PARTITION_TOP_N.build(
                 logicalProject(logicalPartitionTopN()).thenApply(this::defaultPushDownProject)
             ),
-            // RuleType.PUSH_DOWN_PROJECT_THROUGH_DEFER_MATERIALIZE_TOP_N.build(
-            //     logicalProject(logicalDeferMaterializeTopN()).thenApply(this::defaultPushDownProject)
-            // ),
             RuleType.PUSH_DOWN_PROJECT_THROUGH_UNION.build(
                 logicalProject(
                         logicalUnion().when(u -> u.getQualifier() == Qualifier.ALL)
@@ -135,6 +137,20 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
                 newHashJoinConjuncts, newOtherJoinConjuncts,
                 join.getMarkJoinConjuncts(), join.getJoinReorderContext()
         ).withChildren(newLeft, newRight);
+    }
+
+    private Plan pushDownFilterExpressions(MatchingContext<LogicalFilter<LogicalJoin<Plan, Plan>>> ctx) {
+        LogicalFilter<LogicalJoin<Plan, Plan>> filter = ctx.root;
+        LogicalJoin<Plan, Plan> join = filter.child();
+        PushdownProjectHelper pushdownProjectHelper = new PushdownProjectHelper(ctx.statementContext, join);
+        Pair<Boolean, Set<Expression>> pushPredicates
+                = pushdownProjectHelper.pushDownExpressions(filter.getConjuncts());
+        if (!pushPredicates.first) {
+            return filter;
+        }
+
+        LogicalJoin<Plan, Plan> newJoin = join.withChildren(pushdownProjectHelper.buildNewChildren());
+        return filter.withConjuncts(pushPredicates.second).withChildren(ImmutableList.of(newJoin));
     }
 
     // return:

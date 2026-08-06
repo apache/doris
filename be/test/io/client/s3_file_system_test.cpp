@@ -30,10 +30,13 @@
 
 #include "common/config.h"
 #include "cpp/sync_point.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/obj_storage_client.h"
 #include "runtime/exec_env.h"
+#include "util/defer_op.h"
+#include "util/s3_rate_limiter_manager.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -45,6 +48,15 @@ namespace doris {
     }())
 
 static const char* MOCK_S3_FS_ID = "mock_s3_fs_id_6";
+
+static std::string get_env_with_fallback(const char* primary, const char* fallback) {
+    const char* value = std::getenv(primary);
+    if (value != nullptr) {
+        return value;
+    }
+    value = std::getenv(fallback);
+    return value != nullptr ? value : "";
+}
 
 class S3TestConfig {
 public:
@@ -58,18 +70,25 @@ public:
 
         access_key = GET_ENV_IF_DEFINED(S3_AK);
         secret_key = GET_ENV_IF_DEFINED(S3_SK);
-        endpoint = GET_ENV_IF_DEFINED(S3_ENDPOINT);
+        role_arn = GET_ENV_IF_DEFINED(AWS_ROLE_ARN);
+        external_id = GET_ENV_IF_DEFINED(AWS_EXTERNAL_ID);
+        endpoint = get_env_with_fallback("S3_ENDPOINT", "AWS_ENDPOINT");
         provider = GET_ENV_IF_DEFINED(S3_PROVIDER);
-        bucket = GET_ENV_IF_DEFINED(S3_BUCKET);
-        region = GET_ENV_IF_DEFINED(S3_REGION);
-        prefix = GET_ENV_IF_DEFINED(S3_PREFIX);
+        bucket = get_env_with_fallback("S3_BUCKET", "AWS_BUCKET");
+        region = get_env_with_fallback("S3_REGION", "AWS_REGION");
+        prefix = get_env_with_fallback("S3_PREFIX", "AWS_PREFIX");
     }
 
     bool is_enabled() const { return enabled; }
 
     bool is_valid() const {
-        return enabled && !access_key.empty() && !secret_key.empty() && !endpoint.empty() &&
-               !region.empty() && !bucket.empty();
+        if (!enabled || endpoint.empty() || region.empty() || bucket.empty() || prefix.empty()) {
+            return false;
+        }
+        if (has_partial_static_credentials()) {
+            return false;
+        }
+        return has_static_credentials() || use_instance_profile();
     }
 
     std::string get_access_key() const { return access_key; }
@@ -79,14 +98,22 @@ public:
     std::string get_bucket() const { return bucket; }
     std::string get_prefix() const { return prefix; }
     std::string get_region() const { return region; }
+    std::string get_role_arn() const { return role_arn; }
+    std::string get_external_id() const { return external_id; }
+    bool use_instance_profile() const { return !has_static_credentials(); }
 
     void print_config() const {
         std::cout << "S3 Test Configuration:" << std::endl;
         std::cout << "  Enabled: " << (enabled ? "Yes" : "No") << std::endl;
         if (enabled) {
+            std::cout << "  Auth Mode: " << (has_static_credentials() ? "AK/SK" : "IAM Role")
+                      << std::endl;
             std::cout << "  Access Key: " << (access_key.empty() ? "<empty>" : "<set>")
                       << std::endl;
             std::cout << "  Secret Key: " << (secret_key.empty() ? "<empty>" : "<hidden>")
+                      << std::endl;
+            std::cout << "  Role Arn: " << (role_arn.empty() ? "<empty>" : role_arn) << std::endl;
+            std::cout << "  External Id: " << (external_id.empty() ? "<empty>" : "<hidden>")
                       << std::endl;
             std::cout << "  Endpoint: " << endpoint << std::endl;
             std::cout << "  Provider: " << provider << std::endl;
@@ -97,9 +124,17 @@ public:
     }
 
 private:
+    bool has_static_credentials() const { return !access_key.empty() && !secret_key.empty(); }
+
+    bool has_partial_static_credentials() const {
+        return !has_static_credentials() && (!access_key.empty() || !secret_key.empty());
+    }
+
     bool enabled = false;
     std::string access_key;
     std::string secret_key;
+    std::string role_arn;
+    std::string external_id;
     std::string endpoint;
     std::string provider;
     std::string bucket;
@@ -121,7 +156,8 @@ protected:
         }
 
         if (!config_->is_valid()) {
-            GTEST_SKIP() << "S3 configuration is incomplete. Required: AK, SK, ENDPOINT, BUCKET.";
+            GTEST_SKIP() << "S3 configuration is incomplete. Required: ENDPOINT, REGION, BUCKET, "
+                            "PREFIX and either AK/SK or iam role credentials.";
         }
 
         // Attempt to create S3 client
@@ -159,6 +195,11 @@ protected:
         s3_conf.client_conf.bucket = config_->get_bucket();
         s3_conf.client_conf.region = config_->get_region();
         s3_conf.client_conf.provider = convert_provider(config_->get_provider());
+        if (config_->use_instance_profile()) {
+            s3_conf.client_conf.cred_provider_type = CredProviderType::InstanceProfile;
+            s3_conf.client_conf.role_arn = config_->get_role_arn();
+            s3_conf.client_conf.external_id = config_->get_external_id();
+        }
 
         s3_fs_ = DORIS_TRY(io::S3FileSystem::create(s3_conf, MOCK_S3_FS_ID));
         return Status::OK();
@@ -2418,15 +2459,21 @@ TEST_F(S3FileSystemTest, DynamicUpdateRateLimiterConfig) {
     // Save original config values
     int64_t original_get_bucket_tokens = config::s3_get_bucket_tokens;
     int64_t original_get_token_per_second = config::s3_get_token_per_second;
-    int64_t original_get_token_limit = config::s3_get_token_limit;
+    int64_t original_get_requests_per_second_per_core = config::s3_get_requests_per_second_per_core;
 
-    std::cout << "Original GET config: bucket_tokens=" << original_get_bucket_tokens
-              << ", token_per_second=" << original_get_token_per_second
-              << ", limit=" << original_get_token_limit << std::endl;
+    auto& manager = S3RateLimiterManager::instance();
+    Defer restore_configs {[&] {
+        config::s3_get_bucket_tokens = original_get_bucket_tokens;
+        config::s3_get_token_per_second = original_get_token_per_second;
+        config::s3_get_requests_per_second_per_core = original_get_requests_per_second_per_core;
+        manager.refresh();
+    }};
 
     int64_t new_s3_get_bucket_tokens_val = 50;
     int64_t new_s3_get_token_per_second_val = 1;
 
+    // Legacy configs are only effective while the per-core config is unset.
+    ASSERT_TRUE(config::set_config("s3_get_requests_per_second_per_core", "-1").ok());
     auto [success1, msg7] = config::set_config(
             "s3_get_bucket_tokens", std::to_string(new_s3_get_bucket_tokens_val), false, false);
     ASSERT_EQ(success1, 0) << "Failed to set s3_get_bucket_tokens: " << msg7;
@@ -2435,13 +2482,12 @@ TEST_F(S3FileSystemTest, DynamicUpdateRateLimiterConfig) {
                                std::to_string(new_s3_get_token_per_second_val), false, false);
     ASSERT_EQ(success2, 0) << "Failed to set s3_get_token_per_second: " << msg8;
 
-    auto st = create_client();
-    ASSERT_TRUE(st.ok());
+    // Dynamic config changes take effect through the periodic idempotent refresh.
+    manager.refresh();
 
-    // Verify restoration
-    EXPECT_EQ(S3ClientFactory::instance().rate_limiter(S3RateLimitType::GET)->get_max_burst(),
+    EXPECT_EQ(manager.qps_limiter(S3RateLimitType::GET)->get_max_burst(),
               new_s3_get_bucket_tokens_val);
-    EXPECT_EQ(S3ClientFactory::instance().rate_limiter(S3RateLimitType::GET)->get_max_speed(),
+    EXPECT_EQ(manager.qps_limiter(S3RateLimitType::GET)->get_max_speed(),
               new_s3_get_token_per_second_val);
 }
 

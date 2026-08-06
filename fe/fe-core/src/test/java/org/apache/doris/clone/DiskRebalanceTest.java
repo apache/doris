@@ -41,33 +41,33 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TransactionIdGenerator;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.config.Configurator;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.LongStream;
 
 public class DiskRebalanceTest {
     private static final Logger LOG = LogManager.getLogger(DiskRebalanceTest.class);
 
-    @Mocked
     private Env env;
-    @Mocked
     private InternalCatalog catalog;
+    private MockedStatic<Env> mockedEnvStatic;
 
     private long id = 10086;
 
@@ -85,56 +85,40 @@ public class DiskRebalanceTest {
         Config.used_capacity_percent_max_diff = 1.0;
         Config.balance_slot_num_per_path = 1;
         db = new Database(1, "test db");
-        new Expectations() {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
 
-                catalog.getDbIds();
-                minTimes = 0;
-                result = db.getId();
+        env = Mockito.mock(Env.class);
+        catalog = Mockito.mock(InternalCatalog.class);
 
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = db;
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbIds()).thenReturn(Lists.newArrayList(db.getId()));
+        Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(db);
+        Mockito.when(catalog.getDbOrException(Mockito.anyLong(), Mockito.any())).thenReturn(db);
+        Mockito.when(env.getNextId()).thenAnswer(inv -> id++);
 
-                catalog.getDbOrException(anyLong, (Function<Long, SchedException>) any);
-                minTimes = 0;
-                result = db;
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+        mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
 
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeConstants.meta_version;
+        GlobalTransactionMgrIface mockGtm = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionIdGenerator mockTig = Mockito.mock(TransactionIdGenerator.class);
+        mockedEnvStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(mockGtm);
+        Mockito.when(mockGtm.getTransactionIDGenerator()).thenReturn(mockTig);
+        Mockito.when(mockTig.getNextTransactionId()).thenReturn(111L);
+        Mockito.when(mockGtm.isPreviousTransactionsFinished(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyList())).thenReturn(true);
 
-                env.getNextId();
-                minTimes = 0;
-                result = new Delegate() {
-                    long ignored() {
-                        return id++;
-                    }
-                };
-
-                Env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                Env.getCurrentInvertedIndex();
-                minTimes = 0;
-                result = invertedIndex;
-
-                Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
-                result = 111;
-
-                Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(anyLong, anyLong, (List<Long>) any);
-                result = true;
-            }
-        };
         // Test mock validation
         Assert.assertEquals(111,
                 Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
         Assert.assertTrue(
                 Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(1, 2, Lists.newArrayList(3L)));
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
     }
 
     private void generateStatisticsAndPathSlots() {

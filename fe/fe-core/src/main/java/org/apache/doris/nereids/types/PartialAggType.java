@@ -19,7 +19,6 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -29,30 +28,17 @@ import java.util.Objects;
 
 /** PartialAggType */
 public class PartialAggType extends DataType {
-    public final List<Expression> originArguments;
     public final List<DataType> intermediateTypes;
 
     /** PartialAggType */
-    public PartialAggType(List<Expression> originArguments, List<DataType> intermediateTypes) {
-        this.originArguments = ImmutableList.copyOf(
-                Objects.requireNonNull(originArguments, "originArguments can not be null"));
+    public PartialAggType(List<DataType> intermediateTypes) {
         this.intermediateTypes = ImmutableList.copyOf(
                 Objects.requireNonNull(intermediateTypes, "intermediateTypes can not be null"));
-        Preconditions.checkArgument(intermediateTypes.size() > 0, "intermediateTypes can not empty");
-    }
-
-    public List<Expression> getOriginArguments() {
-        return originArguments;
+        Preconditions.checkArgument(!intermediateTypes.isEmpty(), "intermediateTypes can not empty");
     }
 
     public List<DataType> getIntermediateTypes() {
         return intermediateTypes;
-    }
-
-    public List<DataType> getOriginInputTypes() {
-        return originArguments.stream()
-                .map(Expression::getDataType)
-                .collect(ImmutableList.toImmutableList());
     }
 
     @Override
@@ -64,7 +50,7 @@ public class PartialAggType extends DataType {
     public int width() {
         return intermediateTypes.stream()
                 .map(DataType::width)
-                .reduce((w1, w2) -> w1 + w2)
+                .reduce(Integer::sum)
                 .get();
     }
 
@@ -88,12 +74,11 @@ public class PartialAggType extends DataType {
             return false;
         }
         PartialAggType that = (PartialAggType) o;
-        return Objects.equals(originArguments, that.originArguments)
-                && Objects.equals(intermediateTypes, that.intermediateTypes);
+        return Objects.equals(intermediateTypes, that.intermediateTypes);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), originArguments, intermediateTypes);
+        return Objects.hash(super.hashCode(), intermediateTypes);
     }
 }

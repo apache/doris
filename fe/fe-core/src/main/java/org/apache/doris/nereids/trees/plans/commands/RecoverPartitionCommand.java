@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -52,7 +52,7 @@ public class RecoverPartitionCommand extends RecoverCommand {
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws UserException {
-        dbTblName.analyze(ctx);
+        dbTblName.analyze(ctx.getNameSpaceContext());
 
         // disallow external catalog
         Util.prohibitExternalCatalog(dbTblName.getCtl(), this.getClass().getSimpleName());

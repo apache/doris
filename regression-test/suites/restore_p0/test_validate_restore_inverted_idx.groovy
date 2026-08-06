@@ -74,13 +74,13 @@ suite("test_validate_restore_inverted_idx", "validate_restore") {
                 // 1. query with inverted index
                 sql """ set enable_match_without_inverted_index = false """
                 sql """ set enable_fallback_on_missing_inverted_index = false """
-                def res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0, enable_common_expr_pushdown = true) */ * FROM ${dbName}.${tableName} WHERE value MATCH_ANY "10" """
+                def res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0, enable_segment_limit_pushdown = true) */ * FROM ${dbName}.${tableName} WHERE value MATCH_ANY "10" """
                 assertTrue(res.size() > 0)
 
                 // 2. add partition and query
                 sql """ ALTER TABLE ${dbName}.${tableName} ADD PARTITION p8 VALUES LESS THAN ("80") """
                 sql """ INSERT INTO ${dbName}.${tableName} VALUES (75, "75 750", "76 77") """
-                res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0, enable_common_expr_pushdown = true) */ * FROM ${dbName}.${tableName} WHERE value MATCH_ANY "75" """
+                res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0, enable_segment_limit_pushdown = true) */ * FROM ${dbName}.${tableName} WHERE value MATCH_ANY "75" """
                 assertTrue(res.size() > 0)
 
                 // 3. add new index
@@ -142,7 +142,7 @@ suite("test_validate_restore_inverted_idx", "validate_restore") {
                         assertTrue(false)
                     }
                 }
-                res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0, enable_common_expr_pushdown = true) */ * FROM ${dbName}.${tableName} WHERE value1 MATCH_ANY "12321" """
+                res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0, enable_segment_limit_pushdown = true) */ * FROM ${dbName}.${tableName} WHERE value1 MATCH_ANY "12321" """
                 assertTrue(res.size() > 0)
 
             } finally {

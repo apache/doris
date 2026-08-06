@@ -30,6 +30,15 @@ public class JniScannerClassLoader extends URLClassLoader {
         this.scannerName = scannerName;
     }
 
+    public synchronized void addURLIfAbsent(URL url) {
+        for (URL existingUrl : getURLs()) {
+            if (existingUrl.equals(url)) {
+                return;
+            }
+        }
+        super.addURL(url);
+    }
+
     @Override
     public String toString() {
         return "JniScannerClassLoader{"

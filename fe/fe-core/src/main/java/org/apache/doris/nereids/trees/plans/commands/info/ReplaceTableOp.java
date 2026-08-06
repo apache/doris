@@ -85,6 +85,11 @@ public class ReplaceTableOp extends AlterTableOp {
         return true;
     }
 
+    @Override
+    public boolean allowOpRowBinlog() {
+        return true;
+    }
+
     public boolean isForce() {
         return isForce;
     }

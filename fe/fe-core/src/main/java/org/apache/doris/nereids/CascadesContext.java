@@ -37,7 +37,6 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
-import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterContextV2;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
@@ -104,11 +103,11 @@ public class CascadesContext implements ScheduleContext {
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
     private final Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
     private final RuntimeFilterContext runtimeFilterContext;
-    private final RuntimeFilterContextV2 runtimeFilterV2Context;
     private final TopnFilterContext topnFilterContext = new TopnFilterContext();
     private Optional<Scope> outerScope = Optional.empty();
 
     private boolean isRewriteRoot;
+    private boolean isMaterializedViewRewritePlanFragment;
     private volatile boolean isTimeout = false;
 
     // current process subtree, represent outer plan if empty
@@ -159,7 +158,6 @@ public class CascadesContext implements ScheduleContext {
         IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable(),
                 runtimeFilterIdGen);
-        this.runtimeFilterV2Context = new RuntimeFilterContextV2(runtimeFilterIdGen);
         this.materializationContexts = new HashMap<>();
         if (statementContext.getConnectContext() != null) {
             ConnectContext connectContext = statementContext.getConnectContext();
@@ -289,7 +287,11 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public TableCollectAndHookInitializer newTableCollector(boolean firstLevel) {
-        return new TableCollectAndHookInitializer(this, firstLevel);
+        return newTableCollector(firstLevel, false);
+    }
+
+    public TableCollectAndHookInitializer newTableCollector(boolean firstLevel, boolean enablePreloadRule) {
+        return new TableCollectAndHookInitializer(this, firstLevel, enablePreloadRule);
     }
 
     public Analyzer newAnalyzer() {
@@ -405,6 +407,14 @@ public class CascadesContext implements ScheduleContext {
         return isRewriteRoot;
     }
 
+    public void setMaterializedViewRewritePlanFragment(boolean materializedViewRewritePlanFragment) {
+        isMaterializedViewRewritePlanFragment = materializedViewRewritePlanFragment;
+    }
+
+    public boolean isMaterializedViewRewritePlanFragment() {
+        return isMaterializedViewRewritePlanFragment;
+    }
+
     public Optional<Scope> getOuterScope() {
         return outerScope;
     }
@@ -475,6 +485,14 @@ public class CascadesContext implements ScheduleContext {
 
     public Map<RelationId, Set<Expression>> getConsumerIdToFilters() {
         return this.statementContext.getConsumerIdToFilters();
+    }
+
+    public void putConsumerIdToLimitRows(RelationId id, long rows) {
+        this.statementContext.getConsumerIdToLimitRows().merge(id, rows, Math::max);
+    }
+
+    public Map<RelationId, Long> getConsumerIdToLimitRows() {
+        return this.statementContext.getConsumerIdToLimitRows();
     }
 
     public void addCTEConsumerGroup(CTEId cteId, Group g, Multimap<Slot, Slot> producerSlotToConsumerSlot) {
@@ -608,9 +626,5 @@ public class CascadesContext implements ScheduleContext {
 
     public boolean rewritePlanContainsTypes(Class<?>... types) {
         return getRewritePlan().containsType(types);
-    }
-
-    public RuntimeFilterContextV2 getRuntimeFilterV2Context() {
-        return runtimeFilterV2Context;
     }
 }

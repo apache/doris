@@ -17,8 +17,6 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types.PUniqueId;
@@ -31,7 +29,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -70,29 +67,6 @@ public class RowBatchBuilder {
         batchSize = 0;
         rowSize = 0;
         dataSize = 0;
-    }
-
-    public void buildPartitionIndex(ArrayList<Expr> resultExpr,
-                                    List<String> columnLabel, Column partColumn,
-                                    List<PartitionRange.PartitionSingle> newSingleList) {
-        if (cacheMode != CacheAnalyzer.CacheMode.Partition) {
-            return;
-        }
-
-        for (int i = 0; i < columnLabel.size(); i++) {
-            if (columnLabel.get(i).equalsIgnoreCase(partColumn.getName())) {
-                keyType = resultExpr.get(i).getType();
-                keyIndex = i;
-                break;
-            }
-        }
-        if (newSingleList != null) {
-            for (PartitionRange.PartitionSingle single : newSingleList) {
-                cachePartMap.put(single.getCacheKey().realValue(), single);
-            }
-        } else {
-            LOG.info("no new partition single list ");
-        }
     }
 
     public void copyRowData(RowBatch rowBatch) {

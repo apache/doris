@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("cross_join_range_date_increment_create") {
+suite("cross_join_range_date_increment_create", "increment_create") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
@@ -40,7 +40,7 @@ suite("cross_join_range_date_increment_create") {
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
     auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
-    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -70,7 +70,7 @@ suite("cross_join_range_date_increment_create") {
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
     auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
-    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -175,17 +175,23 @@ suite("cross_join_range_date_increment_create") {
         assert (refresh_info[0][5] == "100.00% (6/6)")
     }
 
+    // use a fresh l_orderkey each call so the change is a new group, not a group-by-folded duplicate
+    def primary_change_counter = 100
     def primary_tb_change = {
         sql """
-        insert into lineitem_cross_2 values 
-        (2, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
+        insert into lineitem_cross_2 values
+        (${primary_change_counter}, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
         """
+        primary_change_counter++
     }
+    // use a fresh o_orderkey each call so the change is a new group, not a group-by-folded duplicate
+    def slave_change_counter = 100
     def slave_tb_change = {
         sql"""
-        insert into orders_cross_2 values 
-        (2, 5, 'ok', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'); 
+        insert into orders_cross_2 values
+        (${slave_change_counter}, 5, 'ok', 99.5, 'a', 'b', 1, 'yy', '2023-10-17');
         """
+        slave_change_counter++
     }
 
     // no window func + on partition col
@@ -313,12 +319,12 @@ suite("cross_join_range_date_increment_create") {
                 sql cur_sql
 
                 def job_name = getJobName(db, mv_name)
-                waitingMTMVTaskFinished(job_name)
+                waitingMTMVTaskFinishedWithoutAnalyze(job_name)
                 compare_res(all_list[i] + " order by 1,2,3,4,5")
 
                 date_change()
                 refresh_mv()
-                waitingMTMVTaskFinished(job_name)
+                waitingMTMVTaskFinishedWithoutAnalyze(job_name)
                 compare_res(all_list[i] + " order by 1,2,3,4,5")
 
                 if (all_list[i] in increment_list) {
@@ -336,12 +342,12 @@ suite("cross_join_range_date_increment_create") {
 
     def sql_all_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12,
                         mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
-    def sql_increment_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7]
+    def sql_increment_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_13]
     def sql_complete_list = []
 
     // change left table data
     // create mv base on left table with partition col
-    def sql_error_list = [mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12, mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
+    def sql_error_list = [mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_part_col, primary_tb_change, is_complete_change)
 
@@ -366,9 +372,9 @@ suite("cross_join_range_date_increment_create") {
 
     // change right table data
     // create mv base on left table with partition col
-    sql_error_list = [mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12, mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
+    sql_error_list = [mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     sql_increment_list = []
-    sql_complete_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7]
+    sql_complete_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_13]
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_part_col, slave_tb_change, is_complete_change)
 
@@ -392,5 +398,120 @@ suite("cross_join_range_date_increment_create") {
                       mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_not_part_col_right, slave_tb_change, is_complete_change)
+
+    // Focused cases the cross-join matrix above cannot express: identity/equality-class partition-key
+    // matching and the global-limit guard. Dedicated tables keep them isolated from the matrix state.
+    sql "drop table if exists identity_left"
+    sql "drop table if exists identity_right"
+    sql """CREATE TABLE identity_left (
+      id BIGINT NULL,
+      score BIGINT NULL,
+      p DATE NOT NULL
+    ) ENGINE=OLAP DUPLICATE KEY(id)
+    auto partition by range (date_trunc(`p`, 'day')) ()
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
+    // identity_right is defined identically to identity_left so only slot/exprId identity, not
+    // catalog Column.equals, can distinguish identity_left.p from identity_right.p
+    sql """CREATE TABLE identity_right (
+      id BIGINT NULL,
+      score BIGINT NULL,
+      p DATE NOT NULL
+    ) ENGINE=OLAP DUPLICATE KEY(id)
+    auto partition by range (date_trunc(`p`, 'day')) ()
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
+    sql """insert into identity_left values (1,10,'2023-10-17'),(2,20,'2023-10-18');"""
+    sql """insert into identity_right values (1,5,'2023-10-17'),(2,50,'2023-10-18');"""
+    sql """analyze table identity_left with sync;"""
+    sql """analyze table identity_right with sync;"""
+
+    def identity_mv = "mv_identity_focus"
+    def drop_identity_mv = {
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${identity_mv};"""
+        sql """DROP TABLE IF EXISTS ${identity_mv};"""
+    }
+
+    // negative: unrelated same-schema column (window partition by identity_right.p, no equality) must be rejected
+    drop_identity_mv()
+    test {
+        sql """
+        CREATE MATERIALIZED VIEW ${identity_mv}
+        BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+        partition by(p)
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS
+        select identity_left.p, identity_left.id,
+        count(identity_right.score) over (partition by identity_right.p order by identity_right.id) as wc
+        from identity_left cross join identity_right
+        """
+        exception "Unable to find a suitable base table for partitioning"
+    }
+
+    // negative: global-limit PartitionTopN (order by rn limit N over a window) is not partition-local
+    drop_identity_mv()
+    test {
+        sql """
+        CREATE MATERIALIZED VIEW ${identity_mv}
+        BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+        partition by(p)
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS
+        select p, id, rn from (
+          select identity_left.p as p, identity_left.id as id,
+          row_number() over (partition by identity_left.p order by identity_left.score desc) as rn
+          from identity_left
+        ) v order by rn limit 5
+        """
+        exception "Unable to find a suitable base table for partitioning"
+    }
+
+    // positive: inner-join equality identity_left.p = identity_right.p accepts window partition by identity_right.p; expect PARTIAL refresh
+    drop_identity_mv()
+    sql """
+    CREATE MATERIALIZED VIEW ${identity_mv}
+    BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+    partition by(p)
+    DISTRIBUTED BY RANDOM BUCKETS 2
+    PROPERTIES ('replication_num' = '1')
+    AS
+    select identity_left.p, identity_left.id,
+    count(identity_right.score) over (partition by identity_right.p order by identity_right.id) as wc
+    from identity_left inner join identity_right on identity_left.p = identity_right.p
+    """
+    def identity_job = getJobName(db, identity_mv)
+    waitingMTMVTaskFinishedWithoutAnalyze(identity_job)
+    sql """insert into identity_left values (100, 999, '2023-10-17');"""
+    sql """refresh MATERIALIZED VIEW ${identity_mv} AUTO"""
+    waitingMTMVTaskFinishedWithoutAnalyze(identity_job)
+    def identity_refresh = sql """select Status, RefreshMode, NeedRefreshPartitions, Progress
+        from tasks("type"="mv") where JobName="${identity_job}" order by CreateTime desc limit 1;"""
+    assert (identity_refresh[0][0] == "SUCCESS")
+    assert (identity_refresh[0][1] == "PARTIAL")
+    assert (identity_refresh[0][2] == "[\"p_20231017_20231018\"]")
+    assert (identity_refresh[0][3] == "100.00% (1/1)")
+
+    // positive: forwarding alias p_alias equals the window key identity_left.p despite a different ExprId
+    drop_identity_mv()
+    sql """
+    CREATE MATERIALIZED VIEW ${identity_mv}
+    BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+    partition by(p_alias)
+    DISTRIBUTED BY RANDOM BUCKETS 2
+    PROPERTIES ('replication_num' = '1')
+    AS
+    select p_alias, id, wc from (
+      select identity_left.p as p_alias, identity_left.id as id,
+      count(identity_left.score) over (partition by identity_left.p order by identity_left.id) as wc
+      from identity_left
+    ) v
+    """
+    def alias_job = getJobName(db, identity_mv)
+    waitingMTMVTaskFinishedWithoutAnalyze(alias_job)
+    def alias_built = sql """select Status from tasks("type"="mv") where JobName="${alias_job}" order by CreateTime desc limit 1;"""
+    assert (alias_built[0][0] == "SUCCESS")
+    drop_identity_mv()
 
 }

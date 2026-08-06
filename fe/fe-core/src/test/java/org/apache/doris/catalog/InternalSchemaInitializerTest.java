@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.ColumnDef;
-import org.apache.doris.analysis.ColumnPosition;
+import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;

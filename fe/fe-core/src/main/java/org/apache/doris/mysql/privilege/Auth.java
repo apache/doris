@@ -30,7 +30,6 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.AuthorizationException;
@@ -45,6 +44,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
@@ -224,6 +224,14 @@ public class Auth implements Writable {
         }
     }
 
+    public boolean requiresCertificateAuth(UserIdentity userIdentity) {
+        return userIdentity != null && userIdentity.hasSanRequirement();
+    }
+
+    public boolean shouldSkipPasswordVerificationAfterCertAuth(UserIdentity userIdentity) {
+        return requiresCertificateAuth(userIdentity) && Config.tls_cert_based_auth_ignore_password;
+    }
+
     public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
             List<UserIdentity> currentUser) throws AuthenticationException {
         // Check the LDAP password when the user exists in the LDAP service.
@@ -242,16 +250,48 @@ public class Auth implements Writable {
         }
     }
 
+    public void checkPlainPasswordForUserIdentity(UserIdentity userIdentity, String remotePasswd,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        readLock();
+        try {
+            userManager.checkPlainPasswordForUserIdentity(userIdentity, remotePasswd, currentUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public void checkPasswordForUserIdentity(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        readLock();
+        try {
+            userManager.checkPasswordForUserIdentity(userIdentity, remotePasswd, randomString, currentUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public Set<Role> getRolesByUserWithLdap(UserIdentity userIdentity) {
         Set<Role> roles = Sets.newHashSet();
         Set<String> roleNames = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roleNames) {
-            roles.add(roleManager.getRole(roleName));
+            Role role = roleManager.getRole(roleName);
+            if (role != null) {
+                roles.add(role);
+            }
         }
         if (isLdapAuthEnabled()) {
             Set<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
             if (!CollectionUtils.isEmpty(ldapRoles)) {
                 roles.addAll(ldapRoles);
+            }
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity())) {
+            for (String roleName : ctx.getAuthenticatedRoles()) {
+                Role role = roleManager.getRole(roleName);
+                if (role != null) {
+                    roles.add(role);
+                }
             }
         }
         return roles;
@@ -270,6 +310,18 @@ public class Auth implements Writable {
     }
 
     public List<UserIdentity> getUserIdentityForLdap(String remoteUser, String remoteHost) {
+        return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
+    }
+
+    public List<UserIdentity> getUserIdentityForExternalAuth(String remoteUser, String remoteHost) {
+        return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
+    }
+
+    public boolean doesUserExist(String remoteUser, String remoteHost) {
+        return !userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost).isEmpty();
+    }
+
+    public List<UserIdentity> getCandidateUserIdentities(String remoteUser, String remoteHost) {
         return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
     }
 
@@ -535,6 +587,8 @@ public class Auth implements Writable {
             }
             // other user properties
             propertyMgr.addUserResource(userIdent.getQualifiedUser());
+            MetricRepo.updateUserConnectionMaxMetric(this, userIdent.getQualifiedUser(),
+                    propertyMgr.getMaxConn(userIdent.getQualifiedUser()));
 
             // 5. update password policy
             passwdPolicyManager.updatePolicy(userIdent, password, passwordOptions);
@@ -565,7 +619,7 @@ public class Auth implements Writable {
     private void dropUserInternal(UserIdentity userIdent, boolean ignoreIfNonExists, boolean isReplay)
             throws DdlException {
         writeLock();
-        String mysqlUserName = ClusterNamespace.getNameFromFullName(userIdent.getUser());
+        String mysqlUserName = userIdent.getUser();
         String toDropMysqlUserId;
         try {
             // check if user exists
@@ -589,6 +643,7 @@ public class Auth implements Writable {
             userManager.removeUser(userIdent);
             if (CollectionUtils.isEmpty(userManager.getUserByName(userIdent.getQualifiedUser()))) {
                 propertyMgr.dropUser(userIdent);
+                MetricRepo.removeUserConnectionMaxMetric(this, userIdent.getQualifiedUser());
             }
 
             if (!isReplay) {
@@ -1142,6 +1197,7 @@ public class Auth implements Writable {
         writeLock();
         try {
             propertyMgr.updateUserProperty(user, properties, isReplay);
+            MetricRepo.updateUserConnectionMaxMetric(this, user, propertyMgr.getMaxConn(user));
             if (!isReplay) {
                 UserPropertyInfo propertyInfo = new UserPropertyInfo(user, properties);
                 Env.getCurrentEnv().getEditLog().logUpdateUserProperty(propertyInfo);
@@ -1162,6 +1218,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getMaxConn(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Map<String, Long> getMaxConnForAllUsers() {
+        readLock();
+        try {
+            return propertyMgr.getMaxConnForAllUsers();
         } finally {
             readUnlock();
         }
@@ -1338,9 +1403,9 @@ public class Auth implements Writable {
         List<String> userAuthInfo = Lists.newArrayList();
         // ================= UserIdentity =======================
         userAuthInfo.add(userIdent.toString());
-        String requireSan = Strings.isNullOrEmpty(userIdent.getSan())
+        String requireSan = Strings.isNullOrEmpty(userIdent.getSanRequirementSql())
                 ? FeConstants.null_string
-                : userIdent.getSan();
+                : userIdent.getSanRequirementSql();
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdent.getQualifiedUser())) {
             // ============== Comment ==============
             userAuthInfo.add(FeConstants.null_string);
@@ -1718,7 +1783,7 @@ public class Auth implements Writable {
                         }
                         for (PrivEntry entry : tablePrivTable.getEntries()) {
                             TablePrivEntry tablePrivEntry = (TablePrivEntry) entry;
-                            String dbName = ClusterNamespace.getNameFromFullName(tablePrivEntry.getOrigDb());
+                            String dbName = tablePrivEntry.getOrigDb();
                             String tblName = tablePrivEntry.getOrigTbl();
                             // Don't show privileges in information_schema
                             if (InfoSchemaDb.DATABASE_NAME.equals(dbName)
@@ -1728,8 +1793,7 @@ public class Auth implements Writable {
                             }
 
                             String grantee = new String("\'")
-                                    .concat(ClusterNamespace
-                                            .getNameFromFullName(user.getUserIdentity().getQualifiedUser()))
+                                    .concat(user.getUserIdentity().getQualifiedUser())
                                     .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                             String isGrantable = tablePrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
                             for (Privilege priv : tablePrivEntry.getPrivSet().toPrivilegeList()) {
@@ -1770,7 +1834,7 @@ public class Auth implements Writable {
                         for (PrivEntry entry : dbPrivTable.getEntries()) {
                             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
                             String origDb = dbPrivEntry.getOrigDb();
-                            String dbName = ClusterNamespace.getNameFromFullName(dbPrivEntry.getOrigDb());
+                            String dbName = dbPrivEntry.getOrigDb();
                             // Don't show privileges in information_schema
                             if (InfoSchemaDb.DATABASE_NAME.equals(dbName)
                                     || !checkDbPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, origDb,
@@ -1779,8 +1843,7 @@ public class Auth implements Writable {
                             }
 
                             String grantee = new String("\'")
-                                    .concat(ClusterNamespace
-                                            .getNameFromFullName(user.getUserIdentity().getQualifiedUser()))
+                                    .concat(user.getUserIdentity().getQualifiedUser())
                                     .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                             String isGrantable = dbPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
                             for (Privilege priv : dbPrivEntry.getPrivSet().toPrivilegeList()) {
@@ -1825,7 +1888,7 @@ public class Auth implements Writable {
                             continue;
                         }
                         String grantee = new String("\'")
-                                .concat(ClusterNamespace.getNameFromFullName(user.getUserIdentity().getQualifiedUser()))
+                                .concat(user.getUserIdentity().getQualifiedUser())
                                 .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                         String isGrantable = privEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
                         for (Privilege globalPriv : privEntry.getPrivSet().toPrivilegeList()) {

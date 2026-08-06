@@ -59,8 +59,13 @@ public class MysqlOkPacket extends MysqlPacket {
             // if ((STATUS_FLAGS & MysqlStatusFlag.SERVER_SESSION_STATE_CHANGED) != 0) {
             // }
         } else {
-            if (!Strings.isNullOrEmpty(infoMessage)) {
-                // NOTE: in datasheet, use EOF string, but in the code, mysql use length encoded string
+            // Always write the info field as a length-encoded string.
+            // When CLIENT_DEPRECATE_EOF is negotiated, the driver's OkPacket.parse()
+            // unconditionally reads STRING_LENENC for info, so an empty string must
+            // still be written (as a single 0x00 byte representing length 0).
+            if (Strings.isNullOrEmpty(infoMessage)) {
+                serializer.writeVInt(0);
+            } else {
                 serializer.writeLenEncodedString(infoMessage);
             }
         }

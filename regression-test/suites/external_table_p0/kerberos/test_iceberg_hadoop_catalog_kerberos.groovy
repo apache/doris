@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_hadoop_catalog_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
+suite("test_iceberg_hadoop_catalog_kerberos", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return
@@ -34,7 +34,6 @@ suite("test_iceberg_hadoop_catalog_kerberos", "p0,external,kerberos,external_doc
             'type'='iceberg',
             'iceberg.catalog.type' = 'hadoop',
             'warehouse' = 'hdfs://${externalEnvIp}:8520/tmp/iceberg/catalog',
-            "io-impl" = "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO",
             "hadoop.security.authentication" = "kerberos",
             "hadoop.security.auth_to_local" = "RULE:[2:\$1@\$0](.*@LABS.TERADATA.COM)s/@.*//
                                                RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
@@ -44,7 +43,11 @@ suite("test_iceberg_hadoop_catalog_kerberos", "p0,external,kerberos,external_doc
             "hadoop.kerberos.min.seconds.before.relogin" = "5",
             "hadoop.kerberos.keytab.login.autorenewal.enabled" = "false",
               "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab",
-            "fs.defaultFS" = "hdfs://${externalEnvIp}:8520"
+            "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+            "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+            "dfs.client.use.datanode.hostname" = "true",
+            "hadoop.security.token.service.use_ip" = "false",
+            "dfs.data.transfer.protection" = "authentication"
             ); 
         """
 

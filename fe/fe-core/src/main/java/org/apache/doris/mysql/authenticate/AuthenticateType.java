@@ -31,6 +31,7 @@ public enum AuthenticateType {
         }
         switch (Config.authentication_type.toLowerCase()) {
             case "default":
+            case "password":
                 return DEFAULT;
             case "ldap":
                 return LDAP;
@@ -50,6 +51,7 @@ public enum AuthenticateType {
 
         switch (authType) {
             case "default":
+            case "password":
                 return DEFAULT.toString();
             case "ldap":
                 return LDAP.toString();

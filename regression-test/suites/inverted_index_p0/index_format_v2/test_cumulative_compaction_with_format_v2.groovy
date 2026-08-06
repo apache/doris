@@ -77,7 +77,7 @@ suite("test_cumulative_compaction_with_format_v2", "inverted_index_format_v2") {
         backend_id = backendId_to_backendIP.keySet()[0]
         StringBuilder showConfigCommand = new StringBuilder();
         Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
-        def protocol = enableTls ? "https" : "http" 
+        def protocol = enableTls ? "https" : "http"
         showConfigCommand.append("curl -X GET ${protocol}://")
         showConfigCommand.append(backendId_to_backendIP.get(backend_id))
         showConfigCommand.append(":")
@@ -165,7 +165,7 @@ suite("test_cumulative_compaction_with_format_v2", "inverted_index_format_v2") {
             """
 
         sql """ sync """
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         qt_select_default """ SELECT * FROM ${tableName} t WHERE city MATCH 'Beijing' ORDER BY user_id,date,city,age,sex,last_visit_date,last_update_date,last_visit_date_not_null,cost,max_dwell_time,min_dwell_time; """
 

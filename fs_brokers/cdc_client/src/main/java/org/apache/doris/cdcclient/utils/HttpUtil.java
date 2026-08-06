@@ -31,6 +31,10 @@ public class HttpUtil {
     private static int socketTimeout = 10 * 60 * 1000; // stream load timeout 10 min
 
     public static CloseableHttpClient getHttpClient() {
+        return getHttpClient(socketTimeout);
+    }
+
+    public static CloseableHttpClient getHttpClient(int socketTimeoutMs) {
         return HttpClients.custom()
                 // default timeout 3s, maybe report 307 error when fe busy
                 .setRequestExecutor(new HttpRequestExecutor(waitForContinueTimeout))
@@ -47,9 +51,13 @@ public class HttpUtil {
                         RequestConfig.custom()
                                 .setConnectTimeout(connectTimeout)
                                 .setConnectionRequestTimeout(connectTimeout)
-                                .setSocketTimeout(socketTimeout)
+                                .setSocketTimeout(socketTimeoutMs)
                                 .build())
                 .addInterceptorLast(new RequestContent(true))
                 .build();
+    }
+
+    public static String getAuthHeader() {
+        return "Basic YWRtaW46";
     }
 }

@@ -2,7 +2,9 @@ create database if not exists multi_catalog;
 
 use multi_catalog;
 
-CREATE TABLE `special_character_1_partition`(
+drop table if exists `special_character_1_partition`;
+
+create table `special_character_1_partition`(
   `name` string)
 PARTITIONED BY ( 
   `part` string)

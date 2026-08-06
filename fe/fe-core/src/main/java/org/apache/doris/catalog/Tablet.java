@@ -27,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TTabletCopyType;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.HashMultimap;
@@ -206,6 +207,7 @@ public abstract class Tablet {
     // return map of (BE id -> path hash) of normal replicas
     // for load plan.
     public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
+        TabletSlidingWindowAccessStats.recordTablet(getId());
         return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> rep.getBackendId());
     }
 
@@ -222,6 +224,7 @@ public abstract class Tablet {
         List<Replica> mayMissingVersionReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> notCatchupReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> userDropReplica = Lists.newArrayListWithCapacity(replicaNum);
+        TabletSlidingWindowAccessStats.recordTablet(getId());
 
         for (Replica replica : replicas) {
             if (replica.isBad()) {
@@ -339,6 +342,16 @@ public abstract class Tablet {
 
     public long getRemoteDataSize() {
         return 0;
+    }
+
+    public long getBinlogDataSize() {
+        long binlogDataSize = 0;
+        for (Replica replica : getReplicas()) {
+            if (replica.getState() == ReplicaState.NORMAL) {
+                binlogDataSize += replica.getBinlogSize();
+            }
+        }
+        return binlogDataSize;
     }
 
     public abstract long getRowCount(boolean singleReplica);
@@ -717,5 +730,27 @@ public abstract class Tablet {
 
     public void setLastCheckTime(long lastCheckTime) {
         throw new UnsupportedOperationException("setLastCheckTime is not supported in Tablet");
+    }
+
+    public static class CopyType {
+        public static final int DEFAULT = TTabletCopyType.DATA.getValue()
+                | TTabletCopyType.CCR_BINLOG.getValue();
+
+        public static boolean has(int copyType, TTabletCopyType type) {
+            return (copyType & type.getValue()) != 0;
+        }
+
+        public static void validate(int copyType) {
+            if (copyType <= 0 || (copyType & ~allTypes()) != 0) {
+                throw new IllegalArgumentException(
+                        "invalid copy_type bitmask: " + copyType + ", valid bits: " + allTypes());
+            }
+        }
+
+        private static int allTypes() {
+            return TTabletCopyType.DATA.getValue()
+                    | TTabletCopyType.ROW_BINLOG.getValue()
+                    | TTabletCopyType.CCR_BINLOG.getValue();
+        }
     }
 }

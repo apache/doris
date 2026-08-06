@@ -60,6 +60,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Month;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -465,6 +466,8 @@ public class DynamicPartitionUtil {
         String createHistoryPartition = properties.get(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
         String historyPartitionNum = properties.get(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
         String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
+        String storagePolicy = properties.get(DynamicPartitionProperty.STORAGE_POLICY);
+        String storageMedium = properties.get(DynamicPartitionProperty.STORAGE_MEDIUM);
 
         if (!(Strings.isNullOrEmpty(enable)
                 && Strings.isNullOrEmpty(timeUnit)
@@ -475,7 +478,9 @@ public class DynamicPartitionUtil {
                 && Strings.isNullOrEmpty(buckets)
                 && Strings.isNullOrEmpty(createHistoryPartition)
                 && Strings.isNullOrEmpty(historyPartitionNum)
-                && Strings.isNullOrEmpty(reservedHistoryPeriods))) {
+                && Strings.isNullOrEmpty(reservedHistoryPeriods)
+                && Strings.isNullOrEmpty(storagePolicy)
+                && Strings.isNullOrEmpty(storageMedium))) {
             if (Strings.isNullOrEmpty(enable)) {
                 properties.put(DynamicPartitionProperty.ENABLE, "true");
             }
@@ -641,10 +646,17 @@ public class DynamicPartitionUtil {
         }
         expectCreatePartitionNum = (long) end - start;
 
-        if (!isReplay && hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)
+        int dynamicPartitionLimit = Config.max_dynamic_partition_num;
+        if (!isReplay && hasEnd
                 && Boolean.parseBoolean(analyzedProperties.getOrDefault(DynamicPartitionProperty.ENABLE, "true"))) {
-            throw new DdlException("Too many dynamic partitions: "
-                    + expectCreatePartitionNum + ". Limit: " + Config.max_dynamic_partition_num);
+            if (expectCreatePartitionNum > dynamicPartitionLimit) {
+                throw new DdlException("Too many dynamic partitions: "
+                        + expectCreatePartitionNum + ". Limit: " + dynamicPartitionLimit);
+            } else if (expectCreatePartitionNum > dynamicPartitionLimit * 8L / 10) {
+                LOG.warn("Dynamic partition count {} is approaching limit {} (>80%)."
+                        + " Consider increasing max_dynamic_partition_num.",
+                        expectCreatePartitionNum, dynamicPartitionLimit);
+            }
         }
 
         if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH)) {
@@ -829,25 +841,33 @@ public class DynamicPartitionUtil {
     }
 
     // return the partition range date string formatted as yyyy-MM-dd[ HH:mm::ss]
+    // When current is UTC-based (e.g. for TIMESTAMPTZ columns), the result
+    // carries a +00:00 suffix so downstream TimestampTzLiteral parsing treats
+    // it as an unambiguous UTC instant.
     public static String getPartitionRangeString(DynamicPartitionProperty property, ZonedDateTime current,
                                                  int offset, String format) {
         String timeUnit = property.getTimeUnit();
+        String result;
         if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
-            return getPartitionRangeOfDay(current, offset, format);
+            result = getPartitionRangeOfDay(current, offset, format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.WEEK.toString())) {
-            return getPartitionRangeOfWeek(current, offset, property.getStartOfWeek(), format);
+            result = getPartitionRangeOfWeek(current, offset, property.getStartOfWeek(), format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
-            return getPartitionRangeOfHour(current, offset, format);
+            result = getPartitionRangeOfHour(current, offset, format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString())) {
-            return getPartitionRangeOfMonth(current, offset, property.getStartOfMonth(), format);
+            result = getPartitionRangeOfMonth(current, offset, property.getStartOfMonth(), format);
         } else { // YEAR
-            return getPartitionRangeOfYear(current, offset, format);
+            result = getPartitionRangeOfYear(current, offset, format);
         }
+        if (current.getZone().equals(ZoneOffset.UTC)) {
+            result += "+00:00";
+        }
+        return result;
     }
 
     public static String getHistoryPartitionRangeString(DynamicPartitionProperty dynamicPartitionProperty,
-            String time, String format) throws AnalysisException {
-        ZoneId zoneId = dynamicPartitionProperty.getTimeZone().toZoneId();
+            String time, String format, boolean isTimestampTz) throws AnalysisException {
+        ZoneId zoneId = isTimestampTz ? ZoneOffset.UTC : dynamicPartitionProperty.getTimeZone().toZoneId();
         LocalDateTime dateTime = null;
         Timestamp timestamp = null;
         String timeUnit = dynamicPartitionProperty.getTimeUnit();
@@ -859,8 +879,12 @@ public class DynamicPartitionUtil {
             throw new AnalysisException("Parse dynamic partition periods error. Error=" + e.getMessage());
         }
         timestamp = Timestamp.valueOf(dateTime);
-        return getFormattedTimeWithoutMinuteSecond(
+        String result = getFormattedTimeWithoutMinuteSecond(
                 ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
+        if (isTimestampTz) {
+            result += "+00:00";
+        }
+        return result;
     }
 
     private static LocalDateTime getDateTimeByTimeUnit(String time, String timeUnit) {

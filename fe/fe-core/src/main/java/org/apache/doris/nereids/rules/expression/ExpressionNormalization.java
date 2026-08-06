@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.rules.expression.rules.BitmapCountToBitmapOpCount;
 import org.apache.doris.nereids.rules.expression.rules.ConcatWsMultiArrayToOne;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.DigitalMaskingConvert;
@@ -29,7 +30,7 @@ import org.apache.doris.nereids.rules.expression.rules.LogToLn;
 import org.apache.doris.nereids.rules.expression.rules.MedianConvert;
 import org.apache.doris.nereids.rules.expression.rules.MergeDateTrunc;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
-import org.apache.doris.nereids.rules.expression.rules.NormalizeStructElement;
+import org.apache.doris.nereids.rules.expression.rules.NormalizeElementAt;
 import org.apache.doris.nereids.rules.expression.rules.RewriteDefaultExpression;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticComparisonRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
@@ -74,9 +75,10 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 SimplifyArithmeticComparisonRule.INSTANCE,
                 ConvertAggStateCast.INSTANCE,
                 MergeDateTrunc.INSTANCE,
-                NormalizeStructElement.INSTANCE,
+                NormalizeElementAt.INSTANCE,
                 CheckCast.INSTANCE,
-                SimplifyEqualBooleanLiteral.INSTANCE
+                SimplifyEqualBooleanLiteral.INSTANCE,
+                BitmapCountToBitmapOpCount.INSTANCE
             )
     );
 

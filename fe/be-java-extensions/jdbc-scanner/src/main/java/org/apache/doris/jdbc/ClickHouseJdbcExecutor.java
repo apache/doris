@@ -34,6 +34,10 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * @deprecated Use {@link ClickHouseTypeHandler} instead.
+ */
+@Deprecated
 public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
 
     public ClickHouseJdbcExecutor(byte[] thriftParams) throws Exception {

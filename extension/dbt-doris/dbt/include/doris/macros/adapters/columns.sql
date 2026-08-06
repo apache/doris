@@ -17,21 +17,34 @@
 
 {% macro doris__get_columns_in_relation(relation) -%}
     {% call statement('get_columns_in_relation', fetch_result=True) %}
-        select column_name              as `column`,
-       data_type                as 'dtype',
-       character_maximum_length as char_size,
-       numeric_precision,
-       numeric_scale
-from information_schema.columns
-where table_schema = '{{ relation.schema }}'
-  and table_name = '{{ relation.identifier }}'
+        select column_name  as `column`,
+               column_type  as `dtype`,
+               character_maximum_length as char_size,
+               numeric_precision,
+               numeric_scale
+        from information_schema.columns
+        where table_schema = '{{ relation.schema }}'
+          and table_name = '{{ relation.identifier }}'
+        order by ordinal_position
     {% endcall %}
     {% set table = load_result('get_columns_in_relation').table %}
     {{ return(sql_convert_columns_in_relation(table)) }}
 {%- endmacro %}
 
-{% macro doris__alter_column_type(relation,column_name,new_column_type) -%}
-'''Changes column name or data type'''
+{% macro sql_convert_columns_in_relation(table) -%}
+    {% set columns = [] %}
+    {% for row in table %}
+        {% set col_name = row['column'] %}
+        {% set col_type = row['dtype'] %}
+        {% do columns.append(api.Column.create(col_name, col_type)) %}
+    {% endfor %}
+    {{ return(columns) }}
+{%- endmacro %}
+
+{% macro doris__alter_column_type(relation, column_name, new_column_type) -%}
+    {% call statement('alter_column_type') %}
+        alter table {{ relation }} modify column {{ column_name }} {{ new_column_type }}
+    {% endcall %}
 {% endmacro %}
 
 {% macro columns_and_constraints(table_type="table") %}
@@ -55,3 +68,23 @@ where table_schema = '{{ relation.schema }}'
   {{ return(columns_and_constraints("view")) }}
 {%- endmacro %}
 
+{% macro doris__alter_relation_comment(relation, relation_comment) -%}
+    {#-- Views do not support MODIFY COMMENT, only tables do --#}
+    {% if relation.type != 'view' %}
+        {% call statement('alter_relation_comment') %}
+            alter table {{ relation }} modify comment '{{ relation_comment }}'
+        {% endcall %}
+    {% endif %}
+{% endmacro %}
+
+{% macro doris__alter_column_comment(relation, column_dict) -%}
+    {#-- Views do not support MODIFY COLUMN COMMENT; column comments for views
+         are set at CREATE VIEW time via column definitions --#}
+    {% if relation.type != 'view' %}
+        {% for column_name, column_comment in column_dict.items() %}
+            {% call statement('alter_column_comment') %}
+                alter table {{ relation }} modify column `{{ column_name }}` comment '{{ column_comment }}'
+            {% endcall %}
+        {% endfor %}
+    {% endif %}
+{% endmacro %}

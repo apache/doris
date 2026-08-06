@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

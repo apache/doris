@@ -30,22 +30,19 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
@@ -146,11 +143,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     }
 
     @Override
-    public PhysicalProperties visitPhysicalEsScan(PhysicalEsScan esScan, PlanContext context) {
-        return PhysicalProperties.STORAGE_ANY;
-    }
-
-    @Override
     public PhysicalProperties visitPhysicalFileScan(PhysicalFileScan fileScan, PlanContext context) {
         return PhysicalProperties.STORAGE_ANY;
     }
@@ -158,21 +150,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalWorkTableReference(PhysicalWorkTableReference cteScan, PlanContext context) {
         return PhysicalProperties.ANY;
-    }
-
-    /**
-     * TODO return ANY after refactor coordinator
-     * return STORAGE_ANY not ANY, in order to generate distribute on jdbc scan.
-     * select * from (select * from external.T) as A union all (select * from external.T)
-     * if visitPhysicalJdbcScan returns ANY, the plan is
-     * union
-     *  |--- JDBCSCAN
-     *  +--- JDBCSCAN
-     *  this breaks coordinator assumption that one fragment has at most only one scan.
-     */
-    @Override
-    public PhysicalProperties visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanContext context) {
-        return PhysicalProperties.STORAGE_ANY;
     }
 
     @Override
@@ -187,12 +164,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             return PhysicalProperties.GATHER;
         }
         return new PhysicalProperties(olapScan.getDistributionSpec());
-    }
-
-    @Override
-    public PhysicalProperties visitPhysicalDeferMaterializeOlapScan(
-            PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan, PlanContext context) {
-        return visitPhysicalOlapScan(deferMaterializeOlapScan.getPhysicalOlapScan(), context);
     }
 
     @Override
@@ -224,6 +195,18 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
         }
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> agg, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        // Although bucketed agg internally re-distributes data into 256 buckets by
+        // group-by keys (so the output is "complete" per group), we cannot claim
+        // EXECUTION_BUCKETED distribution because the 256-bucket hash function differs
+        // from the shuffle hash function. Downstream operators expecting shuffle-compatible
+        // distribution would be incorrect. Preserve distribution ANY.
+        return PhysicalProperties.ANY;
     }
 
     @Override
@@ -440,7 +423,14 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             Preconditions.checkState(childDistSpec instanceof DistributionSpecHash,
                     "child dist spec is not hash spec");
 
-            return new PhysicalProperties(childDistSpec, new OrderSpec(partitionTopN.getOrderKeys()));
+            // Declare the delivered order via getOutputOrderKeys() (= [partitionKeys, orderKeys]), NOT
+            // getOrderKeys() (= orderKeys only). getOrderKeys() is the executable sort key list sent to BE, from
+            // which order keys that duplicate a partition key are pruned (they are constant within each partition,
+            // so sorting on them is redundant). The two-phase-global output order property, however, must remain
+            // the full [partitionKeys, orderKeys] -- the same order this node declared before that pruning split.
+            // Keeping it full stays in lockstep with the parent window's required order (RequestPropertyDeriver),
+            // so OrderSpec.satisfy passes and no redundant sort enforcer is inserted above this PartitionTopN.
+            return new PhysicalProperties(childDistSpec, new OrderSpec(partitionTopN.getOutputOrderKeys()));
         }
     }
 
@@ -459,10 +449,40 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             return PhysicalProperties.GATHER;
         }
 
-        int distributeToChildIndex
-                = setOperation.<Integer>getMutableState(PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX).orElse(-1);
-        if (distributeToChildIndex >= 0
-                && childrenDistribution.get(distributeToChildIndex) instanceof DistributionSpecHash) {
+        // After ChildrenPropertiesRegulator the children distributions are already legal, so the
+        // output is derived by describing what the children provide:
+        // 1. one or more NATURAL children: output the first NATURAL child's distribution
+        //    (several NATURAL children behave like colocate);
+        // 2. no NATURAL but some STORAGE_BUCKETED child: output its STORAGE_BUCKETED distribution;
+        // 3. all EXECUTION_BUCKETED children: output the execution hash (the generic loop below);
+        // 4. anything else (e.g. random): output a non-specific property (also below).
+        // When the basic child does not directly output its shuffle columns, or the children do
+        // not agree, this falls through to the generic loop below, which is equivalence-set aware
+        // and checks that every child maps its shuffle columns to the same set-operation output
+        // positions before it claims a bucketed output. The basic child is recomputed from the
+        // children distributions instead of being carried as mutable planner state, because mutable
+        // state does not survive the with-copies in chooseBestPlan() and the
+        // RecomputePhysicalPropertiesPostProcessor re-derivation, while this recomputation is
+        // deterministic on any copy of the plan.
+        int distributeToChildIndex = -1;
+        int firstStorageBucketedIndex = -1;
+        for (int i = 0; i < childrenDistribution.size(); i++) {
+            if (childrenDistribution.get(i) instanceof DistributionSpecHash) {
+                ShuffleType childShuffleType
+                        = ((DistributionSpecHash) childrenDistribution.get(i)).getShuffleType();
+                if (childShuffleType == ShuffleType.NATURAL) {
+                    distributeToChildIndex = i;
+                    break;
+                } else if (childShuffleType == ShuffleType.STORAGE_BUCKETED
+                        && firstStorageBucketedIndex < 0) {
+                    firstStorageBucketedIndex = i;
+                }
+            }
+        }
+        if (distributeToChildIndex < 0) {
+            distributeToChildIndex = firstStorageBucketedIndex;
+        }
+        if (distributeToChildIndex >= 0) {
             DistributionSpecHash childDistribution
                     = (DistributionSpecHash) childrenDistribution.get(distributeToChildIndex);
             List<SlotReference> childToIndex = setOperation.getRegularChildrenOutputs().get(distributeToChildIndex);
@@ -482,27 +502,23 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             }
             // check whether the set operation output all distribution columns of the child
             if (setOperationDistributeColumnIds.size() == orderedShuffledColumns.size()) {
-                boolean isUnion = setOperation instanceof Union;
-                boolean shuffleToRight = distributeToChildIndex > 0;
-                if (!isUnion && shuffleToRight) {
-                    return new PhysicalProperties(
-                            new DistributionSpecHash(
-                                    setOperationDistributeColumnIds,
-                                    ShuffleType.EXECUTION_BUCKETED
-                            )
-                    );
-                } else {
-                    // keep the distribution as the child
-                    return new PhysicalProperties(
-                            new DistributionSpecHash(
-                                    setOperationDistributeColumnIds,
-                                    childDistribution.getShuffleType(),
-                                    childDistribution.getTableId(),
-                                    childDistribution.getSelectedIndexId(),
-                                    childDistribution.getPartitionIds()
-                            )
-                    );
-                }
+                // Keep the basic child's specific storage layout as the set operation output. When
+                // the basic child is on the right (shuffleToRight) the output rows are physically
+                // placed by the right child's storage bucket function, so advertising that layout is
+                // truthful: a parent can co-locate this set operation against the same layout, while
+                // a sibling on a different layout is re-aligned rather than wrongly co-located. (The
+                // earlier "Can not find tablet ... in the bucket" failure came from advertising a
+                // layout-less EXECUTION_BUCKETED here, which erased the table id so two different-
+                // layout set operations looked co-locatable; preserving the layout fixes that.)
+                return new PhysicalProperties(
+                        new DistributionSpecHash(
+                                setOperationDistributeColumnIds,
+                                childDistribution.getShuffleType(),
+                                childDistribution.getTableId(),
+                                childDistribution.getSelectedIndexId(),
+                                childDistribution.getPartitionIds()
+                        )
+                );
             }
         }
 
@@ -600,6 +616,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         switch (hashJoin.getJoinType()) {
             case INNER_JOIN:
             case CROSS_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
                 if (shuffleSide == ShuffleSide.LEFT) {
                     return new PhysicalProperties(
                             DistributionSpecHash.merge(rightHashSpec, leftHashSpec, outputShuffleType)
@@ -620,6 +638,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case LEFT_ANTI_JOIN:
             case NULL_AWARE_LEFT_ANTI_JOIN:
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 if (shuffleSide == ShuffleSide.LEFT || shuffleSide == ShuffleSide.BOTH) {
                     return new PhysicalProperties(
                             leftHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
@@ -632,6 +651,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 if (shuffleSide == ShuffleSide.RIGHT || shuffleSide == ShuffleSide.BOTH) {
                     return new PhysicalProperties(
                             rightHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
@@ -668,6 +688,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
         switch (hashJoin.getJoinType()) {
             case INNER_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
             case CROSS_JOIN:
                 return new PhysicalProperties(DistributionSpecHash.merge(
                         leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
@@ -675,10 +697,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case LEFT_ANTI_JOIN:
             case NULL_AWARE_LEFT_ANTI_JOIN:
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 return new PhysicalProperties(leftHashSpec);
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
                     return new PhysicalProperties(rightHashSpec);
                 } else {

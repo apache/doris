@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS date_dim (
     d_current_year char(1)
 )
 UNIQUE KEY(d_date_sk)
-CLUSTER BY(d_date_id, d_date_sk, d_date)
+ORDER BY(d_date_id, d_date_sk, d_date)
 DISTRIBUTED BY HASH(d_date_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

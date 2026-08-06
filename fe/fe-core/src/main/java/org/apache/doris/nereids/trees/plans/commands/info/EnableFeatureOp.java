@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
@@ -107,7 +107,7 @@ public class EnableFeatureOp extends AlterTableOp {
         sb.append("ENABLE FEATURE \"").append(featureName).append("\"");
         if (properties != null && !properties.isEmpty()) {
             sb.append(" WITH PROPERTIES (");
-            sb.append(new PrintableMap<String, String>(properties, "=", true, false));
+            sb.append(new DatasourcePrintableMap<String, String>(properties, "=", true, false));
             sb.append(")");
         }
         return sb.toString();

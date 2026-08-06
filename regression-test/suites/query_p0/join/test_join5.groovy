@@ -101,6 +101,8 @@ suite("test_join5", "query,p0") {
             where f2 = 53;
         """
 
+    // Avoid exposing a dangling view to concurrent information_schema scans.
+    sql "DROP VIEW IF EXISTS ${tbName7};"
     sql "DROP TABLE IF EXISTS ${tbName4};"
     sql "DROP TABLE IF EXISTS ${tbName5};"
     sql "DROP TABLE IF EXISTS ${tbName6};"

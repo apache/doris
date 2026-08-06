@@ -124,8 +124,7 @@ suite("test_query_sys_tables", "query,p0") {
         DISTRIBUTED BY HASH(`a`) BUCKETS 1 
         PROPERTIES (
             "replication_num" = "1",
-            "disable_auto_compaction" = "true",
-            "enable_single_replica_compaction"="true"
+            "disable_auto_compaction" = "true"
         );"""
     
     sql """ GRANT SELECT_PRIV,ALTER_PRIV,LOAD_PRIV ON table_privileges_demo.test_table_privileges  TO 'cywtable'@'%'; """

@@ -18,7 +18,9 @@
 package org.apache.doris.task;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.thrift.TAlterInvertedIndexReq;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TOlapTableIndex;
@@ -106,7 +108,7 @@ public class AlterInvertedIndexTask extends AgentTask {
         if (!alterInvertedIndexes.isEmpty()) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();
             for (Index index : alterInvertedIndexes) {
-                tIndexes.add(index.toThrift(index.getColumnUniqueIds(schemaColumns)));
+                tIndexes.add(IndexToThriftConvertor.toThrift(index, schemaColumns));
             }
             req.setAlterInvertedIndexes(tIndexes);
         }
@@ -114,7 +116,8 @@ public class AlterInvertedIndexTask extends AgentTask {
         if (existIndexes != null) {
             List<TOlapTableIndex> indexDesc = new ArrayList<TOlapTableIndex>();
             for (Index index : existIndexes) {
-                TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(schemaColumns));
+                TOlapTableIndex tIndex = IndexToThriftConvertor.toThrift(
+                        index, schemaColumns);
                 indexDesc.add(tIndex);
             }
             req.setIndexesDesc(indexDesc);
@@ -123,7 +126,7 @@ public class AlterInvertedIndexTask extends AgentTask {
         if (schemaColumns != null) {
             List<TColumn> columns = new ArrayList<TColumn>();
             for (Column column : schemaColumns) {
-                columns.add(column.toThrift());
+                columns.add(ColumnToThrift.toThrift(column));
             }
             req.setColumns(columns);
         }

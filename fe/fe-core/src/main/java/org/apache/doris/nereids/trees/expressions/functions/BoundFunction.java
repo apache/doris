@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -26,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.LazyCompute;
-import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 import java.util.Objects;
@@ -61,7 +61,7 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     @Override
     public String getExpressionName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
+            this.exprName = Optional.of(NameFormatUtils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
         }
         return this.exprName.get();
     }
@@ -92,6 +92,20 @@ public abstract class BoundFunction extends Function implements ComputeSignature
         for (int i = 0; i < arity; i++) {
             Expression arg = child(i);
             sql.append(arg.toSql());
+            if (i + 1 < arity) {
+                sql.append(", ");
+            }
+        }
+        return sql.append(")").toString();
+    }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder sql = new StringBuilder(getName()).append("(");
+        int arity = arity();
+        for (int i = 0; i < arity; i++) {
+            Expression arg = child(i);
+            sql.append(arg.shapeInfo());
             if (i + 1 < arity) {
                 sql.append(", ");
             }
@@ -155,4 +169,8 @@ public abstract class BoundFunction extends Function implements ComputeSignature
             });
         }
     }
+
+    //public void rebuildSignature() {
+    //    this.signatureCache = buildSignatureCache(null);
+    //}
 }

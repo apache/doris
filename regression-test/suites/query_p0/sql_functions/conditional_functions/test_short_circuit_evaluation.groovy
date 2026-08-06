@@ -655,4 +655,13 @@ suite("test_short_circuit_evaluation") {
 
     // Clean up
     sql "DROP TABLE IF EXISTS test_short_circuit_eval;"
+
+
+    sql """
+        set short_circuit_evaluation = true;
+    """
+
+    qt_with_array_map"""
+        select if(number < 3 , null, array_map(x -> x * x, array(number,number,number))) from numbers("number" = "5");
+    """
 }

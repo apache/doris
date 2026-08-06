@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
@@ -42,9 +43,8 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -110,7 +110,6 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 
@@ -175,6 +174,14 @@ public class TypeCoercionUtils {
         );
     }
 
+    /** Whether a successful cast can add NULL to a common complex-type layout in the current mode. */
+    public static boolean castMayProduceNull(DataType sourceType, DataType targetType) {
+        // Strict casts fail the statement on invalid input instead of returning NULL, so widening a
+        // required Struct child must not make it nullable merely because the loose cast can fail.
+        return !SessionVariable.enableStrictCast()
+                && Cast.castNullable(false, sourceType, targetType);
+    }
+
     /**
      * Return Optional.empty() if we cannot do implicit cast.
      */
@@ -203,12 +210,18 @@ public class TypeCoercionUtils {
                 Optional<DataType> newDataType = implicitCast(inputFields.get(i).getDataType(),
                         expectedFields.get(i).getDataType());
                 if (newDataType.isPresent()) {
-                    newFields.add(inputFields.get(i).withDataType(newDataType.get()));
+                    // The struct layout must also admit NULLs introduced by a fallible child cast.
+                    boolean nullable = inputFields.get(i).isNullable() || expectedFields.get(i).isNullable()
+                            || castMayProduceNull(inputFields.get(i).getDataType(), newDataType.get());
+                    newFields.add(inputFields.get(i).withDataTypeAndNullable(newDataType.get(), nullable));
                 } else {
                     return Optional.empty();
                 }
             }
             return Optional.of(new StructType(newFields));
+        } else if (input instanceof VariantType && expected instanceof JsonType) {
+            // JSON functions require users to make this representation change explicit.
+            return Optional.empty();
         } else if (input instanceof VariantType && (expected.isNumericType() || expected.isStringLikeType())) {
             // variant could implicit cast to numric types and string like types
             return Optional.of(expected);
@@ -385,8 +398,7 @@ public class TypeCoercionUtils {
     public static DataType replaceSpecifiedType(DataType dataType,
             Class<? extends DataType> specifiedType, DataType newType) {
         if (dataType instanceof ArrayType) {
-            return ArrayType.of(replaceSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType, newType),
-                    ((ArrayType) dataType).containsNull());
+            return ArrayType.of(replaceSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType, newType));
         } else if (dataType instanceof MapType) {
             return MapType.of(replaceSpecifiedType(((MapType) dataType).getKeyType(), specifiedType, newType),
                     replaceSpecifiedType(((MapType) dataType).getValueType(), specifiedType, newType));
@@ -449,7 +461,8 @@ public class TypeCoercionUtils {
                 return false;
             }
             for (int i = 0; i < inputFields.size(); i++) {
-                if (!matchesType(inputFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
+                if (inputFields.get(i).isNullable() != targetFields.get(i).isNullable()
+                        || !matchesType(inputFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
                     return false;
                 }
             }
@@ -477,10 +490,27 @@ public class TypeCoercionUtils {
         }
     }
 
+    /**
+     * Wrap {@code expression} in a cast to {@code targetType} when the source type can
+     * already be resolved (Literal, or any expression whose {@code getDataType()} does
+     * not throw {@link UnboundException}). For Literals, defers to
+     * {@link #castIfNotSameType}; for other resolvable expressions, validates the cast
+     * via {@link #checkCanCastTo} before constructing it. Used by INSERT VALUES so that
+     * illegal casts (e.g. {@code variant<config_A>} → {@code variant<config_B>}) are
+     * rejected at parse time instead of slipping past analysis and crashing BE.
+     * Truly unbound expressions are wrapped without validation; the normal analysis
+     * pipeline's CheckCast pass will validate them after binding.
+     */
     public static Expression castUnbound(Expression expression, DataType targetType) {
         if (expression instanceof Literal) {
             return TypeCoercionUtils.castIfNotSameType(expression, targetType);
         } else {
+            try {
+                checkCanCastTo(expression.getDataType(), targetType);
+            } catch (UnboundException e) {
+                // Source type not yet known (UnboundFunction, UnboundSlot, ...);
+                // CheckCast in the normal analysis pipeline validates after binding.
+            }
             return TypeCoercionUtils.unSafeCast(expression, targetType);
         }
     }
@@ -639,16 +669,13 @@ public class TypeCoercionUtils {
                     && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, true).orElse(null);
             } else if (dataType.isTimeStampTzType() && DateTimeChecker.isValidDateTime(value)) {
-                DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) DateTimeLiteral
-                                .parseDateTimeLiteral(value, true).orElse(null);
-                if (dtV2Lit != null) {
-                    dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
-                            dtV2Lit,
-                            new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
-                            new StringLiteral("UTC")));
-                    ret = new TimestampTzLiteral(dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
-                            dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());
+                // Signature search can pass TIMESTAMPTZ(*) here. TimestampTzLiteral rounds by scale,
+                // so derive a concrete scale from the literal before parsing.
+                TimeStampTzType timeStampTzType = (TimeStampTzType) dataType;
+                if (timeStampTzType.getScale() < 0 || timeStampTzType.getScale() == TimeStampTzType.MAX_SCALE) {
+                    timeStampTzType = TimeStampTzType.forTypeFromString(value);
                 }
+                ret = TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, value);
             } else if ((dataType.isDateV2Type() || dataType.isDateType()) && DateTimeChecker.isValidDateTime(value)) {
                 Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
                 if (parseResult.isOk()) {
@@ -711,44 +738,12 @@ public class TypeCoercionUtils {
     public static Expression processBoundFunction(BoundFunction boundFunction) {
         // check
         boundFunction.checkLegalityBeforeTypeCoercion();
-
-        if (boundFunction instanceof CreateMap) {
-            return processCreateMap((CreateMap) boundFunction);
+        if (boundFunction instanceof CreateMap && boundFunction.arity() == 0) {
+            return new MapLiteral();
         }
 
         // type coercion
         return implicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
-    }
-
-    private static Expression processCreateMap(CreateMap createMap) {
-        if (createMap.arity() == 0) {
-            return new MapLiteral();
-        }
-        List<Expression> keys = Lists.newArrayList();
-        List<Expression> values = Lists.newArrayList();
-        for (int i = 0; i < createMap.arity(); i++) {
-            if (i % 2 == 0) {
-                keys.add(createMap.child(i));
-            } else {
-                values.add(createMap.child(i));
-            }
-        }
-        // TODO: use the find common type to get key and value type after we redefine type coercion in Doris.
-        Array keyArray = new Array(keys.toArray(new Expression[0]));
-        Array valueArray = new Array(values.toArray(new Expression[0]));
-        keyArray = (Array) implicitCastInputTypes(keyArray, keyArray.expectedInputTypes());
-        valueArray = (Array) implicitCastInputTypes(valueArray, valueArray.expectedInputTypes());
-        DataType keyType = ((ArrayType) (keyArray.getDataType())).getItemType();
-        DataType valueType = ((ArrayType) (valueArray.getDataType())).getItemType();
-        ImmutableList.Builder<Expression> newChildren = ImmutableList.builder();
-        for (int i = 0; i < createMap.arity(); i++) {
-            if (i % 2 == 0) {
-                newChildren.add(castIfNotSameType(createMap.child(i), keyType));
-            } else {
-                newChildren.add(castIfNotSameType(createMap.child(i), valueType));
-            }
-        }
-        return createMap.withChildren(newChildren.build());
     }
 
     /**
@@ -1125,6 +1120,8 @@ public class TypeCoercionUtils {
             return Optional.of(right);
         } else if (right instanceof NullType) {
             return Optional.of(left);
+        } else if (left instanceof VariantType && right instanceof VariantType) {
+            return findCommonVariantType((VariantType) left, (VariantType) right);
         } else if (left instanceof VariantType) {
             return Optional.of(replaceSpecifiedType(replaceDecimalV3WithTarget(replaceSpecifiedType(
                             replaceSpecifiedType(replaceSpecifiedType(replaceCharacterToString(right),
@@ -1183,7 +1180,11 @@ public class TypeCoercionUtils {
                         leftFields.get(i).getDataType(), rightFields.get(i).getDataType(),
                         overflowToDouble, stringIsHighPriority);
                 if (newDataType.isPresent()) {
-                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                    // The common layout must admit NULLs produced while either child is cast to it.
+                    boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable()
+                            || castMayProduceNull(leftFields.get(i).getDataType(), newDataType.get())
+                            || castMayProduceNull(rightFields.get(i).getDataType(), newDataType.get());
+                    newFields.add(leftFields.get(i).withDataTypeAndNullable(newDataType.get(), nullable));
                 } else {
                     return Optional.empty();
                 }
@@ -1191,6 +1192,13 @@ public class TypeCoercionUtils {
             return Optional.of(new StructType(newFields));
         }
         return Optional.empty();
+    }
+
+    private static Optional<DataType> findCommonVariantType(VariantType left, VariantType right) {
+        if (!left.isExecutionCompatibleWith(right)) {
+            return Optional.empty();
+        }
+        return Optional.of(left.isComputeV2() ? VariantType.COMPUTE_V2_INSTANCE : left);
     }
 
     private static Optional<DataType> findWiderPrimitiveTypeForTwo(
@@ -1301,6 +1309,19 @@ public class TypeCoercionUtils {
         Expression left = comparisonPredicate.left();
         Expression right = comparisonPredicate.right();
 
+        boolean leftIsVariant = left.getDataType().isVariantType();
+        boolean rightIsVariant = right.getDataType().isVariantType();
+        boolean isDirectVariantSubpathScalarComparison = leftIsVariant != rightIsVariant
+                && ((leftIsVariant && left instanceof ElementAt)
+                        || (rightIsVariant && right instanceof ElementAt));
+        if ((leftIsVariant || rightIsVariant)
+                && !isDirectVariantSubpathScalarComparison) {
+            DataType variantDataType = leftIsVariant
+                    ? left.getDataType() : right.getDataType();
+            throw new AnalysisException("data type " + variantDataType
+                    + " could not used in ComparisonPredicate " + comparisonPredicate.toSql()
+                    + ". " + VariantType.UNSUPPORTED_ORDERING_COMPARISON_MESSAGE);
+        }
         // TODO: remove this restriction after supporting varbinary comparison in BE
         if (left.getDataType().isVarBinaryType() || right.getDataType().isVarBinaryType()) {
             throw new AnalysisException("data type varbinary "
@@ -1681,7 +1702,11 @@ public class TypeCoercionUtils {
                 Optional<DataType> newDataType = findWiderTypeForTwoForComparison(leftFields.get(i).getDataType(),
                         rightFields.get(i).getDataType(), intStringToString);
                 if (newDataType.isPresent()) {
-                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                    // The common layout must admit NULLs produced while either child is cast to it.
+                    boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable()
+                            || castMayProduceNull(leftFields.get(i).getDataType(), newDataType.get())
+                            || castMayProduceNull(rightFields.get(i).getDataType(), newDataType.get());
+                    newFields.add(leftFields.get(i).withDataTypeAndNullable(newDataType.get(), nullable));
                 } else {
                     return Optional.empty();
                 }
@@ -1926,7 +1951,12 @@ public class TypeCoercionUtils {
                 Optional<DataType> newDataType = findWiderTypeForTwoForCaseWhen(leftFields.get(i).getDataType(),
                         rightFields.get(i).getDataType());
                 if (newDataType.isPresent()) {
-                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                    // Legacy CASE must admit both declared NULLs and NULLs introduced by either
+                    // arm's cast, independent of the order in which arms are reduced.
+                    boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable()
+                            || castMayProduceNull(leftFields.get(i).getDataType(), newDataType.get())
+                            || castMayProduceNull(rightFields.get(i).getDataType(), newDataType.get());
+                    newFields.add(leftFields.get(i).withDataTypeAndNullable(newDataType.get(), nullable));
                 } else {
                     return Optional.empty();
                 }
@@ -1955,6 +1985,10 @@ public class TypeCoercionUtils {
         }
         if (t2.isNullType()) {
             return Optional.of(t1);
+        }
+
+        if (t1 instanceof VariantType && t2 instanceof VariantType) {
+            return findCommonVariantType((VariantType) t1, (VariantType) t2);
         }
 
         // objectType only support compare with itself, so return empty here.

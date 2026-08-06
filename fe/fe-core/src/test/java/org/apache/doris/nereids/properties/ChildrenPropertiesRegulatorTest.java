@@ -24,11 +24,20 @@ import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.plans.AggMode;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -138,6 +147,34 @@ public class ChildrenPropertiesRegulatorTest {
     @Test
     public void testMustShuffleFilterLimit() {
         testMustShuffleFilter(PhysicalLimit.class);
+    }
+
+    @Test
+    public void testSingleExecutionInstanceAllowsOnePhaseAggWithDistribute() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.getSessionVariable().setBeNumberForTest(1);
+        ctx.getSessionVariable().parallelPipelineTaskNum = 1;
+        try (MockedStatic<ConnectContext> mockedConnectContext = Mockito.mockStatic(ConnectContext.class)) {
+            mockedConnectContext.when(ConnectContext::get).thenReturn(ctx);
+
+            GroupPlan mockedGroupPlan = Mockito.mock(GroupPlan.class);
+            Mockito.when(mockedGroupPlan.getAllChildrenTypes()).thenReturn(new BitSet());
+            Mockito.when(mockedGroupPlan.getLogicalProperties()).thenReturn(Mockito.mock(LogicalProperties.class));
+            PhysicalDistribute<GroupPlan> distribute = new PhysicalDistribute<>(
+                    DistributionSpecGather.INSTANCE, mockedGroupPlan);
+            GroupExpression child = new GroupExpression(distribute);
+            SlotReference output = new SlotReference("col1", IntegerType.INSTANCE);
+            PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                    Lists.newArrayList(), Lists.<NamedExpression>newArrayList(output),
+                    new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT),
+                    false, null, false, mockedGroupPlan);
+            GroupExpression parent = new GroupExpression(aggregate);
+
+            ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(parent,
+                    Lists.newArrayList(child), Lists.newArrayList(PhysicalProperties.GATHER),
+                    Lists.newArrayList(PhysicalProperties.GATHER), mockedJobContext);
+            Assertions.assertFalse(regulator.adjustChildrenProperties().isEmpty());
+        }
     }
 
     private void testMustShuffleFilter(Class<? extends Plan> childClazz) {

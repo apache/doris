@@ -50,35 +50,36 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "http/http_client.h"
+#include "exprs/function/dictionary_factory.h"
+#include "format/arrow/arrow_row_batch.h"
 #include "io/fs/connectivity/storage_connectivity_tester.h"
 #include "io/fs/local_file_system.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/pending_rowset_helper.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/snapshot_manager.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
-#include "olap/tablet_meta.h"
-#include "olap/txn_manager.h"
+#include "load/routine_load/routine_load_task_executor.h"
+#include "load/stream_load/stream_load_context.h"
+#include "load/stream_load/stream_load_recorder.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_queue_mgr.h"
-#include "runtime/routine_load/routine_load_task_executor.h"
-#include "runtime/stream_load/stream_load_context.h"
-#include "runtime/stream_load/stream_load_recorder.h"
-#include "util/arrow/row_batch.h"
+#include "runtime/runtime_profile.h"
+#include "service/http/http_client.h"
+#include "storage/olap_common.h"
+#include "storage/olap_define.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/pending_rowset_helper.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/snapshot/snapshot_manager.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_manager.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/txn/txn_manager.h"
+#include "udf/python/python_env.h"
 #include "util/defer_op.h"
-#include "util/runtime_profile.h"
 #include "util/threadpool.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
-#include "vec/functions/dictionary_factory.h"
 
 namespace apache {
 namespace thrift {
@@ -92,7 +93,6 @@ class TTransportException;
 } // namespace apache
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace {
 
 bvar::LatencyRecorder g_ingest_binlog_latency("doris_backend_service", "ingest_binlog");
@@ -244,7 +244,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus, &watch,
                   &total_download_bytes, &total_download_files, &elapsed_time_map]() {
         g_ingest_binlog_latency << watch.elapsed_time_microseconds();
-        auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time_milliseconds());
+        auto elapsed_time_ms = watch.elapsed_time_milliseconds();
         double copy_rate = 0.0;
         if (elapsed_time_ms > 0) {
             copy_rate = (double)total_download_bytes / ((double)elapsed_time_ms) / 1000;
@@ -688,20 +688,8 @@ BackendService::BackendService(StorageEngine& engine, ExecEnv* exec_env)
 
 BackendService::~BackendService() = default;
 
-Status BackendService::create_service(StorageEngine& engine, ExecEnv* exec_env, int port,
-                                      std::unique_ptr<ThriftServer>* server,
-                                      std::shared_ptr<doris::BackendService> service) {
-    service->_agent_server->start_workers(engine, exec_env);
-    // TODO: do we want a BoostThreadFactory?
-    // TODO: we want separate thread factories here, so that fe requests can't starve
-    // be requests
-    // std::shared_ptr<TProcessor> be_processor = std::make_shared<BackendServiceProcessor>(service);
-    auto be_processor = std::make_shared<BackendServiceProcessor>(service);
-
-    *server = std::make_unique<ThriftServer>("backend", be_processor, port,
-                                             config::be_service_threads);
-
-    LOG(INFO) << "Doris BackendService listening on " << port;
+Status BackendService::start_thrift_dependencies() {
+    _agent_server->start_workers(_engine, _exec_env);
 
     auto thread_num = config::ingest_binlog_work_pool_size;
     if (thread_num < 0) {
@@ -716,7 +704,7 @@ Status BackendService::create_service(StorageEngine& engine, ExecEnv* exec_env, 
     static_cast<void>(doris::ThreadPoolBuilder("IngestBinlog")
                               .set_min_threads(thread_num)
                               .set_max_threads(thread_num * 2)
-                              .build(&(service->_ingest_binlog_workers)));
+                              .build(&_ingest_binlog_workers));
     LOG(INFO) << fmt::format("ingest binlog thread pool size is {}, in async mode", thread_num);
     return Status::OK();
 }
@@ -1311,5 +1299,19 @@ void BaseBackendService::test_storage_connectivity(TTestStorageConnectivityRespo
     response.__set_status(status.to_thrift());
 }
 
-#include "common/compile_check_end.h"
+void BaseBackendService::get_python_envs(std::vector<TPythonEnvInfo>& result) {
+    result = PythonVersionManager::instance().env_infos_to_thrift();
+}
+
+void BaseBackendService::get_python_packages(std::vector<TPythonPackageInfo>& result,
+                                             const std::string& python_version) {
+    PythonVersion version;
+    auto& manager = PythonVersionManager::instance();
+    THROW_IF_ERROR(manager.get_version(python_version, &version));
+
+    std::vector<std::pair<std::string, std::string>> packages;
+    THROW_IF_ERROR(list_installed_packages(version, &packages));
+    result = manager.package_infos_to_thrift(packages);
+}
+
 } // namespace doris

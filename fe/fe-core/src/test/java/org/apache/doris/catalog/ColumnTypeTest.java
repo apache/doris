@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -37,6 +38,13 @@ public class ColumnTypeTest {
     public void setUp() {
         fakeEnv = new FakeEnv();
         FakeEnv.setMetaVersion(FeConstants.meta_version);
+    }
+
+    @After
+    public void tearDown() {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
     }
 
     @Test

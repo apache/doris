@@ -17,7 +17,7 @@
 import static groovy.test.GroovyAssert.shouldFail;
 import java.util.concurrent.ThreadLocalRandom
 
-suite("oss_hdfs_catalog_test", "p2,external,new_catalog_property") {
+suite("oss_hdfs_catalog_test", "p2,external") {
     def testQueryAndInsert = { String catalogProperties, String prefix, String dbLocation ->
 
         def catalog_name = "${prefix}_catalog"
@@ -138,7 +138,7 @@ suite("oss_hdfs_catalog_test", "p2,external,new_catalog_property") {
           'oss.hdfs.enabled'='true',
     """
     String new_oss_hdfs_storage_properties = """
-              'fs.oss.support' = 'true',
+              'fs.oss-hdfs.support' = 'true',
               'oss.hdfs.access_key' = '${oss_hdfs_ak}',
               'oss.hdfs.secret_key' = '${oss_hdfs_sk}',
               'oss.hdfs.endpoint' = '${oss_hdfs_endpoint}',

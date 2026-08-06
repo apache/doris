@@ -65,9 +65,24 @@ under the License.
     <build>
         <plugins>
             <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>flatten-maven-plugin</artifactId>
-                <version>1.2.5</version>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.6.2</version>
+                <executions>
+                    <execution>
+                        <id>enforce-maven-version</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireMavenVersion>
+                                    <version>[3.9.0,)</version>
+                                </requireMavenVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -97,32 +112,6 @@ under the License.
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>license-maven-plugin</artifactId>
-                <version>2.1.0</version>
-                <executions>
-                    <execution>
-                        <id>add-third-party</id>
-                        <goals>
-                            <goal>add-third-party</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <version>${jacoco.version}</version>
-                <executions>
-                    <execution>
-                        <id>default-prepare-agent</id>
-                        <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                    </execution>
-                </executions>
             </plugin>
         </plugins>
         <pluginManagement>
@@ -171,6 +160,14 @@ under the License.
                         <failsOnError>true</failsOnError>
                         <linkXRef>false</linkXRef>
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                        <!-- Explicitly set config_loc so that checkstyle.xml can reference sibling
+                             files via ${config_loc}/suppressions.xml etc.
+                             maven-checkstyle-plugin 3.0+ sets this automatically, but older
+                             versions do not, causing "Property ${config_loc} has not been set".
+                             ${maven.multiModuleProjectDirectory} always points to the directory
+                             from which Maven was invoked (the fe/ root), so this works for all
+                             submodules regardless of nesting depth. Requires Maven 3.3.1+. -->
+                        <propertyExpansion>config_loc=${maven.multiModuleProjectDirectory}/check/checkstyle</propertyExpansion>
                         <excludes>
                             **/apache/doris/thrift/**/*,
                             **/apache/parquet/**/*
@@ -212,19 +209,37 @@ under the License.
                 <artifactId>os-maven-plugin</artifactId>
                 <version>1.7.0</version>
             </extension>
+            <extension>
+                <groupId>org.apache.maven.extensions</groupId>
+                <artifactId>maven-build-cache-extension</artifactId>
+                <version>1.2.2</version>
+            </extension>
         </extensions>
     </build>
     <modules>
+        <module>fe-foundation</module>
+        <module>fe-kerberos</module>
         <module>fe-common</module>
+        <module>fe-trino-connector-common</module>
+        <module>fe-catalog</module>
+        <module>fe-filesystem</module>
+        <module>fe-extension-spi</module>
+        <module>fe-connector</module>
+        <module>fe-extension-loader</module>
+        <module>fe-sql-parser</module>
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>
+        <module>fe-authentication</module>
+        <module>fe-thrift</module>
+        <module>fe-type</module>
+        <module>fe-grpc</module>
     </modules>
     <properties>
-        <doris.hive.catalog.shade.version>3.1.0</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>3.1.1</doris.hive.catalog.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.1</avro.version>
-        <parquet.version>1.16.0</parquet.version>
+        <parquet.version>1.17.0</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>1.0.2</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
@@ -234,7 +249,7 @@ under the License.
         <cos-api.version>5.6.211</cos-api.version>
         <tencentcloud-sdk-java-sts.version>3.1.678</tencentcloud-sdk-java-sts.version>
         <huaweicloud-sdk-iam.version>3.1.20</huaweicloud-sdk-iam.version>
-        <esdk-obs.version>[3.21.11,)</esdk-obs.version>
+        <esdk-obs.version>3.21.11</esdk-obs.version>
         <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
         <!--suppress UnresolvedMavenProperty -->
         <doris.thirdparty>${fe.dir}/../thirdparty</doris.thirdparty>
@@ -242,8 +257,8 @@ under the License.
         <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
         <!--plugin parameters-->
         <skip.plugin>false</skip.plugin>
         <sonar.organization>apache</sonar.organization>
@@ -251,13 +266,14 @@ under the License.
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-filerupload.version>1.6.0</commons-filerupload.version>
-        <commons-configuration2.version>2.11.0</commons-configuration2.version>
+        <commons-configuration2.version>2.15.1</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
         <commons-lang.version>2.6</commons-lang.version>
         <commons-lang3.version>3.19.0</commons-lang3.version>
+        <commons-net.version>3.13.0</commons-net.version>
         <commons-pool2.version>2.2</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
-        <commons-text.version>1.10.0</commons-text.version>
+        <commons-text.version>1.15.0</commons-text.version>
         <commons-math3.version>3.6.1</commons-math3.version>
         <commons-validator.version>1.9.0</commons-validator.version>
         <gson.version>2.10.1</gson.version>
@@ -265,23 +281,27 @@ under the License.
         <jackson.version>2.16.0</jackson.version>
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
+        <!-- Jetty 12.0.34 (jetty-ee10-servlet) invokes jakarta.servlet.http.Cookie#getAttributes(),
+             which only exists since Jakarta Servlet 6.1. Pin the API to 6.1.0 so it matches the
+             jetty version; otherwise the transitive 6.0.0 from spring-boot triggers NoSuchMethodError
+             when the FE HTTP server writes a Set-Cookie (SameSite) header. -->
+        <jakarta.servlet-api.version>6.1.0</jakarta.servlet-api.version>
         <je.version>18.3.14-doris-SNAPSHOT</je.version>
-        <jmockit.version>1.49</jmockit.version>
         <commons-io.version>2.18.0</commons-io.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <json-simple.version>1.1.1</json-simple.version>
+        <open-json.version>1.8</open-json.version>
         <junit.version>5.14.1</junit.version>
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
-        <log4j2.version>2.25.3</log4j2.version>
-        <log4j-1.2.version>2.25.3</log4j-1.2.version>
-        <mqtt.version>1.2.5</mqtt.version>
+        <log4j2.version>2.25.4</log4j2.version>
+        <log4j-1.2.version>2.25.4</log4j-1.2.version>
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
-        <!--Netty 4.1.94 is not compatible with arrow flight.-->
-        <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <netty-all.version>4.1.130.Final</netty-all.version>
+        <resilience4j.version>2.4.0</resilience4j.version>
+        <!-- Keep Netty compatible with Arrow Flight SQL 19 and other transitive Netty users. -->
+        <netty-all.version>4.2.15.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -293,7 +313,9 @@ under the License.
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.65.1</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
-        <protobuf.version>3.25.8</protobuf.version>
+        <cel.version>0.12.0</cel.version>
+        <!-- FE-only Arrow 19 startup POC: align protobuf runtime with Arrow Java 19's protobuf BOM. -->
+        <protobuf.version>4.33.4</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
         <protoc.artifact.version>3.24.3</protoc.artifact.version>
@@ -305,11 +327,8 @@ under the License.
         <generex.version>1.0.1</generex.version>
         <jetty-servlet.version>11.0.26</jetty-servlet.version>
         <jetty-websocket.version>9.4.58.v20250814</jetty-websocket.version>
-        <logging-interceptor.version>4.12.0</logging-interceptor.version>
-        <okhttp.version>4.9.3</okhttp.version>
-        <okio.version>3.4.0</okio.version>
+        <okhttp.version>5.3.2</okhttp.version>
         <snakeyaml.version>2.0</snakeyaml.version>
-        <validation-api.version>2.0.1.Final</validation-api.version>
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
         <kafka-clients.version>3.4.0</kafka-clients.version>
         <oshi-core.version>6.4.5</oshi-core.version>
@@ -321,18 +340,21 @@ under the License.
         <hudi-spark.version>hudi-spark3.4.x</hudi-spark.version>
         <hive.version>3.1.3</hive.version>
         <hive.common.version>2.3.9</hive.common.version>
-        <nimbusds.version>9.35</nimbusds.version>
         <mapreduce.client.version>2.10.1</mapreduce.client.version>
         <calcite.version>1.33.0</calcite.version>
         <avatica.version>1.22.0</avatica.version>
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
-        <iceberg.version>1.9.1</iceberg.version>
-        <maxcompute.version>0.49.0-public</maxcompute.version>
-        <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
-         https://github.com/apache/doris/pull/51217-->
-        <arrow.version>17.0.0</arrow.version>
+        <iceberg.version>1.10.1</iceberg.version>
+        <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->
+        <maxcompute.version>0.53.2-public</maxcompute.version>
+        <!-- FE-only POC: validate whether Arrow Java 19.0.0 can compile before touching BE/C++ thirdparty. -->
+        <arrow.version>19.0.0</arrow.version>
+        <!-- ADBC Java. Its own release line is independent of the C/Go one (this tag pairs with C/Go
+             1.12.0), and its parent pom pins Arrow Java 19.0.0 — the same version as arrow.version above,
+             so the fe-connector-adbc plugin introduces no second Arrow. -->
+        <adbc.version>0.24.0</adbc.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
@@ -350,6 +372,7 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
+        <postgresql.version>42.7.13</postgresql.version>
         <hadoop.version>3.4.2</hadoop.version>
         <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
@@ -360,17 +383,17 @@ under the License.
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <spring.version>3.5.7</spring.version>
-        <spring-framework.version>6.2.12</spring-framework.version>
+        <spring.version>3.5.14</spring.version>
+        <spring-framework.version>6.2.18</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
-        <ranger-plugins-common.version>2.7.0</ranger-plugins-common.version>
+        <ranger-plugins-common.version>2.8.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <jetty.version>12.0.29</jetty.version>
+        <jetty.version>12.0.34</jetty.version>
         <jetty-http.version>11.0.26</jetty-http.version>
         <immutables.version>2.9.3</immutables.version> 
         <ivy.version>2.5.2</ivy.version>
@@ -378,27 +401,39 @@ under the License.
         <ini4j.version>0.5.4</ini4j.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
-        <aircompressor.version>0.27</aircompressor.version>
+        <aircompressor.version>2.0.3</aircompressor.version>
         <!-- paimon -->
-        <paimon.version>1.1.1</paimon.version>
+        <!-- R-007 INVARIANT: this single property pins org.apache.paimon:* for ALL THREE paimon
+             consumers — the FE connector (fe-connector-paimon, references ${paimon.version}
+             directly) and the two BE-java-extensions modules paimon-scanner + preload-extensions
+             (inherit via dependencyManagement below). The FE serializes a paimon Table/Split with
+             InstantiationUtil and BE deserializes it with the SAME paimon jar; a version mismatch
+             silently breaks that FE->BE deserialization at runtime. These three MUST stay equal —
+             do NOT override paimon.version per-module. -->
+        <paimon.version>1.3.1</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
+        <jetbrains-annotations.version>17.0.0</jetbrains-annotations.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
         <flatbuffers.version>1.12.0</flatbuffers.version>
         <jacoco.version>0.8.10</jacoco.version>
+        <argLine></argLine>
         <trino.version>435</trino.version>
         <nimbusds.version>10.0.1</nimbusds.version>
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.concurrent.version>202</airlift.concurrent.version>
-        <azure.sdk.version>1.3.3</azure.sdk.version>
+        <azure.sdk.version>1.3.7</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
+        <msal4j.version>1.25.0</msal4j.version>
+        <azure.keyvault.core.version>1.2.6</azure.keyvault.core.version>
         <semver4j.version>5.3.0</semver4j.version>
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
         <!--Fixes the regression described in https://github.com/aws/aws-sdk-java-v2/issues/5805 that forced us to downgrade aws-s3 to version 2.29.x.-->
         <awssdk.version>2.29.52</awssdk.version>
         <s3tables.catalog.version>0.1.4</s3tables.catalog.version>
         <mockito.version>4.11.0</mockito.version>
+        <fastutil.version>8.5.18</fastutil.version>
     </properties>
     <profiles>
         <profile>
@@ -427,9 +462,98 @@ under the License.
                 </pluginRepository>
             </pluginRepositories>
         </profile>
+        <profile>
+            <id>flatten</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>flatten-maven-plugin</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>flatten-maven-plugin</artifactId>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>license-maven-plugin</artifactId>
+                        <version>2.1.0</version>
+                        <executions>
+                            <execution>
+                                <id>add-third-party</id>
+                                <goals>
+                                    <goal>add-third-party</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>coverage</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
     <dependencyManagement>
         <dependencies>
+            <!-- MUST stay ahead of the netty-bom import below: netty-bom declares each
+                 netty-codec-native-quic classifier with an explicit <scope>runtime</scope>, and
+                 dependencyManagement scope is force-applied to transitive nodes. Doris uses no
+                 QUIC/HTTP3 anywhere, so that dragged ~31MB of unused native libs into every
+                 artifact carrying netty (fe-core lib, every be-java-extensions fat jar, the
+                 plugin zips). provided keeps them on the compile classpath but out of every
+                 shipped package. dependencyManagement is first-match-wins, so moving these
+                 below the import silently restores the bloat. -->
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>linux-x86_64</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>linux-aarch_64</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>osx-x86_64</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>osx-aarch_64</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>windows-x86_64</classifier>
+                <scope>provided</scope>
+            </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
@@ -724,22 +848,36 @@ under the License.
                     </exclusion>
                 </exclusions>
             </dependency>
-            <dependency>
-                <groupId>org.apache.hadoop</groupId>
-                <artifactId>hadoop-aliyun</artifactId>
-                <version>${hadoop.version}</version>
-                <exclusions>
-                    <!-- pls confirm if this is a mandatory dependency  -->
-                    <exclusion>
-                        <groupId>org.ini4j</groupId>
-                        <artifactId>ini4j</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
+            <!-- The fat hive-catalog-shade is no longer consumed by any fe/fe-connector module (the plain-HMS
+                 client + iceberg HiveCatalog moved to the slim fe-connector-hms-hive-shade). This version pin
+                 is kept because be-java-extensions (avro-scanner, java-udf) still depend on hive-catalog-shade
+                 — do NOT delete it. -->
             <dependency>
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hive-catalog-shade</artifactId>
                 <version>${doris.hive.catalog.shade.version}</version>
+            </dependency>
+            <!-- Hive-UDF compatibility. User JAVA_UDF jars may declare a symbol class extending
+                 org.apache.hadoop.hive.ql.exec.UDF; regression-test/java-udf-src/pom.xml compiles
+                 against this exact artifact at scope=provided, i.e. the base classes are deliberately
+                 NOT bundled in the user jar and the host must supply them.
+                 The `core` classifier is the unshaded jar: it carries only org/apache/hadoop and
+                 org/apache/hive, no caffeine/fastutil/guava, so it shadows nothing on the classpath.
+                 The wildcard exclusion is load-bearing, not tidiness: a classifier shares its
+                 artifact's pom, so without it hive-exec's 29 non-optional dependencies follow it
+                 onto the consumer's classpath, including a second SLF4J binding. A consumer that
+                 genuinely needs those must re-declare them deliberately. -->
+            <dependency>
+                <groupId>org.apache.hive</groupId>
+                <artifactId>hive-exec</artifactId>
+                <classifier>core</classifier>
+                <version>${hive.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>*</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.kerby</groupId>
@@ -760,7 +898,17 @@ under the License.
 
             <dependency>
                 <groupId>${project.groupId}</groupId>
+                <artifactId>fe-foundation</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>fe-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>fe-trino-connector-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/cglib/cglib -->
@@ -803,8 +951,8 @@ under the License.
                 <artifactId>commons-codec</artifactId>
                 <version>${commons-codec.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/commons-lang/commons-lang -->
-            <!-- upgrade commons-lang from 2.4 to 2.6 to fix incompatibility of with versioning scheme of Java 9 and later -->
+            <!-- commons-lang 2.x: required at RUNTIME by hive-catalog-shade's HiveConf
+                 (org.apache.commons.lang.StringUtils). Not referenced by any fe source. -->
             <dependency>
                 <groupId>commons-lang</groupId>
                 <artifactId>commons-lang</artifactId>
@@ -815,6 +963,12 @@ under the License.
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
                 <version>${commons-lang3.version}</version>
+            </dependency>
+            <!-- Pulled in by hive-exec -> hadoop-yarn-registry and hadoop-common. -->
+            <dependency>
+                <groupId>commons-net</groupId>
+                <artifactId>commons-net</artifactId>
+                <version>${commons-net.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-math3 -->
             <dependency>
@@ -861,6 +1015,16 @@ under the License.
                 <artifactId>guava-testlib</artifactId>
                 <version>${guava.version}</version>
             </dependency>
+            <dependency>
+                <groupId>dev.cel</groupId>
+                <artifactId>cel</artifactId>
+                <version>${cel.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-ratelimiter</artifactId>
+                <version>${resilience4j.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/org.javassist/javassist -->
             <dependency>
                 <groupId>org.javassist</groupId>
@@ -888,13 +1052,7 @@ under the License.
                     </exclusion>
                 </exclusions>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/org.jmockit/jmockit -->
-            <dependency>
-                <groupId>org.jmockit</groupId>
-                <artifactId>jmockit</artifactId>
-                <version>${jmockit.version}</version>
-                <scope>test</scope>
-            </dependency>
+
             <dependency>
                 <groupId>commons-io</groupId>
                 <artifactId>commons-io</artifactId>
@@ -904,6 +1062,12 @@ under the License.
                 <groupId>com.googlecode.json-simple</groupId>
                 <artifactId>json-simple</artifactId>
                 <version>${json-simple.version}</version>
+            </dependency>
+            <!-- Open JSON: Apache-2.0 clean-room implementation of the org.json API -->
+            <dependency>
+                <groupId>com.tdunning</groupId>
+                <artifactId>json</artifactId>
+                <version>${open-json.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
             <dependency>
@@ -925,6 +1089,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-core</artifactId>
+                <version>${log4j2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-web</artifactId>
                 <version>${log4j2.version}</version>
             </dependency>
             <dependency>
@@ -963,16 +1132,16 @@ under the License.
                 <artifactId>disruptor</artifactId>
                 <version>${disruptor.version}</version>
             </dependency>
+            <dependency>
+                <groupId>org.jetbrains</groupId>
+                <artifactId>annotations</artifactId>
+                <version>${jetbrains-annotations.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/io.dropwizard.metrics/metrics-core -->
             <dependency>
                 <groupId>io.dropwizard.metrics</groupId>
                 <artifactId>metrics-core</artifactId>
                 <version>${metrics-core.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.eclipse.paho</groupId>
-                <artifactId>org.eclipse.paho.client.mqttv3</artifactId>
-                <version>${mqtt.version}</version>
             </dependency>
             <!-- velocity-engine-core dependency-->
             <dependency>
@@ -1085,31 +1254,19 @@ under the License.
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>logging-interceptor</artifactId>
-                <version>${logging-interceptor.version}</version>
+                <version>${okhttp.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/okhttp -->
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>
-                <artifactId>okhttp</artifactId>
+                <artifactId>okhttp-jvm</artifactId>
                 <version>${okhttp.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/com.squareup.okio/okio -->
-            <dependency>
-                <groupId>com.squareup.okio</groupId>
-                <artifactId>okio</artifactId>
-                <version>${okio.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.yaml/snakeyaml -->
             <dependency>
                 <groupId>org.yaml</groupId>
                 <artifactId>snakeyaml</artifactId>
                 <version>${snakeyaml.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/javax.validation/validation-api -->
-            <dependency>
-                <groupId>javax.validation</groupId>
-                <artifactId>validation-api</artifactId>
-                <version>${validation-api.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
             <dependency>
@@ -1319,6 +1476,42 @@ under the License.
                 <artifactId>iceberg-aws</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
+            <!-- S3Tables catalog impl for the iceberg s3tables flavor; not part of the AWS SDK BOM. -->
+            <dependency>
+                <groupId>software.amazon.s3tables</groupId>
+                <artifactId>s3-tables-catalog-for-iceberg</artifactId>
+                <version>${s3tables.catalog.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-core</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-common</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-hive-connector-3.1</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-format</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-s3</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-jindo</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.aliyun.odps</groupId>
                 <artifactId>odps-sdk-core</artifactId>
@@ -1332,7 +1525,26 @@ under the License.
                         <groupId>org.ini4j</groupId>
                         <artifactId>ini4j</artifactId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>com.squareup.okhttp3</groupId>
+                        <artifactId>okhttp</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.squareup.okio</groupId>
+                        <artifactId>okio</artifactId>
+                    </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.aliyun.odps</groupId>
+                <artifactId>odps-sdk-table-api</artifactId>
+                <version>${maxcompute.version}</version>
+            </dependency>
+            <dependency>
+                <!-- Keep tea pinned for Alibaba SDK dependency chains that allow com.aliyun:tea:[1.1.14,2.0.0). -->
+                <groupId>com.aliyun</groupId>
+                <artifactId>tea</artifactId>
+                <version>1.4.1</version>
             </dependency>
             <!-- For Iceberg, must be consistent with Iceberg version -->
             <dependency>
@@ -1499,11 +1711,6 @@ under the License.
                 <version>${tree-printer.version}</version>
             </dependency>
             <dependency>
-                <groupId>org.hamcrest</groupId>
-                <artifactId>hamcrest</artifactId>
-                <version>${hamcrest.version}</version>
-            </dependency>
-            <dependency>
                 <groupId>org.apache.httpcomponents</groupId>
                 <artifactId>httpclient</artifactId>
                 <version>${httpclient.version}</version>
@@ -1521,17 +1728,6 @@ under the License.
             <dependency>
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk-glue</artifactId>
-                <version>${aws-java-sdk.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.amazonaws</groupId>
-                <artifactId>aws-java-sdk-dynamodb</artifactId>
-                <version>${aws-java-sdk.version}</version>
-            </dependency>
-            <!--only for apache ranger audit-->
-            <dependency>
-                <groupId>com.amazonaws</groupId>
-                <artifactId>aws-java-sdk-logs</artifactId>
                 <version>${aws-java-sdk.version}</version>
             </dependency>
             <dependency>
@@ -1660,6 +1856,31 @@ under the License.
                 <artifactId>arrow-jdbc</artifactId>
                 <version>${arrow.version}</version>
             </dependency>
+            <!-- Arrow C Data Interface: how the ADBC JNI bridge hands Arrow arrays across the native
+                 boundary. Pulled in by adbc-driver-jni; declared here because nothing else in FE used it. -->
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-c-data</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <!-- ADBC. adbc-driver-jni is the JNI wrapper around the same C driver manager BE links
+                 statically, so FE and BE dlopen the very same driver .so; adbc-driver-manager comes with it
+                 (JniDriverFactory implements its factory SPI). -->
+            <dependency>
+                <groupId>org.apache.arrow.adbc</groupId>
+                <artifactId>adbc-core</artifactId>
+                <version>${adbc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow.adbc</groupId>
+                <artifactId>adbc-driver-manager</artifactId>
+                <version>${adbc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow.adbc</groupId>
+                <artifactId>adbc-driver-jni</artifactId>
+                <version>${adbc.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.immutables</groupId>
                 <artifactId>value</artifactId>
@@ -1703,12 +1924,37 @@ under the License.
                         <artifactId>re2j</artifactId>
                         <groupId>io.trino</groupId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>com.squareup.okhttp3</groupId>
+                        <artifactId>okhttp</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.squareup.okio</groupId>
+                        <artifactId>okio</artifactId>
+                    </exclusion>
+                    <!-- trino-main is the ONLY source of the Jetty Servlet 5.0 API repackage in this
+                         repository (verified against every module tree: fe-common,
+                         fe-trino-connector-common and fe-connector-trino all reach it through here).
+                         Its jakarta.servlet.http.Cookie predates Servlet 6.1 and has no
+                         getAttributes(), so whenever it wins classpath order over
+                         jakarta:jakarta.servlet-api it shadows the method Jetty 12.0.34 calls while
+                         writing a Set-Cookie header -> NoSuchMethodError, which
+                         RestApiExceptionHandler turns into an error payload, so every cookie-carrying
+                         REST endpoint silently answers with no data (RemoteDorisRestClientTest
+                         #testGetDatabaseNameList / #testGetTablesNameList assert on that data).
+                         Excluding it HERE, on the managed entry, is what makes that structural: the
+                         previous per-dependency exclusion on fe-core's fe-common dep only closed the
+                         fe-common path, and the moment fe-core took a test-scope dep on
+                         fe-connector-trino the same jar walked back in by a second path. fe-core is
+                         the only module in fe/ that imports jakarta.servlet at all, and it declares
+                         jakarta.servlet-api 6.1.0 explicitly, so nothing loses an API it uses. No
+                         production artifact changes either: this jar is already pinned to
+                         <scope>test</scope> repo-wide above. -->
+                    <exclusion>
+                        <groupId>org.eclipse.jetty.toolchain</groupId>
+                        <artifactId>jetty-jakarta-servlet-api</artifactId>
+                    </exclusion>
                 </exclusions>
-            </dependency>
-            <dependency>
-                <groupId>com.nimbusds</groupId>
-                <artifactId>nimbus-jose-jwt</artifactId>
-                <version>${nimbusds.version}</version>
             </dependency>
             <dependency>
                 <groupId>jakarta.annotation</groupId>
@@ -1726,16 +1972,23 @@ under the License.
                 <version>${airlift.concurrent.version}</version>
             </dependency>
             <dependency>
-                <groupId>org.bouncycastle</groupId>
-                <artifactId>bcprov-jdk15on</artifactId>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
                 <groupId>com.azure</groupId>
                 <artifactId>azure-sdk-bom</artifactId>
                 <version>${azure.sdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <!-- Pulled in by azure-identity and msal4j-persistence-extension. -->
+            <dependency>
+                <groupId>com.microsoft.azure</groupId>
+                <artifactId>msal4j</artifactId>
+                <version>${msal4j.version}</version>
+            </dependency>
+            <!-- Pulled in by hadoop-azure -> azure-storage. -->
+            <dependency>
+                <groupId>com.microsoft.azure</groupId>
+                <artifactId>azure-keyvault-core</artifactId>
+                <version>${azure.keyvault.core.version}</version>
             </dependency>
             <!-- tencent COS -->
             <dependency>
@@ -1824,6 +2077,11 @@ under the License.
                 <artifactId>mockito-inline</artifactId>
                 <version>${mockito.version}</version>
             </dependency>
+            <dependency>
+                <groupId>it.unimi.dsi</groupId>
+                <artifactId>fastutil-core</artifactId>
+                <version>${fastutil.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
     <dependencies>
@@ -1864,17 +2122,12 @@ under the License.
             <artifactId>junit-platform-launcher</artifactId>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.jmockit</groupId>
-            <artifactId>jmockit</artifactId>
-            <scope>test</scope>
-        </dependency>
         <!-- should be used in test scope -->
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
+            <scope>test</scope>
         </dependency>
-
     </dependencies>
     <reporting>
         <plugins>

@@ -238,8 +238,7 @@ public class KafkaUtil {
                 List<Long> backendIds = new ArrayList<>();
                 for (Long beId : Env.getCurrentSystemInfo().getAllBackendIds(true)) {
                     Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                    if (backend != null && backend.isLoadAvailable()
-                            && !backend.isDecommissioned()
+                    if (isBackendAvailableForMetaRequest(backend)
                             && !failedBeIds.contains(beId)
                             && !Env.getCurrentEnv().getRoutineLoadManager().isInBlacklist(beId)) {
                         backendIds.add(beId);
@@ -252,8 +251,16 @@ public class KafkaUtil {
                 // 2. If that sole backend is decommissioned, the aliveBackends list becomes empty.
                 // Hence, in such cases, it's essential to rely on the blacklist to obtain meta information.
                 if (backendIds.isEmpty()) {
-                    for (Long beId : Env.getCurrentEnv().getRoutineLoadManager().getBlacklist().keySet()) {
-                        backendIds.add(beId);
+                    Map<Long, Long> blacklist = Env.getCurrentEnv().getRoutineLoadManager().getBlacklist();
+                    for (Long beId : blacklist.keySet()) {
+                        Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                        if (isBackendAvailableForMetaRequest(backend) && !failedBeIds.contains(beId)) {
+                            backendIds.add(beId);
+                        } else if (backend == null) {
+                            blacklist.remove(beId);
+                            LOG.warn("remove stale backend {} from routine load blacklist when getting kafka meta",
+                                    beId);
+                        }
                     }
                 }
                 if (backendIds.isEmpty()) {
@@ -264,7 +271,16 @@ public class KafkaUtil {
                     throw new LoadException("failed to get info: " + errorMsg + ",");
                 }
                 Collections.shuffle(backendIds);
-                Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+                long selectedBeId = backendIds.get(0);
+                Backend be = Env.getCurrentSystemInfo().getBackend(selectedBeId);
+                if (be == null) {
+                    if (errorMsg == null) {
+                        errorMsg = "backend " + selectedBeId + " does not exist";
+                    }
+                    LOG.warn("skip stale backend {} when getting kafka meta", selectedBeId);
+                    retryTimes++;
+                    continue;
+                }
                 address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
                 long beId = be.getId();
 
@@ -311,5 +327,10 @@ public class KafkaUtil {
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_LANTENCY.increase(endTime - startTime);
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_COUNT.increase(1L);
         }
+    }
+
+    private static boolean isBackendAvailableForMetaRequest(Backend backend) {
+        return backend != null && backend.isLoadAvailable()
+                && !backend.isDecommissioned() && !backend.isDecommissioning();
     }
 }

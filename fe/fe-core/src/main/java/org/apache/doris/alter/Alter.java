@@ -24,8 +24,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MysqlTable;
-import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -36,6 +34,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.alter.CloudSchemaChangeHandler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -48,9 +47,7 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -75,7 +72,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyDistributionOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTableCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
@@ -95,12 +91,13 @@ import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableEngineOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
 
@@ -212,6 +209,11 @@ public class Alter {
 
         if (olapTable instanceof MTMV) {
             currentAlterOps.checkMTMVAllow(alterOps);
+        }
+
+        // For row binlog tables, only allow operations explicitly marked as safe.
+        if (olapTable.needRowBinlog()) {
+            currentAlterOps.checkRowBinlogAllow(alterOps);
         }
 
         // check cluster capacity and db quota, only need to check once.
@@ -388,7 +390,6 @@ public class Alter {
 
     private void processAlterTableForExternalTable(
             ExternalTable table, List<AlterOp> alterOps) throws UserException {
-        long updateTime = System.currentTimeMillis();
         for (AlterOp alterOp : alterOps) {
             if (alterOp instanceof ModifyTablePropertiesOp) {
                 setExternalTableAutoAnalyzePolicy(table, alterOps);
@@ -410,47 +411,35 @@ public class Alter {
                         table.getDbName(), table.getName(), renameTableOp.getNewTableName());
             } else if (alterOp instanceof AddColumnOp) {
                 AddColumnOp addColumn = (AddColumnOp) alterOp;
-                table.getCatalog().addColumn(table, addColumn.getColumn(), addColumn.getColPos());
+                table.getCatalog().addColumn(
+                        table, addColumn.getColumnPath(), addColumn.getColumn(), addColumn.getColPos());
             } else if (alterOp instanceof AddColumnsOp) {
                 AddColumnsOp addColumns = (AddColumnsOp) alterOp;
                 table.getCatalog().addColumns(table, addColumns.getColumns());
             } else if (alterOp instanceof DropColumnOp) {
                 DropColumnOp dropColumn = (DropColumnOp) alterOp;
-                table.getCatalog().dropColumn(table, dropColumn.getColName());
+                table.getCatalog().dropColumn(table, dropColumn.getColumnPath());
             } else if (alterOp instanceof RenameColumnOp) {
                 RenameColumnOp columnRename = (RenameColumnOp) alterOp;
                 table.getCatalog().renameColumn(
-                        table, columnRename.getColName(), columnRename.getNewColName());
+                        table, columnRename.getColumnPath(), columnRename.getNewColName());
             } else if (alterOp instanceof ModifyColumnOp) {
                 ModifyColumnOp modifyColumn = (ModifyColumnOp) alterOp;
-                table.getCatalog().modifyColumn(table, modifyColumn.getColumn(), modifyColumn.getColPos());
+                table.getCatalog().modifyColumn(
+                        table, modifyColumn.getColumnPath(), modifyColumn.getColumn(), modifyColumn.getColPos());
+            } else if (alterOp instanceof ModifyColumnCommentOp) {
+                ModifyColumnCommentOp modifyColumnComment = (ModifyColumnCommentOp) alterOp;
+                table.getCatalog().modifyColumnComment(
+                        table, modifyColumnComment.getColumnPath(), modifyColumnComment.getComment());
             } else if (alterOp instanceof ReorderColumnsOp) {
                 ReorderColumnsOp reorderColumns = (ReorderColumnsOp) alterOp;
                 table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());
             } else if (alterOp instanceof AddPartitionFieldOp) {
-                AddPartitionFieldOp addPartitionField = (AddPartitionFieldOp) alterOp;
-                if (table instanceof IcebergExternalTable) {
-                    ((IcebergExternalCatalog) table.getCatalog()).addPartitionField(
-                            (IcebergExternalTable) table, addPartitionField, updateTime);
-                } else {
-                    throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
-                }
+                table.getCatalog().addPartitionField(table, (AddPartitionFieldOp) alterOp);
             } else if (alterOp instanceof DropPartitionFieldOp) {
-                DropPartitionFieldOp dropPartitionField = (DropPartitionFieldOp) alterOp;
-                if (table instanceof IcebergExternalTable) {
-                    ((IcebergExternalCatalog) table.getCatalog()).dropPartitionField(
-                            (IcebergExternalTable) table, dropPartitionField, updateTime);
-                } else {
-                    throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
-                }
+                table.getCatalog().dropPartitionField(table, (DropPartitionFieldOp) alterOp);
             } else if (alterOp instanceof ReplacePartitionFieldOp) {
-                ReplacePartitionFieldOp replacePartitionField = (ReplacePartitionFieldOp) alterOp;
-                if (table instanceof IcebergExternalTable) {
-                    ((IcebergExternalCatalog) table.getCatalog()).replacePartitionField(
-                            (IcebergExternalTable) table, replacePartitionField, updateTime);
-                } else {
-                    throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
-                }
+                table.getCatalog().replacePartitionField(table, (ReplacePartitionFieldOp) alterOp);
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterOps);
             }
@@ -554,74 +543,18 @@ public class Alter {
             processRename(db, externalTable, alterOps);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             schemaChangeHandler.processExternalTable(alterOps, db, externalTable);
-        } else if (currentAlterOps.contains(AlterOpType.MODIFY_ENGINE)) {
-            ModifyEngineOp modifyEngineOp = (ModifyEngineOp) alterOps.get(0);
-            processModifyEngine(db, externalTable, modifyEngineOp);
         }
     }
 
-    public void processModifyEngine(Database db, Table externalTable, ModifyEngineOp op) throws DdlException {
-        externalTable.writeLockOrDdlException();
-        try {
-            if (externalTable.getType() != TableType.MYSQL) {
-                throw new DdlException("Only support modify table engine from MySQL to ODBC");
-            }
-            processModifyEngineInternal(db, externalTable, op.getProperties(), false);
-        } finally {
-            externalTable.writeUnlock();
-        }
-        LOG.info("modify table {}'s engine from MySQL to ODBC", externalTable.getName());
-    }
-
+    /**
+     * {@code ALTER TABLE ... MODIFY ENGINE} was removed from the grammar together with the ODBC table type it
+     * existed to serve, so nothing produces this log any more. The replay arm stays because an old journal may
+     * still carry {@code OP_MODIFY_TABLE_ENGINE}: dropping the operation type would make such an image
+     * unreadable.
+     */
     public void replayProcessModifyEngine(ModifyTableEngineOperationLog log) {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(log.getDbId());
-        if (db == null) {
-            return;
-        }
-        MysqlTable mysqlTable = (MysqlTable) db.getTableNullable(log.getTableId());
-        if (mysqlTable == null) {
-            return;
-        }
-        mysqlTable.writeLock();
-        try {
-            processModifyEngineInternal(db, mysqlTable, log.getProperties(), true);
-        } finally {
-            mysqlTable.writeUnlock();
-        }
-    }
-
-    private void processModifyEngineInternal(Database db, Table externalTable,
-                                             Map<String, String> prop, boolean isReplay) {
-        MysqlTable mysqlTable = (MysqlTable) externalTable;
-        Map<String, String> newProp = Maps.newHashMap(prop);
-        newProp.put(OdbcTable.ODBC_HOST, mysqlTable.getHost());
-        newProp.put(OdbcTable.ODBC_PORT, mysqlTable.getPort());
-        newProp.put(OdbcTable.ODBC_USER, mysqlTable.getUserName());
-        newProp.put(OdbcTable.ODBC_PASSWORD, mysqlTable.getPasswd());
-        newProp.put(OdbcTable.ODBC_DATABASE, mysqlTable.getMysqlDatabaseName());
-        newProp.put(OdbcTable.ODBC_TABLE, mysqlTable.getMysqlTableName());
-        newProp.put(OdbcTable.ODBC_TYPE, TOdbcTableType.MYSQL.name());
-
-        // create a new odbc table with same id and name
-        OdbcTable odbcTable = null;
-        try {
-            odbcTable = new OdbcTable(mysqlTable.getId(), mysqlTable.getName(), mysqlTable.getBaseSchema(), newProp);
-        } catch (DdlException e) {
-            LOG.warn("Should not happen", e);
-            return;
-        }
-        odbcTable.writeLock();
-        try {
-            db.unregisterTable(mysqlTable.getName());
-            db.registerTable(odbcTable);
-            if (!isReplay) {
-                ModifyTableEngineOperationLog log = new ModifyTableEngineOperationLog(db.getId(),
-                        externalTable.getId(), prop);
-                Env.getCurrentEnv().getEditLog().logModifyTableEngine(log);
-            }
-        } finally {
-            odbcTable.writeUnlock();
-        }
+        // ODBC tables have been deprecated, skip replay.
+        LOG.warn("Skip replaying ModifyEngine for table {} — ODBC tables are deprecated.", log.getTableId());
     }
 
     /*
@@ -654,13 +587,7 @@ public class Alter {
             case ELASTICSEARCH:
                 processAlterExternalTable(command, (Table) tableIf, (Database) dbIf);
                 return;
-            case HMS_EXTERNAL_TABLE:
-            case JDBC_EXTERNAL_TABLE:
-            case ICEBERG_EXTERNAL_TABLE:
-            case PAIMON_EXTERNAL_TABLE:
-            case MAX_COMPUTE_EXTERNAL_TABLE:
-            case HUDI_EXTERNAL_TABLE:
-            case TRINO_CONNECTOR_EXTERNAL_TABLE:
+            case PLUGIN_EXTERNAL_TABLE:
                 alterOps.addAll(command.getOps());
                 processAlterTableForExternalTable((ExternalTable) tableIf, alterOps);
                 return;
@@ -690,9 +617,11 @@ public class Alter {
                 ModifyPartitionOp clause = ((ModifyPartitionOp) alterOp);
                 Map<String, String> properties = clause.getProperties();
                 List<String> partitionNames = clause.getPartitionNames();
+                OlapTable olapTable = (OlapTable) tableIf;
+                checkModifyPartitionStoragePolicyResource(
+                        olapTable, partitionNames, properties, clause.isTempPartition());
                 ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsProperties(
                         db, tableName, partitionNames, properties);
-                OlapTable olapTable = (OlapTable) tableIf;
                 olapTable.writeLockOrDdlException();
                 try {
                     modifyPartitionsProperty(db, olapTable, partitionNames, properties, clause.isTempPartition());
@@ -804,6 +733,19 @@ public class Alter {
             throws DdlException {
         String oldTblName = origTable.getName();
         String newTblName = newTbl.getName();
+
+        // Handle constraints for table replacement
+        TableNameInfo origTableInfo = TableNameInfoUtils.fromDb(db, origTable.getName());
+        TableNameInfo newTableInfo = TableNameInfoUtils.fromDb(db, newTbl.getName());
+        if (swapTable) {
+            Env.getCurrentEnv().getConstraintManager().swapTableConstraints(origTableInfo, newTableInfo);
+        } else {
+            if (!isReplay) {
+                Env.getCurrentEnv().getConstraintManager().checkNoReferencingForeignKeys(origTableInfo);
+            }
+            Env.getCurrentEnv().getConstraintManager().dropAndRenameConstraints(origTableInfo, newTableInfo);
+        }
+
         // drop origin table and new table
         db.unregisterTable(oldTblName);
         db.unregisterTable(newTblName);
@@ -889,7 +831,8 @@ public class Alter {
             String viewName = view.getName();
             if (comment != null) {
                 view.setComment(comment);
-            } else {
+            }
+            if (!Strings.isNullOrEmpty(inlineViewDef)) {
                 view.setInlineViewDefWithSessionVariables(inlineViewDef, alterViewInfo.getSessionVariables());
                 view.setNewFullSchema(newFullSchema);
             }
@@ -942,6 +885,57 @@ public class Alter {
             } else {
                 Preconditions.checkState(false);
             }
+        }
+    }
+
+    private void checkModifyPartitionStoragePolicyResource(OlapTable olapTable, List<String> partitionNames,
+            Map<String, String> properties, boolean isTempPartition) throws DdlException, AnalysisException {
+        if (!PropertyAnalyzer.hasStoragePolicy(properties)) {
+            return;
+        }
+
+        String newStoragePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
+        if (Strings.isNullOrEmpty(newStoragePolicy)) {
+            return;
+        }
+        Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(newStoragePolicy);
+
+        Optional<Policy> newPolicy = Env.getCurrentEnv().getPolicyMgr()
+                .findPolicy(newStoragePolicy, PolicyTypeEnum.STORAGE);
+        if (!newPolicy.isPresent() || !(newPolicy.get() instanceof StoragePolicy)) {
+            return;
+        }
+
+        olapTable.readLock();
+        try {
+            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+            for (String partitionName : partitionNames) {
+                Partition partition = olapTable.getPartition(partitionName, isTempPartition);
+                if (partition == null) {
+                    continue;
+                }
+
+                DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
+                String oldStoragePolicy = dataProperty.getStoragePolicy();
+                if (Strings.isNullOrEmpty(oldStoragePolicy) || oldStoragePolicy.equals(newStoragePolicy)) {
+                    continue;
+                }
+
+                Optional<Policy> oldPolicy = Env.getCurrentEnv().getPolicyMgr()
+                        .findPolicy(oldStoragePolicy, PolicyTypeEnum.STORAGE);
+                if (!oldPolicy.isPresent() || !(oldPolicy.get() instanceof StoragePolicy)) {
+                    continue;
+                }
+
+                String newResource = ((StoragePolicy) newPolicy.get()).getStorageResource();
+                String oldResource = ((StoragePolicy) oldPolicy.get()).getStorageResource();
+                if (!newResource.equals(oldResource)) {
+                    throw new AnalysisException("currently do not support change origin "
+                            + "storage policy to another one with different resource: ");
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
         }
     }
 

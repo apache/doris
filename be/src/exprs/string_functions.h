@@ -25,7 +25,7 @@
 #include <memory>
 #include <string>
 
-#include "vec/common/string_ref.h"
+#include "core/string_ref.h"
 
 namespace doris {
 

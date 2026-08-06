@@ -147,12 +147,13 @@ public class JoinOrderJobTest extends SqlTestBase {
     protected void test64TableJoin() {
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
         Plan plan = hyperGraphBuilder
-                .randomBuildPlanWith(65, 65);
+                .randomBuildPlanWith(64, 64);
         plan = new LogicalProject(plan.getOutput(), plan);
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-        Assertions.assertEquals(Memo.countMaxContinuousJoin(plan), 64);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext.getStatementContext(),
+                plan);
+        Assertions.assertEquals(Memo.countMaxContinuousJoin(plan), 63);
         MemoTestUtils.initMemoAndValidState(cascadesContext);
-        Assertions.assertEquals(cascadesContext.getMemo().countMaxContinuousJoin(), 64);
+        Assertions.assertEquals(cascadesContext.getMemo().countMaxContinuousJoin(), 63);
         hyperGraphBuilder.initStats("test", cascadesContext);
         PlanChecker.from(cascadesContext)
                 .optimize()

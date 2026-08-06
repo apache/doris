@@ -70,7 +70,7 @@ public class InternalSchema {
                 new ColumnDef("data_size_in_bytes", ScalarType.createType(PrimitiveType.BIGINT),
                     ColumnNullableType.NULLABLE));
         TABLE_STATS_SCHEMA.add(
-                new ColumnDef("update_time", ScalarType.createType(PrimitiveType.DATETIME),
+                new ColumnDef("update_time", ScalarType.DATETIMEV2,
                     ColumnNullableType.NOT_NULLABLE));
         TABLE_STATS_SCHEMA.add(
                 new ColumnDef("hot_value", ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
@@ -107,7 +107,7 @@ public class InternalSchema {
                 new ColumnDef("data_size_in_bytes", ScalarType.createType(PrimitiveType.BIGINT),
                     ColumnNullableType.NULLABLE));
         PARTITION_STATS_SCHEMA.add(
-                new ColumnDef("update_time", ScalarType.createType(PrimitiveType.DATETIME),
+                new ColumnDef("update_time", ScalarType.DATETIMEV2,
                     ColumnNullableType.NOT_NULLABLE));
 
         // histogram_statistics table
@@ -131,7 +131,7 @@ public class InternalSchema {
         HISTO_STATS_SCHEMA.add(new ColumnDef("buckets", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH),
                 ColumnNullableType.NOT_NULLABLE));
         HISTO_STATS_SCHEMA.add(
-                new ColumnDef("update_time", ScalarType.createType(PrimitiveType.DATETIME),
+                new ColumnDef("update_time", ScalarType.DATETIMEV2,
                     ColumnNullableType.NOT_NULLABLE));
 
         // audit table must all nullable because maybe remove some columns in feature
@@ -162,6 +162,8 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         // execution info
         AUDIT_SCHEMA.add(new ColumnDef("query_time",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("queue_time_ms",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("cpu_time_ms",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));

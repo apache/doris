@@ -23,11 +23,10 @@
 #include <algorithm>
 #include <string>
 
-#include "runtime/string_search.hpp"
-#include "vec/common/string_ref.h"
+#include "core/string_ref.h"
+#include "util/string_search.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 const StringRef UrlParser::_s_url_authority("AUTHORITY", 9);
 const StringRef UrlParser::_s_url_file("FILE", 4);
 const StringRef UrlParser::_s_url_host("HOST", 4);
@@ -410,5 +409,4 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
     }
     return result;
 }
-#include "common/compile_check_end.h"
 } // namespace doris

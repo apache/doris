@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
@@ -49,21 +48,6 @@ public class RangePartitionDesc extends PartitionDesc {
         this.singlePartitionDescs = handleAllPartitionDesc(allPartitionDescs);
         this.type = org.apache.doris.catalog.PartitionType.RANGE;
         this.isAutoCreatePartitions = true;
-    }
-
-    // for parse auto partition
-    public static RangePartitionDesc createRangePartitionDesc(ArrayList<Expr> exprs,
-            List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
-        List<String> colNames = getColNamesFromExpr(exprs, false, true);
-        return new RangePartitionDesc(exprs, colNames, allPartitionDescs);
-    }
-
-    @Override
-    public void checkPartitionKeyValueType(PartitionKeyDesc partitionKeyDesc) throws AnalysisException {
-        if (partitionKeyDesc.getPartitionType() != PartitionKeyValueType.FIXED
-                && partitionKeyDesc.getPartitionType() != PartitionKeyValueType.LESS_THAN) {
-            throw new AnalysisException("You can only use fixed or less than values to create range partitions");
-        }
     }
 
     @Override

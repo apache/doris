@@ -59,6 +59,7 @@ struct PackedAppendContext {
     std::string rowset_id;
     int64_t txn_id = 0;
     uint64_t expiration_time = 0; // TTL expiration time in seconds since epoch, 0 means no TTL
+    bool write_file_cache = true; // Whether to write data to file cache
 };
 
 // Global object that manages packing small files into larger files for S3 optimization
@@ -108,8 +109,10 @@ private:
     Status finalize_packed_file_upload(const std::string& packed_file_path, FileWriter* writer);
 
     // Update meta service with packed file information
+    // table_id is used for rate limiting; -1 means no specific table (cross-table operation)
     Status update_meta_service(const std::string& packed_file_path,
-                               const cloud::PackedFileInfoPB& packed_file_info);
+                               const cloud::PackedFileInfoPB& packed_file_info,
+                               int64_t table_id = -1);
 
     // Process uploading files
     void process_uploading_packed_files();

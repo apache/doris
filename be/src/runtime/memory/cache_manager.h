@@ -22,11 +22,10 @@
 
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_policy.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Hold the list of all caches, for prune when memory not enough or timing.
 class CacheManager {
@@ -95,5 +94,4 @@ private:
     int64_t _last_prune_all_timestamp = 0;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

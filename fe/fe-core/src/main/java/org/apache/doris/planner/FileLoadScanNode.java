@@ -21,8 +21,8 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.FederationBackendPolicy;
-import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.scan.FederationBackendPolicy;
+import org.apache.doris.datasource.scan.FileScanNode;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsFileGroupInfo;
 import org.apache.doris.nereids.load.NereidsLoadPlanInfoCollector;
@@ -58,8 +58,8 @@ public class FileLoadScanNode extends FileScanNode {
      * External file scan node for load from file
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public FileLoadScanNode(PlanNodeId id, TupleDescriptor desc) {
-        super(id, desc, "FILE_LOAD_SCAN_NODE", false);
+    public FileLoadScanNode(PlanNodeId id, TupleDescriptor desc, ScanContext scanContext) {
+        super(id, desc, "FILE_LOAD_SCAN_NODE", scanContext, false);
     }
 
     public void finalizeForNereids(TUniqueId loadId, List<NereidsFileGroupInfo> fileGroupInfos,

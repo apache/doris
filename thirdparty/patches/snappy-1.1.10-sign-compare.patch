@@ -1,0 +1,11 @@
+--- a/snappy.cc
++++ b/snappy.cc
+@@ -1290,7 +1290,7 @@ inline bool Copy64BytesWithPatternExtension(ptrdiff_t dst, size_t offset) {
+         DeferMemCopy(&deferred_src, &deferred_length, from, len);
+       }
+     } while (ip < ip_limit_min_slop &&
+-             (op + deferred_length) < op_limit_min_slop);
++             static_cast<ptrdiff_t>(op + deferred_length) < op_limit_min_slop);
+   exit:
+     ip--;
+     assert(ip <= ip_limit);

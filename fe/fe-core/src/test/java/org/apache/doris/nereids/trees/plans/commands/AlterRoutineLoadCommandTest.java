@@ -17,42 +17,73 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Map;
 
 public class AlterRoutineLoadCommandTest {
-    @Mocked
     private Env env;
-
-    @Mocked
     private ConnectContext connectContext;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
+
+    @BeforeEach
+    public void setUp() throws Exception {
+        env = Mockito.mock(Env.class);
+        connectContext = Mockito.mock(ConnectContext.class);
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(connectContext);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getState()).thenReturn(new QueryState());
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        Table tbl = Mockito.mock(Table.class);
+        envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+        Mockito.doReturn(db).when(catalog).getDbOrAnalysisException(Mockito.anyString());
+        Mockito.doReturn(tbl).when(db).getTableOrAnalysisException(Mockito.anyString());
+        Mockito.when(env.getRoutineLoadManager()).thenReturn(Mockito.mock(RoutineLoadManager.class));
+        RoutineLoadManager rlm = env.getRoutineLoadManager();
+        RoutineLoadJob rlJob = Mockito.mock(RoutineLoadJob.class);
+        Mockito.when(rlm.getJob(Mockito.anyString(), Mockito.anyString())).thenReturn(rlJob);
+        Mockito.when(rlJob.getDbFullName()).thenReturn("testDb");
+        Mockito.when(rlJob.getTableName()).thenReturn("testTable");
+        Mockito.when(rlJob.isMultiTable()).thenReturn(false);
+        Mockito.when(rlJob.getMergeType()).thenReturn(LoadTask.MergeType.APPEND);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
+    }
 
     private void runBefore() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-            }
-        };
+        Mockito.when(connectContext.isSkipAuth()).thenReturn(true);
     }
 
     @Test

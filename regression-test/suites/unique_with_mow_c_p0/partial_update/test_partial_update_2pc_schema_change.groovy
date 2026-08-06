@@ -56,7 +56,7 @@ suite("test_partial_update_2pc_schema_change", "p0") {
                 v4 varchar(20),
                 v5 varchar(20))
                 UNIQUE KEY(k1)
-                CLUSTER BY(v1) 
+                ORDER BY(v1) 
                 DISTRIBUTED BY HASH(k1) BUCKETS 4
                 PROPERTIES(
                     "replication_num" = "1",

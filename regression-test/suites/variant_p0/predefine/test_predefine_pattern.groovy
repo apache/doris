@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_variant_predefine_base", "p0"){ 
+suite("test_variant_predefine_base", "p0"){
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
     def count = new Random().nextInt(5)
@@ -53,7 +53,7 @@ suite("test_variant_predefine_base", "p0"){
     qt_sql """ select count() from ${tableName} where cast(var['b?b'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['bb3'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['bxx'] as string) match '789' """
-    
+
 
     trigger_and_wait_compaction(tableName, "full", 1800)
 
@@ -89,14 +89,14 @@ suite("test_variant_predefine_base", "p0"){
     sql """insert into ${tableName} values(2, '{"a" : {"b" : 111, "*" : 111, "b1" : 111, "bxc" : 111, "c2323" : 111}}')"""
     sql """insert into ${tableName} values(3, '{"a" : {"b" : 222, "*" : 222, "b1" : 222, "bxc" : 222, "c2323" : 222}}')"""
 
-    qt_sql """ select variant_type(var) from base_match_name_variant_test group by variant_type(var) """ 
+    qt_sql """ select variant_type(var) from base_match_name_variant_test group by variant_type(var) """
     qt_sql """select * from ${tableName} order by id"""
     qt_sql """ select count() from ${tableName} where cast(var['a']['b'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['*'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['b1'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['bxc'] as string) match '789' """
 qt_sql """ select count() from ${tableName} where cast(var['a']['c2323'] as string) match '789' """
-    
+
     trigger_and_wait_compaction(tableName, "full", 1800)
 
     qt_sql """select * from ${tableName} order by id"""
@@ -106,5 +106,5 @@ qt_sql """ select count() from ${tableName} where cast(var['a']['c2323'] as stri
     qt_sql """ select count() from ${tableName} where cast(var['a']['b1'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['bxc'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['c2323'] as string) match '789' """
-    
+
 }

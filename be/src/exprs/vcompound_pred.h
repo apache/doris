@@ -1,0 +1,665 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+#include <gen_cpp/Opcodes_types.h>
+
+#include <algorithm>
+#include <cstdint>
+
+#include "common/logging.h"
+#include "common/status.h"
+#include "core/assert_cast.h"
+#include "core/column/column.h"
+#include "core/column/column_nullable.h"
+#include "exprs/vectorized_fn_call.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vexpr_fwd.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
+#include "util/simd/bits.h"
+
+namespace doris {
+
+inline std::string compound_operator_to_string(TExprOpcode::type op) {
+    if (op == TExprOpcode::COMPOUND_AND) {
+        return "and";
+    } else if (op == TExprOpcode::COMPOUND_OR) {
+        return "or";
+    } else {
+        return "not";
+    }
+}
+
+class VCompoundPred : public VectorizedFnCall {
+    ENABLE_FACTORY_CREATOR(VCompoundPred);
+
+public:
+    VCompoundPred(const TExprNode& node) : VectorizedFnCall(node) {
+        _op = node.opcode;
+        _fn.name.function_name = compound_operator_to_string(_op);
+        _expr_name = fmt::format("VCompoundPredicate[{}](arguments={},return={})",
+                                 _fn.name.function_name, get_child_names(), _data_type->get_name());
+    }
+
+#ifdef BE_TEST
+    VCompoundPred() = default;
+#endif
+
+    const std::string& expr_name() const override { return _expr_name; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VCompoundPred::create_shared(clone_texpr_node());
+        return Status::OK();
+    }
+
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override {
+        return !_children.empty() &&
+               (_op == TExprOpcode::COMPOUND_AND || _op == TExprOpcode::COMPOUND_OR) &&
+               std::ranges::all_of(_children, [&](const VExprSPtr& child) {
+                   return child->can_execute_on_raw_fixed_values(data_type, column_id);
+               });
+    }
+
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override {
+        if (!can_execute_on_raw_fixed_values(data_type, column_id)) {
+            return Status::NotSupported("Compound predicate cannot evaluate raw fixed values");
+        }
+        return _execute_raw_compound(
+                num_values, matches, [&](const VExprSPtr& child, uint8_t* child_matches) {
+                    return child->execute_on_raw_fixed_values(values, num_values, value_width,
+                                                              data_type, column_id, child_matches);
+                });
+    }
+
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override {
+        return !_children.empty() &&
+               (_op == TExprOpcode::COMPOUND_AND || _op == TExprOpcode::COMPOUND_OR) &&
+               std::ranges::all_of(_children, [&](const VExprSPtr& child) {
+                   return child->can_execute_on_raw_binary_values(data_type, column_id);
+               });
+    }
+
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override {
+        if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+            return Status::NotSupported("Compound predicate cannot evaluate raw binary values");
+        }
+        return _execute_raw_compound(
+                num_values, matches, [&](const VExprSPtr& child, uint8_t* child_matches) {
+                    return child->execute_on_raw_binary_values(values, num_values, data_type,
+                                                               column_id, child_matches);
+                });
+    }
+
+    bool raw_predicate_result_for_null() const override {
+        if (_op != TExprOpcode::COMPOUND_AND && _op != TExprOpcode::COMPOUND_OR) {
+            // A Boolean keep bit cannot distinguish FALSE from UNKNOWN, so negating a child's
+            // collapsed result is not SQL-correct. NOT remains residual and rejects NULL here.
+            return false;
+        }
+        if (_op == TExprOpcode::COMPOUND_AND) {
+            return std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->raw_predicate_result_for_null();
+            });
+        }
+        return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+            return child->raw_predicate_result_for_null();
+        });
+    }
+
+    bool can_evaluate_zonemap_filter() const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_zonemap_filter();
+            });
+        case TExprOpcode::COMPOUND_OR:
+            return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_zonemap_filter();
+            });
+        case TExprOpcode::COMPOUND_NOT:
+            return false;
+        default:
+            return false;
+        }
+    }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND: {
+            for (const auto& child : _children) {
+                if (!child->can_evaluate_zonemap_filter()) {
+                    continue;
+                }
+                if (child->evaluate_zonemap_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kNoMatch;
+                }
+            }
+            return ZoneMapFilterResult::kMayMatch;
+        }
+        case TExprOpcode::COMPOUND_OR: {
+            for (const auto& child : _children) {
+                DORIS_CHECK(child->can_evaluate_zonemap_filter());
+                if (child->evaluate_zonemap_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kMayMatch;
+                }
+            }
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        case TExprOpcode::COMPOUND_NOT:
+            return unsupported_zonemap_filter(ctx);
+        default:
+            return unsupported_zonemap_filter(ctx);
+        }
+    }
+
+    bool can_evaluate_dictionary_filter() const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_dictionary_filter();
+            });
+        case TExprOpcode::COMPOUND_OR:
+            return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_dictionary_filter();
+            });
+        default:
+            return false;
+        }
+    }
+
+    bool is_safe_to_execute_on_selected_rows() const override {
+        // Boolean composition introduces no data-dependent failure of its own. Reuse the generic
+        // child walk so AND/OR remain eligible only when every nested expression is independently
+        // safe; applying VectorizedFnCall's scalar-function allowlist to this structural node would
+        // incorrectly disable selected-row execution for otherwise safe predicates.
+        return VExpr::is_safe_to_execute_on_selected_rows();
+    }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx) const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            for (const auto& child : _children) {
+                if (!child->can_evaluate_dictionary_filter()) {
+                    continue;
+                }
+                if (child->evaluate_dictionary_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kNoMatch;
+                }
+            }
+            return ZoneMapFilterResult::kMayMatch;
+        case TExprOpcode::COMPOUND_OR:
+            for (const auto& child : _children) {
+                DORIS_CHECK(child->can_evaluate_dictionary_filter());
+                if (child->evaluate_dictionary_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kMayMatch;
+                }
+            }
+            return ZoneMapFilterResult::kNoMatch;
+        default:
+            return ZoneMapFilterResult::kUnsupported;
+        }
+    }
+
+    bool can_evaluate_bloom_filter() const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_bloom_filter();
+            });
+        case TExprOpcode::COMPOUND_OR:
+            return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_bloom_filter();
+            });
+        default:
+            return false;
+        }
+    }
+
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            for (const auto& child : _children) {
+                if (!child->can_evaluate_bloom_filter()) {
+                    continue;
+                }
+                if (child->evaluate_bloom_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kNoMatch;
+                }
+            }
+            return ZoneMapFilterResult::kMayMatch;
+        case TExprOpcode::COMPOUND_OR:
+            for (const auto& child : _children) {
+                DORIS_CHECK(child->can_evaluate_bloom_filter());
+                if (child->evaluate_bloom_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kMayMatch;
+                }
+            }
+            return ZoneMapFilterResult::kNoMatch;
+        default:
+            return ZoneMapFilterResult::kUnsupported;
+        }
+    }
+
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
+        segment_v2::InvertedIndexResultBitmap res;
+        bool all_pass = true;
+
+        switch (_op) {
+        case TExprOpcode::COMPOUND_OR: {
+            for (const auto& child : _children) {
+                if (Status st = child->evaluate_inverted_index(context, segment_num_rows);
+                    !st.ok()) {
+                    LOG(ERROR) << "expr:" << child->expr_name()
+                               << " evaluate_inverted_index error:" << st.to_string();
+                    all_pass = false;
+                    continue;
+                }
+                auto inverted_index_context = context->get_index_context();
+                if (inverted_index_context->has_index_result_for_expr(child.get())) {
+                    const auto* index_result =
+                            inverted_index_context->get_index_result_for_expr(child.get());
+                    if (res.is_empty()) {
+                        res = *index_result;
+                    } else {
+                        res |= *index_result;
+                    }
+                    if (inverted_index_context->get_score_runtime() == nullptr) {
+                        if (res.get_data_bitmap()->cardinality() == segment_num_rows) {
+                            break; // Early exit if result is full
+                        }
+                    }
+                } else {
+                    all_pass = false;
+                }
+            }
+            break;
+        }
+        case TExprOpcode::COMPOUND_AND: {
+            for (const auto& child : _children) {
+                if (Status st = child->evaluate_inverted_index(context, segment_num_rows);
+                    !st.ok()) {
+                    LOG(ERROR) << "expr:" << child->expr_name()
+                               << " evaluate_inverted_index error:" << st.to_string();
+                    all_pass = false;
+                    continue;
+                }
+                if (context->get_index_context()->has_index_result_for_expr(child.get())) {
+                    const auto* index_result =
+                            context->get_index_context()->get_index_result_for_expr(child.get());
+                    if (res.is_empty()) {
+                        res = *index_result;
+                    } else {
+                        res &= *index_result;
+                    }
+
+                    if (res.get_data_bitmap()->isEmpty()) {
+                        break; // Early exit if result is empty
+                    }
+                } else {
+                    all_pass = false;
+                }
+            }
+            break;
+        }
+        case TExprOpcode::COMPOUND_NOT: {
+            const auto& child = _children[0];
+            Status st = child->evaluate_inverted_index(context, segment_num_rows);
+            if (!st.ok()) {
+                LOG(ERROR) << "expr:" << child->expr_name()
+                           << " evaluate_inverted_index error:" << st.to_string();
+                return st;
+            }
+
+            if (context->get_index_context()->has_index_result_for_expr(child.get())) {
+                const auto* index_result =
+                        context->get_index_context()->get_index_result_for_expr(child.get());
+                roaring::Roaring full_result;
+                full_result.addRange(0, segment_num_rows);
+                res = index_result->op_not(&full_result);
+            } else {
+                all_pass = false;
+            }
+            break;
+        }
+        default:
+            return Status::NotSupported(
+                    "Compound operator must be AND, OR, or NOT to execute with inverted index.");
+        }
+
+        if (all_pass && !res.is_empty()) {
+            context->get_index_context()->set_index_result_for_expr(this, res);
+        }
+        return Status::OK();
+    }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        if (fast_execute(context, selector, count, result_column)) {
+            return Status::OK();
+        }
+        if (get_num_children() == 1 || _has_const_child()) {
+            return VectorizedFnCall::execute_column_impl(context, block, selector, count,
+                                                         result_column);
+        }
+
+        ColumnPtr lhs_column;
+        RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, lhs_column));
+        lhs_column = lhs_column->convert_to_full_column_if_const();
+        size_t size = lhs_column->size();
+
+        bool lhs_is_nullable = lhs_column->is_nullable();
+        auto [lhs_data_column, lhs_null_map] =
+                _get_raw_data_and_null_map(lhs_column, lhs_is_nullable);
+        size_t filted = simd::count_zero_num((int8_t*)lhs_data_column, size);
+        bool lhs_all_true = (filted == 0);
+        bool lhs_all_false = (filted == size);
+
+        bool lhs_all_is_not_null = false;
+        if (lhs_is_nullable) {
+            filted = simd::count_zero_num((int8_t*)lhs_null_map, size);
+            lhs_all_is_not_null = (filted == size);
+        }
+
+        ColumnPtr rhs_column = nullptr;
+        const uint8_t* __restrict rhs_data_column = nullptr;
+        const uint8_t* __restrict rhs_null_map = nullptr;
+        bool rhs_is_nullable = false;
+        bool rhs_all_true = false;
+        bool rhs_all_false = false;
+        bool rhs_all_is_not_null = false;
+        bool result_is_nullable = _data_type->is_nullable();
+
+        auto get_rhs_colum = [&]() {
+            if (!rhs_column) {
+                RETURN_IF_ERROR(
+                        _children[1]->execute_column(context, block, selector, count, rhs_column));
+                rhs_column = rhs_column->convert_to_full_column_if_const();
+                rhs_is_nullable = rhs_column->is_nullable();
+                auto rhs_nullable_column = _get_raw_data_and_null_map(rhs_column, rhs_is_nullable);
+                rhs_data_column = rhs_nullable_column.first;
+                rhs_null_map = rhs_nullable_column.second;
+                size_t filted = simd::count_zero_num((int8_t*)rhs_data_column, size);
+                rhs_all_true = (filted == 0);
+                rhs_all_false = (filted == size);
+                if (rhs_is_nullable) {
+                    filted = simd::count_zero_num((int8_t*)rhs_null_map, size);
+                    rhs_all_is_not_null = (filted == size);
+                }
+            }
+            return Status::OK();
+        };
+
+        auto return_result_column_id = [&](ColumnPtr& arg_column) {
+            result_column = std::move(*arg_column).mutate();
+            if (result_is_nullable && !result_column->is_nullable()) {
+                result_column = make_nullable(result_column);
+            }
+        };
+
+        auto create_null_map_column = [&](ColumnPtr& null_map_column,
+                                          const uint8_t* __restrict null_map_data) {
+            if (null_map_data == nullptr) {
+                null_map_column = ColumnUInt8::create(size, 0);
+                null_map_data =
+                        assert_cast<const ColumnUInt8*>(null_map_column.get())->get_data().data();
+            }
+            return null_map_data;
+        };
+
+        auto vector_vector = [&]<bool is_and_op>() {
+            MutableColumnPtr mutable_result_column;
+            uint8_t* __restrict result_data_column = nullptr;
+            const uint8_t* __restrict other_data_column = rhs_data_column;
+            if (lhs_column->use_count() == 1) {
+                mutable_result_column = IColumn::mutate(std::move(lhs_column));
+                result_data_column =
+                        assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
+            } else if (rhs_column->use_count() == 1) {
+                mutable_result_column = IColumn::mutate(std::move(rhs_column));
+                result_data_column =
+                        assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
+                other_data_column = lhs_data_column;
+            } else {
+                mutable_result_column = lhs_column->clone_resized(size);
+                result_data_column =
+                        assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
+            }
+
+            do_not_null_pred<is_and_op>(result_data_column, other_data_column, size);
+            result_column = std::move(mutable_result_column);
+        };
+        auto vector_vector_null = [&]<bool is_and_op>() {
+            auto col_res = ColumnUInt8::create(size);
+            auto col_nulls = ColumnUInt8::create(size);
+
+            auto* __restrict res_datas = col_res->get_data().data();
+            auto* __restrict res_nulls = col_nulls->get_data().data();
+            ColumnPtr temp_null_map = nullptr;
+            // maybe both children are nullable / or one of children is nullable
+            auto* __restrict lhs_null_map_tmp = create_null_map_column(temp_null_map, lhs_null_map);
+            auto* __restrict rhs_null_map_tmp = create_null_map_column(temp_null_map, rhs_null_map);
+            auto* __restrict lhs_data_column_tmp = lhs_data_column;
+            auto* __restrict rhs_data_column_tmp = rhs_data_column;
+
+            do_null_pred<is_and_op>(lhs_data_column_tmp, lhs_null_map_tmp, rhs_data_column_tmp,
+                                    rhs_null_map_tmp, res_datas, res_nulls, size);
+
+            result_column = ColumnNullable::create(std::move(col_res), std::move(col_nulls));
+        };
+
+        // false and NULL ----> 0
+        // true  and NULL ----> NULL
+        if (_op == TExprOpcode::COMPOUND_AND) {
+            //1. not null column: all data is false
+            //2. nullable column: null map all is not null
+            if ((lhs_all_false && !lhs_is_nullable) || (lhs_all_false && lhs_all_is_not_null)) {
+                // false and any = false, return lhs
+                return_result_column_id(lhs_column);
+            } else {
+                RETURN_IF_ERROR(get_rhs_colum());
+
+                if ((lhs_all_true && !lhs_is_nullable) ||    //not null column
+                    (lhs_all_true && lhs_all_is_not_null)) { //nullable column
+                                                             // true and any = any, return rhs
+
+                    return_result_column_id(rhs_column);
+                } else if ((rhs_all_false && !rhs_is_nullable) ||
+                           (rhs_all_false && rhs_all_is_not_null)) {
+                    // any and false = false, return rhs
+                    return_result_column_id(rhs_column);
+                } else if ((rhs_all_true && !rhs_is_nullable) ||
+                           (rhs_all_true && rhs_all_is_not_null)) {
+                    // any and true = any, return lhs
+                    return_result_column_id(lhs_column);
+                } else {
+                    if (!result_is_nullable) {
+                        vector_vector.template operator()<true>();
+                    } else {
+                        vector_vector_null.template operator()<true>();
+                    }
+                }
+            }
+        } else if (_op == TExprOpcode::COMPOUND_OR) {
+            // true  or NULL ----> 1
+            // false or NULL ----> NULL
+            if ((lhs_all_true && !lhs_is_nullable) || (lhs_all_true && lhs_all_is_not_null)) {
+                // true or any = true, return lhs
+                return_result_column_id(lhs_column);
+            } else {
+                RETURN_IF_ERROR(get_rhs_colum());
+                if ((lhs_all_false && !lhs_is_nullable) || (lhs_all_false && lhs_all_is_not_null)) {
+                    // false or any = any, return rhs
+                    return_result_column_id(rhs_column);
+                } else if ((rhs_all_true && !rhs_is_nullable) ||
+                           (rhs_all_true && rhs_all_is_not_null)) {
+                    // any or true = true, return rhs
+                    return_result_column_id(rhs_column);
+                } else if ((rhs_all_false && !rhs_is_nullable) ||
+                           (rhs_all_false && rhs_all_is_not_null)) {
+                    // any or false = any, return lhs
+                    return_result_column_id(lhs_column);
+                } else {
+                    if (!result_is_nullable) {
+                        vector_vector.template operator()<false>();
+                    } else {
+                        vector_vector_null.template operator()<false>();
+                    }
+                }
+            }
+        } else {
+            return Status::InternalError("Compound operator must be AND or OR.");
+        }
+
+        DCHECK_EQ(result_column->size(), count);
+        return Status::OK();
+    }
+
+    double execute_cost() const override {
+        double cost = 0.3;
+        for (const auto& child : _children) {
+            cost += child->execute_cost();
+        }
+        return cost;
+    }
+
+private:
+    template <typename ExecuteChild>
+    Status _execute_raw_compound(size_t num_values, uint8_t* matches,
+                                 ExecuteChild&& execute_child) const {
+        if (_op == TExprOpcode::COMPOUND_AND) {
+            for (const auto& child : _children) {
+                RETURN_IF_ERROR(execute_child(child, matches));
+            }
+            return Status::OK();
+        }
+
+        // Each execution context owns its expression tree. Retaining masks on the OR node avoids
+        // N+1 row-sized allocations for every decoder fragment, while nested OR nodes keep
+        // independent buffers and therefore cannot overwrite their parent's in-flight state.
+        _raw_combined_scratch.resize(num_values);
+        std::ranges::fill(_raw_combined_scratch, 0);
+        for (const auto& child : _children) {
+            // resize_fill() initializes only newly appended bytes; explicitly reset a reused mask
+            // so matches from an earlier page fragment cannot leak into this OR evaluation.
+            _raw_child_scratch.resize(num_values);
+            std::ranges::fill(_raw_child_scratch, 1);
+            RETURN_IF_ERROR(execute_child(child, _raw_child_scratch.data()));
+            for (size_t row = 0; row < num_values; ++row) {
+                _raw_combined_scratch[row] |= _raw_child_scratch[row];
+            }
+        }
+        // Raw kernels receive an existing selection mask, so composition must preserve rows that
+        // an earlier conjunct already rejected instead of replacing the caller's mask.
+        for (size_t row = 0; row < num_values; ++row) {
+            matches[row] &= _raw_combined_scratch[row];
+        }
+        constexpr size_t MAX_RETAINED_RAW_MASK_BYTES = 1UL << 20;
+        if (_raw_combined_scratch.capacity() > MAX_RETAINED_RAW_MASK_BYTES) {
+            IColumn::Filter().swap(_raw_combined_scratch);
+        }
+        if (_raw_child_scratch.capacity() > MAX_RETAINED_RAW_MASK_BYTES) {
+            IColumn::Filter().swap(_raw_child_scratch);
+        }
+        return Status::OK();
+    }
+
+    mutable IColumn::Filter _raw_combined_scratch;
+    mutable IColumn::Filter _raw_child_scratch;
+
+    static inline constexpr uint8_t apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+        // (<> && false) is false, (true && NULL) is NULL
+        return (l_null & r_null) | (r_null & (l_null ^ a)) | (l_null & (r_null ^ b));
+    }
+    static inline constexpr uint8_t apply_or_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+        // (<> || true) is true, (false || NULL) is NULL
+        return (l_null & r_null) | (r_null & (r_null ^ a)) | (l_null & (l_null ^ b));
+    }
+
+    template <bool is_and>
+    void static do_not_null_pred(uint8_t* __restrict lhs, const uint8_t* __restrict rhs,
+                                 size_t size) {
+#ifdef NDEBUG
+#if defined(__clang__)
+#pragma clang loop vectorize(enable)
+#elif defined(__GNUC__) && (__GNUC__ >= 5)
+#pragma GCC ivdep
+#endif
+#endif
+        for (size_t i = 0; i < size; ++i) {
+            if constexpr (is_and) {
+                lhs[i] &= rhs[i];
+            } else {
+                lhs[i] |= rhs[i];
+            }
+        }
+    }
+
+    template <bool is_and>
+    void static do_null_pred(const uint8_t* __restrict lhs_data, const uint8_t* __restrict lhs_null,
+                             const uint8_t* __restrict rhs_data, const uint8_t* __restrict rhs_null,
+                             uint8_t* __restrict res_data, uint8_t* __restrict res_null,
+                             size_t size) {
+#ifdef NDEBUG
+#if defined(__clang__)
+#pragma clang loop vectorize(enable)
+#elif defined(__GNUC__) && (__GNUC__ >= 5)
+#pragma GCC ivdep
+#endif
+#endif
+        for (size_t i = 0; i < size; ++i) {
+            if constexpr (is_and) {
+                res_null[i] = apply_and_null(lhs_data[i], lhs_null[i], rhs_data[i], rhs_null[i]);
+                res_data[i] = lhs_data[i] & rhs_data[i];
+            } else {
+                res_null[i] = apply_or_null(lhs_data[i], lhs_null[i], rhs_data[i], rhs_null[i]);
+                res_data[i] = lhs_data[i] | rhs_data[i];
+            }
+        }
+    }
+
+    bool _has_const_child() const {
+        return std::ranges::any_of(_children,
+                                   [](const VExprSPtr& arg) -> bool { return arg->is_constant(); });
+    }
+
+    std::pair<const uint8_t*, const uint8_t*> _get_raw_data_and_null_map(
+            const ColumnPtr& column, bool has_nullable_column) const {
+        if (has_nullable_column) {
+            const auto* nullable_column = assert_cast<const ColumnNullable*>(column.get());
+            auto* data_column =
+                    assert_cast<const ColumnUInt8*>(nullable_column->get_nested_column_ptr().get())
+                            ->get_data()
+                            .data();
+            auto* null_map = nullable_column->get_null_map_column_ptr()->get_data().data();
+            return std::make_pair(data_column, null_map);
+        } else {
+            auto* data_column = assert_cast<const ColumnUInt8*>(column.get())->get_data().data();
+            return std::make_pair(data_column, nullptr);
+        }
+    }
+
+    TExprOpcode::type _op;
+};
+
+} // namespace doris

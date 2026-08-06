@@ -90,6 +90,7 @@ iceberg_hms_case_db1
 -- !sql7 --
 
 -- !sql8 --
+case_tbl14
 
 -- !sql9 --
 case_tbl14
@@ -173,6 +174,7 @@ iceberg_hms_case_db1
 -- !sql7 --
 
 -- !sql8 --
+case_tbl14
 
 -- !sql9 --
 case_tbl14

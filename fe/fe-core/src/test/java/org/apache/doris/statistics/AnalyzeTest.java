@@ -36,17 +36,14 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 public class AnalyzeTest extends TestWithFeService {
@@ -69,116 +66,68 @@ public class AnalyzeTest extends TestWithFeService {
 
     @Test
     public void testCreateAnalysisJob() throws Exception {
+        try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(StatisticsUtil.class);
+                MockedConstruction<StmtExecutor> ignored = Mockito.mockConstruction(StmtExecutor.class,
+                        (mock, context) -> {
+                            Mockito.when(mock.executeInternalQuery()).thenReturn(Collections.emptyList());
+                        });
+                MockedStatic<ConnectContext> mockedConnectContext = Mockito.mockStatic(ConnectContext.class)) {
 
-        new MockUp<StatisticsUtil>() {
+            mockedConnectContext.when(ConnectContext::get).thenReturn(connectContext);
 
-            @Mock
-            public AutoCloseConnectContext buildConnectContext() {
-                return new AutoCloseConnectContext(connectContext);
-            }
+            mockedStatisticsUtil.when(() -> StatisticsUtil.buildConnectContext(Mockito.anyBoolean()))
+                    .thenAnswer(invocation -> new AutoCloseConnectContext(connectContext));
+            mockedStatisticsUtil.when(() -> StatisticsUtil.execUpdate(Mockito.anyString()))
+                    .thenReturn(null);
 
-            @Mock
-            public void execUpdate(String sql) throws Exception {
-            }
-        };
-
-        new MockUp<StmtExecutor>() {
-            @Mock
-            public List<ResultRow> executeInternalQuery() {
-                return Collections.emptyList();
-            }
-        };
-
-        new MockUp<ConnectContext>() {
-
-            @Mock
-            public ConnectContext get() {
-                return connectContext;
-            }
-        };
-        String sql = "ANALYZE TABLE t1";
-        Assertions.assertNotNull(getSqlStmtExecutor(sql));
+            String sql = "ANALYZE TABLE t1";
+            Assertions.assertNotNull(getSqlStmtExecutor(sql));
+        }
     }
 
     @Test
-    public void testJobExecution(@Mocked StmtExecutor stmtExecutor, @Mocked InternalCatalog catalog, @Mocked
-            Database database,
-            @Mocked OlapTable olapTable)
-            throws Exception {
-        new MockUp<OlapTable>() {
+    public void testJobExecution() throws Exception {
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
 
-            @Mock
-            public Column getColumn(String name) {
-                return new Column("col1", PrimitiveType.INT);
-            }
-        };
+        Mockito.when(olapTable.getColumn(Mockito.anyString()))
+                .thenReturn(new Column("col1", PrimitiveType.INT));
 
-        new MockUp<StatisticsUtil>() {
+        try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(StatisticsUtil.class);
+                MockedConstruction<StmtExecutor> mockedStmtExecutorConstruction =
+                        Mockito.mockConstruction(StmtExecutor.class, (mock, context) -> {
+                            Mockito.doNothing().when(mock).execute();
+                            Mockito.when(mock.executeInternalQuery()).thenReturn(new ArrayList<>());
+                        })) {
 
-            @Mock
-            public ConnectContext buildConnectContext() {
-                return connectContext;
-            }
+            mockedStatisticsUtil.when(() -> StatisticsUtil.buildConnectContext(Mockito.anyBoolean()))
+                    .thenAnswer(invocation -> new AutoCloseConnectContext(connectContext));
+            mockedStatisticsUtil.when(() -> StatisticsUtil.execUpdate(Mockito.anyString()))
+                    .thenReturn(null);
+            mockedStatisticsUtil.when(() -> StatisticsUtil.convertIdToObjects(
+                    Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()))
+                    .thenReturn(new DBObjects(catalog, database, olapTable));
 
-            @Mock
-            public void execUpdate(String sql) throws Exception {
-            }
+            Set<Pair<String, String>> colList = Sets.newHashSet();
+            colList.add(Pair.of("col1", "index1"));
+            AnalysisInfo analysisJobInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
+                    .setCatalogId(0)
+                    .setDBId(0)
+                    .setTblId(0)
+                    .setColName("col1").setJobType(JobType.MANUAL)
+                    .setAnalysisMethod(AnalysisMethod.FULL)
+                    .setAnalysisType(AnalysisType.FUNDAMENTALS)
+                    .setJobColumns(colList)
+                    .setState(AnalysisState.RUNNING)
+                    .setRowCount(10)
+                    .build();
+            OlapAnalysisTask task = Mockito.spy(new OlapAnalysisTask(analysisJobInfo));
+            Mockito.doNothing().when(task).runQuery(Mockito.anyString());
+            task.doExecute();
 
-            @Mock
-            public DBObjects convertIdToObjects(long catalogId, long dbId, long tblId) {
-                return new DBObjects(catalog, database, olapTable);
-            }
-        };
-        new MockUp<StatisticsCache>() {
-
-            @Mock
-            public void syncLoadColStats(long tableId, long idxId, String colName) {
-            }
-        };
-        new MockUp<StmtExecutor>() {
-
-            @Mock
-            public void execute() throws Exception {
-
-            }
-
-            @Mock
-            public List<ResultRow> executeInternalQuery() {
-                return new ArrayList<>();
-            }
-        };
-
-        new MockUp<OlapAnalysisTask>() {
-
-            @Mock
-            public void execSQLs(List<String> partitionAnalysisSQLs, Map<String, String> params) throws Exception {}
-        };
-
-        new MockUp<BaseAnalysisTask>() {
-
-            @Mock
-            protected void runQuery(String sql) {}
-        };
-        Set<Pair<String, String>> colList = Sets.newHashSet();
-        colList.add(Pair.of("col1", "index1"));
-        AnalysisInfo analysisJobInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
-                .setCatalogId(0)
-                .setDBId(0)
-                .setTblId(0)
-                .setColName("col1").setJobType(JobType.MANUAL)
-                .setAnalysisMethod(AnalysisMethod.FULL)
-                .setAnalysisType(AnalysisType.FUNDAMENTALS)
-                .setJobColumns(colList)
-                .setState(AnalysisState.RUNNING)
-                .setRowCount(10)
-                .build();
-        new OlapAnalysisTask(analysisJobInfo).doExecute();
-        new Expectations() {
-            {
-                stmtExecutor.execute();
-                times = 1;
-            }
-        };
+            Mockito.verify(task, Mockito.times(1)).runQuery(Mockito.anyString());
+        }
     }
 
 }

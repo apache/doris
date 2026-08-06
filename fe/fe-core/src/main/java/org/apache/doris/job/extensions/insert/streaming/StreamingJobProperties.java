@@ -24,6 +24,7 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
+import com.google.common.base.Strings;
 import lombok.Data;
 import org.json.simple.JSONObject;
 
@@ -41,9 +42,11 @@ public class StreamingJobProperties implements JobProperties {
     public static final String S3_MAX_BATCH_FILES_PROPERTY = "s3.max_batch_files";
     public static final String S3_MAX_BATCH_BYTES_PROPERTY = "s3.max_batch_bytes";
     public static final String SESSION_VAR_PREFIX = "session.";
+    public static final String INTERNAL_KEY_PREFIX = "__";
     public static final String OFFSET_PROPERTY = "offset";
+    public static final String COMPUTE_GROUP_PROPERTY = "compute_group";
     public static final List<String> SUPPORT_STREAM_JOB_PROPS = Arrays.asList(MAX_INTERVAL_SECOND_PROPERTY,
-            S3_MAX_BATCH_FILES_PROPERTY, S3_MAX_BATCH_BYTES_PROPERTY, OFFSET_PROPERTY);
+            S3_MAX_BATCH_FILES_PROPERTY, S3_MAX_BATCH_BYTES_PROPERTY, OFFSET_PROPERTY, COMPUTE_GROUP_PROPERTY);
 
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_S3_BATCH_FILES = 256;
@@ -59,16 +62,35 @@ public class StreamingJobProperties implements JobProperties {
 
     public StreamingJobProperties(Map<String, String> jobProperties) {
         this.properties = jobProperties;
-        if (properties.isEmpty()) {
-            this.maxIntervalSecond = DEFAULT_MAX_INTERVAL_SECOND;
-            this.s3BatchFiles = DEFAULT_MAX_S3_BATCH_FILES;
-            this.s3BatchBytes = DEFAULT_MAX_S3_BATCH_BYTES;
+        this.maxIntervalSecond = parseLongOrDefault(
+                properties.get(MAX_INTERVAL_SECOND_PROPERTY), DEFAULT_MAX_INTERVAL_SECOND);
+        this.s3BatchFiles = parseLongOrDefault(
+                properties.get(S3_MAX_BATCH_FILES_PROPERTY), DEFAULT_MAX_S3_BATCH_FILES);
+        this.s3BatchBytes = parseLongOrDefault(
+                properties.get(S3_MAX_BATCH_BYTES_PROPERTY), DEFAULT_MAX_S3_BATCH_BYTES);
+    }
+
+    private static long parseLongOrDefault(String valStr, long defaultVal) {
+        if (Strings.isNullOrEmpty(valStr)) {
+            return defaultVal;
+        }
+        try {
+            long val = Long.parseLong(valStr);
+            return val >= 1 ? val : defaultVal;
+        } catch (NumberFormatException e) {
+            return defaultVal;
         }
     }
 
     public void validate() throws AnalysisException {
         List<String> invalidProps = new ArrayList<>();
         for (String key : properties.keySet()) {
+            // Keys starting with "__" are internal pass-through properties
+            // that are stored as-is without validation, allowing users
+            // to attach custom metadata.
+            if (key.startsWith(INTERNAL_KEY_PREFIX)) {
+                continue;
+            }
             if (!SUPPORT_STREAM_JOB_PROPS.contains(key) && !key.startsWith(SESSION_VAR_PREFIX)) {
                 invalidProps.add(key);
             }
@@ -173,5 +195,9 @@ public class StreamingJobProperties implements JobProperties {
 
     public String getOffsetProperty() {
         return properties.get(OFFSET_PROPERTY);
+    }
+
+    public String getComputeGroup() {
+        return properties.get(COMPUTE_GROUP_PROPERTY);
     }
 }

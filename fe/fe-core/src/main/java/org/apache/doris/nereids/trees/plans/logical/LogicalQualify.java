@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
@@ -70,18 +71,21 @@ public class LogicalQualify<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalQualify<>(conjuncts, groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalQualify<>(conjuncts, groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalQualify<>(conjuncts, groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalQualify<>(conjuncts, groupExpression, logicalProperties, children.get(0)));
     }
 
     public LogicalQualify<Plan> withConjuncts(Set<Expression> conjuncts) {
-        return new LogicalQualify<>(conjuncts, Optional.empty(), Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalQualify<>(conjuncts, Optional.empty(), Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
@@ -130,7 +134,8 @@ public class LogicalQualify<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public LogicalQualify<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalQualify<>(conjuncts, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalQualify<>(conjuncts, children.get(0)));
     }
 
     @Override

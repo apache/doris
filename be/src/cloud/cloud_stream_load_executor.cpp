@@ -24,7 +24,7 @@
 #include "cloud/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "runtime/stream_load/stream_load_context.h"
+#include "load/stream_load/stream_load_context.h"
 #include "util/debug_points.h"
 
 namespace doris {

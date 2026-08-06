@@ -19,25 +19,25 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -96,7 +96,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             throws AnalysisException {
         PartitionKey partitionKey = new PartitionKey();
         for (Column column : columns) {
-            partitionKey.keys.add(LiteralExpr.createInfinity(column.getType(), isMax));
+            partitionKey.keys.add(LiteralExprUtils.createInfinity(column.getType(), isMax));
             partitionKey.types.add(column.getDataType());
         }
         return partitionKey;
@@ -129,7 +129,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
         // fill the vacancy with MIN
         for (; i < columns.size(); ++i) {
-            partitionKey.keys.add(LiteralExpr.createInfinity(columns.get(i).getType(), false));
+            partitionKey.keys.add(LiteralExprUtils.createInfinity(columns.get(i).getType(), false));
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
@@ -144,14 +144,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             } else if (type.isDatetimeV2()) {
                 return new DateTimeV2Literal(value);
             } else if (type.isTimeStampTz()) {
-                DateTimeV2Literal literal = new DateTimeV2Literal(value);
-                DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
-                        literal,
-                        new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
-                        new StringLiteral("UTC")));
-                return new TimestampTzLiteral((TimeStampTzType) DataType.fromCatalogType(type),
-                        dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
-                        dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());
+                return TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) DataType.fromCatalogType(type), value);
 
             }
         } catch (Exception e) {
@@ -196,6 +189,14 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         for (int i = 0; i < values.size(); i++) {
             if (values.get(i).isNullPartition()) {
                 partitionKey.keys.add(NullLiteral.create(types.get(i)));
+            } else if (types.get(i).isTimeStampTz()) {
+                // Route TIMESTAMPTZ through the Nereids-aware parser (same as
+                // createPartitionKey) so that named/lowercase timezone values
+                // like "2024-01-15 20:00:00 Asia/Shanghai" are parsed correctly.
+                // The legacy DateLiteralUtils path only recognizes uppercase
+                // timezone names and a subset of offsets.
+                Literal dateTimeLiteral = getDateTimeLiteral(values.get(i).getStringValue(), types.get(i));
+                partitionKey.keys.add(dateTimeLiteral.toLegacyLiteral());
             } else {
                 partitionKey.keys.add(values.get(i).getValue(types.get(i)));
             }
@@ -207,7 +208,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         }
         if (values.isEmpty()) {
             for (int i = 0; i < types.size(); ++i) {
-                partitionKey.keys.add(LiteralExpr.createInfinity(types.get(i), false));
+                partitionKey.keys.add(LiteralExprUtils.createInfinity(types.get(i), false));
                 partitionKey.types.add(types.get(i).getPrimitiveType());
             }
             partitionKey.setDefaultListPartition(true);
@@ -378,13 +379,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         for (LiteralExpr expr : keys) {
             Object value = null;
             if (expr == MaxLiteral.MAX_VALUE || expr.isNullLiteral()) {
-                value = expr.toSql();
+                value = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
                 sb.append(value);
             } else {
                 value = "\"" + expr.getRealValue() + "\"";
                 if (expr instanceof DateLiteral) {
                     DateLiteral dateLiteral = (DateLiteral) expr;
-                    value = dateLiteral.toSql();
+                    value = dateLiteral.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
                 }
                 sb.append(value);
             }
@@ -427,7 +428,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         for (LiteralExpr expr : keys) {
             Object value = null;
             if (expr == MaxLiteral.MAX_VALUE || expr.isNullLiteral()) {
-                value = expr.toSql();
+                value = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
             } else {
                 value = expr.getRealValue();
                 if (expr instanceof DateLiteral) {

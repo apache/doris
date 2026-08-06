@@ -25,19 +25,23 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import org.roaringbitmap.RoaringBitmap;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,20 +50,28 @@ import java.util.Set;
 
 /**
  * CheckPrivileges
- * This rule should only check once, because after check would set setPrivChecked in statementContext
+ *
+ * The privChecked flag is on StatementContext to support view permission passthrough:
+ * when InlineLogicalView expands a view, the outer CheckPrivileges has already verified
+ * the view-level permission, so the inner tables should not be re-checked.
+ *
+ * For CTEs, since LogicalCTEConsumer is a leaf node and the producer subtree is not
+ * traversed by ColumnPruning, we override visitLogicalCTEConsumer to explicitly
+ * traverse the producer plan and check privileges on its tables.
  */
 public class CheckPrivileges extends ColumnPruning {
     private JobContext jobContext;
+    private final Set<CTEId> checkedCteIds = new HashSet<>();
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        // Only enter once, if repeated, the permissions of the table in the view will be checked
-        if (jobContext.getCascadesContext().getStatementContext().isPrivChecked()) {
+        StatementContext stmtCtx = jobContext.getCascadesContext().getStatementContext();
+        if (stmtCtx.isPrivChecked()) {
             return plan;
         }
         this.jobContext = jobContext;
         super.rewriteRoot(plan, jobContext);
-        jobContext.getCascadesContext().getStatementContext().setPrivChecked(true);
+        stmtCtx.setPrivChecked(true);
         // don't rewrite plan, because Reorder expect no LogicalProject on LogicalJoin
         return plan;
     }
@@ -86,6 +98,19 @@ public class CheckPrivileges extends ColumnPruning {
             checkColumnPrivileges(table, computeUsedColumns(relation, context.requiredSlotsIds));
         }
         return super.visitLogicalRelation(relation, context);
+    }
+
+    @Override
+    public Plan visitLogicalCTEConsumer(LogicalCTEConsumer consumer, PruneContext context) {
+        CTEId cteId = consumer.getCteId();
+        StatementContext stmtCtx = jobContext.getCascadesContext().getStatementContext();
+        Plan producerPlan = stmtCtx.getCteProducerByCteId(cteId);
+        if (producerPlan != null && checkedCteIds.add(cteId)) {
+            PruneContext producerContext = new PruneContext(
+                    null, producerPlan.getOutputExprIdBitSet(), ImmutableList.of(), true);
+            producerPlan.accept(this, producerContext);
+        }
+        return super.visitLogicalCTEConsumer(consumer, context);
     }
 
     private Set<String> computeUsedColumns(Plan plan, RoaringBitmap requiredSlotIds) {

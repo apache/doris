@@ -19,7 +19,6 @@ package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
@@ -59,6 +58,7 @@ public class LdapAuthenticator implements Authenticator {
      */
     @Override
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
+        long start = System.currentTimeMillis();
         if (LOG.isDebugEnabled()) {
             LOG.debug("user:{} start to ldap authenticate.", request.getUserName());
         }
@@ -67,7 +67,14 @@ public class LdapAuthenticator implements Authenticator {
             return AuthenticateResponse.failedResponse;
         }
         ClearPassword clearPassword = (ClearPassword) password;
-        return internalAuthenticate(clearPassword.getPassword(), request.getUserName(), request.getRemoteIp());
+        AuthenticateResponse response = internalAuthenticate(clearPassword.getPassword(),
+                request.getUserName(), request.getRemoteIp());
+        long elapsed = System.currentTimeMillis() - start;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LdapAuthenticator.authenticate: user={}, success={}, elapsed={}ms",
+                    request.getUserName(), response.isSuccess(), elapsed);
+        }
+        return response;
     }
 
     @Override
@@ -75,11 +82,14 @@ public class LdapAuthenticator implements Authenticator {
         if (qualifiedUser.equals(Auth.ROOT_USER) || qualifiedUser.equals(Auth.ADMIN_USER)) {
             return false;
         }
-        // Fixme Note: LdapManager should be managed internally within the Ldap plugin
-        // and not be placed inside the Env class. This ensures that Ldap-related
-        // logic and dependencies are encapsulated within the plugin, promoting
-        // better modularity and maintainability.
-        return Env.getCurrentEnv().getAuth().getLdapManager().doesUserExist(qualifiedUser);
+        long start = System.currentTimeMillis();
+        boolean result = Env.getCurrentEnv().getAuth().getLdapManager().doesUserExist(qualifiedUser);
+        long elapsed = System.currentTimeMillis() - start;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LdapAuthenticator.canDeal: user={}, result={}, elapsed={}ms",
+                    qualifiedUser, result, elapsed);
+        }
+        return result;
     }
 
     /**
@@ -91,7 +101,7 @@ public class LdapAuthenticator implements Authenticator {
      */
     private AuthenticateResponse internalAuthenticate(String password, String qualifiedUser, String remoteIp) {
         String usePasswd = (Strings.isNullOrEmpty(password)) ? "NO" : "YES";
-        String userName = ClusterNamespace.getNameFromFullName(qualifiedUser);
+        String userName = qualifiedUser;
         if (LOG.isDebugEnabled()) {
             LOG.debug("user:{}", userName);
         }
@@ -99,12 +109,14 @@ public class LdapAuthenticator implements Authenticator {
         // check user password by ldap server.
         try {
             if (!Env.getCurrentEnv().getAuth().getLdapManager().checkUserPasswd(qualifiedUser, password)) {
-                LOG.info("user:{} use check LDAP password failed.", userName);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("internalAuthenticate: user={}, success=false", userName);
+                }
                 ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, remoteIp, usePasswd);
                 return AuthenticateResponse.failedResponse;
             }
         } catch (Exception e) {
-            LOG.error("Check ldap password error.", e);
+            LOG.warn("internalAuthenticate failed: user={}", userName, e);
             return AuthenticateResponse.failedResponse;
         }
 
@@ -115,12 +127,17 @@ public class LdapAuthenticator implements Authenticator {
         AuthenticateResponse response = new AuthenticateResponse(true);
         if (userIdentities.isEmpty()) {
             response.setUserIdentity(tempUserIdentity);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("User:{} does not exists in doris, login as temporary users.", userName);
-            }
             response.setTemp(true);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("internalAuthenticate: user={}, tempUser=true, identity={}",
+                        userName, tempUserIdentity);
+            }
         } else {
             response.setUserIdentity(userIdentities.get(0));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("internalAuthenticate: user={}, tempUser=false, identity={}",
+                        userName, userIdentities.get(0));
+            }
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("ldap authentication success: identity:{}", response.getUserIdentity());

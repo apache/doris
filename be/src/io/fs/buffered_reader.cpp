@@ -30,16 +30,17 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
+#include "core/custom_allocator.h"
 #include "runtime/exec_env.h"
+#include "runtime/file_scan_profile.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
-#include "util/runtime_profile.h"
+#include "runtime/workload_management/resource_context.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
-#include "vec/common/custom_allocator.h"
 namespace doris {
-
-#include "common/compile_check_begin.h"
 
 namespace io {
 struct IOContext;
@@ -423,6 +424,12 @@ void PrefetchBuffer::reset_offset(size_t offset) {
     } else {
         _exceed = false;
     }
+    // Lazy-allocate the backing buffer in the calling (query) thread, which has a
+    // MemTrackerLimiter attached. The prefetch thread pool threads are "Orphan" threads
+    // without a tracker, so allocation must not happen there.
+    if (_buf.empty()) {
+        _buf.resize(_size);
+    }
     _prefetch_status = ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
             [buffer_ptr = shared_from_this()]() { buffer_ptr->prefetch_buffer(); });
 }
@@ -463,7 +470,7 @@ void PrefetchBuffer::prefetch_buffer() {
 
     {
         SCOPED_RAW_TIMER(&_statis.read_time);
-        s = _reader->read_at(_offset, Slice {_buf.get(), buf_size}, &_len, _io_ctx);
+        s = _reader->read_at(_offset, Slice {_buf.data(), buf_size}, &_len, _io_ctx);
     }
     if (UNLIKELY(s.ok() && buf_size != _len)) {
         // This indicates that the data size returned by S3 object storage is smaller than what we requested,
@@ -560,10 +567,6 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         reset_offset((off / _size) * _size);
         return read_buffer(off, out, buf_len, bytes_read);
     }
-    auto start = std::chrono::steady_clock::now();
-    // The baseline time is calculated by dividing the size of each buffer by MB/s.
-    // If it exceeds this value, it is considered a slow I/O operation.
-    constexpr auto read_time_baseline = std::chrono::seconds(s_max_pre_buffer_size / 1024 / 1024);
     {
         std::unique_lock lck {_lock};
         // buffer must be prefetched or it's closed
@@ -579,11 +582,6 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         if (UNLIKELY(BufferStatus::CLOSED == _buffer_status)) {
             return Status::OK();
         }
-    }
-    auto duration = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::steady_clock::now() - start);
-    if (duration > read_time_baseline) [[unlikely]] {
-        LOG_WARNING("The prefetch io is too slow");
     }
     RETURN_IF_ERROR(_prefetch_status);
     // there is only parquet would do not sequence read
@@ -602,7 +600,7 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         size_t read_len = std::min({buf_len, _offset + _size - off, _offset + _len - off});
         {
             SCOPED_RAW_TIMER(&_statis.copy_time);
-            memcpy((void*)out, _buf.get() + (off - _offset), read_len);
+            memcpy((void*)out, _buf.data() + (off - _offset), read_len);
         }
         *bytes_read = read_len;
         _statis.request_io += 1;
@@ -625,6 +623,11 @@ void PrefetchBuffer::close() {
     }
     _buffer_status = BufferStatus::CLOSED;
     _prefetched.notify_all();
+    // Explicitly release the backing buffer here, in the calling (query) thread which has a
+    // MemTrackerLimiter. The destructor may run in the thread pool's Orphan thread (when the
+    // last shared_ptr ref is released after the prefetch lambda completes), so we must not
+    // rely on ~PODArray() to release memory — that would trigger memory_orphan_check().
+    PODArray<char>().swap(_buf);
 }
 
 void PrefetchBuffer::_collect_profile_before_close() {
@@ -655,7 +658,9 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
     std::function<void(PrefetchBuffer&)> sync_buffer = nullptr;
     if (profile != nullptr) {
         const char* prefetch_buffered_reader = "PrefetchBufferedReader";
-        ADD_TIMER(profile, prefetch_buffered_reader);
+        auto* total_time =
+                ADD_CHILD_TIMER(profile, prefetch_buffered_reader,
+                                file_scan_profile::parent_or_root(profile, file_scan_profile::IO));
         auto copy_time = ADD_CHILD_TIMER(profile, "CopyTime", prefetch_buffered_reader);
         auto read_time = ADD_CHILD_TIMER(profile, "ReadTime", prefetch_buffered_reader);
         auto prefetch_request_io =
@@ -667,6 +672,7 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
         auto request_bytes =
                 ADD_CHILD_COUNTER(profile, "RequestBytes", TUnit::BYTES, prefetch_buffered_reader);
         sync_buffer = [=](PrefetchBuffer& buf) {
+            COUNTER_UPDATE(total_time, buf._statis.copy_time + buf._statis.read_time);
             COUNTER_UPDATE(copy_time, buf._statis.copy_time);
             COUNTER_UPDATE(read_time, buf._statis.read_time);
             COUNTER_UPDATE(prefetch_request_io, buf._statis.prefetch_request_io);
@@ -679,8 +685,8 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
     // to make sure the buffer reader will start to read at right position.
     for (int i = 0; i < buffer_num; i++) {
         _pre_buffers.emplace_back(std::make_shared<PrefetchBuffer>(
-                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader.get(),
-                _io_ctx_holder, sync_buffer));
+                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader, _io_ctx_holder,
+                sync_buffer));
     }
 }
 
@@ -924,7 +930,9 @@ RangeCacheFileReader::RangeCacheFileReader(RuntimeProfile* profile, io::FileRead
 
     if (_profile != nullptr) {
         const char* random_profile = "RangeCacheFileReader";
-        ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
+        _total_time = ADD_CHILD_TIMER_WITH_LEVEL(
+                _profile, random_profile,
+                file_scan_profile::parent_or_root(_profile, file_scan_profile::IO), 1);
         _request_io =
                 ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestIO", TUnit::UNIT, random_profile, 1);
         _request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestBytes", TUnit::BYTES,
@@ -985,6 +993,7 @@ Status RangeCacheFileReader::read_at_impl(size_t offset, Slice result, size_t* b
 
 void RangeCacheFileReader::_collect_profile_before_close() {
     if (_profile != nullptr) {
+        COUNTER_UPDATE(_total_time, _cache_statistics.request_time);
         COUNTER_UPDATE(_request_io, _cache_statistics.request_io);
         COUNTER_UPDATE(_request_bytes, _cache_statistics.request_bytes);
         COUNTER_UPDATE(_request_time, _cache_statistics.request_time);
@@ -998,7 +1007,5 @@ void RangeCacheFileReader::_collect_profile_before_close() {
 }
 
 } // namespace io
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

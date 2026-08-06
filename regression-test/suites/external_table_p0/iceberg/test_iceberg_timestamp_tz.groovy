@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_timestamp_tz", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_timestamp_tz", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -48,6 +48,33 @@ suite("test_iceberg_timestamp_tz", "p0,external,doris,external_docker,external_d
 
     sql """switch ${catalog_name_with_mapping}"""
     sql """use ${db_name}"""
+    // The two *_write_with_mapping tables are created empty by docker init (run25.sql) and are
+    // never cleaned by this test; recreate them here (same type/format/version as run25.sql) so
+    // repeated runs stay idempotent instead of accumulating rows across runs.
+    sql """drop table if exists test_ice_timestamp_tz_orc_write_with_mapping"""
+    sql """
+        create table test_ice_timestamp_tz_orc_write_with_mapping (
+            id int,
+            ts_tz timestamptz
+        ) engine=iceberg
+        properties (
+            "format-version" = "1",
+            "write-format" = "orc",
+            "write.format.default" = "orc"
+        )
+    """
+    sql """drop table if exists test_ice_timestamp_tz_parquet_write_with_mapping"""
+    sql """
+        create table test_ice_timestamp_tz_parquet_write_with_mapping (
+            id int,
+            ts_tz timestamptz
+        ) engine=iceberg
+        properties (
+            "format-version" = "1",
+            "write-format" = "parquet",
+            "write.format.default" = "parquet"
+        )
+    """
     sql """set time_zone = 'Asia/Shanghai';"""
     order_qt_desc_with_mapping1 """desc test_ice_timestamp_tz_orc;"""
     order_qt_desc_with_mapping2 """desc test_ice_timestamp_tz_parquet;"""

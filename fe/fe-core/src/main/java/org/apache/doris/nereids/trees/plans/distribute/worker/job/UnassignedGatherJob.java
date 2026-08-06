@@ -40,6 +40,18 @@ public class UnassignedGatherJob extends AbstractUnassignedJob {
         super(statementContext, fragment, ImmutableList.of(), exchangeToChildJob);
     }
 
+    /**
+     * Compute assigned jobs for a gather (single-node) fragment.
+     * All instances are placed on a single randomly selected worker.
+     * When {@code useSerialSource} is true, multiple local shuffle instances
+     * are created on the same worker to add intra-machine parallelism:
+     * the first instance scans all data from the upstream exchange and
+     * local-shuffles it to the other local instances for parallel processing.
+     *
+     * @param distributeContext the distribute context for worker selection
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @return one or more assigned jobs, all on the same selected worker
+     */
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {

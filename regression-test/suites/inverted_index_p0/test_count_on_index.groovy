@@ -19,7 +19,7 @@ suite("test_count_on_index_httplogs", "p0") {
     // define a sql table
     def testTable_dup = "httplogs_dup"
     def testTable_unique = "httplogs_unique"
-    
+
     def create_httplogs_dup_table = {testTablex ->
         // multi-line sql
         def result = sql """
@@ -92,14 +92,14 @@ suite("test_count_on_index_httplogs", "p0") {
                             );
                             """
         }
-    
+
     def stream_load_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
-        
+
         // load the json data
         streamLoad {
             table "${table_name}"
-            
+
             // set http request header params
             set 'label', label + "_" + UUID.randomUUID().toString()
             set 'read_json_by_line', read_flag
@@ -141,7 +141,7 @@ suite("test_count_on_index_httplogs", "p0") {
         stream_load_data.call(testTable_unique, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
         sql """set experimental_enable_nereids_planner=true;"""
         sql """set enable_fallback_to_original_planner=false;"""
         sql """analyze table ${testTable_dup} with sync""";

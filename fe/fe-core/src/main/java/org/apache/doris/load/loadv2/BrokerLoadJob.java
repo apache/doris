@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
@@ -44,12 +45,11 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -62,6 +62,7 @@ import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -129,13 +130,52 @@ public class BrokerLoadJob extends BulkLoadJob {
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
-        transactionId = Env.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
-                        new TxnCoordinator(TxnSourceType.FE, 0,
-                                FrontendOptions.getLocalHostAddress(),
-                                ExecuteEnv.getInstance().getStartupTime()),
-                        TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
-                        getTimeout());
+        if (transactionId > 0) {
+            // A previous attempt of the pending task already began our txn and failed afterwards;
+            // the retried task must reuse it instead of failing LabelAlreadyUsedException
+            // against the job's own txn.
+            LOG.info("broker load job {} reuses already begun txn {} on pending task retry", id, transactionId);
+            return;
+        }
+        try {
+            transactionId = Env.getCurrentGlobalTransactionMgr()
+                    .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
+                            new TxnCoordinator(TxnSourceType.FE, 0,
+                                    FrontendOptions.getLocalHostAddress(),
+                                    ExecuteEnv.getInstance().getStartupTime()),
+                            TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
+                            getTimeout());
+        } catch (LabelAlreadyUsedException e) {
+            // The label may be occupied by our OWN txn: a previous attempt registered it but threw
+            // before transactionId was assigned (e.g. edit log write failure), and the pending
+            // task retry would otherwise burn all retries on this exception and cancel the job
+            // with a misleading "Label has already been used".
+            Long ownTxnId = findSelfPreparedTxnByLabel();
+            if (ownTxnId == null) {
+                throw e;
+            }
+            LOG.info("broker load job {} adopts its own prepared txn {} for label {} on pending task retry",
+                    id, ownTxnId, label);
+            transactionId = ownTxnId;
+        }
+    }
+
+    private Long findSelfPreparedTxnByLabel() {
+        try {
+            Long txnId = Env.getCurrentGlobalTransactionMgr().getTransactionIdByLabel(dbId, label,
+                    Lists.newArrayList(TransactionStatus.PREPARE));
+            if (txnId == null) {
+                return null;
+            }
+            TransactionState existingTxn = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, txnId);
+            if (existingTxn != null && existingTxn.getCallbackId() == id
+                    && existingTxn.getTransactionStatus() == TransactionStatus.PREPARE) {
+                return txnId;
+            }
+        } catch (Exception lookupException) {
+            LOG.warn("broker load job {} failed to look up txn by label {}", id, label, lookupException);
+        }
+        return null;
     }
 
     @Override
@@ -203,7 +243,10 @@ public class BrokerLoadJob extends BulkLoadJob {
         try {
             Database db = getDb();
             createLoadingTask(db, attachment);
-        } catch (UserException e) {
+        } catch (UserException | org.apache.doris.nereids.exceptions.AnalysisException e) {
+            // Nereids analysis errors extend RuntimeException, not UserException; without this
+            // branch a deterministic planning failure (e.g. "disk ... exceed limit usage") falls
+            // into the generic pending-task retry path and the real cause is never reported.
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
                     .add("error_msg", "Failed to divide job into loading task.")
@@ -311,7 +354,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 boolean hasInvertedIndexV1 = false;
                 if (table.getIndexes() != null) {
                     for (org.apache.doris.catalog.Index index : table.getIndexes()) {
-                        if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
+                        if (index.getIndexType() == IndexType.INVERTED) {
                             if (table.getInvertedIndexFileStorageFormat()
                                     == org.apache.doris.thrift.TInvertedIndexFileStorageFormat.V1) {
                                 hasInvertedIndexV1 = true;
@@ -557,7 +600,7 @@ public class BrokerLoadJob extends BulkLoadJob {
             return brokerDesc.getName();
         } else if (storageType == StorageBackend.StorageType.S3) {
             return Optional.ofNullable(brokerDesc.getProperties())
-                .map(o -> o.get(S3Properties.Env.ENDPOINT))
+                .map(o -> o.get(S3ResourceCompat.Env.ENDPOINT))
                 .orElse("s3_cluster");
         } else {
             return storageType.name().toLowerCase().concat("_cluster");

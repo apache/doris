@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_partitions", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_partitions", "p0,external") {
     def q01 = {
         qt_q01 """
         select id, data from table_with_pars where dt_par = '2023-02-01' order by id;
@@ -197,7 +197,12 @@ suite("test_hive_partitions", "p0,external,hive,external_docker,external_docker_
                 sql ("select * from partition_table")
                 verbose (true)
 
-                contains "(approximate)inputSplitNum=60"
+                // Plugin-SPI hive batch mode reports the approximate split count as the SELECTED PARTITION
+                // count (numApproximateSplits = selectedPartitions.size() = 6), uniform across connectors
+                // (matches MaxCompute). Legacy HiveScanNode reported numSplitsPerPartition * partitions (=60);
+                // the "(approximate)" prefix still confirms async batch generation was chosen for this
+                // no-predicate full scan (num_partitions_in_batch_mode=1 forces it).
+                contains "(approximate)inputSplitNum=6"
             }
             sql """unset variable num_partitions_in_batch_mode"""
         } finally {

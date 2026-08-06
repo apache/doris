@@ -31,7 +31,6 @@
 using doris::BitUtil;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 inline void BitWriter::PutValue(uint64_t v, int num_bits) {
     DCHECK_LE(num_bits, 64);
     // Truncate the higher-order bits. This is necessary to
@@ -348,5 +347,4 @@ bool BatchedBitReader::GetUleb128(UINT_T* v) {
     return true;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -18,6 +18,7 @@
 #include "cloud/cloud_cumulative_compaction_policy.h"
 
 #include <algorithm>
+#include <iterator>
 #include <list>
 #include <ostream>
 #include <string>
@@ -26,14 +27,13 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
-#include "olap/cumulative_compaction_time_series_policy.h"
-#include "olap/olap_common.h"
-#include "olap/tablet.h"
-#include "olap/tablet_meta.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
+#include "storage/olap_common.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_meta.h"
 #include "util/defer_op.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 CloudSizeBasedCumulativeCompactionPolicy::CloudSizeBasedCumulativeCompactionPolicy(
         int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,
@@ -122,6 +122,7 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     *compaction_score = 0;
     int64_t total_size = 0;
     bool skip_trim = false; // Skip trim for Empty Rowset Compaction
+    RowsetSharedPtr last_popped;
 
     // DEFER: trim input_rowsets from back if score > max_compaction_score
     // This ensures we don't return more rowsets than allowed by max_compaction_score,
@@ -134,10 +135,18 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         // Keep at least 1 rowset to avoid removing the only rowset (consistent with fallback branch)
         while (input_rowsets->size() > 1 &&
                *compaction_score > static_cast<size_t>(max_compaction_score)) {
-            auto& last_rowset = input_rowsets->back();
-            *compaction_score -= last_rowset->rowset_meta()->get_compaction_score();
-            total_size -= last_rowset->rowset_meta()->total_disk_size();
+            last_popped = std::move(input_rowsets->back());
+            *compaction_score -= last_popped->rowset_meta()->get_compaction_score();
+            total_size -= last_popped->rowset_meta()->total_disk_size();
             input_rowsets->pop_back();
+        }
+        // A single non-overlapping rowset cannot be compacted by itself. Restore the direct
+        // successor and accept a one-off max-score overshoot to keep the input mergeable.
+        if (input_rowsets->size() == 1 && last_popped != nullptr &&
+            !input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
+            *compaction_score += last_popped->rowset_meta()->get_compaction_score();
+            total_size += last_popped->rowset_meta()->total_disk_size();
+            input_rowsets->push_back(std::move(last_popped));
         }
     });
 
@@ -171,10 +180,6 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
 
         transient_size += 1;
         input_rowsets->push_back(rowset);
-    }
-
-    if (total_size >= promotion_size) {
-        return transient_size;
     }
 
     // if there is delete version, do compaction directly
@@ -213,6 +218,9 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
 
     auto rs_begin = input_rowsets->begin();
     size_t new_compaction_score = *compaction_score;
+    const bool can_handle_exhausted_input =
+            (config::prioritize_query_perf_in_compaction && tablet->keys_type() != DUP_KEYS) ||
+            *compaction_score >= static_cast<size_t>(max_compaction_score);
     while (rs_begin != input_rowsets->end()) {
         auto& rs_meta = (*rs_begin)->rowset_meta();
         int64_t current_level = _level_size(rs_meta->total_disk_size());
@@ -222,9 +230,16 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         if (current_level <= remain_level) {
             break;
         }
+
+        auto next = std::next(rs_begin);
+        // Keep the last suffix rowset for the singleton checks unless the exhausted-input
+        // fallback below can select a useful input.
+        if (next == input_rowsets->end() && !can_handle_exhausted_input) {
+            break;
+        }
         total_size -= rs_meta->total_disk_size();
         new_compaction_score -= rs_meta->get_compaction_score();
-        ++rs_begin;
+        rs_begin = next;
     }
     if (rs_begin == input_rowsets->end()) { // No suitable level size found in `input_rowsets`
         if (config::prioritize_query_perf_in_compaction && tablet->keys_type() != DUP_KEYS) {
@@ -359,5 +374,4 @@ int64_t CloudTimeSeriesCumulativeCompactionPolicy::new_cumulative_point(
     return output_rowset->end_version() + 1;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

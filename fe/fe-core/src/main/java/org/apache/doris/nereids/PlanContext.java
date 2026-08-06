@@ -87,4 +87,8 @@ public class PlanContext {
     public ConnectContext getConnectContext() {
         return connectContext;
     }
+
+    public GroupExpression getGroupExpression() {
+        return groupExpression;
+    }
 }

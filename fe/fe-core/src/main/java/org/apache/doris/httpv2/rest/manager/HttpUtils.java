@@ -20,6 +20,8 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.HttpURLUtil;
+import org.apache.doris.common.util.InternalHttpsUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -51,27 +53,30 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /*
- * used to forward http requests from manager to be.
+ * Used for internal HTTP(S) communication between FE nodes and from manager to BE.
  */
 public class HttpUtils {
     private static final Logger LOG = LogManager.getLogger(HttpUtils.class);
 
-    static final int REQUEST_SUCCESS_CODE = 0;
+    public static final int REQUEST_SUCCESS_CODE = 0;
     static final int DEFAULT_TIME_OUT_MS = 2000;
 
-    static List<Pair<String, Integer>> getFeList() {
+    public static List<Pair<String, Integer>> getFeList() {
+        int port = HttpURLUtil.getHttpPort();
         return Env.getCurrentEnv().getFrontends(null)
-                .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), Config.http_port))
+                .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), port))
                 .collect(Collectors.toList());
     }
 
     static boolean isCurrentFe(String ip, int port) {
         HostInfo hostInfo = Env.getCurrentEnv().getSelfNode();
-        return hostInfo.isSame(new HostInfo(ip, port));
+        // Compare against the actual HTTP/HTTPS port, not the edit_log_port held by selfNode.
+        int selfPort = HttpURLUtil.getHttpPort();
+        return hostInfo.getHost().equals(ip) && selfPort == port;
     }
 
-    static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
-        StringBuilder url = new StringBuilder("http://")
+    public static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
+        StringBuilder url = new StringBuilder(Config.enable_https ? "https://" : "http://")
                 .append(ipPort.first).append(":").append(ipPort.second).append(path);
         boolean isFirst = true;
         for (Map.Entry<String, String> entry : arguments.entrySet()) {
@@ -98,7 +103,7 @@ public class HttpUtils {
         return doGet(url, headers, DEFAULT_TIME_OUT_MS);
     }
 
-    static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
+    public static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
         HttpPost httpPost = new HttpPost(url);
         if (Objects.nonNull(body)) {
             String jsonString = GsonUtils.GSON.toJson(body);
@@ -130,8 +135,13 @@ public class HttpUtils {
     }
 
     private static String executeRequest(HttpRequestBase request) throws IOException {
-        CloseableHttpClient client = getHttpClient();
-        return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
+        // Pick client by this request's own scheme, since this method also serves plain http BE calls.
+        boolean useHttpsClient = "https".equalsIgnoreCase(request.getURI().getScheme());
+        try (CloseableHttpClient client = useHttpsClient
+                ? InternalHttpsUtils.createValidatedHttpClient()
+                : HttpClientBuilder.create().build()) {
+            return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
+        }
     }
 
     static String parseResponse(String response) {

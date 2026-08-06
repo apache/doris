@@ -39,7 +39,7 @@ suite("dimension_2_join_agg_replenish") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -68,7 +68,7 @@ suite("dimension_2_join_agg_replenish") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -107,14 +107,30 @@ suite("dimension_2_join_agg_replenish") {
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
-        logger.info("origin_res: " + origin_res)
+        assertTrue(origin_res.size() > 0)
         sql "SET enable_materialized_view_rewrite=true"
         def mv_origin_res = sql stmt
-        logger.info("mv_origin_res: " + mv_origin_res)
+        boolean logged = false
+        def logResultMismatch = {
+            if (!logged) {
+                logger.info("origin_res: " + origin_res)
+                logger.info("mv_origin_res: " + mv_origin_res)
+                logged = true
+            }
+        }
+        if (!((mv_origin_res == [] && origin_res == []) || (mv_origin_res.size() == origin_res.size()))) {
+            logResultMismatch()
+        }
         assertTrue((mv_origin_res == [] && origin_res == []) || (mv_origin_res.size() == origin_res.size()))
         for (int row = 0; row < mv_origin_res.size(); row++) {
+            if (mv_origin_res[row].size() != origin_res[row].size()) {
+                logResultMismatch()
+            }
             assertTrue(mv_origin_res[row].size() == origin_res[row].size())
             for (int col = 0; col < mv_origin_res[row].size(); col++) {
+                if (mv_origin_res[row][col] != origin_res[row][col]) {
+                    logResultMismatch()
+                }
                 assertTrue(mv_origin_res[row][col] == origin_res[row][col])
             }
         }
@@ -855,17 +871,20 @@ suite("dimension_2_join_agg_replenish") {
                     // cross_mv_stmt_1,cross_mv_stmt_2,cross_mv_stmt_3,cross_mv_stmt_4,cross_mv_stmt_5,cross_mv_stmt_6,cross_mv_stmt_7,cross_mv_stmt_8,cross_mv_stmt_9,cross_mv_stmt_10,
     ]
     for (int i = 0; i < sql_list.size(); i++) {
-        def origin_res = sql sql_list[i]
-        assert (origin_res.size() > 0)
-    }
-
-    for (int i = 0; i < sql_list.size(); i++) {
         logger.info("sql_list current index: " + (i + 1))
 
         def mv_name = "mv_" + (i + 1)
-
-        create_async_mv(db, mv_name, sql_list[i])
-
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${db}.${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${db}.${mv_name}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES ('replication_num' = '1')
+        AS ${sql_list[i]}
+        """
+        def job_name = getJobName(db, mv_name)
+        // waitingMTMVTaskFinished() already analyzes the MV for rewrite costing.
+        waitingMTMVTaskFinished(job_name)
         mv_rewrite_success(sql_list[i], mv_name)
 
         compare_res(sql_list[i] + " order by 1,2,3")

@@ -21,9 +21,9 @@ PhysicalResultSink
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalProject[regression_test_query_p0_topn_lazy_usingIndex.__DORIS_GLOBAL_ROWID_COL__t2, t2.username]
---------------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.username = t2.username)) otherCondition=() build RFs:RF0 username->[username];RF1 username->[username]
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.username = t2.username)) otherCondition=()
 ----------------PhysicalProject[t1.username]
-------------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+------------------PhysicalOlapScan[t1]
 ----------------PhysicalProject[regression_test_query_p0_topn_lazy_usingIndex.__DORIS_GLOBAL_ROWID_COL__t2, t2.username]
 ------------------filter((t2.user_id > 0))
 --------------------PhysicalLazyMaterializeOlapScan[t2 lazySlots:(t2.age,t2.addr)]
@@ -40,4 +40,18 @@ PhysicalResultSink
 ----------PhysicalTopN[LOCAL_SORT]
 ------------filter((t1.user_id > 0))
 --------------PhysicalLazyMaterializeOlapScan[t1 lazySlots:(t1.username,t1.age,t1.addr)]
+
+-- !filter_order_key_not_pruned --
+1	10	\N	a
+
+-- !filter_order_key_not_pruned_shape --
+PhysicalResultSink
+--PhysicalProject[topn_lazy_filter_order_key.k1, topn_lazy_filter_order_key.k2, topn_lazy_filter_order_key.pad, topn_lazy_filter_order_key.v]
+----PhysicalLazyMaterialize[materializedSlots:(topn_lazy_filter_order_key.k1,topn_lazy_filter_order_key.k2) lazySlots:(topn_lazy_filter_order_key.pad,topn_lazy_filter_order_key.v)]
+------PhysicalTopN[MERGE_SORT]
+--------PhysicalDistribute[DistributionSpecGather]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalProject[regression_test_query_p0_topn_lazy_usingIndex.__DORIS_GLOBAL_ROWID_COL__topn_lazy_filter_order_key, topn_lazy_filter_order_key.k1, topn_lazy_filter_order_key.k2]
+--------------filter(OR[topn_lazy_filter_order_key.v IS NULL,(topn_lazy_filter_order_key.k2 < 40)])
+----------------PhysicalLazyMaterializeOlapScan[topn_lazy_filter_order_key lazySlots:(topn_lazy_filter_order_key.pad)]
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
@@ -25,6 +26,7 @@ import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.MappingSlot;
 import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -41,6 +43,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -58,7 +61,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -70,9 +74,12 @@ import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -98,11 +105,13 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.SqlModeHelper;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -227,6 +236,12 @@ public class BindExpression implements AnalysisRuleFactory {
             RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
                 logicalSubQueryAlias().thenApply(this::bindSubqueryAlias)
             ),
+            RuleType.BINDING_EXTERNAL_ROW_LEVEL_DELETE_SINK_OUTPUT.build(
+                logicalExternalRowLevelDeleteSink().thenApply(this::bindIcebergDeleteSink)
+            ),
+            RuleType.BINDING_EXTERNAL_ROW_LEVEL_MERGE_SINK_OUTPUT.build(
+                logicalExternalRowLevelMergeSink().thenApply(this::bindIcebergMergeSink)
+            ),
             RuleType.BINDING_RESULT_SINK.build(
                 unboundResultSink().thenApply(this::bindResultSink)
             )
@@ -255,6 +270,106 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private LogicalSubQueryAlias<Plan> bindSubqueryAlias(MatchingContext<LogicalSubQueryAlias<Plan>> ctx) {
         return ctx.root;
+    }
+
+    private LogicalExternalRowLevelDeleteSink<Plan> bindIcebergDeleteSink(
+            MatchingContext<LogicalExternalRowLevelDeleteSink<Plan>> ctx) {
+        LogicalExternalRowLevelDeleteSink<Plan> sink = ctx.root;
+        if (hasUnboundPlan(sink.child())) {
+            return sink;
+        }
+        List<NamedExpression> outputExprs = sink.child().getOutput().stream()
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList());
+        if (sink.getOutputExprs().equals(outputExprs)) {
+            return sink;
+        }
+        return sink.withOutputExprs(outputExprs);
+    }
+
+    private LogicalExternalRowLevelMergeSink<Plan> bindIcebergMergeSink(
+            MatchingContext<LogicalExternalRowLevelMergeSink<Plan>> ctx) {
+        LogicalExternalRowLevelMergeSink<Plan> sink = ctx.root;
+        if (hasUnboundPlan(sink.child())) {
+            return sink;
+        }
+        List<NamedExpression> outputExprs = sink.child().getOutput().stream()
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList());
+        List<Column> visibleColumns = sink.getCols().stream()
+                .filter(Column::isVisible)
+                .collect(ImmutableList.toImmutableList());
+        // The connector-reserved passthrough columns (iceberg v3 row-lineage) are the hidden target columns
+        // marked reservedPassthrough. Derive their names from the sink's target schema so the meta-column
+        // check below stays name-based here (this site sees output-expression names, not Column objects) while
+        // fe-core no longer string-matches the iceberg column names.
+        List<String> reservedPassthroughNames = sink.getCols().stream()
+                .filter(Column::isReservedPassthrough)
+                .map(Column::getName)
+                .collect(ImmutableList.toImmutableList());
+        int dataExprCount = 0;
+        for (NamedExpression expr : outputExprs) {
+            if (!isIcebergMergeMetaColumn(expr.getName(), reservedPassthroughNames)) {
+                dataExprCount++;
+            }
+        }
+        if (dataExprCount != visibleColumns.size()) {
+            if (sink.getOutputExprs().equals(outputExprs)) {
+                return sink;
+            }
+            return sink.withOutputExprs(outputExprs);
+        }
+
+        boolean changed = false;
+        int columnIndex = 0;
+        List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());
+        for (NamedExpression expr : outputExprs) {
+            if (isIcebergMergeMetaColumn(expr.getName(), reservedPassthroughNames)) {
+                castExprs.add(expr);
+                continue;
+            }
+            Column column = visibleColumns.get(columnIndex++);
+            DataType targetType = DataType.fromCatalogType(column.getType());
+            Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
+            NamedExpression namedExpr;
+            if (castExpr instanceof NamedExpression) {
+                namedExpr = (NamedExpression) castExpr;
+                if (!column.getName().equalsIgnoreCase(namedExpr.getName())) {
+                    namedExpr = new Alias(namedExpr, column.getName());
+                }
+            } else {
+                namedExpr = new Alias(castExpr, column.getName());
+            }
+            if (!namedExpr.equals(expr)) {
+                changed = true;
+            }
+            castExprs.add(namedExpr);
+        }
+        if (!changed) {
+            if (sink.getOutputExprs().equals(outputExprs)) {
+                return sink;
+            }
+            return sink.withOutputExprs(outputExprs);
+        }
+        LogicalProject<?> project = new LogicalProject<>(castExprs, sink.child());
+        return (LogicalExternalRowLevelMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
+    }
+
+    private boolean isIcebergMergeMetaColumn(String name, List<String> reservedPassthroughNames) {
+        if (MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
+            return true;
+        }
+        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
+            return true;
+        }
+        // Connector-reserved passthrough columns (iceberg v3 row-lineage), matched case-insensitively by name
+        // — the names come from the sink's target Columns marked reservedPassthrough, so fe-core no longer
+        // knows the iceberg column names. The reserved set is tiny (0-2), so a linear scan is fine.
+        return reservedPassthroughNames.stream().anyMatch(n -> n.equalsIgnoreCase(name));
+    }
+
+    private static boolean hasUnboundPlan(Plan plan) {
+        return plan.anyMatch(node -> node instanceof Unbound || ((Plan) node).hasUnboundExpression());
     }
 
     private LogicalPlan bindGenerate(MatchingContext<LogicalGenerate<Plan>> ctx) {
@@ -327,11 +442,11 @@ public class BindExpression implements AnalysisRuleFactory {
                 if (boundSlot.getDataType() instanceof StructType
                         && generate.getExpandColumnAlias().get(i).size() > 1) {
                     // if the alias is not empty, we should bind it with struct_element as child expr with alias
-                    // struct_element(#expand_col#k, #k) as #k
-                    // struct_element(#expand_col#v, #v) as #v
+                    // element_at(#expand_col#k, #k) as #k
+                    // element_at(#expand_col#v, #v) as #v
                     List<StructField> fields = ((StructType) boundSlot.getDataType()).getFields();
                     for (int idx = 0; idx < fields.size(); ++idx) {
-                        expandAlias.add(new Alias(new StructElement(
+                        expandAlias.add(new Alias(new ElementAt(
                                 boundSlot, new StringLiteral(fields.get(idx).getName())),
                                 generate.getExpandColumnAlias().get(i).get(idx),
                                 slot.getQualifier()));
@@ -765,9 +880,52 @@ public class BindExpression implements AnalysisRuleFactory {
                 otherJoinConjuncts.add(conjunct);
             }
         }
+        List<Expression> hashConjuncts = hashJoinConjuncts.build();
+        List<Expression> otherConjuncts = otherJoinConjuncts.build();
+        if (join.getJoinType().isAsofJoin()) {
+            // validate hash conjuncts
+            if (!JoinUtils.extractExpressionForHashTable(join.left().getOutput(), join.right().getOutput(),
+                    hashConjuncts).second.isEmpty()) {
+                throw new AnalysisException(String.format("ASOF join's hash conjuncts must be"
+                        + " in form of t1.col = t2.col but its %s", hashConjuncts));
+            }
+            // validate match_condition's data type and normalize expression order
+            // After normalization: left side of MATCH_CONDITION references left table (probe),
+            // right side references right table (build). This is required by BE.
+            boolean isValid = false;
+            if (otherConjuncts.size() == 1) {
+                Expression conjunct = otherConjuncts.get(0);
+                if (conjunct instanceof ComparisonPredicate) {
+                    if (conjunct.child(0).getDataType().isDateLikeType()
+                            && conjunct.child(1).getDataType().isDateLikeType()) {
+                        Set<Slot> leftSlots = join.left().getOutputSet();
+                        Set<Slot> rightSlots = join.right().getOutputSet();
+                        Set<Slot> leftUsedSlots = conjunct.child(0).getInputSlots();
+                        Set<Slot> rightUsedSlots = conjunct.child(1).getInputSlots();
+                        if (rightSlots.containsAll(leftUsedSlots) && leftSlots.containsAll(rightUsedSlots)) {
+                            Set<Slot> temp = leftSlots;
+                            leftSlots = rightSlots;
+                            rightSlots = temp;
+                            otherConjuncts = ImmutableList.of(((ComparisonPredicate) conjunct).commute());
+                        }
+                        if (!(leftSlots.containsAll(leftUsedSlots) && rightSlots.containsAll(rightUsedSlots))) {
+                            throw new AnalysisException("MATCH_CONDITION must specify column from both table");
+                        }
+                        isValid = true;
+                    } else {
+                        throw new AnalysisException("only allow date, datetime and timestamptz in MATCH_CONDITION");
+                    }
+                }
+            }
+            if (!isValid) {
+                // other unexpected error
+                throw new AnalysisException(String.format("MATCH_CONDITION is invalid %s",
+                        Joiner.on(",").join(otherConjuncts)));
+            }
+        }
         return new LogicalJoin<>(join.getJoinType(),
-                hashJoinConjuncts.build(), otherJoinConjuncts.build(),
-                join.getDistributeHint(), join.getMarkJoinSlotReference(), join.getExceptAsteriskOutputs(),
+                hashConjuncts, otherConjuncts,
+                join.getDistributeHint(), join.getMarkJoinSlotReference(),
                 join.children(), null);
     }
 
@@ -822,6 +980,7 @@ public class BindExpression implements AnalysisRuleFactory {
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(using, cascadesContext);
 
         Builder<Expression> hashEqExprs = ImmutableList.builderWithExpectedSize(unboundHashJoinConjunct.size());
+        List<Slot> leftConjunctsSlots = Lists.newArrayList();
         List<Slot> rightConjunctsSlots = Lists.newArrayList();
         for (Expression usingColumn : unboundHashJoinConjunct) {
             ExpressionAnalyzer leftExprAnalyzer = new ExpressionAnalyzer(
@@ -831,15 +990,61 @@ public class BindExpression implements AnalysisRuleFactory {
             ExpressionAnalyzer rightExprAnalyzer = new ExpressionAnalyzer(
                     using, rightScope, cascadesContext, true, false);
             Expression usingRightSlot = rightExprAnalyzer.analyze(usingColumn, rewriteContext);
+            leftConjunctsSlots.add((Slot) usingLeftSlot);
             rightConjunctsSlots.add((Slot) usingRightSlot);
             hashEqExprs.add(new EqualTo(usingLeftSlot, usingRightSlot));
         }
 
-        return new LogicalJoin<>(
-                using.getJoinType() == JoinType.CROSS_JOIN ? JoinType.INNER_JOIN : using.getJoinType(),
-                hashEqExprs.build(), ImmutableList.of(),
-                using.getDistributeHint(), Optional.empty(), rightConjunctsSlots,
+        JoinType joinType = using.getJoinType() == JoinType.CROSS_JOIN
+                ? JoinType.INNER_JOIN : using.getJoinType();
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType,
+                hashEqExprs.build(), using.getMatchCondition().map(ImmutableList::of).orElse(ImmutableList.of()),
+                using.getDistributeHint(), Optional.empty(),
                 using.children(), null);
+
+        // Build Project on top of join with correct merge key semantics
+        List<Slot> joinOutput = join.getOutput();
+        Set<Slot> leftUsingSlotSet = ImmutableSet.copyOf(leftConjunctsSlots);
+        Set<Slot> rightUsingSlotSet = ImmutableSet.copyOf(rightConjunctsSlots);
+
+        // Build project expressions: merged key(s) + all join output columns
+        ImmutableList.Builder<NamedExpression> projectExprs = ImmutableList.builder();
+        ImmutableList.Builder<NamedExpression> asteriskOutputs = ImmutableList.builder();
+
+        // 1. Add merged key columns (without qualifier)
+        for (int i = 0; i < leftConjunctsSlots.size(); i++) {
+            Slot leftSlot = leftConjunctsSlots.get(i);
+            Slot rightSlot = rightConjunctsSlots.get(i);
+            String colName = leftSlot.getName();
+            NamedExpression mergeExpr;
+            if (joinType.isFullOuterJoin()) {
+                // FULL OUTER JOIN: COALESCE(left, right)
+                mergeExpr = new Alias(new Coalesce(leftSlot, rightSlot), colName);
+            } else if (joinType.isRightJoin() || joinType.isRightSemiOrAntiJoin()) {
+                // RIGHT OUTER / RIGHT SEMI / RIGHT ANTI: use right side (preserved side)
+                mergeExpr = new Alias(rightSlot, colName);
+            } else {
+                // LEFT OUTER / INNER / LEFT SEMI / LEFT ANTI / CROSS: use left side
+                mergeExpr = new Alias(leftSlot, colName);
+            }
+            projectExprs.add(mergeExpr);
+            asteriskOutputs.add(mergeExpr);
+        }
+
+        // 2. Pass through all join output columns (with original qualifiers)
+        for (Slot slot : joinOutput) {
+            projectExprs.add(slot);
+        }
+
+        // 3. Build asterisk output: merged USING keys + child asterisk output without current USING keys.
+        for (Slot slot : join.getAsteriskOutput()) {
+            if (!leftUsingSlotSet.contains(slot) && !rightUsingSlotSet.contains(slot)) {
+                asteriskOutputs.add(slot);
+            }
+        }
+
+        return new LogicalProject<>(projectExprs.build(), false,
+                asteriskOutputs.build(), ImmutableList.of(join));
     }
 
     private Plan bindProject(MatchingContext<LogicalProject<Plan>> ctx) {
@@ -1272,7 +1477,7 @@ public class BindExpression implements AnalysisRuleFactory {
         // 2. for 'group by a + random(), a + random() + 1', the two 'random()' will be different.
         int containsUniqueGroupByCount = 0;
         for (Expression groupByExpr : groupByExpressions) {
-            if (groupByExpr.containsUniqueFunction()) {
+            if (groupByExpr.containsVolatileExpression()) {
                 containsUniqueGroupByCount++;
             }
         }
@@ -1286,8 +1491,9 @@ public class BindExpression implements AnalysisRuleFactory {
                 groupByExpressions.size());
         for (Expression groupByExpr : groupByExpressions) {
             Expression newGroupByExpr = groupByExpr;
-            if (groupByExpr.containsUniqueFunction()) {
-                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(groupByExpr, true);
+            if (groupByExpr.containsVolatileExpression()) {
+                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(groupByExpr,
+                        true);
                 Expression previousGroupByExpr = ignoreUniqueIdGroupByExprs.get(ignoreUniqueIdExpr);
                 if (previousGroupByExpr == null) {
                     ignoreUniqueIdGroupByExprs.put(ignoreUniqueIdExpr, groupByExpr);
@@ -1329,15 +1535,15 @@ public class BindExpression implements AnalysisRuleFactory {
     //    c) let E3 = rewrite E2 with enable unique ids. then E3 is the bind unique id expression for E.
     private <T extends Expression> T bindExprUniqueIdWithGroupBy(T expression,
             Map<Expression, Expression> bindUniqueIdReplaceMap) {
-        if (!expression.containsUniqueFunction() || bindUniqueIdReplaceMap.isEmpty()) {
+        if (!expression.containsVolatileExpression() || bindUniqueIdReplaceMap.isEmpty()) {
             return expression;
         }
 
         // first ignore unique id, then replace sub expression with group by expression
-        Expression resExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(expression, true);
+        Expression resExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(expression, true);
         resExpr = ExpressionUtils.replace(resExpr, bindUniqueIdReplaceMap);
         // enable unique id back
-        resExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(resExpr, false);
+        resExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(resExpr, false);
         return (T) resExpr;
     }
 
@@ -1375,8 +1581,9 @@ public class BindExpression implements AnalysisRuleFactory {
     private Map<Expression, Expression> getGroupByUniqueFuncReplaceMap(List<Expression> groupByByExpressions) {
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
         for (Expression expression : groupByByExpressions) {
-            if (expression.containsUniqueFunction()) {
-                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(expression, true);
+            if (expression.containsVolatileExpression()) {
+                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(expression,
+                        true);
                 // for sql:
                 //    select distinct a + random(),  a + random()
                 //    from t
@@ -1407,8 +1614,9 @@ public class BindExpression implements AnalysisRuleFactory {
                     = ImmutableList.builderWithExpectedSize(boundGroupingSet.size());
             for (Expression groupBy : boundGroupingSet) {
                 Expression newGroupBy = groupBy;
-                if (groupBy.containsUniqueFunction()) {
-                    Expression ignoreUniqueIdGroupBy = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(groupBy, true);
+                if (groupBy.containsVolatileExpression()) {
+                    Expression ignoreUniqueIdGroupBy = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(groupBy,
+                            true);
                     Expression previousGroupBy = ignoreUniqueIdGroupByExpressions.get(ignoreUniqueIdGroupBy);
                     if (previousGroupBy == null) {
                         ignoreUniqueIdGroupByExpressions.put(ignoreUniqueIdGroupBy, groupBy);

@@ -480,7 +480,7 @@ suite("agg_sync_mv") {
 
     streamLoad {
         table "agg_mv_test"
-        db "regression_test_nereids_syntax_p1_mv"
+        db "regression_test_nereids_syntax_p1_mv_aggregate"
         set 'column_separator', ';'
         set 'columns', '''
             id, kbool, ktint, ksint, kint, kbint, klint, kfloat, kdbl, kdcmls1, kdcmls2, kdcmls3,
@@ -493,7 +493,7 @@ suite("agg_sync_mv") {
             km_tint_bool, km_int_int, km_tint_sint, km_tint_int, km_tint_bint, km_tint_lint, km_tint_float,
             km_tint_dbl, km_tint_dcml, km_tint_chr, km_tint_vchr, km_tint_str, km_tint_date, km_tint_dtm, kjson, kstruct
             '''
-        file "../agg_mv_test.dat"
+        file "agg_mv_test.dat"
     }
 
 

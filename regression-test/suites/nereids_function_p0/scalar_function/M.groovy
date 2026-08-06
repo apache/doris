@@ -135,6 +135,7 @@ suite("nereids_scalar_fn_M") {
 	qt_sql_month_DateTimeV2_notnull "select month(kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1"
 	qt_sql_month_DateV2 "select month(kdtv2) from fn_test order by kdtv2"
 	qt_sql_month_DateV2_notnull "select month(kdtv2) from fn_test_not_nullable order by kdtv2"
+	qt_sql_month_nullable_string_literal "select month(cast('2021-12-31 12:23:34' as datetimev2(0))), month(nullable('2021-12-31 12:23:34')), month(cast('0000-01-01 00:00:00' as datetimev2(0))), month(nullable('0000-01-01 00:00:00')), month(cast('0000-01-02 00:00:00' as datetimev2(0))), month(nullable('0000-01-02 00:00:00')), month(null)"
 	qt_sql_month_ceil_DateTime "select month_ceil(kdtm) from fn_test order by kdtm"
 	qt_sql_month_ceil_DateTime_notnull "select month_ceil(kdtm) from fn_test_not_nullable order by kdtm"
 	qt_sql_month_ceil_DateTimeV2 "select month_ceil(kdtmv2s1) from fn_test order by kdtmv2s1"

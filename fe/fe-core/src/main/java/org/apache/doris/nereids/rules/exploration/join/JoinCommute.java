@@ -20,18 +20,13 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.NestedLoopJoinNode;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import java.util.List;
 
@@ -61,10 +56,10 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 .when(join -> checkReorder(join))
                 .when(join -> check(swapType, join))
                 .whenNot(LogicalJoin::hasDistributeHint)
-                .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
                 // null aware mark join will be translated to null aware left semi/anti join
                 // we don't support null aware right semi/anti join, so should not commute
                 .whenNot(join -> JoinUtils.isNullAwareMarkJoin(join))
+                .whenNot(join -> join.getJoinType().isAsofJoin())
                 // commuting nest loop mark join or left anti mark join is not supported by be
                 .whenNot(join -> join.isMarkJoin() && (join.getHashJoinConjuncts().isEmpty()
                         || join.getJoinType().isLeftAntiJoin()))
@@ -74,8 +69,8 @@ public class JoinCommute extends OneExplorationRuleFactory {
                         && NestedLoopJoinNode.canParallelize(JoinType.toJoinOperator(join.getJoinType()))
                         && !NestedLoopJoinNode.canParallelize(JoinType.toJoinOperator(join.getJoinType().swap())))
                 .then(join -> {
-                    LogicalJoin<? extends Plan, ? extends Plan> newJoin = join.withTypeChildren(
-                            join.getJoinType().swap(), join.right(), join.left(), null);
+                    // Use swap() to properly handle ASOF JOIN MATCH_CONDITION commutation
+                    LogicalJoin<? extends Plan, ? extends Plan> newJoin = join.swap();
                     newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
                     if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
@@ -141,23 +136,4 @@ public class JoinCommute extends OneExplorationRuleFactory {
         }
     }
 
-    /**
-     * bitmap runtime filter requires bitmap column on right.
-     */
-    private boolean joinOrderMatchBitmapRuntimeFilterOrder(LogicalJoin<GroupPlan, GroupPlan> join) {
-        if (!ConnectContext.get().getSessionVariable().allowedRuntimeFilterType(TRuntimeFilterType.BITMAP)) {
-            return false;
-        }
-        for (Expression expr : join.getOtherJoinConjuncts()) {
-            if (expr instanceof Not) {
-                expr = expr.child(0);
-            }
-            if (expr instanceof BitmapContains) {
-                BitmapContains bitmapContains = (BitmapContains) expr;
-                return (join.right().getOutputSet().containsAll(bitmapContains.child(0).getInputSlots())
-                        && join.left().getOutputSet().containsAll(bitmapContains.child(1).getInputSlots()));
-            }
-        }
-        return false;
-    }
 }

@@ -1,0 +1,182 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.analysis;
+
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
+
+import com.google.gson.annotations.SerializedName;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.text.NumberFormat;
+
+public class FloatLiteral extends NumericLiteralExpr {
+    @SerializedName("v")
+    private double value;
+
+    public FloatLiteral() {
+    }
+
+    public FloatLiteral(Double value) {
+        init(value);
+        this.nullable = false;
+    }
+
+    /**
+     * C'tor forcing type, e.g., due to implicit cast
+     */
+    public FloatLiteral(Double value, Type type) {
+        this.value = value.doubleValue();
+        this.type = type;
+        this.nullable = false;
+    }
+
+    public FloatLiteral(String value) throws AnalysisException {
+        Double floatValue = null;
+        try {
+            floatValue = new Double(value);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid floating-point literal: " + value, e);
+        }
+        init(floatValue);
+        this.nullable = false;
+    }
+
+    protected FloatLiteral(FloatLiteral other) {
+        super(other);
+        value = other.value;
+    }
+
+    @Override
+    public Expr clone() {
+        return new FloatLiteral(this);
+    }
+
+    @Override
+    public ByteBuffer getHashValue(PrimitiveType type) {
+        ByteBuffer buffer = ByteBuffer.allocate(8);
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
+        switch (type) {
+            case TINYINT:
+                buffer.put((byte) value);
+                break;
+            case SMALLINT:
+                buffer.putShort((short) value);
+                break;
+            case INT:
+                buffer.putInt((int) value);
+                break;
+            case BIGINT:
+                buffer.putLong((long) value);
+                break;
+            default:
+                return super.getHashValue(type);
+        }
+        buffer.flip();
+        return buffer;
+    }
+
+    private void init(Double value) {
+        this.value = value.doubleValue();
+        // Figure out if this will fit in a FLOAT without loosing precision.
+        float fvalue;
+        fvalue = value.floatValue();
+        if (fvalue == this.value) {
+            type = Type.FLOAT;
+        } else {
+            type = Type.DOUBLE;
+        }
+    }
+
+    @Override
+    public boolean isMinValue() {
+        return false;
+    }
+
+    @Override
+    public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
+        if (expr instanceof NullLiteral) {
+            return 1;
+        }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
+        return Double.compare(value, expr.getDoubleValue());
+    }
+
+    @Override
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitFloatLiteral(this, context);
+    }
+
+    @Override
+    public String getStringValue() {
+        // TODO: Here is weird use float to represent TIME type
+        // rethink whether it is reasonable to use this way
+        if (type.equals(Type.TIMEV2)) {
+            return timeStrFromFloat(value);
+        }
+        NumberFormat nf = NumberFormat.getInstance();
+        nf.setGroupingUsed(false);
+        if (type == Type.FLOAT) {
+            nf.setMaximumFractionDigits(7);
+        } else {
+            nf.setMaximumFractionDigits(16);
+        }
+        return nf.format(value);
+    }
+
+    @Override
+    public long getLongValue() {
+        return (long) value;
+    }
+
+    @Override
+    public double getDoubleValue() {
+        return value;
+    }
+
+    public double getValue() {
+        return value;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Double.hashCode(value);
+    }
+
+    private String timeStrFromFloat(double time) {
+        String timeStr = "";
+
+        if (time < 0) {
+            timeStr += "-";
+            time = -time;
+        }
+        int hour = (int) (time / 60 / 60);
+        int minute = (int) ((time / 60)) % 60;
+        int second = (int) (time) % 60;
+
+        return "'" + timeStr + String.format("%02d:%02d:%02d", hour, minute, second) + "'";
+    }
+
+}

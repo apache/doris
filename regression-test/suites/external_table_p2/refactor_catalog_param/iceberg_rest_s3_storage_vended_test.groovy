@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_rest_s3_storage_vended_test", "p2,external,iceberg,external_docker,external_docker_iceberg_rest,new_catalog_property") {
+suite("iceberg_rest_s3_storage_vended_test", "p2,external") {
     // Since the vended credential test environment of oss/cos/s3 is currently unavailable, the test is temporarily closed
     // After the environment is ready, start the test
     // Minio-based vended credential test reference test_polaris.groovy
@@ -160,10 +160,7 @@ suite("iceberg_rest_s3_storage_vended_test", "p2,external,iceberg,external_docke
 
         // =======  TIME TRAVEL TEST  =======
         def iceberg_meta_result = sql """
-        SELECT snapshot_id FROM iceberg_meta(
-                'table' = '${catalog_name}.${db_name}.${table_name}',
-                'query_type' = 'snapshots'
-        ) order by committed_at desc;
+        SELECT snapshot_id FROM ${catalog_name}.${db_name}.${table_name}\$snapshots order by committed_at desc;
         """
         def first_snapshot_id = iceberg_meta_result.get(0).get(0);
         def time_travel = sql """

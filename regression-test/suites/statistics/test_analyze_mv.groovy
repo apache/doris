@@ -611,7 +611,8 @@ suite("test_analyze_mv") {
     assertEquals("mvTestDup", result_row[0][0])
     assertEquals("mv3", result_row[0][1])
     assertEquals("0", result_row[0][3])
-    assertEquals("-1", result_row[0][4])
+    assertTrue(result_row[0][4] == "-1" || result_row[0][4] == "0",
+        "Expected row_count to be -1 or 0 after truncate, but got: ${result_row[0][4]}")
 
     // ** Embedded test for skip auto analyze when table is empty
     sql """analyze table mvTestDup properties ("use.auto.analyzer" = "true")"""

@@ -90,3 +90,119 @@
 
 -- !sql_mb_string_exceed_len_strict0 --
 
+-- !insert_select_string_exceed_len_non_strict0_src --
+1	a1
+20	a20
+30	a30
+59	a59
+60	a60
+70	a70
+79	a79
+81	a1234567890
+91	a9234567890
+100	a10234567890
+
+-- !insert_select_string_exceed_len_non_strict0_dst --
+1	a1
+20	a20
+30	a30
+59	a59
+60	a60
+70	a70
+79	a79
+81	a123456789
+91	a923456789
+100	a102345678
+
+-- !insert_select_string_exceed_len_strict1_dst --
+
+-- !insert_select_number_overflow_non_strict_src --
+1234567890
+1234567891
+1234567892
+1234567893
+1234567894
+1234567895
+1234567896
+12345678902
+12345678903
+12345678971
+
+-- !insert_select_number_overflow_non_strict_dst --
+\N
+\N
+\N
+1234567890
+1234567891
+1234567892
+1234567893
+1234567894
+1234567895
+1234567896
+
+-- !insert_select_number_overflow_strict0_dst --
+
+-- !insert_select_non_number_to_number_non_strict_dst --
+\N
+\N
+\N
+1234567890
+1234567890
+1234567893
+1234567894
+1234567895
+1234567896
+1234567897
+
+-- !insert_select_non_number_to_number_strict_dst --
+
+-- !insert_select_null_into_not_null_non_strict_src --
+\N
+\N
+\N
+1234567890
+1234567891
+1234567892
+1234567893
+1234567894
+1234567895
+1234567896
+
+-- !insert_select_null_into_not_null_non_strict_dst0 --
+
+-- !insert_select_null_into_not_null_non_strict_dst1 --
+1234567890
+1234567891
+1234567892
+1234567893
+1234567894
+1234567895
+1234567896
+
+-- !insert_select_null_into_not_null_strict_dst0 --
+
+-- !insert_select_no_partition_src --
+1	a1
+20	a20
+30	a30
+59	a59
+60	a60
+70	a70
+79	a79
+81	a81
+91	a91
+100	a100
+
+-- !insert_select_no_partition_non_strict_dst0 --
+
+-- !insert_select_no_partition_non_strict_dst1 --
+1	a1
+20	a20
+30	a30
+59	a59
+60	a60
+70	a70
+79	a79
+
+-- !insert_select_no_partition_strict_dst0 --
+

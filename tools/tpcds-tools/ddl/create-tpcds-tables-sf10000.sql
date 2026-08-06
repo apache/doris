@@ -393,7 +393,7 @@ create table store_returns
 (
     sr_returned_date_sk       integer                       ,
     sr_item_sk                integer               not null,
-    sr_ticket_number          integer               not null,
+    sr_ticket_number          bigint                not null,
     sr_return_time_sk         integer                       ,
     sr_customer_sk            integer                       ,
     sr_cdemo_sk               integer                       ,
@@ -421,7 +421,7 @@ create table store_sales
 (
     ss_sold_date_sk           integer                       ,
     ss_item_sk                integer               not null,
-    ss_ticket_number          integer               not null,
+    ss_ticket_number          bigint                not null,
     ss_sold_time_sk           integer                       ,
     ss_customer_sk            integer                       ,
     ss_cdemo_sk               integer                       ,

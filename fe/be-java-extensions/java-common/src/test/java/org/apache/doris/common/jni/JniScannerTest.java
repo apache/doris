@@ -19,15 +19,27 @@ package org.apache.doris.common.jni;
 
 
 import org.apache.doris.common.jni.utils.OffHeap;
+import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.VectorTable;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
 
 public class JniScannerTest {
+    @Test
+    public void testUnencodedStructFieldNamesRemainLowerCase() {
+        ColumnType structType = ColumnType.parseType(
+                "value", "struct<Mixed:int,UPPER:struct<Nested:string>>");
+
+        Assert.assertEquals(Arrays.asList("mixed", "upper"), structType.getChildNames());
+        Assert.assertEquals(Arrays.asList("nested"),
+                structType.getChildTypes().get(1).getChildNames());
+    }
+
     @Test
     public void testMockJniScanner() throws IOException {
         OffHeap.setTesting();
@@ -58,6 +70,48 @@ public class JniScannerTest {
             }
             scanner.resetTable();
         } while (metaAddress != 0);
+        scanner.releaseTable();
+        scanner.close();
+    }
+
+    @Test
+    public void testSetBatchSize() throws IOException {
+        OffHeap.setTesting();
+        MockJniScanner scanner = new MockJniScanner(16, new HashMap<String, String>() {
+            {
+                put("mock_rows", "64");
+                put("required_fields", "int");
+                put("columns_types", "int");
+            }
+        });
+        scanner.open();
+
+        // First batch: batchSize = 16
+        long metaAddress = scanner.getNextBatchMeta();
+        Assert.assertNotEquals(0, metaAddress);
+        Assert.assertEquals(16, OffHeap.getLong(null, metaAddress));
+        scanner.resetTable();
+
+        // Change batch size to 32
+        scanner.setBatchSize(32);
+        Assert.assertEquals(32, scanner.getBatchSize());
+
+        // Second batch: should read 32 rows with updated batchSize
+        metaAddress = scanner.getNextBatchMeta();
+        Assert.assertNotEquals(0, metaAddress);
+        Assert.assertEquals(32, OffHeap.getLong(null, metaAddress));
+        scanner.resetTable();
+
+        // Third batch: only 16 rows remaining
+        metaAddress = scanner.getNextBatchMeta();
+        Assert.assertNotEquals(0, metaAddress);
+        Assert.assertEquals(16, OffHeap.getLong(null, metaAddress));
+        scanner.resetTable();
+
+        // EOF
+        metaAddress = scanner.getNextBatchMeta();
+        Assert.assertEquals(0, metaAddress);
+
         scanner.releaseTable();
         scanner.close();
     }

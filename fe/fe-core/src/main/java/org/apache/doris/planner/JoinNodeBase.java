@@ -20,7 +20,6 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.info.TableRefInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -30,7 +29,6 @@ import java.util.List;
 
 public abstract class JoinNodeBase extends PlanNode {
 
-    protected final TableRefInfo innerRef;
     protected final JoinOperator joinOp;
     protected final boolean isMark;
     protected List<TupleDescriptor> vIntermediateTupleDescList;
@@ -45,7 +43,6 @@ public abstract class JoinNodeBase extends PlanNode {
 
     public JoinNodeBase(PlanNodeId id, String planNodeName, JoinOperator joinOp, boolean isMark) {
         super(id, planNodeName);
-        this.innerRef = null;
         this.joinOp = joinOp;
         this.isMark = isMark;
     }

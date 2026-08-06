@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS `customer` (
   `c_mktsegment` varchar(11) NOT NULL COMMENT ""
 )
 UNIQUE KEY (`c_custkey`)
-CLUSTER BY (`c_region`, `c_city`, `c_name`)
+ORDER BY (`c_region`, `c_city`, `c_name`)
 DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 10
 PROPERTIES (
 "compression"="zstd",

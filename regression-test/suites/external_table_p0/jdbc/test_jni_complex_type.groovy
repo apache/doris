@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_jni_complex_type", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_jni_complex_type", "p0,external") {
     qt_sql """select current_catalog()"""
 
     String jdbcUrl = context.config.jdbcUrl + "&sessionVariables=return_object_data_as_binary=true"

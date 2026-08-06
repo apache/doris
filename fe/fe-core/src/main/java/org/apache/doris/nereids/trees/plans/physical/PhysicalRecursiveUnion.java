@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.RecursiveCte;
@@ -177,29 +178,30 @@ public class PhysicalRecursiveUnion<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TY
 
     @Override
     public PhysicalRecursiveUnion<Plan, Plan> withChildren(List<Plan> children) {
-        return new PhysicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs, groupExpression,
-                getLogicalProperties(), children.get(0), children.get(1));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRecursiveUnion<>(cteName, qualifier, outputs,
+                regularChildrenOutputs, groupExpression, getLogicalProperties(), children.get(0), children.get(1)));
     }
 
     @Override
     public PhysicalRecursiveUnion<Plan, Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
-                groupExpression, getLogicalProperties(), left(), right());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRecursiveUnion<>(cteName, qualifier, outputs,
+                regularChildrenOutputs, groupExpression, getLogicalProperties(), left(), right()));
     }
 
     @Override
     public PhysicalRecursiveUnion<Plan, Plan> withGroupExprLogicalPropChildren(
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
-                groupExpression, logicalProperties.get(), left(), right());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRecursiveUnion<>(cteName, qualifier, outputs,
+                regularChildrenOutputs, groupExpression, logicalProperties.get(), left(), right()));
     }
 
     @Override
     public PhysicalRecursiveUnion<Plan, Plan> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, left(), right());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRecursiveUnion<>(cteName, qualifier, outputs,
+                regularChildrenOutputs, groupExpression, getLogicalProperties(), physicalProperties, statistics,
+                left(), right()));
     }
 
     @Override

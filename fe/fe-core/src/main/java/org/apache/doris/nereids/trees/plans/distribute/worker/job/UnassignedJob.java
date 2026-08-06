@@ -43,6 +43,22 @@ public interface UnassignedJob extends TreeNode<UnassignedJob> {
 
     ListMultimap<ExchangeNode, UnassignedJob> getExchangeToChildJob();
 
+    /**
+     * Compute and return the list of {@link AssignedJob}s for this fragment.
+     * This is the core method that transforms an unassigned fragment-level job into
+     * concrete parallel instances, each bound to a specific {@link DistributedPlanWorker}
+     * and carrying its assigned {@link ScanSource} (data ranges).
+     *
+     * @param distributeContext
+     *         the distribute context containing worker manager, selected workers, and other
+     *         planner state needed for worker selection and parallelism decisions
+     * @param inputJobs
+     *         multimap from child {@link ExchangeNode} to their already-assigned jobs;
+     *         provides the child fragment instance layout used by shuffle/gather jobs
+     *         to determine their own instance count and worker placement
+     * @return the list of assigned jobs, each representing one fragment instance scheduled
+     *         on a specific worker with its data source
+     */
     List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs);
 

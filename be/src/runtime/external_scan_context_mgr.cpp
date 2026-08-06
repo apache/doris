@@ -24,11 +24,11 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_queue_mgr.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
 #include "util/thread.h"
 #include "util/uid_util.h"
 

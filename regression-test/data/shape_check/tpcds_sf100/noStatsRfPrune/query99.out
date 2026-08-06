@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[cs_ship_date_sk]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->cs_ship_date_sk
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_call_center_sk = call_center.cc_call_center_sk)) otherCondition=()
 ----------------------PhysicalProject

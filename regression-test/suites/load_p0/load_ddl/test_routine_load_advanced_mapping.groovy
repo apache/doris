@@ -176,7 +176,7 @@ suite("test_routine_load_advanced_mapping","p0") {
                 }
                 log.info("reason of state changed: ${res[0][11].toString()}".toString())
                 def json = parseJson(res[0][11])
-                assertEquals("(k00 = 8)", json.whereExpr.toString())
+                assertEquals("(`k00` = 8)", json.whereExpr.toString())
                 break;
             }
             while (true) {

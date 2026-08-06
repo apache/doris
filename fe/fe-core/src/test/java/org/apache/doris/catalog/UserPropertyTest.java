@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -24,53 +26,47 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.UserProperty;
+import org.apache.doris.mysql.privilege.UserPropertyMgr;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 
 public class UserPropertyTest {
     private FakeEnv fakeEnv;
-    @Mocked
-    private Env env;
-    @Mocked
-    private SqlBlockRuleMgr sqlBlockRuleMgr;
+    private Env env = Mockito.mock(Env.class);
+    private SqlBlockRuleMgr sqlBlockRuleMgr = Mockito.mock(SqlBlockRuleMgr.class);
+    private MockedStatic<Env> mockedStaticEnv;
 
     @Before
     public void setUp() {
-        new Expectations(env) {
-            {
-                env.getSqlBlockRuleMgr();
-                minTimes = 0;
-                result = sqlBlockRuleMgr;
+        mockedStaticEnv = Mockito.mockStatic(Env.class);
+        mockedStaticEnv.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getSqlBlockRuleMgr()).thenReturn(sqlBlockRuleMgr);
+        Mockito.when(sqlBlockRuleMgr.existRule("rule1")).thenReturn(true);
+        Mockito.when(sqlBlockRuleMgr.existRule("rule2")).thenReturn(true);
+        Mockito.when(sqlBlockRuleMgr.existRule("test1")).thenReturn(true);
+        Mockito.when(sqlBlockRuleMgr.existRule("test2")).thenReturn(true);
+        Mockito.when(sqlBlockRuleMgr.existRule("test3")).thenReturn(true);
+    }
 
-                sqlBlockRuleMgr.existRule("rule1");
-                minTimes = 0;
-                result = true;
-
-                sqlBlockRuleMgr.existRule("rule2");
-                minTimes = 0;
-                result = true;
-
-                sqlBlockRuleMgr.existRule("test1");
-                minTimes = 0;
-                result = true;
-
-                sqlBlockRuleMgr.existRule("test2");
-                minTimes = 0;
-                result = true;
-
-                sqlBlockRuleMgr.existRule("test3");
-                minTimes = 0;
-                result = true;
-            }
-        };
+    @After
+    public void tearDown() {
+        if (mockedStaticEnv != null) {
+            mockedStaticEnv.close();
+        }
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
     }
 
     @Test
@@ -160,24 +156,19 @@ public class UserPropertyTest {
     }
 
     @Test
-    public void testUpdateInitCatalog(@Mocked Env env, @Mocked CatalogMgr catalogMgr) throws UserException {
+    public void testUpdateInitCatalog() throws UserException {
+        Env localEnv = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         CatalogIf internalCatalog = new InternalCatalog();
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 1;
-                result = env;
 
-                env.getCatalogMgr();
-                minTimes = 1;
-                result = catalogMgr;
-
-                catalogMgr.getCatalog(anyString);
-                minTimes = 2;
-                result = null;
-                result = internalCatalog;
-            }
-        };
+        // Re-configure the static mock for this test
+        mockedStaticEnv.close();
+        mockedStaticEnv = Mockito.mockStatic(Env.class);
+        mockedStaticEnv.when(Env::getCurrentEnv).thenReturn(localEnv);
+        Mockito.when(localEnv.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString()))
+            .thenReturn(null)
+                .thenReturn(internalCatalog);
 
         // for non exist catalog, use internal
         List<Pair<String, String>> properties = Lists.newArrayList();
@@ -197,5 +188,30 @@ public class UserPropertyTest {
         userProperty = new UserProperty();
         userProperty.update(properties);
         Assert.assertEquals("exist_catalog",  userProperty.getInitCatalog());
+    }
+
+    @Test
+    public void testExternalTempUserUsesDefaultPropertyFallback() {
+        UserPropertyMgr propertyMgr = new UserPropertyMgr();
+        Assert.assertEquals(0, propertyMgr.getMaxConn("external_alice"));
+
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("external_alice", "127.0.0.1"));
+        ctx.setIsTempUser(true);
+        ctx.setAuthenticatedPrincipal(BasicPrincipal.builder()
+                .name("external_alice")
+                .authenticator("corp_oidc")
+                .build());
+        ctx.setThreadLocalInfo();
+        try {
+            Assert.assertEquals(100, propertyMgr.getMaxConn("external_alice"));
+            Assert.assertEquals(-1, propertyMgr.getQueryTimeout("external_alice"));
+            Assert.assertEquals(-1, propertyMgr.getInsertTimeout("external_alice"));
+            Assert.assertEquals("internal", propertyMgr.getInitCatalog("external_alice"));
+            Assert.assertEquals(WorkloadGroupMgr.DEFAULT_GROUP_NAME,
+                    propertyMgr.getWorkloadGroup("external_alice"));
+        } finally {
+            ConnectContext.remove();
+        }
     }
 }

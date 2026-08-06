@@ -52,7 +52,7 @@ suite("test_inverted_index_null_ram_dir") {
         String backend_id;
         backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
+
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def configList = parseJson(out.trim())
@@ -105,7 +105,7 @@ suite("test_inverted_index_null_ram_dir") {
                 (7,'tengxun','qie','addr gg','lj',null),
                 (8,'tengxun2','qie',null,'lj',800)
         """
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         // select all data
         qt_select_0 "SELECT * FROM ${tableName} ORDER BY id"

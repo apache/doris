@@ -27,18 +27,17 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
-#include "olap/base_tablet.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet_fwd.h"
-#include "olap/tablet_meta.h"
-#include "olap/txn_manager.h"
-#include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset.h"
+#include "storage/tablet/base_tablet.h"
+#include "storage/tablet/tablet_fwd.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/txn/txn_manager.h"
+#include "storage/utils.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 CloudEngineCalcDeleteBitmapTask::CloudEngineCalcDeleteBitmapTask(
         CloudStorageEngine& engine, const TCalcDeleteBitmapRequest& cal_delete_bitmap_req,
@@ -94,15 +93,18 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
             if (has_tablet_states) {
                 tablet_calc_delete_bitmap_ptr->set_tablet_state(partition.tablet_states[i]);
             }
-            auto submit_st = token->submit_func([tablet_id, tablet_calc_delete_bitmap_ptr, this]() {
-                auto st = tablet_calc_delete_bitmap_ptr->handle();
-                if (st.ok()) {
-                    add_succ_tablet_id(tablet_id);
-                } else {
-                    LOG(WARNING) << "handle calc delete bitmap fail, st=" << st.to_string();
-                    add_error_tablet_id(tablet_id, st);
-                }
-            });
+            const auto submit_time_us = MonotonicMicros();
+            auto submit_st = token->submit_func(
+                    [tablet_id, tablet_calc_delete_bitmap_ptr, this, submit_time_us]() {
+                        const auto queue_time_us = MonotonicMicros() - submit_time_us;
+                        auto st = tablet_calc_delete_bitmap_ptr->handle(queue_time_us);
+                        if (st.ok()) {
+                            add_succ_tablet_id(tablet_id);
+                        } else {
+                            LOG(WARNING) << "handle calc delete bitmap fail, st=" << st.to_string();
+                            add_error_tablet_id(tablet_id, st);
+                        }
+                    });
             VLOG_DEBUG << "submit TabletCalcDeleteBitmapTask for tablet=" << tablet_id;
             if (!submit_st.ok()) {
                 _res = submit_st;
@@ -144,7 +146,7 @@ void CloudTabletCalcDeleteBitmapTask::set_tablet_state(int64_t tablet_state) {
     _ms_tablet_state = tablet_state;
 }
 
-Status CloudTabletCalcDeleteBitmapTask::handle() const {
+Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
     VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id
                << ", txn_id=" << _transaction_id;
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -285,7 +287,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     auto total_update_delete_bitmap_time_us = MonotonicMicros() - t3;
     LOG(INFO) << "finish calculate delete bitmap on tablet"
               << ", table_id=" << tablet->table_id() << ", transaction_id=" << _transaction_id
-              << ", tablet_id=" << tablet->tablet_id()
+              << ", tablet_id=" << tablet->tablet_id() << ", queue_time_us=" << queue_time_us
               << ", get_tablet_time_us=" << get_tablet_time_us
               << ", sync_rowset_time_us=" << sync_rowset_time_us
               << ", total_update_delete_bitmap_time_us=" << total_update_delete_bitmap_time_us
@@ -392,5 +394,4 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -9,7 +9,6 @@
 #include "util/coding.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 uint8_t* encode_varint32(uint8_t* dst, uint32_t v) {
     // Operate on characters as unsigneds
@@ -72,5 +71,4 @@ const uint8_t* decode_varint64_ptr(const uint8_t* p, const uint8_t* limit, uint6
     }
     return nullptr;
 }
-#include "common/compile_check_end.h"
 } // namespace doris

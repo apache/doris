@@ -24,6 +24,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableSet;
 
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -35,6 +36,7 @@ import java.time.temporal.ChronoField;
 import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.WeekFields;
+import java.time.zone.ZoneOffsetTransition;
 import java.util.Locale;
 import java.util.Set;
 
@@ -341,9 +343,11 @@ public class DateUtils {
                     case 'y': // %y Year, numeric (two digits)
                         builder.appendValueReduced(ChronoField.YEAR, 2, 2, 1970);
                         break;
+                    case 'f': // %f Microseconds (000000..999999)
+                        builder.appendFraction(ChronoField.NANO_OF_SECOND, 1, 6, false);
+                        break;
                     // TODO(Gabriel): support microseconds in date literal
                     case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
-                    case 'f': // %f Microseconds (000000..999999)
                     case 'U': // %U Week (00..53), where Sunday is the first day of the week
                     case 'u': // %u Week (00..53), where Monday is the first day of the week
                     case 'w': // %w Day of the week (0=Sunday..6=Saturday)
@@ -403,5 +407,18 @@ public class DateUtils {
             return ZoneId.systemDefault();
         }
         return ZoneId.of(ConnectContext.get().getSessionVariable().getTimeZone());
+    }
+
+    /**Determine whether there is a fallback transition within the interval (lower, upper].
+     * @return If there is one, return true.*/
+    public static boolean hasFallbackTransitionInInstantRange(ZoneId zoneId, Instant lower, Instant upper) {
+        ZoneOffsetTransition transition = zoneId.getRules().nextTransition(lower);
+        while (transition != null && !transition.getInstant().isAfter(upper)) {
+            if (transition.isOverlap()) {
+                return true;
+            }
+            transition = zoneId.getRules().nextTransition(transition.getInstant());
+        }
+        return false;
     }
 }

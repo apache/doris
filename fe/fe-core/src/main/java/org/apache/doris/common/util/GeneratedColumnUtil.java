@@ -21,16 +21,17 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 
 import com.google.common.collect.Maps;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
 
 public class GeneratedColumnUtil {
-    public static class ExprAndname {
+    public static class ExprAndName {
         private Expr expr;
         private String name;
 
-        public ExprAndname(Expr expr, String name) {
+        public ExprAndName(Expr expr, String name) {
             this.expr = expr;
             this.name = name;
         }
@@ -52,18 +53,36 @@ public class GeneratedColumnUtil {
         }
     }
 
-    public static void rewriteColumns(List<ExprAndname> exprAndnames) {
+    public static void rewriteColumns(List<ExprAndName> exprAndNames) {
         Map<String, Expr> nameToExprMap = Maps.newHashMap();
-        for (ExprAndname exprAndname : exprAndnames) {
+        for (ExprAndName exprAndname : exprAndNames) {
             if (exprAndname.getExpr() instanceof SlotRef) {
                 String columnName = ((SlotRef) exprAndname.getExpr()).getColumnName();
                 if (nameToExprMap.containsKey(columnName)) {
                     exprAndname.setExpr(nameToExprMap.get(columnName));
                 }
             } else {
-                ExprUtil.recursiveRewrite(exprAndname.getExpr(), nameToExprMap);
+                recursiveRewrite(exprAndname.getExpr(), nameToExprMap);
             }
             nameToExprMap.put(exprAndname.getName(), exprAndname.getExpr());
+        }
+    }
+
+
+    private static void recursiveRewrite(Expr expr, Map<String, Expr> derivativeColumns) {
+        if (CollectionUtils.isEmpty(expr.getChildren())) {
+            return;
+        }
+        for (int i = 0; i < expr.getChildren().size(); i++) {
+            Expr e = expr.getChild(i);
+            if (e instanceof SlotRef) {
+                String columnName = ((SlotRef) e).getColumnName();
+                if (derivativeColumns.containsKey(columnName)) {
+                    expr.setChild(i, derivativeColumns.get(columnName));
+                }
+            } else {
+                recursiveRewrite(e, derivativeColumns);
+            }
         }
     }
 }

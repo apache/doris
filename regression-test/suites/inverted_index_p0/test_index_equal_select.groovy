@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_index_equal_select", "inverted_index_select"){
-    
+
     def indexTbName1 = "index_equal_select"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -54,7 +54,7 @@ suite("test_index_equal_select", "inverted_index_select"){
         ("san zhang", 10, "grade 5", "2017-10-01", "tall:100cm, weight: 30kg, hobbies:", "", "", "", "", ""),
         ("li sisi", 11, "grade 6", "2016-10-01", "tall:150cm, weight: 40kg, hobbies: sing, dancing, running", "good at handiwork and beaty", "", "li ba", "li liuliu", "")
     """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     // case1: test equal
     // case1.0: test index coulume equal ‘’

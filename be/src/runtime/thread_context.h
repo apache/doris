@@ -27,10 +27,8 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/macros.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
-#include "runtime/workload_management/resource_context.h"
 #include "util/defer_op.h" // IWYU pragma: keep
 
 // Used to tracking query/load/compaction/e.g. execution thread memory usage.
@@ -135,6 +133,8 @@ namespace doris {
 
 class ThreadContext;
 class MemTracker;
+class QueryContext;
+class ResourceContext;
 class RuntimeState;
 class SwitchResourceContext;
 
@@ -165,14 +165,7 @@ public:
 
     ~ThreadContext() = default;
 
-    void attach_task(const std::shared_ptr<ResourceContext>& rc) {
-        // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
-        DCHECK(resource_ctx_ == nullptr);
-        resource_ctx_ = rc;
-        thread_mem_tracker_mgr->attach_limiter_tracker(rc->memory_context()->mem_tracker(),
-                                                       rc->workload_group());
-        thread_mem_tracker_mgr->enable_wait_gc();
-    }
+    void attach_task(const std::shared_ptr<ResourceContext>& rc);
 
     void detach_task() {
         resource_ctx_.reset();
@@ -188,12 +181,8 @@ public:
 #endif
         if (is_attach_task()) {
             return resource_ctx_;
-        } else {
-            auto ctx = ResourceContext::create_shared();
-            ctx->memory_context()->set_mem_tracker(
-                    doris::ExecEnv::GetInstance()->orphan_mem_tracker());
-            return ctx;
         }
+        return _make_orphan_resource_ctx();
     }
 
     static std::string get_thread_id() {
@@ -213,6 +202,11 @@ public:
 
 private:
     friend class SwitchResourceContext;
+
+    // Cold fallback for threads without an attached task; defined in the .cpp
+    // so this header does not need the full ResourceContext / ExecEnv types.
+    static std::shared_ptr<ResourceContext> _make_orphan_resource_ctx();
+
     std::shared_ptr<ResourceContext> resource_ctx_;
 };
 

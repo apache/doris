@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS web_sales (
     ws_net_profit decimal(7,2)
 )
 UNIQUE KEY(ws_item_sk, ws_order_number)
-CLUSTER BY(ws_net_profit, ws_quantity)
+ORDER BY(ws_net_profit, ws_quantity)
 DISTRIBUTED BY HASH(ws_item_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

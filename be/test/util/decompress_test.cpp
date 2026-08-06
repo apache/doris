@@ -17,13 +17,12 @@
 
 #include "util/decompress.h"
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gtest/gtest.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <iostream>
-
-#include "gen_cpp/Descriptors_types.h"
 
 using namespace std;
 
@@ -49,7 +48,7 @@ protected:
     void RunTest(THdfsCompression::type format) {
         std::unique_ptr<Codec> compressor;
         std::unique_ptr<Codec> decompressor;
-        vectorized::Arena& arena = new vectorized::Arena;
+        Arena& arena = new Arena;
 
         EXPECT_TRUE(Codec::create_compressor(nullptr, arena, true, format, &compressor).ok());
         EXPECT_TRUE(Codec::create_compressor(nullptr, arena, true, format, &decompressor).ok());

@@ -44,7 +44,7 @@ suite("test_topn_broadcast", "docker") {
     def indexTbName = "test_topn_broadcast"
 
     sql "set global enable_two_phase_read_opt = true"
-    sql " set global enable_common_expr_pushdown = true "
+    sql " set global enable_segment_limit_pushdown = true "
     sql " set global topn_opt_limit_threshold = 1024 "
     sql "DROP TABLE IF EXISTS ${indexTbName}"
     sql """

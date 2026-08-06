@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_lower_case_meta_with_lower_table_conf_auth", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_lower_case_meta_with_lower_table_conf_auth", "p0,external") {
 
     String jdbcUrl = context.config.jdbcUrl
     String jdbcUser = context.config.jdbcUser

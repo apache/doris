@@ -17,6 +17,9 @@
 
 suite("test_conv", "arrow_flight_sql") {
     qt_select "SELECT CONV(15,10,2)"
+    qt_select2 "select conv('ffffffffffffff', 24, 2);"
+    qt_select3 "select conv('-ff', 24, 2);"
+    qt_select4 "select conv('fffffffffffffffffffffffffffffffff', 24, 10);"
 
     sql """ drop table if exists test_conv; """
     sql """ create table test_conv(
@@ -46,5 +49,27 @@ suite("test_conv", "arrow_flight_sql") {
     """
 
     qt_sql_conv1 """ select /*+SET_VAR(parallel_pipeline_task_num=1)*/conv(k1, cast(null as bigint), cast(null as bigint)) from test_conv; """
+
+    sql """DROP TABLE IF EXISTS `test_tb_with_null`; """
+    sql """ create table test_tb_with_null(int_1 int, float_2 float, nullable_val varchar(16)) PROPERTIES (
+            "replication_num" = "1"
+            ); 
+    """
+    
+    sql """ insert into test_tb_with_null values(1, 1.464868, '100'), 
+                                                 (2, null, null), 
+                                                 (3, 2.789, '200'), 
+                                                 (4, 3.14159, null); """
+
+    qt_select5 """ select conv(nullable_val, 10, 2), nullable_val from test_tb_with_null; """
+
+    qt_select6 """ select conv(float_2,10,2), float_2 from test_tb_with_null; """
+
+    check_fold_consistency "conv(null, null, null)"
+    check_fold_consistency "conv(15, 10, 2)"
+    check_fold_consistency "conv(null, 10, 2)"
+    check_fold_consistency "conv(15, null, 2)"
+    check_fold_consistency "conv(15, 10, null)"
+    check_fold_consistency "conv('123', 10, 2)"
 }
 

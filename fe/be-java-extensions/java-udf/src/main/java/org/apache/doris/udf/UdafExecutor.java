@@ -72,9 +72,10 @@ public class UdafExecutor extends BaseExecutor {
      */
     @Override
     public void close() {
-        if (!isStaticLoad) {
-            super.close();
-        }
+        // Call parent's close method which handles classLoader and outputTable properly
+        // It will only close classLoader if not in static load mode
+        super.close();
+        // Clear the state map
         stateObjMap = null;
     }
 

@@ -21,7 +21,6 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Base of the lru cache value.
 class LRUCacheValueBase {
@@ -52,5 +51,4 @@ protected:
     std::shared_ptr<MemTracker> _value_mem_tracker;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

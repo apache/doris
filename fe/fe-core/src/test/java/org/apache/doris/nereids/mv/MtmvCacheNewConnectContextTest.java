@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.mv;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
@@ -25,15 +27,11 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.BitSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * The connectContext would new instance when generate MTMVCache, after generate, the connectContext should
@@ -47,25 +45,17 @@ public class MtmvCacheNewConnectContextTest extends SqlTestBase {
         ConnectContext tmp = ConnectContext.get();
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
-        new MockUp<SessionVariable>() {
-            @Mock
-            public BitSet getDisableNereidsRules() {
-                return disableNereidsRules;
-            }
-        };
-        new MockUp<MTMVRelationManager>() {
-            @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
-                                              Map<List<String>, Set<String>> queryUsedPartitions) {
-                return true;
-            }
-        };
-        new MockUp<MTMV>() {
-            @Mock
-            public boolean canBeCandidate() {
-                return true;
-            }
-        };
+        SessionVariable spySv = Mockito.spy(connectContext.getSessionVariable());
+        Mockito.doReturn(disableNereidsRules).when(spySv).getDisableNereidsRules();
+        connectContext.setSessionVariable(spySv);
+
+        MTMVRelationManager relationManager = Env.getCurrentEnv().getMtmvService().getRelationManager();
+        MTMVRelationManager spyRelationManager = Mockito.spy(relationManager);
+        Mockito.doReturn(true).when(spyRelationManager).isMVPartitionValid(
+                Mockito.any(MTMV.class), Mockito.nullable(ConnectContext.class),
+                Mockito.anyBoolean(), Mockito.anyMap());
+        Deencapsulation.setField(Env.getCurrentEnv().getMtmvService(), "relationManager", spyRelationManager);
+
         connectContext.getState().setIsQuery(true);
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;

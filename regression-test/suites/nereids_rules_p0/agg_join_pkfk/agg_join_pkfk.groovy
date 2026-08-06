@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("agg_join_pkfk") {
+    sql "set parallel_pipeline_task_num=2"
     multi_sql """
         SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject';
         set runtime_filter_mode=OFF;

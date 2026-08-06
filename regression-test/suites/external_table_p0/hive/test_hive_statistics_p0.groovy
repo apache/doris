@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_statistics_p0", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String catalog_name = "test_${hivePrefix}_statistics_p0"

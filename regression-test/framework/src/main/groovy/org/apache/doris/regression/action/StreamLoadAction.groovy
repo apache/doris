@@ -215,6 +215,10 @@ class StreamLoadAction implements SuiteAction {
         this.address = new InetSocketAddress(beHost, beHttpPort)
     }
 
+    void feHttpAddress(String feHost, int feHttpPort) {
+        this.address = new InetSocketAddress(feHost, feHttpPort)
+    }
+
     void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
         this.check = check
     }
@@ -584,10 +588,10 @@ class StreamLoadAction implements SuiteAction {
                  long elapsed = endTime - startTime
                  try {
                      // stream load may cost more time than expected in regression test, because of case run in parallel.
-                     // So we allow stream load cost more time, use 4 * time as threshold.
-                     Assert.assertTrue("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}", elapsed <= 4 * time)
+                     // So we allow stream load cost more time, use 20 * time as threshold.
+                     Assert.assertTrue("Stream load Expect elapsed <= 20 * ${time}, but meet ${elapsed}", elapsed <= 20 * time)
                  } catch (Throwable t) {
-                     throw new IllegalStateException("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}")
+                     throw new IllegalStateException("Stream load Expect elapsed <= 20 * ${time}, but meet ${elapsed}")
                  }
             }
         }

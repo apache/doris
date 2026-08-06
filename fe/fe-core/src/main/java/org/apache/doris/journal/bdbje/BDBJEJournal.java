@@ -74,6 +74,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     public static final Logger LOG = LogManager.getLogger(BDBJEJournal.class);
     private static final int OUTPUT_BUFFER_INIT_SIZE = 128;
     private static final int RETRY_TIME = 3;
+    private static final long RECOVERY_JOURNAL_ID_UNSET = -1L;
 
     private String environmentPath = null;
     private String selfNodeName;
@@ -519,6 +520,8 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 LOG.error("catch an exception when setup bdb environment. will exit.", e);
                 System.exit(-1);
             }
+
+            truncateRecoveryJournalsIfNeeded(metadataFailureRecovery);
         }
 
         // Open a new journal database or get last existing one as current journal
@@ -591,6 +594,78 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         bdbEnvironment.close();
         bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
                 NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), helperNode.getPort()));
+    }
+
+    private void truncateRecoveryJournalsIfNeeded(boolean metadataFailureRecovery) {
+        if (!metadataFailureRecovery) {
+            return;
+        }
+
+        long recoveryJournalId = getRecoveryJournalIdOrUnset();
+        if (recoveryJournalId == RECOVERY_JOURNAL_ID_UNSET) {
+            return;
+        }
+
+        long maxJournalId = getMaxJournalIdWithoutCheck();
+        if (maxJournalId < 0) {
+            String msg = String.format("invalid metadata recovery truncate target %d, no journals in bdb",
+                    recoveryJournalId);
+            LOG.error(msg);
+            LogUtils.stderr(msg);
+            System.exit(-1);
+        }
+
+        if (recoveryJournalId >= maxJournalId) {
+            String msg = String.format("metadata recovery truncate target %d >= max journal id %d, no-op",
+                    recoveryJournalId, maxJournalId);
+            LOG.info(msg);
+            LogUtils.stdout(msg);
+            return;
+        }
+
+        long minJournalId = getMinJournalId();
+        if (minJournalId < 0 || recoveryJournalId < minJournalId) {
+            String msg = String.format("invalid metadata recovery truncate target %d, min journal id is %d",
+                    recoveryJournalId, minJournalId);
+            LOG.error(msg);
+            LogUtils.stderr(msg);
+            System.exit(-1);
+        }
+
+        try {
+            bdbEnvironment.truncateJournalsGreaterThan(recoveryJournalId);
+        } catch (Exception e) {
+            String msg = String.format("failed to truncate journals greater than %d in metadata recovery mode",
+                    recoveryJournalId);
+            LOG.error(msg, e);
+            LogUtils.stderr(msg + ", reason: " + e.getMessage());
+            System.exit(-1);
+        }
+        String msg = String.format("metadata recovery truncate finished, kept journals <= %d", recoveryJournalId);
+        LOG.info(msg);
+        LogUtils.stdout(msg);
+    }
+
+    private long getRecoveryJournalIdOrUnset() {
+        String journalIdStr = System.getProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY);
+        if (journalIdStr == null || journalIdStr.trim().isEmpty()) {
+            return RECOVERY_JOURNAL_ID_UNSET;
+        }
+
+        String trimmedJournalId = journalIdStr.trim();
+        try {
+            long journalId = Long.parseLong(trimmedJournalId);
+            if (journalId < 0) {
+                throw new NumberFormatException("recovery_journal_id must not be negative");
+            }
+            return journalId;
+        } catch (NumberFormatException e) {
+            String msg = String.format("invalid recovery_journal_id: %s", trimmedJournalId);
+            LOG.error(msg, e);
+            LogUtils.stderr(msg);
+            System.exit(-1);
+        }
+        return RECOVERY_JOURNAL_ID_UNSET;
     }
 
     @Override

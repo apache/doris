@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("predefine_insert_into_select_doc_mode", "p0"){ 
+suite("predefine_insert_into_select_doc_mode", "p0"){
 
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = true """
@@ -49,7 +49,7 @@ suite("predefine_insert_into_select_doc_mode", "p0"){
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
     sql """insert into toTable_without_define values(1, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
-    
+
     sql """ insert into toTable_without_define select id, cast(var as string) from fromTable"""
     boolean findException = false
     try {
@@ -59,7 +59,7 @@ suite("predefine_insert_into_select_doc_mode", "p0"){
         findException = true
     }
     assertTrue(findException)
-    
+
     order_qt_sql """ select * from toTable_without_define"""
 
     sql "DROP TABLE IF EXISTS toTable_with_define"
@@ -73,7 +73,7 @@ suite("predefine_insert_into_select_doc_mode", "p0"){
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
     sql """insert into toTable_with_define values(1, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
-    
+
     sql """ insert into toTable_with_define select id, cast(var as string) from fromTable"""
 
     findException = false
@@ -84,7 +84,7 @@ suite("predefine_insert_into_select_doc_mode", "p0"){
         findException = true
     }
     assertTrue(findException)
-    
+
     order_qt_sql """ select * from toTable_with_define"""
 
     sql "DROP TABLE IF EXISTS toTable"
@@ -101,6 +101,6 @@ suite("predefine_insert_into_select_doc_mode", "p0"){
     } else {
         sql """ set enable_match_without_inverted_index = true """
     }
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     order_qt_sql """ select count() from toTable where cast (var['d'] as string) match '123' """
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_oracle_all_types_select", "p0,external,oracle,external_docker,external_docker_oracle") {
+suite("test_oracle_all_types_select", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -57,6 +57,7 @@ suite("test_oracle_all_types_select", "p0,external,oracle,external_docker,extern
         );"""
 
         sql """use oracle_varbinary_type_test.DORIS_TEST"""
+        sql """ CALL EXECUTE_STMT('oracle_varbinary_type_test', 'DELETE FROM DORIS_TEST.VARBINARY_TEST WHERE "id" = 4') """
         order_qt_desc "desc VARBINARY_TEST;"
         qt_select_varbinary_types "select * from VARBINARY_TEST order by id;"
         sql """ insert into  VARBINARY_TEST values (4,"insert",X"AB");"""

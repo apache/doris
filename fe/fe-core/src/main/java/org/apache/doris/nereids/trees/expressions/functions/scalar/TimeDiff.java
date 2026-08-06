@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 
 import com.google.common.base.Preconditions;
@@ -39,6 +40,8 @@ public class TimeDiff extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(TimeV2Type.WILDCARD)
+                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD),
             FunctionSignature.ret(TimeV2Type.WILDCARD)
                     .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(TimeV2Type.SYSTEM_DEFAULT).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));
@@ -83,9 +86,17 @@ public class TimeDiff extends ScalarFunction
             DateTimeV2Type left = (DateTimeV2Type) getArgument(0).getDataType();
             scale = Math.max(scale, left.getScale());
             useTimev2 = true;
+        } else if (getArgument(0).getDataType() instanceof TimeStampTzType) {
+            TimeStampTzType left = (TimeStampTzType) getArgument(0).getDataType();
+            scale = Math.max(scale, left.getScale());
+            useTimev2 = true;
         }
         if (getArgument(1).getDataType() instanceof DateTimeV2Type) {
             DateTimeV2Type right = (DateTimeV2Type) getArgument(1).getDataType();
+            scale = Math.max(scale, right.getScale());
+            useTimev2 = true;
+        } else if (getArgument(1).getDataType() instanceof TimeStampTzType) {
+            TimeStampTzType right = (TimeStampTzType) getArgument(1).getDataType();
             scale = Math.max(scale, right.getScale());
             useTimev2 = true;
         }

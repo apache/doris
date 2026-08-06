@@ -115,6 +115,7 @@ enum TStatusCode {
 
     // used for cloud
     DELETE_BITMAP_LOCK_ERROR = 100,
+    SC_COMPACTION_CONFLICT = 101,
     // Not be larger than 200, see status.h
     // And all error code defined here, should also be defined in status.h
 }

@@ -46,7 +46,6 @@
 #endif
 
 namespace doris {
-#include "common/compile_check_begin.h"
 InetAddress::InetAddress(std::string ip, sa_family_t family, bool is_loopback)
         : _ip_addr(ip), _family(family), _is_loopback(is_loopback) {}
 
@@ -120,13 +119,13 @@ bool parse_endpoint(const std::string& endpoint, std::string* host, uint16_t* po
     return true;
 }
 
-Status hostname_to_ip(const std::string& host, std::string& ip) {
+Status hostname_to_ip(const std::string& host, std::string& ip, int* gai_err) {
     auto start = std::chrono::high_resolution_clock::now();
-    Status status = hostname_to_ipv4(host, ip);
+    Status status = hostname_to_ipv4(host, ip, gai_err);
     if (status.ok()) {
         return status;
     }
-    status = hostname_to_ipv6(host, ip);
+    status = hostname_to_ipv6(host, ip, gai_err);
 
     auto current = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(current - start);
@@ -137,15 +136,15 @@ Status hostname_to_ip(const std::string& host, std::string& ip) {
     return status;
 }
 
-Status hostname_to_ip(const std::string& host, std::string& ip, bool ipv6) {
+Status hostname_to_ip(const std::string& host, std::string& ip, bool ipv6, int* gai_err) {
     if (ipv6) {
-        return hostname_to_ipv6(host, ip);
+        return hostname_to_ipv6(host, ip, gai_err);
     } else {
-        return hostname_to_ipv4(host, ip);
+        return hostname_to_ipv4(host, ip, gai_err);
     }
 }
 
-Status hostname_to_ipv4(const std::string& host, std::string& ip) {
+Status hostname_to_ipv4(const std::string& host, std::string& ip, int* gai_err) {
     addrinfo hints, *res;
     in_addr addr;
 
@@ -153,10 +152,17 @@ Status hostname_to_ipv4(const std::string& host, std::string& ip) {
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_family = AF_INET;
     int err = getaddrinfo(host.c_str(), NULL, &hints, &res);
+    if (gai_err != nullptr) {
+        *gai_err = err;
+    }
     if (err != 0) {
         LOG(WARNING) << "failed to get ip from host: " << host << "err:" << gai_strerror(err);
-        return Status::InternalError("failed to get ip from host: {}, err: {}", host,
-                                     gai_strerror(err));
+        // No stack trace: the WARNING above already carries the host and the resolver error,
+        // and this failure is expected often enough (a decommissioned backend, a hostname
+        // whose DNS record has not propagated yet) that attaching a stack to every
+        // occurrence floods be.WARNING without adding information.
+        return Status::InternalError<false>("failed to get ip from host: {}, err: {}", host,
+                                            gai_strerror(err));
     }
 
     addr.s_addr = ((sockaddr_in*)(res->ai_addr))->sin_addr.s_addr;
@@ -166,7 +172,7 @@ Status hostname_to_ipv4(const std::string& host, std::string& ip) {
     return Status::OK();
 }
 
-Status hostname_to_ipv6(const std::string& host, std::string& ip) {
+Status hostname_to_ipv6(const std::string& host, std::string& ip, int* gai_err) {
     char ipstr2[128];
     struct sockaddr_in6* sockaddr_ipv6;
 
@@ -176,10 +182,14 @@ Status hostname_to_ipv6(const std::string& host, std::string& ip) {
     hint.ai_socktype = SOCK_STREAM;
 
     int err = getaddrinfo(host.c_str(), NULL, &hint, &answer);
+    if (gai_err != nullptr) {
+        *gai_err = err;
+    }
     if (err != 0) {
         LOG(WARNING) << "failed to get ip from host: " << host << "err:" << gai_strerror(err);
-        return Status::InternalError("failed to get ip from host: {}, err: {}", host,
-                                     gai_strerror(err));
+        // See hostname_to_ipv4() for why this error carries no stack trace.
+        return Status::InternalError<false>("failed to get ip from host: {}, err: {}", host,
+                                            gai_strerror(err));
     }
 
     sockaddr_ipv6 = reinterpret_cast<struct sockaddr_in6*>(answer->ai_addr);
@@ -294,5 +304,4 @@ std::string get_brpc_http_url(const std::string& host, int port) {
         return fmt::format("http://{}:{}", host, port);
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris

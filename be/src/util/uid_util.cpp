@@ -28,7 +28,6 @@
 #include "util/hash_util.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 size_t UniqueId::hash(size_t seed) const {
     return doris::HashUtil::hash(this, sizeof(*this), cast_set<uint32_t>(seed));
 }
@@ -69,5 +68,4 @@ bool TUniqueId::operator<(const TUniqueId& rhs) const {
     return lo < rhs.lo;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

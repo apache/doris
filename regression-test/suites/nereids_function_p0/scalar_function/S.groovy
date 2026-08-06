@@ -90,6 +90,8 @@ suite("nereids_scalar_fn_S") {
 	qt_sql_sign_Double_notnull "select sign(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_signbit_Double "select signbit(kdbl) from fn_test order by kdbl"
 	qt_sql_signbit_Double_notnull "select signbit(kdbl) from fn_test_not_nullable order by kdbl"
+	qt_sql_signbit_negative_zero "select signbit(cast('+0.0' as double)), signbit(cast('-0.0' as double))"
+	testFoldConst("select signbit(cast('+0.0' as double)), signbit(cast('-0.0' as double))")
 	qt_sql_sin_Double "select sin(kdbl) from fn_test order by kdbl"
 	qt_sql_sin_Double_notnull "select sin(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_sleep_Integer "select sleep(0.1) from fn_test order by kint"

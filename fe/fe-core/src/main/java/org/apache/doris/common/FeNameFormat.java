@@ -17,7 +17,6 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.InternalCatalog;
@@ -108,11 +107,18 @@ public class FeNameFormat {
     }
 
     public static void checkColumnNameBypassHiddenColumn(String columnName) throws AnalysisException {
+        checkColumnNameBypassSystemColumnPrefix(columnName);
+        checkColumnNamePrefix(columnName, Column.SHADOW_NAME_PREFIX);
+    }
+
+    /**
+     * Check column name syntax without applying Doris top-level hidden/shadow column prefix rules.
+     */
+    public static void checkColumnNameBypassSystemColumnPrefix(String columnName) throws AnalysisException {
         if (Strings.isNullOrEmpty(columnName) || !columnName.matches(getColumnNameRegex())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, getColumnNameRegex());
         }
-        checkColumnNamePrefix(columnName, SchemaChangeHandler.SHADOW_NAME_PREFIX);
     }
 
     private static void checkColumnNamePrefix(String columnName, String prefix) throws AnalysisException {

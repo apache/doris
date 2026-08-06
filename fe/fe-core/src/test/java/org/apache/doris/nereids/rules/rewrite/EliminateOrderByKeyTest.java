@@ -36,7 +36,7 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
         createTable("create table test.test_unique_order_by2(a int not null, b int not null, c int, d int) "
                 + "unique key(a,b) distributed by hash(a) properties('replication_num'='1');");
         connectContext.setDatabase("test");
-        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION,DEFER_MATERIALIZE_TOP_N_RESULT");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     @Test
@@ -176,8 +176,23 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
 
     @Test
     void testWindowDup() {
+        // partition by a order by a,a: order key a repeats the partition key (constant within partition) and
+        // the second a is a duplicate, so every order key is redundant and all are pruned to empty. A constant
+        // order key carries no intra-partition ordering, so emptying it is correctness-neutral.
         PlanChecker.from(connectContext)
                 .analyze("select sum(a) over (partition by a order by a,a)  from eliminate_order_by_constant_t")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalWindow()
+                        .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
+                                .getOrderKeys().isEmpty()));
+    }
+
+    @Test
+    void testWindowFd() {
+        // leading order key a repeats the partition key, the rest are functionally dependent on a; only b remains.
+        PlanChecker.from(connectContext)
+                .analyze("select sum(a) over (partition by a order by a,a+1,abs(a),1-a,b)  from eliminate_order_by_constant_t")
                 .rewrite()
                 .printlnTree()
                 .matches(logicalWindow()
@@ -186,20 +201,54 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
     }
 
     @Test
-    void testWindowFd() {
+    void testWindowUniform() {
+        // order by b with b=100 makes b uniform, so the only order key is redundant and is pruned to empty.
+        // A constant order key carries no intra-partition ordering, so emptying it is correctness-neutral.
         PlanChecker.from(connectContext)
-                .analyze("select sum(a) over (partition by a order by a,a+1,abs(a),1-a,b)  from eliminate_order_by_constant_t")
+                .analyze("select sum(a) over (partition by a order by b) from eliminate_order_by_constant_t where b=100")
                 .rewrite()
                 .printlnTree()
                 .matches(logicalWindow()
                         .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
-                                .getOrderKeys().size() == 2));
+                                .getOrderKeys().isEmpty()));
     }
 
     @Test
-    void testWindowUniform() {
+    void testWindowPartitionKey() {
+        // an order key that repeats the window's own partition key is constant within each partition,
+        // so it is redundant and should be pruned, leaving only the remaining order key(s).
         PlanChecker.from(connectContext)
-                .analyze("select sum(a) over (partition by a order by b) from eliminate_order_by_constant_t where b=100")
+                .analyze("select sum(a) over (partition by a order by a,b) from eliminate_order_by_constant_t")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalWindow()
+                        .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
+                                .getOrderKeys().size() == 1));
+    }
+
+    @Test
+    void testWindowAggPrunedToEmpty() {
+        // A non-ranking aggregate window whose only order key repeats the partition key (constant within the
+        // partition) is pruned to empty, just like a ranking window. A constant order key defines no peer
+        // ordering: for a RANGE frame the whole partition is a single peer group whether the constant key is
+        // present or not, and a ROWS frame is positional, so emptying it does not change the result.
+        PlanChecker.from(connectContext)
+                .analyze("select sum(b) over (partition by a order by a rows between unbounded preceding "
+                        + "and current row) from eliminate_order_by_constant_t")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalWindow()
+                        .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
+                                .getOrderKeys().isEmpty()));
+    }
+
+    @Test
+    void testWindowRowNumberPrunedToEmpty() {
+        // row_number() is a ranking function: it ignores the frame (even though it is standardized to a
+        // default ROWS frame), so an order key equal to the partition key is redundant and is pruned to
+        // empty. This keeps the pushed-down partition topn's SortInfo free of the duplicate partition key.
+        PlanChecker.from(connectContext)
+                .analyze("select row_number() over (partition by a order by a) from eliminate_order_by_constant_t")
                 .rewrite()
                 .printlnTree()
                 .matches(logicalWindow()
@@ -216,7 +265,7 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                 .printlnTree()
                 .matches(logicalWindow()
                         .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
-                                .getOrderKeys().size() == 2
+                                .getOrderKeys().size() == 1
                                 && ((WindowExpression) window.getWindowExpressions().get(1).child(0))
                                 .getOrderKeys().size() == 1));
     }
@@ -231,7 +280,7 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                 .printlnTree()
                 .matches(logicalWindow()
                         .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
-                                .getOrderKeys().size() == 2
+                                .getOrderKeys().size() == 1
                                 && ((WindowExpression) window.getWindowExpressions().get(1).child(0))
                                 .getOrderKeys().size() == 1));
     }

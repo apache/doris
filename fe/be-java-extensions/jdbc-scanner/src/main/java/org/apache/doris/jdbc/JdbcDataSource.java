@@ -111,4 +111,19 @@ public class JdbcDataSource {
             restartCleanupTask();
         }
     }
+
+    /**
+     * Create a cache key for connection pool lookup.
+     * The key includes all connection parameters so that any change
+     * (e.g. password via ALTER RESOURCE) results in a new pool.
+     */
+    public static String createCacheKey(long catalogId, String jdbcUrl, String jdbcUser,
+            String jdbcPassword, String jdbcDriverUrl, String jdbcDriverClass,
+            int connectionPoolMinSize, int connectionPoolMaxSize,
+            int connectionPoolMaxLifeTime, int connectionPoolMaxWaitTime,
+            boolean connectionPoolKeepAlive) {
+        return catalogId + jdbcUrl + jdbcUser + jdbcPassword + jdbcDriverUrl + jdbcDriverClass
+                + connectionPoolMinSize + connectionPoolMaxSize + connectionPoolMaxLifeTime
+                + connectionPoolMaxWaitTime + connectionPoolKeepAlive;
+    }
 }

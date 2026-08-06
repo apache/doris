@@ -30,4 +30,10 @@ public class IntersectNode extends SetOperationNode {
     protected void toThrift(TPlanNode msg) {
         toThrift(msg, TPlanNodeType.INTERSECT_NODE);
     }
+
+    @Override
+    public boolean requiresShuffleForCorrectness() {
+        // BE: SetSinkOperatorX / SetSourceOperatorX.is_shuffled_operator() = true (unconditional).
+        return true;
+    }
 }

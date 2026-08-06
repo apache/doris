@@ -95,6 +95,7 @@ suite("test_backup_restore_colocate", "backup_restore,external") {
     res = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(res.size(), insert_num)
 
+    waitForColocateGroupStable(dbName, groupName)
     explain {
         sql("${query}")
         contains("COLOCATE")
@@ -200,7 +201,7 @@ suite("test_backup_restore_colocate", "backup_restore,external") {
     res = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(res.size(), insert_num)
 
-
+    waitForColocateGroupStable(dbName, groupName)
     explain {
         sql("${query}")
         contains("COLOCATE")
@@ -446,6 +447,7 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
     res = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(res.size(), insert_num)
 
+    waitForColocateGroupStable(dbName, groupName)
     explain {
         sql("${query}")
         contains("COLOCATE")
@@ -549,7 +551,7 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
     res = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(res.size(), insert_num)
 
-
+    waitForColocateGroupStable(dbName, groupName)
     explain {
         sql("${query}")
         contains("COLOCATE")
@@ -623,6 +625,8 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
     assertEquals(res.size(), insert_num)
 
     query = "select * from ${newDbName}.${tableName1} as t1, ${newDbName}.${tableName2} as t2 where t1.id=t2.id;"
+
+    waitForColocateGroupStable(newDbName, groupName)
 
     explain {
         sql("${query}")

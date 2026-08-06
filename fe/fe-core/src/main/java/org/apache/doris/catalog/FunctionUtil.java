@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SetType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -29,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdtf;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -137,6 +137,18 @@ public class FunctionUtil {
         return true;
     }
 
+    public static boolean removeFunctionImpl(Function function,
+            ConcurrentMap<String, ImmutableList<Function>> name2Function) throws UserException {
+        return removeFunctionImpl(function, false, name2Function);
+    }
+
+    public static boolean removeFunctionImpl(Function function, boolean ifExists,
+            ConcurrentMap<String, ImmutableList<Function>> name2Function) throws UserException {
+        FunctionSearchDesc functionSearchDesc = new FunctionSearchDesc(function.getFunctionName(), function.getArgs(),
+                function.hasVarArgs());
+        return dropFunctionImpl(functionSearchDesc, ifExists, name2Function);
+    }
+
     public static Function getFunction(FunctionSearchDesc function,
             ConcurrentMap<String, ImmutableList<Function>> name2Function) throws AnalysisException {
         String functionName = function.getName().getFunction();
@@ -180,6 +192,9 @@ public class FunctionUtil {
     }
 
     public static boolean translateToNereidsThrows(String dbName, Function function) {
+        if (DebugPointUtil.isEnable("FunctionUtil.translateToNereidsThrows.exception")) {
+            throw new RuntimeException("debug point FunctionUtil.translateToNereidsThrows.exception");
+        }
         try {
             translateToNereidsImpl(dbName, function);
         } catch (Exception e) {
@@ -195,22 +210,22 @@ public class FunctionUtil {
             AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
         } else if (function instanceof ScalarFunction) {
             if (function.isUDTFunction()) {
-                if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+                if (function.getBinaryType() == Function.BinaryType.JAVA_UDF) {
                     JavaUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
-                } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+                } else if (function.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
                     PythonUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
                 }
             } else {
-                if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+                if (function.getBinaryType() == Function.BinaryType.JAVA_UDF) {
                     JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
-                } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+                } else if (function.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
                     PythonUdf.translateToNereidsFunction(dbName, (ScalarFunction) function);
                 }
             }
         } else if (function instanceof AggregateFunction) {
-            if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+            if (function.getBinaryType() == Function.BinaryType.JAVA_UDF) {
                 JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
-            } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+            } else if (function.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
                 PythonUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
             }
         }
@@ -221,7 +236,7 @@ public class FunctionUtil {
             String fnName = function.getName().getFunction();
             List<DataType> argTypes = Arrays.stream(function.getArgTypes()).map(DataType::fromCatalogType)
                     .collect(Collectors.toList());
-            Env.getCurrentEnv().getFunctionRegistry().dropUdf(dbName, fnName, argTypes);
+            Env.getCurrentEnv().getFunctionRegistry().dropUdf(dbName, fnName, argTypes, function.isVariadic());
         } catch (Exception e) {
             LOG.warn("Nereids drop function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
                     function.getName(), e);

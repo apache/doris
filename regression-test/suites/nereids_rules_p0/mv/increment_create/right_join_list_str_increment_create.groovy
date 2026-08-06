@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("right_join_list_str_increment_create") {
+suite("right_join_list_str_increment_create", "increment_create") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
@@ -45,7 +45,7 @@ suite("right_join_list_str_increment_create") {
     PARTITION p3 VALUES in ('3'),
     PARTITION p4 VALUES in ('4')
     )
-    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -79,7 +79,7 @@ suite("right_join_list_str_increment_create") {
     PARTITION p2 VALUES in ('2'),
     PARTITION p3 VALUES in ('3')
     )
-    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -338,12 +338,12 @@ suite("right_join_list_str_increment_create") {
                 sql cur_sql
 
                 def job_name = getJobName(db, mv_name)
-                waitingMTMVTaskFinished(job_name)
+                waitingMTMVTaskFinishedWithoutAnalyze(job_name)
                 compare_res(all_list[i] + " order by 1,2,3,4,5")
 
                 date_change()
                 refresh_mv()
-                waitingMTMVTaskFinished(job_name)
+                waitingMTMVTaskFinishedWithoutAnalyze(job_name)
                 compare_res(all_list[i] + " order by 1,2,3,4,5")
 
                 if (all_list[i] in increment_list) {

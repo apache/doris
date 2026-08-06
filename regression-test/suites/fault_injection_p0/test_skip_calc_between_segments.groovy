@@ -95,7 +95,8 @@ suite("test_skip_calc_between_segments", "nonConcurrent") {
 
     // to cause multi segments
     def customBeConfig = [
-        doris_scanner_row_bytes : 1
+        doris_scanner_row_bytes : 1,
+        enable_adaptive_batch_size: false
     ]
 
     setBeConfigTemporary(customBeConfig) {

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -35,47 +36,42 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyNodeHostNameOp;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-public class AlterSystemCommandTest {
-    @Mocked
-    private Env env;
-    @Mocked
+public class AlterSystemCommandTest extends TestWithFeService {
     private ConnectContext connectContext;
-    @Mocked
+    private Env env;
     private AccessControllerManager accessControllerManager;
     private List<String> hostPorts = ImmutableList.of("127.0.0.1:9050", "127.0.0.1:19050");
     private List<String> hostPortsErr = ImmutableList.of("127.0.0.1:89050", "355.0.0.1:19050");
     private Map<String, String> properties = ImmutableMap.of();
     private String brokerName = "brocker1";
 
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
+    }
+
     @Test
-    void testValidateNormal() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+    void testValidateNormal() throws Exception {
+        runBefore();
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.OPERATOR));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.OPERATOR);
-                minTimes = 0;
-                result = true;
-            }
-        };
         // test addBackend
         AlterSystemCommand addBackend = new AlterSystemCommand(
                 new AddBackendOp(hostPorts, properties), PlanType.ALTER_SYSTEM_ADD_BACKEND);
@@ -166,22 +162,12 @@ public class AlterSystemCommandTest {
     }
 
     @Test
-    void testValidateNoPrivilege() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.OPERATOR);
-                minTimes = 0;
-                result = false;
-            }
-        };
+    void testValidateNoPrivilege() throws Exception {
+        runBefore();
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(false).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.OPERATOR));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
         // test addBackend with no privilege
         AlterSystemCommand addBackend = new AlterSystemCommand(
@@ -190,4 +176,3 @@ public class AlterSystemCommandTest {
                 "Access denied; you need (at least one of) the (NODE) privilege(s) for this operation");
     }
 }
-

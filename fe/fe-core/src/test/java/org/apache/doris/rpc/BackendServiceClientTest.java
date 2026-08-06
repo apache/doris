@@ -27,7 +27,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
@@ -35,7 +35,7 @@ import java.util.concurrent.Executors;
  * resolved IP addresses instead of hostnames for gRPC connections.
  */
 public class BackendServiceClientTest {
-    private Executor executor;
+    private ExecutorService executor;
     private int originalGrpcKeepAliveSeconds;
     private int originalGrpcMaxMessageSize;
     private long originalRemoteFragmentExecTimeout;
@@ -62,6 +62,10 @@ public class BackendServiceClientTest {
         Config.grpc_keep_alive_second = originalGrpcKeepAliveSeconds;
         Config.grpc_max_message_size_bytes = originalGrpcMaxMessageSize;
         Config.remote_fragment_exec_timeout_ms = originalRemoteFragmentExecTimeout;
+
+        if (executor != null) {
+            executor.shutdown();
+        }
     }
 
     /**

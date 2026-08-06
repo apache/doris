@@ -31,6 +31,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "core/pod_array.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/hdfs/hdfs_mgr.h"
 #include "io/fs/hdfs_file_reader.h"
@@ -296,18 +297,19 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
     // 4. read remote and write to local
     LOG(INFO) << "read remote file: " << remote_file << " to local: " << local_file;
     constexpr size_t buf_sz = 1024 * 1024;
-    std::unique_ptr<char[]> read_buf(new char[buf_sz]);
+    PODArray<char> read_buf;
+    read_buf.resize(buf_sz);
     size_t cur_offset = 0;
     while (true) {
         size_t read_len = 0;
-        Slice file_slice(read_buf.get(), buf_sz);
+        Slice file_slice(read_buf.data(), buf_sz);
         RETURN_IF_ERROR(hdfs_reader->read_at(cur_offset, file_slice, &read_len));
         cur_offset += read_len;
         if (read_len == 0) {
             break;
         }
 
-        RETURN_IF_ERROR(local_writer->append({read_buf.get(), read_len}));
+        RETURN_IF_ERROR(local_writer->append({read_buf.data(), read_len}));
     }
     return local_writer->close();
 }

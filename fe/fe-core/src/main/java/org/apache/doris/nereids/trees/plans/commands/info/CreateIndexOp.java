@@ -19,9 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -74,7 +74,7 @@ public class CreateIndexOp extends AlterTableOp {
             throw new AnalysisException("index definition expected.");
         }
         if (tableName != null) {
-            tableName.analyze(ctx);
+            tableName.analyze(ctx.getNameSpaceContext());
         }
 
         indexDef.validate();
@@ -89,6 +89,12 @@ public class CreateIndexOp extends AlterTableOp {
     @Override
     public boolean needChangeMTMVState() {
         return false;
+    }
+
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Adding secondary index is allowed for row binlog tables.
+        return true;
     }
 
     @Override

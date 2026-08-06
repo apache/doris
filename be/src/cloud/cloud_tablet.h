@@ -19,9 +19,9 @@
 
 #include <memory>
 
-#include "olap/base_tablet.h"
-#include "olap/partial_update_info.h"
-#include "olap/rowset/rowset.h"
+#include "storage/partial_update_info.h"
+#include "storage/rowset/rowset.h"
+#include "storage/tablet/base_tablet.h"
 
 namespace doris {
 
@@ -53,6 +53,11 @@ struct SyncRowsetStats {
     int64_t get_remote_tablet_meta_rpc_ns {0};
     int64_t tablet_meta_cache_hit {0};
     int64_t tablet_meta_cache_miss {0};
+
+    int64_t bthread_schedule_delay_ns {0};
+    int64_t meta_lock_wait_ns {0}; // _meta_lock (BthreadSharedMutex) wait across all acquisitions
+    int64_t sync_meta_lock_wait_ns {
+            0}; // _sync_meta_lock (bthread::Mutex) wait across all acquisitions
 };
 
 struct SyncOptions {
@@ -147,12 +152,31 @@ public:
     // If 'need_download_data_async' is true, it means that we need to download the new version
     // rowsets datum async.
     void add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_overlap,
-                     std::unique_lock<std::shared_mutex>& meta_lock,
+                     std::unique_lock<BthreadSharedMutex>& meta_lock,
                      bool warmup_delta_data = false);
 
     // MUST hold EXCLUSIVE `_meta_lock`.
     void delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
-                        std::unique_lock<std::shared_mutex>& meta_lock);
+                        std::unique_lock<BthreadSharedMutex>& meta_lock);
+
+    // Like delete_rowsets, but also removes edges from the version graph.
+    // Used by schema change to prevent the greedy capture algorithm from
+    // preferring stale compaction rowsets over individual SC output rowsets.
+    // MUST hold EXCLUSIVE `_meta_lock`.
+    void delete_rowsets_for_schema_change(const std::vector<RowsetSharedPtr>& to_delete,
+                                          std::unique_lock<BthreadSharedMutex>& meta_lock,
+                                          bool recycle_deleted_rowsets = true);
+
+    // Replace local rowsets in [2, alter_version] with schema change output rowsets.
+    // Existing SC output rowsets are kept; other local/double-write/compaction rowsets
+    // in this version range are removed from both _rs_version_map and version graph.
+    // recycle_deleted_rowsets should only be true for the real tablet; temporary
+    // schema-change delete-bitmap tablets only need to normalize their local graph.
+    // MUST hold EXCLUSIVE `_meta_lock`.
+    void replace_rowsets_with_schema_change_output(
+            const std::vector<RowsetSharedPtr>& output_rowsets, int64_t alter_version,
+            std::unique_lock<BthreadSharedMutex>& meta_lock, const char* stage,
+            bool recycle_deleted_rowsets);
 
     // When the tablet is dropped, we need to recycle cached data:
     // 1. The data in file cache
@@ -246,7 +270,23 @@ public:
     int64_t alter_version() const { return _alter_version; }
     void set_alter_version(int64_t alter_version) { _alter_version = alter_version; }
 
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
+    // Last active cluster info for compaction read-write separation
+    std::string last_active_cluster_id() const {
+        std::shared_lock lock(_cluster_info_mutex);
+        return _last_active_cluster_id;
+    }
+    int64_t last_active_time_ms() const {
+        std::shared_lock lock(_cluster_info_mutex);
+        return _last_active_time_ms;
+    }
+    void set_last_active_cluster_info(const std::string& cluster_id, int64_t time_ms) {
+        std::unique_lock lock(_cluster_info_mutex);
+        _last_active_cluster_id = cluster_id;
+        _last_active_time_ms = time_ms;
+    }
+
+    // MUST hold SHARED `_meta_lock`.
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction_unlocked();
 
     inline Version max_version() const {
         std::shared_lock rdlock(_meta_lock);
@@ -255,7 +295,8 @@ public:
 
     int64_t base_size() const { return _base_size; }
 
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
+    // MUST hold SHARED `_meta_lock`.
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction_unlocked();
     Result<RowsetSharedPtr> pick_a_rowset_for_index_change(int schema_version,
                                                            bool& is_base_rowset);
     Status check_rowset_schema_for_build_index(std::vector<TColumn>& columns, int schema_version);
@@ -347,6 +388,21 @@ public:
     bool is_rowset_warmed_up(const RowsetId& rowset_id) const;
 
     void add_warmed_up_rowset(const RowsetId& rowset_id);
+    // Test helper: add a rowset to the warmup state map with DOING progress,
+    // so that is_rowset_warmed_up() returns false for it.
+    void add_not_warmed_up_rowset(const RowsetId& rowset_id);
+
+    // Try to apply visible pending rowsets to tablet meta in version order
+    // This should be called after receiving FE notification or when new rowsets are added
+    // @return Status::OK() if successfully applied, error otherwise
+    void apply_visible_pending_rowsets();
+
+    void try_make_committed_rs_visible(int64_t txn_id, int64_t visible_version,
+                                       int64_t version_update_time_ms);
+    void try_make_committed_rs_visible_for_mow(int64_t txn_id, int64_t visible_version,
+                                               int64_t version_update_time_ms);
+
+    void clear_unused_visible_pending_rowsets();
 
     std::string rowset_warmup_digest() const {
         std::string res;
@@ -482,6 +538,28 @@ private:
 
     mutable std::shared_mutex _warmed_up_rowsets_mutex;
     std::unordered_set<RowsetId> _warmed_up_rowsets;
+
+    // Cluster info for compaction read-write separation
+    mutable std::shared_mutex _cluster_info_mutex;
+    std::string _last_active_cluster_id;
+    int64_t _last_active_time_ms {0};
+
+    // Map: version -> <rowset_meta, expiration_time>
+    // Stores rowsets that have been notified by FE but not yet added to tablet meta
+    // due to out-of-order notification or version discontinuity
+    struct VisiblePendingRowset {
+        const bool is_empty_rowset;
+        const int64_t expiration_time; // seconds since epoch
+        RowsetMetaSharedPtr rowset_meta;
+
+        VisiblePendingRowset(RowsetMetaSharedPtr rowset_meta_, int64_t expiration_time_,
+                             bool is_empty_rowset_ = false)
+                : is_empty_rowset(is_empty_rowset_),
+                  expiration_time(expiration_time_),
+                  rowset_meta(std::move(rowset_meta_)) {}
+    };
+    mutable std::mutex _visible_pending_rs_lock;
+    std::map<int64_t, VisiblePendingRowset> _visible_pending_rs_map;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

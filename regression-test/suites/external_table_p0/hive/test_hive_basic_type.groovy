@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_basic_type", "external_docker,hive,external_docker_hive,p0,external") {
+suite("test_hive_basic_type", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         for (boolean enable_filter_by_min_max : [true, false]) {
             String catalog_name = "test_${hivePrefix}_basic_type"
             String ex_db_name = "`default`"

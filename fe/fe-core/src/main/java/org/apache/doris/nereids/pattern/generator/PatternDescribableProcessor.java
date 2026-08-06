@@ -57,7 +57,7 @@ import javax.tools.StandardLocation;
 /**
  * annotation processor for generate GeneratedPattern.java.
  */
-@SupportedSourceVersion(SourceVersion.RELEASE_8)
+@SupportedSourceVersion(SourceVersion.RELEASE_17)
 @SupportedAnnotationTypes("org.apache.doris.nereids.pattern.generator.PatternDescribable")
 public class PatternDescribableProcessor extends AbstractProcessor {
     private List<File> paths;
@@ -105,10 +105,6 @@ public class PatternDescribableProcessor extends AbstractProcessor {
                     "Analyze and generate patterns failed:\n" + exceptionMsg);
         }
         return false;
-    }
-
-    private void generateExpressionTypeMapping() {
-
     }
 
     private void generatePlanPatterns(String className, String parentClassName, boolean isMemoPattern,

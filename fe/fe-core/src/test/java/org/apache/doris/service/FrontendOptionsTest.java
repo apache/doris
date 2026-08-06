@@ -20,27 +20,30 @@ package org.apache.doris.service;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.net.InetAddresses;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.net.InetAddress;
 
 public class FrontendOptionsTest {
-    @Mocked
-    private InetAddresses inetAddresses;
+    private MockedStatic<InetAddresses> mockedInetAddresses;
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
-        new Expectations() {
-            {
-                inetAddresses.toAddrString((InetAddress) any);
-                minTimes = 0;
-                result = "2408:400a:5a:ea00:2fb5:112e:39dd:9bba%eth0";
-            }
-        };
+        mockedInetAddresses = Mockito.mockStatic(InetAddresses.class, Mockito.CALLS_REAL_METHODS);
+        mockedInetAddresses.when(() -> InetAddresses.toAddrString(Mockito.nullable(InetAddress.class)))
+                .thenReturn("2408:400a:5a:ea00:2fb5:112e:39dd:9bba%eth0");
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedInetAddresses != null) {
+            mockedInetAddresses.close();
+        }
     }
 
     @Test

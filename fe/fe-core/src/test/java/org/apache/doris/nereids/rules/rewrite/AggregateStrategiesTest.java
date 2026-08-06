@@ -97,7 +97,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         Sum localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
         Slot localGroupBy = rStudent.getOutput().get(2).toSlot();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+        PlanChecker.from(createMultiInstanceContext(), root)
                 .applyImplementation(twoPhaseAggregateWithoutDistinct())
                 .matches(
                     physicalHashAggregate(
@@ -147,7 +147,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
 
         Sum localOutput0 = new Sum(false, true, rStudent.getOutput().get(0).toSlot());
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+        PlanChecker.from(createMultiInstanceContext(), root)
                 .applyImplementation(twoPhaseAggregateWithoutDistinct())
                 .matches(
                     physicalHashAggregate(
@@ -193,7 +193,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         Sum localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
         Expression localGroupBy = rStudent.getOutput().get(2).toSlot();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+        PlanChecker.from(createMultiInstanceContext(), root)
                 .applyImplementation(twoPhaseAggregateWithoutDistinct())
                 .matches(
                     physicalHashAggregate(
@@ -337,7 +337,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         // sum
         Sum phaseOneSumId = new Sum(id);
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+        PlanChecker.from(createMultiInstanceContext(), root)
                 .applyImplementation(fourPhaseAggregateWithDistinct())
                 .matchesFromRoot(
                     physicalHashAggregate(
@@ -400,7 +400,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
                 true, Optional.empty(), rStudent);
 
         // select count(distinct id), sum(id) from t;
-        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+        PlanChecker.from(createMultiInstanceContext(), root)
                 .applyImplementation(fourPhaseAggregateWithDistinctWithoutGbyKey())
                 .matches(
                         physicalHashAggregate(
@@ -429,6 +429,12 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
                 .filter(rule -> rule.getRuleType() == RuleType.SPLIT_AGG_WITHOUT_DISTINCT)
                 .findFirst()
                 .get();
+    }
+
+    private ConnectContext createMultiInstanceContext() {
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        ctx.getSessionVariable().parallelPipelineTaskNum = 2;
+        return ctx;
     }
 
     @Developing
@@ -471,7 +477,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
                 true, Optional.empty(), rStudent);
 
         // select count(distinct id) group by age;
-        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+        PlanChecker.from(createMultiInstanceContext(), root)
                 .applyImplementation(skewRewriteRule())
                 .matches(
                         physicalHashAggregate(

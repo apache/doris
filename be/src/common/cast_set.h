@@ -23,7 +23,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
-#include "vec/core/extended_types.h"
+#include "core/extended_types.h"
 
 namespace doris {
 

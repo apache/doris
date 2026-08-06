@@ -24,7 +24,9 @@
 #include <array>
 #include <atomic>
 #include <boost/lockfree/spsc_queue.hpp>
+#include <condition_variable>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -38,7 +40,7 @@
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
 #include "io/cache/lru_queue_recorder.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
 #include "util/threadpool.h"
 
 namespace doris::io {
@@ -91,7 +93,7 @@ public:
 
     // Insert a block into the pending set. Returns true only when the block
     // was not already queued. Null inputs are ignored.
-    bool insert(FileBlockSPtr block);
+    bool insert(FileBlockSPtr block, size_t max_queue_size = std::numeric_limits<size_t>::max());
 
     // Drain up to `limit` unique blocks into `output`. The method returns how
     // many blocks were actually drained and shrinks the internal size
@@ -114,6 +116,7 @@ private:
     };
 
     size_t shard_index(FileBlock* ptr) const;
+    void decrease_size(size_t delta);
 
     std::array<Shard, kShardCount> _shards;
     std::atomic<size_t> _size {0};
@@ -169,6 +172,7 @@ class BlockFileCache {
     friend class CacheLRUDumper;
     friend class LRUQueueRecorder;
     friend struct FileBlockCell;
+    friend class BlockFileCacheTest;
 
 public:
     // hash the file_name to uint128
@@ -199,6 +203,9 @@ public:
         }
         if (_cache_background_block_lru_update_thread.joinable()) {
             _cache_background_block_lru_update_thread.join();
+        }
+        if (_ttl_mgr) {
+            _ttl_mgr.reset();
         }
     }
 
@@ -232,6 +239,14 @@ public:
                                 CacheContext& context);
 
     /**
+     * Return existing downloaded blocks only if they fully cover [offset, offset + size).
+     * This lookup is read-only: it does not reserve cache space or create EMPTY blocks.
+     */
+    Status get_downloaded_blocks_if_fully_covered(const UInt128Wrapper& hash, size_t offset,
+                                                  size_t size, const CacheContext& context,
+                                                  FileBlocks* blocks, bool* fully_covered);
+
+    /**
      * record blocks read directly by CachedRemoteFileReader
      */
     void add_need_update_lru_block(FileBlockSPtr block);
@@ -242,7 +257,7 @@ public:
      * @returns summary message
      */
     std::string clear_file_cache_async();
-    std::string clear_file_cache_directly();
+    std::string clear_file_cache_sync();
 
     /**
      * Reset the cache capacity. If the new_capacity is smaller than _capacity, the redundant data will be remove async.
@@ -271,7 +286,7 @@ public:
     void remove_if_cached(const UInt128Wrapper& key);
     void remove_if_cached_async(const UInt128Wrapper& key);
 
-    // Shrink the block size. old_size is always larged than new_size.
+    // Reset the block size and keep FileBlock, LRU queue, and cache counters consistent.
     void reset_range(const UInt128Wrapper&, size_t offset, size_t old_size, size_t new_size,
                      std::lock_guard<std::mutex>& cache_lock);
 
@@ -311,6 +326,9 @@ public:
 
     // for be UTs
     std::map<std::string, double> get_stats_unsafe();
+    [[nodiscard]] size_t need_update_lru_blocks_size_unsafe() const {
+        return _need_update_lru_blocks.size();
+    }
 
     using AccessRecord =
             std::unordered_map<AccessKeyAndOffset, LRUQueue::Iterator, KeyAndOffsetHash>;
@@ -386,6 +404,11 @@ public:
     Status check_file_cache_consistency(InconsistencyContext& inconsistency_context);
 
 private:
+    // Shared scan used by both clear modes. It keeps the FileBlock holder lifecycle intact:
+    // releasable blocks are removed immediately, while blocks held by readers are only marked
+    // deleting and are later removed by FileBlocksHolder destruction.
+    std::string clear_file_cache_impl(bool sync_remove);
+
     LRUQueue& get_queue(FileCacheType type);
     const LRUQueue& get_queue(FileCacheType type) const;
 
@@ -459,6 +482,7 @@ private:
     void run_background_monitor();
     void run_background_gc();
     void run_background_lru_log_replay();
+    size_t replay_lru_logs_once();
     void run_background_lru_dump();
     void restore_lru_queues_from_disk(std::lock_guard<std::mutex>& cache_lock);
     void run_background_evict_in_advance();
@@ -606,9 +630,17 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _recycle_keys_length_recorder;
     std::shared_ptr<bvar::LatencyRecorder> _update_lru_blocks_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _need_update_lru_blocks_length_recorder;
+    std::shared_ptr<bvar::Adder<size_t>> _need_update_lru_blocks_produce_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _need_update_lru_blocks_consume_metrics;
     std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
 
     std::shared_ptr<bvar::LatencyRecorder> _shadow_queue_levenshtein_distance;
+    std::array<std::shared_ptr<bvar::LatencyRecorder>, 4> _lru_recorder_queue_length_recorder;
+    std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_produce_metrics;
+    std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_consume_metrics;
+    std::array<std::shared_ptr<bvar::Status<size_t>>, 4>
+            _lru_recorder_shadow_queue_element_count_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _lru_recorder_log_replay_idle_metrics;
     // keep _storage last so it will deconstruct first
     // otherwise, load_cache_info_into_memory might crash
     // coz it will use other members of BlockFileCache

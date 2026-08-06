@@ -26,14 +26,27 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-// table$partitions
-public class PartitionsSysTable extends SysTable {
+/**
+ * System table type for Hive partition tables (table$partitions).
+ *
+ * <p>This system table uses the TVF path with partition_values function.
+ */
+public class PartitionsSysTable extends TvfSysTable {
+
     private static final Logger LOG = LogManager.getLogger(PartitionsSysTable.class);
 
     public static final PartitionsSysTable INSTANCE = new PartitionsSysTable();
+
+    /**
+     * Supported system tables for Hive tables (only partitions).
+     * Key is the system table name.
+     */
+    public static final Map<String, SysTable> HIVE_SUPPORTED_SYS_TABLES =
+            Collections.singletonMap(INSTANCE.getSysTableName(), INSTANCE);
 
     private PartitionsSysTable() {
         super("partitions", "partition_values");

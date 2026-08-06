@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_orc", "p0,external") {
     // Ensure that all types are parsed correctly
     def select_top50 = {
         qt_select_top50 """select * from orc_all_types order by int_col desc limit 50;"""
@@ -181,7 +181,7 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
     }
 
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String catalog_name = "${hivePrefix}_test_orc"

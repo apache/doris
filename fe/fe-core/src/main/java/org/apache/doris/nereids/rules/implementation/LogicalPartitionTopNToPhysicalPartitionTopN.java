@@ -50,15 +50,14 @@ public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementati
 
     private List<PhysicalPartitionTopN<? extends Plan>> generatePhysicalPartitionTopn(
             LogicalPartitionTopN<? extends Plan> logicalPartitionTopN) {
+        List<OrderKey> orderKeys = !logicalPartitionTopN.getOrderKeys().isEmpty()
+                ? logicalPartitionTopN.getOrderKeys().stream()
+                .map(OrderExpression::getOrderKey)
+                .collect(ImmutableList.toImmutableList()) :
+                ImmutableList.of();
         if (logicalPartitionTopN.getPartitionKeys().isEmpty()
                 || !checkTwoPhaseGlobalPartitionTopn(logicalPartitionTopN)) {
             // if no partition by keys, use local partition topn combined with further full sort
-            List<OrderKey> orderKeys = !logicalPartitionTopN.getOrderKeys().isEmpty()
-                    ? logicalPartitionTopN.getOrderKeys().stream()
-                    .map(OrderExpression::getOrderKey)
-                    .collect(ImmutableList.toImmutableList()) :
-                    ImmutableList.of();
-
             PhysicalPartitionTopN<Plan> onePhaseLocalPartitionTopN = new PhysicalPartitionTopN<>(
                     logicalPartitionTopN.getFunction(),
                     logicalPartitionTopN.getPartitionKeys(),
@@ -71,13 +70,10 @@ public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementati
 
             return ImmutableList.of(onePhaseLocalPartitionTopN);
         } else {
-            // if partition by keys exist, the order keys will be set as original partition keys combined with
-            // orderby keys, to meet upper window operator's order requirement.
-            ImmutableList<OrderKey> fullOrderKeys = getAllOrderKeys(logicalPartitionTopN);
             PhysicalPartitionTopN<Plan> onePhaseGlobalPartitionTopN = new PhysicalPartitionTopN<>(
                     logicalPartitionTopN.getFunction(),
                     logicalPartitionTopN.getPartitionKeys(),
-                    fullOrderKeys,
+                    orderKeys,
                     logicalPartitionTopN.hasGlobalLimit(),
                     logicalPartitionTopN.getPartitionLimit(),
                     PartitionTopnPhase.ONE_PHASE_GLOBAL_PTOPN,
@@ -87,7 +83,7 @@ public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementati
             PhysicalPartitionTopN<Plan> twoPhaseLocalPartitionTopN = new PhysicalPartitionTopN<>(
                     logicalPartitionTopN.getFunction(),
                     logicalPartitionTopN.getPartitionKeys(),
-                    fullOrderKeys,
+                    orderKeys,
                     logicalPartitionTopN.hasGlobalLimit(),
                     logicalPartitionTopN.getPartitionLimit(),
                     PartitionTopnPhase.TWO_PHASE_LOCAL_PTOPN,
@@ -97,7 +93,7 @@ public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementati
             PhysicalPartitionTopN<Plan> twoPhaseGlobalPartitionTopN = new PhysicalPartitionTopN<>(
                     logicalPartitionTopN.getFunction(),
                     logicalPartitionTopN.getPartitionKeys(),
-                    fullOrderKeys,
+                    orderKeys,
                     logicalPartitionTopN.hasGlobalLimit(),
                     logicalPartitionTopN.getPartitionLimit(),
                     PartitionTopnPhase.TWO_PHASE_GLOBAL_PTOPN,
@@ -165,24 +161,5 @@ public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementati
             }
         }
         return true;
-    }
-
-    private ImmutableList<OrderKey> getAllOrderKeys(LogicalPartitionTopN<? extends Plan> logicalPartitionTopN) {
-        ImmutableList.Builder<OrderKey> builder = ImmutableList.builder();
-
-        if (!logicalPartitionTopN.getPartitionKeys().isEmpty()) {
-            builder.addAll(logicalPartitionTopN.getPartitionKeys().stream().map(partitionKey -> {
-                return new OrderKey(partitionKey, true, false);
-            }).collect(ImmutableList.toImmutableList()));
-        }
-
-        if (!logicalPartitionTopN.getOrderKeys().isEmpty()) {
-            builder.addAll(logicalPartitionTopN.getOrderKeys().stream()
-                    .map(OrderExpression::getOrderKey)
-                    .collect(ImmutableList.toImmutableList())
-            );
-        }
-
-        return builder.build();
     }
 }

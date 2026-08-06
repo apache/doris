@@ -39,6 +39,15 @@ public class UnassignedGroupCommitJob extends AbstractUnassignedJob {
         super(statementContext, fragment, scanNodes, exchangeToChildJob);
     }
 
+    /**
+     * Compute a single assigned job bound to the group commit merge backend.
+     * The target backend is determined by {@link StatementContext#getGroupCommitMergeBackend()},
+     * ensuring the group commit sink executes on the specific BE designated for merging.
+     *
+     * @param distributeContext the distribute context (unused — worker is fixed by group commit logic)
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @return a list containing exactly one assigned job on the group commit merge backend
+     */
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {

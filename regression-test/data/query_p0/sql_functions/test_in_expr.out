@@ -54,6 +54,9 @@ b
 d
 
 -- !select --
+\N
+
+-- !select --
 2
 3
 4

@@ -24,11 +24,11 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -61,7 +61,7 @@ public class ShowCreateMaterializedViewCommand extends ShowCommand {
     }
 
     private void validate(ConnectContext ctx) throws AnalysisException {
-        tblNameInfo.analyze(ctx);
+        tblNameInfo.analyze(ctx.getNameSpaceContext());
 
         // disallow external catalog
         Util.prohibitExternalCatalog(tblNameInfo.getCtl(), this.getClass().getSimpleName());

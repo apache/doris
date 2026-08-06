@@ -22,12 +22,12 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -58,7 +58,7 @@ public class AlterViewInfo extends BaseViewInfo {
         if (viewName == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
-        viewName.analyze(ctx);
+        viewName.analyze(ctx.getNameSpaceContext());
         FeNameFormat.checkTableName(viewName.getTbl());
         // disallow external catalog
         Util.prohibitExternalCatalog(viewName.getCtl(), "AlterViewCommand");

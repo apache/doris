@@ -22,12 +22,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
-import org.apache.doris.datasource.property.storage.AzureProperties;
-import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
-import org.apache.doris.datasource.property.storage.HttpProperties;
-import org.apache.doris.datasource.property.storage.LocalProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -51,18 +46,30 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
         // We don't need to parseCommonProperties because the corresponding Storage will do it
         // Map<String, String> props = super.parseCommonProperties(properties);
         try {
-            this.storageProperties = StorageProperties.createPrimary(properties);
-            if (this.storageProperties instanceof AbstractS3CompatibleProperties
-                    || this.storageProperties instanceof AzureProperties) {
-                delegateTvf = new S3TableValuedFunction(properties);
-            } else if (this.storageProperties instanceof HdfsCompatibleProperties) {
-                delegateTvf = new HdfsTableValuedFunction(properties);
-            } else if (this.storageProperties instanceof LocalProperties) {
-                delegateTvf = new LocalTableValuedFunction(properties);
-            } else if (this.storageProperties instanceof HttpProperties) {
-                delegateTvf = new HttpTableValuedFunction(properties);
-            } else {
-                throw new AnalysisException("Could not find storage_type: " + storageProperties);
+            this.storageAdapter = StorageAdapter.of(properties);
+            switch (storageAdapter.getType()) {
+                case S3:
+                case OSS:
+                case OBS:
+                case COS:
+                case GCS:
+                case MINIO:
+                case OZONE:
+                case AZURE:
+                    delegateTvf = new S3TableValuedFunction(properties);
+                    break;
+                case HDFS:
+                case OSS_HDFS:
+                    delegateTvf = new HdfsTableValuedFunction(properties);
+                    break;
+                case LOCAL:
+                    delegateTvf = new LocalTableValuedFunction(properties);
+                    break;
+                case HTTP:
+                    delegateTvf = new HttpTableValuedFunction(properties);
+                    break;
+                default:
+                    throw new AnalysisException("Could not find storage_type: " + storageAdapter.getStorageName());
             }
         } catch (UserException e) {
             throw new RuntimeException(e);

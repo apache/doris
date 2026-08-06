@@ -31,6 +31,7 @@ struct TFrontendInfo {
 
 struct TCloudClusterInfo {
     1: optional bool isStandby
+    2: optional string cloud_compute_group_id
 }
 
 struct TMasterInfo {

@@ -174,6 +174,25 @@ public class LogicalProperties {
         return true;
     }
 
+    /**
+     * in dphyper join reorder, we ignore nullability comparison
+     */
+    public boolean equalsForDpHyper(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        LogicalProperties that = (LogicalProperties) o;
+        Set<Slot> thisOutSet = this.outputSetSupplier.get();
+        Set<Slot> thatOutSet = that.outputSetSupplier.get();
+        if (!Objects.equals(thisOutSet, thatOutSet)) {
+            return false;
+        }
+        return true;
+    }
+
     @Override
     public int hashCode() {
         if (hashCode == null) {

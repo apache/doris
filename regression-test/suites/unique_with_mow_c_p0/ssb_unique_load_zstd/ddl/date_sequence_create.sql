@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS `date` (
   `d_weekdayfl` int(11) NOT NULL COMMENT ""
 )
 UNIQUE KEY (`d_datekey`)
-CLUSTER BY (`d_yearmonth`, `d_holidayfl`)
+ORDER BY (`d_yearmonth`, `d_holidayfl`)
 DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
 PROPERTIES (
 "function_column.sequence_type" = 'int',

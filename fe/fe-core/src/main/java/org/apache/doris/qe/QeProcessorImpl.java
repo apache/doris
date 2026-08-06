@@ -29,6 +29,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryProfile;
+import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TStatus;
@@ -56,6 +57,7 @@ public final class QeProcessorImpl implements QeProcessor {
     private Map<TUniqueId, Integer> queryToInstancesNum;
     private Map<String, AtomicInteger> userToInstancesCount;
     private ExecutorService writeProfileExecutor;
+    private final QueryFinishCallbackRegistry queryFinishCallbackRegistry = new QueryFinishCallbackRegistry();
 
     public static final QeProcessor INSTANCE;
 
@@ -205,13 +207,21 @@ public final class QeProcessorImpl implements QeProcessor {
             }
         }
 
-        // commit hive tranaction if needed
-        Env.getCurrentHiveTransactionMgr().deregister(DebugUtil.printId(queryId));
+        // Run connector-registered query-finish callbacks (e.g. committing a hive
+        // read transaction). Connector-agnostic: fe-core names no source here.
+        queryFinishCallbackRegistry.runAndClear(DebugUtil.printId(queryId));
+    }
+
+    @Override
+    public void registerQueryFinishCallback(String queryId, Runnable callback) {
+        queryFinishCallbackRegistry.register(queryId, callback);
     }
 
     @Override
     public Map<String, QueryStatisticsItem> getQueryStatistics() {
         final Map<String, QueryStatisticsItem> querySet = Maps.newHashMap();
+        final Map<String, TQueryStatistics> queryStatisticsMap =
+                Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().getQueryStatisticsMap();
         for (Map.Entry<TUniqueId, QueryInfo> entry : coordinatorMap.entrySet()) {
             final QueryInfo info = entry.getValue();
             final ConnectContext context = info.getConnectContext();
@@ -219,12 +229,14 @@ public final class QeProcessorImpl implements QeProcessor {
                 continue;
             }
             final String queryIdStr = DebugUtil.printId(info.getConnectContext().queryId());
+            final TQueryStatistics queryStatistics = queryStatisticsMap.get(queryIdStr);
             final QueryStatisticsItem item = new QueryStatisticsItem.Builder().queryId(queryIdStr)
                     .queryStartTime(info.getStartExecTime()).sql(info.getSql()).user(context.getQualifiedUser())
                     .connId(String.valueOf(context.getConnectionId())).db(context.getDatabase())
                     .catalog(context.getDefaultCatalog())
                     .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
                     .profile(info.getCoord().getExecutionProfile().getRoot())
+                    .queryStatistics(queryStatistics)
                     .isReportSucc(context.getSessionVariable().enableProfile()).build();
             querySet.put(queryIdStr, item);
         }

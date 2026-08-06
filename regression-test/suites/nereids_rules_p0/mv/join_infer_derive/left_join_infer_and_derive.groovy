@@ -211,7 +211,7 @@ suite("left_join_infer_and_derive") {
         if (mtmv_it == 0) {
             for (int i = 0; i < query_list.size(); i++) {
                 logger.info("i: " + i)
-                if (i in [1, 3, 4, 6, 8, 11]) {
+                if (i in [1, 6]) {
                     mv_rewrite_fail(query_list[i], mv_name_1)
                 } else {
                     mv_rewrite_success(query_list[i], mv_name_1)

@@ -54,4 +54,4 @@ kill_time=$(date  "+%Y-%m-%d %H:%M:%S")
 eval echo "[fe_prestop.sh] ${kill_time} kubelet kill call the fe_prestop.sh to stop fe service." >> "$log_replace_var_dir/fe.log"
 #eval echo "[fe_prestop.sh] ${kill_time} kubelet kill call the fe_prestop.sh to stop fe service." 2>&1
 eval echo "[fe_prestop.sh] ${kill_time} kubelet kill call the fe_prestop.sh to stop fe service ." >> "/proc/1/fd/1"
-$DORIS_HOME/bin/stop_fe.sh
+$DORIS_HOME/bin/stop_fe.sh --grace

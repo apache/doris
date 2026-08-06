@@ -19,6 +19,8 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.catalog.MysqlDb;
@@ -29,6 +31,7 @@ import org.apache.doris.datasource.InternalCatalog;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -131,6 +134,17 @@ public class StatisticConstants {
             }
         }
         return false;
+    }
+
+    public static boolean isSystemDb(long catalogId, long dbId) {
+        if (catalogId != InternalCatalog.INTERNAL_CATALOG_ID) {
+            return false;
+        }
+        if (dbId == InfoSchemaDb.DATABASE_ID || dbId == MysqlDb.DATABASE_ID) {
+            return true;
+        }
+        Optional<Database> internalDb = Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        return internalDb.isPresent() && internalDb.get().getId() == dbId;
     }
 
     public static boolean shouldIgnoreCol(TableIf tableIf, Column c) {

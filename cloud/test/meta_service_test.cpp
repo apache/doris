@@ -217,6 +217,20 @@ static void commit_txn(MetaServiceProxy* meta_service, int64_t db_id, int64_t tx
             << label << ", res=" << res.ShortDebugString();
 }
 
+static void get_table_version(MetaServiceProxy* meta_service, int64_t db_id, int64_t table_id,
+                              int64_t& version) {
+    brpc::Controller ctrl;
+    GetVersionRequest req;
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_is_table_version(true);
+    GetVersionResponse resp;
+    meta_service->get_version(&ctrl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+            << ", get table version res=" << resp.ShortDebugString();
+    version = resp.version();
+}
+
 doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id = 10,
                                        int64_t version = -1, int num_rows = 100) {
     doris::RowsetMetaCloudPB rowset;
@@ -239,8 +253,8 @@ doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int pa
     return rowset;
 }
 
-static void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
-                           CreateRowsetResponse& res) {
+void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                    CreateRowsetResponse& res) {
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
@@ -1797,7 +1811,7 @@ TEST(MetaServiceTest, CommitTxnTest) {
     int64_t partition_id = 1236;
 
     // case: first version of rowset
-    {
+    for (int i = 0; i < 2; ++i) {
         int64_t txn_id = -1;
         // begin txn
         {
@@ -1806,7 +1820,7 @@ TEST(MetaServiceTest, CommitTxnTest) {
             req.set_cloud_unique_id("test_cloud_unique_id");
             TxnInfoPB txn_info_pb;
             txn_info_pb.set_db_id(666);
-            txn_info_pb.set_label("test_label");
+            txn_info_pb.set_label("test_label_" + std::to_string(i));
             txn_info_pb.add_table_ids(1234);
             txn_info_pb.set_timeout_ms(36000);
             req.mutable_txn_info()->CopyFrom(txn_info_pb);
@@ -1854,6 +1868,11 @@ TEST(MetaServiceTest, CommitTxnTest) {
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.table_stats().size(), 1);
+
+            int64_t table_version = res.table_stats()[0].table_version();
+            get_table_version(meta_service.get(), 666, table_id, table_version);
+            ASSERT_EQ(table_version, i + 1);
         }
 
         // doubly commit txn
@@ -2059,6 +2078,7 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
 
     // commit txn
     CommitTxnRequest req;
+    int64_t version_update_time_ms = 0;
     {
         brpc::Controller cntl;
         req.set_cloud_unique_id("test_cloud_unique_id");
@@ -2091,6 +2111,9 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_version_update_time_ms());
+        ASSERT_GT(res.version_update_time_ms(), 0);
+        version_update_time_ms = res.version_update_time_ms();
         // std::cout << res.DebugString() << std::endl;
         ASSERT_EQ(res.table_ids().size(), 3);
 
@@ -2105,6 +2128,14 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         ASSERT_EQ(res.table_ids()[2], t1);
         ASSERT_EQ(res.partition_ids()[2], t1_p1) << res.ShortDebugString();
         ASSERT_EQ(res.versions()[2], 3) << res.ShortDebugString();
+
+        ASSERT_EQ(res.table_stats().size(), 2);
+        int64_t table_version = 0;
+        get_table_version(meta_service.get(), db_id, t1, table_version);
+        ASSERT_EQ(res.table_stats()[0].table_version(), table_version);
+        table_version = 0;
+        get_table_version(meta_service.get(), db_id, t2, table_version);
+        ASSERT_EQ(res.table_stats()[1].table_version(), table_version);
     }
 
     // doubly commit txn
@@ -2184,18 +2215,24 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         std::string ver_val;
         ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
         VersionPB version;
-        version.ParseFromString(ver_val);
+        ASSERT_TRUE(version.ParseFromString(ver_val));
         ASSERT_EQ(version.version(), 2);
+        ASSERT_TRUE(version.has_update_time_ms());
+        ASSERT_EQ(version.update_time_ms(), version_update_time_ms);
 
         ver_key = partition_version_key({mock_instance, db_id, t1, t1_p2});
         ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
-        version.ParseFromString(ver_val);
+        ASSERT_TRUE(version.ParseFromString(ver_val));
         ASSERT_EQ(version.version(), 2);
+        ASSERT_TRUE(version.has_update_time_ms());
+        ASSERT_EQ(version.update_time_ms(), version_update_time_ms);
 
         ver_key = partition_version_key({mock_instance, db_id, t1, t1_p1});
         ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
-        version.ParseFromString(ver_val);
+        ASSERT_TRUE(version.ParseFromString(ver_val));
         ASSERT_EQ(version.version(), 3);
+        ASSERT_TRUE(version.has_update_time_ms());
+        ASSERT_EQ(version.update_time_ms(), version_update_time_ms);
 
         // table version
         std::string table_ver_key = table_version_key({mock_instance, db_id, t1});
@@ -2669,6 +2706,23 @@ TEST(MetaServiceTest, GetCurrentMaxTxnIdTest) {
 
     ASSERT_EQ(max_txn_id_res.status().code(), MetaServiceCode::OK);
     ASSERT_GE(max_txn_id_res.current_max_txn_id(), begin_txn_res.txn_id());
+}
+
+TEST(MetaServiceTest, CreateMetaSyncPointTest) {
+    auto meta_service = get_meta_service();
+    const std::string cloud_unique_id = "test_cloud_unique_id";
+
+    brpc::Controller cntl;
+    CreateMetaSyncPointRequest req;
+    CreateMetaSyncPointResponse resp;
+    req.set_cloud_unique_id(cloud_unique_id);
+
+    meta_service->create_meta_sync_point(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    ASSERT_GT(resp.committed_version(), 0);
+    ASSERT_EQ(resp.versionstamp().size(), 20);
 }
 
 TEST(MetaServiceTest, AbortTxnWithCoordinatorTest) {
@@ -3813,9 +3867,8 @@ TEST(MetaServiceTest, CopyJobTest) {
             copy_file_key(key_info0, &key0);
             copy_file_key(key_info1, &key1);
             std::unique_ptr<RangeGetIterator> it;
-            ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
             int file_cnt = 0;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
                 while (it->has_next()) {
                     auto [k, v] = it->next();
@@ -3828,7 +3881,7 @@ TEST(MetaServiceTest, CopyJobTest) {
                     }
                 }
                 key0.push_back('\x00');
-            } while (it->more());
+            }
             ASSERT_EQ(file_cnt, 20);
         }
         // 1 copy job with finish status
@@ -3841,7 +3894,7 @@ TEST(MetaServiceTest, CopyJobTest) {
             copy_job_key(key_info1, &key1);
             std::unique_ptr<RangeGetIterator> it;
             int job_cnt = 0;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
                 while (it->has_next()) {
                     auto [k, v] = it->next();
@@ -3855,7 +3908,7 @@ TEST(MetaServiceTest, CopyJobTest) {
                     }
                 }
                 key0.push_back('\x00');
-            } while (it->more());
+            }
             ASSERT_EQ(job_cnt, 1);
         }
     }
@@ -4302,9 +4355,8 @@ TEST(MetaServiceTest, StageTest) {
             std::string get_val;
             ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
             std::unique_ptr<RangeGetIterator> it;
-            ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
             int stage_cnt = 0;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
                 while (it->has_next()) {
                     auto [k, v] = it->next();
@@ -4314,7 +4366,7 @@ TEST(MetaServiceTest, StageTest) {
                     }
                 }
                 key0.push_back('\x00');
-            } while (it->more());
+            }
             ASSERT_EQ(stage_cnt, 1);
         }
 
@@ -4872,6 +4924,28 @@ void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id)
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
+void check_delete_bitmap_lock_id(MetaServiceProxy* meta_service, int64_t table_id,
+                                 int64_t expected_lock_id) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string lock_key = meta_delete_bitmap_update_lock_key({"test_instance", table_id, -1});
+    std::string lock_val;
+    ASSERT_EQ(txn->get(lock_key, &lock_val), TxnErrorCode::TXN_OK);
+    DeleteBitmapUpdateLockPB lock_info;
+    ASSERT_TRUE(lock_info.ParseFromString(lock_val));
+    EXPECT_EQ(lock_info.lock_id(), expected_lock_id);
+}
+
+void check_mow_tablet_job_key(MetaServiceProxy* meta_service, int64_t table_id, int64_t initiator,
+                              bool expected_exists) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string job_key = mow_tablet_job_key({"test_instance", table_id, initiator});
+    std::string job_val;
+    EXPECT_EQ(txn->get(job_key, &job_val),
+              expected_exists ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
 void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
     config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
     auto meta_service = get_meta_service();
@@ -5088,7 +5162,33 @@ void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
             nullptr);
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
-    // case 11: lock by schema change but expired, compaction get lock but txn commit conflict, do fast retry
+    // case 11: urgent load can force take compaction lock but not schema change lock
+    req.set_lock_id(job_lock_id);
+    req.set_initiator(100);
+    req.set_expiration(100);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    req.set_lock_id(888);
+    req.set_initiator(-1);
+    req.set_expiration(60);
+    req.set_urgent(true);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), job_lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID
+                                           ? MetaServiceCode::LOCK_CONFLICT
+                                           : MetaServiceCode::OK);
+    req.set_urgent(false);
+    remove_req.set_lock_id(job_lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID ? job_lock_id : 888);
+    remove_req.set_initiator(job_lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID ? 100 : -1);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
+            nullptr);
+    ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // case 12: lock by schema change but expired, compaction get lock but txn commit conflict, do fast retry
     sp->set_call_back("get_delete_bitmap_update_lock:commit:conflict", [&](auto&& args) {
         auto* first_retry = try_any_cast<bool*>(args[0]);
         auto lock_id = (try_any_cast<const GetDeleteBitmapUpdateLockRequest*>(args[1]))->lock_id();
@@ -5112,7 +5212,7 @@ void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
             nullptr);
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
-    // case 12: lock by load but expired, compaction get lock but txn commit conflict, do fast retry
+    // case 13: lock by load but expired, compaction get lock but txn commit conflict, do fast retry
     req.set_lock_id(300);
     req.set_initiator(-1);
     req.set_expiration(1);
@@ -5129,7 +5229,7 @@ void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     remove_delete_bitmap_lock(meta_service.get(), table_id);
 
-    // case 13: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
+    // case 14: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -5145,6 +5245,70 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     testGetDeleteBitmapUpdateLock(2, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
     testGetDeleteBitmapUpdateLock(1, COMPACTION_DELETE_BITMAP_LOCK_ID);
     testGetDeleteBitmapUpdateLock(1, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+}
+
+void testUrgentLoadDeleteBitmapLock(int lock_version) {
+    config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
+    auto meta_service = get_meta_service();
+    int64_t table_id = 90 + lock_version;
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    brpc::Controller cntl;
+    GetDeleteBitmapUpdateLockRequest req;
+    GetDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(table_id);
+    req.add_partition_ids(123);
+
+    auto get_lock = [&](int64_t lock_id, int64_t initiator, int64_t expiration, bool urgent) {
+        req.set_lock_id(lock_id);
+        req.set_initiator(initiator);
+        req.set_expiration(expiration);
+        req.set_urgent(urgent);
+        res.Clear();
+        meta_service->get_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        return res.status().code();
+    };
+
+    // An urgent load must preserve an active schema change lock.
+    ASSERT_EQ(get_lock(SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, 100, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::LOCK_CONFLICT);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+    if (lock_version == 2) {
+        check_mow_tablet_job_key(meta_service.get(), table_id, 100, true);
+    }
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // Expired schema change locks still follow the ordinary stale-lock cleanup path.
+    ASSERT_EQ(get_lock(SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, 101, 1, false), MetaServiceCode::OK);
+    sleep(2);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    if (lock_version == 2) {
+        check_mow_tablet_job_key(meta_service.get(), table_id, 101, false);
+    }
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // The existing force-take behavior for compaction locks is unchanged.
+    ASSERT_EQ(get_lock(COMPACTION_DELETE_BITMAP_LOCK_ID, 102, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    if (lock_version == 2) {
+        check_mow_tablet_job_key(meta_service.get(), table_id, 102, false);
+    }
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // The existing force-take behavior for another load lock is unchanged.
+    ASSERT_EQ(get_lock(777, -1, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+}
+
+TEST(MetaServiceTest, UrgentLoadDeleteBitmapLock) {
+    testUrgentLoadDeleteBitmapLock(2);
+    testUrgentLoadDeleteBitmapLock(1);
 }
 
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLockNoReadStats) {
@@ -7845,6 +8009,8 @@ TEST(MetaServiceTest, IndexRequest) {
     ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
     val_int = *reinterpret_cast<const int64_t*>(val.data());
     ASSERT_EQ(val_int, 1);
+    ASSERT_TRUE(res.has_table_version());
+    ASSERT_EQ(val_int, res.table_version());
     // Last state DROPPED
     reset_meta_service();
     index_pb.set_state(RecycleIndexPB::DROPPED);
@@ -8096,6 +8262,8 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
     val_int = *reinterpret_cast<const int64_t*>(val.data());
     ASSERT_EQ(val_int, 2);
+    ASSERT_TRUE(res.has_table_version());
+    ASSERT_EQ(val_int, res.table_version());
     // Last state DROPPED
     reset_meta_service();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -8257,6 +8425,8 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
     val_int = *reinterpret_cast<const int64_t*>(val.data());
     ASSERT_EQ(val_int, 2);
+    ASSERT_TRUE(res.has_table_version());
+    ASSERT_EQ(val_int, res.table_version());
     // Last state PREPARED
     reset_meta_service();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -8410,7 +8580,115 @@ TEST(MetaServiceTxnStoreRetryableTest, DoNotReturnRetryableCode) {
     config::txn_store_retry_times = retry_times;
 }
 
-TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCode) {
+TEST(MetaServiceTxnStoreRetryableTest, CastAsPreservesMaybeCommittedForProxyRetry) {
+    bool enable_retry = config::enable_txn_store_retry;
+    DORIS_CLOUD_DEFER {
+        config::enable_txn_store_retry = enable_retry;
+    };
+
+    config::enable_txn_store_retry = false;
+    ASSERT_EQ(cast_as<ErrCategory::COMMIT>(TxnErrorCode::TXN_MAYBE_COMMITTED),
+              MetaServiceCode::KV_TXN_MAYBE_COMMITTED);
+    ASSERT_EQ(cast_as<ErrCategory::READ>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_MAYBE_COMMITTED);
+    ASSERT_EQ(cast_as<ErrCategory::CREATE>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_MAYBE_COMMITTED);
+
+    config::enable_txn_store_retry = true;
+    ASSERT_EQ(cast_as<ErrCategory::READ>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE);
+    ASSERT_EQ(cast_as<ErrCategory::COMMIT>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE);
+    ASSERT_EQ(cast_as<ErrCategory::CREATE>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE);
+    ASSERT_EQ(cast_as<ErrCategory::READ>(TxnErrorCode::TXN_TIMEOUT),
+              MetaServiceCode::KV_TXN_GET_ERR);
+    ASSERT_EQ(cast_as<ErrCategory::CREATE>(TxnErrorCode::TXN_TIMEOUT),
+              MetaServiceCode::KV_TXN_CREATE_ERR);
+}
+
+TEST(MetaServiceTxnStoreRetryableTest, MaybeCommittedCodeWithoutRetryReturnsCommitErr) {
+    size_t index = 0;
+    SyncPoint::get_instance()->set_call_back("update_delete_bitmap:commit:err", [&](auto&& args) {
+        ++index;
+        *doris::try_any_cast<TxnErrorCode*>(args[2]) = TxnErrorCode::TXN_MAYBE_COMMITTED;
+    });
+    SyncPoint::get_instance()->enable_processing();
+    bool enable_retry = config::enable_txn_store_retry;
+    int64_t max_txn_commit_byte = config::max_txn_commit_byte;
+    config::enable_txn_store_retry = false;
+    config::max_txn_commit_byte = 1;
+
+    auto service = get_meta_service();
+
+    brpc::Controller cntl;
+    UpdateDeleteBitmapRequest req;
+    UpdateDeleteBitmapResponse resp;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(100);
+    req.set_partition_id(123);
+    req.set_lock_id(-3);
+    req.set_without_lock(true);
+    req.set_initiator(-1);
+    req.set_tablet_id(333);
+    req.add_rowset_ids("r1");
+    req.add_segment_ids(0);
+    req.add_versions(2);
+    req.add_segment_delete_bitmaps("abc");
+
+    service->update_delete_bitmap(&cntl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
+            << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
+    EXPECT_EQ(index, 1);
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+    config::enable_txn_store_retry = enable_retry;
+    config::max_txn_commit_byte = max_txn_commit_byte;
+}
+
+TEST(MetaServiceTxnStoreRetryableTest, ReadMaybeCommittedCodeWithoutRetryReturnsCommitErr) {
+    size_t index = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("get_version_code", [&](auto&& args) {
+        ++index;
+        *doris::try_any_cast<MetaServiceCode*>(args[0]) = MetaServiceCode::KV_TXN_MAYBE_COMMITTED;
+    });
+    sync_point->enable_processing();
+    bool enable_retry = config::enable_txn_store_retry;
+    DORIS_CLOUD_DEFER {
+        config::enable_txn_store_retry = enable_retry;
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    };
+    config::enable_txn_store_retry = false;
+
+    auto service = get_meta_service();
+    create_tablet(service.get(), 1, 1, 1, 1);
+    insert_rowset(service.get(), 1, "read_maybe_committed_without_retry", 1, 1, 1);
+
+    brpc::Controller ctrl;
+    GetVersionRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_db_id(1);
+    req.set_table_id(1);
+    req.set_partition_id(1);
+
+    GetVersionResponse resp;
+    service->get_version(&ctrl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
+            << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
+    EXPECT_EQ(resp.version(), 2);
+    EXPECT_EQ(index, 1);
+}
+
+TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCodeReturnsCommitErr) {
     size_t index = 0;
     SyncPoint::get_instance()->set_call_back("update_delete_bitmap:commit:err", [&](auto&& args) {
         ++index;
@@ -8443,8 +8721,10 @@ TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCode) {
 
     service->update_delete_bitmap(&cntl, &req, &resp, nullptr);
 
-    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_MAYBE_COMMITTED)
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_GE(index, static_cast<size_t>(config::txn_store_retry_times + 1));
 
     SyncPoint::get_instance()->disable_processing();
@@ -8452,6 +8732,47 @@ TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCode) {
     config::txn_store_retry_times = retry_times;
     config::enable_txn_store_retry = enable_retry;
     config::max_txn_commit_byte = max_txn_commit_byte;
+}
+
+TEST(MetaServiceTxnStoreRetryableTest, RetryReadMaybeCommittedCodeReturnsCommitErr) {
+    size_t index = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("get_version_code", [&](auto&& args) {
+        ++index;
+        *doris::try_any_cast<MetaServiceCode*>(args[0]) = MetaServiceCode::KV_TXN_MAYBE_COMMITTED;
+    });
+    sync_point->enable_processing();
+    int32_t retry_times = config::txn_store_retry_times;
+    bool enable_retry = config::enable_txn_store_retry;
+    DORIS_CLOUD_DEFER {
+        config::txn_store_retry_times = retry_times;
+        config::enable_txn_store_retry = enable_retry;
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    };
+    config::txn_store_retry_times = 2;
+    config::enable_txn_store_retry = true;
+
+    auto service = get_meta_service();
+    create_tablet(service.get(), 1, 1, 1, 1);
+    insert_rowset(service.get(), 1, "retry_read_maybe_committed", 1, 1, 1);
+
+    brpc::Controller ctrl;
+    GetVersionRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_db_id(1);
+    req.set_table_id(1);
+    req.set_partition_id(1);
+
+    GetVersionResponse resp;
+    service->get_version(&ctrl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
+            << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
+    EXPECT_EQ(resp.version(), 2);
+    EXPECT_GE(index, static_cast<size_t>(config::txn_store_retry_times + 1));
 }
 
 TEST(MetaServiceTest, GetClusterStatusTest) {
@@ -10307,6 +10628,52 @@ TEST(MetaServiceTest, CreateS3VaultWithIamRole) {
         }
     }
 
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_S3_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_endpoint("s3.us-east-1.amazonaws.com");
+        vault.mutable_obj_info()->set_region("us-east-1");
+        vault.mutable_obj_info()->set_bucket("test_credential_provider_bucket");
+        vault.mutable_obj_info()->set_prefix("test_credential_provider_prefix");
+        vault.mutable_obj_info()->set_provider(
+                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::CONTAINER);
+
+        vault.set_name("s3_vault_with_credential_provider");
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        {
+            InstanceInfoPB instance;
+            get_test_instance(instance);
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "5"}), &val),
+                      TxnErrorCode::TXN_OK);
+            StorageVaultPB get_obj;
+            get_obj.ParseFromString(val);
+            ASSERT_TRUE(get_obj.obj_info().ak().empty()) << get_obj.obj_info().ak();
+            ASSERT_TRUE(get_obj.obj_info().sk().empty()) << get_obj.obj_info().sk();
+            ASSERT_FALSE(get_obj.obj_info().has_role_arn());
+            ASSERT_FALSE(get_obj.obj_info().has_external_id());
+            ASSERT_EQ(get_obj.obj_info().cred_provider_type(), CredProviderTypePB::CONTAINER)
+                    << get_obj.obj_info().cred_provider_type();
+            ASSERT_EQ(get_obj.obj_info().bucket(), "test_credential_provider_bucket")
+                    << get_obj.obj_info().bucket();
+            ASSERT_EQ(get_obj.obj_info().prefix(), "test_credential_provider_prefix")
+                    << get_obj.obj_info().prefix();
+            ASSERT_EQ(get_obj.id(), "5") << get_obj.id();
+        }
+    }
+
     LOG(INFO) << "instance:" << instance.ShortDebugString();
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
@@ -10786,15 +11153,96 @@ TEST(MetaServiceTest, StaleCommitRowset) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
-    ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
-            << res.status().msg();
-    ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
     commit_txn(meta_service.get(), db_id, txn_id, label);
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
     ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
             << res.status().msg();
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
+}
+
+TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
+    auto meta_service = get_meta_service();
+
+    const bool old_enable_recycle_delete_rowset_key_check =
+            config::enable_recycle_delete_rowset_key_check;
+    config::enable_recycle_delete_rowset_key_check = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_recycle_delete_rowset_key_check = old_enable_recycle_delete_rowset_key_check;
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    std::string instance_id = "commit_rowset_recycle_key_test_instance_id";
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    auto put_recycle_rowset = [&](const doris::RowsetMetaCloudPB& rowset) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        RecycleRowsetPB recycle_rowset;
+        recycle_rowset.mutable_rowset_meta()->CopyFrom(rowset);
+        recycle_rowset.set_type(RecycleRowsetPB::PREPARE);
+        std::string recycle_rs_val;
+        ASSERT_TRUE(recycle_rowset.SerializeToString(&recycle_rs_val));
+        txn->put(recycle_rowset_key({instance_id, rowset.tablet_id(), rowset.rowset_id_v2()}),
+                 recycle_rs_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+
+    {
+        int64_t table_id = 1;
+        int64_t partition_id = 1;
+        int64_t tablet_id = 1;
+        int64_t db_id = 100201;
+        std::string label = "test_commit_rowset_tmp_and_recycle_key_conflict";
+        create_tablet(meta_service.get(), table_id, 1, partition_id, tablet_id);
+
+        int64_t txn_id = 0;
+        ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+        CreateRowsetResponse res;
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+        rowset.mutable_load_id()->set_hi(123);
+        rowset.mutable_load_id()->set_lo(456);
+        ASSERT_NO_FATAL_FAILURE(prepare_rowset(meta_service.get(), rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+        res.Clear();
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+        res.Clear();
+
+        ASSERT_NO_FATAL_FAILURE(put_recycle_rowset(rowset));
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+        ASSERT_TRUE(res.status().msg().find("mutually exclusive") != std::string::npos)
+                << res.status().msg();
+    }
+
+    {
+        int64_t table_id = 2;
+        int64_t partition_id = 2;
+        int64_t tablet_id = 2;
+        int64_t db_id = 100202;
+        std::string label = "test_commit_rowset_without_tmp_or_recycle_key";
+        create_tablet(meta_service.get(), table_id, 1, partition_id, tablet_id);
+
+        int64_t txn_id = 0;
+        ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+        CreateRowsetResponse res;
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+        rowset.mutable_load_id()->set_hi(789);
+        rowset.mutable_load_id()->set_lo(101112);
+
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+        ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
+                << res.status().msg();
+    }
 }
 
 TEST(MetaServiceTest, AlterObjInfoTest) {

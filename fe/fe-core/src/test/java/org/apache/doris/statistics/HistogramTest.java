@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -69,9 +70,9 @@ class HistogramTest {
         List<Bucket> buckets = histogramUnderTest.buckets;
         Assertions.assertEquals(5, buckets.size());
 
-        LiteralExpr expectedLower = LiteralExpr.create("2022-09-21 17:30:29",
+        LiteralExpr expectedLower = LiteralExprUtils.createLiteral("2022-09-21 17:30:29",
                 Objects.requireNonNull(Type.fromPrimitiveType(PrimitiveType.DATETIME)));
-        LiteralExpr expectedUpper = LiteralExpr.create("2022-09-21 22:30:29",
+        LiteralExpr expectedUpper = LiteralExprUtils.createLiteral("2022-09-21 22:30:29",
                 Objects.requireNonNull(Type.fromPrimitiveType(PrimitiveType.DATETIME)));
 
         boolean flag = false;
@@ -108,9 +109,9 @@ class HistogramTest {
         Assertions.assertEquals(5, jsonArray.size());
 
         // test first bucket
-        LiteralExpr expectedLower = LiteralExpr.create("2022-09-21 17:30:29",
+        LiteralExpr expectedLower = LiteralExprUtils.createLiteral("2022-09-21 17:30:29",
                 Objects.requireNonNull(Type.fromPrimitiveType(PrimitiveType.DATETIME)));
-        LiteralExpr expectedUpper = LiteralExpr.create("2022-09-21 22:30:29",
+        LiteralExpr expectedUpper = LiteralExprUtils.createLiteral("2022-09-21 22:30:29",
                 Objects.requireNonNull(Type.fromPrimitiveType(PrimitiveType.DATETIME)));
 
         boolean flag = false;

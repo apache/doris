@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -27,50 +28,35 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
-public class ShowTransactionCommandTest {
-    @Mocked
+import java.io.IOException;
+
+public class ShowTransactionCommandTest extends TestWithFeService {
     private Env env;
-    @Mocked
     private AccessControllerManager accessControllerManager;
-    @Mocked
     private ConnectContext connectContext;
 
-    private void runBefore() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkDbPriv(connectContext, anyString, anyString, PrivPredicate.LOAD);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
     }
 
     @Test
-    public void testValidate() {
+    public void testValidate() throws Exception {
         runBefore();
+        connectContext.setSkipAuth(true);
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkDbPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                Mockito.anyString(), Mockito.any(PrivPredicate.class));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
         // test where is null
         ShowTransactionCommand command = new ShowTransactionCommand("test", null);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext));

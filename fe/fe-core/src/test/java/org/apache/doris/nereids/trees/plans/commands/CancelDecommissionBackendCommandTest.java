@@ -23,54 +23,56 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class CancelDecommissionBackendCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-    @Mocked
+
     private Env env;
-    @Mocked
     private ConnectContext connectContext;
-    @Mocked
     private AccessControllerManager accessControllerManager;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
 
     private final String dbName = "test_db";
 
-    private void runBefore() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+    @BeforeEach
+    public void setUp() {
+        env = Mockito.mock(Env.class);
+        connectContext = Mockito.mock(ConnectContext.class);
+        accessControllerManager = Mockito.mock(AccessControllerManager.class);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(connectContext);
 
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(connectContext.isSkipAuth()).thenReturn(true);
+        Mockito.when(accessControllerManager.checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.OPERATOR))).thenReturn(true);
+    }
 
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    @AfterEach
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
     }
 
     @Test
     public void testValidateNormal() {
-        runBefore();
         List<String> params = new ArrayList<>();
         params.add("192.168.1.120:30111");
         params.add("192.168.1.121:30111");

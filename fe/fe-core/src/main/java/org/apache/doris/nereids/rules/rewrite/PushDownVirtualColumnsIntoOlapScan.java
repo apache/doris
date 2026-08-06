@@ -338,7 +338,7 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         if (!(skipResult.shouldSkipCounting() || skipResult.isNotBeneficial())) {
             if (expr.getDepth() >= MIN_EXPRESSION_DEPTH
                     && expr.children().size() > 0
-                    && !ExpressionUtils.containUniqueFunctionExistMultiple(ImmutableList.of(expr))) {
+                    && !ExpressionUtils.containVolatileExpressionExistMultiple(ImmutableList.of(expr))) {
                 expressionCounts.put(expr, expressionCounts.getOrDefault(expr, 0) + 1);
             }
         }
@@ -514,17 +514,5 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
             }
             return false;
         }
-    }
-
-    /**
-     * Get function name from expression if it's a function call
-     */
-    private String getFunctionName(Expression expr) {
-        // Try to get function name from expression
-        // This is a simplified approach - in practice, you might need more robust name extraction
-        if (expr instanceof NamedExpression) {
-            return ((NamedExpression) expr).getName();
-        }
-        return null;
     }
 }

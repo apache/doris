@@ -57,13 +57,16 @@ suite("test_schema_change_add_key_column", "nonConcurrent") {
     // batch_size is 4164 in csv_reader.cpp
     // _batch_size is 8192 in vtablet_writer.cpp
     def backendId_to_params = get_be_param("doris_scanner_row_bytes")
+    def backendId_to_adaptive_batch_size = get_be_param("enable_adaptive_batch_size")
     onFinish {
         GetDebugPoint().clearDebugPointsForAllBEs()
         set_original_be_param("doris_scanner_row_bytes", backendId_to_params)
+        set_original_be_param("enable_adaptive_batch_size", backendId_to_adaptive_batch_size)
     }
     GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush")
     GetDebugPoint().enableDebugPointForAllBEs("VBaseSchemaChangeWithSorting._inner_process.create_rowset")
     set_be_param.call("doris_scanner_row_bytes", "1")
+    set_be_param.call("enable_adaptive_batch_size", "false")
 
     // 0: table without sequence_col; add a key col
     // 1: table without sequence_col; reorder cols
@@ -79,7 +82,7 @@ suite("test_schema_change_add_key_column", "nonConcurrent") {
                 `v3` int(11) NULL,
                 `v4` int(11) NULL
             ) unique KEY(`k1`, `k2`) 
-            cluster by(`v3`, `v4`) 
+            ORDER BY(`v3`, `v4`) 
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
             PROPERTIES (
             """ + (i >= 2 ? "\"function_column.sequence_col\"='v4', " : "") +

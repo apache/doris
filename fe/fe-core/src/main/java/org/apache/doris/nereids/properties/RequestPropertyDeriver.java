@@ -39,16 +39,16 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -57,13 +57,14 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -144,7 +145,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+        if (connectContext != null && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(olapTableSink.getRequirePhysicalProperties());
@@ -153,30 +154,51 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     @Override
-    public Void visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink, PlanContext context) {
+    public Void visitPhysicalExternalRowLevelDeleteSink(
+            PhysicalExternalRowLevelDeleteSink<? extends Plan> deleteSink, PlanContext context) {
         if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
-            addRequestPropertyToChildren(hiveTableSink.getRequirePhysicalProperties());
+            addRequestPropertyToChildren(deleteSink.getRequirePhysicalProperties());
         }
         return null;
     }
 
     @Override
-    public Void visitPhysicalIcebergTableSink(
-            PhysicalIcebergTableSink<? extends Plan> icebergTableSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+    public Void visitPhysicalExternalRowLevelMergeSink(
+            PhysicalExternalRowLevelMergeSink<? extends Plan> mergeSink, PlanContext context) {
+        if (!mergeSink.isRequireMergeCardinalityCheck()
+                && connectContext != null
+                && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
-            addRequestPropertyToChildren(icebergTableSink.getRequirePhysicalProperties());
+            // SQL MERGE cardinality is mandatory even when optional UPDATE consistency is disabled.
+            addRequestPropertyToChildren(mergeSink.getRequirePhysicalProperties());
         }
         return null;
     }
 
     @Override
-    public Void visitPhysicalJdbcTableSink(
-            PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, PlanContext context) {
-        // Always use gather properties for jdbcTableSink
+    public Void visitPhysicalConnectorTableSink(
+            PhysicalConnectorTableSink<? extends Plan> connectorTableSink, PlanContext context) {
+        PhysicalProperties requiredProps = connectorTableSink.getRequirePhysicalProperties();
+        if (PhysicalProperties.GATHER.equals(requiredProps)) {
+            // Connector does not support parallel write (e.g., JDBC, ES).
+            // Always gather to a single writer for transactional safety.
+            addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        } else if (connectContext != null
+                && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            addRequestPropertyToChildren(requiredProps);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalTVFTableSink(
+            PhysicalTVFTableSink<? extends Plan> tvfTableSink, PlanContext context) {
+        // TVF sink writes to a single file on a single BE, so all data must be gathered
         addRequestPropertyToChildren(PhysicalProperties.GATHER);
         return null;
     }
@@ -199,14 +221,6 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         return null;
     }
 
-    @Override
-    public Void visitPhysicalDeferMaterializeResultSink(
-            PhysicalDeferMaterializeResultSink<? extends Plan> sink,
-            PlanContext context) {
-        addRequestPropertyToChildren(PhysicalProperties.GATHER);
-        return null;
-    }
-
     /* ********************************************************************************************
      * Other Node, in lexicographical order
      * ******************************************************************************************** */
@@ -224,6 +238,10 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         return null;
     }
 
+    private void addRequestForShuffleJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin) {
+        addShuffleJoinRequestProperty(hashJoin, ShuffleType.REQUIRE);
+    }
+
     @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
         DistributeHint hint = hashJoin.getDistributeHint();
@@ -233,13 +251,17 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             return null;
         }
         if (hint.distributeType == DistributeType.SHUFFLE_RIGHT && JoinUtils.couldShuffle(hashJoin)) {
-            addShuffleJoinRequestProperty(hashJoin);
+            if (hashJoin.getDistributeHint().getSkewInfo() != null) {
+                addShuffleJoinRequestProperty(hashJoin, ShuffleType.REQUIRE_EQUAL);
+            } else {
+                addRequestForShuffleJoin(hashJoin);
+            }
             hint.setStatus(Hint.HintStatus.SUCCESS);
             return null;
         }
         // for shuffle join
         if (JoinUtils.couldShuffle(hashJoin)) {
-            addShuffleJoinRequestProperty(hashJoin);
+            addRequestForShuffleJoin(hashJoin);
         }
 
         // for broadcast join
@@ -280,19 +302,18 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (distributionRequestFromParent instanceof DistributionSpecHash) {
             // shuffle according to parent require
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
-            addRequestPropertyToChildren(createHashRequestAccordingToParent(
-                    setOperation, distributionSpecHash, context));
+            addRequestPropertyToChildren(downgradeRequireWhenBucketShuffleNotAllowed(
+                    createHashRequestAccordingToParent(setOperation, distributionSpecHash, context)));
         } else {
             // shuffle all column
             // TODO: for wide table, may be we should add a upper limit of shuffle columns
-
-            // intersect/except always need hash distribution, we use REQUIRE to auto select
-            // bucket shuffle or execution shuffle
+            ShuffleType setOperationShuffleType = setOperationBucketShuffleAllowed()
+                    ? ShuffleType.REQUIRE : ShuffleType.EXECUTION_BUCKETED;
             addRequestPropertyToChildren(setOperation.getRegularChildrenOutputs().stream()
                     .map(childOutputs -> childOutputs.stream()
                             .map(SlotReference::getExprId)
                             .collect(ImmutableList.toImmutableList()))
-                    .map(l -> PhysicalProperties.createHash(l, ShuffleType.REQUIRE))
+                    .map(l -> PhysicalProperties.createHash(l, setOperationShuffleType))
                     .collect(Collectors.toList()));
         }
         return null;
@@ -312,9 +333,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             DistributionSpec distributionRequestFromParent = requestPropertyFromParent.getDistributionSpec();
             if (distributionRequestFromParent instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
-                List<PhysicalProperties> requestHash
-                        = createHashRequestAccordingToParent(union, distributionSpecHash, context);
-                addRequestPropertyToChildren(requestHash);
+                addRequestPropertyToChildren(downgradeRequireWhenBucketShuffleNotAllowed(
+                        createHashRequestAccordingToParent(union, distributionSpecHash, context)));
             }
         }
 
@@ -441,11 +461,11 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, PlanContext context) {
-        DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
         if (agg.getAggPhase().isLocal()) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
             return null;
         } else if (agg.getAggPhase().isGlobal()) {
+            // partition expressions already set by rule
             if (agg.getPartitionExpressions().isPresent() && !agg.getPartitionExpressions().get().isEmpty()) {
                 addRequestPropertyToChildren(
                         PhysicalProperties.createHash(agg.getPartitionExpressions().get(), ShuffleType.REQUIRE));
@@ -460,25 +480,36 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                     .map(SlotReference.class::cast)
                     .map(SlotReference::getExprId)
                     .collect(Collectors.toList());
-            // If the request received by agg is (a), the request sent by agg is (a,b), and (a) is a subset of (a,b),
-            // then agg sends (a) to the child
+            DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
             if (parentDist instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionRequestFromParent = (DistributionSpecHash) parentDist;
                 List<ExprId> parentHashExprIds = distributionRequestFromParent.getOrderedShuffledColumns();
-                Set<ExprId> intersectId = Sets.intersection(new HashSet<>(parentHashExprIds),
+                Set<ExprId> intersectIdSet = Sets.intersection(new HashSet<>(parentHashExprIds),
                         new HashSet<>(groupByExprIds));
-                if (!intersectId.isEmpty() && intersectId.size() < groupByExprIds.size()) {
-                    if (shouldUseParent(parentHashExprIds, agg, context)) {
-                        addRequestPropertyToChildren(PhysicalProperties.createHash(
-                                Utils.fastToImmutableList(intersectId), ShuffleType.REQUIRE));
+                if (!intersectIdSet.isEmpty() && intersectIdSet.size() < groupByExprIds.size()) {
+                    List<ExprId> intersectIdList = new ArrayList<>();
+                    for (ExprId exprId : parentHashExprIds) {
+                        if (!intersectIdSet.contains(exprId)) {
+                            continue;
+                        }
+                        intersectIdList.add(exprId);
                     }
-                    addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
-                    return null;
+                    if (shouldUseParent(intersectIdList, agg, context)) {
+                        addRequestPropertyToChildren(
+                                PhysicalProperties.createHash(intersectIdList, ShuffleType.REQUIRE));
+                    }
                 }
             }
             addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
-            return null;
         }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> agg, PlanContext context) {
+        // Bucketed agg runs entirely on a single BE — no exchange needed.
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
         return null;
     }
 
@@ -490,6 +521,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         Optional<GroupExpression> groupExpression = agg.getGroupExpression();
         if (!groupExpression.isPresent()) {
             return true;
+        }
+        if (agg.hasSourceRepeat()) {
+            return false;
         }
         Statistics aggChildStats = groupExpression.get().childStatistics(0);
         if (aggChildStats == null) {
@@ -511,6 +545,43 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         }
         double combinedNdv = StatsCalculator.estimateGroupByRowCount(parentHashExprs, aggChildStats);
         return combinedNdv > AggregateUtils.LOW_NDV_THRESHOLD;
+    }
+
+    /**
+     * A ShuffleType.REQUIRE request lets ChildrenPropertiesRegulator choose the bucket
+     * shuffle alternative for the set operation. That needs either no local shuffle at all
+     * (every pipeline runs a single task per instance, so the bucket alignment holds
+     * naturally) or the FE local-shuffle planner (which plans the correct bucket-hash
+     * local exchanges): with the BE-planned local shuffle the backend cannot infer the
+     * correct local shuffle type for the set sink/probe and computes wrong results.
+     * It also requires the nereids distribute planner: the legacy coordinator only
+     * supports bucket-shuffle-partitioned sinks whose dest fragment contains a bucket
+     * shuffle join.
+     */
+    private boolean setOperationBucketShuffleAllowed() {
+        return connectContext != null
+                && SessionVariable.canUseNereidsDistributePlanner(connectContext)
+                && (!connectContext.getSessionVariable().isEnableLocalShuffle()
+                        || connectContext.getSessionVariable().isEnableLocalShufflePlanner());
+    }
+
+    /**
+     * The parent may pass ShuffleType.REQUIRE down through
+     * {@link #createHashRequestAccordingToParent}; downgrade it to EXECUTION_BUCKETED so the
+     * regulator does not pick the bucket shuffle alternative when it is not allowed.
+     */
+    private List<PhysicalProperties> downgradeRequireWhenBucketShuffleNotAllowed(
+            List<PhysicalProperties> requests) {
+        if (setOperationBucketShuffleAllowed()) {
+            return requests;
+        }
+        return requests.stream().map(request -> {
+            DistributionSpecHash requestHash = (DistributionSpecHash) request.getDistributionSpec();
+            return requestHash.getShuffleType() == ShuffleType.REQUIRE
+                    ? PhysicalProperties.createHash(
+                            requestHash.getOrderedShuffledColumns(), ShuffleType.EXECUTION_BUCKETED)
+                    : request;
+        }).collect(Collectors.toList());
     }
 
     private List<PhysicalProperties> createHashRequestAccordingToParent(
@@ -544,22 +615,14 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         addRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
     }
 
-    private void addShuffleJoinRequestProperty(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin) {
+    private void addShuffleJoinRequestProperty(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
+            ShuffleType shuffleType) {
         Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = hashJoin.getHashConjunctsExprIds();
-        // shuffle join
-        if (hashJoin.getDistributeHint().getSkewInfo() != null) {
-            addRequestPropertyToChildren(
-                    PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.REQUIRE_EQUAL)),
-                    PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.REQUIRE_EQUAL)));
-        } else {
-            addRequestPropertyToChildren(
-                    PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.REQUIRE)),
-                    PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.REQUIRE)));
-        }
+        addRequestPropertyToChildren(
+                PhysicalProperties.createHash(
+                        new DistributionSpecHash(onClauseUsedSlots.first, shuffleType)),
+                PhysicalProperties.createHash(
+                        new DistributionSpecHash(onClauseUsedSlots.second, shuffleType)));
     }
 
     /**

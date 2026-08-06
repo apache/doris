@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgTypesInfo;
 import org.apache.doris.nereids.types.BigIntType;

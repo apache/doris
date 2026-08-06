@@ -17,29 +17,19 @@
 
 #pragma once
 
-#include <common/multi_version.h>
-#include <gen_cpp/olap_file.pb.h>
-
 #include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
+#include "common/multi_version.h"
 #include "common/status.h"
-#include "exec/schema_scanner/schema_routine_load_job_scanner.h"
-#include "io/cache/fs_file_cache_storage.h"
-#include "olap/memtable_memory_limiter.h"
-#include "olap/options.h"
-#include "olap/rowset/segment_v2/inverted_index_writer.h"
-#include "olap/tablet_fwd.h"
-#include "pipeline/pipeline_tracing.h"
-#include "runtime/cluster_info.h"
-#include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
-#include "util/threadpool.h"
+#include "storage/tablet/tablet_fwd.h"
 
 namespace orc {
 class MemoryPool;
@@ -49,27 +39,32 @@ class MemoryPool;
 }
 
 namespace doris {
-namespace vectorized {
 class VDataStreamMgr;
-class SpillStreamManager;
+class SpillFileManager;
 class DeltaWriterV2Pool;
 class DictionaryFactory;
-} // namespace vectorized
-namespace pipeline {
 class TaskScheduler;
 struct RuntimeFilterTimerQueue;
-} // namespace pipeline
 class WorkloadGroupMgr;
 struct WriteCooldownMetaExecutors;
+class TokenBucketRateLimiterHolder;
+using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
+class MSRpcRateLimitServices;
+class ThreadPool;
+struct StorePath;
+struct CachePath;
 namespace io {
+class FDCache;
 class FileCacheFactory;
 class HdfsMgr;
 class PackedFileManager;
 } // namespace io
+
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
 class ConditionCache;
+class AnnIndexResultCache;
 class TmpFileDirs;
 class EncodingInfoResolver;
 
@@ -96,6 +91,7 @@ class LoadPathMgr;
 class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
+class MemTableMemoryLimiter;
 struct TrackerLimiterGroup;
 class BaseStorageEngine;
 class ResultBufferMgr;
@@ -115,6 +111,12 @@ class PFunctionService_Stub;
 template <class T>
 class ClientCache;
 class HeartbeatFlags;
+class ClusterInfo;
+struct FrontendInfo;
+// Thrift-generated types (gen_cpp), forward-declared so their headers stay out
+// of every TU that includes ExecEnv.
+class TFrontendInfo;
+class TNetworkAddress;
 class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
@@ -122,8 +124,8 @@ class CdcClientMgr;
 class TabletSchemaCache;
 class TabletColumnObjectPool;
 class UserFunctionCache;
-class SchemaCache;
 class StoragePageCache;
+class AnnIndexIVFListCache;
 class SegmentLoader;
 class LookupConnectionCache;
 class RowCache;
@@ -193,7 +195,7 @@ public:
     static void set_is_upgrading() { _s_upgrading = true; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
-    vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
+    VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
     ResultBufferMgr* result_mgr() { return _result_mgr; }
     ResultQueueMgr* result_queue_mgr() { return _result_queue_mgr; }
     ClientCache<BackendServiceClient>* client_cache() { return _backend_client_cache; }
@@ -264,6 +266,8 @@ public:
     ThreadPool* non_block_close_thread_pool();
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
     ThreadPool* udf_close_workers_pool() { return _udf_close_workers_thread_pool.get(); }
+    ThreadPool* segment_prefetch_thread_pool() { return _segment_prefetch_thread_pool.get(); }
+    ThreadPool* peer_race_s3_thread_pool() { return _peer_race_s3_thread_pool.get(); }
 
     void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
@@ -287,7 +291,9 @@ public:
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr.get(); }
     NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr.get(); }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
-    doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
+
+    SpillFileManager* spill_file_mgr() { return _spill_file_mgr; }
+
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
     CdcClientMgr* cdc_client_mgr() { return _cdc_client_mgr; }
 
@@ -308,16 +314,23 @@ public:
     io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
     io::PackedFileManager* packed_file_manager() { return _packed_file_manager; }
     IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
+    S3RateLimiterHolder* warmup_download_rate_limiter() { return _warmup_download_rate_limiter; }
+    MSRpcRateLimitServices* ms_rpc_rate_limit_services() {
+        return _ms_rpc_rate_limit_services.get();
+    }
 
 #ifdef BE_TEST
-    void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
-        this->_tmp_file_dirs = std::move(tmp_file_dirs);
-    }
-    void set_ready() { this->_s_ready = true; }
-    void set_not_ready() { this->_s_ready = false; }
-    void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
-        _memtable_memory_limiter.reset(limiter);
-    }
+    // Defined out of line on purpose: assigning the unique_ptr destroys the old
+    // pointee, which would require TmpFileDirs to be COMPLETE in every translation
+    // unit that includes this header -- and this header is included by most of the
+    // backend. Keeping the body in the .cpp lets the forward declaration above
+    // suffice.
+    void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs);
+    void set_ready() { _s_ready = true; }
+    void set_not_ready() { _s_ready = false; }
+    // Defined out of line: resetting the unique_ptr deletes the old pointee,
+    // which would require MemTableMemoryLimiter to be complete here.
+    void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter);
     void set_cluster_info(ClusterInfo* cluster_info) { this->_cluster_info = cluster_info; }
     void set_new_load_stream_mgr(std::unique_ptr<NewLoadStreamMgr>&& new_load_stream_mgr);
     void clear_new_load_stream_mgr();
@@ -327,14 +340,16 @@ public:
     void set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine);
     void set_inverted_index_searcher_cache(
             segment_v2::InvertedIndexSearcherCache* inverted_index_searcher_cache);
-    void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
-    void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
-    void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
-    void set_delete_bitmap_agg_cache(DeleteBitmapAggCache* c) { _delete_bitmap_agg_cache = c; }
-    void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
-        this->_tablet_column_object_pool = c;
+    void set_inverted_index_query_cache(
+            segment_v2::InvertedIndexQueryCache* inverted_index_query_cache) {
+        _inverted_index_query_cache = inverted_index_query_cache;
     }
+    void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
+    void set_delete_bitmap_agg_cache(DeleteBitmapAggCache* c) { _delete_bitmap_agg_cache = c; }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
+    void set_ann_index_ivf_list_cache(AnnIndexIVFListCache* c) {
+        this->_ann_index_ivf_list_cache = c;
+    }
     void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
         this->_routine_load_task_executor = r;
@@ -347,20 +362,27 @@ public:
         _s_tracking_memory.store(tracking_memory, std::memory_order_release);
     }
     void set_orc_memory_pool(orc::MemoryPool* pool) { _orc_memory_pool = pool; }
-    void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
-        _non_block_close_thread_pool = std::move(pool);
-    }
-    void set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
-        _s3_file_upload_thread_pool = std::move(pool);
-    }
+    // Defined out of line: assigning the unique_ptr destroys the old pointee,
+    // which would require ThreadPool to be complete here.
+    void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool);
+    void set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool);
     void set_file_cache_factory(io::FileCacheFactory* factory) { _file_cache_factory = factory; }
-    void set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cache) {
-        _file_cache_open_fd_cache = std::move(fd_cache);
-    }
+    // Defined out of line: assigning the unique_ptr destroys the old pointee,
+    // which would require io::FDCache to be complete here.
+    void set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cache);
 #endif
+    // WARN: The following setter methods are intended for use in test code and
+    // offline tools (like meta_tool) ONLY. They should NOT be called in the
+    // production environment to avoid thread safety issues and undefined behaviors.
+    void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
+    void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
+    void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
+        this->_tablet_column_object_pool = c;
+    }
+
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
-    vectorized::DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
+    DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
 
     void wait_for_all_tasks_done();
 
@@ -370,8 +392,8 @@ public:
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
     TabletColumnObjectPool* get_tablet_column_object_pool() { return _tablet_column_object_pool; }
-    SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
+    AnnIndexIVFListCache* get_ann_index_ivf_list_cache() { return _ann_index_ivf_list_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
     RowCache* get_row_cache() { return _row_cache; }
@@ -391,24 +413,20 @@ public:
     }
     QueryCache* get_query_cache() { return _query_cache; }
 
-    pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
-        return _runtime_filter_timer_queue;
-    }
+    RuntimeFilterTimerQueue* runtime_filter_timer_queue() { return _runtime_filter_timer_queue; }
 
-    vectorized::DictionaryFactory* dict_factory() { return _dict_factory; }
-
-    pipeline::PipelineTracerContext* pipeline_tracer_context() {
-        return _pipeline_tracer_ctx.get();
-    }
+    DictionaryFactory* dict_factory() { return _dict_factory; }
 
     segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
     io::FDCache* file_cache_open_fd_cache() const { return _file_cache_open_fd_cache.get(); }
+
+    segment_v2::AnnIndexResultCache* ann_index_result_cache() { return _ann_index_result_cache; }
 
     orc::MemoryPool* orc_memory_pool() { return _orc_memory_pool; }
     arrow::MemoryPool* arrow_memory_pool() { return _arrow_memory_pool; }
 
     bool check_auth_token(const std::string& auth_token);
-    void set_stream_mgr(vectorized::VDataStreamMgr* vstream_mgr) { _vstream_mgr = vstream_mgr; }
+    void set_stream_mgr(VDataStreamMgr* vstream_mgr) { _vstream_mgr = vstream_mgr; }
     void clear_stream_mgr();
 
     DeleteBitmapAggCache* delete_bitmap_agg_cache() { return _delete_bitmap_agg_cache; }
@@ -437,7 +455,7 @@ private:
     UserFunctionCache* _user_function_cache = nullptr;
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
-    vectorized::VDataStreamMgr* _vstream_mgr = nullptr;
+    VDataStreamMgr* _vstream_mgr = nullptr;
     ResultBufferMgr* _result_mgr = nullptr;
     ResultQueueMgr* _result_queue_mgr = nullptr;
     ClientCache<BackendServiceClient>* _backend_client_cache = nullptr;
@@ -486,6 +504,9 @@ private:
     std::unique_ptr<ThreadPool> _s3_file_system_thread_pool;
     // for java-udf to close
     std::unique_ptr<ThreadPool> _udf_close_workers_thread_pool;
+    // Threadpool used to prefetch segment file cache blocks
+    std::unique_ptr<ThreadPool> _segment_prefetch_thread_pool;
+    std::unique_ptr<ThreadPool> _peer_race_s3_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
     WorkloadGroupMgr* _workload_group_manager = nullptr;
@@ -513,14 +534,16 @@ private:
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
     std::unique_ptr<LoadStreamMapPool> _load_stream_map_pool;
-    std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool;
+    std::unique_ptr<DeltaWriterV2Pool> _delta_writer_v2_pool;
     std::unique_ptr<WalManager> _wal_manager;
     DNSCache* _dns_cache = nullptr;
     std::unique_ptr<WriteCooldownMetaExecutors> _write_cooldown_meta_executors;
 
     std::mutex _frontends_lock;
-    // ip:brpc_port -> frontend_indo
-    std::map<TNetworkAddress, FrontendInfo> _frontends;
+    // ip:brpc_port -> frontend_info. Held behind unique_ptr because std::map
+    // requires a complete mapped type, and frontend_info.h would drag
+    // gen_cpp/HeartbeatService_types.h into every TU that includes ExecEnv.
+    std::unique_ptr<std::map<TNetworkAddress, FrontendInfo>> _frontends;
     GroupCommitMgr* _group_commit_mgr = nullptr;
     CdcClientMgr* _cdc_client_mgr = nullptr;
 
@@ -531,8 +554,8 @@ private:
     TabletSchemaCache* _tablet_schema_cache = nullptr;
     TabletColumnObjectPool* _tablet_column_object_pool = nullptr;
     std::unique_ptr<BaseStorageEngine> _storage_engine;
-    SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;
+    AnnIndexIVFListCache* _ann_index_ivf_list_cache = nullptr;
     SegmentLoader* _segment_loader = nullptr;
     LookupConnectionCache* _lookup_connection_cache = nullptr;
     RowCache* _row_cache = nullptr;
@@ -547,18 +570,19 @@ private:
     QueryCache* _query_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
     DeleteBitmapAggCache* _delete_bitmap_agg_cache {nullptr};
+    segment_v2::AnnIndexResultCache* _ann_index_result_cache = nullptr;
 
-    pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
-    vectorized::DictionaryFactory* _dict_factory = nullptr;
+    RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
+    DictionaryFactory* _dict_factory = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
     IndexPolicyMgr* _index_policy_mgr = nullptr;
 
     RuntimeQueryStatisticsMgr* _runtime_query_statistics_mgr = nullptr;
 
-    std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
-    doris::vectorized::SpillStreamManager* _spill_stream_mgr = nullptr;
+
+    SpillFileManager* _spill_file_mgr = nullptr;
 
     orc::MemoryPool* _orc_memory_pool = nullptr;
     arrow::MemoryPool* _arrow_memory_pool = nullptr;
@@ -566,6 +590,8 @@ private:
     kerberos::KerberosTicketMgr* _kerberos_ticket_mgr = nullptr;
     io::HdfsMgr* _hdfs_mgr = nullptr;
     io::PackedFileManager* _packed_file_manager = nullptr;
+    S3RateLimiterHolder* _warmup_download_rate_limiter = nullptr;
+    std::unique_ptr<MSRpcRateLimitServices> _ms_rpc_rate_limit_services;
 };
 
 template <>

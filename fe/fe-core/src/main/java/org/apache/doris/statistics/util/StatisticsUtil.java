@@ -18,8 +18,9 @@
 package org.apache.doris.statistics.util;
 
 import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.DecimalLiteralUtils;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
@@ -43,6 +44,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
@@ -51,12 +53,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
@@ -64,6 +62,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
@@ -77,60 +76,37 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.PartitionColumnStatistic;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.TableStatsMeta;
-import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
-import org.apache.iceberg.FileScanTask;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.TableScan;
-import org.apache.iceberg.io.CloseableIterable;
-import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
-import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentMap;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class StatisticsUtil {
     private static final Logger LOG = LogManager.getLogger(StatisticsUtil.class);
-
-    private static final String ID_DELIMITER = "-";
-
-    private static final String TOTAL_SIZE = "totalSize";
-    private static final String NUM_ROWS = "numRows";
-    private static final String SPARK_NUM_ROWS = "spark.sql.statistics.numRows";
-    private static final String SPARK_TOTAL_SIZE = "spark.sql.statistics.totalSize";
 
     private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
     public static final int UPDATED_PARTITION_THRESHOLD = 3;
@@ -273,12 +249,12 @@ public class StatisticsUtil {
                 return new FloatLiteral(columnValue);
             case DECIMALV2:
                 // no need to check precision and scale, since V2 is fixed point
-                return new DecimalLiteral(columnValue);
+                return DecimalLiteralUtils.create(columnValue);
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
-                DecimalLiteral decimalLiteral = new DecimalLiteral(columnValue);
+                DecimalLiteral decimalLiteral = DecimalLiteralUtils.create(columnValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 return decimalLiteral;
             case DATE:
@@ -286,7 +262,7 @@ public class StatisticsUtil {
             case DATEV2:
             case DATETIMEV2:
             case TIMESTAMPTZ:
-                return new DateLiteral(columnValue, type);
+                return DateLiteralUtils.createDateLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
             case STRING:
@@ -412,13 +388,6 @@ public class StatisticsUtil {
         return tblIf.getColumn(columnName);
     }
 
-    @SuppressWarnings({"unchecked"})
-    public static Column findColumn(String catalogName, String dbName, String tblName, String columnName)
-            throws Throwable {
-        TableIf tableIf = findTable(catalogName, dbName, tblName);
-        return tableIf.getColumn(columnName);
-    }
-
     /**
      * Throw RuntimeException if table not exists.
      */
@@ -447,13 +416,13 @@ public class StatisticsUtil {
      * Throw RuntimeException if database not exists.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    public static DatabaseIf findDatabase(String catalogName, String dbName) throws Throwable {
+    private static DatabaseIf findDatabase(String catalogName, String dbName) throws Throwable {
         CatalogIf catalog = findCatalog(catalogName);
         return catalog.getDbOrException(dbName,
                 d -> new RuntimeException("DB: " + d + " not exists"));
     }
 
-    public static DatabaseIf<? extends TableIf> findDatabase(long catalogId, long dbId)  {
+    private static DatabaseIf<? extends TableIf> findDatabase(long catalogId, long dbId)  {
         CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = findCatalog(catalogId);
         return catalog.getDbOrException(dbId,
                 d -> new RuntimeException("DB: " + d + " not exists"));
@@ -471,14 +440,6 @@ public class StatisticsUtil {
     public static CatalogIf<? extends DatabaseIf<? extends TableIf>> findCatalog(long catalogId) {
         return Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(catalogId,
                 c -> new RuntimeException("Catalog: " + c + " not exists"));
-    }
-
-    public static boolean isNullOrEmpty(String str) {
-        return Optional.ofNullable(str)
-                .map(String::trim)
-                .map(String::toLowerCase)
-                .map(s -> "null".equalsIgnoreCase(s) || s.isEmpty())
-                .orElse(true);
     }
 
     public static boolean statsTblAvailable() {
@@ -538,211 +499,12 @@ public class StatisticsUtil {
         return true;
     }
 
-    public static Map<Long, Partition> getIdToPartition(TableIf table) {
-        return table.getPartitionNames().stream()
-                .map(table::getPartition)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toMap(
-                        Partition::getId,
-                        Function.identity()
-                ));
-    }
-
-    public static Map<Long, String> getPartitionIdToName(TableIf table) {
-        return table.getPartitionNames().stream()
-                .map(table::getPartition)
-                .collect(Collectors.toMap(
-                        Partition::getId,
-                        Partition::getName
-                ));
-    }
-
-    public static Set<String> getPartitionIds(TableIf table) {
-        if (table instanceof OlapTable) {
-            return ((OlapTable) table).getPartitionIds().stream().map(String::valueOf).collect(Collectors.toSet());
-        } else if (table instanceof ExternalTable) {
-            return table.getPartitionNames();
-        }
-        throw new RuntimeException(String.format("Not supported Table %s", table.getClass().getName()));
-    }
-
-    public static <T> String joinElementsToString(Collection<T> values, String delimiter) {
-        StringJoiner builder = new StringJoiner(delimiter);
-        values.forEach(v -> builder.add(String.valueOf(v)));
-        return builder.toString();
-    }
-
-    public static int convertStrToInt(String str) {
-        return StringUtils.isNumeric(str) ? Integer.parseInt(str) : 0;
-    }
-
-    public static long convertStrToLong(String str) {
-        return StringUtils.isNumeric(str) ? Long.parseLong(str) : 0;
-    }
-
     public static String getReadableTime(long timeInMs) {
         if (timeInMs <= 0) {
             return "";
         }
         SimpleDateFormat format = new SimpleDateFormat(DATE_FORMAT);
         return format.format(new Date(timeInMs));
-    }
-
-    @SafeVarargs
-    public static <T> String constructId(T... items) {
-        if (items == null || items.length == 0) {
-            return "";
-        }
-        List<String> idElements = Arrays.stream(items)
-                .map(String::valueOf)
-                .collect(Collectors.toList());
-        return StatisticsUtil.joinElementsToString(idElements, ID_DELIMITER);
-    }
-
-    public static String replaceParams(String template, Map<String, String> params) {
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        return stringSubstitutor.replace(template);
-    }
-
-
-    /**
-     * The health of the table indicates the health of the table statistics.
-     * When update_rows >= row_count, the health is 0;
-     * when update_rows < row_count, the health degree is 100 (1 - update_rows row_count).
-     *
-     * @param updatedRows The number of rows updated by the table
-     * @param totalRows The current number of rows in the table
-     * @return Health, the value range is [0, 100], the larger the value, the healthier the statistics of the table.
-     */
-    public static int getTableHealth(long totalRows, long updatedRows) {
-        // Avoid analyze empty table every time.
-        if (totalRows == 0 && updatedRows == 0) {
-            return 100;
-        }
-        if (updatedRows >= totalRows) {
-            return 0;
-        } else {
-            double healthCoefficient = (double) (totalRows - updatedRows) / (double) totalRows;
-            return (int) (healthCoefficient * 100.0);
-        }
-    }
-
-    /**
-     * Estimate hive table row count.
-     * First get it from remote table parameters. If not found, estimate it : totalSize/estimatedRowSize
-     *
-     * @param table Hive HMSExternalTable to estimate row count.
-     * @return estimated row count
-     */
-    public static long getHiveRowCount(HMSExternalTable table) {
-        Map<String, String> parameters = table.getRemoteTable().getParameters();
-        if (parameters == null) {
-            return TableIf.UNKNOWN_ROW_COUNT;
-        }
-        // Table parameters contains row count, simply get and return it.
-        long rows = getRowCountFromParameters(parameters);
-        if (rows > 0) {
-            LOG.info("Get row count {} for hive table {} in table parameters.", rows, table.getName());
-            return rows;
-        }
-        if (!parameters.containsKey(TOTAL_SIZE) && !parameters.containsKey(SPARK_TOTAL_SIZE)) {
-            return TableIf.UNKNOWN_ROW_COUNT;
-        }
-        // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
-        long totalSize = parameters.containsKey(TOTAL_SIZE) ? Long.parseLong(parameters.get(TOTAL_SIZE))
-                : Long.parseLong(parameters.get(SPARK_TOTAL_SIZE));
-        long estimatedRowSize = 0;
-        for (Column column : table.getFullSchema()) {
-            estimatedRowSize += column.getDataType().getSlotSize();
-        }
-        if (estimatedRowSize == 0) {
-            LOG.warn("Hive table {} estimated row size is invalid {}", table.getName(), estimatedRowSize);
-            return TableIf.UNKNOWN_ROW_COUNT;
-        }
-        rows = totalSize / estimatedRowSize;
-        LOG.info("Get row count {} for hive table {} by total size {} and row size {}",
-                rows, table.getName(), totalSize, estimatedRowSize);
-        return rows;
-    }
-
-    public static long getRowCountFromParameters(Map<String, String> parameters) {
-        if (parameters == null) {
-            return TableIf.UNKNOWN_ROW_COUNT;
-        }
-        // Table parameters contains row count, simply get and return it.
-        if (parameters.containsKey(NUM_ROWS)) {
-            long rows = Long.parseLong(parameters.get(NUM_ROWS));
-            if (rows <= 0 && parameters.containsKey(SPARK_NUM_ROWS)) {
-                rows = Long.parseLong(parameters.get(SPARK_NUM_ROWS));
-            }
-            // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
-            if (rows > 0) {
-                return rows;
-            }
-        }
-        return TableIf.UNKNOWN_ROW_COUNT;
-    }
-
-    /**
-     * Get total size parameter from HMS.
-     * @param table Hive HMSExternalTable to get HMS total size parameter.
-     * @return Long value of table total size, return 0 if not found.
-     */
-    public static long getTotalSizeFromHMS(HMSExternalTable table) {
-        Map<String, String> parameters = table.getRemoteTable().getParameters();
-        if (parameters == null) {
-            return 0;
-        }
-        return parameters.containsKey(TOTAL_SIZE) ? Long.parseLong(parameters.get(TOTAL_SIZE)) : 0;
-    }
-
-    /**
-     * Get Iceberg column statistics.
-     *
-     * @param colName
-     * @param table Iceberg table.
-     * @return Optional Column statistic for the given column.
-     */
-    public static Optional<ColumnStatistic> getIcebergColumnStats(String colName, org.apache.iceberg.Table table) {
-        TableScan tableScan = table.newScan().includeColumnStats();
-        double totalDataSize = 0;
-        double totalDataCount = 0;
-        double totalNumNull = 0;
-        try (CloseableIterable<FileScanTask> fileScanTasks = tableScan.planFiles()) {
-            for (FileScanTask task : fileScanTasks) {
-                int colId = getColId(task.spec(), colName);
-                totalDataSize += task.file().columnSizes().get(colId);
-                totalDataCount += task.file().recordCount();
-                totalNumNull += task.file().nullValueCounts().get(colId);
-            }
-        } catch (IOException e) {
-            LOG.warn("Error to close FileScanTask.", e);
-        }
-        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(totalDataCount);
-        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
-        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
-        columnStatisticBuilder.setDataSize(totalDataSize);
-        columnStatisticBuilder.setAvgSizeByte(0);
-        columnStatisticBuilder.setNumNulls(totalNumNull);
-        if (columnStatisticBuilder.getCount() > 0) {
-            columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()
-                    / columnStatisticBuilder.getCount());
-        }
-        return Optional.of(columnStatisticBuilder.build());
-    }
-
-    private static int getColId(PartitionSpec partitionSpec, String colName) {
-        int colId = -1;
-        for (Types.NestedField column : partitionSpec.schema().columns()) {
-            if (column.name().equals(colName)) {
-                colId = column.fieldId();
-                break;
-            }
-        }
-        if (colId == -1) {
-            throw new RuntimeException(String.format("Column %s not exist.", colName));
-        }
-        return colId;
     }
 
     public static boolean isUnsupportedType(Type type) {
@@ -775,21 +537,8 @@ public class StatisticsUtil {
         return !KeysType.UNIQUE_KEYS.equals(keysType) || olapTable.isUniqKeyMergeOnWrite() || c.isKey();
     }
 
-    public static void sleep(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException ignore) {
-            // IGNORE
-        }
-    }
-
     public static String quote(String str) {
         return "'" + str + "'";
-    }
-
-    public static boolean isMaster(Frontend frontend) {
-        InetSocketAddress socketAddress = new InetSocketAddress(frontend.getHost(), frontend.getEditLogPort());
-        return Env.getCurrentEnv().getHaProtocol().getLeader().equals(socketAddress);
     }
 
     public static String escapeSQL(String str) {
@@ -805,28 +554,6 @@ public class StatisticsUtil {
             return null;
         }
         return str.replace("`", "``");
-    }
-
-    public static boolean isExternalTable(String catalogName, String dbName, String tblName) {
-        TableIf table;
-        try {
-            table = StatisticsUtil.findTable(catalogName, dbName, tblName);
-        } catch (Throwable e) {
-            LOG.warn(e.getMessage());
-            return false;
-        }
-        return table instanceof ExternalTable;
-    }
-
-    public static boolean isExternalTable(long catalogId, long dbId, long tblId) {
-        TableIf table;
-        try {
-            table = findTable(catalogId, dbId, tblId);
-        } catch (Throwable e) {
-            LOG.warn(e.getMessage());
-            return false;
-        }
-        return table instanceof ExternalTable;
     }
 
     public static boolean inAnalyzeTime(LocalTime now) {
@@ -948,16 +675,6 @@ public class StatisticsUtil {
         return GlobalVariable.partitionAnalyzeBatchSize;
     }
 
-    public static long getHugeTableAutoAnalyzeIntervalInMillis() {
-        try {
-            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)
-                    .hugeTableAutoAnalyzeIntervalInMillis;
-        } catch (Exception e) {
-            LOG.warn("Failed to get value of huge_table_auto_analyze_interval_in_millis, return default", e);
-        }
-        return StatisticConstants.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS;
-    }
-
     public static long getExternalTableAutoAnalyzeIntervalInMillis() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)
@@ -1014,21 +731,6 @@ public class StatisticsUtil {
             LOG.warn("Fail to get value of partition_sample_row_count, return default", e);
         }
         return StatisticConstants.PARTITION_SAMPLE_ROW_COUNT;
-    }
-
-    public static String encodeValue(ResultRow row, int index) {
-        if (row == null || row.getValues().size() <= index) {
-            return "NULL";
-        }
-        return encodeString(row.get(index));
-    }
-
-    public static String encodeString(String value) {
-        if (value == null) {
-            return "NULL";
-        } else {
-            return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
-        }
     }
 
     /**
@@ -1162,21 +864,18 @@ public class StatisticsUtil {
             return true;
         }
 
-        // Support Iceberg table
-        if (table instanceof IcebergExternalTable) {
+        // Support flipped plugin-driven external tables whose connector declares column auto-analyze
+        // (post-cutover iceberg/paimon). Additive to the legacy arms above so pre-cutover behavior is
+        // unchanged; the capability replaces the legacy iceberg-class discrimination once flipped.
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).supportsColumnAutoAnalyze()) {
             return true;
         }
 
-        // Support HMS table (only HIVE and ICEBERG types)
-        if (table instanceof HMSExternalTable) {
-            HMSExternalTable hmsTable = (HMSExternalTable) table;
-            DLAType dlaType = hmsTable.getDlaType();
-            return dlaType.equals(DLAType.HIVE) || dlaType.equals(DLAType.ICEBERG);
-        }
         return false;
     }
 
-    public static boolean needAnalyzePartition(OlapTable table, TableStatsMeta tableStatsStatus,
+    private static boolean needAnalyzePartition(OlapTable table, TableStatsMeta tableStatsStatus,
                                                ColStatsMeta columnStatsMeta) {
         if (!StatisticsUtil.enablePartitionAnalyze() || !table.isPartitionedTable()) {
             return false;
@@ -1284,33 +983,45 @@ public class StatisticsUtil {
 
     /**
      * Get the map of column literal value and its row count percentage in the table.
-     * The stringValues is like:
-     * value1 :percent1 ;value2 :percent2 ;value3 :percent3
+     * Returns top hot values from statistics without threshold filtering. Each rule that uses
+     * hot values can apply its own skew threshold (e.g. 5% for shuffle key prune).
+     * The stringValues is like: value1 :percent1 ;value2 :percent2 ;value3 :percent3
+     * @param stringValues null = not collected; "" = collected but no hot values;
+     *                     "v1:0.1;v2:0.2" = collected with values
      * @return Map of LiteralExpr -> percentage.
      */
-    public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type, double avgOccurrences) {
+    public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type) {
+        // not collect hot value
         if (stringValues == null || "null".equalsIgnoreCase(stringValues)) {
             return null;
         }
+        // no hot value
+        if (stringValues.isEmpty()) {
+            return Maps.newLinkedHashMap();
+        }
         try {
             LinkedHashMap<Literal, Float> ret = Maps.newLinkedHashMap();
+            int maxCount = SessionVariable.getHotValueCollectCount();
+            if (maxCount <= 0) {
+                maxCount = 10;
+            }
             for (String oneRow : stringValues.split(" ;")) {
+                if (ret.size() >= maxCount) {
+                    break;
+                }
                 String[] oneRowSplit = oneRow.split(" :");
                 float value = Float.parseFloat(oneRowSplit[1]);
-                if (value >= avgOccurrences * SessionVariable.getSkewValueThreshold()
-                        || value >= SessionVariable.getHotValueThreshold()) {
-                    org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral =
-                            new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
-                                    oneRowSplit[0].replaceAll("\\\\:", ":")
-                                            .replaceAll("\\\\;", ";"));
-                    DataType dataType = DataType.legacyTypeToNereidsType().get(type.getPrimitiveType());
-                    if (dataType != null) {
-                        try {
-                            Literal hotValue = (Literal) stringLiteral.checkedCastTo(dataType);
-                            ret.put(hotValue, value);
-                        } catch (Exception e) {
-                            LOG.info("Failed to parse hot value [{}]. {}", oneRowSplit[0], e.getMessage());
-                        }
+                org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral =
+                        new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
+                                oneRowSplit[0].replaceAll("\\\\:", ":")
+                                        .replaceAll("\\\\;", ";"));
+                DataType dataType = DataType.legacyTypeToNereidsType().get(type.getPrimitiveType());
+                if (dataType != null) {
+                    try {
+                        Literal hotValue = (Literal) stringLiteral.checkedCastTo(dataType);
+                        ret.put(hotValue, value);
+                    } catch (Exception e) {
+                        LOG.info("Failed to parse hot value [{}]. {}", oneRowSplit[0], e.getMessage());
                     }
                 }
             }
@@ -1321,5 +1032,65 @@ public class StatisticsUtil {
             LOG.info("Failed to parse hot values [{}]. {}", stringValues, e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Filter hot values by minimum ratio. Rules can use this to apply their own skew threshold.
+     * @return Filtered map or null if empty.
+     */
+    public static Map<Literal, Float> getHotValuesAboveThreshold(Map<Literal, Float> hotValues, double minRatio) {
+        if (hotValues == null || hotValues.isEmpty()) {
+            return null;
+        }
+        Map<Literal, Float> filtered = Maps.newLinkedHashMap();
+        for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
+            if (entry.getValue() >= minRatio) {
+                filtered.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return filtered.isEmpty() ? null : filtered;
+    }
+
+    /**
+     * Filter hot values by original threshold: ratio >= hotValueThreshold (10%) OR
+     * ratio * ndv >= skewValueThreshold (10x average).
+     * Used by ChildrenPropertiesRegulator, SkewJoin and other non-shuffle-prune rules.
+     */
+    public static Map<Literal, Float> getHotValuesWithOriginalThreshold(Map<Literal, Float> hotValues, double ndv) {
+        if (hotValues == null || hotValues.isEmpty()) {
+            return null;
+        }
+        double hotValueThreshold = SessionVariable.getHotValueThreshold();
+        double skewValueThreshold = SessionVariable.getSkewValueThreshold();
+        Map<Literal, Float> filtered = Maps.newLinkedHashMap();
+        for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
+            float ratio = entry.getValue();
+            if (ratio >= hotValueThreshold
+                    || ratio * ndv >= skewValueThreshold) {
+                filtered.put(entry.getKey(), ratio);
+            }
+        }
+        return filtered.isEmpty() ? null : filtered;
+    }
+
+    /**
+     * Check if column has significant hot values (any value with ratio >= minRatio).
+     * Used by shuffle key prune and skew detection rules.
+     * Returns false when hotValues is null (not collected) or empty (collected but no hot values).
+     */
+    public static boolean hasSignificantHotValues(ColumnStatistic columnStatistic, double minRatio, double rowCount) {
+        Map<Literal, Float> hotValues = columnStatistic.getHotValues();
+        if (hotValues == null) {
+            return true;
+        }
+        return columnStatistic.numNulls / rowCount > minRatio
+                || hotValues.values().stream().anyMatch(ratio -> ratio >= minRatio);
+    }
+
+    public static boolean isBalanced(ColumnStatistic columnStatistic, int instanceNum, double minRatio,
+            double rowCount) {
+        double ndv = columnStatistic.ndv;
+        return ndv > instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER
+                && !hasSignificantHotValues(columnStatistic, minRatio, rowCount);
     }
 }

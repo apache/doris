@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("upper_case_column_name", "p2,external,hive,external_remote,external_remote_hive") {
+suite("upper_case_column_name", "p2,external") {
 
     Boolean ignoreP2 = true;
     if (ignoreP2) {

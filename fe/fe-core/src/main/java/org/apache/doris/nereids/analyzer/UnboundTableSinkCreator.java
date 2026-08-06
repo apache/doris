@@ -17,13 +17,15 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -57,10 +59,26 @@ public class UnboundTableSinkCreator {
         CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (curCatalog instanceof InternalCatalog) {
             return new UnboundTableSink<>(nameParts, colNames, hints, partitions, query);
-        } else if (curCatalog instanceof HMSExternalCatalog) {
-            return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions, query);
-        } else if (curCatalog instanceof IcebergExternalCatalog) {
-            return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions, query);
+        } else if (curCatalog instanceof PluginDrivenExternalCatalog) {
+            // #66112: this overload is the CTAS seam -- CreateTableCommand calls it BEFORE publishing the
+            // table metadata precisely so an unsupported destination is rejected while nothing has been
+            // created yet. A connector that declares no INSERT is such a destination, and the generic
+            // plugin sink cannot tell on its own (every PluginDrivenExternalCatalog builds the same
+            // UnboundConnectorTableSink), so the refusal that PhysicalPlanTranslator would otherwise raise
+            // at translation time -- long after the remote table exists -- is raised here instead. Without
+            // it, CTAS falls back to dropping the just-created table BY NAME, which cannot tell this
+            // statement's table from a concurrent creator's table of the same name.
+            // The connector-level (table-free) provider is the only one available here: the CTAS target
+            // does not exist yet, so there is no handle to ask the per-table overload with. A
+            // heterogeneous gateway still answers it (its connector-level provider is non-null), so this
+            // only rejects connectors with no write path at all (paimon / es / hudi / trino).
+            ConnectorWritePlanProvider writeProvider =
+                    ((PluginDrivenExternalCatalog) curCatalog).getConnector().getWritePlanProvider();
+            if (writeProvider == null || !writeProvider.supportedOperations().contains(WriteOperation.INSERT)) {
+                throw new UserException("Connector '" + curCatalog.getName() + "' (type: "
+                        + curCatalog.getType() + ") does not support INSERT operations");
+            }
+            return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions, query);
         }
         throw new UserException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
     }
@@ -77,7 +95,7 @@ public class UnboundTableSinkCreator {
     }
 
     /**
-     * create unbound sink for DML plan with static partition support for Iceberg.
+     * create unbound sink for DML plan with static partition support for Iceberg / Hive / MaxCompute.
      */
     public static LogicalSink<? extends Plan> createUnboundTableSink(List<String> nameParts,
             List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
@@ -86,27 +104,20 @@ public class UnboundTableSinkCreator {
             Map<String, Expression> staticPartitionKeyValues) {
         String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
         CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
-        if (curCatalog instanceof InternalCatalog) {
+        if (curCatalog instanceof InternalCatalog || curCatalog instanceof RemoteDorisExternalCatalog) {
             return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
                     isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
-        } else if (curCatalog instanceof HMSExternalCatalog) {
-            return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
-        } else if (curCatalog instanceof IcebergExternalCatalog) {
-            return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
+        } else if (curCatalog instanceof PluginDrivenExternalCatalog) {
+            return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
-        } else if (curCatalog instanceof JdbcExternalCatalog) {
-            return new UnboundJdbcTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
         }
         throw new RuntimeException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
     }
 
     /**
      * create unbound sink for DML plan with auto detect overwrite partition enable
-     * and static partition support for Iceberg.
-     * TODO: staticPartitionKeyValues is only used for Iceberg, support other catalog types in future.
+     * and static partition support for Iceberg / Hive / MaxCompute.
      */
     public static LogicalSink<? extends Plan> createUnboundTableSinkMaybeOverwrite(List<String> nameParts,
             List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
@@ -123,20 +134,14 @@ public class UnboundTableSinkCreator {
 
         String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
         CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
-        if (curCatalog instanceof InternalCatalog) {
+        if (curCatalog instanceof InternalCatalog || curCatalog instanceof RemoteDorisExternalCatalog) {
             return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
                     isAutoDetectPartition,
                     isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
-        } else if (curCatalog instanceof HMSExternalCatalog && !isAutoDetectPartition) {
-            return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
-        } else if (curCatalog instanceof IcebergExternalCatalog && !isAutoDetectPartition) {
-            return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
+        } else if (curCatalog instanceof PluginDrivenExternalCatalog && !isAutoDetectPartition) {
+            return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
-        } else if (curCatalog instanceof JdbcExternalCatalog) {
-            return new UnboundJdbcTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
         }
 
         throw new AnalysisException(
@@ -149,8 +154,8 @@ public class UnboundTableSinkCreator {
     /**
      * create unbound sink for dictionary sink
      */
-    public static UnboundDictionarySink<? extends Plan> createUnboundDictionarySink(Dictionary dictionary,
-            LogicalPlan child, boolean adaptiveLoad) {
-        return new UnboundDictionarySink<>(dictionary, child, adaptiveLoad);
+    public static UnboundDictionarySink<? extends Plan> createUnboundDictionarySink(Database database,
+            Dictionary dictionary, LogicalPlan child, boolean adaptiveLoad) {
+        return new UnboundDictionarySink<>(database, dictionary, child, adaptiveLoad);
     }
 }

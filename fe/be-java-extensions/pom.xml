@@ -24,16 +24,17 @@ under the License.
         <module>iceberg-metadata-scanner</module>
         <module>hadoop-hudi-scanner</module>
         <module>java-common</module>
+        <module>hive-udf-shade</module>
         <module>java-udf</module>
         <module>jdbc-scanner</module>
         <module>paimon-scanner</module>
-        <module>max-compute-scanner</module>
-        <module>avro-scanner</module>
+        <module>max-compute-connector</module>
         <!-- lakesoul-scanner module has been deprecated -->
         <!-- <module>lakesoul-scanner</module> -->
         <module>preload-extensions</module>
         <module>trino-connector-scanner</module>
         <module>hadoop-deps</module>
+        <module>java-writer</module>
     </modules>
 
     <parent>

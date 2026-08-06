@@ -91,6 +91,7 @@ int main(int argc, char** argv) {
 
     config::label_keep_max_second = 0;
     config::force_immediate_recycle = true;
+    config::log_immediate_flush = true;
 
     if (!doris::cloud::init_glog("txn_lazy_commit_test")) {
         std::cerr << "failed to init glog" << std::endl;
@@ -112,7 +113,10 @@ int main(int argc, char** argv) {
             RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
                                     std::move(group_recycle_function_pool));
 
-    return RUN_ALL_TESTS();
+    int ret = RUN_ALL_TESTS();
+    thread_group = RecyclerThreadPoolGroup();
+    txn_kv.reset();
+    return ret;
 }
 namespace doris::cloud {
 
@@ -418,6 +422,20 @@ static void create_and_refresh_instance(
     ASSERT_TRUE(service->resource_mgr()->is_version_write_enabled(instance_id));
 }
 
+static void get_table_version(MetaServiceProxy* meta_service, int64_t db_id, int64_t table_id,
+                              int64_t& version) {
+    brpc::Controller ctrl;
+    GetVersionRequest req;
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_is_table_version(true);
+    GetVersionResponse resp;
+    meta_service->get_version(&ctrl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+            << ", get table version res=" << resp.ShortDebugString();
+    version = resp.version();
+}
+
 TEST(TxnLazyCommitTest, CreateTabletWithDbIdTest) {
     auto txn_kv = get_mem_txn_kv();
     auto meta_service = get_meta_service(txn_kv, true);
@@ -568,6 +586,11 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithoutDbIdTest) {
         commit_txn_eventually_finish_hit = true;
     });
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     brpc::Controller cntl;
@@ -626,6 +649,12 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithoutDbIdTest) {
         ASSERT_GE(repair_tablet_idx_count, 0);
         ASSERT_TRUE(last_pending_txn_id_hit);
         ASSERT_TRUE(commit_txn_eventually_finish_hit);
+
+        ASSERT_EQ(res.table_stats().size(), 1);
+        int64_t table_version = 0;
+        get_table_version(meta_service.get(), db_id, table_id, table_version);
+        ASSERT_EQ(table_version, 1);
+        ASSERT_EQ(res.table_stats()[0].table_version(), table_version);
     }
 
     {
@@ -639,10 +668,6 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithoutDbIdTest) {
             check_rowset_meta_exist(txn, tablet_id, 2);
         }
     }
-
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
 }
 
 TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortedTest) {
@@ -762,6 +787,11 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithDbIdTest) {
         commit_txn_eventually_finish_hit = true;
     });
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     brpc::Controller cntl;
@@ -820,10 +850,6 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithDbIdTest) {
             check_rowset_meta_exist(txn, tablet_id, 2);
         }
     }
-
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
 }
 
 TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
@@ -855,6 +881,11 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
         commit_txn_eventually_finish_hit = true;
     });
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, false);
     std::string instance_id = "test_instance";
@@ -917,6 +948,11 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
         ASSERT_GE(repair_tablet_idx_count, 0);
         ASSERT_TRUE(last_pending_txn_id_hit);
         ASSERT_TRUE(commit_txn_eventually_finish_hit);
+
+        ASSERT_EQ(res.table_stats().size(), 1);
+        int64_t table_version = 0;
+        get_table_version(meta_service.get(), db_id, table_id, table_version);
+        ASSERT_EQ(res.table_stats()[0].table_version(), table_version);
     }
 
     {
@@ -954,10 +990,6 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
                 << " status is " << resp.status().DebugString();
         ASSERT_GT(resp.version(), 1);
     }
-
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
 }
 
 TEST(TxnLazyCommitVersionedReadTest, DISABLED_CommitTxnEventuallyWithoutDbIdTest) {
@@ -994,6 +1026,11 @@ TEST(TxnLazyCommitVersionedReadTest, DISABLED_CommitTxnEventuallyWithoutDbIdTest
         commit_txn_eventually_finish_hit = true;
     });
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, false);
     std::string instance_id = "test_instance";
@@ -1089,10 +1126,6 @@ TEST(TxnLazyCommitVersionedReadTest, DISABLED_CommitTxnEventuallyWithoutDbIdTest
             }
         }
     }
-
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
 }
 
 TEST(TxnLazyCommitTest, CommitTxnImmediatelyTest) {
@@ -1111,6 +1144,11 @@ TEST(TxnLazyCommitTest, CommitTxnImmediatelyTest) {
         commit_txn_immediatelly_hit = true;
     });
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     brpc::Controller cntl;
@@ -1154,6 +1192,10 @@ TEST(TxnLazyCommitTest, CommitTxnImmediatelyTest) {
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         ASSERT_TRUE(commit_txn_immediatelly_hit);
+        ASSERT_TRUE(res.has_is_lazy_commit());
+        ASSERT_FALSE(res.is_lazy_commit());
+        ASSERT_FALSE(res.has_is_lazy_commit_incomplete());
+        ASSERT_FALSE(res.is_lazy_commit_incomplete());
     }
 
     {
@@ -1167,10 +1209,83 @@ TEST(TxnLazyCommitTest, CommitTxnImmediatelyTest) {
             check_rowset_meta_exist(txn, tablet_id, 2);
         }
     }
+}
 
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
+TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
+    auto txn_kv = get_mem_txn_kv();
+
+    int64_t db_id = 67935421;
+    int64_t table_id = 97432015;
+    int64_t index_id = 468213;
+    int64_t partition_id = 753129;
+    int64_t tablet_id = 86421357;
+    std::string label = "test_failed_lazy_commit_task";
+
+    auto meta_service = get_meta_service(txn_kv, true);
+    brpc::Controller cntl;
+    BeginTxnRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    TxnInfoPB txn_info_pb;
+    txn_info_pb.set_db_id(db_id);
+    txn_info_pb.set_label(label);
+    txn_info_pb.add_table_ids(table_id);
+    txn_info_pb.set_timeout_ms(36000);
+    req.mutable_txn_info()->CopyFrom(txn_info_pb);
+    BeginTxnResponse res;
+    meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                            nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    int64_t txn_id = res.txn_id();
+
+    create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
+                             tablet_id);
+    auto tmp_rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+    CreateRowsetResponse rowset_res;
+    prepare_rowset(meta_service.get(), tmp_rowset, rowset_res);
+    ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+    commit_rowset(meta_service.get(), tmp_rowset, rowset_res);
+    ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+
+    int32_t original_fuzzy_possibility = config::cloud_txn_lazy_commit_fuzzy_possibility;
+    config::cloud_txn_lazy_commit_fuzzy_possibility = 100;
+    std::atomic_bool failure_injected = false;
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("convert_tmp_rowsets::before_commit", [&](auto&& args) {
+        auto* code = try_any_cast<MetaServiceCode*>(args[0]);
+        *code = MetaServiceCode::UNDEFINED_ERR;
+        auto* pred = try_any_cast<bool*>(args.back());
+        *pred = true;
+        failure_injected = true;
+    });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        config::cloud_txn_lazy_commit_fuzzy_possibility = original_fuzzy_possibility;
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+
+    CommitTxnRequest commit_req;
+    commit_req.set_cloud_unique_id("test_cloud_unique_id");
+    commit_req.set_db_id(db_id);
+    commit_req.set_txn_id(txn_id);
+    commit_req.set_is_2pc(false);
+    commit_req.set_enable_txn_lazy_commit(true);
+    CommitTxnResponse commit_res;
+    meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                             &commit_req, &commit_res, nullptr);
+    ASSERT_EQ(commit_res.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(failure_injected.load());
+    ASSERT_TRUE(commit_res.has_is_lazy_commit());
+    ASSERT_TRUE(commit_res.is_lazy_commit());
+    ASSERT_TRUE(commit_res.has_is_lazy_commit_incomplete());
+    ASSERT_TRUE(commit_res.is_lazy_commit_incomplete());
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    check_txn_committed(txn, db_id, txn_id, label);
+    check_tmp_rowset_exist(txn, tablet_id, txn_id);
+    check_rowset_meta_not_exist(txn, tablet_id, 2);
 }
 
 TEST(TxnLazyCommitTest, NotFallThroughCommitTxnEventuallyTest) {
@@ -1201,6 +1316,11 @@ TEST(TxnLazyCommitTest, NotFallThroughCommitTxnEventuallyTest) {
         commit_txn_eventually_finish_hit = true;
     });
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     brpc::Controller cntl;
@@ -1256,10 +1376,6 @@ TEST(TxnLazyCommitTest, NotFallThroughCommitTxnEventuallyTest) {
             check_rowset_meta_not_exist(txn, tablet_id, 2);
         }
     }
-
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
 }
 
 TEST(TxnLazyCommitTest, FallThroughCommitTxnEventuallyTest) {
@@ -1291,6 +1407,11 @@ TEST(TxnLazyCommitTest, FallThroughCommitTxnEventuallyTest) {
         commit_txn_eventually_finish_hit = true;
     });
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     brpc::Controller cntl;
@@ -1349,10 +1470,6 @@ TEST(TxnLazyCommitTest, FallThroughCommitTxnEventuallyTest) {
             check_rowset_meta_exist(txn, tablet_id, 2);
         }
     }
-
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
 }
 
 TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
@@ -1438,6 +1555,11 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
     });
 
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
@@ -1448,6 +1570,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
     }
 
     int64_t txn_id1 = 0;
+    int64_t txn1_table_version = 0;
     std::thread thread1([&] {
         {
             std::unique_lock<std::mutex> _lock(go_mutex);
@@ -1494,10 +1617,14 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+            ASSERT_EQ(res.table_stats().size(), 1);
+            txn1_table_version = res.table_stats()[0].table_version();
         }
     });
 
     int64_t txn_id2 = 0;
+    int64_t txn2_table_version = 0;
     std::thread thread2([&] {
         {
             std::unique_lock<std::mutex> _lock(go_mutex);
@@ -1544,6 +1671,9 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+            ASSERT_EQ(res.table_stats().size(), 1);
+            txn2_table_version = res.table_stats()[0].table_version();
         }
     });
 
@@ -1555,9 +1685,11 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
     thread1.join();
     thread2.join();
 
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
+    ASSERT_TRUE(txn1_table_version == 1 && txn2_table_version == 2 ||
+                txn1_table_version == 2 && txn2_table_version == 1)
+            << ", txn1_table_version=" << txn1_table_version
+            << ", txn2_table_version=" << txn2_table_version;
+
     ASSERT_EQ(commit_txn_eventually_begin_count, 3);
     ASSERT_EQ(last_pending_txn_id_count, 1);
     ASSERT_EQ(finish_count, 2);
@@ -1682,6 +1814,11 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase2Test) {
     });
 
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
@@ -1799,9 +1936,6 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase2Test) {
     thread1.join();
     thread2.join();
 
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
     ASSERT_EQ(commit_txn_immediately_begin_count, 2);
     ASSERT_EQ(last_pending_txn_id_count, 1);
     ASSERT_EQ(immediately_finish_count, 1);
@@ -1963,6 +2097,11 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase3Test) {
     });
 
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     int64_t txn_id1 = 0;
     std::thread thread1([&] {
@@ -2050,10 +2189,6 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase3Test) {
     thread1.join();
     thread2.join();
 
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
-
     ASSERT_EQ(get_rowset_begin_count, 2);
     ASSERT_EQ(last_pending_txn_id_count, 1);
     ASSERT_EQ(txn_lazy_committer_submit_count, 1);
@@ -2114,6 +2249,11 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase4Test) {
     });
 
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
@@ -2165,6 +2305,10 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase4Test) {
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_TRUE(res.has_is_lazy_commit());
+            ASSERT_TRUE(res.is_lazy_commit());
+            ASSERT_TRUE(res.has_is_lazy_commit_incomplete());
+            ASSERT_TRUE(res.is_lazy_commit_incomplete());
         }
     }
 
@@ -2188,9 +2332,6 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase4Test) {
         check_txn_not_exist(txn, db_id, txn_id, label);
     }
 
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
     ASSERT_TRUE(commit_txn_eventullay_hit);
     ASSERT_TRUE(abort_timeout_txn_hit);
     ASSERT_EQ(txn_id, txn_info_pb.txn_id());
@@ -2289,6 +2430,11 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
     });
 
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
@@ -2457,9 +2603,6 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
     thread1.join();
     thread2.join();
 
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
     ASSERT_EQ(commit_txn_immediately_begin_count, 2);
     ASSERT_EQ(last_pending_txn_id_count, 1);
     ASSERT_EQ(immediately_finish_count, 1);
@@ -2546,6 +2689,11 @@ TEST(TxnLazyCommitTest, RowsetMetaSizeExceedTest) {
     });
 
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
     {
         brpc::Controller cntl;
         GetRowsetRequest req;
@@ -2645,6 +2793,11 @@ TEST(TxnLazyCommitTest, RecyclePartitions) {
     });
 
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
@@ -2734,10 +2887,6 @@ TEST(TxnLazyCommitTest, RecyclePartitions) {
     }
 
     ASSERT_EQ(recycler.recycle_partitions(), 0);
-
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
 }
 
 TEST(TxnLazyCommitTest, RecycleIndexes) {
@@ -2793,6 +2942,11 @@ TEST(TxnLazyCommitTest, RecycleIndexes) {
     });
 
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
@@ -2880,10 +3034,6 @@ TEST(TxnLazyCommitTest, RecycleIndexes) {
     }
 
     ASSERT_EQ(recycler.recycle_indexes(), 0);
-
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
 }
 
 TEST(TxnLazyCommitTest, CommitTxnEventuallyWithMultiTableTest) {
@@ -2905,6 +3055,11 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithMultiTableTest) {
         commit_txn_eventually_finish_hit = true;
     });
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     brpc::Controller cntl;
@@ -2973,10 +3128,6 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithMultiTableTest) {
             check_rowset_meta_exist(txn, tablet_id, 2);
         }
     }
-
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
 }
 
 TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
@@ -3007,6 +3158,11 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
     });
 
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     brpc::Controller cntl;
@@ -3075,10 +3231,6 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
             check_rowset_meta_exist(txn, tablet_id, 2);
         }
     }
-
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
 }
 
 TEST(TxnLazyCommitTest, CommitTxnEventuallyWithSchemaChangeTest) {
@@ -3149,6 +3301,11 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithSchemaChangeTest) {
     });
 
     sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
 
     auto meta_service = get_meta_service(txn_kv, true);
     brpc::Controller cntl;
@@ -3253,9 +3410,6 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithSchemaChangeTest) {
             check_rowset_meta_exist(txn, tablet_id, 2);
         }
     }
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
 }
 
 TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
@@ -3282,7 +3436,9 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
     int64_t txn_id = res.txn_id();
     auto sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
-        SyncPoint::get_instance()->clear_all_call_backs();
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
     };
     sp->enable_processing();
     sp->set_call_back("commit_txn_eventually::abort_txn_after_mark_txn_commited", [&](auto&&) {
@@ -3333,6 +3489,32 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_is_lazy_commit());
+        ASSERT_TRUE(res.is_lazy_commit());
+        ASSERT_TRUE(res.has_is_lazy_commit_incomplete());
+        ASSERT_FALSE(res.is_lazy_commit_incomplete());
+    }
+
+    {
+        brpc::Controller cntl;
+        CommitTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_txn_id(txn_id);
+        req.set_is_2pc(false);
+        req.set_enable_txn_lazy_commit(true);
+        for (int i = 0; i < 2001; ++i) {
+            int64_t tablet_id = tablet_id_base + i;
+            req.add_base_tablet_ids(tablet_id);
+        }
+        CommitTxnResponse res;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_is_lazy_commit());
+        ASSERT_FALSE(res.is_lazy_commit());
+        ASSERT_FALSE(res.has_is_lazy_commit_incomplete());
+        ASSERT_FALSE(res.is_lazy_commit_incomplete());
     }
 
     {
@@ -3357,6 +3539,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithManyPartitions) {
     auto sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
+        sp->clear_trace();
         sp->disable_processing();
     };
     sp->set_call_back("commit_txn_eventually::task->wait", [&](auto&& args) {

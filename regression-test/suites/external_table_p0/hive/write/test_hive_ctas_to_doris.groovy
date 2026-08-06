@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_ctas_to_doris", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_ctas_to_doris", "p0,external") {
 
     for (String hivePrefix : ["hive2"]) {
 
@@ -37,6 +37,8 @@ suite("test_hive_ctas_to_doris", "p0,external,hive,external_docker,external_dock
             String hive_tb = "tb_test_hive_ctas_to_doris"
             String db_name = "db_test_hive_ctas_to_doris"
 
+            sql "set enable_strict_cast = true;"
+
             // create hive table
             sql """drop catalog if exists ${catalog}"""
             sql """create catalog if not exists ${catalog} properties (
@@ -52,6 +54,7 @@ suite("test_hive_ctas_to_doris", "p0,external,hive,external_docker,external_dock
             qt_q01 """ select length(str1),length(str2) ,length(str3) from ${catalog}.${db_name}.${hive_tb} """
             qt_q02 """ desc ${catalog}.${db_name}.${hive_tb} """
 
+            sql """ drop database if exists internal.${db_name} """
             sql """ create database if not exists internal.${db_name} """
 
             // ctas for partition
@@ -76,6 +79,7 @@ suite("test_hive_ctas_to_doris", "p0,external,hive,external_docker,external_dock
                 sql """ create table internal.${db_name}.${hive_tb}_4 (id,str2,str3,str1) auto partition by list (str1)() properties("replication_num" = "1") as select id, str1, str2, str3 from ${catalog}.${db_name}.${hive_tb} """
                 assertTrue(false)
             } catch (Exception ex) {
+                ex.printStackTrace();
                 assertTrue(ex.getMessage().contains("Insert has filtered data in strict mode"))
             }
 
@@ -89,6 +93,7 @@ suite("test_hive_ctas_to_doris", "p0,external,hive,external_docker,external_dock
                 sql """ create table internal.${db_name}.${hive_tb}_6 (id,str1,str2,str3) DISTRIBUTED BY HASH(`str1`) BUCKETS 1 properties("replication_num" = "1") as select id, str1, str2, str3 from ${catalog}.${db_name}.${hive_tb} """
                 assertTrue(false)
             } catch (Exception ex) {
+                ex.printStackTrace();
                 assertTrue(ex.getMessage().contains("Insert has filtered data in strict mode"))
             }
 

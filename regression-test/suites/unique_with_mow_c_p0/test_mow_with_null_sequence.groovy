@@ -26,7 +26,7 @@ suite("test_mow_with_null_sequence") {
                     `c_date` date NULL COMMENT ""
             )
             UNIQUE KEY (`c_custkey`)
-            CLUSTER BY(`c_name`, `c_date`)
+            ORDER BY(`c_name`, `c_date`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 10
             PROPERTIES (
                     "function_column.sequence_col" = 'c_date',
@@ -59,7 +59,7 @@ suite("test_mow_with_null_sequence") {
                     `c_int` int NULL COMMENT ""
             )
             UNIQUE KEY (`c_custkey`)
-            CLUSTER BY(`c_int`, `c_name`)
+            ORDER BY(`c_int`, `c_name`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 10
             PROPERTIES (
                     "function_column.sequence_col" = 'c_int',

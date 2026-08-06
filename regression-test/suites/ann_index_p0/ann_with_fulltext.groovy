@@ -18,8 +18,8 @@
 suite("ann_with_fulltext") {
     sql "drop table if exists ann_with_fulltext"
     sql "set profile_level=2;"
-    sql "set enable_common_expr_pushdown=true;"
-    
+    sql "set enable_segment_limit_pushdown=true;"
+
     sql """
         create table ann_with_fulltext (
             id int not null,
@@ -28,7 +28,7 @@ suite("ann_with_fulltext") {
             value int null,
             INDEX idx_comment(`comment`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'inverted index for comment',
             INDEX ann_embedding(`embedding`) USING ANN PROPERTIES("index_type"="hnsw","metric_type"="l2_distance","dim"="8")
-        ) duplicate key (`id`) 
+        ) duplicate key (`id`)
         distributed by hash(`id`) buckets 1
         properties("replication_num"="1");
     """

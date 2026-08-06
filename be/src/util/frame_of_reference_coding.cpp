@@ -27,12 +27,11 @@
 #include <limits>
 
 #include "common/cast_set.h"
+#include "exec/common/endian.h"
 #include "util/bit_util.h"
 #include "util/coding.h"
-#include "vec/common/endian.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename T>
 const T* ForEncoder<T>::copy_value(const T* p_data, size_t count) {
@@ -777,5 +776,4 @@ template class ForDecoder<uint32_t>;
 template class ForDecoder<uint64_t>;
 template class ForDecoder<uint24_t>;
 template class ForDecoder<uint128_t>;
-#include "common/compile_check_end.h"
 } // namespace doris

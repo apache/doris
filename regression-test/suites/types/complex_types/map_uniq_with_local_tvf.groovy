@@ -42,8 +42,7 @@ suite("map_uniq_with_local_tvf", "p0") {
             "is_being_synced" = "false",
             "storage_format" = "V2",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false"
+            "disable_auto_compaction" = "false"
             ); """
 
     qt_sql """

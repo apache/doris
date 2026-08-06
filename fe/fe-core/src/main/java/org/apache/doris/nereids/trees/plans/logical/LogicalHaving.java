@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
@@ -72,7 +73,8 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public LogicalHaving<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalHaving<>(conjuncts, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHaving<>(conjuncts, children.get(0)));
     }
 
     @Override
@@ -82,23 +84,27 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalHaving<>(conjuncts, groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHaving<>(conjuncts, groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalHaving<>(conjuncts, groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHaving<>(conjuncts, groupExpression, logicalProperties, children.get(0)));
     }
 
     public LogicalHaving<Plan> withConjuncts(Set<Expression> conjuncts) {
-        return new LogicalHaving<>(conjuncts, Optional.empty(),
-                Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHaving<>(conjuncts, Optional.empty(),
+                Optional.of(getLogicalProperties()), child()));
     }
 
     public LogicalHaving<Plan> withConjunctsAndChild(Set<Expression> conjuncts, Plan child) {
-        return new LogicalHaving<>(conjuncts, child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHaving<>(conjuncts, child));
     }
 
     @Override

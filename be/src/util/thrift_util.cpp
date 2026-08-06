@@ -28,8 +28,8 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "exec/tablet_info.h"
-#include "olap/tablet_schema.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/tablet_info.h"
 #include "util/thrift_server.h"
 
 namespace apache::thrift::protocol {
@@ -174,6 +174,19 @@ bool _has_inverted_index_v1_or_partial_update(TOlapTableSink sink) {
                     return false;
                 }
             }
+        }
+    }
+    return false;
+}
+
+bool _has_row_binlog(const TOlapTableSink& sink) {
+    OlapTableSchemaParam schema;
+    if (!schema.init(sink.schema).ok()) {
+        return false;
+    }
+    for (const auto* index_schema : schema.indexes()) {
+        if (index_schema->row_binlog_id > 0) {
+            return true;
         }
     }
     return false;

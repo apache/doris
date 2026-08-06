@@ -19,16 +19,13 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -53,39 +50,25 @@ public class Random extends UniqueFunction
      * constructor with 0 argument.
      */
     public Random() {
-        this(StatementScopeIdGenerator.newExprId(), false);
+        this(VolatileIdentity.newVolatileIdentity(), ImmutableList.of());
     }
 
     /**
      * constructor with 1 argument.
      */
     public Random(Expression arg) {
-        this(StatementScopeIdGenerator.newExprId(), false, arg);
+        this(VolatileIdentity.newVolatileIdentity(), ImmutableList.of(arg));
     }
 
     /**
      * constructor with 2 argument.
      */
     public Random(Expression lchild, Expression rchild) {
-        this(StatementScopeIdGenerator.newExprId(), false, lchild, rchild);
+        this(VolatileIdentity.newVolatileIdentity(), ImmutableList.of(lchild, rchild));
     }
 
-    public Random(ExprId uniqueId, boolean ignoreUniqueId) {
-        super("random", uniqueId, ignoreUniqueId);
-    }
-
-    public Random(ExprId uniqueId, boolean ignoreUniqueId, Expression arg) {
-        super("random", uniqueId, ignoreUniqueId, arg);
-        // align with original planner behavior, refer to: org/apache/doris/analysis/Expr.getBuiltinFunction()
-        Preconditions.checkState(arg instanceof Literal, "The param of rand function must be literal");
-    }
-
-    public Random(ExprId uniqueId, boolean ignoreUniqueId, Expression lchild, Expression rchild) {
-        super("random", uniqueId, ignoreUniqueId, lchild, rchild);
-    }
-
-    private Random(ExprId uniqueId, boolean ignoreUniqueId, List<Expression> children) {
-        super("random", uniqueId, ignoreUniqueId, children);
+    private Random(VolatileIdentity volatileIdentity, List<Expression> children) {
+        super("random", volatileIdentity, children);
     }
 
     /** constructor for withChildren and reuse signature */
@@ -97,7 +80,7 @@ public class Random extends UniqueFunction
     public void checkLegalityBeforeTypeCoercion() {
         // align with original planner behavior, refer to:
         // org/apache/doris/analysis/Expr.getBuiltinFunction()
-        for (Expression child : children()) {
+        for (Expression child : getArguments()) {
             if (!child.isLiteral()) {
                 throw new AnalysisException("The param of rand function must be literal ");
             }
@@ -129,7 +112,7 @@ public class Random extends UniqueFunction
 
     @Override
     public Random withIgnoreUniqueId(boolean ignoreUniqueId) {
-        return new Random(uniqueId, ignoreUniqueId, children);
+        return new Random(volatileIdentity.withIgnoreUniqueId(ignoreUniqueId), children);
     }
 
     @Override

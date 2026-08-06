@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
+import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -54,14 +55,26 @@ public class HashDistributionInfo extends DistributionInfo {
         return distributionColumns;
     }
 
-    @Override
-    public int getBucketNum() {
-        return bucketNum;
-    }
-
-    @Override
-    public void setBucketNum(int bucketNum) {
-        this.bucketNum = bucketNum;
+    public static void checkDistributionColumnType(String columnName, Type type) throws DdlException {
+        if (type.isArrayType()) {
+            throw new DdlException("Array Type should not be used in distribution column[" + columnName + "].");
+        }
+        if (type.isMapType()) {
+            throw new DdlException("Map Type should not be used in distribution column[" + columnName + "].");
+        }
+        if (type.isStructType()) {
+            throw new DdlException("Struct Type should not be used in distribution column[" + columnName + "].");
+        }
+        if (type.isJsonbType()) {
+            throw new DdlException("JsonType type should not be used in distribution column[" + columnName + "].");
+        }
+        if (type.isVariantType()) {
+            throw new DdlException("Variant type should not be used in distribution column[" + columnName + "].");
+        }
+        if (type.isFloatingPointType()) {
+            throw new DdlException("Floating point type should not be used in distribution column["
+                    + columnName + "].");
+        }
     }
 
     public boolean sameDistributionColumns(HashDistributionInfo other) {

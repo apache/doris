@@ -22,15 +22,14 @@
 
 #include <chrono>
 #include <cstdint>
-#include <ranges>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
-#include "olap/base_tablet.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/tablet_meta.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/tablet/base_tablet.h"
+#include "storage/tablet/tablet_meta.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -87,6 +86,8 @@ public:
             auto rs = create_rowset(Version {ver, ver});
             if (warmup) {
                 tablet->add_warmed_up_rowset(rs->rowset_id());
+            } else {
+                tablet->add_not_warmed_up_rowset(rs->rowset_id());
             }
             rowsets.emplace_back(rs);
         }
@@ -102,6 +103,8 @@ public:
         auto rowset = create_rowset(Version {version, version}, visible_timestamp);
         if (warmed_up) {
             tablet->add_warmed_up_rowset(rowset->rowset_id());
+        } else {
+            tablet->add_not_warmed_up_rowset(rowset->rowset_id());
         }
         std::unique_lock wlock {tablet->get_header_lock()};
         tablet->add_rowsets({rowset}, false, wlock, false);
@@ -114,12 +117,16 @@ public:
         auto output_rowset = create_rowset(Version {start_version, end_version}, visible_timestamp);
         if (warmed_up) {
             tablet->add_warmed_up_rowset(output_rowset->rowset_id());
+        } else {
+            tablet->add_not_warmed_up_rowset(output_rowset->rowset_id());
         }
-        std::ranges::copy_if(std::views::values(tablet->rowset_map()),
-                             std::back_inserter(input_rowsets), [=](const RowsetSharedPtr& rowset) {
-                                 return rowset->version().first >= start_version &&
-                                        rowset->version().first <= end_version;
-                             });
+        for (const auto& kv : tablet->rowset_map()) {
+            const auto& rowset = kv.second;
+            if (rowset->version().first >= start_version &&
+                rowset->version().first <= end_version) {
+                input_rowsets.push_back(rowset);
+            }
+        }
         if (input_rowsets.size() == 1) {
             tablet->add_rowsets({output_rowset}, true, wrlock);
         } else {

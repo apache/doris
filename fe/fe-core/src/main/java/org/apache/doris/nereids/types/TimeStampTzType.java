@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 
@@ -44,6 +45,15 @@ public class TimeStampTzType extends DateLikeType implements ScaleTimeType {
     private TimeStampTzType(int scale) {
         Preconditions.checkArgument(scale == -1 || (0 <= scale && scale <= MAX_SCALE));
         this.scale = scale;
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        if (target instanceof TimeStampTzType) {
+            TimeStampTzType timeStampTzType = (TimeStampTzType) target;
+            return timeStampTzType.getScale() >= this.scale;
+        }
+        return target instanceof CharacterType;
     }
 
     @Override

@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS web_page (
         wp_max_ad_count integer
 )
 UNIQUE KEY(wp_web_page_sk)
-CLUSTER BY(wp_web_page_id, wp_web_page_sk)
+ORDER BY(wp_web_page_id, wp_web_page_sk)
 DISTRIBUTED BY HASH(wp_web_page_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

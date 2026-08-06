@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_conflict_name", "p0,external,doris,meta_names_mapping,external_docker") {
+suite("test_conflict_name", "p0,external") {
 
     String jdbcUrl = context.config.jdbcUrl
     String jdbcUser = "test_conflict_name_user"

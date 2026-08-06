@@ -65,7 +65,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_cumu_compaction_delay_fault_injection," + // force 3 replica cause fail
     "test_full_compaction_run_status," + // unstable
     "test_routine_load_timeout_value," + // to be fix
-    "test_decimalv2_common," + // to be fix
     "test_insert_error_url," + // cause stop grace fail
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
@@ -76,7 +75,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "variant_github_events_nonConcurrent_p2," +
     "variant_github_events_new_p2," +
     "hdfs_vault_p2," +
-    "nereids_p0/hbo," +
+    "query_p0/hbo," +
     "cloud_p0/multi_cluster," +
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 

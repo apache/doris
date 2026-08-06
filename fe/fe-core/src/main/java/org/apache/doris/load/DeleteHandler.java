@@ -20,8 +20,10 @@ package org.apache.doris.load;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
@@ -110,6 +112,11 @@ public class DeleteHandler implements Writable {
         try {
             targetTbl.readLock();
             try {
+                if (targetTbl.needRowBinlog() && targetTbl.getKeysType() == KeysType.DUP_KEYS) {
+                    throw new AnalysisException(
+                            "DELETE with predicates is not supported on DUPLICATE KEY tables when binlog<row>"
+                                    + "is enabled. Please disable binlog<row> for this table or avoid DELETE.");
+                }
                 if (targetTbl.getState() != OlapTable.OlapTableState.NORMAL) {
                     // table under alter operation can also do delete.
                     // just add a comment here to notice.

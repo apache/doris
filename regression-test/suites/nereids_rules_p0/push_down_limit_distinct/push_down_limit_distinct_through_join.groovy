@@ -16,6 +16,7 @@
 // under the License.
 
 suite("push_down_limit_distinct_through_join") {
+    sql "set parallel_pipeline_task_num=2"
       multi_sql """
       SET enable_nereids_planner=true;
       SET enable_fallback_to_original_planner=false;

@@ -17,7 +17,7 @@
 
 suite("test_pythonudf_data_types") {
     // Test various data types supported by Python UDF
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     
     try {
         // Test 1: TINYINT type

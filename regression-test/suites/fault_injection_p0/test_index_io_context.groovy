@@ -76,7 +76,7 @@ suite("test_index_io_context", "nonConcurrent") {
         load_httplogs_data.call(tableName2, 'test_index_io_context2', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         try {
             GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexReader.handle_searcher_cache.io_ctx")
@@ -86,28 +86,28 @@ suite("test_index_io_context", "nonConcurrent") {
             qt_sql """ select count() from ${tableName2} where request match_any 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_any 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_any 'ticket_quest_bg2.jpg'; """
-            
+
             qt_sql """ select count() from ${tableName1} where request match_all 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName1} where request match_all 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName1} where request match_all 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_all 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_all 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_all 'ticket_quest_bg2.jpg'; """
-            
+
             qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg'; """
-           
+
             qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
             qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
             qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
-            
+
             qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg ~10'; """
             qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg ~10'; """
             qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg ~10'; """

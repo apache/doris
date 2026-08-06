@@ -79,7 +79,7 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
 
     /** getIntermediateTypes */
     public final PartialAggType getIntermediateTypes() {
-        return new PartialAggType(getArguments(), intermediateTypes());
+        return new PartialAggType(intermediateTypes());
     }
 
     public boolean isDistinct() {
@@ -146,6 +146,22 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
         int arity = arity();
         for (int i = 0; i < arity; i++) {
             sql.append(child(i).toSql());
+            if (i + 1 < arity) {
+                sql.append(", ");
+            }
+        }
+        return sql.append(")").toString();
+    }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder sql = new StringBuilder(getName()).append("(");
+        if (distinct) {
+            sql.append("DISTINCT ");
+        }
+        int arity = arity();
+        for (int i = 0; i < arity; i++) {
+            sql.append(child(i).shapeInfo());
             if (i + 1 < arity) {
                 sql.append(", ");
             }

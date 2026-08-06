@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -36,6 +38,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -127,11 +130,29 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        // Check if target table is Iceberg table and route to ExternalRowLevelDeletePlanBuilder if so
+        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
+        TableIf table = null;
+        try {
+            table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+        } catch (Exception e) {
+            // Table not found, will be handled by regular error flow
+        }
+
+        // Route row-level DML on external tables (e.g. iceberg) through the generic shell.
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(
+                    table, nameParts, tableAlias, isTempPart, partitions, logicalQuery);
+            new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).run(ctx, executor);
+            return;
+        }
+
+        // Continue with OLAP table delete logic
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         updateSessionVariableForDelete(ctx.getSessionVariable());
         StatementContext statementContext = ctx.getStatementContext();
-        // delete not prune predicate after partition prune
-        statementContext.setSkipPrunePredicate(true);
+        statementContext.setIsDelete(true);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         boolean originalIsSkipAuth = ctx.isSkipAuth();
         // delete not need select priv
@@ -149,36 +170,27 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                     .getDeleteHandler().processEmptyRelation(ctx.getState());
             return;
         }
+        OlapTable olapTable = getTargetTable(ctx);
+
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), olapTable.getDatabase().getCatalog().getName(),
+                        olapTable.getDatabase().getFullName(), olapTable.getName(), PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    olapTable.getDatabase().getFullName() + "." + Util.getTempTableDisplayName(olapTable.getName()));
+        }
+
         Optional<PhysicalFilter<?>> optFilter = (planner.getPhysicalPlan()
                 .<PhysicalFilter<?>>collect(PhysicalFilter.class::isInstance)).stream()
                 .findAny();
-        Optional<PhysicalOlapScan> optScan = (planner.getPhysicalPlan()
-                .<PhysicalOlapScan>collect(PhysicalOlapScan.class::isInstance)).stream()
-                .findAny();
-        Optional<UnboundRelation> optRelation = (logicalQuery
-                .<UnboundRelation>collect(UnboundRelation.class::isInstance)).stream()
-                .findAny();
         Preconditions.checkArgument(optFilter.isPresent(), "delete command must contain filter");
-        Preconditions.checkArgument(optScan.isPresent(), "delete command could be only used on olap table");
-        Preconditions.checkArgument(optRelation.isPresent(), "delete command could be only used on olap table");
-        PhysicalOlapScan scan = optScan.get();
-        UnboundRelation relation = optRelation.get();
         PhysicalFilter<?> filter = optFilter.get();
 
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), scan.getDatabase().getCatalog().getName(),
-                        scan.getDatabase().getFullName(),
-                        scan.getTable().getName(), PrivPredicate.LOAD)) {
-            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("LOAD",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    scan.getDatabase().getFullName() + ": " + Util.getTempTableDisplayName(scan.getTable().getName()));
-            throw new AnalysisException(message);
-        }
-
         // predicate check
-        OlapTable olapTable = scan.getTable();
         Set<String> columns = olapTable.getFullSchema().stream().map(Column::getName).collect(Collectors.toSet());
         try {
+            // treat sql as simple `delete from t where keyC = ...`
             Plan plan = planner.getPhysicalPlan();
             checkSubQuery(plan);
             for (Expression conjunct : filter.getConjuncts()) {
@@ -189,17 +201,20 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         } catch (Exception e) {
             try {
                 new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
-                        logicalQuery, Optional.empty()).run(ctx, executor);
+                        logicalQuery, Optional.empty(), false).run(ctx, executor);
                 return;
             } catch (Exception e2) {
-                throw e;
+                LOG.warn("delete from command failed", e2);
+                // Preserve both failure causes so the fallback execution error is not masked.
+                throw buildDeleteFallbackException(e, e2);
             }
         }
 
+        // if table's enable_mow_light_delete is false, use `DeleteFromUsingCommand`
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
                 && !olapTable.getEnableMowLightDelete()) {
-            new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
-                    logicalQuery, Optional.empty()).run(ctx, executor);
+            new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions, logicalQuery,
+                    Optional.empty(), false).run(ctx, executor);
             return;
         }
 
@@ -216,7 +231,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                     if (c instanceof Predicate) {
                         return (Predicate) c;
                     } else {
-                        throw new AnalysisException("non predicate in filter: " + c.toSql());
+                        throw new AnalysisException("non predicate in filter: "
+                                + c.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                     }
                 }).collect(Collectors.toList());
         if (predicates.isEmpty()) {
@@ -225,6 +241,17 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             throw new AnalysisException("delete all rows is forbidden temporary.");
         }
 
+        Optional<UnboundRelation> optRelation = (logicalQuery
+                .<UnboundRelation>collect(UnboundRelation.class::isInstance)).stream()
+                .findAny();
+        Optional<PhysicalOlapScan> optScan = (planner.getPhysicalPlan()
+                .<PhysicalOlapScan>collect(PhysicalOlapScan.class::isInstance)).stream()
+                .findAny();
+        Preconditions.checkArgument(optRelation.isPresent(), "delete command must apply to one table");
+        Preconditions.checkArgument(optScan.isPresent(), "delete command could be only used on olap table");
+        // prune partitions
+        PhysicalOlapScan scan = optScan.get();
+        UnboundRelation relation = optRelation.get();
         ArrayList<String> partitionNames = Lists.newArrayList(relation.getPartNames());
         List<Partition> selectedPartitions = getSelectedPartitions(olapTable, filter, scan, partitionNames);
 
@@ -250,6 +277,21 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         } catch (Exception e) {
             throw new AnalysisException("set session variable by delete from command failed", e);
         }
+    }
+
+    // Build an exception that keeps both the initial predicate-check failure and the fallback failure.
+    private AnalysisException buildDeleteFallbackException(Exception initialException,
+            Exception fallbackException) {
+        String initialMessage = StringUtils.defaultIfBlank(
+                initialException.getMessage(), initialException.toString());
+        String fallbackMessage = StringUtils.defaultIfBlank(
+                fallbackException.getMessage(), fallbackException.toString());
+        AnalysisException mergedException = new AnalysisException(
+                "Delete fallback execution failed: " + fallbackMessage
+                        + ". Initial predicate check failed: " + initialMessage,
+                fallbackException);
+        mergedException.addSuppressed(initialException);
+        return mergedException;
     }
 
     private List<Partition> getSelectedPartitions(
@@ -452,6 +494,14 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
+        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(
+                    table, nameParts, tableAlias, isTempPart, partitions, logicalQuery);
+            return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).getExplainPlan(ctx);
+        }
         return completeQueryPlan(ctx, logicalQuery);
     }
 
@@ -459,7 +509,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
         if (!(table instanceof OlapTable)) {
-            throw new AnalysisException("table must be olapTable in delete command");
+            throw new AnalysisException("delete command could be only used on olap table");
         }
         return ((OlapTable) table);
     }

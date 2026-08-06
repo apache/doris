@@ -67,12 +67,13 @@ public class PercentileReservoir extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!getArgument(1).isConstant()) {
+        Expression levelArgument = getArgument(1);
+        if (!levelArgument.isConstant()) {
             throw new AnalysisException(
                     "percentile_reservoir requires second parameter must be a constant : " + this.toSql());
         }
-        if (child(1) instanceof Literal) {
-            double value = ((Literal) child(1)).getDouble();
+        if (levelArgument instanceof Literal) {
+            double value = ((Literal) levelArgument).getDouble();
             if (value < 0 || value > 1) {
                 throw new AnalysisException(
                         "percentile_reservoir level must be in [0, 1], but got " + value + ": " + this.toSql());
@@ -105,5 +106,10 @@ public class PercentileReservoir extends NullableAggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(0)) : ImmutableList.of();
     }
 }

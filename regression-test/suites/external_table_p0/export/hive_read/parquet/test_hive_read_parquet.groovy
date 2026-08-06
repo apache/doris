@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_hive_read_parquet", "external,hive,external_docker") {
+suite("test_hive_read_parquet", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -74,7 +74,8 @@ suite("test_hive_read_parquet", "external,hive,external_docker") {
                 FORMAT AS ${format}
                 PROPERTIES (
                     "fs.defaultFS"="${defaultFS}",
-                    "hadoop.username" = "${hdfsUserName}"
+                    "hadoop.username" = "${hdfsUserName}",
+                    "enable_int96_timestamps" = "true"
                 );
             """
             logger.info("outfile success path: " + res[0][3]);

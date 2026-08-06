@@ -43,7 +43,6 @@ import java.io.DataOutput;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -358,65 +357,6 @@ public class SmallFileMgr {
         } finally {
             SecurityChecker.getInstance().stopSSRFChecking();
         }
-    }
-
-    // save the specified file to disk. if file already exist, check it.
-    // return the absolute file path.
-    public String saveToFile(long dbId, String catalog, String fileName) throws DdlException {
-        SmallFile smallFile;
-        synchronized (files) {
-            SmallFiles smallFiles = files.get(dbId, catalog);
-            if (smallFiles == null) {
-                throw new DdlException("File " + fileName + " does not exist");
-            }
-
-            smallFile = smallFiles.getFile(fileName);
-            if (smallFile == null) {
-                throw new DdlException("File " + fileName + " does not exist");
-            }
-
-            if (!smallFile.isContent) {
-                throw new DdlException("File does not contain content: " + smallFile.id);
-            }
-        }
-
-        // check file
-        File file = getAbsoluteFile(dbId, catalog, fileName);
-        if (file.exists()) {
-            if (!file.isFile()) {
-                throw new DdlException("File exist but not a file: " + fileName);
-            }
-
-            if (checkMd5(file, smallFile.md5)) {
-                return file.getAbsolutePath();
-            }
-
-            // file is invalid, delete it and create a new one
-            file.delete();
-        }
-
-        // write to file
-        try {
-            if (!file.getParentFile().exists() && !file.getParentFile().mkdirs()) {
-                throw new IOException("failed to make dir for file: " + fileName);
-            }
-            file.createNewFile();
-            byte[] decoded = Base64.getDecoder().decode(smallFile.content);
-            try (FileOutputStream outputStream = new FileOutputStream(file)) {
-                outputStream.write(decoded);
-                outputStream.flush();
-            }
-
-            if (!checkMd5(file, smallFile.md5)) {
-                throw new DdlException("write file " + fileName
-                        + " failed. md5 is invalid. expected: " + smallFile.md5);
-            }
-        } catch (IOException e) {
-            LOG.warn("failed to write file: {}", fileName, e);
-            throw new DdlException("failed to write file: " + fileName);
-        }
-
-        return file.getAbsolutePath();
     }
 
     private boolean checkMd5(File file, String expectedMd5) throws DdlException {

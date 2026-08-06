@@ -74,7 +74,7 @@ suite("test_index_compound_file_fault_injection", "nonConcurrent") {
         load_httplogs_data.call(indexTbName, 'test_index_compound_file_fault_injection', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         try {
             GetDebugPoint().enableDebugPointForAllBEs("CSIndexInput.readInternal")

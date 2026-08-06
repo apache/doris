@@ -74,4 +74,10 @@ suite("test_hll_functions") {
         sql """SELECT hll_from_base64(CAST('AgAAAAAAAABwAAAAAAAAAA==' AS VARCHAR(100))) AS result;"""
         exception "[RUNTIME_ERROR]hll_from_base64 decode failed";
     }
+
+    // Cover sparse/full HLL hll_to_base64: max_serialized_size is much larger
+    // than the real serialized size, which previously left ColumnString chars
+    // oversized vs offsets and tripped sanity_check.
+    qt_sparse_roundtrip "select hll_cardinality(hll_from_base64(hll_to_base64(hll_union(hll_hash(number))))) > 400 from numbers(\"number\"=\"500\");"
+    qt_sparse_len_positive "select length(hll_to_base64(hll_union(hll_hash(number)))) > 0 from numbers(\"number\"=\"500\");"
 }

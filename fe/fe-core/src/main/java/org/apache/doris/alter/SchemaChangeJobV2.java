@@ -231,10 +231,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
     }
 
     protected boolean isShadowIndexOfBase(long shadowIdxId, OlapTable tbl) {
-        if (indexIdToName.get(shadowIdxId).startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+        if (indexIdToName.get(shadowIdxId).startsWith(Column.SHADOW_NAME_PREFIX)) {
             String shadowIndexName = indexIdToName.get(shadowIdxId);
             String indexName = shadowIndexName
-                    .substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length());
+                    .substring(Column.SHADOW_NAME_PREFIX.length());
             long indexId = tbl.getIndexIdByName(indexName);
             LOG.info("shadow index id: {}, shadow index name: {}, pointer to index id: {}, index name: {}, "
                             + "base index id: {}, table_id: {}", shadowIdxId, shadowIndexName, indexId, indexName,
@@ -307,6 +307,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                             long backendId = shadowReplica.getBackendIdWithoutException();
                             long shadowReplicaId = shadowReplica.getId();
                             countDownLatch.addMark(backendId, shadowTabletId);
+
+                            MaterializedIndexMeta rowBinlogIndexMeta = null;
+                            if (tbl.needRowBinlog() && originIndexId == tbl.getBaseIndexId()) {
+                                rowBinlogIndexMeta = tbl.getRowBinlogMeta();
+                            }
+
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
                                     shadowReplicaId, shadowShortKeyColumnCount, shadowSchemaHash,
@@ -319,7 +325,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tbl.getCompressionType(),
                                     tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy(),
                                     tbl.disableAutoCompaction(),
-                                    tbl.enableSingleReplicaCompaction(),
                                     tbl.skipWriteIndexOnLoad(),
                                     tbl.getCompactionPolicy(),
                                     tbl.getTimeSeriesCompactionGoalSizeMbytes(),
@@ -335,7 +340,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tbl.variantEnableFlattenNested(),
                                     tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                                     tbl.storageDictPageSize(),
-                                    columnSeqMapping);
+                                    columnSeqMapping,
+                                    tbl.getVerticalCompactionNumColumnsPerGroup(),
+                                    rowBinlogIndexMeta);
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
@@ -539,9 +546,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                         destSlotDesc.setColumn(column);
                         destSlotDesc.setIsNullable(column.isAllowNull());
 
-                        if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
+                        if (indexColumnMap.containsKey(Column.SHADOW_NAME_PREFIX + column.getName())) {
                             Column newColumn = indexColumnMap.get(
-                                    SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
+                                    Column.SHADOW_NAME_PREFIX + column.getName());
                             if (!Objects.equals(newColumn.getType(), column.getType())) {
                                 DataType srcType = DataType.fromCatalogType(column.getType());
                                 DataType destType = DataType.fromCatalogType(newColumn.getType());
@@ -1054,7 +1061,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
             info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
             info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
             // only show the origin index name
-            info.add(indexIdToName.get(shadowIndexId).substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
+            info.add(indexIdToName.get(shadowIndexId).substring(Column.SHADOW_NAME_PREFIX.length()));
             info.add(shadowIndexId);
             info.add(entry.getValue());
             info.add(indexSchemaVersionAndHashMap.get(shadowIndexId).toString());

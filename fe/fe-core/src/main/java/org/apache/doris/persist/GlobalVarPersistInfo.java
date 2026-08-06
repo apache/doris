@@ -21,7 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.VarAttrDef;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -74,7 +74,7 @@ public class GlobalVarPersistInfo implements Writable {
                 boolean found = false;
                 // 1. first find in defaultSessionVariable
                 for (Field field : SessionVariable.class.getDeclaredFields()) {
-                    VariableMgr.VarAttr attr = field.getAnnotation(VariableMgr.VarAttr.class);
+                    VarAttrDef.VarAttr attr = field.getAnnotation(VarAttrDef.VarAttr.class);
                     if (attr == null) {
                         continue;
                     }
@@ -89,7 +89,7 @@ public class GlobalVarPersistInfo implements Writable {
                 if (!found) {
                     // find in GlobalVariables
                     for (Field field : GlobalVariable.class.getDeclaredFields()) {
-                        VariableMgr.VarAttr attr = field.getAnnotation(VariableMgr.VarAttr.class);
+                        VarAttrDef.VarAttr attr = field.getAnnotation(VarAttrDef.VarAttr.class);
                         if (attr == null) {
                             continue;
                         }
@@ -105,7 +105,7 @@ public class GlobalVarPersistInfo implements Writable {
                 Preconditions.checkState(found, varName);
 
                 theField.setAccessible(true);
-                String fieldName = theField.getAnnotation(VariableMgr.VarAttr.class).name();
+                String fieldName = theField.getAnnotation(VarAttrDef.VarAttr.class).name();
                 switch (theField.getType().getSimpleName()) {
                     case "boolean":
                         root.put(fieldName, (Boolean) theField.get(varInstance));

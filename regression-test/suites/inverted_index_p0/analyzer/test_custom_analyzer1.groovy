@@ -18,6 +18,19 @@
 import java.sql.SQLException
 
 suite("test_custom_analyzer1", "p0") {
+    test {
+        sql """
+            CREATE INVERTED INDEX CHAR_FILTER invalid_non_ascii_replacement_char_filter_custom_analyzer
+            PROPERTIES
+            (
+                "type" = "char_replace",
+                "pattern" = ".",
+                "replacement" = "é"
+            );
+        """
+        exception "'char_filter_replacement' must contain only ASCII characters"
+    }
+
     sql """
         CREATE INVERTED INDEX TOKEN_FILTER IF NOT EXISTS word_splitter_all
         PROPERTIES
@@ -69,7 +82,7 @@ suite("test_custom_analyzer1", "p0") {
     """
 
     sql """ select sleep(10) """
-     
+
     sql "DROP TABLE IF EXISTS test_custom_analyzer1"
     sql """
         CREATE TABLE test_custom_analyzer1 (
@@ -105,7 +118,7 @@ suite("test_custom_analyzer1", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         qt_sql """ select * from test_custom_analyzer1 where ch match 'with'; """
         qt_sql """ select * from test_custom_analyzer1 where ch match 'the'; """

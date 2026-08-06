@@ -19,7 +19,7 @@ suite("test_pythonudaf_window_advanced_inline") {
     // Advanced window function tests with Python UDAFs
     // Including: moving averages, percentiles, custom analytics
     
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     
     try {
         // Create time series data for advanced analytics
@@ -68,7 +68,7 @@ suite("test_pythonudaf_window_advanced_inline") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "MovingAvgUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class MovingAvgUDAF:
@@ -104,7 +104,7 @@ class MovingAvgUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "WindowStdDevUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 import math
@@ -144,7 +144,7 @@ class WindowStdDevUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "LastValueUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class LastValueUDAF:
@@ -178,7 +178,7 @@ class LastValueUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "WindowMinUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class WindowMinUDAF:
@@ -211,7 +211,7 @@ class WindowMinUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "WindowMaxUDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class WindowMaxUDAF:
@@ -430,7 +430,7 @@ class WindowMaxUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "Percentile50UDAF",
-            "runtime_version" = "3.8.10"
+            "runtime_version" = "${runtime_version}"
         )
         AS \$\$
 class Percentile50UDAF:

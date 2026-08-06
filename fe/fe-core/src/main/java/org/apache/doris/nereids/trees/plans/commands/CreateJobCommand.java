@@ -74,7 +74,8 @@ public class CreateJobCommand extends Command implements ForwardWithSync, NeedAu
             }
 
             if (StringUtils.isNotEmpty(createJobInfo.getSourceType())) {
-                DataSourceConfigValidator.validateSource(createJobInfo.getSourceProperties());
+                DataSourceConfigValidator.validateSource(createJobInfo.getSourceProperties(),
+                        createJobInfo.getSourceType());
                 DataSourceConfigValidator.validateTarget(createJobInfo.getTargetProperties());
             }
         }

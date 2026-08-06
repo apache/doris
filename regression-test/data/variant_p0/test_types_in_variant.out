@@ -102,7 +102,7 @@ var.a.b	array<largeint>	Yes	false	\N	NONE
 
 -- !sql --
 1	{"a":[{"b":18446744073709551615}]}
-2	{"a":[{"b":1}]}
+2	{"a":[{"b":2}]}
 
 -- !sql_array_largeint --
 id	int	Yes	true	\N	
@@ -111,7 +111,7 @@ var.a.b	array<largeint>	Yes	false	\N	NONE
 
 -- !sql --
 1	{"a":[{"b":18446744073709551615}]}
-2	{"a":[{"b":1}]}
+2	{"a":[{"b":2}]}
 3	{"a":[{"b":1.1}]}
 
 -- !sql_array_json --

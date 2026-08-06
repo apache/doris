@@ -56,4 +56,45 @@ suite("test_decimalv2_rqg") {
     sql """
         SELECT CEIL(ARG0,CAST(-1 AS INT)) FROM (SELECT TEMPDATA . data, TABLE0.ARG0 FROM TEMPDATA CROSS JOIN (SELECT data AS ARG0 FROM DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE ) AS TABLE0) t ;
     """
+
+    multi_sql """
+        DROP TABLE IF EXISTS TEMPDATA;
+        CREATE TABLE TEMPDATA(id INT, data INT) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1');
+        INSERT INTO TEMPDATA values(1, 1);
+    """
+    multi_sql """
+        DROP TABLE IF EXISTS DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE;
+        CREATE TABLE IF NOT EXISTS DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE(id INT, data DECIMALV2(10,0)  NOT NULL) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1');
+        INSERT INTO DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE values (0, 1234567890);
+        INSERT INTO DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE values (1, 9999999999);
+        INSERT INTO DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE values (2, 1000000000);
+        INSERT INTO DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE values (3, 1111111111);
+        INSERT INTO DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE values (4, -1234567890);
+        INSERT INTO DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE values (5, -9999999999);
+        INSERT INTO DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE values (6, -1000000000);
+        INSERT INTO DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE values (7, -1111111111);
+        INSERT INTO DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE values (8, 1);
+        INSERT INTO DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE values (9, 0);
+        INSERT INTO DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE values (10, -1);
+    """
+    qt_rqg_decimalv2_abs """
+        SELECT
+            ABS(NULLABLE(ARG0)) col0
+        FROM
+            (
+                SELECT
+                    TEMPDATA.data,
+                    TABLE0.ARG0
+                FROM
+                    TEMPDATA
+                    CROSS JOIN (
+                        SELECT
+                            data AS ARG0
+                        FROM
+                            DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE
+                    ) AS TABLE0
+            ) t
+        ORDER BY
+            col0;
+    """
 }

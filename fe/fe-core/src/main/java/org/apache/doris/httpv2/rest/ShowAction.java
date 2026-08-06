@@ -24,7 +24,6 @@ import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.proc.ProcNodeInterface;
@@ -186,13 +185,12 @@ public class ShowAction extends RestBaseController {
         String dbName = request.getParameter(DB_KEY);
         long totalSize = 0;
         if (dbName != null) {
-            String fullDbName = getFullDbName(dbName);
-            DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
+            DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
             if (db == null) {
-                return ResponseEntityBuilder.okWithCommonError("database " + fullDbName + " not found.");
+                return ResponseEntityBuilder.okWithCommonError("database " + dbName + " not found.");
             }
             totalSize = getDataSizeOfDatabase(db);
-            oneEntry.put(fullDbName, totalSize);
+            oneEntry.put(dbName, totalSize);
         } else {
             for (long dbId : Env.getCurrentInternalCatalog().getDbIds()) {
                 DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -222,17 +220,16 @@ public class ShowAction extends RestBaseController {
         boolean singleReplicaBool = Boolean.parseBoolean(singleReplica);
         Map<String, Map<String, Long>> oneEntry = Maps.newHashMap();
         if (dbName != null) {
-            String fullDbName = getFullDbName(dbName);
             if (!StringUtils.isEmpty(tableName) && Config.enable_all_http_auth) {
-                checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SHOW);
+                checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, tableName, PrivPredicate.SHOW);
             }
 
-            DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
+            DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
             if (db == null) {
-                return ResponseEntityBuilder.okWithCommonError("database " + fullDbName + " not found.");
+                return ResponseEntityBuilder.okWithCommonError("database " + dbName + " not found.");
             }
             Map<String, Long> tablesEntry = getDataSizeOfTables(db, tableName, singleReplicaBool);
-            oneEntry.put(ClusterNamespace.getNameFromFullName(fullDbName), tablesEntry);
+            oneEntry.put(dbName, tablesEntry);
         } else {
             for (long dbId : Env.getCurrentInternalCatalog().getDbIds()) {
                 DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -246,7 +243,7 @@ public class ShowAction extends RestBaseController {
                     continue;
                 }
                 Map<String, Long> tablesEntry = getDataSizeOfTables(db, tableName, singleReplicaBool);
-                oneEntry.put(ClusterNamespace.getNameFromFullName(db.getFullName()), tablesEntry);
+                oneEntry.put(db.getFullName(), tablesEntry);
             }
         }
         return ResponseEntityBuilder.ok(oneEntry);

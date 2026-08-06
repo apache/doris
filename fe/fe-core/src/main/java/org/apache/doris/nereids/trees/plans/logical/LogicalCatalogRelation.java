@@ -21,18 +21,20 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.FdFactory;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.TableFdItem;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -194,15 +196,24 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
         return tableAlias;
     }
 
+    public Optional<StreamReadMode> getStreamReadMode() {
+        return Optional.empty();
+    }
+
     @Override
     public void computeUnique(DataTrait.Builder builder) {
         Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
-        for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {
+        TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
+        if (tableNameInfo == null) {
+            return;
+        }
+        ConstraintManager cm = Env.getCurrentEnv().getConstraintManager();
+        for (PrimaryKeyConstraint c : cm.getPrimaryKeyConstraints(tableNameInfo)) {
             Set<Column> columns = c.getPrimaryKeys(table);
             builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
         }
 
-        for (UniqueConstraint c : table.getUniqueConstraints()) {
+        for (UniqueConstraint c : cm.getUniqueConstraints(tableNameInfo)) {
             Set<Column> columns = c.getUniqueKeys(table);
             builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
         }
@@ -211,36 +222,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     @Override
     public void computeUniform(DataTrait.Builder builder) {
         // No uniform slot for catalog relation
-    }
-
-    private ImmutableSet<FdItem> computeFdItems(Set<Slot> outputSet) {
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-
-        for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {
-            Set<Column> columns = c.getPrimaryKeys(this.getTable());
-            ImmutableSet<SlotReference> slotSet = findSlotsByColumn(outputSet, columns);
-            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(
-                    slotSet, true, false, ImmutableSet.of(table));
-            builder.add(tableFdItem);
-        }
-
-        for (UniqueConstraint c : table.getUniqueConstraints()) {
-            Set<Column> columns = c.getUniqueKeys(this.getTable());
-            boolean allNotNull = true;
-
-            for (Column column : columns) {
-                if (column.isAllowNull()) {
-                    allNotNull = false;
-                    break;
-                }
-            }
-
-            ImmutableSet<SlotReference> slotSet = findSlotsByColumn(outputSet, columns);
-            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(
-                    slotSet, true, !allNotNull, ImmutableSet.of(table));
-            builder.add(tableFdItem);
-        }
-        return builder.build();
     }
 
     private ImmutableSet<SlotReference> findSlotsByColumn(Set<Slot> outputSet, Set<Column> columns) {
@@ -269,6 +250,47 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
 
     public LogicalCatalogRelation withVirtualColumns(List<NamedExpression> virtualColumns) {
         return this;
+    }
+
+    /** Compare whether two catalog relations read the same data with the same output semantics. */
+    public final boolean hasSameScanSemantics(LogicalCatalogRelation other) {
+        if (other == null || getClass() != other.getClass()) {
+            return false;
+        }
+        if (!hasSameTableIdentity(other)) {
+            return false;
+        }
+        if (getOutput().size() != other.getOutput().size()) {
+            return false;
+        }
+        for (int i = 0; i < getOutput().size(); i++) {
+            if (!hasSameOutputSlotSemantics(getOutput().get(i), other.getOutput().get(i))) {
+                return false;
+            }
+        }
+        return hasSameScanState(other);
+    }
+
+    protected boolean hasSameTableIdentity(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
+        return new TableIdentifier(table).equals(new TableIdentifier(other.table));
+    }
+
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        return false;
+    }
+
+    private boolean hasSameOutputSlotSemantics(Slot left, Slot right) {
+        if (!(left instanceof SlotReference) || !(right instanceof SlotReference)) {
+            return false;
+        }
+        SlotReference leftSlot = (SlotReference) left;
+        SlotReference rightSlot = (SlotReference) right;
+        return Objects.equals(left.getClass(), right.getClass())
+                && Objects.equals(leftSlot.getName(), rightSlot.getName())
+                && Objects.equals(leftSlot.getSubPath(), rightSlot.getSubPath());
     }
 
     public abstract LogicalCatalogRelation withRelationId(RelationId relationId);

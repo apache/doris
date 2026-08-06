@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/common/arena.h"
+#include "core/arena.h"
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -29,9 +29,9 @@
 namespace doris {
 
 TEST(ArenaTest, Basic) {
-    vectorized::Arena p;
-    vectorized::Arena p2;
-    vectorized::Arena p3;
+    Arena p;
+    Arena p2;
+    Arena p3;
 
     // allocate a total of 24K in 32-byte pieces (for which we only request 25 bytes)
     for (int i = 0; i < 768; ++i) {
@@ -73,7 +73,7 @@ TEST(ArenaTest, MaxAllocation) {
 
     // Allocate a single LARGE_ALLOC_SIZE chunk
     {
-        vectorized::Arena p1;
+        Arena p1;
         char* ptr = p1.alloc(LARGE_ALLOC_SIZE);
         EXPECT_TRUE(ptr != nullptr);
         EXPECT_EQ(4096 + (int_max_rounded + 15 + 4096 - 1) / 4096 * 4096, p1.size());
@@ -83,7 +83,7 @@ TEST(ArenaTest, MaxAllocation) {
 
     // Allocate a small chunk (DEFAULT_INITIAL_CHUNK_SIZE) followed by an LARGE_ALLOC_SIZE chunk
     {
-        vectorized::Arena p2;
+        Arena p2;
         p2.alloc(8);
         EXPECT_EQ(p2.size(), 4096);
         EXPECT_EQ(p2.remaining_space_in_current_chunk(), 4096 - 15 - 8);
@@ -95,7 +95,7 @@ TEST(ArenaTest, MaxAllocation) {
     {
         // Allocate three LARGE_ALLOC_SIZE chunks followed by a small chunk followed by another LARGE_ALLOC_SIZE
         // chunk
-        vectorized::Arena p3;
+        Arena p3;
         p3.alloc(LARGE_ALLOC_SIZE);
         // Allocates new int_max_rounded * 2 chunk
         // NOTE: exceed MAX_CHUNK_SIZE limit, will not *2

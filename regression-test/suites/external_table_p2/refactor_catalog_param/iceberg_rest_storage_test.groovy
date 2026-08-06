@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_rest_storage_test", "p2,external,iceberg,external_docker,external_docker_iceberg_rest,new_catalog_property") {
+suite("iceberg_rest_storage_test", "p2,external") {
 
     def testQueryAndInsert = { String catalogProperties, String prefix ->
 
@@ -158,10 +158,7 @@ suite("iceberg_rest_storage_test", "p2,external,iceberg,external_docker,external
 
         // =======  TIME TRAVEL TEST  =======
         def iceberg_meta_result = sql """
-        SELECT snapshot_id FROM iceberg_meta(
-                'table' = '${catalog_name}.${db_name}.${table_name}',
-                'query_type' = 'snapshots'
-        ) order by committed_at desc;
+        SELECT snapshot_id FROM ${catalog_name}.${db_name}.${table_name}\$snapshots order by committed_at desc;
         """
         def first_snapshot_id = iceberg_meta_result.get(0).get(0);
         def time_travel = sql """

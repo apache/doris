@@ -69,46 +69,15 @@ suite("test_dateadd_with_other_timeunit") {
     qt_sql """ select date_add("2025-10-29", INTERVAL "-1 -1:-1:1" DAY_SECOND); """
     qt_sql """ select date_add("2025-10-29", INTERVAL "-1 -1:-1:-1" DAY_SECOND); """
 
-    test {
-        sql """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 -1:1:1 43" DAY_SECOND); """
-        exception "Invalid time format"
-
-        sql """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 -1:1:1xxx" DAY_SECOND); """
-        exception "Invalid time format"
-
-        sql """ select date_add("2025-10-29 10:10:10", INTERVAL "1 1:1:1.1234" DAY_SECOND); """
-        exception "Invalid time format"
-
-        sql """ select date_add("2025-10-29", INTERVAL "-1 -1:1:1 34" DAY_SECOND); """
-        exception "Invalid time format"
-
-        sql """ select date_add("2025-10-29", INTERVAL "-1 -1:1:1xx" DAY_SECOND); """
-        exception "Invalid time format"
-
-        sql """ select date_add(test_datetime, INTERVAL '1' DAY_SECOND) result from ${tableName}; """
-        exception "Invalid time format"
-
-        sql """ select date_add(test_datetime, INTERVAL '1 2' DAY_SECOND) result from ${tableName}; """
-        exception "Invalid time format"
-
-        sql """ select date_add(test_datetime, INTERVAL '1 2:3' DAY_SECOND) result from ${tableName}; """
-        exception "Invalid time format"
-
-        sql """ select date_add(test_datetime, INTERVAL '1 2:3:4.5678' DAY_SECOND) result from ${tableName}; """
-        exception "Invalid seconds format"
-
-        sql """ select date_add(test_datetime, INTERVAL 'xx 00:00:01' DAY_SECOND) result from ${tableName}; """
-        exception "Invalid days format"
-
-        sql """ select date_add(test_datetime, interval '1 xx:00:01' day_second) result from ${tableName}; """
-        exception "Invalid hours format"
-
-        sql """ select date_add(test_datetime, INTERVAL '1 00:xx:01' DAY_SECOND) result from ${tableName}; """
-        exception "Invalid minutes format"
-
-        sql """ select date_add(test_datetime, INTERVAL '1 00:00:xx' DAY_SECOND) result from ${tableName}; """
-        exception "Invalid seconds format"
-    }
+    qt_add_day_second_1 """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 -1:1:1xxx" DAY_SECOND); """
+    qt_add_day_second_2 """ select date_add("2025-10-29", INTERVAL "-1 -1:1:1xx" DAY_SECOND); """
+    qt_add_day_second_3 """ select date_add(test_datetime, INTERVAL '1' DAY_SECOND) result from ${tableName}; """
+    qt_add_day_second_4 """ select date_add(test_datetime, INTERVAL '1 2' DAY_SECOND) result from ${tableName}; """
+    qt_add_day_second_5 """ select date_add(test_datetime, INTERVAL '1 2:3' DAY_SECOND) result from ${tableName}; """
+    qt_add_day_second_6 """ select date_add(test_datetime, INTERVAL 'xx 00:00:01' DAY_SECOND) result from ${tableName}; """
+    qt_add_day_second_7 """ select date_add(test_datetime, interval '1 xx:00:01' day_second) result from ${tableName}; """
+    qt_add_day_second_8 """ select date_add(test_datetime, INTERVAL '1 00:xx:01' DAY_SECOND) result from ${tableName}; """
+    qt_add_day_second_9 """ select date_add(test_datetime, INTERVAL '1 00:00:xx' DAY_SECOND) result from ${tableName}; """
 
     // DAY_HOUR
     testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 1" DAY_HOUR); """
@@ -151,26 +120,12 @@ suite("test_dateadd_with_other_timeunit") {
     qt_sql """ select date_add("2025-10-29", INTERVAL "-1 10" DAY_HOUR); """
     qt_sql """ select date_add("2025-10-29", INTERVAL "-1 -10" DAY_HOUR); """
 
-    test {
-        sql """ select date_add("2025-10-29 10:10:10", INTERVAL '1' DAY_HOUR) ; """
-        exception "Invalid time format"
-
-        sql """ select date_add("2025-10-29 10:10:10", INTERVAL 'xx 10' DAY_HOUR) ; """
-        exception "Invalid time format"
-
-        sql """ select date_add("2025-10-29 10:10:10", INTERVAL '1 xx' DAY_HOUR) ; """
-        exception "Invalid time format"
-
-        sql """ select date_add(test_datetime, INTERVAL '1' DAY_HOUR) result from ${tableName}; """
-        exception "Invalid time format"
-
-        sql """ select date_add(test_datetime, INTERVAL 'xx 10' DAY_HOUR) result from ${tableName}; """
-        exception "Invalid days format"
-
-        sql """ select date_add(test_datetime, INTERVAL '1 xx' DAY_HOUR) result from ${tableName}; """
-        exception "Invalid hours format"
-    }
-
+    qt_add_day_hour_1 """ select date_add("2025-10-29 10:10:10", INTERVAL '1' DAY_HOUR); """
+    qt_add_day_hour_2 """ select date_add("2025-10-29 10:10:10", INTERVAL 'xx 10' DAY_HOUR) ; """
+    qt_add_day_hour_3 """ select date_add("2025-10-29 10:10:10", INTERVAL '1 xx' DAY_HOUR) ; """
+    qt_add_day_hour_4 """ select date_add(test_datetime, INTERVAL '1' DAY_HOUR) result from ${tableName}; """
+    qt_add_day_hour_5 """ select date_add(test_datetime, INTERVAL 'xx 10' DAY_HOUR) result from ${tableName}; """
+    qt_add_day_hour_6 """ select date_add(test_datetime, INTERVAL '1 xx' DAY_HOUR) result from ${tableName}; """
 
     // MINUTE_SECOND
     testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1:1" MINUTE_SECOND); """
@@ -213,25 +168,12 @@ suite("test_dateadd_with_other_timeunit") {
     qt_sql """ select date_add("2025-10-29", INTERVAL "-1:10" MINUTE_SECOND); """
     qt_sql """ select date_add("2025-10-29", INTERVAL "-1:-10" MINUTE_SECOND); """
 
-    test {
-        sql """ select date_add("2025-10-29 10:10:10", INTERVAL '1' MINUTE_SECOND) ; """
-        exception "Invalid time format"
-
-        sql """ select date_add("2025-10-29 10:10:10", INTERVAL 'xx:10' MINUTE_SECOND) ; """
-        exception "Invalid time format"
-
-        sql """ select date_add("2025-10-29 10:10:10", INTERVAL '1:xx' MINUTE_SECOND) ; """
-        exception "Invalid time format"
-
-        sql """ select date_add(test_datetime, INTERVAL '1' MINUTE_SECOND) result from ${tableName}; """
-        exception "Invalid time format"
-
-        sql """ select date_add(test_datetime, INTERVAL 'xx:10' MINUTE_SECOND) result from ${tableName}; """
-        exception "Invalid minutes format"
-
-        sql """ select date_add(test_datetime, INTERVAL '1:xx' MINUTE_SECOND) result from ${tableName}; """
-        exception "Invalid seconds format"
-    }
+    qt_add_minute_second_1 """ select date_add("2025-10-29 10:10:10", INTERVAL '1' MINUTE_SECOND) ; """
+    qt_add_minute_second_2 """ select date_add("2025-10-29 10:10:10", INTERVAL 'xx:10' MINUTE_SECOND) ; """
+    qt_add_minute_second_3 """ select date_add("2025-10-29 10:10:10", INTERVAL '1:xx' MINUTE_SECOND) ; """
+    qt_add_minute_second_4 """ select date_add(test_datetime, INTERVAL '1' MINUTE_SECOND) result from ${tableName}; """
+    qt_add_minute_second_5 """ select date_add(test_datetime, INTERVAL 'xx:10' MINUTE_SECOND) result from ${tableName}; """
+    qt_add_minute_second_6 """ select date_add(test_datetime, INTERVAL '1:xx' MINUTE_SECOND) result from ${tableName}; """
 
     // SECOND_MICROSECOND
     testFoldConst """ select date_add("2025-10-29 10:10:10.123456", INTERVAL "1.1" SECOND_MICROSECOND); """
@@ -274,24 +216,11 @@ suite("test_dateadd_with_other_timeunit") {
     qt_sql """ select date_add("2025-10-29", INTERVAL "-1.1234567" SECOND_MICROSECOND); """
     qt_sql """ select date_add("2025-10-29", INTERVAL "-1.-1234567" SECOND_MICROSECOND); """
 
-    test {
-        sql """ select date_add("2025-10-29 10:10:10", INTERVAL '1' SECOND_MICROSECOND) ; """
-        exception "Invalid time format"
-
-        sql """ select date_add("2025-10-29 10:10:10", INTERVAL 'xx.10' SECOND_MICROSECOND) ; """
-        exception "Invalid time format"
-
-        sql """ select date_add("2025-10-29 10:10:10", INTERVAL '1.xx' SECOND_MICROSECOND) ; """
-        exception "Invalid time format"
-
-        sql """ select date_add(test_datetime, INTERVAL '1' SECOND_MICROSECOND) result from ${tableName}; """
-        exception "Invalid time format"
-
-        sql """ select date_add(test_datetime, INTERVAL 'xx.10' SECOND_MICROSECOND) result from ${tableName}; """
-        exception "Invalid seconds format"
-
-        sql """ select date_add(test_datetime, INTERVAL '1.xx' SECOND_MICROSECOND) result from ${tableName}; """
-        exception "Invalid microseconds format"
-    }
+    qt_add_second_microsecond_1 """ select date_add("2025-10-29 10:10:10", INTERVAL '1' SECOND_MICROSECOND) ; """
+    qt_add_second_microsecond_2 """ select date_add("2025-10-29 10:10:10", INTERVAL 'xx.10' SECOND_MICROSECOND) ; """
+    qt_add_second_microsecond_3 """ select date_add("2025-10-29 10:10:10", INTERVAL '1.xx' SECOND_MICROSECOND) ; """
+    qt_add_second_microsecond_4 """ select date_add(test_datetime, INTERVAL '1' SECOND_MICROSECOND) result from ${tableName}; """
+    qt_add_second_microsecond_5 """ select date_add(test_datetime, INTERVAL 'xx.10' SECOND_MICROSECOND) result from ${tableName}; """
+    qt_add_second_microsecond_6 """ select date_add(test_datetime, INTERVAL '1.xx' SECOND_MICROSECOND) result from ${tableName}; """
 
 }

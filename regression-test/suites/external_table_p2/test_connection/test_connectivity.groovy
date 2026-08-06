@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_connectivity", "p2,external,hive,iceberg,external_docker,external_docker_hive,new_catalog_property") {
+suite("test_connectivity", "p2,external") {
 
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 

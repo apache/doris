@@ -18,7 +18,9 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -388,7 +390,8 @@ public class MTMVPlanUtil {
         mtmvPartitionDefinition.setPartitionType(mvPartitionInfo.getPartitionType());
         Expr expr = mvPartitionInfo.getExpr();
         if (expr != null) {
-            mtmvPartitionDefinition.setFunctionCallExpression(new NereidsParser().parseExpression(expr.toSql()));
+            mtmvPartitionDefinition.setFunctionCallExpression(new NereidsParser().parseExpression(
+                    expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)));
         }
         List<String> keys = mtmv.getBaseSchema().stream()
                 .filter(Column::isKey)

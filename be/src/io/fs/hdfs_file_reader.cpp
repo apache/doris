@@ -28,16 +28,18 @@
 #include "bvar/reducer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_util.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "runtime/workload_management/resource_context.h"
 #include "service/backend_options.h"
-#include "util/doris_metrics.h"
 
 namespace doris::io {
-#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> hdfs_bytes_read_total("hdfs_file_reader", "bytes_read");
 bvar::LatencyRecorder hdfs_bytes_per_read("hdfs_file_reader", "bytes_per_read"); // also QPS
@@ -84,7 +86,9 @@ HdfsFileReader::HdfsFileReader(Path path, std::string fs_name, FileHandleCache::
     if (_profile != nullptr && is_hdfs(_fs_name)) {
 #ifdef USE_HADOOP_HDFS
         const char* hdfs_profile_name = "HdfsIO";
-        ADD_TIMER(_profile, hdfs_profile_name);
+        _total_read_time =
+                ADD_CHILD_TIMER(_profile, hdfs_profile_name,
+                                file_scan_profile::parent_or_root(_profile, file_scan_profile::IO));
         _hdfs_profile.total_bytes_read =
                 ADD_CHILD_COUNTER(_profile, "TotalBytesRead", TUnit::BYTES, hdfs_profile_name);
         _hdfs_profile.total_local_bytes_read =
@@ -118,6 +122,7 @@ Status HdfsFileReader::close() {
 
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* io_ctx) {
+    SCOPED_TIMER(_total_read_time);
     auto st = do_read_at_impl(offset, result, bytes_read, io_ctx);
     if (!st.ok()) {
         _handle = nullptr;
@@ -290,6 +295,5 @@ void HdfsFileReader::_collect_profile_before_close() {
 #endif
     }
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris::io

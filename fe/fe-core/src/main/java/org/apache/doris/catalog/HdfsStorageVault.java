@@ -17,14 +17,14 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.common.util.DatasourcePrintableMap;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.kerberos.AuthenticationConfig;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -32,7 +32,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -70,8 +69,9 @@ public class HdfsStorageVault extends StorageVault {
         public static String HADOOP_FS_NAME = "fs.defaultFS";
         public static String VAULT_PATH_PREFIX = "path_prefix";
         public static String HADOOP_USER_NAME = AuthenticationConfig.HADOOP_USER_NAME;
-        public static String HADOOP_SECURITY_AUTHENTICATION =
-                CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION;
+        // Literal of hadoop's CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, inlined
+        // so fe-core carries no org.apache.hadoop import for a plain configuration-key string.
+        public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
         public static String HADOOP_KERBEROS_KEYTAB = AuthenticationConfig.HADOOP_KERBEROS_KEYTAB;
         public static String HADOOP_KERBEROS_PRINCIPAL = AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL;
     }
@@ -131,35 +131,27 @@ public class HdfsStorageVault extends StorageVault {
         Preconditions.checkArgument(
                 !Strings.isNullOrEmpty(pathPrefix), "%s is null or empty", PropertyKey.VAULT_PATH_PREFIX);
 
-        try (DFSFileSystem dfsFileSystem = new DFSFileSystem((HdfsCompatibleProperties) StorageProperties
-                .createPrimary(newProperties))) {
+        try (FileSystem fs = FileSystemFactory.getFileSystem(
+                StorageAdapter.of(newProperties))) {
             Long timestamp = System.currentTimeMillis();
             String remotePath = hadoopFsName + "/" + pathPrefix + "/doris-check-connectivity" + timestamp.toString();
+            Location loc = Location.of(remotePath);
 
-            Status st = dfsFileSystem.makeDir(remotePath);
-            if (st != Status.OK) {
+            fs.mkdirs(loc);
+
+            if (!fs.exists(loc)) {
                 throw new DdlException(
-                        "checkConnectivity(makeDir) failed, status: " + st + ", properties: " + new PrintableMap<>(
+                        "checkConnectivity(exist) failed: path does not exist after mkdirs: " + remotePath
+                                + ", properties: " + new DatasourcePrintableMap<>(
                                 newProperties, "=", true, false, true, false));
             }
 
-            st = dfsFileSystem.exists(remotePath);
-            if (st != Status.OK) {
-                throw new DdlException(
-                        "checkConnectivity(exist) failed, status: " + st + ", properties: " + new PrintableMap<>(
-                                newProperties, "=", true, false, true, false));
-            }
-
-            st = dfsFileSystem.delete(remotePath);
-            if (st != Status.OK) {
-                throw new DdlException(
-                        "checkConnectivity(exist) failed, status: " + st + ", properties: " + new PrintableMap<>(
-                                newProperties, "=", true, false, true, false));
-            }
+            fs.delete(loc, false);
         } catch (IOException e) {
-            LOG.warn("checkConnectivity failed, properties:{}", new PrintableMap<>(
+            LOG.warn("checkConnectivity failed, properties:{}", new DatasourcePrintableMap<>(
                     newProperties, "=", true, false, true, false), e);
-            throw new DdlException("checkConnectivity failed, properties: " + new PrintableMap<>(
+            throw new DdlException("checkConnectivity failed, " + e.getMessage()
+                    + ", properties: " + new DatasourcePrintableMap<>(
                     newProperties, "=", true, false, true, false), e);
         }
     }

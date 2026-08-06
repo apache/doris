@@ -1,0 +1,397 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.connector.paimon;
+
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TPaimonDeletionFileDesc;
+import org.apache.doris.thrift.TPaimonFileDesc;
+import org.apache.doris.thrift.TPaimonReaderType;
+import org.apache.doris.thrift.TTableFormatFileDesc;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * Scan range for Paimon tables.
+ *
+ * <p>Supports three read paths:
+ * <ul>
+ *   <li><b>JNI reader</b> (default): The entire Paimon {@code Split} object is serialized
+ *       and sent to BE. BE calls back into Paimon Java code via JNI.
+ *       Properties carry {@code paimon.split} (serialized split).</li>
+ *   <li><b>Native reader</b>: When {@code DataSplit.convertToRawFiles()} succeeds and
+ *       all files are ORC/Parquet. Properties carry {@code paimon.schema_id} and
+ *       optional {@code paimon.deletion_file.*}.</li>
+ *   <li><b>COUNT pushdown</b>: When the query is a simple COUNT(*) and the split
+ *       has pre-computed merged row count. Properties carry {@code paimon.row_count}.</li>
+ * </ul>
+ */
+public class PaimonScanRange implements ConnectorScanRange {
+
+    private static final long serialVersionUID = 1L;
+
+    private final String path;
+    private final long start;
+    private final long length;
+    private final long fileSize;
+    private final String fileFormat;
+    private final Map<String, String> partitionValues;
+    private final Map<String, String> properties;
+    private final long selfSplitWeight;
+    // FIX-A1: weight denominator (legacy scan-level targetSplitSize, PaimonScanNode:499) for the FE
+    // FileSplit proportional weight. -1 = not provided (SPI sentinel). Separate from the file-splitting
+    // granularity used to slice native files.
+    private final long targetSplitSize;
+
+    private PaimonScanRange(Builder builder) {
+        this.path = builder.path;
+        this.start = builder.start;
+        this.length = builder.length;
+        this.fileSize = builder.fileSize;
+        this.fileFormat = builder.fileFormat;
+        this.selfSplitWeight = builder.selfSplitWeight;
+        this.targetSplitSize = builder.targetSplitSize;
+        this.partitionValues = builder.partitionValues != null
+                ? Collections.unmodifiableMap(builder.partitionValues)
+                : Collections.emptyMap();
+
+        Map<String, String> props = new HashMap<>();
+        if (builder.paimonSplit != null) {
+            props.put("paimon.split", builder.paimonSplit);
+        }
+        if (builder.schemaId != null) {
+            props.put("paimon.schema_id", String.valueOf(builder.schemaId));
+        }
+        if (builder.deletionFilePath != null) {
+            props.put("paimon.deletion_file.path", builder.deletionFilePath);
+            props.put("paimon.deletion_file.offset", String.valueOf(builder.deletionFileOffset));
+            props.put("paimon.deletion_file.length", String.valueOf(builder.deletionFileLength));
+        }
+        if (builder.rowCount != null) {
+            props.put("paimon.row_count", String.valueOf(builder.rowCount));
+        }
+        // FE-ONLY (never reaches BE, see populateRangeParams): the paimon bucket this range's data
+        // belongs to, = DataSplit.bucket(). Read by a sibling connector that plans paimon splits on
+        // behalf of its own table and has to line them up with its own per-bucket state — today the
+        // fluss connector, whose lake half is planned here (it binds a fluss log tail to the lake
+        // splits of the SAME bucket; a lake table tiered from fluss has bucket-identical layout).
+        // Set on every DataSplit-backed range, native and JNI alike. NOT set on the collapsed
+        // COUNT(*) range (it stands for splits from many buckets, so any single number would be a
+        // lie) nor on a non-DataSplit system split (no bucket exists). Consumers must fail loud when
+        // it is absent on a range they expected to bind — silently treating that as "no state for
+        // this bucket" is a wrong-results bug, not a degradation.
+        if (builder.bucket != null) {
+            props.put("paimon.bucket", String.valueOf(builder.bucket));
+        }
+        // FIX-A3: emit the self-split-weight for every JNI split, incl. weight 0. Legacy
+        // PaimonScanNode.setPaimonParams:274 sets it unconditionally on the JNI branch (never on
+        // native); the old `selfSplitWeight > 0` gate was a buggy is-set proxy that dropped a genuine
+        // weight-0 JNI split (rowCount-0 sys split / fileSize-0 DataSplit) -> BE read the -1 "unset"
+        // sentinel instead of 0, corrupting the _max_time_split_weight_counter profile. Gate on the
+        // JNI marker (paimonSplit) so native splits keep parity; this is also exactly when
+        // populateRangeParams reads the prop.
+        if (builder.paimonSplit != null) {
+            props.put("paimon.self_split_weight", String.valueOf(builder.selfSplitWeight));
+        }
+        this.properties = Collections.unmodifiableMap(props);
+    }
+
+    @Override
+    public Optional<String> getPath() {
+        return Optional.ofNullable(path);
+    }
+
+    @Override
+    public long getStart() {
+        return start;
+    }
+
+    @Override
+    public long getLength() {
+        return length;
+    }
+
+    @Override
+    public long getFileSize() {
+        return fileSize;
+    }
+
+    @Override
+    public String getFileFormat() {
+        return fileFormat;
+    }
+
+    @Override
+    public String getTableFormatType() {
+        return "paimon";
+    }
+
+    @Override
+    public Map<String, String> getPartitionValues() {
+        return partitionValues;
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    /**
+     * The precomputed COUNT(*) row count carried by this range (the {@code paimon.row_count} prop set
+     * by the count-pushdown collapse), or {@code -1} when absent. Drives the EXPLAIN
+     * {@code pushdown agg=COUNT (n)} line via {@code PluginDrivenScanNode}. Only the single collapsed
+     * count range carries it; every other range returns {@code -1}, preserving the {@code (-1)}
+     * no-precomputed-count sentinel (e.g. deletion-vector tables).
+     */
+    @Override
+    public long getPushDownRowCount() {
+        String rowCountStr = properties.get("paimon.row_count");
+        return rowCountStr != null ? Long.parseLong(rowCountStr) : -1;
+    }
+
+    /**
+     * Whether this range takes BE's native (ORC/Parquet) reader: true iff it is NOT a JNI split
+     * (no {@code paimon.split} property — that property gates the JNI path in
+     * {@link #populateRangeParams}) AND it has a data-file path. Drives the native/total split
+     * accounting for the EXPLAIN {@code paimonNativeReadSplits=<native>/<total>} line. Under
+     * {@code force_jni_scanner=true} every range carries {@code paimon.split}, so all return false
+     * &rarr; native count 0.
+     */
+    @Override
+    public boolean isNativeReadRange() {
+        return !properties.containsKey("paimon.split") && path != null;
+    }
+
+    @Override
+    public long getSelfSplitWeight() {
+        return selfSplitWeight;
+    }
+
+    @Override
+    public long getTargetSplitSize() {
+        return targetSplitSize;
+    }
+
+    @Override
+    public String toString() {
+        return "PaimonScanRange{path=" + path + ", format=" + fileFormat
+                + ", start=" + start + ", length=" + length + "}";
+    }
+
+    @Override
+    public void populateRangeParams(TTableFormatFileDesc formatDesc,
+            TFileRangeDesc rangeDesc) {
+        Map<String, String> props = getProperties();
+        TPaimonFileDesc fileDesc = new TPaimonFileDesc();
+
+        String paimonSplitVal = props.get("paimon.split");
+        if (paimonSplitVal != null) {
+            // JNI reader path
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
+            // FIX-READER-TYPE (3645dc94306): tell BE's file-scanner-v2 which paimon reader stack to use.
+            // ALWAYS the Java JNI reader (upstream #66008 removed the paimon-cpp arm from
+            // PaimonScanNode.setPaimonParams): a logical DataSplit may span several files, and
+            // file-scanner-v2 has no split-aware paimon-cpp adapter, so it HARD-REJECTS a PAIMON_CPP range
+            // ("FileScannerV2 does not support table format paimon", file_scanner_v2.cpp
+            // is_supported_jni_table_format -> _validate_scan_range) with no per-range V1 fallback.
+            // enable_paimon_cpp_reader is therefore a no-op on the plan path, exactly like on master.
+            fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
+            fileDesc.setPaimonSplit(paimonSplitVal);
+            String weightStr = props.get("paimon.self_split_weight");
+            if (weightStr != null) {
+                rangeDesc.setSelfSplitWeight(Long.parseLong(weightStr));
+            }
+        } else {
+            // Native reader path — format already set by file extension
+            // FIX-READER-TYPE (3645dc94306): native (ORC/Parquet) reader stack.
+            fileDesc.setReaderType(TPaimonReaderType.PAIMON_NATIVE);
+            String fmt = getFileFormat();
+            if ("orc".equals(fmt)) {
+                rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
+            } else if ("parquet".equals(fmt)) {
+                rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+            }
+            String schemaIdStr = props.get("paimon.schema_id");
+            if (schemaIdStr != null) {
+                fileDesc.setSchemaId(Long.parseLong(schemaIdStr));
+            }
+        }
+
+        fileDesc.setFileFormat(getFileFormat());
+
+        // Deletion file
+        String deletionPath = props.get("paimon.deletion_file.path");
+        if (deletionPath != null) {
+            TPaimonDeletionFileDesc deletionFile =
+                    new TPaimonDeletionFileDesc();
+            deletionFile.setPath(deletionPath);
+            deletionFile.setOffset(Long.parseLong(
+                    props.getOrDefault("paimon.deletion_file.offset", "0")));
+            deletionFile.setLength(Long.parseLong(
+                    props.getOrDefault("paimon.deletion_file.length", "0")));
+            fileDesc.setDeletionFile(deletionFile);
+        }
+
+        // Row count for count pushdown
+        String rowCountStr = props.get("paimon.row_count");
+        if (rowCountStr != null) {
+            formatDesc.setTableLevelRowCount(Long.parseLong(rowCountStr));
+        } else {
+            formatDesc.setTableLevelRowCount(-1);
+        }
+
+        formatDesc.setPaimonParams(fileDesc);
+
+        // Partition values
+        Map<String, String> partValues = getPartitionValues();
+        if (partValues != null && !partValues.isEmpty()) {
+            List<String> pathKeys = new ArrayList<>();
+            List<String> pathValues = new ArrayList<>();
+            List<Boolean> pathIsNull = new ArrayList<>();
+            for (Map.Entry<String, String> entry : partValues.entrySet()) {
+                // Paimon partition values are already TYPED: the per-type serializer
+                // (PaimonScanPlanProvider.serializePartitionValue) returns Java null for a genuine
+                // null and the literal toString() otherwise — a null is never a Hive directory
+                // sentinel. So derive isNull from the Java null ONLY, matching legacy
+                // PaimonScanNode.setScanParams (source/PaimonScanNode.java:323-326). Do NOT reuse hudi's
+                // directory-name rule (HudiScanRange.populateRangeParams): its
+                // __HIVE_DEFAULT_PARTITION__/"\N" coercion is correct for path-encoded partitions but
+                // here would turn a genuine literal partition value of "\N" or
+                // "__HIVE_DEFAULT_PARTITION__" into SQL NULL. BE ignores the rendered string when
+                // isNull=true, so "" matches legacy.
+                String value = entry.getValue();
+                pathKeys.add(entry.getKey());
+                pathValues.add(value != null ? value : "");
+                pathIsNull.add(value == null);
+            }
+            rangeDesc.setColumnsFromPathKeys(pathKeys);
+            rangeDesc.setColumnsFromPath(pathValues);
+            rangeDesc.setColumnsFromPathIsNull(pathIsNull);
+        }
+    }
+
+    /** Builder for constructing PaimonScanRange instances. */
+    public static class Builder {
+        private String path;
+        private long start;
+        private long length = -1;
+        private long fileSize = -1;
+        // Every production caller sets fileFormat explicitly (the real orc/parquet). Default empty (NOT
+        // "jni", an invalid paimon format): BE's paimon_cpp_reader skips its FILE_FORMAT/MANIFEST_FORMAT
+        // backfill when this is empty (guarded !file_format.empty()), so a missing set can never inject an
+        // invalid format (FIX-JNI-FILE-FORMAT).
+        private String fileFormat = "";
+        private Map<String, String> partitionValues;
+        private long selfSplitWeight;
+        // -1 = not provided (SPI sentinel). NOT 0: a 0 denominator is invalid (would divide-by-zero), unlike
+        // selfSplitWeight whose 0 is a legitimate empty-file / 0-row weight.
+        private long targetSplitSize = -1;
+
+        // JNI reader fields
+        private String paimonSplit;
+
+        // Native reader fields
+        private Long schemaId;
+        private String deletionFilePath;
+        private long deletionFileOffset;
+        private long deletionFileLength;
+
+        // COUNT pushdown
+        private Long rowCount;
+
+        // Bucket of the backing DataSplit; null for splits that have none (see the props comment).
+        private Integer bucket;
+
+        public Builder path(String path) {
+            this.path = path;
+            return this;
+        }
+
+        public Builder start(long start) {
+            this.start = start;
+            return this;
+        }
+
+        public Builder length(long length) {
+            this.length = length;
+            return this;
+        }
+
+        public Builder fileSize(long fileSize) {
+            this.fileSize = fileSize;
+            return this;
+        }
+
+        public Builder fileFormat(String fileFormat) {
+            this.fileFormat = fileFormat;
+            return this;
+        }
+
+        public Builder partitionValues(Map<String, String> partitionValues) {
+            this.partitionValues = partitionValues;
+            return this;
+        }
+
+        public Builder selfSplitWeight(long selfSplitWeight) {
+            this.selfSplitWeight = selfSplitWeight;
+            return this;
+        }
+
+        public Builder targetSplitSize(long targetSplitSize) {
+            this.targetSplitSize = targetSplitSize;
+            return this;
+        }
+
+        public Builder paimonSplit(String paimonSplit) {
+            this.paimonSplit = paimonSplit;
+            return this;
+        }
+
+        public Builder schemaId(long schemaId) {
+            this.schemaId = schemaId;
+            return this;
+        }
+
+        public Builder deletionFile(String path, long offset, long length) {
+            this.deletionFilePath = path;
+            this.deletionFileOffset = offset;
+            this.deletionFileLength = length;
+            return this;
+        }
+
+        public Builder rowCount(long rowCount) {
+            this.rowCount = rowCount;
+            return this;
+        }
+
+        public Builder bucket(int bucket) {
+            this.bucket = bucket;
+            return this;
+        }
+
+        public PaimonScanRange build() {
+            return new PaimonScanRange(this);
+        }
+    }
+}

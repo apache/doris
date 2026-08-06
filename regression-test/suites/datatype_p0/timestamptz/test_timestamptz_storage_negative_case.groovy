@@ -69,11 +69,11 @@ suite("test_timestamptz_storage_negative_case") {
     // sum
     test {
         sql """ select sum(ts_tz) from timestamptz_storage_agg_key_negative_case; """
-        exception "sum requires"
+        exception "Can not find the compatibility function signature"
     }
     // avg
     test {
         sql """ select avg(ts_tz) from timestamptz_storage_agg_key_negative_case; """
-        exception "avg requires"
+        exception "Can not find the compatibility function signature"
     }
 }

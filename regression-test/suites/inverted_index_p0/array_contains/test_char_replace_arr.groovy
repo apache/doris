@@ -23,8 +23,7 @@ suite("test_char_replace_array_contains_arr", "array_contains_inverted_index") {
     sql """ set enable_profile=true"""
     sql """ set enable_pipeline_x_engine=true;"""
     sql """ set enable_inverted_index_query=true"""
-    sql """ set enable_common_expr_pushdown=true """
-    sql """ set enable_common_expr_pushdown_for_inverted_index=true """
+    sql """ set enable_segment_limit_pushdown=true """
 
     sql "DROP TABLE IF EXISTS ${indexTblName}"
     // create 1 replica table
@@ -45,7 +44,7 @@ suite("test_char_replace_array_contains_arr", "array_contains_inverted_index") {
  		"replication_allocation" = "tag.location.default: 1"
 	);
     """
-    
+
     def var_result = sql "show variables"
     logger.info("show variales result: " + var_result )
 

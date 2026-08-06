@@ -21,6 +21,7 @@
 
 #include "io/fs/file_handle_cache.h"
 
+#include <cstdint>
 #include <thread>
 #include <tuple>
 
@@ -29,8 +30,6 @@
 #include "util/hash_util.hpp"
 #include "util/time.h"
 namespace doris::io {
-
-#include "common/compile_check_begin.h"
 
 HdfsFileHandle::~HdfsFileHandle() {
     if (_hdfs_file != nullptr && _fs != nullptr) {
@@ -102,7 +101,7 @@ FileHandleCache::Accessor::~Accessor() {
 #ifdef USE_HADOOP_HDFS
         if (hdfsUnbufferFile(get()->file()) != 0) {
             VLOG_FILE << "FS does not support file handle unbuffering, closing file="
-                      << _cache_accessor.get_key()->first;
+                      << _cache_accessor.get_key()->second.first;
             destroy();
         } else {
             // Calling explicit release to handle metrics
@@ -150,11 +149,13 @@ Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& fna
                                         FileHandleCache::Accessor* accessor, bool* cache_hit) {
     DCHECK_GE(mtime, 0);
     // Hash the key and get appropriate partition
-    int index =
-            HashUtil::hash(fname.data(), cast_set<int>(fname.size()), 0) % _cache_partitions.size();
+    uintptr_t fs_identity = reinterpret_cast<uintptr_t>(fs);
+    uint32_t seed = HashUtil::hash(&fs_identity, sizeof(fs_identity), 0);
+    int index = HashUtil::hash(fname.data(), cast_set<int>(fname.size()), seed) %
+                _cache_partitions.size();
     FileHandleCachePartition& p = _cache_partitions[index];
 
-    auto cache_key = std::make_pair(fname, mtime);
+    auto cache_key = make_cache_key(fs, fname, mtime);
 
     // If this requires a new handle, skip to the creation codepath. Otherwise,
     // find an unused entry with the same mtime
@@ -189,6 +190,15 @@ Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& fna
     return Status::OK();
 }
 
+#ifdef BE_TEST
+bool FileHandleCache::same_cache_key_for_test(const hdfsFS& lhs_fs, const std::string& lhs_fname,
+                                              int64_t lhs_mtime, const hdfsFS& rhs_fs,
+                                              const std::string& rhs_fname, int64_t rhs_mtime) {
+    return make_cache_key(lhs_fs, lhs_fname, lhs_mtime) ==
+           make_cache_key(rhs_fs, rhs_fname, rhs_mtime);
+}
+#endif
+
 void FileHandleCache::_evict_handles_loop() {
     while (!_is_shut_down.load()) {
         if (_unused_handle_timeout_secs) {
@@ -203,7 +213,5 @@ void FileHandleCache::_evict_handles_loop() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::io

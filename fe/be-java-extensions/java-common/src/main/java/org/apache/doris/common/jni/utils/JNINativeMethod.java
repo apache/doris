@@ -42,4 +42,5 @@ public class JNINativeMethod {
      * corresponds to one deallocation.
      */
     public static native void memoryTrackerFreeBatch(long[] addrs);
+
 }

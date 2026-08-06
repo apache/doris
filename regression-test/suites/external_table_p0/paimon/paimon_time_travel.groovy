@@ -23,7 +23,7 @@ import java.time.ZoneId
 
 
 
-suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_doris") {
+suite("paimon_time_travel", "p0,external") {
     logger.info("start paimon test")
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -155,6 +155,14 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
 
         // tag on expired snapshot should still be readable
         qt_expired_tag_count """select count(*) from ${tableName}_expired_tag FOR VERSION AS OF 't_exp_1';"""
+        qt_expired_tag_options_count """
+                select count(*) from ${tableName}_expired_tag
+                @options('scan.tag-name'='t_exp_1');
+                """
+        qt_expired_version_options_count """
+                select count(*) from ${tableName}_expired_tag
+                @options('scan.version'='t_exp_1');
+                """
 
         List<List<Object>> branchesResult = sql """ select branch_name from ${tableName}\$branches order by branch_name;"""
         logger.info("Query result from ${tableName}\$branches: ${branchesResult}")
@@ -307,13 +315,13 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
             sql """set force_jni_scanner=true; set time_zone='+10:00';"""
             test {
                 sql """select * from ${tableName} FOR TIME AS OF \"${snapshotTime}\" order by order_id"""
-                exception ("There is currently no snapshot earlier than or equal to timestamp")
+                exception ("snapshot earlier than or equal to")
             }
 
             sql """set force_jni_scanner=false;"""
             test {
                 sql """select * from ${tableName} FOR TIME AS OF \"${snapshotTime}\" order by order_id"""
-                exception ("There is currently no snapshot earlier than or equal to timestamp")
+                exception ("snapshot earlier than or equal to")
             }
 
         } finally {

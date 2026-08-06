@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_manifest_cache", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_manifest_cache", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
@@ -39,7 +39,7 @@ suite("test_iceberg_manifest_cache", "p0,external,doris,external_docker,external
                     "s3.secret_key" = "password",
                     "s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
                     "s3.region" = "us-east-1",
-                    "iceberg.manifest.cache.enable" = "true"
+                    "meta.cache.iceberg.manifest.enable" = "true"
                 );
             """
 
@@ -54,7 +54,7 @@ suite("test_iceberg_manifest_cache", "p0,external,doris,external_docker,external
                     "s3.secret_key" = "password",
                     "s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
                     "s3.region" = "us-east-1",
-                    "iceberg.manifest.cache.enable" = "false"
+                    "meta.cache.iceberg.manifest.enable" = "false"
                 );
             """
 
@@ -116,4 +116,3 @@ suite("test_iceberg_manifest_cache", "p0,external,doris,external_docker,external
         }
     }
 }
-

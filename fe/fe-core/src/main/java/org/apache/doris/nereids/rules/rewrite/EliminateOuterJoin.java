@@ -28,17 +28,14 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSet.Builder;
 import com.google.common.collect.Sets;
 
 import java.util.Collection;
-import java.util.HashSet;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -49,20 +46,12 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(
-                logicalJoin().when(join -> join.getJoinType().isOuterJoin())
-        ).then(filter -> {
-            LogicalJoin<Plan, Plan> join = filter.child();
+                logicalJoin().when(join -> join.getJoinType().isOuterJoin() || join.getJoinType().isAsofOuterJoin())
+        ).thenApply(ctx -> {
+            LogicalJoin<Plan, Plan> join = ctx.root.child();
 
-            Builder<Expression> conjunctsBuilder = ImmutableSet.builder();
-            Set<Slot> notNullSlots = new HashSet<>();
-            for (Expression predicate : filter.getConjuncts()) {
-                Optional<Slot> notNullSlot = TypeUtils.isNotNull(predicate);
-                if (notNullSlot.isPresent()) {
-                    notNullSlots.add(notNullSlot.get());
-                } else {
-                    conjunctsBuilder.add(predicate);
-                }
-            }
+            Set<Slot> notNullSlots = ExpressionUtils.inferNotNullSlots(
+                    ctx.root.getConjuncts(), join.getNullableSideOutput(), ctx.cascadesContext);
             boolean canFilterLeftNull = Utils.isIntersecting(join.left().getOutputSet(), notNullSlots);
             boolean canFilterRightNull = Utils.isIntersecting(join.right().getOutputSet(), notNullSlots);
             if (!canFilterRightNull && !canFilterLeftNull) {
@@ -70,8 +59,14 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
             }
 
             JoinType newJoinType = tryEliminateOuterJoin(join.getJoinType(), canFilterLeftNull, canFilterRightNull);
+            // Nothing changed: avoid adding redundant generated `IS NOT NULL` markers and
+            // returning a structurally-equivalent plan, which would otherwise cause pointless
+            // re-rewrite churn inside the PUSH_DOWN_FILTERS fixed-point.
+            if (newJoinType == join.getJoinType()) {
+                return null;
+            }
             Set<Expression> conjuncts = Sets.newHashSet();
-            conjuncts.addAll(filter.getConjuncts());
+            conjuncts.addAll(ctx.root.getConjuncts());
             boolean conjunctsChanged = false;
             if (!notNullSlots.isEmpty()) {
                 for (Slot slot : notNullSlots) {
@@ -79,15 +74,13 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
                     conjunctsChanged |= conjuncts.add(isNotNull);
                 }
             }
-            if (newJoinType.isInnerJoin()) {
+            if (newJoinType.isInnerJoin() || newJoinType.isAsofInnerJoin()) {
                 /*
                  * for example: (A left join B on A.a=B.b) join C on B.x=C.x
                  * inner join condition B.x=C.x implies 'B.x is not null',
                  * by which the left outer join could be eliminated. Finally, the join transformed to
                  * (A join B on A.a=B.b) join C on B.x=C.x.
                  * This elimination can be processed recursively.
-                 *
-                 * TODO: is_not_null can also be inferred from A < B and so on
                  */
                 conjunctsChanged |= join.getEqualToConjuncts().stream()
                         .map(EqualTo.class::cast)
@@ -105,10 +98,10 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
                         .anyMatch(equalTo -> createIsNotNullIfNecessary(equalTo, conjuncts));
             }
             if (conjunctsChanged) {
-                return filter.withConjuncts(conjuncts.stream().collect(ImmutableSet.toImmutableSet()))
+                return ctx.root.withConjuncts(conjuncts.stream().collect(ImmutableSet.toImmutableSet()))
                         .withChildren(join.withJoinTypeAndContext(newJoinType, join.getJoinReorderContext()));
             }
-            return filter.withChildren(join.withJoinTypeAndContext(newJoinType, join.getJoinReorderContext()));
+            return ctx.root.withChildren(join.withJoinTypeAndContext(newJoinType, join.getJoinReorderContext()));
         }).toRule(RuleType.ELIMINATE_OUTER_JOIN);
     }
 
@@ -116,8 +109,14 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
         if (joinType.isRightOuterJoin() && canFilterLeftNull) {
             return JoinType.INNER_JOIN;
         }
+        if (joinType.isAsofRightOuterJoin() && canFilterLeftNull) {
+            return JoinType.ASOF_RIGHT_INNER_JOIN;
+        }
         if (joinType.isLeftOuterJoin() && canFilterRightNull) {
             return JoinType.INNER_JOIN;
+        }
+        if (joinType.isAsofLeftOuterJoin() && canFilterRightNull) {
+            return JoinType.ASOF_LEFT_INNER_JOIN;
         }
         if (joinType.isFullOuterJoin() && canFilterLeftNull && canFilterRightNull) {
             return JoinType.INNER_JOIN;

@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "olap/rowset/rowset.h"
-#include "olap/tablet_schema.h"
+#include "storage/rowset/rowset.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 

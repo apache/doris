@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -50,6 +51,17 @@ public class LogicalPlanDeepCopierTest {
     }
 
     @Test
+    public void testDeepCopyOlapScanWithNonFirstOperativeSlot() {
+        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
+        relationPlan = (LogicalOlapScan) relationPlan.withOperativeSlots(
+                ImmutableList.of(relationPlan.getOutput().get(1)));
+        LogicalOlapScan aCopy =
+                (LogicalOlapScan) relationPlan.accept(LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
+
+        Assertions.assertEquals(ImmutableList.of(aCopy.getOutput().get(1)), aCopy.getOperativeSlots());
+    }
+
+    @Test
     public void testDeepCopyAggregateWithSourceRepeat() {
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t", 0);
         List<? extends NamedExpression> groupingKeys = scan.getOutput().subList(0, 1);
@@ -62,6 +74,7 @@ public class LogicalPlanDeepCopierTest {
                 groupingSets,
                 scan.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
                 groupingId,
+                RepeatType.GROUPING_SETS,
                 scan
         );
         List<? extends NamedExpression> groupByExprs = repeat.getOutput().subList(0, 1).stream()

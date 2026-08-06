@@ -50,7 +50,7 @@ public class GetStreamLoadState extends RestBaseController {
             return ResponseEntityBuilder.badRequest("No label selected");
         }
 
-        final String fullDbName = getFullDbName(dbName);
+        final String fullDbName = dbName;
 
         Database db;
         try {

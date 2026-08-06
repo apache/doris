@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_info_schema_db", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_info_schema_db", "p0,external") {
 
     String catalog_name = "hive_test_infodb";
     String innerdb = "innerdb";

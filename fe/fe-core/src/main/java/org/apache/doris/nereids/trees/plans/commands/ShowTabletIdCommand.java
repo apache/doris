@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -45,7 +46,6 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -55,7 +55,6 @@ import java.util.List;
  */
 public class ShowTabletIdCommand extends ShowCommand {
     private final long tabletId;
-    private String dbName;
 
     /**
      * constructor
@@ -81,6 +80,8 @@ public class ShowTabletIdCommand extends ShowCommand {
         builder.addColumn(new Column("IsSync", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("Order", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("QueryHits", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("WindowAccessCount", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("LastAccessTime", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("DetailCmd", ScalarType.createVarchar(30)));
         return builder.build();
     }
@@ -93,11 +94,6 @@ public class ShowTabletIdCommand extends ShowCommand {
         // check access first
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLET");
-        }
-
-        dbName = ctx.getDatabase();
-        if (Strings.isNullOrEmpty(dbName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
     }
 
@@ -119,6 +115,14 @@ public class ShowTabletIdCommand extends ShowCommand {
 
         int tabletIdx = -1;
         // check real meta
+        TabletSlidingWindowAccessStats.AccessStatsResult asr = TabletSlidingWindowAccessStats.getInstance()
+                .getAccessInfo(tabletId);
+        long accessCount = 0;
+        long lastAccessTime = 0;
+        if (asr != null) {
+            accessCount = asr.accessCount;
+            lastAccessTime = asr.lastAccessTime;
+        }
         do {
             Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
@@ -191,7 +195,9 @@ public class ShowTabletIdCommand extends ShowCommand {
         rows.add(Lists.newArrayList(dbName, tableName, partitionName, indexName,
                 dbId.toString(), tableId.toString(),
                 partitionId.toString(), indexId.toString(),
-                isSync.toString(), String.valueOf(tabletIdx), String.valueOf(queryHits), detailCmd));
+                isSync.toString(), String.valueOf(tabletIdx), String.valueOf(queryHits),
+                String.valueOf(accessCount), String.valueOf(lastAccessTime),
+                detailCmd));
         return new ShowResultSet(getMetaData(), rows);
     }
 

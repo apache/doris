@@ -47,6 +47,8 @@ extern void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int6
                           int64_t partition_id, int64_t tablet_id);
 extern doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id,
                                               int64_t version, int num_rows);
+extern void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                           CreateRowsetResponse& res);
 extern void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
                           CreateRowsetResponse& res);
 extern void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
@@ -841,7 +843,7 @@ TEST(MetaServiceOperationLogTest, CommitTxn) {
         LOG(INFO) << "Creating rowset for tablet_id=" << (tablet_id_base + i)
                   << ", partition_id=" << partition_id << ", txn_id=" << txn_id
                   << ", rowset=" << tmp_rowset.ShortDebugString();
-
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -1048,6 +1050,7 @@ TEST(MetaServiceOperationLogTest, CommitTxnEventually) {
     create_tablet(meta_service.get(), table_id, 1237, partition_id, tablet_id_base);
     auto tmp_rowset = create_rowset(txn_id, tablet_id_base, partition_id, 1, 100);
     CreateRowsetResponse res;
+    prepare_rowset(meta_service.get(), tmp_rowset, res);
     commit_rowset(meta_service.get(), tmp_rowset, res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
@@ -1273,6 +1276,7 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
         create_tablet(meta_service.get(), table_id, 1238, partition_id, tablet_id_base + i);
         auto tmp_rowset = create_rowset(sub_txn_id, tablet_id_base + i, partition_id, 1, 100);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -1292,6 +1296,8 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &commit_res, nullptr);
         ASSERT_EQ(commit_res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(commit_res.has_version_update_time_ms());
+        ASSERT_GT(commit_res.version_update_time_ms(), 0);
     }
 
     auto txn_kv = meta_service->txn_kv();
@@ -1390,12 +1396,17 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
         VersionPB versioned_partition_version;
         ASSERT_TRUE(versioned_partition_version.ParseFromString(partition_version_val));
         ASSERT_EQ(versionstamp, commit_versionstamp);
+        ASSERT_TRUE(versioned_partition_version.has_update_time_ms());
+        ASSERT_EQ(versioned_partition_version.update_time_ms(),
+                  commit_res.version_update_time_ms());
 
         key = partition_version_key({instance_id, db_id, table_id, partition_id});
         ASSERT_EQ(txn->get(key, &partition_version_val), TxnErrorCode::TXN_OK);
         VersionPB partition_version;
         ASSERT_TRUE(partition_version.ParseFromString(partition_version_val));
         ASSERT_EQ(versioned_partition_version.version(), partition_version.version());
+        ASSERT_TRUE(partition_version.has_update_time_ms());
+        ASSERT_EQ(partition_version.update_time_ms(), commit_res.version_update_time_ms());
     }
 
     {

@@ -21,7 +21,7 @@ suite("test_float_double", "p0, nonConcurrent"){
 
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set inverted_index_skip_threshold = 0 """
 
     def queryAndCheck = { String sqlQuery, int expectedFilteredRows = -1, boolean checkFilterUsed = true ->
@@ -49,7 +49,7 @@ suite("test_float_double", "p0, nonConcurrent"){
             INDEX idx_double_col (double_col) USING INVERTED
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")
     """
-    
+
     sql """ insert into ${tableName} values (1, 1.5, 1.5239849328948), (2, 2.23, 2.239849328948), (3, 3.02, 3.029849328948) """
 
 
@@ -61,5 +61,5 @@ suite("test_float_double", "p0, nonConcurrent"){
     queryAndCheck("select count() from ${tableName} where float_col = cast(1.5 as float)", 2)
     queryAndCheck("select count() from ${tableName} where float_col = cast(2.23 as float)", 2)
     queryAndCheck("select count() from ${tableName} where float_col = cast(3.02 as float)", 2)
-    
+
 }

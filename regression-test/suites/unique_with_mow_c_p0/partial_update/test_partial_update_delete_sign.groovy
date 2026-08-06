@@ -35,7 +35,7 @@ suite('test_partial_update_delete_sign') {
                     `c3` int,
                     `c4` int
                     )UNIQUE KEY(k1)
-                CLUSTER BY(c1)    
+                ORDER BY(c1)    
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
@@ -97,7 +97,7 @@ suite('test_partial_update_delete_sign') {
                     `c3` int,
                     `c4` int
                     )UNIQUE KEY(k1)
-                CLUSTER BY(c3, c2)
+                ORDER BY(c3, c2)
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
@@ -160,7 +160,7 @@ suite('test_partial_update_delete_sign') {
                 v1 int,
                 v2 int
             ) ENGINE=OLAP unique key (k)
-            CLUSTER BY(v2, k)
+            ORDER BY(v2, k)
             distributed by hash(k) buckets 1
             properties("replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
@@ -205,7 +205,7 @@ suite('test_partial_update_delete_sign') {
                 v2 int,
                 c int
             ) ENGINE=OLAP unique key (k)
-            CLUSTER BY(c, v1)
+            ORDER BY(c, v1)
             distributed by hash(k) buckets 1
             properties("replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",

@@ -23,10 +23,9 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class MemTrackerLimiter;
 class ResourceContext;
@@ -84,6 +83,10 @@ public:
         adjusted_mem_limit_ = mem_tracker_->limit();
     }
 
+    void set_user_set_mem_limit(int64_t user_set_mem_limit) {
+        user_set_mem_limit_ = user_set_mem_limit;
+    }
+
     // This method is called by workload group manager to set query's memlimit using slot
     // If user set query limit explicitly, then should use less one
     void set_mem_limit(int64_t new_mem_limit) const { mem_tracker_->set_limit(new_mem_limit); }
@@ -123,5 +126,4 @@ protected:
     std::atomic<int64_t> adjusted_mem_limit_ = 0;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

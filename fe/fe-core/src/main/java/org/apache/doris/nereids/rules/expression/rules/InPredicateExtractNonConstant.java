@@ -26,8 +26,8 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.hadoop.util.Lists;
 
 import java.util.List;
 import java.util.Set;
@@ -50,7 +50,7 @@ public class InPredicateExtractNonConstant implements ExpressionPatternRuleFacto
                 matchesType(InPredicate.class)
                         .when(inPredicate ->
                                 inPredicate.getOptions().size() <= InPredicateDedup.REWRITE_OPTIONS_MAX_SIZE
-                                && !inPredicate.getCompareExpr().containsUniqueFunction())
+                                && !inPredicate.getCompareExpr().containsVolatileExpression())
                         .then(this::rewrite)
                         .toRule(ExpressionRuleType.IN_PREDICATE_EXTRACT_NON_CONSTANT)
         );

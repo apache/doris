@@ -16,6 +16,7 @@
 // under the License.
 
 suite("analyze_sort") {
+    sql "set parallel_pipeline_task_num=2"
 
     sql """
         SET ignore_shape_nodes='PhysicalDistribute';

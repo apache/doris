@@ -252,11 +252,6 @@ def convert_arrow_field_to_python(field, column_metadata=None):
     if field is None:
         return None
 
-    if pa.types.is_map(field.type):
-        # pyarrow.lib.MapScalar's as_py() returns a list of tuples, convert to dict
-        list_of_tuples = field.as_py()
-        return dict(list_of_tuples) if list_of_tuples is not None else None
-    
     # Check if we should apply special IP type conversion based on metadata
     if column_metadata:
         # Arrow metadata keys can be either bytes or str depending on how they were created
@@ -288,8 +283,76 @@ def convert_arrow_field_to_python(field, column_metadata=None):
                         )
                         return value
                 return None
-    
-    return field.as_py()
+        elif doris_type in (b'LARGEINT', 'LARGEINT'):
+            if pa.types.is_string(field.type) or pa.types.is_large_string(field.type):
+                value = field.as_py()
+                if value is not None:
+                    try:
+                        return int(value)
+                    except (ValueError, TypeError) as e:
+                        logging.warning(
+                            "Failed to convert string '%s' to int for LARGEINT: %s", value, e
+                        )
+                        return value
+                return None
+
+    return convert_arrow_value_to_python(field.as_py(), field.type)
+
+
+def convert_arrow_value_to_python(value, arrow_type):
+    """
+    Recursively convert Arrow nested values to Doris Python UDF values.
+
+    PyArrow exposes MapScalar.as_py() as a list of key/value tuples. If the map is
+    nested under ARRAY or STRUCT, the top-level scalar is no longer MapScalar, so
+    field.as_py() alone would leak list-of-tuples to user UDF code.
+    """
+    if value is None:
+        return None
+
+    if pa.types.is_map(arrow_type):
+        key_type = arrow_type.key_type
+        item_type = arrow_type.item_type
+        return {
+            convert_arrow_value_to_python(k, key_type): convert_arrow_value_to_python(
+                v, item_type
+            )
+            for k, v in value
+        }
+
+    if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
+        element_type = arrow_type.value_type
+        return [convert_arrow_value_to_python(v, element_type) for v in value]
+
+    if pa.types.is_struct(arrow_type):
+        return {
+            arrow_type[i].name: convert_arrow_value_to_python(
+                value.get(arrow_type[i].name), arrow_type[i].type
+            )
+            for i in range(len(arrow_type))
+        }
+
+    return value
+
+
+def needs_nested_python_normalization(arrow_type):
+    """
+    Return True when Arrow default Python conversion can leak nested MAP values as
+    list-of-tuples and therefore needs recursive normalization.
+    """
+    if pa.types.is_map(arrow_type):
+        return True
+
+    if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
+        return needs_nested_python_normalization(arrow_type.value_type)
+
+    if pa.types.is_struct(arrow_type):
+        return any(
+            needs_nested_python_normalization(arrow_type[i].type)
+            for i in range(len(arrow_type))
+        )
+
+    return False
 
 
 def convert_python_to_arrow_value(value, output_type=None):
@@ -314,16 +377,9 @@ def convert_python_to_arrow_value(value, output_type=None):
     if value is None:
         return None
 
-    is_ipv4_output = False
-    is_ipv6_output = False
-
-    if output_type is not None and hasattr(output_type, 'metadata') and output_type.metadata:
-        # Arrow metadata keys can be either bytes or str depending on how they were created
-        doris_type = output_type.metadata.get(b'doris_type') or output_type.metadata.get('doris_type')
-        if doris_type in (b'IPV4', 'IPV4'):
-            is_ipv4_output = True
-        elif doris_type in (b'IPV6', 'IPV6'):
-            is_ipv6_output = True
+    if output_type and pa.types.is_string(output_type) and isinstance(value, int):
+        # If output type is string but value is int, convert to string (for LARGEINT)
+        return str(value)
 
     # Convert IPv4Address back to int
     if isinstance(value, ipaddress.IPv4Address):
@@ -333,20 +389,6 @@ def convert_python_to_arrow_value(value, output_type=None):
     if isinstance(value, ipaddress.IPv6Address):
         return str(value)
 
-    # IPv4 output must return IPv4Address objects
-    if is_ipv4_output and isinstance(value, int):
-        raise TypeError(
-            f"IPv4 UDF must return ipaddress.IPv4Address object, got int ({value}). "
-            f"Use: return ipaddress.IPv4Address({value})"
-        )
-
-    # IPv6 output must return IPv6Address objects
-    if is_ipv6_output and isinstance(value, str):
-        raise TypeError(
-            f"IPv6 UDF must return ipaddress.IPv6Address object, got str ('{value}'). "
-            f"Use: return ipaddress.IPv6Address('{value}')"
-        )
-
     # Handle list of values (but not tuples that might be struct data)
     if isinstance(value, list):
         # For list types, recursively convert elements
@@ -355,7 +397,8 @@ def convert_python_to_arrow_value(value, output_type=None):
             return [convert_python_to_arrow_value(v, element_type) for v in value]
         else:
             # No type info, just recurse without type
-            return [convert_python_to_arrow_value(v, None) for v in value]
+            # Keep output_type here because UDTF row outputs are nested Python lists whose elements still need the outer element type.
+            return [convert_python_to_arrow_value(v, output_type) for v in value]
 
     # Handle tuple values (could be struct data)
     if isinstance(value, tuple):
@@ -373,6 +416,24 @@ def convert_python_to_arrow_value(value, output_type=None):
         else:
             # Not a struct type, treat as regular tuple and recurse without type
             return tuple(convert_python_to_arrow_value(v, None) for v in value)
+    
+    if isinstance(value, dict):
+        # For map types, convert keys and values recursively
+        if output_type and pa.types.is_map(output_type):
+            key_type = output_type.key_type
+            item_type = output_type.item_type
+            # Convert dict to list of tuples (PyArrow Map format)
+            converted_items = [
+                (convert_python_to_arrow_value(k, key_type),
+                convert_python_to_arrow_value(v, item_type))
+                for k, v in value.items()
+            ]
+            return converted_items
+        else:
+            # No type info, just recurse without type
+            return [(convert_python_to_arrow_value(k, None),
+                    convert_python_to_arrow_value(v, None))
+                    for k, v in value.items()]
 
     if isinstance(value, pd.Series):
         return value.apply(lambda v: convert_python_to_arrow_value(v, output_type))
@@ -445,6 +506,7 @@ class PythonUDFMeta:
 
     def __init__(
         self,
+        function_id: int,
         name: str,
         symbol: str,
         location: str,
@@ -460,6 +522,7 @@ class PythonUDFMeta:
         Initialize Python UDF metadata.
 
         Args:
+            function_id: FE catalog function id
             name: UDF function name
             symbol: Symbol to load (function name or module.function)
             location: File path or directory containing the UDF
@@ -471,6 +534,7 @@ class PythonUDFMeta:
             output_type: PyArrow data type for return value
             client_type: 0 for UDF, 1 for UDAF, 2 for UDTF
         """
+        self.id = function_id
         self.name = name
         self.symbol = symbol
         self.location = location
@@ -498,7 +562,7 @@ class PythonUDFMeta:
         """Returns a string representation of the UDF metadata."""
         udf_load_type_str = "INLINE" if self.udf_load_type == 0 else "MODULE"
         return (
-            f"PythonUDFMeta(name={self.name}, symbol={self.symbol}, "
+            f"PythonUDFMeta(id={self.id}, name={self.name}, symbol={self.symbol}, "
             f"location={self.location}, udf_load_type={udf_load_type_str}, runtime_version={self.runtime_version}, "
             f"always_nullable={self.always_nullable}, client_type={self.client_type.name}, "
             f"input_types={self.input_types}, output_type={self.output_type})"
@@ -550,8 +614,24 @@ class AdaptivePythonUDF:
         Convert a pa.Array to an instance of the specified VectorType.
         """
         if vec_type == VectorType.LIST:
-            return arrow_array.to_pylist()
+            values = arrow_array.to_pylist()
+            if not needs_nested_python_normalization(arrow_array.type):
+                return values
+            return [
+                convert_arrow_value_to_python(value, arrow_array.type)
+                for value in values
+            ]
         elif vec_type == VectorType.PANDAS_SERIES:
+            if needs_nested_python_normalization(arrow_array.type):
+                # Some pyarrow builds cannot materialize nested map-containing arrays
+                # through to_pandas() (for example list<map<...>>). Normalize through
+                # Python objects first, then build an object Series explicitly.
+                values = arrow_array.to_pylist()
+                converted = [
+                    convert_arrow_value_to_python(value, arrow_array.type)
+                    for value in values
+                ]
+                return pd.Series(converted, dtype=object)
             return arrow_array.to_pandas()
         else:
             raise ValueError(f"Unsupported vector type: {vec_type}")
@@ -618,11 +698,9 @@ class AdaptivePythonUDF:
                     converted_args,
                     traceback.format_exc(),
                 )
-                # Return None for failed rows if always_nullable is True
-                if self.python_udf_meta.always_nullable:
-                    result.append(None)
-                else:
-                    raise
+                raise RuntimeError(
+                    f"Error in scalar UDF execution at row {i}: {e}"
+                ) from e
 
         return pa.array(result, type=self._get_output_type())
 
@@ -654,7 +732,7 @@ class AdaptivePythonUDF:
                 # instead of converting to list
                 pylist = arrow_col.to_pylist()
                 if len(pylist) > 0:
-                    converted = pylist[0]
+                    converted = convert_arrow_value_to_python(pylist[0], arrow_col.type)
                     logging.info(
                         "Converted %s to scalar (first value): %s",
                         param.name,
@@ -794,30 +872,59 @@ class InlineUDFLoader(UDFLoader):
 class ModuleUDFLoader(UDFLoader):
     """Loads a UDF from a Python module file (.py)."""
 
+    # Module names that are forbidden for UDFs because they conflict with
+    # modules already imported by the server process. Loading a user module
+    # with one of these names would overwrite the entry in sys.modules and
+    # could break the server itself.
+    _FORBIDDEN_MODULE_NAMES: frozenset = frozenset({
+        "argparse", "base64", "gc", "importlib", "inspect", "ipaddress",
+        "json", "sys", "os", "traceback", "logging", "time", "threading",
+        "pickle", "abc", "contextlib", "typing", "datetime", "enum",
+        "pathlib", "pandas", "pd", "pyarrow", "pa", "flight",
+        "logging.handlers",
+    })
+
     # Class-level lock dictionary for thread-safe module imports
     # Using RLock allows the same thread to acquire the lock multiple times
-    _import_locks: Dict[str, threading.RLock] = {}
+
+    # Key for _import_locks: module_name only (not location)
+    # sys.modules is a global dict keyed by module name.
+    # we need to ensure that imports with the same module name
+    # do not interfere with each other across different threads,
+    # even if they come from different file paths.
+    _import_locks: Dict[str, threading.Lock] = {}
     _import_locks_lock = threading.Lock()
 
+    # Key for _module_cache: location only
+    # since location already contains a unique function_id
+    _module_cache: Dict[str, Any] = {}
+    _module_cache_lock = threading.Lock()
+
     @classmethod
-    def _get_import_lock(cls, module_name: str) -> threading.RLock:
+    def _get_import_lock(cls, module_name: str) -> threading.Lock:
         """
-        Get or create a reentrant lock for the given module name.
+        Get or create an import lock for the given module namespace.
 
         Uses double-checked locking pattern for optimal performance:
         - Fast path: return existing lock without acquiring global lock
         - Slow path: create new lock under global lock protection
         """
+        # Lock by top-level package to avoid concurrent imports mutating shared
+        # parent entries in sys.modules. If we lock by full module name instead,
+        # pkg.mod.func1 and pkg.mod.func2 can import in parallel and race while
+        # initializing pkg/pkg.mod, causing flaky import failures (for example KeyError).
+        cache_key = module_name.split(".", 1)[0]
+
         # Fast path: check without lock (read-only, safe for most cases)
-        if module_name in cls._import_locks:
-            return cls._import_locks[module_name]
+        if cache_key in cls._import_locks:
+            return cls._import_locks[cache_key]
 
         # Slow path: create lock under protection
         with cls._import_locks_lock:
             # Double-check: another thread might have created it while we waited
-            if module_name not in cls._import_locks:
-                cls._import_locks[module_name] = threading.RLock()
-            return cls._import_locks[module_name]
+            if cache_key not in cls._import_locks:
+                cls._import_locks[cache_key] = threading.Lock()
+            return cls._import_locks[cache_key]
 
     def load(self) -> AdaptivePythonUDF:
         """
@@ -884,35 +991,71 @@ class ModuleUDFLoader(UDFLoader):
 
         return package_name, module_name, func_name
 
+    @staticmethod
+    def _clear_modules_from_sys(full_module_name: str) -> None:
+        """Remove a module and all its ancestor packages from sys.modules.
+
+        To prevent the same module from being polluted by old caches
+        when loaded from different paths.
+        e.g., the pkg under path_a affecting the pkg.mdu_a under path_b,
+        the ancestor chain is cleared after each import.
+
+        This ensures that subsequent imports always start from a fresh state.
+        """
+        parts = full_module_name.split(".")
+        for i in range(len(parts)):
+            ancestor = ".".join(parts[: i + 1])
+            sys.modules.pop(ancestor, None)
+
     def _get_or_import_module(self, location: str, full_module_name: str) -> Any:
-        """Get module from cache or import it (thread-safe)."""
+        """
+        Get module from cache or import it (thread-safe).
+
+        The cache is keyed by location alone, which already contains a unique
+        function_id assigned by the FE catalog.
+        """
+        # Reject module names that would shadow server-critical modules
+        top_level_name = full_module_name.split(".")[0]
+        if top_level_name in ModuleUDFLoader._FORBIDDEN_MODULE_NAMES:
+            raise ImportError(
+                f"Module name '{full_module_name}' is not allowed for UDFs "
+                f"because it conflicts with a module used by the server. "
+                f"Please rename your module to avoid shadowing built-in or "
+                f"server-critical modules."
+            )
+
+        cache_key = location
+
         # Use a per-module lock to prevent race conditions during import
         import_lock = ModuleUDFLoader._get_import_lock(full_module_name)
 
         with import_lock:
-            # Double-check pattern: verify module is still not loaded after acquiring lock
-            if full_module_name in sys.modules:
-                cached_module = sys.modules[full_module_name]
-                # Verify the cached module is valid (has __file__ or __path__ attribute)
-                # This prevents using broken/incomplete modules from failed imports
+            # Fast path: check cache first
+            if cache_key in ModuleUDFLoader._module_cache:
+                cached_module = ModuleUDFLoader._module_cache[cache_key]
                 if cached_module is not None and (
                     hasattr(cached_module, "__file__")
                     or hasattr(cached_module, "__path__")
                 ):
                     return cached_module
                 else:
-                    del sys.modules[full_module_name]
+                    del ModuleUDFLoader._module_cache[cache_key]
 
-            # Import the module (only one thread will reach here per module)
+            self._clear_modules_from_sys(full_module_name)
+
             with temporary_sys_path(location):
                 try:
                     module = importlib.import_module(full_module_name)
+                    ModuleUDFLoader._module_cache[cache_key] = module
+                    # Evict from sys.modules so future imports from a
+                    # different location are not poisoned by this one.
+                    self._clear_modules_from_sys(full_module_name)
                     return module
-                except Exception as e:
-                    # Clean up any partially-imported modules from sys.modules
-                    # This prevents broken modules from being cached
-                    if full_module_name in sys.modules:
-                        del sys.modules[full_module_name]
+                except Exception:
+                    # Clean up any partially-imported modules
+                    self._clear_modules_from_sys(full_module_name)
+                    if cache_key in ModuleUDFLoader._module_cache:
+                        del ModuleUDFLoader._module_cache[cache_key]
                     raise
 
     def _extract_function(
@@ -1500,8 +1643,9 @@ class FlightServer(flight.FlightServerBase):
             location: Unix socket path for the server
         """
         super().__init__(location)
-        # Use a dictionary to maintain separate state managers for each UDAF function
-        # Key: function signature (name + input_types), Value: UDAFStateManager instance
+        # Use a dictionary to maintain separate state managers for each UDAF function.
+        # Key includes function_id so DROP/CREATE with the same name and signature
+        # cannot reuse a class loaded from old inline code.
         self.udaf_state_managers: Dict[str, UDAFStateManager] = {}
         self.udaf_managers_lock = threading.Lock()
 
@@ -1518,19 +1662,50 @@ class FlightServer(flight.FlightServerBase):
         Returns:
             UDAFStateManager instance for this specific UDAF
         """
-        # Create a unique key based on function name and argument types
         type_names = [str(field.type) for field in python_udaf_meta.input_types]
-        func_key = f"{python_udaf_meta.name}({','.join(type_names)})"
+        func_key = (
+            f"{python_udaf_meta.id}:{python_udaf_meta.name}({','.join(type_names)})"
+        )
 
         with self.udaf_managers_lock:
-            if func_key not in self.udaf_state_managers:
+            manager = self.udaf_state_managers.get(func_key)
+            if manager is None:
                 manager = UDAFStateManager()
                 # Load and set the UDAF class for this manager using UDAFClassLoader
                 udaf_class = UDAFClassLoader.load_udaf_class(python_udaf_meta)
                 manager.set_udaf_class(udaf_class)
                 self.udaf_state_managers[func_key] = manager
 
-        return self.udaf_state_managers[func_key]
+            # Return the manager while holding the lock so a concurrent DROP cleanup
+            # cannot pop the key between lookup and return.
+            return manager
+
+    def _clear_udaf_state_cache_by_function_id(self, function_id: int) -> int:
+        """
+        Clear UDAF managers for a dropped function id.
+
+        DROP FUNCTION cache cleanup is asynchronous. The runtime key still includes
+        function_id for correctness, while this action detaches dropped functions
+        from the manager registry so new exchanges cannot reuse the old UDAF class.
+        """
+        prefix = f"{function_id}:"
+        cleared = 0
+
+        with self.udaf_managers_lock:
+            keys_to_remove = [
+                key for key in self.udaf_state_managers if key.startswith(prefix)
+            ]
+            for key in keys_to_remove:
+                # Do not clear manager.states here. An already-started Flight
+                # exchange may still hold this manager and continue with later
+                # SERIALIZE/FINALIZE/DESTROY calls for its place_ids.
+                self.udaf_state_managers.pop(key, None)
+                cleared += 1
+
+        if cleared:
+            gc.collect()
+
+        return cleared
 
     @staticmethod
     def parse_python_udf_meta(
@@ -1548,6 +1723,7 @@ class FlightServer(flight.FlightServerBase):
             return None
 
         cmd_json = json.loads(descriptor.command)
+        function_id = cmd_json["id"]
         name = cmd_json["name"]
         symbol = cmd_json["symbol"]
         location = cmd_json["location"]
@@ -1573,6 +1749,7 @@ class FlightServer(flight.FlightServerBase):
         output_type = output_schema.field(0).type
 
         python_udf_meta = PythonUDFMeta(
+            function_id=function_id,
             name=name,
             symbol=symbol,
             location=location,
@@ -1656,7 +1833,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            success = False
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([success], type=pa.bool_())], ["success"]
@@ -1804,7 +1981,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            serialized = b""
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([serialized], type=pa.binary())], ["serialized_state"]
@@ -1833,7 +2010,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            success = False
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([success], type=pa.bool_())], ["success"]
@@ -1857,7 +2034,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            result = None
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([result], type=output_type)], ["result"]
@@ -1879,7 +2056,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            success = False
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([success], type=pa.bool_())], ["success"]
@@ -2015,6 +2192,7 @@ class FlightServer(flight.FlightServerBase):
           * ACCUMULATE: use success + rows_processed (number of rows processed)
           * SERIALIZE: use success + serialized_data (serialized_state)
           * FINALIZE: use success + serialized_data (serialized result)
+          * Any failed operation: use success=false + serialized_data (UTF-8 error message)
         """
 
         # Get or create state manager for this specific UDAF function
@@ -2104,6 +2282,9 @@ class FlightServer(flight.FlightServerBase):
                     rows_processed = result_batch_accumulate.column(0)[0].as_py()
                     result_batch = self._create_unified_response(
                         success=(rows_processed > 0),
+                        # Processing zero rows is valid for empty fragments/slices.
+                        # Only exceptions should mark ACCUMULATE as failed.
+                        # success=True,
                         rows_processed=rows_processed,
                         data=b"",
                     )
@@ -2184,8 +2365,12 @@ class FlightServer(flight.FlightServerBase):
                     e,
                     traceback.format_exc(),
                 )
+                # Keep the UDAF Flight stream alive so C++ can still send DESTROY.
+                # On failure, serialized_data carries the user-visible Python error text.
                 result_batch = self._create_unified_response(
-                    success=False, rows_processed=0, data=b""
+                    success=False,
+                    rows_processed=0,
+                    data=str(e).encode("utf-8", errors="replace"),
                 )
 
             # Begin stream with unified schema on first call
@@ -2423,6 +2608,133 @@ class FlightServer(flight.FlightServerBase):
             self._handle_exchange_udtf(python_udf_meta, reader, writer)
         else:
             raise ValueError(f"Unsupported client type: {python_udf_meta.client_type}")
+
+    def do_action(
+        self,
+        context: flight.ServerCallContext,
+        action: flight.Action,
+    ):
+        """
+        Handle Flight actions for cache management.
+
+        Supported actions:
+        - "clear_module_cache": Clear Python module cache for a specific location
+          Body: JSON with "location" field (the UDF cache directory path)
+        - "clear_udaf_state_cache": Clear UDAF runtime state for a dropped function id
+          Body: JSON with "function_id" field
+        """
+        action_type = action.type
+
+        if action_type == "clear_module_cache":
+            yield from self._handle_clear_module_cache(action.body.to_pybytes())
+        elif action_type == "clear_udaf_state_cache":
+            yield from self._handle_clear_udaf_state_cache(action.body.to_pybytes())
+        else:
+            raise flight.FlightUnavailableError(f"Unknown action: {action_type}")
+
+    def _handle_clear_udaf_state_cache(self, body: bytes):
+        """
+        Clear cached UDAF state managers for a dropped function id.
+        """
+        try:
+            params = json.loads(body.decode("utf-8"))
+            function_id = int(params["function_id"])
+
+            cleared_managers = self._clear_udaf_state_cache_by_function_id(function_id)
+
+            result = {
+                "success": True,
+                "cleared_managers": cleared_managers,
+                "function_id": function_id,
+            }
+            yield flight.Result(json.dumps(result).encode("utf-8"))
+
+        except Exception as e:
+            logging.error("clear_udaf_state_cache failed: %s", e)
+            yield flight.Result(json.dumps({
+                "success": False,
+                "error": str(e)
+            }).encode("utf-8"))
+
+    def _handle_clear_module_cache(self, body: bytes):
+        """
+        Clear Python module cache for a specific UDF location.
+
+        This removes modules from sys.modules that were loaded from the specified
+        location, allowing fresh imports when a new UDF with the same module name
+        is created.
+        """
+        try:
+            params = json.loads(body.decode("utf-8"))
+            location = params.get("location", "")
+
+            if not location:
+                yield flight.Result(b'{"success": false, "error": "empty location"}')
+                return
+
+            cleared_modules = self._clear_modules_from_location(location)
+
+            result = {
+                "success": True,
+                "cleared_modules": cleared_modules,
+                "location": location,
+            }
+            yield flight.Result(json.dumps(result).encode("utf-8"))
+
+        except Exception as e:
+            logging.error("clear_module_cache failed: %s", e)
+            yield flight.Result(json.dumps({
+                "success": False,
+                "error": str(e)
+            }).encode("utf-8"))
+
+    def _clear_modules_from_location(self, location: str) -> list:
+        """
+        Clear module cache for the given location.
+
+        Acquires per-module import locks to ensure no concurrent import is
+        in progress for the modules being cleared, preventing race conditions
+        where sys.modules entries are removed mid-import.
+
+        Returns list of cleared module names.
+        """
+        cleared = []
+
+        with ModuleUDFLoader._module_cache_lock:
+            keys_to_remove = [
+                key for key in ModuleUDFLoader._module_cache
+                if key[0] == location
+            ]
+
+        # For each module, acquire its import lock before clearing.
+        # This ensures no concurrent _get_or_import_module is in progress
+        # for this (location, module_name) pair.
+        for key in keys_to_remove:
+            _, module_name = key
+            import_lock = ModuleUDFLoader._get_import_lock(module_name)
+
+            with import_lock:
+                with ModuleUDFLoader._module_cache_lock:
+                    if key in ModuleUDFLoader._module_cache:
+                        del ModuleUDFLoader._module_cache[key]
+
+                modules_to_remove = [
+                    name for name, mod in sys.modules.items()
+                    if name == module_name or name.startswith(module_name + ".")
+                    or (
+                        hasattr(mod, "__file__") and mod.__file__ is not None
+                        and mod.__file__.startswith(location)
+                    )
+                ]
+                for mod_name in modules_to_remove:
+                    del sys.modules[mod_name]
+                    if mod_name not in cleared:
+                        cleared.append(mod_name)
+
+                if module_name not in cleared:
+                    cleared.append(module_name)
+
+        return cleared
 
 
 class UDAFOperationType(Enum):

@@ -17,14 +17,15 @@
 
 #pragma once
 
+#include <gen_cpp/AgentService_types.h>
+
 #include <memory>
 #include <optional>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
-#include "gen_cpp/AgentService_types.h"
-#include "olap/tablet_fwd.h"
-#include "olap/task/engine_task.h"
+#include "storage/tablet/tablet_fwd.h"
+#include "storage/task/engine_task.h"
 
 namespace doris {
 
@@ -42,7 +43,7 @@ public:
                               int64_t ms_cumulative_point);
     void set_tablet_state(int64_t tablet_state);
 
-    Status handle() const;
+    Status handle(int64_t queue_time_us) const;
 
 private:
     Status _handle_rowset(std::shared_ptr<CloudTablet> tablet, int64_t version,

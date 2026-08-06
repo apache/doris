@@ -62,7 +62,8 @@ suite("test_expand_star_mtmv","mtmv") {
     sql """ CREATE FUNCTION ${functionName}(date, date) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTest1",
-            "type"="JAVA_UDF"
+            "type"="JAVA_UDF",
+            "volatility"="immutable"
         ); """
 
     sql """

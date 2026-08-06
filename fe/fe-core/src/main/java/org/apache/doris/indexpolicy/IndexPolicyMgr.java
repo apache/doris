@@ -342,6 +342,12 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             case "pinyin":
                 validator = new PinyinTokenizerValidator();
                 break;
+            case "icu":
+                validator = new ICUTokenizerValidator();
+                break;
+            case "basic":
+                validator = new BasicTokenizerValidator();
+                break;
             default:
                 Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKENIZERS.stream()
                         .filter(t -> !t.equals("empty"))

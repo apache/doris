@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/file_cache.pb.h>
+
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -30,7 +32,6 @@
 #include <tuple>
 #include <vector>
 
-#include "gen_cpp/file_cache.pb.h"
 #include "io/cache/file_cache_common.h"
 
 namespace doris::io {
@@ -86,6 +87,8 @@ private:
     // For parsing
     doris::io::cache::LRUDumpEntryGroupPb _current_parse_group;
     doris::io::cache::LRUDumpMetaPb _parse_meta;
+    int _parse_group_index = 0;
+    int _parse_entry_index = 0;
 
     BlockFileCache* _mgr;
     LRUQueueRecorder* _recorder;

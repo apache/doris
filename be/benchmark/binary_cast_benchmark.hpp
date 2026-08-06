@@ -21,7 +21,7 @@
 #include <random>
 #include <vector>
 
-#include "util/binary_cast.hpp"
+#include "core/binary_cast.hpp"
 
 namespace doris {
 
@@ -53,51 +53,10 @@ To old_binary_cast(From from) {
                   from_decv2_to_i128 || from_decv2_to_i256 || from_ui32_to_date_v2 ||
                   from_date_v2_to_ui32 || from_ui64_to_datetime_v2 || from_datetime_v2_to_ui64);
 
-    if constexpr (from_u64_to_db) {
-        TypeConverter conv;
-        conv.u64 = from;
-        return conv.dbl;
-    } else if constexpr (from_i64_to_db) {
-        TypeConverter conv;
-        conv.i64 = from;
-        return conv.dbl;
-    } else if constexpr (from_db_to_i64) {
-        TypeConverter conv;
-        conv.dbl = from;
-        return conv.i64;
-    } else if constexpr (from_db_to_u64) {
-        TypeConverter conv;
-        conv.dbl = from;
-        return conv.u64;
-    } else if constexpr (from_i64_to_vec_dt) {
-        VecDateTimeInt64Union conv = {.i64 = from};
-        return conv.dt;
-    } else if constexpr (from_ui32_to_date_v2) {
-        DateV2UInt32Union conv = {.ui32 = from};
-        return conv.dt;
-    } else if constexpr (from_date_v2_to_ui32) {
-        DateV2UInt32Union conv = {.dt = from};
-        return conv.ui32;
-    } else if constexpr (from_ui64_to_datetime_v2) {
-        DateTimeV2UInt64Union conv = {.ui64 = from};
-        return conv.dt;
-    } else if constexpr (from_datetime_v2_to_ui64) {
-        DateTimeV2UInt64Union conv = {.dt = from};
-        return conv.ui64;
-    } else if constexpr (from_vec_dt_to_i64) {
-        VecDateTimeInt64Union conv = {.dt = from};
-        return conv.i64;
-    } else if constexpr (from_i128_to_decv2) {
-        DecimalInt128Union conv;
-        conv.i128 = from;
-        return conv.decimal;
-    } else if constexpr (from_decv2_to_i128) {
-        DecimalInt128Union conv;
-        conv.decimal = from;
-        return conv.i128;
-    } else {
-        throw Exception(Status::FatalError("__builtin_unreachable"));
-    }
+    static_assert(sizeof(From) == sizeof(To));
+    To to;
+    std::memcpy(&to, &from, sizeof(To));
+    return to;
 }
 
 // Generate random datetime values in uint64_t format for testing
@@ -138,7 +97,8 @@ static void BM_BinaryCast_UI64_to_DateTimeV2(benchmark::State& state) {
     state.ResumeTiming();
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(test_data.data());
+        auto* td = test_data.data();
+        benchmark::DoNotOptimize(td);
 
         for (size_t i = 0; i < data_size; ++i) {
             auto result = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(test_data[i]);
@@ -160,7 +120,8 @@ static void BM_OldBinaryCast_UI64_to_DateTimeV2(benchmark::State& state) {
     state.ResumeTiming();
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(test_data.data());
+        auto* td = test_data.data();
+        benchmark::DoNotOptimize(td);
 
         for (size_t i = 0; i < data_size; ++i) {
             auto result = old_binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(test_data[i]);
@@ -183,7 +144,8 @@ static void BM_BinaryCast_DateTimeV2_to_UI64(benchmark::State& state) {
     state.ResumeTiming();
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(test_data.data());
+        auto* td = test_data.data();
+        benchmark::DoNotOptimize(td);
 
         for (size_t i = 0; i < data_size; ++i) {
             auto result = binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(test_data[i]);
@@ -206,7 +168,8 @@ static void BM_OldBinaryCast_DateTimeV2_to_UI64(benchmark::State& state) {
     state.ResumeTiming();
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(test_data.data());
+        auto* td = test_data.data();
+        benchmark::DoNotOptimize(td);
 
         for (size_t i = 0; i < data_size; ++i) {
             auto result = old_binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(test_data[i]);

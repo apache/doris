@@ -62,6 +62,10 @@ public class AddColumnsOp extends AlterTableOp {
         return columns;
     }
 
+    public List<ColumnDefinition> getColumnDefinitions() {
+        return columnDefs == null ? Collections.emptyList() : columnDefs;
+    }
+
     public String getRollupName() {
         return rollupName;
     }
@@ -105,6 +109,12 @@ public class AddColumnsOp extends AlterTableOp {
     @Override
     public boolean needChangeMTMVState() {
         return false;
+    }
+
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Add columns is considered safe for row binlog tables.
+        return true;
     }
 
     @Override

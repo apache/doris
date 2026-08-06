@@ -45,11 +45,6 @@ public class RandomDistributionInfo extends DistributionInfo {
     }
 
     @Override
-    public int getBucketNum() {
-        return bucketNum;
-    }
-
-    @Override
     public String getColumnsName() {
         return "";
     }

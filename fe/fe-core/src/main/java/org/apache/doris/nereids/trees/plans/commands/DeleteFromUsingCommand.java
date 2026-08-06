@@ -33,16 +33,19 @@ import java.util.Optional;
 /**
  * delete from unique key table.
  */
-public class DeleteFromUsingCommand extends DeleteFromCommand {
+public class DeleteFromUsingCommand extends DeleteFromCommand implements SupportProfile {
     private final Optional<LogicalPlan> cte;
+    private final boolean hasOrderByLimit;
 
     /**
      * constructor
      */
     public DeleteFromUsingCommand(List<String> nameParts, String tableAlias,
-            boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery, Optional<LogicalPlan> cte) {
+            boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery,
+            Optional<LogicalPlan> cte, boolean hasOrderByLimit) {
         super(nameParts, tableAlias, isTempPart, partitions, logicalQuery);
         this.cte = cte;
+        this.hasOrderByLimit = hasOrderByLimit;
     }
 
     @Override
@@ -73,6 +76,11 @@ public class DeleteFromUsingCommand extends DeleteFromCommand {
     }
 
     @Override
+    public List<String> getTargetTableNameParts() {
+        return nameParts;
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitDeleteFromUsingCommand(this, context);
     }
@@ -80,7 +88,12 @@ public class DeleteFromUsingCommand extends DeleteFromCommand {
     @Override
     protected void checkTargetTable(OlapTable targetTable) {
         if (targetTable.getKeysType() != KeysType.UNIQUE_KEYS) {
-            throw new AnalysisException("delete command on with using clause only supports unique key model");
+            if (hasOrderByLimit) {
+                throw new AnalysisException(
+                        "delete command with ORDER BY/LIMIT only supports unique key model");
+            }
+            throw new AnalysisException(
+                    "delete command on with using clause only supports unique key model");
         }
     }
 

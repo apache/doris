@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS `supplier` (
   `s_phone` varchar(16) NOT NULL COMMENT ""
 )
 UNIQUE KEY (`s_suppkey`)
-CLUSTER BY (`s_address`, `s_name`)
+ORDER BY (`s_address`, `s_name`)
 DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 10
 PROPERTIES (
 "enable_mow_light_delete" = "true",

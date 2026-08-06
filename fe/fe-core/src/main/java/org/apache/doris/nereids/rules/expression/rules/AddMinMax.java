@@ -54,6 +54,8 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -177,6 +179,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
         List<Map.Entry<Expression, MinMaxValue>> minMaxExprs = exprMinMaxValues.entrySet().stream()
                 .sorted((a, b) -> Integer.compare(a.getValue().exprOrderIndex, b.getValue().exprOrderIndex))
                 .collect(Collectors.toList());
+        Set<Expression> nonInferredOriginPredicates = collectNonInferredPredicates(expr);
         List<Expression> addExprs = Lists.newArrayListWithExpectedSize(minMaxExprs.size() * 2);
         for (Map.Entry<Expression, MinMaxValue> entry : minMaxExprs) {
             Expression targetExpr = entry.getKey();
@@ -186,6 +189,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
                     && range.lowerBoundType() == BoundType.CLOSED
                     && range.upperBoundType() == BoundType.CLOSED) {
                 Expression cmp = new EqualTo(targetExpr, (Literal) range.lowerEndpoint());
+                cmp = cmp.withInferred(!nonInferredOriginPredicates.contains(cmp));
                 addExprs.add(cmp);
                 continue;
             }
@@ -194,6 +198,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
                 Expression cmp = range.lowerBoundType() == BoundType.CLOSED
                         ? new GreaterThanEqual(targetExpr, (Literal) literal)
                         : new GreaterThan(targetExpr, (Literal) literal);
+                cmp = cmp.withInferred(!nonInferredOriginPredicates.contains(cmp));
                 addExprs.add(cmp);
             }
             if (range.hasUpperBound()) {
@@ -201,6 +206,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
                 Expression cmp = range.upperBoundType() == BoundType.CLOSED
                         ? new LessThanEqual(targetExpr, (Literal) literal)
                         : new LessThan(targetExpr, (Literal) literal);
+                cmp = cmp.withInferred(!nonInferredOriginPredicates.contains(cmp));
                 addExprs.add(cmp);
             }
         }
@@ -217,8 +223,25 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
         return result;
     }
 
+    private Set<Expression> collectNonInferredPredicates(Expression expr) {
+        Set<Expression> predicates = Sets.newHashSet();
+        Deque<Expression> expressions = new ArrayDeque<>();
+        expressions.add(expr);
+        while (!expressions.isEmpty()) {
+            Expression current = expressions.removeLast();
+            if (ExpressionUtils.isInferred(current)) {
+                continue;
+            }
+            if (current instanceof CompoundPredicate) {
+                expressions.addAll(current.children());
+            } else {
+                predicates.add(current);
+            }
+        }
+        return predicates;
+    }
+
     private Expression replaceCmpMinMax(Expression expr, Set<Expression> cmpMinMaxExprs) {
-        // even if expr is nullable, replace it to true is ok because expression will 'AND' it later
         if (cmpMinMaxExprs.contains(expr)) {
             return BooleanLiteral.TRUE;
         }

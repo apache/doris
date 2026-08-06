@@ -23,15 +23,20 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.security.MessageDigest;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -91,6 +96,10 @@ public class Partition extends MetaObject {
     protected long nextVersion;
     @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo distributionInfo;
+    @SerializedName(value = "tso")
+    private long tso = -1;
+
+    private transient volatile String remoteMetaChecksum;
 
     protected Partition() {
     }
@@ -143,11 +152,15 @@ public class Partition extends MetaObject {
     }
 
     public void updateVisibleVersion(long visibleVersion) {
-        updateVisibleVersionAndTime(visibleVersion, System.currentTimeMillis());
+        updateVisibleVersionAndTime(visibleVersion, System.currentTimeMillis(), -1);
     }
 
     public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
-        this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
+        this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime, -1);
+    }
+
+    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime, long tso) {
+        this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime, tso);
     }
 
     /* fromCache is only used in CloudPartition
@@ -182,6 +195,13 @@ public class Partition extends MetaObject {
     public void setVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionTime = visibleVersionTime;
+        this.tso = -1;
+    }
+
+    public void setVisibleVersionAndTime(long visibleVersion, long visibleVersionTime, long tso) {
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionTime = visibleVersionTime;
+        this.tso = tso;
     }
 
     public PartitionState getState() {
@@ -258,6 +278,85 @@ public class Partition extends MetaObject {
         return indices;
     }
 
+    public String getMetaChecksum() {
+        MessageDigest digest = DigestUtils.getSha256Digest();
+        // Include partition-level fields whose changes should invalidate the cached
+        // remote partition payload, even when visibleVersion / visibleVersionTime
+        // remain unchanged (e.g. ALTER TABLE ... RENAME PARTITION only mutates name).
+        updateMetaChecksum(digest, (byte) 11, id);
+        updateMetaChecksumString(digest, (byte) 12, name);
+        updateMetaChecksum(digest, (byte) 13, state == null ? -1L : state.ordinal());
+        updateMetaChecksum(digest, (byte) 14, visibleVersion);
+        updateMetaChecksum(digest, (byte) 15, visibleVersionTime);
+        updateMetaChecksum(digest, (byte) 16, nextVersion);
+        if (distributionInfo != null) {
+            DistributionInfoType distType = distributionInfo.getType();
+            updateMetaChecksum(digest, (byte) 17, distType == null ? -1L : distType.ordinal());
+            updateMetaChecksum(digest, (byte) 18, distributionInfo.getBucketNum());
+            updateMetaChecksum(digest, (byte) 19, distributionInfo.getAutoBucket() ? 1L : 0L);
+        } else {
+            updateMetaChecksum(digest, (byte) 17, -1L);
+        }
+        List<MaterializedIndex> indexes = getMaterializedIndices(IndexExtState.VISIBLE);
+        indexes.sort(Comparator.comparingLong(MaterializedIndex::getId));
+        for (MaterializedIndex index : indexes) {
+            updateMetaChecksum(digest, (byte) 1, index.getId());
+            List<Tablet> tablets = Lists.newArrayList(index.getTablets());
+            tablets.sort(Comparator.comparingLong(Tablet::getId));
+            for (Tablet tablet : tablets) {
+                updateMetaChecksum(digest, (byte) 2, tablet.getId());
+                List<Replica> replicas = Lists.newArrayList(tablet.getReplicas());
+                replicas.sort(Comparator.comparingLong(Replica::getId)
+                        .thenComparingLong(Replica::getBackendIdWithoutException));
+                for (Replica replica : replicas) {
+                    updateMetaChecksum(digest, (byte) 3, replica.getId());
+                    updateMetaChecksum(digest, (byte) 4, replica.getBackendIdWithoutException());
+                    // Include all replica fields that affect getQueryableReplicas() filtering,
+                    // so a stale remote cache is invalidated whenever any of them changes
+                    // (e.g. replica becomes bad, lastFailedVersion is set, version/state changes).
+                    updateMetaChecksum(digest, (byte) 5, replica.getVersion());
+                    updateMetaChecksum(digest, (byte) 6, replica.getLastFailedVersion());
+                    updateMetaChecksum(digest, (byte) 7, replica.getPathHash());
+                    Replica.ReplicaState state = replica.getState();
+                    updateMetaChecksum(digest, (byte) 8, state == null ? -1L : state.ordinal());
+                    updateMetaChecksum(digest, (byte) 9, replica.isBad() ? 1L : 0L);
+                    updateMetaChecksum(digest, (byte) 10, replica.isUserDrop() ? 1L : 0L);
+                }
+            }
+        }
+        return Hex.encodeHexString(digest.digest());
+    }
+
+    public String getRemoteMetaChecksum() {
+        return remoteMetaChecksum;
+    }
+
+    public void setRemoteMetaChecksum(String checksum) {
+        if (checksum != null) {
+            this.remoteMetaChecksum = checksum;
+        }
+    }
+
+    private void updateMetaChecksum(MessageDigest digest, byte tag, long value) {
+        Util.updateMessageDigest(digest, tag);
+        Util.updateMessageDigest(digest, value);
+    }
+
+    private void updateMetaChecksumString(MessageDigest digest, byte tag, String value) {
+        Util.updateMessageDigest(digest, tag);
+        if (value == null) {
+            Util.updateMessageDigest(digest, -1L);
+            return;
+        }
+        int len = value.length();
+        Util.updateMessageDigest(digest, (long) len);
+        for (int i = 0; i < len; i++) {
+            char c = value.charAt(i);
+            digest.update((byte) (c >>> 8));
+            digest.update((byte) c);
+        }
+    }
+
     public long getAllDataSize(boolean singleReplica) {
         return getDataSize(singleReplica) + getRemoteDataSize();
     }
@@ -277,6 +376,14 @@ public class Partition extends MetaObject {
             remoteDataSize += mIndex.getRemoteDataSize();
         }
         return remoteDataSize;
+    }
+
+    public long getBinlogDataSize() {
+        long binlogDataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+            binlogDataSize += mIndex.getBinlogSize();
+        }
+        return binlogDataSize;
     }
 
     public long getReplicaCount() {
@@ -405,5 +512,9 @@ public class Partition extends MetaObject {
             dataSize += mIndex.getDataSize(singleReplica, true);
         }
         return dataSize + getRemoteDataSize();
+    }
+
+    public Long getTso() {
+        return tso;
     }
 }

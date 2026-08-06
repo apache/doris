@@ -19,12 +19,5 @@
   {%- set sql_header = config.get('sql_header', none) -%}
 
   {{ sql_header if sql_header is not none }}
-  create View {{ relation }} {{doris__view_colume_comment()}} as {{ sql }};
-{%- endmacro %}
-
-{% macro doris__view_colume_comment() -%}
-    {% set cols = model.get('columns') %}
-    {% if cols %}
-        ( {{doris__get_view_columns_comment()}} )
-    {%- endif -%}
+  create or replace view {{ relation }} as {{ sql }};
 {%- endmacro %}

@@ -36,7 +36,6 @@ public class AddPartitionLikeOp extends AlterTableOp {
         this.partitionName = partitionName;
         this.existedPartitionName = existedPartitionName;
         this.isTempPartition = isTempPartition;
-        this.needTableStable = false;
     }
 
     @Override
@@ -47,6 +46,12 @@ public class AddPartitionLikeOp extends AlterTableOp {
     @Override
     public boolean needChangeMTMVState() {
         return false;
+    }
+
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Adding partition like is allowed for row binlog tables.
+        return true;
     }
 
     public String getPartitionName() {

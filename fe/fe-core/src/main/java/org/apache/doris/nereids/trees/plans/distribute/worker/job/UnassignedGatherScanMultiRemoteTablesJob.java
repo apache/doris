@@ -61,6 +61,16 @@ public class UnassignedGatherScanMultiRemoteTablesJob extends AbstractUnassigned
         return true;
     }
 
+    /**
+     * Compute a single assigned job that gathers scan ranges from all
+     * {@link org.apache.doris.planner.DataGenScanNode} sources in this fragment.
+     * All scan ranges from each DataGenScanNode are collected into one
+     * {@link DefaultScanSource} and placed on a randomly selected worker.
+     *
+     * @param distributeContext the distribute context for worker selection
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @return a list containing exactly one assigned job with all scan ranges merged
+     */
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {

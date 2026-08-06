@@ -84,11 +84,12 @@ public class RegexpReplaceOne extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (children().size() == 3) {
+        List<Expression> arguments = getArguments();
+        if (arguments.size() == 3) {
             return;
         }
-        if (children().size() == 4) {
-            Expression value = child(3);
+        if (arguments.size() == 4) {
+            Expression value = getArgument(3);
             DataType type = value.getDataType();
             if (!type.isStringLikeType()) {
                 throw new AnalysisException(

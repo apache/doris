@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -103,8 +104,29 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
         return partitionKeys;
     }
 
+    /**
+     * Executable sort keys sent to BE (PartitionSortNode.SortInfo): only the within-partition order keys.
+     * Order keys that duplicate a partition key are already pruned (constant within a partition, so sorting on
+     * them is redundant). For the order this node declares to its parent, use {@link #getOutputOrderKeys()}.
+     */
     public List<OrderKey> getOrderKeys() {
         return orderKeys;
+    }
+
+    /**
+     * Output order property declared to the parent (for ChildOutputPropertyDeriver), NOT executed by BE:
+     * [partitionKeys, orderKeys]. Each partition key is wrapped as an ascending, nulls-last OrderKey and
+     * prepended to the executable {@link #getOrderKeys()}. This is the full order the (two-phase-global)
+     * PartitionTopN delivers, kept in lockstep with the parent window's required order so OrderSpec.satisfy
+     * passes without a redundant sort enforcer, even though BE only sorts by the pruned getOrderKeys().
+     */
+    public List<OrderKey> getOutputOrderKeys() {
+        return ImmutableList.<OrderKey>builder()
+                .addAll(partitionKeys.stream()
+                        .map(partitionKey -> new OrderKey(partitionKey, true, false))
+                        .collect(ImmutableList.toImmutableList()))
+                .addAll(orderKeys)
+                .build();
     }
 
     @Override
@@ -163,29 +185,31 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public PhysicalPartitionTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit,
-                partitionLimit, phase, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalPartitionTopN<>(function, partitionKeys,
+                orderKeys, hasGlobalLimit, partitionLimit, phase, groupExpression, getLogicalProperties(),
+                physicalProperties, statistics, children.get(0)));
     }
 
     @Override
     public PhysicalPartitionTopN<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit, phase,
-                groupExpression, getLogicalProperties(), child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalPartitionTopN<>(function, partitionKeys,
+                orderKeys, hasGlobalLimit, partitionLimit, phase, groupExpression, getLogicalProperties(), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit, phase,
-                groupExpression, logicalProperties.get(), children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalPartitionTopN<>(function, partitionKeys,
+                orderKeys, hasGlobalLimit, partitionLimit, phase, groupExpression, logicalProperties.get(),
+                children.get(0)));
     }
 
     @Override
     public PhysicalPartitionTopN<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                                             Statistics statistics) {
-        return new PhysicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit, phase,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalPartitionTopN<>(function, partitionKeys,
+                orderKeys, hasGlobalLimit, partitionLimit, phase, groupExpression, getLogicalProperties(),
+                physicalProperties, statistics, child()));
     }
 
     @Override

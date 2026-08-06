@@ -21,6 +21,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
@@ -71,6 +72,16 @@ public class BaseTableInfo {
         this.tableName = table.getName();
         this.dbName = database.getFullName();
         this.ctlName = catalog.getName();
+    }
+
+    public BaseTableInfo(TableNameInfo tableNameInfo) {
+        java.util.Objects.requireNonNull(tableNameInfo, "tableNameInfo is null");
+        java.util.Objects.requireNonNull(tableNameInfo.getTbl(), "tableName is null");
+        java.util.Objects.requireNonNull(tableNameInfo.getDb(), "dbName is null");
+        java.util.Objects.requireNonNull(tableNameInfo.getCtl(), "catalogName is null");
+        this.tableName = tableNameInfo.getTbl();
+        this.dbName = tableNameInfo.getDb();
+        this.ctlName = tableNameInfo.getCtl();
     }
 
     // for replay MTMV, can not use  `table.getDatabase();`,because database not added to catalog

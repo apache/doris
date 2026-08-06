@@ -17,10 +17,14 @@
 
 package org.apache.doris.cloud.system;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.ColocateGroupSchema;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.cloud.catalog.CloudColocatePlacement;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
@@ -34,11 +38,14 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.RandomIdentifierGenerator;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
@@ -47,6 +54,7 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
@@ -58,15 +66,16 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -90,10 +99,147 @@ public class CloudSystemInfoService extends SystemInfoService {
     // clusterName -> clusterId
     protected Map<String, String> clusterNameToId = new ConcurrentHashMap<>();
 
-    // clusterId -> ComputeGroup
-    protected Map<String, ComputeGroup> computeGroupIdToComputeGroup = new ConcurrentHashMap<>();
+    // clusterId -> CloudComputeGroupMeta
+    protected Map<String, CloudComputeGroupMeta> computeGroupIdToComputeGroup = new ConcurrentHashMap<>();
+
+    private final Map<ColocatePlacementKey, ColocatePlacementCache> colocatePlacementCache =
+            new ConcurrentHashMap<>();
 
     private InstanceInfoPB.Status instanceStatus;
+
+    public long getCloudColocateHrwBeId(GroupId groupId, String clusterId, List<Long> availableBeIds, long idx) {
+        return getCloudColocateHrwBeIdInternal(groupId, clusterId, availableBeIds, idx, -1);
+    }
+
+    @VisibleForTesting
+    public long getCloudColocateHrwBeIdForTest(GroupId groupId, String clusterId, List<Long> availableBeIds,
+            long idx, int bucketNumForTest) {
+        return getCloudColocateHrwBeIdInternal(groupId, clusterId, availableBeIds, idx, bucketNumForTest);
+    }
+
+    private long getCloudColocateHrwBeIdInternal(GroupId groupId, String clusterId, List<Long> availableBeIds,
+            long idx, int bucketNumForTest) {
+        long[] candidateBeIds = availableBeIds.stream().mapToLong(Long::longValue).toArray();
+        ColocatePlacementKey key = new ColocatePlacementKey(groupId, clusterId);
+        long fingerprint = fingerprintBackendIds(candidateBeIds);
+        ColocatePlacementCache cache = colocatePlacementCache.get(key);
+        if (cache != null && cache.same(fingerprint)) {
+            checkCloudColocateBucketIdx(groupId, clusterId, idx, cache.bucketNum);
+            return cache.beIdByBucket[(int) idx];
+        }
+
+        // Resolve bucketNum BEFORE compute(): getColocateBucketsNum acquires the colocate-index
+        // read lock, while removeTable() evicts this cache holding the colocate-index write lock.
+        // Acquiring the colocate lock inside the ConcurrentHashMap compute() bin lock would invert
+        // that order and risk an ABBA deadlock, so the locked fetch must stay outside compute().
+        int bucketNum = bucketNumForTest > 0 ? bucketNumForTest : getColocateBucketsNum(groupId);
+        cache = colocatePlacementCache.compute(key, (ignored, oldCache) -> {
+            if (oldCache != null && oldCache.same(fingerprint, bucketNum)) {
+                return oldCache;
+            }
+            return ColocatePlacementCache.build(fingerprint, candidateBeIds, groupId.grpId, bucketNum);
+        });
+        checkCloudColocateBucketIdx(groupId, clusterId, idx, cache.bucketNum);
+        return cache.beIdByBucket[(int) idx];
+    }
+
+    private static long fingerprintBackendIds(long[] beIds) {
+        long sum = 0;
+        for (long beId : beIds) {
+            sum += mix64(beId);
+        }
+        return mix64(sum) ^ mix64(beIds.length);
+    }
+
+    private static long mix64(long value) {
+        value ^= value >>> 33;
+        value *= 0xff51afd7ed558ccdL;
+        value ^= value >>> 33;
+        value *= 0xc4ceb9fe1a85ec53L;
+        value ^= value >>> 33;
+        return value;
+    }
+
+    private static int getColocateBucketsNum(GroupId groupId) {
+        ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(groupId);
+        Preconditions.checkState(groupSchema != null, "missing colocate group schema for group %s", groupId);
+        return groupSchema.getBucketsNum();
+    }
+
+    public int getCloudColocateBucketsNum(GroupId groupId) {
+        return getColocateBucketsNum(groupId);
+    }
+
+    public static void checkCloudColocateBucketIdx(GroupId groupId, String clusterId, long idx, int bucketNum) {
+        if (idx < 0 || idx >= bucketNum) {
+            throw new IllegalStateException(String.format(
+                    "colocate bucket idx %s is outside bucket num %s for group %s, cluster %s",
+                    idx, bucketNum, groupId, clusterId));
+        }
+    }
+
+    @Override
+    public void invalidateCloudColocatePlacement(GroupId groupId) {
+        colocatePlacementCache.keySet().removeIf(key -> key.groupId.equals(groupId));
+    }
+
+    public void invalidateCloudColocatePlacement(String clusterId) {
+        colocatePlacementCache.keySet().removeIf(key -> key.clusterId.equals(clusterId));
+    }
+
+    private static class ColocatePlacementKey {
+        private final GroupId groupId;
+        private final String clusterId;
+
+        private ColocatePlacementKey(GroupId groupId, String clusterId) {
+            this.groupId = groupId;
+            this.clusterId = clusterId;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof ColocatePlacementKey)) {
+                return false;
+            }
+            ColocatePlacementKey other = (ColocatePlacementKey) obj;
+            return groupId.equals(other.groupId) && clusterId.equals(other.clusterId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(groupId, clusterId);
+        }
+    }
+
+    private static class ColocatePlacementCache {
+        private final long fingerprint;
+        private final int bucketNum;
+        private final long[] beIdByBucket;
+
+        private ColocatePlacementCache(long fingerprint, int bucketNum, long[] beIdByBucket) {
+            this.fingerprint = fingerprint;
+            this.bucketNum = bucketNum;
+            this.beIdByBucket = beIdByBucket;
+        }
+
+        private static ColocatePlacementCache build(long fingerprint, long[] candidateBeIds, long grpId,
+                int bucketNum) {
+            long[] beIdByBucket = new long[bucketNum];
+            for (int i = 0; i < bucketNum; i++) {
+                beIdByBucket[i] = CloudColocatePlacement.pickBackendId(grpId, i, candidateBeIds);
+            }
+            return new ColocatePlacementCache(fingerprint, bucketNum, beIdByBucket);
+        }
+
+        private boolean same(long otherFingerprint) {
+            return fingerprint == otherFingerprint;
+        }
+
+        private boolean same(long otherFingerprint, int otherBucketNum) {
+            return fingerprint == otherFingerprint && bucketNum == otherBucketNum;
+        }
+
+    }
 
     public void addVirtualClusterInfoToMapsNoLock(String clusterId, String clusterName) {
         LOG.info("add virtual cluster info to maps, clusterId={}, clusterName={}", clusterId, clusterName);
@@ -114,20 +260,102 @@ public class CloudSystemInfoService extends SystemInfoService {
         clusterNameToId.remove(oldClusterName);
     }
 
-    public ComputeGroup getComputeGroupByName(String computeGroupName) {
-        LOG.debug("get id {} computeGroupIdToComputeGroup : {} ", computeGroupName, computeGroupIdToComputeGroup);
+    public CloudComputeGroupMeta getComputeGroupByName(String computeGroupName) {
+        // rlock guards the compound name->id->group lookup: writers (add/remove/rename)
+        // update both maps under wlock, and the read must observe a consistent snapshot
+        // so callers like getPhysicalCluster don't transiently see a virtual group name
+        // with a null group and fall back to treating it as a physical cluster.
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get id {} computeGroupIdToComputeGroup : {} ", computeGroupName, computeGroupIdToComputeGroup);
+        }
         try {
             rlock.lock();
-            if (!clusterNameToId.containsKey(computeGroupName)) {
-                return null;
-            }
-            return computeGroupIdToComputeGroup.get(clusterNameToId.get(computeGroupName));
+            String id = clusterNameToId.get(computeGroupName);
+            return id == null ? null : computeGroupIdToComputeGroup.get(id);
         } finally {
             rlock.unlock();
         }
     }
 
-    public ComputeGroup getComputeGroupById(String computeGroupId) {
+    public boolean containsCloudCluster(String clusterName) {
+        return !Strings.isNullOrEmpty(clusterName) && clusterNameToId.containsKey(clusterName);
+    }
+
+    // Resolve the cluster id for the current ConnectContext: physical-cluster lookup,
+    // priv check, status check (reject MANUAL_SHUTDOWN), wait-for-autoStart, existence
+    // check, finally name->id mapping. The result is identical for every tablet/replica
+    // within a single request, so hot paths should resolve once and reuse the cached value.
+    public String getCurrentClusterId() throws ComputeGroupException {
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("connect context is null in getCurrentClusterId");
+            }
+            throw new ComputeGroupException("connect context not set cluster ",
+                    ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET);
+        }
+
+        String cluster = getPhysicalCluster(context.getCloudCluster());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get compute group by context {}", cluster);
+        }
+
+        UserIdentity currentUid = context.getCurrentUserIdentity();
+        if (currentUid == null || Strings.isNullOrEmpty(currentUid.getQualifiedUser())) {
+            LOG.info("connect context user is null.");
+            throw new ComputeGroupException("connect context's user is null",
+                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
+        }
+        try {
+            ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
+        } catch (Exception e) {
+            LOG.warn("check compute group {} for {} auth failed.", cluster, currentUid);
+            throw new ComputeGroupException(
+                    String.format("context compute group %s check auth failed, user is %s", cluster, currentUid),
+                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
+        }
+
+        String clusterStatus = getCloudStatusByName(cluster);
+        if (!Strings.isNullOrEmpty(clusterStatus)
+                && Cloud.ClusterStatus.valueOf(clusterStatus) == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
+            LOG.warn("auto start compute group {} in manual shutdown status", cluster);
+            throw new ComputeGroupException(
+                    String.format("The current compute group %s has been manually shutdown", cluster),
+                    ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_BEEN_MANUAL_SHUTDOWN);
+        }
+
+        return resolveClusterIdByName(cluster);
+    }
+
+    // Resolve a known cluster name to its id, handling auto-start (cluster may resume
+    // under a different name) and validating the cluster is registered.
+    public String resolveClusterIdByName(String cluster) throws ComputeGroupException {
+        String wakeUPCluster = "";
+        try {
+            wakeUPCluster = waitForAutoStart(cluster);
+        } catch (DdlException e) {
+            LOG.warn("cant resume compute group {}, exception", cluster, e);
+        }
+        if (!Strings.isNullOrEmpty(wakeUPCluster) && !cluster.equals(wakeUPCluster)) {
+            cluster = wakeUPCluster;
+            LOG.warn("get backend input compute group {} useless, so auto start choose a new one compute group {}",
+                    cluster, wakeUPCluster);
+        }
+        if (Strings.isNullOrEmpty(cluster)) {
+            LOG.warn("failed to get available be, clusterName: {}", cluster);
+            throw new ComputeGroupException("compute group name is empty",
+                ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET_COMPUTE_GROUP);
+        }
+        if (!containsCloudCluster(cluster)) {
+            LOG.warn("compute group: {} is not existed", cluster);
+            throw new ComputeGroupException(
+                String.format("The current compute group %s is not registered in the system", cluster),
+                ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_NOT_EXIST);
+        }
+        return getCloudClusterIdByName(cluster);
+    }
+
+    public CloudComputeGroupMeta getComputeGroupById(String computeGroupId) {
         try {
             rlock.lock();
             return computeGroupIdToComputeGroup.get(computeGroupId);
@@ -136,7 +364,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    public void addComputeGroup(String computeGroupId, ComputeGroup computeGroup) {
+    public void addComputeGroup(String computeGroupId, CloudComputeGroupMeta computeGroup) {
         LOG.debug("add id {} computeGroupIdToComputeGroup : {} ", computeGroupId, computeGroupIdToComputeGroup);
         try {
             wlock.lock();
@@ -148,8 +376,8 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public boolean isStandByComputeGroup(String clusterName) {
-        List<ComputeGroup> virtualGroups = getComputeGroups(true);
-        for (ComputeGroup vcg : virtualGroups) {
+        List<CloudComputeGroupMeta> virtualGroups = getComputeGroups(true);
+        for (CloudComputeGroupMeta vcg : virtualGroups) {
             if (vcg.getPolicy().getStandbyComputeGroup().equals(clusterName)) {
                 return true;
             }
@@ -157,7 +385,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         return false;
     }
 
-    public List<ComputeGroup> getComputeGroups(boolean virtual) {
+    public List<CloudComputeGroupMeta> getComputeGroups(boolean virtual) {
         LOG.debug("get virtual {} computeGroupIdToComputeGroup : {} ", virtual, computeGroupIdToComputeGroup);
         try {
             rlock.lock();
@@ -176,7 +404,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     public String ownedByVirtualComputeGroup(String computeGroupName) {
         try {
             rlock.lock();
-            for (ComputeGroup vcg : getComputeGroups(true)) {
+            for (CloudComputeGroupMeta vcg : getComputeGroups(true)) {
                 if (computeGroupName.equals(vcg.getPolicy().getActiveComputeGroup())) {
                     return vcg.getName();
                 }
@@ -198,13 +426,14 @@ public class CloudSystemInfoService extends SystemInfoService {
             wlock.lock();
             computeGroupIdToComputeGroup.remove(computeGroupId);
             removeVirtualClusterInfoFromMapsNoLock(computeGroupId, computeGroupName);
+            invalidateCloudColocatePlacement(computeGroupId);
         } finally {
             wlock.unlock();
         }
     }
 
     public void renameVirtualComputeGroup(String computeGroupId, String oldComputeGroupName,
-                                          ComputeGroup newComputeGroup) {
+                                          CloudComputeGroupMeta newComputeGroup) {
         try {
             wlock.lock();
             computeGroupIdToComputeGroup.put(computeGroupId, newComputeGroup);
@@ -358,7 +587,8 @@ public class CloudSystemInfoService extends SystemInfoService {
 
             clusterNameToId.put(clusterName, clusterId);
             // add to computeGroupIdToComputeGroup
-            ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+            CloudComputeGroupMeta cg = new CloudComputeGroupMeta(
+                    clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
             addComputeGroup(clusterId, cg);
 
             List<Backend> be = clusterIdToBackend.get(clusterId);
@@ -456,7 +686,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    public static void updateFileCacheJobIds(ComputeGroup cg, List<String> jobIds) {
+    public static boolean updateFileCacheJobIds(CloudComputeGroupMeta cg, List<String> jobIds) {
         Cloud.ClusterPolicy policy = Cloud.ClusterPolicy.newBuilder()
                 .setType(Cloud.ClusterPolicy.PolicyType.ActiveStandby)
                 .addAllCacheWarmupJobids(jobIds).build();
@@ -478,9 +708,12 @@ public class CloudSystemInfoService extends SystemInfoService {
             LOG.info("update file cache jobIds, request: {}, response: {}", request, response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("update file cache jobIds, response: {}", response);
+                return false;
             }
+            return true;
         } catch (RpcException e) {
             LOG.warn("failed to update file cache jobIds {}", cg, e);
+            return false;
         }
     }
 
@@ -498,7 +731,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
     */
 
-    private void switchActiveStandby(ComputeGroup cg, String active, String standby) {
+    private void switchActiveStandby(CloudComputeGroupMeta cg, String active, String standby) {
         Cloud.ClusterPolicy policy = cg.getPolicy().toPb().toBuilder()
                 .clearStandbyClusterNames()
                 .addStandbyClusterNames(active)
@@ -757,16 +990,8 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
-    public int getMinPipelineExecutorSize() {
-        String clusterName = "";
-        try {
-            clusterName = ConnectContext.get().getCloudCluster(false);
-        } catch (ComputeGroupException e) {
-            LOG.warn("failed to get cluster name", e);
-            return 1;
-        }
-        if (ConnectContext.get() != null
-                && Strings.isNullOrEmpty(clusterName)) {
+    public int getMinPipelineExecutorSize(String clusterName) {
+        if (Strings.isNullOrEmpty(clusterName)) {
             return 1;
         }
         List<Backend> currentBackends = getBackendsByClusterName(clusterName);
@@ -800,12 +1025,13 @@ public class CloudSystemInfoService extends SystemInfoService {
             if (Strings.isNullOrEmpty(cluster)) {
                 throw new AnalysisException("cluster name is empty");
             }
+            waitForAutoStart(cluster);
 
             List<Backend> backends =  getBackendsByClusterName(cluster);
             for (Backend be : backends) {
                 idToBackend.put(be.getId(), be);
             }
-        } catch (ComputeGroupException e) {
+        } catch (ComputeGroupException | DdlException e) {
             throw new AnalysisException(e.getMessage());
         }
 
@@ -838,7 +1064,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public String getPhysicalCluster(String clusterName) {
-        ComputeGroup cg = getComputeGroupByName(clusterName);
+        CloudComputeGroupMeta cg = getComputeGroupByName(clusterName);
         if (cg == null) {
             return clusterName;
         }
@@ -847,11 +1073,11 @@ public class CloudSystemInfoService extends SystemInfoService {
             return clusterName;
         }
 
-        ComputeGroup.Policy policy = cg.getPolicy();
+        CloudComputeGroupMeta.Policy policy = cg.getPolicy();
         // todo check policy
         String acgName = policy.getActiveComputeGroup();
         if (acgName != null) {
-            ComputeGroup acg = getComputeGroupByName(acgName);
+            CloudComputeGroupMeta acg = getComputeGroupByName(acgName);
             if (acg != null) {
                 if (isComputeGroupAvailable(acgName, policy.getUnhealthyNodeThresholdPercent())) {
                     acg.setUnavailableSince(-1);
@@ -867,14 +1093,17 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         String scgName = policy.getStandbyComputeGroup();
         if (scgName != null) {
-            ComputeGroup scg = getComputeGroupByName(scgName);
+            CloudComputeGroupMeta scg = getComputeGroupByName(scgName);
             if (scg != null) {
                 if (isComputeGroupAvailable(scgName, policy.getUnhealthyNodeThresholdPercent())) {
                     scg.setUnavailableSince(-1);
-                    ComputeGroup acg = getComputeGroupByName(acgName);
+                    CloudComputeGroupMeta acg = getComputeGroupByName(acgName);
                     if (acg == null || System.currentTimeMillis() - acg.getUnavailableSince()
                             > policy.getFailoverFailureThreshold() * Config.heartbeat_interval_second * 1000) {
                         switchActiveStandby(cg, acgName, scgName);
+                        String acgId = acg == null ? clusterNameToId.get(acgName) : acg.getId();
+                        MetricRepo.increaseVirtualComputeGroupSwitch(cg.getId(), cg.getName(), acgId,
+                                acgName, scg.getId(), scgName);
                         policy.setActiveComputeGroup(scgName);
                         policy.setStandbyComputeGroup(acgName);
                         cg.setNeedRebuildFileCache(true);
@@ -1028,6 +1257,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         try {
             clusterNameToId.remove(clusterName, clusterId);
             clusterIdToBackend.remove(clusterId);
+            invalidateCloudColocatePlacement(clusterId);
         } finally {
             wlock.unlock();
         }
@@ -1064,7 +1294,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                         .filter(i -> i.getTagMap().containsKey(Tag.CLOUD_CLUSTER_NAME))
                         .collect(Collectors.toList());
                 // The larger bakendId the later it was added, the order matters
-                toAdd.sort((x, y) -> (int) (x.getId() - y.getId()));
+                toAdd.sort((x, y) -> Long.compare(x.getId(), y.getId()));
                 updateCloudClusterMapNoLock(toAdd, new ArrayList<>());
             }
 
@@ -1152,7 +1382,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                             clusterId, computeGroupIdToComputeGroup);
                     continue;
                 }
-                ComputeGroup computeGroup = computeGroupIdToComputeGroup.get(clusterId);
+                CloudComputeGroupMeta computeGroup = computeGroupIdToComputeGroup.get(clusterId);
                 if (!needVirtual && computeGroup.isVirtual()) {
                     continue;
                 }
@@ -1195,7 +1425,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         try {
             for (Map.Entry<String, String> nameAndId : clusterNameToId.entrySet()) {
                 String clusterId = nameAndId.getValue();
-                ComputeGroup computeGroup = computeGroupIdToComputeGroup.get(clusterId);
+                CloudComputeGroupMeta computeGroup = computeGroupIdToComputeGroup.get(clusterId);
                 if (computeGroup == null) {
                     LOG.warn("cant find clusterId {} in computeGroupIdToComputeGroup {}",
                             clusterId, computeGroupIdToComputeGroup);
@@ -1416,91 +1646,159 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public String waitForAutoStart(String clusterName) throws DdlException {
-        if (Config.isNotCloudMode()) {
+        if (Config.isNotCloudMode() || !Config.enable_auto_start_for_cloud_cluster) {
             return null;
         }
-        if (!Config.enable_auto_start_for_cloud_cluster) {
+        String resolvedClusterName = getClusterNameAutoStart(clusterName);
+        if (Strings.isNullOrEmpty(resolvedClusterName)) {
+            LOG.warn("auto start in cloud mode, but clusterName empty {}", resolvedClusterName);
             return null;
         }
-        clusterName = getClusterNameAutoStart(clusterName);
-        if (Strings.isNullOrEmpty(clusterName)) {
-            LOG.warn("auto start in cloud mode, but clusterName empty {}", clusterName);
+        String clusterStatusStr = getCloudStatusByName(resolvedClusterName);
+        Cloud.ClusterStatus clusterStatus = parseClusterStatusOrNull(clusterStatusStr, resolvedClusterName);
+        if (clusterStatus == null) {
+            LOG.warn("auto start in cloud mode, but clusterStatus empty {}", clusterStatusStr);
+            // for cluster rename or cluster dropped
             return null;
         }
-        String clusterStatus = getCloudStatusByName(clusterName);
-        if (Strings.isNullOrEmpty(clusterStatus)) {
+
+        if (clusterStatus == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
+            LOG.warn("auto start cluster {} in manual shutdown status", resolvedClusterName);
+            throw new DdlException("cluster " + resolvedClusterName + " is in manual shutdown");
+        }
+
+        // notify ms -> wait for clusterStatus to normal
+        LOG.debug("auto start wait cluster {} status {}", resolvedClusterName, clusterStatus);
+        if (clusterStatus != Cloud.ClusterStatus.NORMAL) {
+            // ATTN: prevent `Automatic Analyzer` daemon threads from pulling up clusters
+            // FeConstants.INTERNAL_DB_NAME ? see StatisticsUtil.buildConnectContext
+            ConnectContext ctx = ConnectContext.get();
+            if (shouldIgnoreAutoStart(ctx)) {
+                LOG.warn("auto start daemon thread db {}, not resume cluster {}-{}",
+                        ctx.getDatabase(), resolvedClusterName, clusterStatus);
+                return null;
+            }
+            notifyMetaServiceToResumeCluster(resolvedClusterName);
+        }
+        // wait 5 mins
+        int retryTimes = Config.auto_start_wait_to_resume_times < 0 ? 300 : Config.auto_start_wait_to_resume_times;
+        String finalClusterName = resolvedClusterName;
+        String initialClusterStatus = clusterStatusStr;
+        withTemporaryNereidsTimeout(() -> {
+            waitForClusterToResume(finalClusterName, retryTimes, initialClusterStatus);
+        });
+        return resolvedClusterName;
+    }
+
+    private Cloud.ClusterStatus parseClusterStatusOrNull(String clusterStatusStr, String clusterName) {
+        if (Strings.isNullOrEmpty(clusterStatusStr)) {
             // for cluster rename or cluster dropped
             LOG.warn("cant find clusterStatus in fe, clusterName {}", clusterName);
             return null;
         }
-
-        if (Cloud.ClusterStatus.valueOf(clusterStatus) == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
-            LOG.warn("auto start cluster {} in manual shutdown status", clusterName);
-            throw new DdlException("cluster " + clusterName + " is in manual shutdown");
+        try {
+            return Cloud.ClusterStatus.valueOf(clusterStatusStr);
+        } catch (Throwable t) {
+            LOG.warn("invalid clusterStatus {} for clusterName {}", clusterStatusStr, clusterName, t);
+            return null;
         }
+    }
 
-        // nofity ms -> wait for clusterStatus to normal
-        LOG.debug("auto start wait cluster {} status {}", clusterName, clusterStatus);
-        if (Cloud.ClusterStatus.valueOf(clusterStatus) != Cloud.ClusterStatus.NORMAL) {
-            // ATTN: prevent `Automatic Analyzer` daemon threads from pulling up clusters
-            // FeConstants.INTERNAL_DB_NAME ? see StatisticsUtil.buildConnectContext
-            List<String> ignoreDbNameList = Arrays.asList(Config.auto_start_ignore_resume_db_names);
-            if (ConnectContext.get() != null && ignoreDbNameList.contains(ConnectContext.get().getDatabase())) {
-                LOG.warn("auto start daemon thread db {}, not resume cluster {}-{}",
-                        ConnectContext.get().getDatabase(), clusterName, clusterStatus);
-                return null;
-            }
-            Cloud.AlterClusterRequest.Builder builder = Cloud.AlterClusterRequest.newBuilder();
-            builder.setCloudUniqueId(Config.cloud_unique_id);
-            builder.setRequestIp(FrontendOptions.getLocalHostAddressCached());
-            builder.setOp(Cloud.AlterClusterRequest.Operation.SET_CLUSTER_STATUS);
-
-            ClusterPB.Builder clusterBuilder = ClusterPB.newBuilder();
-            clusterBuilder.setClusterId(getCloudClusterIdByName(clusterName));
-            clusterBuilder.setClusterStatus(Cloud.ClusterStatus.TO_RESUME);
-            builder.setCluster(clusterBuilder);
-
-            Cloud.AlterClusterResponse response;
-            try {
-                Cloud.AlterClusterRequest request = builder.build();
-                response = MetaServiceProxy.getInstance().alterCluster(request);
-                LOG.info("alter cluster, request: {}, response: {}", request, response);
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                    LOG.warn("notify to resume cluster not ok, cluster {}, response: {}", clusterName, response);
-                }
-                LOG.info("notify to resume cluster {}, response: {} ", clusterName, response);
-            } catch (RpcException e) {
-                LOG.warn("failed to notify to resume cluster {}", clusterName, e);
-                throw new DdlException("notify to resume cluster not ok");
+    private boolean shouldIgnoreAutoStart(ConnectContext ctx) {
+        if (ctx == null) {
+            return false;
+        }
+        String dbName = ctx.getDatabase();
+        if (Strings.isNullOrEmpty(dbName) || Config.auto_start_ignore_resume_db_names == null) {
+            return false;
+        }
+        for (String ignore : Config.auto_start_ignore_resume_db_names) {
+            if (dbName.equals(ignore)) {
+                return true;
             }
         }
-        // wait 5 mins
-        int retryTimes = Config.auto_start_wait_to_resume_times < 0 ? 300 : Config.auto_start_wait_to_resume_times;
+        return false;
+    }
+
+    private void notifyMetaServiceToResumeCluster(String clusterName) throws DdlException {
+        Cloud.AlterClusterRequest.Builder builder = Cloud.AlterClusterRequest.newBuilder();
+        builder.setCloudUniqueId(Config.cloud_unique_id);
+        builder.setRequestIp(FrontendOptions.getLocalHostAddressCached());
+        builder.setOp(Cloud.AlterClusterRequest.Operation.SET_CLUSTER_STATUS);
+
+        ClusterPB.Builder clusterBuilder = ClusterPB.newBuilder();
+        clusterBuilder.setClusterId(getCloudClusterIdByName(clusterName));
+        clusterBuilder.setClusterStatus(Cloud.ClusterStatus.TO_RESUME);
+        builder.setCluster(clusterBuilder);
+
+        try {
+            Cloud.AlterClusterRequest request = builder.build();
+            Cloud.AlterClusterResponse response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("alter cluster, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("notify to resume cluster not ok, cluster {}, response: {}", clusterName, response);
+            }
+            LOG.info("notify to resume cluster {}, response: {} ", clusterName, response);
+        } catch (RpcException e) {
+            LOG.warn("failed to notify to resume cluster {}", clusterName, e);
+            throw new DdlException("notify to resume cluster not ok");
+        }
+    }
+
+    /**
+     * Wait for cluster to resume to NORMAL status with alive backends.
+     * @param clusterName the name of the cluster
+     * @param retryTimes maximum number of retry attempts
+     * @param initialClusterStatus the initial cluster status
+     * @throws DdlException if the cluster fails to resume within the retry limit
+     */
+    private void waitForClusterToResume(String clusterName, int retryTimes, String initialClusterStatus)
+            throws DdlException {
         int retryTime = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         boolean hasAutoStart = false;
         boolean existAliveBe = true;
-        while ((!String.valueOf(Cloud.ClusterStatus.NORMAL).equals(clusterStatus) || !existAliveBe)
+        String clusterStatusStr = initialClusterStatus;
+        Cloud.ClusterStatus clusterStatus = parseClusterStatusOrNull(clusterStatusStr, clusterName);
+        Cloud.ClusterStatus lastLoggedStatus = clusterStatus;
+        boolean lastLoggedExistAliveBe = existAliveBe;
+
+        while ((clusterStatus != Cloud.ClusterStatus.NORMAL || !existAliveBe)
             && retryTime < retryTimes) {
             hasAutoStart = true;
             ++retryTime;
             // sleep random millis [0.5, 1] s
-            int randomSeconds =  500 + (int) (Math.random() * (1000 - 500));
-            LOG.info("resume cluster {} retry times {}, wait randomMillis: {}, current status: {}",
-                    clusterName, retryTime, randomSeconds, clusterStatus);
+            int sleepMs = ThreadLocalRandom.current().nextInt(500, 1001);
             try {
                 if (retryTime > retryTimes / 2) {
                     // sleep random millis [1, 1.5] s
-                    randomSeconds =  1000 + (int) (Math.random() * (1000 - 500));
+                    sleepMs = ThreadLocalRandom.current().nextInt(1000, 1501);
                 }
-                Thread.sleep(randomSeconds);
+                Thread.sleep(sleepMs);
             } catch (InterruptedException e) {
                 LOG.info("change cluster sleep wait InterruptedException: ", e);
             }
-            clusterStatus = getCloudStatusByName(clusterName);
+            clusterStatusStr = getCloudStatusByName(clusterName);
+            clusterStatus = parseClusterStatusOrNull(clusterStatusStr, clusterName);
             // Check that the bes node in the cluster have at least one alive
             existAliveBe = getBackendsByClusterName(clusterName).stream().anyMatch(Backend::isAlive);
+
+            // Reduce log spam: log when status changes / alive-be changes / every 10 retries
+            boolean statusChanged = lastLoggedStatus != clusterStatus;
+            boolean aliveChanged = lastLoggedExistAliveBe != existAliveBe;
+            boolean periodicLog = (retryTime % 10 == 0);
+            if (statusChanged || aliveChanged || periodicLog) {
+                LOG.info("resume cluster {} retry {}/{}, sleepMs {}, status {}(raw={}), existAliveBe {}",
+                        clusterName, retryTime, retryTimes, sleepMs,
+                        clusterStatus, clusterStatusStr, existAliveBe);
+                lastLoggedStatus = clusterStatus;
+                lastLoggedExistAliveBe = existAliveBe;
+            } else if (LOG.isDebugEnabled()) {
+                LOG.debug("resume cluster {} retry {}/{}, sleepMs {}, status {}(raw={}), existAliveBe {}",
+                        clusterName, retryTime, retryTimes, sleepMs,
+                        clusterStatus, clusterStatusStr, existAliveBe);
+            }
         }
         if (retryTime >= retryTimes) {
             // auto start timeout
@@ -1513,8 +1811,46 @@ public class CloudSystemInfoService extends SystemInfoService {
         if (hasAutoStart) {
             LOG.info("auto start cluster {}, start cost {} ms", clusterName, stopWatch.getTime());
         }
-        return clusterName;
     }
+
+    /**
+     * Temporarily set nereids timeout and restore it after execution.
+     * @param runnable the code to execute with the temporary timeout
+     * @throws DdlException if the runnable throws DdlException
+     */
+    private void withTemporaryNereidsTimeout(RunnableWithException runnable) throws DdlException {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            runnable.run();
+            return;
+        }
+
+        SessionVariable sessionVariable = ctx.getSessionVariable();
+        if (!sessionVariable.enableNereidsTimeout) {
+            runnable.run();
+            return;
+        }
+
+        StmtExecutor executor = ctx.getExecutor();
+        if (executor == null) {
+            runnable.run();
+            return;
+        }
+
+        SummaryProfile profile = ctx.getExecutor().getSummaryProfile();
+        if (profile == null) {
+            runnable.run();
+            return;
+        }
+        profile.setWarmup(true);
+        runnable.run();
+    }
+
+    @FunctionalInterface
+    private interface RunnableWithException {
+        void run() throws DdlException;
+    }
+
 
     public void tryCreateInstance(String instanceId, String name, boolean sseEnabled) throws DdlException {
         Cloud.CreateInstanceRequest.Builder builder = Cloud.CreateInstanceRequest.newBuilder();

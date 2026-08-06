@@ -22,12 +22,10 @@ import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.PrivBitSet;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -39,7 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class PrivInfo implements Writable, GsonPostProcessable {
+public class PrivInfo implements Writable {
     @SerializedName(value = "userIdent")
     private UserIdentity userIdent;
     @SerializedName(value = "tblPattern")
@@ -185,20 +183,6 @@ public class PrivInfo implements Writable, GsonPostProcessable {
         return colPrivileges;
     }
 
-    private void removeClusterPrefix() {
-        if (userIdent != null) {
-            userIdent.removeClusterPrefix();
-        }
-        if (roles != null) {
-            for (int i = 0; i < roles.size(); i++) {
-                roles.set(i, ClusterNamespace.getNameFromFullName(roles.get(i)));
-            }
-        }
-        if (role != null) {
-            role = ClusterNamespace.getNameFromFullName(role);
-        }
-    }
-
     public static PrivInfo read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), PrivInfo.class);
     }
@@ -206,10 +190,5 @@ public class PrivInfo implements Writable, GsonPostProcessable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        removeClusterPrefix();
     }
 }

@@ -49,7 +49,7 @@ suite("test_partial_update_delete_sign_with_conflict") {
             `c3` int,
             `c4` varchar(100) default 'foo'
             )UNIQUE KEY(k1)
-        CLUSTER BY(c3)    
+        ORDER BY(c3)    
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             "enable_unique_key_merge_on_write" = "true",

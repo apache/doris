@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -119,12 +118,6 @@ public class TablePattern implements Writable, GsonPostProcessable {
         analyze(ctl);
     }
 
-    private void removeClusterPrefix() {
-        if (db != null) {
-            db = ClusterNamespace.getNameFromFullName(db);
-        }
-    }
-
     @Override
     public boolean equals(Object obj) {
         if (!(obj instanceof TablePattern)) {
@@ -155,7 +148,6 @@ public class TablePattern implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
-        removeClusterPrefix();
         isAnalyzed = true;
     }
 }

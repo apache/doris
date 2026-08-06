@@ -15,26 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "task_execution_context.h"
+#include "runtime/task_execution_context.h"
 
 #include <glog/logging.h>
 
-#include <condition_variable>
-
 namespace doris {
-void TaskExecutionContext::ref_task_execution_ctx() {
-    ++_has_task_execution_ctx_ref_count;
-}
 
-void TaskExecutionContext::unref_task_execution_ctx() {
-    --_has_task_execution_ctx_ref_count;
-    if (_has_task_execution_ctx_ref_count == 0) {
-        _notify_cv.notify_all();
-    }
-}
+TaskExecutionContext ::TaskExecutionContext() = default;
+TaskExecutionContext ::~TaskExecutionContext() = default;
 
 HasTaskExecutionCtx::HasTaskExecutionCtx(RuntimeState* state)
         : task_exec_ctx_(state->get_task_execution_context()) {}
 
 HasTaskExecutionCtx::~HasTaskExecutionCtx() = default;
+
 } // namespace doris

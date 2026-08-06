@@ -23,7 +23,7 @@ public enum FeMetaFormat {
     private final String magicString;
     private final String version;
 
-    private FeMetaFormat(String magicString, String version) {
+    FeMetaFormat(String magicString, String version) {
         this.magicString = magicString;
         this.version = version;
     }

@@ -23,6 +23,8 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.rules.Rule;
@@ -31,6 +33,7 @@ import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -44,11 +47,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -513,7 +514,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 SlotReference.class::isInstance);
         List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots, outPutSlots);
         for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getOriginalColumn().get();
+            Optional<Column> optionalColumn = slot.getOriginalColumn();
+            if (!optionalColumn.isPresent()) {
+                return false;
+            }
+            Column column = optionalColumn.get();
             PrimitiveType colType = column.getType().getPrimitiveType();
             if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()) {
                 return false;
@@ -565,6 +570,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         Map<Class<? extends AggregateFunction>, PushDownAggOp> supportedAgg = PushDownAggOp.supportedFunctions();
 
         boolean containsCount = false;
+        boolean containsCountStar = false;
+        boolean countHasCastArgument = false;
         Set<SlotReference> checkNullSlots = new HashSet<>();
         Set<Expression> expressionAfterProject = new HashSet<>();
 
@@ -580,12 +587,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             // Check if contains Count function
             if (functionClass.equals(Count.class)) {
                 containsCount = true;
-                if (!function.getArguments().isEmpty()) {
+                if (function.getArguments().isEmpty()) {
+                    containsCountStar = true;
+                } else {
                     Expression arg0 = function.getArguments().get(0);
                     if (arg0 instanceof SlotReference) {
                         checkNullSlots.add((SlotReference) arg0);
                         expressionAfterProject.add(arg0);
                     } else if (arg0 instanceof Cast) {
+                        countHasCastArgument = true;
                         Expression child0 = arg0.child(0);
                         if (child0 instanceof SlotReference) {
                             checkNullSlots.add((SlotReference) child0);
@@ -662,6 +672,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         return canNotPush;
                     } else {
                         if (needCheckSlotNull) {
+                            countHasCastArgument = true;
                             checkNullSlots.add((SlotReference) argument.child(0));
                         }
                     }
@@ -670,6 +681,16 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 }
             }
             argumentsOfAggregateFunction = processedExpressions;
+        }
+
+        // File aggregate metadata can describe COUNT(*) or COUNT(file_column), but it cannot
+        // describe the CAST wrapped around a COUNT argument. Dropping that CAST is incorrect even
+        // when the source column is NOT NULL. For example, a non-null DOUBLE value outside the INT
+        // range becomes NULL for CAST(double_col AS INT), so COUNT(CAST(double_col AS INT)) must
+        // exclude it while a footer-level COUNT(double_col) would include it. Keep OLAP's existing
+        // storage-layer behavior unchanged, and make external files evaluate the CAST normally.
+        if (logicalScan instanceof LogicalFileScan && countHasCastArgument) {
+            return canNotPush;
         }
 
         Set<PushDownAggOp> pushDownAggOps = functionClasses.stream()
@@ -685,15 +706,32 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots,
                 logicalScan.getOutput());
+        // COUNT(*) has no aggregate arguments, even though later column pruning retains one
+        // arbitrary scan slot. Preserve the semantic arguments here so the BE never needs to infer
+        // COUNT(col) from the post-pruning scan shape.
+        List<ExprId> countArgumentExprIds = mergeOp == PushDownAggOp.COUNT
+                ? usedSlotInTable.stream().map(SlotReference::getExprId).collect(Collectors.toList())
+                : ImmutableList.of();
 
         for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getOriginalColumn().get();
+            Optional<Column> optionalColumn = slot.getOriginalColumn();
+            if (!optionalColumn.isPresent()) {
+                // virtual columns (e.g., generated from MATCH_ALL expressions) do not have
+                // an original column and cannot be pushed down to storage layer aggregate
+                return canNotPush;
+            }
+            Column column = optionalColumn.get();
             if (column.isAggregated()) {
                 return canNotPush;
             }
             // The zone map max length of CharFamily is 512, do not
             // over the length: https://github.com/apache/doris/pull/6293
             if (mergeOp == PushDownAggOp.MIN_MAX || mergeOp == PushDownAggOp.MIX) {
+                if (logicalScan instanceof LogicalOlapScan
+                        && ((LogicalOlapScan) logicalScan).getTable() instanceof RowBinlogTableWrapper
+                        && RowBinlogTableWrapper.isRowBinlogSyntheticColumn(column)) {
+                    return canNotPush;
+                }
                 PrimitiveType colType = column.getType().getPrimitiveType();
                 if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()
                          || (colType == PrimitiveType.STRING && !enablePushDownStringMinMax())) {
@@ -704,10 +742,21 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 }
             }
             if (mergeOp == PushDownAggOp.COUNT || mergeOp == PushDownAggOp.MIX) {
-                // NULL value behavior in `count` function is zero, so
-                // we should not use row_count to speed up query. the col
-                // must be not null
-                if (column.isAllowNull() && checkNullSlots.contains(slot)) {
+                if (logicalScan instanceof LogicalFileScan && mergeOp == PushDownAggOp.COUNT
+                        && containsCountStar && column.isAllowNull() && checkNullSlots.contains(slot)) {
+                    // One metadata cardinality cannot represent both COUNT(*) and the smaller
+                    // COUNT(nullable_col); synthetic rows would make one upper aggregate wrong.
+                    return canNotPush;
+                }
+                // Nullable file COUNT is exact only when this query is routed to FileScannerV2,
+                // which carries the semantic argument and counts definition levels. Gating on the
+                // session switch keeps V1 on its original full-column evaluation path.
+                boolean supportsNullableFileCount = logicalScan instanceof LogicalFileScan
+                        && mergeOp == PushDownAggOp.COUNT
+                        && cascadesContext.getConnectContext() != null
+                        && cascadesContext.getConnectContext().getSessionVariable().enableFileScannerV2;
+                if (column.isAllowNull() && checkNullSlots.contains(slot)
+                        && !supportsNullableFileCount) {
                     return canNotPush;
                 }
             }
@@ -722,27 +771,28 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(
                     project.withChildren(
-                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp)))
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(
+                                physicalScan, mergeOp, countArgumentExprIds)))
                 ));
             } else {
                 return aggregate.withChildren(ImmutableList.of(
-                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp, countArgumentExprIds)
                 ));
             }
 
         } else if (logicalScan instanceof LogicalFileScan) {
-            Rule rule = (logicalScan instanceof LogicalHudiScan) ? new LogicalHudiScanToPhysicalHudiScan().build()
-                    : new LogicalFileScanToPhysicalFileScan().build();
+            Rule rule = new LogicalFileScanToPhysicalFileScan().build();
             PhysicalFileScan physicalScan = (PhysicalFileScan) rule.transform(logicalScan, cascadesContext)
                     .get(0);
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(
                     project.withChildren(
-                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp)))
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(
+                                physicalScan, mergeOp, countArgumentExprIds)))
                 ));
             } else {
                 return aggregate.withChildren(ImmutableList.of(
-                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp, countArgumentExprIds)
                 ));
             }
 

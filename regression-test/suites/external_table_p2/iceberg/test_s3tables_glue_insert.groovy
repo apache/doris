@@ -17,7 +17,7 @@
 
 import java.util.concurrent.ThreadLocalRandom
 
-suite("test_s3tables_glue_insert", "p2,external,iceberg,external_remote,external_remote_iceberg") {
+suite("test_s3tables_glue_insert", "p2,external") {
     def format_compressions = ["parquet_zstd", "orc_zlib"]
 
     def q01 = { String format_compression, String catalog_name ->

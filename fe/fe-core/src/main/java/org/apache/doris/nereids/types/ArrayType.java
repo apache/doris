@@ -18,54 +18,58 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import java.util.Objects;
 
 /**
  * Array type in Nereids.
+ *
+ * <p>Note: Array elements are always nullable in Doris. The NOT NULL constraint on array elements
+ * (e.g., ARRAY&lt;INT NOT NULL&gt;) is not supported. This simplification aligns with the actual
+ * behavior where both FE planning and BE execution always treat array elements as nullable.</p>
  */
 public class ArrayType extends DataType implements ComplexDataType, NestedColumnPrunable {
 
-    public static final ArrayType SYSTEM_DEFAULT = new ArrayType(NullType.INSTANCE, true);
+    public static final ArrayType SYSTEM_DEFAULT = new ArrayType(NullType.INSTANCE);
 
     public static final int WIDTH = 64;
 
     private final DataType itemType;
-    private final boolean containsNull;
 
-    private ArrayType(DataType itemType, boolean containsNull) {
+    private ArrayType(DataType itemType) {
         this.itemType = Objects.requireNonNull(itemType, "itemType can not be null");
-        this.containsNull = containsNull;
     }
 
     public static ArrayType of(DataType itemType) {
-        return of(itemType, true);
-    }
-
-    public static ArrayType of(DataType itemType, boolean containsNull) {
         if (itemType.equals(NullType.INSTANCE)) {
             return SYSTEM_DEFAULT;
         }
-        return new ArrayType(itemType, containsNull);
+        return new ArrayType(itemType);
     }
 
     @Override
     public DataType conversion() {
-        return new ArrayType(itemType.conversion(), containsNull);
+        return new ArrayType(itemType.conversion());
     }
 
     public DataType getItemType() {
         return itemType;
     }
 
-    public boolean containsNull() {
-        return containsNull;
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        if (target instanceof ArrayType) {
+            return itemType.isInjectiveCastTo(((ArrayType) target).itemType);
+        }
+        return target instanceof CharacterType;
     }
 
     @Override
     public Type toCatalogDataType() {
-        return new org.apache.doris.catalog.ArrayType(itemType.toCatalogDataType(), containsNull);
+        // Catalog ArrayType defaults containsNull to true via single-arg constructor
+        return new org.apache.doris.catalog.ArrayType(itemType.toCatalogDataType());
     }
 
     @Override
@@ -85,8 +89,7 @@ public class ArrayType extends DataType implements ComplexDataType, NestedColumn
             return false;
         }
         ArrayType arrayType = (ArrayType) o;
-        return Objects.equals(itemType, arrayType.itemType)
-                && Objects.equals(containsNull, arrayType.containsNull);
+        return Objects.equals(itemType, arrayType.itemType);
     }
 
     @Override

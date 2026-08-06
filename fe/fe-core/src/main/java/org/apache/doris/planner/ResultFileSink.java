@@ -88,9 +88,9 @@ public class ResultFileSink extends DataSink {
         fileSinkOptions.setBrokerAddresses(Lists.newArrayList(new TNetworkAddress(ip, port)));
     }
 
-    public void resetByDataStreamSink(DataStreamSink dataStreamSink) {
-        exchNodeId = dataStreamSink.getExchNodeId();
-        outputPartition = dataStreamSink.getOutputPartition();
+    public void setDeleteExistingFiles(boolean deleteExistingFiles) {
+        Preconditions.checkNotNull(fileSinkOptions);
+        fileSinkOptions.setDeleteExistingFiles(deleteExistingFiles);
     }
 
     public void setOutputTupleId(TupleId tupleId) {

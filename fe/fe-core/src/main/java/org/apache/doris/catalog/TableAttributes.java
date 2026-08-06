@@ -33,15 +33,20 @@ public class TableAttributes {
     @SerializedName(value = "constraints")
     private final Map<String, Constraint> constraintsMap = new HashMap<>();
     @SerializedName(value = "visibleVersion")
-    private long visibleVersion;
+    private volatile long visibleVersion;
     @SerializedName(value = "visibleVersionTime")
-    private long visibleVersionTime;
+    private volatile long visibleVersionTime;
 
     public TableAttributes() {
         this.visibleVersion = TABLE_INIT_VERSION;
         this.visibleVersionTime = System.currentTimeMillis();
     }
 
+    /**
+     * @deprecated Constraints are now managed by ConstraintManager.
+     *             This method will be removed in a future version.
+     */
+    @Deprecated
     public Map<String, Constraint> getConstraintsMap() {
         return constraintsMap;
     }
@@ -65,5 +70,10 @@ public class TableAttributes {
 
     public long getNextVersion() {
         return visibleVersion + 1;
+    }
+
+    public void resetVisibleVersion() {
+        this.visibleVersion = TABLE_INIT_VERSION;
+        this.visibleVersionTime = System.currentTimeMillis();
     }
 }

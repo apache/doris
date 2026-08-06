@@ -3,7 +3,11 @@ use multi_catalog;
 
 
 
-CREATE TABLE IF NOT EXISTS `test_date_string_partition`(
+drop table if exists `test_date_string_partition`;
+
+
+
+create table `test_date_string_partition`(
   `k1` int)
 PARTITIONED BY (
   `day1` string,

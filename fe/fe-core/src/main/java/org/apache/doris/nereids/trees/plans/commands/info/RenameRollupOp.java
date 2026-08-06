@@ -38,7 +38,6 @@ public class RenameRollupOp extends AlterTableOp {
         super(AlterOpType.RENAME);
         this.rollupName = rollupName;
         this.newRollupName = newRollupName;
-        this.needTableStable = false;
     }
 
     public String getRollupName() {
@@ -75,6 +74,12 @@ public class RenameRollupOp extends AlterTableOp {
     @Override
     public boolean needChangeMTMVState() {
         return false;
+    }
+
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Renaming rollup does not change schema, allow on row binlog tables.
+        return true;
     }
 
     @Override

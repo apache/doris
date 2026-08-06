@@ -27,7 +27,6 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "fs/http_file_reader.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/broker_file_writer.h"
 #include "io/fs/file_reader.h"
@@ -36,6 +35,7 @@
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/hdfs_file_writer.h"
+#include "io/fs/http_file_reader.h"
 #include "io/fs/http_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/multi_table_pipe.h"
@@ -45,34 +45,34 @@
 #include "io/fs/stream_load_pipe.h"
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
+#include "load/stream_load/new_load_stream_mgr.h"
+#include "load/stream_load/stream_load_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "runtime/stream_load/new_load_stream_mgr.h"
-#include "runtime/stream_load/stream_load_context.h"
+#include "service/backend_options.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
-io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
+io::FileReaderOptions FileFactory::get_reader_options(const TQueryOptions& option,
                                                       const io::FileDescription& fd) {
     io::FileReaderOptions opts {
             .cache_base_path {},
             .file_size = fd.file_size,
             .mtime = fd.mtime,
+            .storage_resource_id {},
     };
-    if (config::enable_file_cache && state != nullptr &&
-        state->query_options().__isset.enable_file_cache &&
-        state->query_options().enable_file_cache) {
+    if (config::enable_file_cache && option.__isset.enable_file_cache && option.enable_file_cache &&
+        fd.file_cache_admission) {
         opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
-    if (state != nullptr && state->query_options().__isset.file_cache_base_path &&
-        state->query_options().file_cache_base_path != RANDOM_CACHE_BASE_PATH) {
-        opts.cache_base_path = state->query_options().file_cache_base_path;
+    if (option.__isset.file_cache_base_path &&
+        option.file_cache_base_path != RANDOM_CACHE_BASE_PATH) {
+        opts.cache_base_path = option.file_cache_base_path;
     }
     return opts;
 }
@@ -306,6 +306,5 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

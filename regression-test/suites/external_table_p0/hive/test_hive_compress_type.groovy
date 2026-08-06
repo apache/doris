@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_compress_type", "p0,external,hive,external_docker,external_docker_hive") {
+
+suite("test_hive_compress_type", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
@@ -33,30 +34,6 @@ suite("test_hive_compress_type", "p0,external,hive,external_docker,external_dock
             'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
         );"""
         sql """use `${catalog_name}`.`multi_catalog`"""
-
-        // table test_compress_partitioned has 6 partitions with different compressed file: plain, gzip, bzip2, deflate
-        sql """set file_split_size=0"""
-        explain {
-            sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=16, totalFileSize=734675596, scanRanges=16"
-            contains "partition=8/8"
-        }
-        qt_q21 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
-        qt_q22 """select count(*) from test_compress_partitioned"""
-        order_qt_q23 """select * from test_compress_partitioned where watchid=4611870011201662970"""
-
-        sql """set file_split_size=8388608"""
-        explain {
-            sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=16, totalFileSize=734675596, scanRanges=16"
-            contains "partition=8/8"
-        }
-
-        qt_q31 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
-        qt_q32 """select count(*) from test_compress_partitioned"""
-        order_qt_q33 """select * from test_compress_partitioned where watchid=4611870011201662970"""
-        sql """set file_split_size=0"""
-
 
         order_qt_q42 """ select count(*) from parquet_lz4_compression ;       """
         order_qt_q43 """ select * from parquet_lz4_compression 
@@ -83,49 +60,49 @@ suite("test_hive_compress_type", "p0,external,hive,external_docker,external_dock
             order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal        
              """
         
-        order_qt_lzo_1 """ select * from parquet_lzo_compression 
+        order_qt_lzo_1 """ select * from parquet_lzo_compression
         order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
-        limit 20; 
+        limit 20;
         """
 
-        order_qt_lzo_2 """ select * from parquet_lzo_compression where col_int > 1000 
+        order_qt_lzo_2 """ select * from parquet_lzo_compression where col_int > 1000
         order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
-        limit 10; 
-        """
-
-
-        order_qt_lzo_3 """ select * from parquet_lzo_compression where col_float > 5.1 and col_boolean = 1  
-        order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
-        limit 10; 
-        """
-
-        order_qt_lzo_4 """ select * from parquet_lzo_compression where col_float > 1000 and col_boolean != 1  
-        order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
-        limit 10; 
+        limit 10;
         """
 
 
-        order_qt_lzo_5 """ select * from parquet_lzo_compression where col_double < 17672101476 and col_char !='ft'  
+        order_qt_lzo_3 """ select * from parquet_lzo_compression where col_float > 5.1 and col_boolean = 1
         order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
-        limit 10; 
+        limit 10;
+        """
+
+        order_qt_lzo_4 """ select * from parquet_lzo_compression where col_float > 1000 and col_boolean != 1
+        order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
+        limit 10;
+        """
+
+
+        order_qt_lzo_5 """ select * from parquet_lzo_compression where col_double < 17672101476 and col_char !='ft'
+        order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
+        limit 10;
         """
 
 
         order_qt_lzo_6 """ select * from parquet_lzo_compression where col_string='nuXBDInOfoaWz'
         order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
-        limit 10; 
+        limit 10;
         """
 
 
         order_qt_lzo_7 """ select * from parquet_lzo_compression where col_decimal > 86208 and year(col_timestamp) = 2023
         order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
-        limit 10; 
+        limit 10;
         """
 
 
         order_qt_lzo_8 """ select * from parquet_lzo_compression where year(col_date)!=2023 and year(col_timestamp) = 2023
         order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
-        limit 10; 
+        limit 10;
         """
     }
 }

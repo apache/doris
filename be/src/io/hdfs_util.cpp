@@ -26,9 +26,9 @@
 #include <thread>
 
 #include "common/logging.h"
+#include "core/string_ref.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_builder.h"
-#include "vec/common/string_ref.h"
 
 namespace doris::io {
 

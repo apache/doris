@@ -28,7 +28,6 @@ import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.Inet4Address;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.SocketException;
@@ -51,19 +50,6 @@ public class NetUtils {
     public static final String RPC_PORT_SUGGESTION = "Please change the 'rpc_port' in fe.conf and try again.";
     public static final String ARROW_FLIGHT_SQL_SUGGESTION =
             "Please change the 'arrow_flight_sql_port' in fe.conf and try again.";
-
-    // Target format is "host:port"
-    public static InetSocketAddress createSocketAddr(String target) {
-        int colonIndex = target.indexOf(':');
-        if (colonIndex < 0) {
-            throw new RuntimeException("Not a host:port pair : " + target);
-        }
-
-        String hostname = target.substring(0, colonIndex);
-        int port = Integer.parseInt(target.substring(colonIndex + 1));
-
-        return new InetSocketAddress(hostname, port);
-    }
 
     public static void getHosts(List<InetAddress> hosts) {
         Enumeration<NetworkInterface> n = null;

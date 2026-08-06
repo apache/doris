@@ -74,7 +74,7 @@ public class ApplyRuleJob extends Job {
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
-            if (rule.isExploration()
+            if ((rule.isExploration() && rule.getRuleType() != RuleType.LOGICAL_JOIN_COMMUTE)
                     && context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
                     .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize) {
                 break;
@@ -86,7 +86,8 @@ public class ApplyRuleJob extends Job {
                 }
                 CopyInResult result = context.getCascadesContext()
                         .getMemo()
-                        .copyIn(newPlan, groupExpression.getOwnerGroup(), false);
+                        .copyIn(newPlan, groupExpression.getOwnerGroup(), false,
+                                context.getCascadesContext().getStatementContext().isDpHyp());
                 if (!result.generateNewExpression) {
                     continue;
                 }

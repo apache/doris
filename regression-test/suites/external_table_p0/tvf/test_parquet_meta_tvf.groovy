@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
+suite("test_parquet_meta_tvf", "p0,external") {
     // use nereids planner
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
@@ -33,37 +33,51 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
     // parquet_metadata (S3)
     // Note: Prefer asserting on stable metadata columns; avoid relying on host-specific/local-only paths.
     order_qt_parquet_metadata_s3 """
-        select * from parquet_meta(
+        select
+            row_group_id, row_group_num_rows, row_group_num_columns, row_group_bytes, column_id,
+            file_offset, num_values, path_in_schema, type, stats_min, stats_max, stats_null_count,
+            stats_distinct_count, stats_min_value
+        from parquet_meta(
             "uri" = "${basePath}/meta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "endpoint" = "${endpoint}",
             "region" = "${region}",
             "mode" = "parquet_metadata"
-        );
+        )
+        order by row_group_id, column_id;
     """
 
     // default mode: parquet_metadata
     order_qt_parquet_metadata_default_mode """
-        select * from parquet_meta(
+        select
+            row_group_id, row_group_num_rows, row_group_num_columns, row_group_bytes, column_id,
+            file_offset, num_values, path_in_schema, type, stats_min, stats_max, stats_null_count,
+            stats_distinct_count, stats_min_value
+        from parquet_meta(
             "uri" = "${basePath}/meta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "endpoint" = "${endpoint}",
             "region" = "${region}"
-        );
+        )
+        order by row_group_id, column_id;
     """
 
     // parquet_schema
     order_qt_parquet_schema """
-        select * from parquet_meta(
+        select
+            name, type, type_length, repetition_type, num_children, converted_type,
+            scale, precision, field_id, logical_type
+        from parquet_meta(
             "uri" = "${basePath}/meta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "endpoint" = "${endpoint}",
             "region" = "${region}",
             "mode" = "parquet_schema"
-        );
+        )
+        order by name;
     """
 
     // empty parquet
@@ -80,19 +94,20 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
 
     // kv metadata
     order_qt_parquet_kv_metadata """
-        select * from parquet_meta(
+        select `key`, `value` from parquet_meta(
             "uri" = "${basePath}/kvmeta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "endpoint" = "${endpoint}",
             "region" = "${region}",
             "mode" = "parquet_kv_metadata"
-        );
+        )
+        order by `key`;
     """
 
     // file metadata
     order_qt_parquet_file_metadata """
-        select * from parquet_meta(
+        select created_by, num_rows, num_row_groups, format_version from parquet_meta(
             "uri" = "${basePath}/meta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
@@ -104,7 +119,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
 
     // file metadata (S3 glob)
     order_qt_parquet_file_metadata_s3_glob """
-        select file_name from parquet_meta(
+        select count(*) from parquet_meta(
             "uri" = "${basePath}/*meta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
@@ -116,7 +131,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
 
     // bloom probe
     order_qt_parquet_bloom_probe """
-        select * from parquet_meta(
+        select row_group_id, bloom_filter_excludes from parquet_meta(
             "uri" = "${basePath}/bloommeta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
@@ -125,12 +140,13 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
             "mode" = "parquet_bloom_probe",
             "column" = "col",
             "value" = 500
-        );
+        )
+        order by row_group_id;
     """
 
     // bloom probe: column without bloom filter
     order_qt_parquet_bloom_probe_no_bf """
-        select * from parquet_meta(
+        select row_group_id, bloom_filter_excludes from parquet_meta(
             "uri" = "${basePath}/meta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
@@ -139,7 +155,8 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
             "mode" = "parquet_bloom_probe",
             "column" = "normal_int",
             "value" = 500
-        );
+        )
+        order by row_group_id;
     """
 
     // mapping select

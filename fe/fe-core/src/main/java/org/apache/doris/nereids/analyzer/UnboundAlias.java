@@ -108,7 +108,7 @@ public class UnboundAlias extends NamedExpression implements UnaryExpression, Un
     public String toDigest() {
         StringBuilder sb = new StringBuilder();
         sb.append(child().toDigest());
-        if (alias.isPresent()) {
+        if (!nameFromChild && alias.isPresent()) {
             sb.append(" AS " + alias.get());
         }
         return sb.toString();

@@ -575,8 +575,14 @@ public class HyperGraph {
         }
 
         private BitSet addFilter(LogicalFilter<?> filter, Pair<BitSet, Long> childEdgeNodes) {
+            // Record the nodes actually used by the filter predicates when building the graph.
+            // slotToNodeMap already follows project aliases through addAlias(), so filters on alias
+            // slots still point back to the original base nodes. Slot-free predicates, e.g. 1 = 0,
+            // affect the whole child subtree and must not be treated as unrelated to every node.
+            long inputNodes = filter.getInputSlots().isEmpty()
+                    ? childEdgeNodes.second : calNodeMap(filter.getInputSlots());
             FilterEdge edge = new FilterEdge(filter, filterEdges.size(), childEdgeNodes.first, childEdgeNodes.second,
-                    childEdgeNodes.second);
+                    childEdgeNodes.second, inputNodes);
             filterEdges.add(edge);
             BitSet bitSet = new BitSet();
             bitSet.set(edge.getIndex());

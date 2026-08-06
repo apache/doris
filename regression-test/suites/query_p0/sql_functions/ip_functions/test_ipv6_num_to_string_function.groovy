@@ -18,8 +18,6 @@
 suite("test_ipv6_num_to_string_function") {
     sql """ DROP TABLE IF EXISTS test_ipv6_num_to_string_function """
 
-    sql """ SET enable_nereids_planner=true """
-    sql """ SET enable_fallback_to_original_planner=false """
 
     sql """
         CREATE TABLE test_ipv6_num_to_string_function (

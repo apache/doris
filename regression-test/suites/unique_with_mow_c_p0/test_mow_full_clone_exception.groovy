@@ -69,7 +69,7 @@ suite('test_full_clone_exception', 'docker') {
                     v int
                 )
                 UNIQUE KEY(k)
-                CLUSTER BY(v)
+                ORDER BY(v)
                 DISTRIBUTED BY HASH(k) BUCKETS 1 properties(
                     "enable_unique_key_merge_on_write" = "true"
                 );

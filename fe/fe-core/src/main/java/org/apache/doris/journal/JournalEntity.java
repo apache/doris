@@ -21,6 +21,8 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.IndexChangeJob;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationIntegrationMeta;
+import org.apache.doris.authentication.RoleMappingMeta;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
@@ -33,6 +35,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cloud.CloudWarmUpJob;
+import org.apache.doris.cloud.persist.CloudMetaSyncPoint;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.snapshot.SnapshotState;
 import org.apache.doris.cluster.Cluster;
@@ -41,11 +44,11 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.cooldown.CooldownConfList;
 import org.apache.doris.cooldown.CooldownDelete;
-import org.apache.doris.datasource.CatalogLog;
-import org.apache.doris.datasource.ExternalObjectLog;
-import org.apache.doris.datasource.InitCatalogLog;
-import org.apache.doris.datasource.InitDatabaseLog;
-import org.apache.doris.datasource.MetaIdMappingsLog;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.datasource.log.InitDatabaseLog;
+import org.apache.doris.datasource.log.MetaIdMappingsLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
 import org.apache.doris.indexpolicy.IndexPolicy;
@@ -84,15 +87,18 @@ import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateDictionaryPersistInfo;
+import org.apache.doris.persist.CreateFunctionInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DictionaryDecreaseVersionInfo;
 import org.apache.doris.persist.DictionaryIncreaseVersionInfo;
+import org.apache.doris.persist.DropAuthenticationIntegrationOperationLog;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropDictionaryPersistInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.DropResourceOperationLog;
+import org.apache.doris.persist.DropRoleMappingOperationLog;
 import org.apache.doris.persist.DropSqlBlockRuleOperationLog;
 import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.DropWorkloadSchedPolicyOperatorLog;
@@ -126,6 +132,7 @@ import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TableStatsDeletionLog;
+import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
@@ -140,6 +147,7 @@ import org.apache.doris.statistics.UpdateRowsEvent;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -492,6 +500,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_ADD_FUNCTIONS: {
+                data = CreateFunctionInfo.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_DROP_FUNCTION: {
                 data = FunctionSearchDesc.read(in);
                 isRead = true;
@@ -705,6 +718,27 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_SQL_BLOCK_RULE: {
                 data = DropSqlBlockRuleOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_AUTHENTICATION_INTEGRATION:
+            case OperationType.OP_ALTER_AUTHENTICATION_INTEGRATION: {
+                data = AuthenticationIntegrationMeta.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_AUTHENTICATION_INTEGRATION: {
+                data = DropAuthenticationIntegrationOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_ROLE_MAPPING: {
+                data = RoleMappingMeta.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_ROLE_MAPPING: {
+                data = DropRoleMappingOperationLog.read(in);
                 isRead = true;
                 break;
             }
@@ -939,6 +973,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_TABLE_STREAM_CLEANUP: {
+                data = TableStreamCleanupInfo.read(in);
+                isRead = true;
+                break;
+            }
             // FIXME: support cloud related operation types.
             case OperationType.OP_UPDATE_CLOUD_REPLICA: {
                 data = UpdateCloudReplicaInfo.read(in);
@@ -987,6 +1026,16 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_BEGIN_SNAPSHOT: {
                 data = SnapshotState.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_META_SYNC_POINT: {
+                data = CloudMetaSyncPoint.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_TSO_TIMESTAMP_WINDOW_END: {
+                data = TSOTimestamp.read(in);
                 isRead = true;
                 break;
             }

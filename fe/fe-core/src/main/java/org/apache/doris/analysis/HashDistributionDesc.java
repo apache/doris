@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.AnalysisException;
@@ -37,13 +36,11 @@ public class HashDistributionDesc extends DistributionDesc {
 
     public HashDistributionDesc(int numBucket, List<String> distributionColumnNames) {
         super(numBucket);
-        type = DistributionInfoType.HASH;
         this.distributionColumnNames = distributionColumnNames;
     }
 
     public HashDistributionDesc(int numBucket, boolean autoBucket, List<String> distributionColumnNames) {
         super(numBucket, autoBucket);
-        type = DistributionInfoType.HASH;
         this.distributionColumnNames = distributionColumnNames;
     }
 
@@ -115,19 +112,7 @@ public class HashDistributionDesc extends DistributionDesc {
             boolean find = false;
             for (Column column : columns) {
                 if (column.getName().equalsIgnoreCase(colName)) {
-                    if (column.getType().isArrayType()) {
-                        throw new DdlException("Array Type should not be used in distribution column["
-                                + column.getName() + "].");
-                    } else if (column.getType().isMapType()) {
-                        throw new DdlException("Map Type should not be used in distribution column["
-                                + column.getName() + "].");
-                    } else if (column.getType().isStructType()) {
-                        throw new DdlException("Struct Type should not be used in distribution column["
-                                + column.getName() + "].");
-                    } else if (column.getType().isFloatingPointType()) {
-                        throw new DdlException("Floating point type should not be used in distribution column["
-                                + column.getName() + "].");
-                    }
+                    HashDistributionInfo.checkDistributionColumnType(column.getName(), column.getType());
 
                     // distribution info and base columns persist seperately inside OlapTable, so we need deep copy
                     // to avoid modify table columns also modify columns inside distribution info.

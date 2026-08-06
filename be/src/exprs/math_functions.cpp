@@ -29,8 +29,8 @@
 #include <limits>
 #include <string_view>
 
+#include "exprs/function_context.h"
 #include "util/string_parser.hpp"
-#include "vec/exprs/function_context.h"
 
 namespace doris {
 

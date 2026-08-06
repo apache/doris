@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -33,7 +34,6 @@ import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -134,18 +134,23 @@ public class RelationUtil {
                     "Database [" + dbName + "] does not exist."
                             + (origin.map(loc -> "(" + loc + ")").orElse("")))
             );
+            TableIf tbl = db.getTableNullable(tableName);
+            if (tbl != null) {
+                return Pair.of(db, tbl);
+            }
             Pair<String, String> tableNameWithSysTableName
                     = SysTable.getTableNameWithSysTableName(tableName);
-            TableIf tbl = db.getTableOrException(tableNameWithSysTableName.first,
+            TableIf baseTable = db.getTableOrException(tableNameWithSysTableName.first,
                     s -> new AnalysisException(
                             "Table [" + tableName + "] does not exist in database [" + dbName + "]."
                                     + (origin.map(loc -> "(" + loc + ")").orElse("")))
             );
-            Optional<TableValuedFunction> sysTable = tbl.getSysTableFunction(catalogName, dbName, tableName);
-            if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second) && !sysTable.isPresent()) {
-                throw new AnalysisException("Unknown sys table '" + tableName + "'");
+            if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second)) {
+                if (!SysTableResolver.validateForQuery(baseTable, catalogName, dbName, tableName)) {
+                    throw new AnalysisException("Unknown sys table '" + tableName + "'");
+                }
             }
-            return Pair.of(db, tbl);
+            return Pair.of(db, baseTable);
         } catch (Throwable e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
@@ -218,4 +223,3 @@ public class RelationUtil {
         return columns;
     }
 }
-

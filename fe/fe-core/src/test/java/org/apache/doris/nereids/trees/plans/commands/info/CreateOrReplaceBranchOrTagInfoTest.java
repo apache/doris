@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.info.BranchOptions;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.TagOptions;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

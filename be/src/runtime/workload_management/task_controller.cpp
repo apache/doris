@@ -20,7 +20,6 @@
 #include "runtime/workload_management/resource_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void TaskController::update_paused_reason(const Status& st) {
     if (paused_reason_.status().is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
@@ -49,5 +48,4 @@ std::string TaskController::debug_string() {
             paused_reason_.status().to_string());
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -20,8 +20,9 @@ package org.apache.doris.httpv2.restv2;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.JsonUtil;
+import org.apache.doris.connector.spi.rest.ConnectorRestPassthrough;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.es.EsExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 
@@ -50,7 +51,7 @@ public class ESCatalogAction extends RestBaseController {
     private static final String TABLE = "table";
 
     private Object handleRequest(HttpServletRequest request, HttpServletResponse response,
-            BiFunction<EsExternalCatalog, String, String> action) {
+            BiFunction<ConnectorRestPassthrough, String, String> action) {
         if (Config.enable_all_http_auth) {
             executeCheckPassword(request, response);
         }
@@ -64,12 +65,19 @@ public class ESCatalogAction extends RestBaseController {
         String catalogName = request.getParameter(CATALOG);
         String tableName = request.getParameter(TABLE);
         CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogName);
-        if (!(catalog instanceof EsExternalCatalog)) {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)
+                || !"es".equals(((PluginDrivenExternalCatalog) catalog).getType())) {
             return ResponseEntityBuilder.badRequest("unknown ES Catalog: " + catalogName);
         }
-        EsExternalCatalog esExternalCatalog = (EsExternalCatalog) catalog;
-        esExternalCatalog.makeSureInitialized();
-        String result = action.apply(esExternalCatalog, tableName);
+        PluginDrivenExternalCatalog esCatalog = (PluginDrivenExternalCatalog) catalog;
+        esCatalog.makeSureInitialized();
+        // These endpoints emulate the ES HTTP API, so they need the connector to forward the request. A
+        // connector that cannot is not usable here; probe rather than call and catch.
+        ConnectorRestPassthrough rest = esCatalog.getConnector().getRestPassthrough();
+        if (rest == null) {
+            return ResponseEntityBuilder.badRequest("unknown ES Catalog: " + catalogName);
+        }
+        String result = action.apply(rest, tableName);
         ObjectNode jsonResult = JsonUtil.parseObject(result);
 
         resultMap.put("catalog", catalogName);
@@ -81,8 +89,8 @@ public class ESCatalogAction extends RestBaseController {
 
     @RequestMapping(path = "/get_mapping", method = RequestMethod.GET)
     public Object getMapping(HttpServletRequest request, HttpServletResponse response) {
-        return handleRequest(request, response, (esExternalCatalog, tableName) ->
-            esExternalCatalog.getEsRestClient().getMapping(tableName));
+        return handleRequest(request, response,
+                (rest, tableName) -> rest.executeRestRequest(tableName + "/_mapping", null));
     }
 
     @RequestMapping(path = "/search", method = RequestMethod.POST)
@@ -93,8 +101,8 @@ public class ESCatalogAction extends RestBaseController {
         } catch (IOException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
-        return handleRequest(request, response, (esExternalCatalog, tableName) ->
-            esExternalCatalog.getEsRestClient().searchIndex(tableName, body));
+        return handleRequest(request, response,
+                (rest, tableName) -> rest.executeRestRequest(tableName + "/_search", body));
     }
 
     private String getRequestBody(HttpServletRequest request) throws IOException {

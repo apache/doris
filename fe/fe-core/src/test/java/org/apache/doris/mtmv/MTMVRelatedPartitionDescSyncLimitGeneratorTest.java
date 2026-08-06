@@ -23,17 +23,15 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeA
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Map;
 
 
 public class MTMVRelatedPartitionDescSyncLimitGeneratorTest {
-    @Mocked
-    private DateTimeAcquire dateTimeAcquire;
 
     @Test
     public void testGenerateMTMVPartitionSyncConfigByProperties() throws AnalysisException {
@@ -68,27 +66,23 @@ public class MTMVRelatedPartitionDescSyncLimitGeneratorTest {
     public void testGetNowTruncSubSec() throws AnalysisException {
         MTMVRelatedPartitionDescSyncLimitGenerator generator = new MTMVRelatedPartitionDescSyncLimitGenerator();
         DateTimeV2Literal dateTimeLiteral = new DateTimeV2Literal("2020-02-03 20:10:10");
-        new Expectations() {
-            {
-                dateTimeAcquire.now();
-                minTimes = 0;
-                result = dateTimeLiteral;
-            }
-        };
-        long nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 1);
-        // 2020-02-03
-        Assert.assertEquals(1580659200L, nowTruncSubSec);
-        nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.MONTH, 1);
-        // 2020-02-01
-        Assert.assertEquals(1580486400L, nowTruncSubSec);
-        nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.YEAR, 1);
-        // 2020-01-01
-        Assert.assertEquals(1577808000L, nowTruncSubSec);
-        nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.MONTH, 3);
-        // 2019-12-01
-        Assert.assertEquals(1575129600L, nowTruncSubSec);
-        nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 4);
-        // 2020-01-31
-        Assert.assertEquals(1580400000L, nowTruncSubSec);
+        try (MockedStatic<DateTimeAcquire> ms = Mockito.mockStatic(DateTimeAcquire.class)) {
+            ms.when(DateTimeAcquire::now).thenReturn(dateTimeLiteral);
+            long nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 1);
+            // 2020-02-03
+            Assert.assertEquals(1580659200L, nowTruncSubSec);
+            nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.MONTH, 1);
+            // 2020-02-01
+            Assert.assertEquals(1580486400L, nowTruncSubSec);
+            nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.YEAR, 1);
+            // 2020-01-01
+            Assert.assertEquals(1577808000L, nowTruncSubSec);
+            nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.MONTH, 3);
+            // 2019-12-01
+            Assert.assertEquals(1575129600L, nowTruncSubSec);
+            nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 4);
+            // 2020-01-31
+            Assert.assertEquals(1580400000L, nowTruncSubSec);
+        }
     }
 }

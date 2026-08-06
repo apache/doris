@@ -113,7 +113,7 @@ PhysicalResultSink
 ----PhysicalUnion
 ------PhysicalOlapScan[table_b(b)]
 ------PhysicalOlapScan[table_c(c)]
-----filter((cast(value as DECIMALV3(38, 6)) = 1.000000))
+----filter((cast(a.value as DECIMALV3(38, 6)) = 1.000000))
 ------PhysicalOlapScan[table_a(a)]
 
 -- !basic_join_union_res --

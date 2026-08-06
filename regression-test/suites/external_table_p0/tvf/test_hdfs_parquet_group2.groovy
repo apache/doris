@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hdfs_parquet_group2","external,hive,tvf,external_docker") {
+suite("test_hdfs_parquet_group2", "p0,external") {
     String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -244,10 +244,13 @@ suite("test_hdfs_parquet_group2","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group2/group-field-with-enum-as-logical-annotation.parquet"
-            order_qt_test_31 """ select * from HDFS(
+            test {
+                sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
+                exception "Logical type Enum cannot be applied to group node"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group2/timemillis-in-i64.parquet"

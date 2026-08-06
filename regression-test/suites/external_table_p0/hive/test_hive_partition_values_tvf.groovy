@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_partition_values_tvf", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_partition_values_tvf", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable Hive test.")
@@ -69,8 +69,8 @@ suite("test_hive_partition_values_tvf", "p0,external,hive,external_docker,extern
         sql """drop database if exists internal.partition_values_db"""
         sql """create database if not exists internal.partition_values_db"""
         sql """create view internal.partition_values_db.v1 as select * from ${catalog_name}.multi_catalog.orc_partitioned_columns\$partitions"""
-        qt_sql71 """select * from internal.partition_values_db.v1"""
-        qt_sql72 """select t_string, t_int from internal.partition_values_db.v1 where t_int != "__HIVE_DEFAULT_PARTITION__""""
+        qt_sql71 """select * from internal.partition_values_db.v1 order by t_int, t_float, t_string"""
+        qt_sql72 """select t_string, t_int from internal.partition_values_db.v1 where t_int != "__HIVE_DEFAULT_PARTITION__" order by t_int, t_string"""
         qt_sql73 """with v1 as (select t_string, t_int from internal.partition_values_db.v1 order by t_int, t_float, t_string) select c1 from (select max(t_string) as c1 from v1) x;"""
         
         // 9. test join
@@ -109,7 +109,7 @@ suite("test_hive_partition_values_tvf", "p0,external,hive,external_docker,extern
 
         // 13. test all types of partition columns
         sql """switch ${catalog_name}"""
-        sql """drop database if exists partition_values_db""";
+        sql """drop database if exists partition_values_db force""";
         sql """create database partition_values_db"""
         sql """use partition_values_db"""
 
@@ -139,4 +139,3 @@ suite("test_hive_partition_values_tvf", "p0,external,hive,external_docker,extern
         qt_sql113 """select * from partition_values_all_types\$partitions order by p1,p2,p3;"""
     }
 }
-

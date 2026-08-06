@@ -27,9 +27,11 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.httpv2.rest.SetConfigAction;
@@ -239,8 +241,9 @@ public class NodeAction extends RestBaseController {
     }
 
     private static List<String> getFeList() {
+        int port = HttpURLUtil.getHttpPort();
         return Env.getCurrentEnv().getFrontends(null).stream()
-                .map(fe -> NetUtils.getHostPortInAccessibleFormat(fe.getHost(), Config.http_port))
+                .map(fe -> NetUtils.getHostPortInAccessibleFormat(fe.getHost(), port))
                 .collect(Collectors.toList());
     }
 
@@ -256,8 +259,13 @@ public class NodeAction extends RestBaseController {
      */
     @RequestMapping(path = "/config", method = RequestMethod.GET)
     public Object config(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT);
+        // This endpoint lists all FE config, matching the SQL "SHOW FRONTEND CONFIG", which
+        // requires ADMIN. Use an unconditional ADMIN check: checkAdminAuth only enforces the
+        // privilege when enable_all_http_auth is true, so it would be a no-op by default.
+        // Sensitive config values (e.g. fe_meta_auth_token) are additionally masked by ConfigBase,
+        // so they are never returned in plaintext even to an admin.
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkGlobalAuth(authInfo.userIdentity, PrivPredicate.ADMIN);
 
         List<List<String>> configs = ConfigBase.getConfigInfo(null);
         // Sort all configs by config key.
@@ -317,8 +325,10 @@ public class NodeAction extends RestBaseController {
     public Object configurationInfo(HttpServletRequest request, HttpServletResponse response,
             @RequestParam(value = "type") String type,
             @RequestBody(required = false) ConfigInfoRequestBody requestBody) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN_OR_NODE);
+        // Reads FE/BE config via fan-out to the per-node config endpoints, so it must be
+        // ADMIN-gated too. Unconditional check (see config() above for why checkAdminAuth is not).
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkGlobalAuth(authInfo.userIdentity, PrivPredicate.ADMIN);
 
         initHttpExecutor();
 
@@ -372,7 +382,10 @@ public class NodeAction extends RestBaseController {
             Pair<String, Integer> hostPort = hostPorts.get(i);
             String address = NetUtils.getHostPortInAccessibleFormat(hostPort.first, hostPort.second);
             configRequestDoneSignal.addMark(address, -1);
-            String url = "http://" + address + questPath;
+            // FE nodes use HTTPS when enabled; BE nodes always use plain HTTP
+            // (BEs do not participate in the FE internal HTTPS scheme)
+            String scheme = (Config.enable_https && "FE".equals(nodeType)) ? "https://" : "http://";
+            String url = scheme + address + questPath;
             httpExecutor.submit(
                     new HttpConfigInfoTask(url, hostPort, authorization, nodeType, confNames, configRequestDoneSignal,
                             configInfoTotal.get(i)));
@@ -490,13 +503,14 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/set_config/fe", method = RequestMethod.POST)
     public Object setConfigFe(HttpServletRequest request, HttpServletResponse response,
             @RequestBody Map<String, SetConfigRequestBody> requestBody) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
         List<Pair<String, Integer>> aliveFe = Env.getCurrentEnv().getFrontends(null).stream().filter(Frontend::isAlive)
-                .map(fe -> Pair.of(fe.getHost(), Config.http_port)).collect(Collectors.toList());
+                .map(fe -> Pair.of(fe.getHost(),
+                        HttpURLUtil.getHttpPort())).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveFe, failedTotal);
 
         Map<String, String> header = Maps.newHashMap();
@@ -568,7 +582,8 @@ public class NodeAction extends RestBaseController {
     private String concatFeSetConfigUrl(NodeConfigs nodeConfigs, boolean isPersist) {
         StringBuilder sb = new StringBuilder();
         Pair<String, Integer> hostPort = nodeConfigs.getHostPort();
-        sb.append("http://").append(hostPort.first).append(":").append(hostPort.second).append("/api/_set_config");
+        sb.append(Config.enable_https ? "https://" : "http://")
+                .append(hostPort.first).append(":").append(hostPort.second).append("/api/_set_config");
         Map<String, String> configs = nodeConfigs.getConfigs(isPersist);
         boolean addAnd = false;
         for (Map.Entry<String, String> entry : configs.entrySet()) {
@@ -591,8 +606,8 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/set_config/be", method = RequestMethod.POST)
     public Object setConfigBe(HttpServletRequest request, HttpServletResponse response,
             @RequestBody Map<String, SetConfigRequestBody> requestBody) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
@@ -613,6 +628,8 @@ public class NodeAction extends RestBaseController {
     @PostMapping("/{action}/be")
     public Object operateBackend(HttpServletRequest request, HttpServletResponse response,
             @PathVariable("action") String action, @RequestBody BackendReqInfo reqInfo) {
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         try {
             if (needRedirect(request.getScheme())) {
                 return redirectToHttps(request);
@@ -660,6 +677,8 @@ public class NodeAction extends RestBaseController {
     @PostMapping("/{action}/fe")
     public Object operateFrontends(HttpServletRequest request, HttpServletResponse response,
             @PathVariable("action") String action, @RequestBody FrontendReqInfo reqInfo) {
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         try {
             if (needRedirect(request.getScheme())) {
                 return redirectToHttps(request);
@@ -692,6 +711,8 @@ public class NodeAction extends RestBaseController {
     @PostMapping("/{action}/broker")
     public Object operateBroker(HttpServletRequest request, HttpServletResponse response,
                                 @PathVariable("action") String action, @RequestBody BrokerReqInfo reqInfo) {
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         try {
             if (!Env.getCurrentEnv().isMaster()) {
                 return redirectToMasterOrException(request, response);

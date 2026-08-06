@@ -20,20 +20,13 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
-import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TNetworkAddress;
 
-import java.util.Collections;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public abstract class BaseExternalTableDataSink extends DataSink {
 
@@ -58,60 +51,6 @@ public abstract class BaseExternalTableDataSink extends DataSink {
      * File format types supported by the current table
      */
     protected abstract Set<TFileFormatType> supportedFileFormatTypes();
-
-    protected List<TNetworkAddress> getBrokerAddresses(String bindBroker) throws AnalysisException {
-        List<FsBroker> brokers;
-        if (bindBroker != null) {
-            brokers = Env.getCurrentEnv().getBrokerMgr().getBrokers(bindBroker);
-        } else {
-            brokers = Env.getCurrentEnv().getBrokerMgr().getAllBrokers();
-        }
-        if (brokers == null || brokers.isEmpty()) {
-            throw new AnalysisException("No alive broker.");
-        }
-        Collections.shuffle(brokers);
-        return brokers.stream().map(broker -> new TNetworkAddress(broker.host, broker.port))
-                .collect(Collectors.toList());
-    }
-
-    protected TFileFormatType getTFileFormatType(String format) throws AnalysisException {
-        TFileFormatType fileFormatType = TFileFormatType.FORMAT_UNKNOWN;
-        String lowerCase = format.toLowerCase();
-        if (lowerCase.contains("orc")) {
-            fileFormatType = TFileFormatType.FORMAT_ORC;
-        } else if (lowerCase.contains("parquet")) {
-            fileFormatType = TFileFormatType.FORMAT_PARQUET;
-        } else if (lowerCase.contains("text")) {
-            fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-        }
-        if (!supportedFileFormatTypes().contains(fileFormatType)) {
-            throw new AnalysisException("Unsupported input format type: " + format);
-        }
-        return fileFormatType;
-    }
-
-    protected TFileCompressType getTFileCompressType(String compressType) {
-        if ("snappy".equalsIgnoreCase(compressType)) {
-            return TFileCompressType.SNAPPYBLOCK;
-        } else if ("lz4".equalsIgnoreCase(compressType)) {
-            return TFileCompressType.LZ4BLOCK;
-        } else if ("lzo".equalsIgnoreCase(compressType)) {
-            return TFileCompressType.LZO;
-        } else if ("zlib".equalsIgnoreCase(compressType)) {
-            return TFileCompressType.ZLIB;
-        } else if ("zstd".equalsIgnoreCase(compressType)) {
-            return TFileCompressType.ZSTD;
-        } else if ("gzip".equalsIgnoreCase(compressType)) {
-            return TFileCompressType.GZ;
-        } else if ("bzip2".equalsIgnoreCase(compressType)) {
-            return TFileCompressType.BZ2;
-        } else if ("uncompressed".equalsIgnoreCase(compressType)) {
-            return TFileCompressType.PLAIN;
-        } else {
-            // try to use plain type to decompress parquet or orc file
-            return TFileCompressType.PLAIN;
-        }
-    }
 
     /**
      * check sink params and generate thrift data sink to BE

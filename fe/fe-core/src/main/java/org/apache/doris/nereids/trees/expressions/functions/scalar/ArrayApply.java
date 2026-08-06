@@ -87,11 +87,12 @@ public class ArrayApply extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!child(0).getDataType().isArrayType()) {
+        Expression argument = getArgument(0);
+        if (!argument.getDataType().isArrayType()) {
             throw new AnalysisException("array_apply does not support type "
-            + child(0).getDataType() + ", expression is " + toSql());
+            + argument.getDataType() + ", expression is " + toSql());
         }
-        DataType argType = ((ArrayType) child(0).getDataType()).getItemType();
+        DataType argType = ((ArrayType) argument.getDataType()).getItemType();
         if (!(argType.isIntegralType() || argType.isFloatLikeType() || argType.isDecimalLikeType()
                 || argType.isDateLikeType() || argType.isBooleanType())) {
             throw new AnalysisException("array_apply does not support type " + argType + ", expression is " + toSql());

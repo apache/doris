@@ -21,6 +21,9 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -121,10 +124,6 @@ public class DataStreamSink extends DataSink {
         return runtimeFilters;
     }
 
-    public void setRuntimeFilters(List<RuntimeFilter> runtimeFilters) {
-        this.runtimeFilters = runtimeFilters;
-    }
-
     public void addRuntimeFilter(RuntimeFilter runtimeFilter) {
         this.runtimeFilters.add(runtimeFilter);
     }
@@ -163,7 +162,8 @@ public class DataStreamSink extends DataSink {
         }
         if (!conjuncts.isEmpty()) {
             Expr expr = PlanNode.convertConjunctsToAndCompoundPredicate(conjuncts);
-            strBuilder.append(prefix).append("  CONJUNCTS: ").append(expr.toSql()).append("\n");
+            strBuilder.append(prefix).append("  CONJUNCTS: ")
+                    .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             strBuilder.append(prefix).append("  runtime filters: ");
@@ -199,11 +199,11 @@ public class DataStreamSink extends DataSink {
         TDataStreamSink tStreamSink =
                 new TDataStreamSink(exchNodeId.asInt(), outputPartition.toThrift());
         for (Expr e : conjuncts) {
-            tStreamSink.addToConjuncts(e.treeToThrift());
+            tStreamSink.addToConjuncts(ExprToThriftVisitor.treeToThrift(e));
         }
         if (projections != null) {
             for (Expr expr : projections) {
-                tStreamSink.addToOutputExprs(expr.treeToThrift());
+                tStreamSink.addToOutputExprs(ExprToThriftVisitor.treeToThrift(expr));
             }
         }
         if (outputTupleDesc != null) {
@@ -231,7 +231,7 @@ public class DataStreamSink extends DataSink {
         }
         if (tabletSinkExprs != null) {
             for (Expr expr : tabletSinkExprs) {
-                tStreamSink.addToTabletSinkExprs(expr.treeToThrift());
+                tStreamSink.addToTabletSinkExprs(ExprToThriftVisitor.treeToThrift(expr));
             }
         }
         tStreamSink.setIsMerge(isMerge);

@@ -1,0 +1,76 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.rules.rewrite;
+
+import org.apache.doris.analysis.ColumnAccessPath;
+import org.apache.doris.nereids.types.DataType;
+
+import java.util.List;
+
+/** AccessPathInfo */
+public class AccessPathInfo {
+    public static final String ACCESS_ALL = "*";
+    public static final String ACCESS_MAP_KEYS = "KEYS";
+    public static final String ACCESS_MAP_VALUES = "VALUES";
+    // Suffix appended to a string-column path to indicate that only the offset array
+    // (not the char data) is needed — agreed with BE as the special path component name.
+    public static final String ACCESS_OFFSET = "OFFSET";
+    // Suffix appended to a column path to indicate that only the null flag
+    // (not the actual data) is needed — used when the column is only accessed via IS NULL / IS NOT NULL.
+    public static final String ACCESS_NULL = "NULL";
+
+    private DataType prunedType;
+    // allAccessPaths is used to record all access path include predicate access path and non-predicate access path,
+    // and predicateAccessPaths only contains the predicate access path.
+    // e.g. select element_at(s, 'name') from tbl where element_at(s, 'id') = 1
+    //      the allAccessPaths is: ["s.name", "s.id"]
+    //      the predicateAccessPaths is: ["s.id"]
+    private List<ColumnAccessPath> allAccessPaths;
+    private List<ColumnAccessPath> predicateAccessPaths;
+
+    public AccessPathInfo(DataType prunedType, List<ColumnAccessPath> allAccessPaths,
+            List<ColumnAccessPath> predicateAccessPaths) {
+        this.prunedType = prunedType;
+        this.allAccessPaths = allAccessPaths;
+        this.predicateAccessPaths = predicateAccessPaths;
+    }
+
+    public DataType getPrunedType() {
+        return prunedType;
+    }
+
+    public void setPrunedType(DataType prunedType) {
+        this.prunedType = prunedType;
+    }
+
+    public List<ColumnAccessPath> getAllAccessPaths() {
+        return allAccessPaths;
+    }
+
+    public void setAllAccessPaths(List<ColumnAccessPath> allAccessPaths) {
+        this.allAccessPaths = allAccessPaths;
+    }
+
+    public List<ColumnAccessPath> getPredicateAccessPaths() {
+        return predicateAccessPaths;
+    }
+
+    public void setPredicateAccessPaths(List<ColumnAccessPath> predicateAccessPaths) {
+        this.predicateAccessPaths = predicateAccessPaths;
+    }
+}

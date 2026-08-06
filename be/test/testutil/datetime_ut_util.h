@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "vec/runtime/timestamptz_value.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "core/value/timestamptz_value.h"
+#include "core/value/vdatetime_value.h"
 namespace doris {
 inline auto make_datetime(int year, int month, int day, int hour, int minute, int second,
                           int microsecond) {

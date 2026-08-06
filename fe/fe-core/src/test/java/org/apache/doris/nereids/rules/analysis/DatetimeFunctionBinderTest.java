@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
@@ -110,6 +111,8 @@ public class DatetimeFunctionBinderTest {
             TinyIntType.INSTANCE, false, ImmutableList.of());
     private final SlotReference secondUnit = new SlotReference(new ExprId(-1), "SECOND",
             TinyIntType.INSTANCE, false, ImmutableList.of());
+    private final SlotReference microsecondUnit = new SlotReference(new ExprId(-1), "MICROSECOND",
+            TinyIntType.INSTANCE, false, ImmutableList.of());
     private final SlotReference invalidUnit = new SlotReference(new ExprId(-1), "INVALID",
             TinyIntType.INSTANCE, false, ImmutableList.of());
 
@@ -169,6 +172,13 @@ public class DatetimeFunctionBinderTest {
                     secondUnit, dateTimeV2Literal1, dateTimeV2Literal2));
             result = DatetimeFunctionBinder.INSTANCE.bind(timeDiff);
             Assertions.assertInstanceOf(SecondsDiff.class, result);
+            Assertions.assertEquals(dateTimeV2Literal2, result.child(0));
+            Assertions.assertEquals(dateTimeV2Literal1, result.child(1));
+
+            timeDiff = new UnboundFunction(functionName, ImmutableList.of(
+                    microsecondUnit, dateTimeV2Literal1, dateTimeV2Literal2));
+            result = DatetimeFunctionBinder.INSTANCE.bind(timeDiff);
+            Assertions.assertInstanceOf(MicroSecondsDiff.class, result);
             Assertions.assertEquals(dateTimeV2Literal2, result.child(0));
             Assertions.assertEquals(dateTimeV2Literal1, result.child(1));
 

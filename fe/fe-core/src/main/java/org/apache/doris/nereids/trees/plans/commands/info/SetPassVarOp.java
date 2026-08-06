@@ -98,4 +98,8 @@ public class SetPassVarOp extends SetVarOp {
     public boolean needAuditEncryption() {
         return true;
     }
+
+    public UserIdentity getUserIdent() {
+        return userIdent;
+    }
 }

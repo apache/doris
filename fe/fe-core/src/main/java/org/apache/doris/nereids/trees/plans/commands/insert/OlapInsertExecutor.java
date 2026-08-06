@@ -46,6 +46,7 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
@@ -78,7 +79,12 @@ import java.util.stream.Collectors;
  */
 public class OlapInsertExecutor extends AbstractInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(OlapInsertExecutor.class);
+    // Keep the timeout message aligned with the client-facing error returned by the legacy insert path.
+    private static final String INSERT_VISIBLE_TIMEOUT_ERROR_MSG = "transaction commit successfully, "
+            + "BUT data did not become visible within insert_visible_timeout_ms and will be visible later.";
     protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
+    // Track publish timeout separately from real failures so committed bookkeeping still runs.
+    protected boolean publishTimedOutAfterCommit = false;
 
     protected OlapTable olapTable;
 
@@ -88,7 +94,16 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     public OlapInsertExecutor(ConnectContext ctx, Table table,
             String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert,
             long jobId) {
-        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
+        this(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId, false);
+    }
+
+    /**
+     * constructor
+     */
+    public OlapInsertExecutor(ConnectContext ctx, Table table,
+            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert,
+            long jobId, boolean needRegister) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId, needRegister);
         this.olapTable = (OlapTable) table;
     }
 
@@ -135,9 +150,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         try {
             // TODO refactor this to avoid call legacy planner's function
             long timeout = getTimeout();
+            long dbId = database.getId();
             // TODO: For Insert Into with S3/HDFS TVF, need to get load_to_single_tablet from TVF properties
             // Currently hardcoded to false, which bypasses the check in OlapTableSink.init()
-            olapTableSink.init(ctx.queryId(), txnId, database.getId(),
+            olapTableSink.init(ctx.queryId(), txnId, dbId,
                     timeout,
                     ctx.getSessionVariable().getSendBatchParallelism(),
                     false,
@@ -196,6 +212,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         state.addTableIndexes((OlapTable) table);
     }
 
+    protected void abortTransactionOnFail() throws Exception {
+        Env.getCurrentGlobalTransactionMgr().abortTransaction(database.getId(), txnId, errMsg);
+    }
+
     @Override
     protected void beforeExec() {
         String queryId = DebugUtil.printId(ctx.queryId());
@@ -222,7 +242,9 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 ctx.getSessionVariable().getInsertVisibleTimeoutMs(), txnCommitAttachment)) {
             txnStatus = TransactionStatus.VISIBLE;
         } else {
+            // Keep the committed status so load accounting and insert result bookkeeping stay aligned.
             txnStatus = TransactionStatus.COMMITTED;
+            publishTimedOutAfterCommit = true;
         }
         if (Config.isCloudMode()) {
             String clusterName = ctx.getCloudCluster();
@@ -279,8 +301,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
         if (txnId != INVALID_TXN_ID) {
             try {
-                Env.getCurrentGlobalTransactionMgr().abortTransaction(
-                        database.getId(), txnId, errMsg);
+                abortTransactionOnFail();
             } catch (Exception abortTxnException) {
                 // just print a log if abort txn failed. This failure do not need to pass to user.
                 // user only concern abort how txn failed.
@@ -303,41 +324,36 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         }
         String finalErrorMsg = InsertUtils.getFinalErrorMsg(errMsg, firstErrorMsgPart, urlPart);
         ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
+        recordLoadJob(ctx.getCurrentUserIdentity());
+    }
+
+    private void recordLoadJob(UserIdentity userIdentity) {
+        if (jobId != -1) {
+            try {
+                ctx.getEnv().getLoadManager()
+                        .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
+                                table.getId(), EtlJobType.INSERT, createTime, errMsg,
+                                coordinator.getTrackingUrl(), coordinator.getFirstErrorMsg(),
+                                userIdentity, insertLoadJob.getId());
+            } catch (MetaNotFoundException e) {
+                LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
+                errMsg = "Record info of insert load with error " + e.getMessage();
+            }
+        }
     }
 
     @Override
     protected void afterExec(StmtExecutor executor) {
-        // Go here, which means:
-        // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
-        // 2. transaction failed but Config.using_old_load_usage_pattern is true.
-        // we will record the load job info for these 2 cases
-        try {
-            // the statement parsed by Nereids is saved at executor::parsedStmt.
-            StatementBase statement = executor.getParsedStmt();
-            UserIdentity userIdentity;
-            //if we use job scheduler, parse statement will not set user identity,so we need to get it from context
-            if (null == statement) {
-                userIdentity = ctx.getCurrentUserIdentity();
-            } else {
-                userIdentity = statement.getUserInfo();
-            }
-            EtlJobType etlJobType = EtlJobType.INSERT;
-            // Do not register job if job id is -1.
-            if (!Config.enable_nereids_load && jobId != -1) {
-                // just record for loadv2 here
-                ctx.getEnv().getLoadManager()
-                        .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
-                                table.getId(),
-                                etlJobType, createTime, errMsg,
-                                coordinator.getTrackingUrl(),
-                                coordinator.getFirstErrorMsg(),
-                                userIdentity, insertLoadJob.getId());
-            }
-        } catch (MetaNotFoundException e) {
-            LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
-            errMsg = "Record info of insert load with error " + e.getMessage();
+        // the statement parsed by Nereids is saved at executor::parsedStmt.
+        StatementBase statement = executor.getParsedStmt();
+        UserIdentity userIdentity;
+        // if we use job scheduler, parse statement will not set user identity, so we need to get it from context
+        if (null == statement) {
+            userIdentity = ctx.getCurrentUserIdentity();
+        } else {
+            userIdentity = statement.getUserInfo();
         }
-
+        recordLoadJob(userIdentity);
         setReturnInfo();
     }
 
@@ -362,6 +378,14 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 txnStatus, loadedRows, filteredRows);
         // update it, so that user can get loaded rows in fe.audit.log
         ctx.updateReturnRows((int) loadedRows);
+        if (publishTimedOutAfterCommit && ctx.getSessionVariable().isInsertVisibleTimeoutReturnError()) {
+            // Log the committed timeout branch explicitly so operators can distinguish it from real failures.
+            LOG.warn("insert [{}] with txn id {} committed but return error because {}={}",
+                    labelName, txnId, SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE,
+                    SessionVariable.InsertVisibleTimeoutReturnMode.ERROR);
+            // Convert the final client response to ERR after all committed-side bookkeeping has finished.
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, INSERT_VISIBLE_TIMEOUT_ERROR_MSG);
+        }
     }
 
     public long getTimeout() {

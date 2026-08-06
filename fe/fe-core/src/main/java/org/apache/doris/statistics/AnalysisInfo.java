@@ -168,6 +168,9 @@ public class AnalysisInfo implements Writable {
     @SerializedName("usingSqlForExternalTable")
     public final boolean usingSqlForExternalTable;
 
+    @SerializedName("chv")
+    public final Boolean collectHotValue;
+
     @SerializedName("createTime")
     public final long createTime = System.currentTimeMillis();
 
@@ -209,8 +212,9 @@ public class AnalysisInfo implements Writable {
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForExternalTable, long tblUpdateTime, long rowCount, boolean userInject, long updateRows,
-            long tableVersion, JobPriority priority, Map<Long, Long> partitionUpdateRows, boolean enablePartition) {
+            boolean usingSqlForExternalTable, Boolean collectHotValue, long tblUpdateTime, long rowCount,
+            boolean userInject, long updateRows, long tableVersion, JobPriority priority,
+            Map<Long, Long> partitionUpdateRows, boolean enablePartition) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -243,6 +247,7 @@ public class AnalysisInfo implements Writable {
         }
         this.forceFull = forceFull;
         this.usingSqlForExternalTable = usingSqlForExternalTable;
+        this.collectHotValue = collectHotValue;
         this.tblUpdateTime = tblUpdateTime;
         this.rowCount = rowCount;
         this.userInject = userInject;
@@ -293,6 +298,7 @@ public class AnalysisInfo implements Writable {
         }
         sj.add("forceFull: " + forceFull);
         sj.add("usingSqlForExternalTable: " + usingSqlForExternalTable);
+        sj.add("collectHotValue: " + collectHotValue);
         sj.add("rowCount: " + rowCount);
         sj.add("userInject: " + userInject);
         sj.add("updateRows: " + updateRows);

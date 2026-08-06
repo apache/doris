@@ -38,11 +38,12 @@
 #include "meta-store/blob_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
+#include "snapshot/snapshot_manager_factory.h"
 
 namespace doris::cloud {
 
 MetaChecker::MetaChecker(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(txn_kv) {
-    snapshot_manager_ = std::make_shared<SnapshotManager>(std::move(txn_kv));
+    snapshot_manager_ = create_snapshot_manager(std::move(txn_kv));
 }
 
 bool MetaChecker::scan_and_handle_kv(
@@ -55,7 +56,7 @@ bool MetaChecker::scan_and_handle_kv(
         return false;
     }
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(start_key, end_key, &it);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get tablet idx, ret=" << err;
@@ -71,7 +72,7 @@ bool MetaChecker::scan_and_handle_kv(
             }
         }
         start_key.push_back('\x00');
-    } while (it->more());
+    }
     return true;
 }
 

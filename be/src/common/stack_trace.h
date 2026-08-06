@@ -39,8 +39,9 @@
 
 struct NoCapture {};
 
-/// Tries to capture current stack trace using libunwind or signal context
-/// NOTE: StackTrace calculation is signal safe only if updatePHDRCache() was called beforehand.
+/// Tries to capture current stack trace using libunwind or signal context.
+/// NOTE: Signal-context unwinding must enable ScopedPHDRCacheRead around the libunwind call so an
+/// interrupted thread does not re-enter glibc's loader lock through dl_iterate_phdr.
 class StackTrace {
 public:
     struct Frame {

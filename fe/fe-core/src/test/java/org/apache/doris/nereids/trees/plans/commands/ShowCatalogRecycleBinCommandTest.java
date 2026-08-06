@@ -26,41 +26,49 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class ShowCatalogRecycleBinCommandTest {
-    @Mocked
     private Env env;
-    @Mocked
     private ConnectContext connectContext;
-    @Mocked
     private AccessControllerManager accessControllerManager;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
+
+    @BeforeEach
+    public void setUp() {
+        env = Mockito.mock(Env.class);
+        connectContext = Mockito.mock(ConnectContext.class);
+        accessControllerManager = Mockito.mock(AccessControllerManager.class);
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(connectContext);
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(connectContext.getState()).thenReturn(new QueryState());
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
+    }
 
     @Test
     void testValidateNormal() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        Mockito.when(accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN))
+                .thenReturn(true);
 
         // normal
         EqualTo whereClause = new EqualTo(new UnboundSlot("name"),
@@ -77,25 +85,8 @@ public class ShowCatalogRecycleBinCommandTest {
 
     @Test
     void testValidateNoPrivilege() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Mockito.when(accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN))
+                .thenReturn(false);
 
         EqualTo whereClause = new EqualTo(new UnboundSlot("name"),
                 new StringLiteral("p1000"));

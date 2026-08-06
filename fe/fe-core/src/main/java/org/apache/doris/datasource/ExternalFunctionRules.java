@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.jdbc.source.JdbcFunctionPushDownRule;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -28,9 +28,11 @@ import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * External push down rules for functions.
@@ -39,6 +41,34 @@ import java.util.Set;
  */
 public class ExternalFunctionRules {
     private static final Logger LOG = LogManager.getLogger(ExternalFunctionRules.class);
+
+    private static final TreeSet<String> MYSQL_UNSUPPORTED_FUNCTIONS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+    private static final TreeSet<String> CLICKHOUSE_SUPPORTED_FUNCTIONS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+    private static final TreeSet<String> ORACLE_SUPPORTED_FUNCTIONS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+    private static final Map<String, String> REPLACE_MYSQL_FUNCTIONS = Maps.newHashMap();
+    private static final Map<String, String> REPLACE_CLICKHOUSE_FUNCTIONS = Maps.newHashMap();
+    private static final Map<String, String> REPLACE_ORACLE_FUNCTIONS = Maps.newHashMap();
+
+    static {
+        MYSQL_UNSUPPORTED_FUNCTIONS.add("date_trunc");
+        MYSQL_UNSUPPORTED_FUNCTIONS.add("money_format");
+        MYSQL_UNSUPPORTED_FUNCTIONS.add("negative");
+        MYSQL_UNSUPPORTED_FUNCTIONS.addAll(Arrays.asList(Config.jdbc_mysql_unsupported_pushdown_functions));
+
+        CLICKHOUSE_SUPPORTED_FUNCTIONS.add("from_unixtime");
+        CLICKHOUSE_SUPPORTED_FUNCTIONS.add("unix_timestamp");
+
+        ORACLE_SUPPORTED_FUNCTIONS.add("nvl");
+        ORACLE_SUPPORTED_FUNCTIONS.add("ifnull");
+
+        REPLACE_MYSQL_FUNCTIONS.put("nvl", "ifnull");
+        REPLACE_MYSQL_FUNCTIONS.put("to_date", "date");
+
+        REPLACE_CLICKHOUSE_FUNCTIONS.put("from_unixtime", "FROM_UNIXTIME");
+        REPLACE_CLICKHOUSE_FUNCTIONS.put("unix_timestamp", "toUnixTimestamp");
+
+        REPLACE_ORACLE_FUNCTIONS.put("ifnull", "nvl");
+    }
 
     private FunctionPushDownRule functionPushDownRule;
     private FunctionRewriteRules functionRewriteRules;
@@ -79,13 +109,13 @@ public class ExternalFunctionRules {
                 // Add default push down rules
                 switch (datasource.toLowerCase()) {
                     case "mysql":
-                        funcRule.unsupportedFunctions.addAll(JdbcFunctionPushDownRule.MYSQL_UNSUPPORTED_FUNCTIONS);
+                        funcRule.unsupportedFunctions.addAll(MYSQL_UNSUPPORTED_FUNCTIONS);
                         break;
                     case "clickhouse":
-                        funcRule.supportedFunctions.addAll(JdbcFunctionPushDownRule.CLICKHOUSE_SUPPORTED_FUNCTIONS);
+                        funcRule.supportedFunctions.addAll(CLICKHOUSE_SUPPORTED_FUNCTIONS);
                         break;
                     case "oracle":
-                        funcRule.supportedFunctions.addAll(JdbcFunctionPushDownRule.ORACLE_SUPPORTED_FUNCTIONS);
+                        funcRule.supportedFunctions.addAll(ORACLE_SUPPORTED_FUNCTIONS);
                         break;
                     default:
                         break;
@@ -170,13 +200,13 @@ public class ExternalFunctionRules {
                 // Add default rewrite rules
                 switch (datasource.toLowerCase()) {
                     case "mysql":
-                        rewriteRule.rewriteMap.putAll(JdbcFunctionPushDownRule.REPLACE_MYSQL_FUNCTIONS);
+                        rewriteRule.rewriteMap.putAll(REPLACE_MYSQL_FUNCTIONS);
                         break;
                     case "clickhouse":
-                        rewriteRule.rewriteMap.putAll(JdbcFunctionPushDownRule.REPLACE_CLICKHOUSE_FUNCTIONS);
+                        rewriteRule.rewriteMap.putAll(REPLACE_CLICKHOUSE_FUNCTIONS);
                         break;
                     case "oracle":
-                        rewriteRule.rewriteMap.putAll(JdbcFunctionPushDownRule.REPLACE_ORACLE_FUNCTIONS);
+                        rewriteRule.rewriteMap.putAll(REPLACE_ORACLE_FUNCTIONS);
                         break;
                     default:
                         break;

@@ -28,9 +28,14 @@
   -- drop the temp relations if they exist already in the database
   {{ doris__drop_relation(preexisting_intermediate_relation) }}
 
+  {{ run_hooks(pre_hooks, inside_transaction=False) }}
+
+  -- `BEGIN` happens here:
+  {{ run_hooks(pre_hooks, inside_transaction=True) }}
+
   -- build model
   {% call statement('main') -%}
-    {{ get_create_table_as_sql(False, intermediate_relation, sql) }}
+    {{ doris__create_table_as(False, intermediate_relation, sql) }}
   {%- endcall %}
 
   {% if existing_relation -%}
@@ -39,6 +44,7 @@
     {{ adapter.rename_relation(intermediate_relation, target_relation) }}
   {% endif %}
 
+  {{ run_hooks(post_hooks, inside_transaction=True) }}
 
   {% set should_revoke = should_revoke(existing_relation, full_refresh_mode=True) %}
   {% do apply_grants(target_relation, grant_config, should_revoke=should_revoke) %}
@@ -46,8 +52,13 @@
   -- alter relation comment
   {% do persist_docs(target_relation, model) %}
 
+  -- `COMMIT` happens here
+  {% do adapter.commit() %}
+
   -- finally, drop the existing/backup relation after the commit
   {{ doris__drop_relation(intermediate_relation) }}
+
+  {{ run_hooks(post_hooks, inside_transaction=False) }}
 
   {{ return({'relations': [target_relation]}) }}
 {% endmaterialization %}

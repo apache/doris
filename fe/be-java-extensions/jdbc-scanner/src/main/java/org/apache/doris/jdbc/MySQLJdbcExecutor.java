@@ -43,6 +43,10 @@ import java.time.temporal.ChronoField;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * @deprecated Use {@link MySQLTypeHandler} instead.
+ */
+@Deprecated
 public class MySQLJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(MySQLJdbcExecutor.class);
 

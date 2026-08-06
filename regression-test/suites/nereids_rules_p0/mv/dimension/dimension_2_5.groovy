@@ -40,7 +40,7 @@ suite("partition_mv_rewrite_dimension_2_5") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -69,7 +69,7 @@ suite("partition_mv_rewrite_dimension_2_5") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -87,7 +87,7 @@ suite("partition_mv_rewrite_dimension_2_5") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`ps_partkey`, `ps_suppkey`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 24
+    DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -135,14 +135,29 @@ suite("partition_mv_rewrite_dimension_2_5") {
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
-        logger.info("origin_res: " + origin_res)
         sql "SET enable_materialized_view_rewrite=true"
         def mv_origin_res = sql stmt
-        logger.info("mv_origin_res: " + mv_origin_res)
+        boolean logged = false
+        def logResultMismatch = {
+            if (!logged) {
+                logger.info("origin_res: " + origin_res)
+                logger.info("mv_origin_res: " + mv_origin_res)
+                logged = true
+            }
+        }
+        if (!((mv_origin_res == [] && origin_res == []) || (mv_origin_res.size() == origin_res.size()))) {
+            logResultMismatch()
+        }
         assertTrue((mv_origin_res == [] && origin_res == []) || (mv_origin_res.size() == origin_res.size()))
         for (int row = 0; row < mv_origin_res.size(); row++) {
+            if (mv_origin_res[row].size() != origin_res[row].size()) {
+                logResultMismatch()
+            }
             assertTrue(mv_origin_res[row].size() == origin_res[row].size())
             for (int col = 0; col < mv_origin_res[row].size(); col++) {
+                if (mv_origin_res[row][col] != origin_res[row][col]) {
+                    logResultMismatch()
+                }
                 assertTrue(mv_origin_res[row][col] == origin_res[row][col])
             }
         }
@@ -248,8 +263,6 @@ suite("partition_mv_rewrite_dimension_2_5") {
             l_orderkey,
             o_orderkey """
     create_async_mv(db, mv_name_5, mv_stmt_5)
-    def job_name_5 = getJobName(db, mv_name_5)
-    waitingMTMVTaskFinished(job_name_5)
 
     def sql_stmt_5 = """select o_orderdate, o_shippriority, o_comment
             from orders_2_5

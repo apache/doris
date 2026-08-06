@@ -22,16 +22,16 @@ import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableMap;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 public class CreateStorageVaultCommandTest extends TestWithFeService {
     private String vaultName;
@@ -43,18 +43,13 @@ public class CreateStorageVaultCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testValidateNormal(@Mocked AccessControllerManager accessManager) {
-        new Expectations() {
-            {
-                Env.getCurrentEnv().getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    public void testValidateNormal() throws Exception {
+        Env env = Env.getCurrentEnv();
+        AccessControllerManager accessManager = env.getAccessManager();
+        AccessControllerManager spyAcm = Mockito.spy(accessManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
 
         Config.cloud_unique_id = "not_empty_nereids";
         ImmutableMap<String, String> properties = ImmutableMap.<String, String>builder()

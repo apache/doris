@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_iceberg_export_timestamp_tz", "external,hive,external_docker") {
+suite("test_iceberg_export_timestamp_tz", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {

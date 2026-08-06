@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <artifactId>fe</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>fe-filesystem</artifactId>
+    <packaging>pom</packaging>
+    <name>Doris FE Filesystem (Aggregator)</name>
+    <description>
+        Aggregator POM for all Doris FE filesystem modules.
+        Contains NO Java code; only lists sub-modules.
+    </description>
+
+    <properties>
+        <!-- By default, skip env-dependent tests tagged @Tag("environment").
+             Override on CLI: -Dtest.excludedGroups=none -->
+        <test.excludedGroups>environment</test.excludedGroups>
+
+        <!--
+          The FILESYSTEM plugin API version, declared exactly once. Filtered into fe-filesystem-spi's
+          META-INF/doris/filesystem-plugin-api-version.properties (what the FE kernel expects) and
+          stamped into every filesystem plugin jar's MANIFEST below (what a plugin declares).
+
+          Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the filesystem SPI
+          surface - additions included. Note fe-filesystem-api is also linked by connector plugins,
+          so a change there means bumping connector.plugin.api.version too; fe-extension-spi means
+          bumping all four families. See
+          plan-doc/designs/2026-07-29-plugin-api-version-check-design.md.
+        -->
+        <filesystem.plugin.api.version>1.0</filesystem.plugin.api.version>
+    </properties>
+
+    <modules>
+        <module>fe-filesystem-api</module>
+        <module>fe-filesystem-spi</module>
+        <module>fe-filesystem-s3-base</module>
+        <module>fe-filesystem-s3</module>
+        <module>fe-filesystem-gcs</module>
+        <module>fe-filesystem-minio</module>
+        <module>fe-filesystem-ozone</module>
+        <module>fe-filesystem-oss</module>
+        <module>fe-filesystem-cos</module>
+        <module>fe-filesystem-obs</module>
+        <module>fe-filesystem-local</module>
+        <module>fe-filesystem-azure</module>
+        <module>fe-filesystem-hdfs-base</module>
+        <module>fe-filesystem-hdfs</module>
+        <module>fe-filesystem-oss-hdfs</module>
+        <module>fe-filesystem-jfs</module>
+        <module>fe-filesystem-broker</module>
+        <module>fe-filesystem-http</module>
+    </modules>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <configuration>
+                        <excludedGroups>${test.excludedGroups}</excludedGroups>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <plugins>
+            <!--
+              Stamps the declared FILESYSTEM plugin API version into every filesystem jar's MANIFEST.
+              Inherited by all child modules, so the fourteen filesystem plugin zips carry it without
+              a per-module pom change; the loader reads it back from the jar that defines the
+              FileSystemProvider. Merges with (does not replace) the ASF parent's maven-jar-plugin
+              <archive><manifest> configuration.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Doris-Filesystem-Plugin-Api-Version>${filesystem.plugin.api.version}</Doris-Filesystem-Plugin-Api-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+
+</project>

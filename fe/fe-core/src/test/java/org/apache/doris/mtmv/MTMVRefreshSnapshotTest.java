@@ -21,11 +21,10 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.Map;
 
@@ -37,48 +36,20 @@ public class MTMVRefreshSnapshotTest {
     private MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
     private MTMVVersionSnapshot p1Snapshot = new MTMVVersionSnapshot(correctVersion, 0);
     private MTMVVersionSnapshot t1Snapshot = new MTMVVersionSnapshot(correctVersion, 0);
-    @Mocked
-    private BaseTableInfo existTable;
-    @Mocked
-    private BaseTableInfo nonExistTable;
+    private BaseTableInfo existTable = Mockito.mock(BaseTableInfo.class);
+    private BaseTableInfo nonExistTable = Mockito.mock(BaseTableInfo.class);
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
-        new Expectations() {
-            {
-                existTable.getCtlName();
-                minTimes = 0;
-                result = "ctl1";
+        Mockito.when(existTable.getCtlName()).thenReturn("ctl1");
+        Mockito.when(existTable.getDbName()).thenReturn("db1");
+        Mockito.when(existTable.getTableName()).thenReturn("t1");
+        Mockito.when(existTable.getTableId()).thenReturn(1L);
 
-                existTable.getDbName();
-                minTimes = 0;
-                result = "db1";
-
-                existTable.getTableName();
-                minTimes = 0;
-                result = "t1";
-
-                existTable.getTableId();
-                minTimes = 0;
-                result = 1L;
-
-                nonExistTable.getCtlName();
-                minTimes = 0;
-                result = "ctl1";
-
-                nonExistTable.getDbName();
-                minTimes = 0;
-                result = "db1";
-
-                nonExistTable.getTableName();
-                minTimes = 0;
-                result = "t2";
-
-                nonExistTable.getTableId();
-                minTimes = 0;
-                result = 2L;
-            }
-        };
+        Mockito.when(nonExistTable.getCtlName()).thenReturn("ctl1");
+        Mockito.when(nonExistTable.getDbName()).thenReturn("db1");
+        Mockito.when(nonExistTable.getTableName()).thenReturn("t2");
+        Mockito.when(nonExistTable.getTableId()).thenReturn(2L);
 
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = Maps.newHashMap();
         MTMVRefreshPartitionSnapshot mvp1PartitionSnapshot = new MTMVRefreshPartitionSnapshot();

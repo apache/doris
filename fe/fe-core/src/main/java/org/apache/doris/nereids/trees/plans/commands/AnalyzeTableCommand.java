@@ -24,15 +24,15 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -100,7 +100,7 @@ public class AnalyzeTableCommand extends AnalyzeCommand {
     @Override
     public void validate(ConnectContext ctx) throws UserException {
         super.validate(ctx);
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         String catalogName = tableNameInfo.getCtl();
         String dbName = tableNameInfo.getDb();
         String tblName = tableNameInfo.getTbl();
@@ -312,13 +312,18 @@ public class AnalyzeTableCommand extends AnalyzeCommand {
      * isSamplingPartition
      */
     public boolean isSamplingPartition() {
-        if (!(table instanceof HMSExternalTable) || partitionNames != null) {
+        // A plain-hive table is a PluginDrivenExternalTable declaring SUPPORTS_SAMPLE_ANALYZE per-table.
+        // iceberg/hudi-on-HMS and native iceberg/paimon do not declare it, so they stay
+        // non-partition-sampled as before.
+        boolean sampleable = table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).supportsSampleAnalyze();
+        if (!sampleable || partitionNames != null) {
             return false;
         }
         int partNum = ConnectContext.get().getSessionVariable().getExternalTableAnalyzePartNum();
-        if (partNum == -1 || partitionNames != null) {
+        if (partNum == -1) {
             return false;
         }
-        return table instanceof HMSExternalTable && table.getPartitionNames().size() > partNum;
+        return table.getPartitionNames().size() > partNum;
     }
 }

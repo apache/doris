@@ -2,3 +2,197 @@
 -- !select --
 1
 
+-- !select_table_unique0 --
+1	c
+
+-- !select_table_unique0_min --
+a
+
+-- !select_table_unique1 --
+1	c
+2	e
+
+-- !select_table_unique1_max --
+g
+
+-- !select_table_unique2 --
+1	c
+2	e
+
+-- !select_table_unique2_max --
+h
+
+-- !select_table_unique3 --
+1	c
+2	e
+4	k
+
+-- !select_table_unique3_max --
+l
+
+-- !select_0 --
+1	asd	cc
+2	qwe	vvx
+3	ffsd	mnm
+4	qdf	ll
+5	cvfv	vff
+
+-- !select_1 --
+1
+
+-- !select_2 --
+5
+
+-- !select_3 --
+asd
+
+-- !select_4 --
+qwe
+
+-- !select_5 --
+cc
+
+-- !select_6 --
+vvx
+
+-- !select_00 --
+1	asd	zzz
+2	qwe	vvx
+3	ffsd	mnm
+4	qdf	ll
+5	cvfv	vff
+
+-- !select_7 --
+1
+
+-- !select_8 --
+5
+
+-- !select_9 --
+asd
+
+-- !select_10 --
+qwe
+
+-- !select_11 --
+cc
+
+-- !select_12 --
+zzz
+
+-- !select_000 --
+1	asd	zzz
+3	ffsd	mnm
+4	qdf	ll
+5	cvfv	vff
+
+-- !select_13 --
+1
+
+-- !select_14 --
+5
+
+-- !select_15 --
+asd
+
+-- !select_16 --
+qwe
+
+-- !select_17 --
+cc
+
+-- !select_18 --
+zzz
+
+-- !select_mor_0 --
+1	asd	cc
+2	qwe	vvx
+3	ffsd	mnm
+4	qdf	ll
+5	cvfv	vff
+
+-- !select_mor_1 --
+1
+
+-- !select_mor_2 --
+5
+
+-- !select_mor_3 --
+asd
+
+-- !select_mor_4 --
+qwe
+
+-- !select_mor_5 --
+cc
+
+-- !select_mor_6 --
+vvx
+
+-- !select_mor_00 --
+1	asd	zzz
+2	qwe	vvx
+3	ffsd	mnm
+4	qdf	ll
+5	cvfv	vff
+
+-- !select_mor_7 --
+1
+
+-- !select_mor_8 --
+5
+
+-- !select_mor_9 --
+asd
+
+-- !select_mor_10 --
+qwe
+
+-- !select_mor_11 --
+cc
+
+-- !select_mor_12 --
+zzz
+
+-- !select_mor_000 --
+1	asd	zzz
+3	ffsd	mnm
+4	qdf	ll
+5	cvfv	vff
+
+-- !select_mor_13 --
+1
+
+-- !select_mor_14 --
+5
+
+-- !select_mor_15 --
+asd
+
+-- !select_mor_16 --
+qdf
+
+-- !select_mor_17 --
+cc
+
+-- !select_mor_18 --
+zzz
+
+-- !select_19 --
+1
+
+-- !select_20 --
+5
+
+-- !select_21 --
+asd
+
+-- !select_22 --
+qwe
+
+-- !select_23 --
+cc
+
+-- !select_24 --
+vvx
+

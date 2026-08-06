@@ -22,6 +22,7 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.StringLiteral;
@@ -30,6 +31,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -106,7 +108,7 @@ public class SchemaChangeProcDir implements ProcDirInterface {
                 default:
                     throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
             }
-            Long leftVal = (new DateLiteral((String) element, type)).getLongValue();
+            Long leftVal = (DateLiteralUtils.createDateLiteral((String) element, type)).getLongValue();
             Long rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
             switch (binaryPredicate.getOp()) {
                 case EQ:
@@ -139,12 +141,27 @@ public class SchemaChangeProcDir implements ProcDirInterface {
             return true;
         }
 
-        if (subExpr instanceof ComparisonPredicate) {
-            return filterSubExpression(subExpr, element);
-        } else if (subExpr instanceof Not) {
-            subExpr = subExpr.child(0);
-            if (subExpr instanceof EqualTo) {
-                return !filterSubExpression(subExpr, element);
+        return evaluateFilterExpression(subExpr, element);
+    }
+
+    private boolean evaluateFilterExpression(Expression expr, Comparable element) throws AnalysisException {
+        if (expr instanceof And) {
+            for (Expression child : expr.children()) {
+                if (!evaluateFilterExpression(child, element)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        if (expr instanceof ComparisonPredicate) {
+            return filterSubExpression(expr, element);
+        }
+
+        if (expr instanceof Not) {
+            Expression childExpr = expr.child(0);
+            if (childExpr instanceof EqualTo) {
+                return !filterSubExpression(childExpr, element);
             }
         }
 

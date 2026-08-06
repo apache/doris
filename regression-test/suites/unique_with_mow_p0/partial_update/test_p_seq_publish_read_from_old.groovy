@@ -35,6 +35,7 @@ suite("test_p_seq_publish_read_from_old") {
         ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
         PROPERTIES(
         "replication_num" = "1",
+        "disable_auto_compaction" = "true",
         "enable_unique_key_merge_on_write" = "true",
         "light_schema_change" = "true",
         "function_column.sequence_col" = "v1",
@@ -162,6 +163,6 @@ suite("test_p_seq_publish_read_from_old") {
     wait_for_publish(txnId2, 60)
 
     sql "sync;"
-    qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
-    inspectRows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__;"
+    qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__;"
+    inspectRows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k,v1,v2,v3,v4,v5,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__;"
 }

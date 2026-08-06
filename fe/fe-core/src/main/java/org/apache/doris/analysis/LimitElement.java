@@ -24,26 +24,8 @@ package org.apache.doris.analysis;
  * Combination of limit and offset expressions.
  */
 public class LimitElement {
-    public static LimitElement NO_LIMIT = new LimitElement();
-
-    /////////////////////////////////////////
-    // BEGIN: Members that need to be reset()
-
-    private long limit;
-    private long offset;
-
-    // END: Members that need to be reset()
-    /////////////////////////////////////////
-
-    public LimitElement() {
-        limit = -1;
-        offset = 0;
-    }
-
-    public LimitElement(long limit) {
-        this.limit = limit;
-        offset = 0;
-    }
+    private final long limit;
+    private final long offset;
 
     public LimitElement(long offset, long limit) {
         this.offset = offset;
@@ -80,9 +62,6 @@ public class LimitElement {
         return offset;
     }
 
-    public boolean hasOffset() {
-        return offset != 0;
-    }
 
     public String toSql() {
         if (limit == -1) {
@@ -106,11 +85,5 @@ public class LimitElement {
         }
         sb.append("" + " ? ");
         return sb.toString();
-    }
-
-    public void analyze() {
-    }
-
-    public void reset() {
     }
 }

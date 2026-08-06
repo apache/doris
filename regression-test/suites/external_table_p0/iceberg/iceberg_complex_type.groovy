@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_complex_type", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_complex_type", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -50,7 +50,7 @@ suite("iceberg_complex_type", "p0,external,doris,external_docker,external_docker
     qt_parquet_v1_3  """ select count(*) from  complex_parquet_v1 ;"""
     qt_parquet_v1_4  """ select array_size(col2) from  complex_parquet_v1 where col2 is not null   order by id ; """ 
     qt_parquet_v1_5  """ select map_keys(col3) from  complex_parquet_v1  order by id; """ 
-    qt_parquet_v1_6  """ select struct_element(col4, 1) from  complex_parquet_v1  where id >=7 order by id; """ 
+    qt_parquet_v1_6  """ select element_at(col4, 1) from  complex_parquet_v1  where id >=7 order by id; """ 
     qt_parquet_v1_7  """ select id,count(col2) from  complex_parquet_v1  group by id order by id desc limit 2; """ 
 
 
@@ -59,7 +59,7 @@ suite("iceberg_complex_type", "p0,external,doris,external_docker,external_docker
     qt_parquet_v2_3  """ select count(*) from  complex_parquet_v2 ;"""
     qt_parquet_v2_4  """ select array_size(col2) from  complex_parquet_v2 where col2 is not null   order by id ; """ 
     qt_parquet_v2_5  """ select map_keys(col3) from  complex_parquet_v2  order by id; """ 
-    qt_parquet_v2_6  """ select struct_element(col4, 1) from  complex_parquet_v2  where id >=7 order by id; """ 
+    qt_parquet_v2_6  """ select element_at(col4, 1) from  complex_parquet_v2  where id >=7 order by id; """ 
     qt_parquet_v2_7  """ select id,count(col2) from  complex_parquet_v2  group by id order by id desc limit 2; """ 
 
 
@@ -68,7 +68,7 @@ suite("iceberg_complex_type", "p0,external,doris,external_docker,external_docker
     qt_orc_v1_3  """ select count(*) from  complex_orc_v1 ;"""
     qt_orc_v1_4  """ select array_size(col2) from  complex_orc_v1 where col2 is not null   order by id ; """ 
     qt_orc_v1_5  """ select map_keys(col3) from  complex_orc_v1  order by id; """ 
-    qt_orc_v1_6  """ select struct_element(col4, 1) from  complex_orc_v1  where id >=7 order by id; """ 
+    qt_orc_v1_6  """ select element_at(col4, 1) from  complex_orc_v1  where id >=7 order by id; """ 
     qt_orc_v1_7  """ select id,count(col2) from  complex_orc_v1  group by id order by id desc limit 2; """ 
 
 
@@ -77,7 +77,7 @@ suite("iceberg_complex_type", "p0,external,doris,external_docker,external_docker
     qt_orc_v2_3  """ select count(*) from  complex_orc_v2 ;"""
     qt_orc_v2_4  """ select array_size(col2) from  complex_orc_v2 where col2 is not null   order by id ; """ 
     qt_orc_v2_5  """ select map_keys(col3) from  complex_orc_v2  order by id; """ 
-    qt_orc_v2_6  """ select struct_element(col4, 1) from  complex_orc_v2  where id >=7 order by id; """ 
+    qt_orc_v2_6  """ select element_at(col4, 1) from  complex_orc_v2  where id >=7 order by id; """ 
     qt_orc_v2_7  """ select id,count(col2) from  complex_orc_v2  group by id order by id desc limit 2; """ 
 
 }

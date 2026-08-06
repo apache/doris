@@ -16,6 +16,7 @@
 // under the License.
 
 suite("analyze_repeat") {
+    sql "set parallel_pipeline_task_num=2"
     sql """
         SET enable_fallback_to_original_planner=false;
         SET enable_nereids_planner=true;

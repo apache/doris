@@ -26,9 +26,6 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.InApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.UnCorrelatedApplyFilter;
@@ -44,9 +41,6 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -118,13 +112,6 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
 
     @Test
     public void testTranslateCase() throws Exception {
-        new MockUp<RuleSet>() {
-            @Mock
-            public List<Rule> getExplorationRules() {
-                return Lists.newArrayList(new AggregateStrategies().buildRules());
-            }
-        };
-
         for (String sql : testSqls) {
             StatementScopeIdGenerator.clear();
             StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
@@ -357,7 +344,6 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
                                     logicalUnion())),
                         logicalRecursiveUnionProducer()).when(cte -> cte.getCteName().equals("xx")));
     }
-
 
     /* ********************************************************************************************
      * Test CTE Exceptions

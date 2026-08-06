@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_upper_case_column_name", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_upper_case_column_name", "p0,external") {
     def hiveParquet1 = """select * from hive_upper_case_parquet;"""
     def hiveParquet2 = """select * from hive_upper_case_parquet where id=1;"""
     def hiveParquet3 = """select * from hive_upper_case_parquet where id>1;"""
@@ -38,7 +38,7 @@ suite("test_upper_case_column_name", "p0,external,hive,external_docker,external_
         logger.info("diable Hive test.")
         return;
     }
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_upper_case_column_name"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

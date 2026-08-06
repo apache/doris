@@ -25,8 +25,8 @@ suite("nereids_scalar_fn_IP") {
     // for table fn_test_ip_nullable
     qt_sql """ select count() from fn_test_ip_nullable; """
     // test_ip_cidr_to_range_function
-    qt_sql_cidr_ipv6 "select id, struct_element(ipv6_cidr_to_range(ip6,$cidr_v6), 'min') as min_range, struct_element(ipv6_cidr_to_range(ip6, $cidr_v6), 'max') as max_range from fn_test_ip_nullable order by id"
-    qt_sql_cidr_ipv4 "select id, struct_element(ipv4_cidr_to_range(ip4, $cidr_v4), 'min') as min_range, struct_element(ipv4_cidr_to_range(ip4, $cidr_v4), 'max') as max_range from fn_test_ip_nullable order by id"
+    qt_sql_cidr_ipv6 "select id, element_at(ipv6_cidr_to_range(ip6,$cidr_v6), 'min') as min_range, element_at(ipv6_cidr_to_range(ip6, $cidr_v6), 'max') as max_range from fn_test_ip_nullable order by id"
+    qt_sql_cidr_ipv4 "select id, element_at(ipv4_cidr_to_range(ip4, $cidr_v4), 'min') as min_range, element_at(ipv4_cidr_to_range(ip4, $cidr_v4), 'max') as max_range from fn_test_ip_nullable order by id"
     qt_sql_cidr_ipv6_all """ select id, ipv6_cidr_to_range(ip6, 16) from fn_test_ip_nullable order by id; """
     qt_sql_cidr_ipv4_all """ select id, ipv4_cidr_to_range(ip4, 16) from fn_test_ip_nullable order by id; """
 
@@ -157,8 +157,8 @@ suite("nereids_scalar_fn_IP") {
     // for table fn_test_ip_not_nullable
     qt_sql_not_null """ select count() from fn_test_ip_not_nullable; """
     // test_ip_cidr_to_range_function
-    qt_sql_not_null_cidr_ipv6 "select id, struct_element(ipv6_cidr_to_range(ip6,$cidr_v6), 'min') as min_range, struct_element(ipv6_cidr_to_range(ip6, $cidr_v6), 'max') as max_range from fn_test_ip_not_nullable order by id"
-    qt_sql_not_null_cidr_ipv4 "select id, struct_element(ipv4_cidr_to_range(ip4, $cidr_v4), 'min') as min_range, struct_element(ipv4_cidr_to_range(ip4, $cidr_v4), 'max') as max_range from fn_test_ip_not_nullable order by id"
+    qt_sql_not_null_cidr_ipv6 "select id, element_at(ipv6_cidr_to_range(ip6,$cidr_v6), 'min') as min_range, element_at(ipv6_cidr_to_range(ip6, $cidr_v6), 'max') as max_range from fn_test_ip_not_nullable order by id"
+    qt_sql_not_null_cidr_ipv4 "select id, element_at(ipv4_cidr_to_range(ip4, $cidr_v4), 'min') as min_range, element_at(ipv4_cidr_to_range(ip4, $cidr_v4), 'max') as max_range from fn_test_ip_not_nullable order by id"
     qt_sql_not_null_cidr_ipv6_all """ select id, ipv6_cidr_to_range(ip6, 16) from fn_test_ip_not_nullable order by id; """
     qt_sql_not_null_cidr_ipv4_all """ select id, ipv4_cidr_to_range(ip4, 16) from fn_test_ip_not_nullable order by id; """
 

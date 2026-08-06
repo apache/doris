@@ -26,10 +26,10 @@ import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -40,8 +40,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -105,7 +103,7 @@ public class NereidsDataDescription {
             "md5sum",
             "replace_value",
             "now",
-            FunctionSet.HLL_HASH,
+            "hll_hash",
             "substitute");
 
     private static final String DEFAULT_READ_JSON_BY_LINE = "true";
@@ -243,7 +241,7 @@ public class NereidsDataDescription {
         }
         putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
         putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
-        columnsNameToLowerCase(fileFieldNames);
+        fileFieldNamesToLowerCase(fileFieldNames);
         columnsNameToLowerCase(columnsFromPath);
     }
 
@@ -296,7 +294,7 @@ public class NereidsDataDescription {
         }
         putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
         putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
-        columnsNameToLowerCase(fileFieldNames);
+        fileFieldNamesToLowerCase(fileFieldNames);
         columnsNameToLowerCase(columnsFromPath);
     }
 
@@ -377,7 +375,7 @@ public class NereidsDataDescription {
         }
         putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES, String.valueOf(skipLines));
         this.isMysqlLoad = true;
-        columnsNameToLowerCase(fileFieldNames);
+        fileFieldNamesToLowerCase(fileFieldNames);
     }
 
     /**
@@ -439,7 +437,7 @@ public class NereidsDataDescription {
                 String.valueOf(taskInfo.isReadJsonByLine()));
         putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_NUM_AS_STRING, String.valueOf(taskInfo.isNumAsString()));
         this.uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
-        columnsNameToLowerCase(fileFieldNames);
+        fileFieldNamesToLowerCase(fileFieldNames);
     }
 
     private String getFileFormat(NereidsLoadTaskInfo taskInfo) {
@@ -498,7 +496,7 @@ public class NereidsDataDescription {
             validateMd5sum(args, columnNameMap);
         } else if (functionName.equalsIgnoreCase("replace_value")) {
             validateReplaceValue(args, mappingColumn);
-        } else if (functionName.equalsIgnoreCase(FunctionSet.HLL_HASH)) {
+        } else if (functionName.equalsIgnoreCase("hll_hash")) {
             validateHllHash(args, columnNameMap);
         } else if (functionName.equalsIgnoreCase("now")) {
             validateNowFunction(mappingColumn);
@@ -765,10 +763,6 @@ public class NereidsDataDescription {
         this.isHadoopLoad = isHadoopLoad;
     }
 
-    public boolean isHadoopLoad() {
-        return isHadoopLoad;
-    }
-
     public boolean isClientLocal() {
         return clientLocal;
     }
@@ -787,10 +781,6 @@ public class NereidsDataDescription {
 
     public boolean getIgnoreCsvRedundantCol() {
         return ignoreCsvRedundantCol;
-    }
-
-    public void setIgnoreCsvRedundantCol(boolean ignoreCsvRedundantCol) {
-        this.ignoreCsvRedundantCol = ignoreCsvRedundantCol;
     }
 
     /*
@@ -1000,9 +990,16 @@ public class NereidsDataDescription {
         }
     }
 
-    // Change all the columns name to lower case, because Doris column is case-insensitive.
+    private void fileFieldNamesToLowerCase(List<String> columns) {
+        if (Util.isCasePreservingFormat(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
+            return;
+        }
+        columnsNameToLowerCase(columns);
+    }
+
+    // Change column names to lower case, because Doris column is case-insensitive.
     private void columnsNameToLowerCase(List<String> columns) {
-        if (columns == null || columns.isEmpty() || "json".equals(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
+        if (columns == null || columns.isEmpty()) {
             return;
         }
         for (int i = 0; i < columns.size(); i++) {
@@ -1101,7 +1098,7 @@ public class NereidsDataDescription {
             sb.append(" NEGATIVE");
         }
         sb.append(" INTO TABLE ");
-        sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
+        sb.append(isMysqlLoad ? dbName + "." + tableName : tableName);
         if (partitionNamesInfo != null) {
             sb.append(" ");
             sb.append(partitionNamesInfo.toSql());

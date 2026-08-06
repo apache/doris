@@ -17,7 +17,7 @@
 
 
 
-suite("iceberg_schema_change_with_timetravel", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_schema_change_with_timetravel", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -48,7 +48,7 @@ suite("iceberg_schema_change_with_timetravel", "p0,external,doris,external_docke
     sql """ use test_db;""" 
 
     def executeTimeTravelingQueries = { String tableName ->
-        def snapshots = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db.${tableName}", "query_type" = "snapshots") order by committed_at; """
+        def snapshots = sql """ select snapshot_id from ${catalog_name}.test_db.${tableName}\$snapshots order by committed_at; """
         def snapshotIds = [
             s0: snapshots.get(0)[0],
             s1: snapshots.get(1)[0],

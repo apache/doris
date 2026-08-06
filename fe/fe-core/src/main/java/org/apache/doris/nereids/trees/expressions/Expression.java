@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -29,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
@@ -44,7 +44,6 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.LazyCompute;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -167,7 +166,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     // alias
     public String getExpressionName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPRESSION_NAME));
+            this.exprName = Optional.of(
+                    NameFormatUtils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPRESSION_NAME));
         }
         return this.exprName.get();
     }
@@ -260,7 +260,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             DataType expected = expectedTypes.get(i);
             if (!checkInputDataTypesWithExpectType(input.getDataType(), expected)) {
                 errorMessages.add(String.format("argument %d requires %s type, however '%s' is of %s type",
-                        i + 1, expected.simpleString(), input.toSql(), input.getDataType().simpleString()));
+                        i + 1, expected, input.toSql(), input.getDataType()));
             }
         }
         if (!errorMessages.isEmpty()) {
@@ -302,6 +302,9 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         throw new RuntimeException();
     }
 
+    // `inferred` means this predicate was derived by optimizer rules and did not exist in
+    // the original SQL. If an equivalent predicate already exists in the original SQL,
+    // it is not inferred even when the optimizer can derive the same predicate again.
     public Expression withInferred(boolean inferred) {
         throw new RuntimeException("current expression has not impl the withInferred method");
     }
@@ -385,10 +388,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     public boolean isKeyColumnFromTable() {
         return (this instanceof SlotReference) && ((SlotReference) this).getOriginalColumn().isPresent()
                 && ((SlotReference) this).getOriginalColumn().get().isKey();
-    }
-
-    public boolean containsUniqueFunction() {
-        return containsType(UniqueFunction.class);
     }
 
     /** containsNullLiteralChildren */

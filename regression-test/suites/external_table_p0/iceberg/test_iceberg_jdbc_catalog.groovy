@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external_docker_iceberg") {
+suite("test_iceberg_jdbc_catalog", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("Iceberg test is not enabled, skip this test")
@@ -45,7 +45,8 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
         return;
     }
 
-    String catalog_name = "test_iceberg_jdbc_catalog"
+    String catalog_name = "test_iceberg_jdbc_catalog_doris"
+    String iceberg_jdbc_catalog_name = "test_iceberg_jdbc_catalog"
     String db_name = "jdbc_test_db"
     String driver_name = "postgresql-42.5.0.jar"
     String driver_download_url = "${getS3Url()}/regression/jdbc_driver/${driver_name}"
@@ -87,6 +88,14 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
         host_ips.add(f[1])
     }
     host_ips = host_ips.unique()
+    Set<String> localHostIps = ["127.0.0.1", "localhost", "::1"] as Set
+    java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces()).each { networkInterface ->
+        java.util.Collections.list(networkInterface.getInetAddresses()).each { address ->
+            localHostIps.add(address.getHostAddress().split("%")[0])
+        }
+    }
+    localHostIps.add(java.net.InetAddress.getLocalHost().getHostName())
+    localHostIps.add(java.net.InetAddress.getLocalHost().getCanonicalHostName())
 
     executeCommand("mkdir -p ${local_driver_dir}", false)
     if (!new File(local_driver_path).exists()) {
@@ -96,9 +105,18 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
         executeCommand("/usr/bin/curl --max-time 600 ${mysql_driver_download_url} --output ${local_mysql_driver_path}", true)
     }
     for (def ip in host_ips) {
-        executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${jdbc_drivers_dir}\"", false)
-        scpFiles("root", ip, local_driver_path, jdbc_drivers_dir, false)
-        scpFiles("root", ip, local_mysql_driver_path, jdbc_drivers_dir, false)
+        // Scenario: every FE/BE receives the JDBC drivers so distributed scans and FE failover
+        // do not depend on the regression runner sharing a filesystem with one cluster node.
+        if (localHostIps.contains(ip)) {
+            // A local test node must not require root SSH merely to install a JDBC driver.
+            executeCommand("mkdir -p ${jdbc_drivers_dir}", true)
+            executeCommand("cp -f ${local_driver_path} ${jdbc_drivers_dir}/${driver_name}", true)
+            executeCommand("cp -f ${local_mysql_driver_path} ${jdbc_drivers_dir}/${mysql_driver_name}", true)
+        } else {
+            executeCommand("ssh -o BatchMode=yes -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${jdbc_drivers_dir}\"", true)
+            scpFiles("root", ip, local_driver_path, jdbc_drivers_dir, false)
+            scpFiles("root", ip, local_mysql_driver_path, jdbc_drivers_dir, false)
+        }
     }
     
     try {
@@ -116,6 +134,7 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
                 'iceberg.jdbc.driver_class' = 'org.postgresql.Driver',
                 'iceberg.jdbc.user' = 'postgres',
                 'iceberg.jdbc.password' = '123456',
+                'iceberg.jdbc.catalog_name' = '${iceberg_jdbc_catalog_name}',
                 'iceberg.jdbc.init-catalog-tables' = 'true',
                 'iceberg.jdbc.schema-version' = 'V1',
                 's3.endpoint' = 'http://${externalEnvIp}:${minio_port}',
@@ -213,6 +232,33 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
         assertTrue(desc.toString().contains("c_int"))
         assertTrue(desc.toString().contains("c_string"))
 
+        // Scenario TC09-JDBC: schema evolution and historical binding work through JDBC catalog.
+        String jdbcOldSnapshot = sql("""
+            select snapshot_id
+            from test_datatypes\$snapshots
+            order by committed_at desc
+            limit 1
+        """)[0][0].toString()
+        sql """alter table test_datatypes create tag jdbc_before_rename"""
+        sql """alter table test_datatypes rename column c_string jdbc_renamed_string"""
+        assertEquals([["hello"], ["world"], ["test"]], sql("""
+            select c_string
+            from test_datatypes for version as of ${jdbcOldSnapshot}
+            order by c_int
+        """))
+        assertEquals([["hello"], ["world"], ["test"]], sql("""
+            select c_string
+            from test_datatypes@tag(jdbc_before_rename)
+            order by c_int
+        """))
+        assertEquals([["hello"], ["world"], ["test"]], sql("""
+            select jdbc_renamed_string from test_datatypes order by c_int
+        """))
+        test {
+            sql """select c_string from test_datatypes"""
+            exception "Unknown column 'c_string'"
+        }
+
         // Test: INSERT OVERWRITE
         sql """
             INSERT OVERWRITE TABLE test_partitioned
@@ -237,7 +283,8 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
             String cleanupCmd = "mysql -h ${externalEnvIp} -P ${mysql_port} -u root -p123456 -e 'DROP DATABASE IF EXISTS iceberg_db; CREATE DATABASE iceberg_db;'"
             executeCommand(cleanupCmd, false)
 
-            String mysql_catalog_name = "iceberg_jdbc_mysql"
+            String mysql_catalog_name = "iceberg_jdbc_mysql_doris"
+            String iceberg_jdbc_mysql_catalog_name = "iceberg_jdbc_mysql"
             try {
                 sql """DROP CATALOG IF EXISTS ${mysql_catalog_name}"""
                 sql """
@@ -250,6 +297,7 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
                         'iceberg.jdbc.driver_class' = 'com.mysql.jdbc.Driver',
                         'iceberg.jdbc.user' = 'root',
                         'iceberg.jdbc.password' = '123456',
+                        'iceberg.jdbc.catalog_name' = '${iceberg_jdbc_mysql_catalog_name}',
                         'iceberg.jdbc.init-catalog-tables' = 'true',
                         'iceberg.jdbc.schema-version' = 'V1',
                         's3.endpoint' = 'http://${externalEnvIp}:${minio_port}',

@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <string>
+#include <string_view>
+
 #include "io/fs/obj_storage_client.h"
 
 namespace Azure::Storage::Blobs {
@@ -27,10 +30,15 @@ namespace doris::io {
 
 class ObjClientHolder;
 
+bool is_azure_tls_ca_error_message(std::string_view message);
+std::string build_azure_tls_debug_suffix(std::string_view error_message,
+                                         std::string_view tls_debug_context);
+
 class AzureObjStorageClient final : public ObjStorageClient {
 public:
-    AzureObjStorageClient(std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client)
-            : _client(std::move(client)) {}
+    AzureObjStorageClient(std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client,
+                          std::string tls_debug_context = {})
+            : _client(std::move(client)), _tls_debug_context(std::move(tls_debug_context)) {}
     ~AzureObjStorageClient() override = default;
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override;
@@ -56,6 +64,7 @@ public:
 
 private:
     std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> _client;
+    std::string _tls_debug_context;
 };
 
 } // namespace doris::io

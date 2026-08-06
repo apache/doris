@@ -48,6 +48,16 @@ public class UnassignedScanSingleRemoteTableJob extends AbstractUnassignedScanJo
         this.scanWorkerSelector = Objects.requireNonNull(scanWorkerSelector, "scanWorkerSelector is not null");
     }
 
+    /**
+     * Select a worker for each scan range of the external / remote table scan node.
+     * For external tables (Hive, Iceberg, etc.), scan ranges represent file splits
+     * rather than tablets, and workers are selected based on data locality or
+     * workload balancing.
+     *
+     * @param distributeContext the distribute context
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @return a map from worker to its assigned file scan ranges
+     */
     @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
@@ -56,6 +66,16 @@ public class UnassignedScanSingleRemoteTableJob extends AbstractUnassignedScanJo
         );
     }
 
+    /**
+     * If all file scan ranges have been pruned and the assigned job list is empty,
+     * create a single empty instance on a random worker so the fragment can still
+     * execute (returning an empty result) rather than failing.
+     *
+     * @param assignedJobs the list produced by {@link #insideMachineParallelization}
+     * @param workerManager the worker manager to select a fallback worker from
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @return the original list if non-empty, otherwise a single empty instance
+     */
     @Override
     protected List<AssignedJob> fillUpAssignedJobs(List<AssignedJob> assignedJobs,
             DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {

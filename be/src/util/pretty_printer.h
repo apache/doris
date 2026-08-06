@@ -27,7 +27,7 @@
 #include <iomanip>
 #include <sstream>
 
-#include "util/binary_cast.hpp"
+#include "core/binary_cast.hpp"
 #include "util/cpu_info.h"
 
 /// Truncate a double to offset decimal places.

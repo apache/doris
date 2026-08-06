@@ -17,8 +17,6 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.cluster.ClusterNamespace;
-
 import com.google.common.base.Objects;
 import com.google.gson.annotations.SerializedName;
 
@@ -35,9 +33,9 @@ public class ColPrivilegeKey {
 
     public ColPrivilegeKey(Privilege privilege, String ctl, String db, String tbl) {
         this.privilegeIdx = privilege.getIdx();
-        this.ctl = ClusterNamespace.getNameFromFullName(ctl);
-        this.db = ClusterNamespace.getNameFromFullName(db);
-        this.tbl = ClusterNamespace.getNameFromFullName(tbl);
+        this.ctl = ctl;
+        this.db = db;
+        this.tbl = tbl;
     }
 
     public Privilege getPrivilege() {

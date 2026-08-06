@@ -23,7 +23,6 @@ import org.apache.doris.analysis.TlsOptions;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -72,10 +71,9 @@ public class CreateUserInfo {
         this.comment = comment;
         this.tlsOptions = tlsOptions == null ? TlsOptions.notSpecified() : tlsOptions;
 
-        String uId = Env.getCurrentEnv().getAuth().getUserId(ClusterNamespace
-                .getNameFromFullName(this.userIdent.getUser()));
+        String uId = Env.getCurrentEnv().getAuth().getUserId(this.userIdent.getUser());
         LOG.debug("create user command userIdent {}, userName {}, userId {}",
-                this.userIdent, ClusterNamespace.getNameFromFullName(this.userIdent.getUser()), uId);
+                this.userIdent, this.userIdent.getUser(), uId);
         // avoid this case "jack@'192.1'" and "jack@'192.2'", jack's uid different
         if (Strings.isNullOrEmpty(uId)) {
             userId = UUID.randomUUID().toString();

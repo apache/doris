@@ -13,9 +13,13 @@ core.*
 # ignore file with specifiy name anywhere
 .DS_Store
 .classpath
+.factorypath
+.worktree_initialized
 nohup.out
 /custom_env.sh
 /custom_env_mac.sh
+/.build_profile.jsonl
+/.build_profile_state.*
 derby.log
 dependency-reduced-pom.xml
 yarn.lock
@@ -62,9 +66,6 @@ fe_plugins/**/.factorypath
 
 docker/thirdparties/docker-compose/hive/scripts/data/*/*/data
 
-fs_brokers/apache_hdfs_broker/src/main/resources/
-fs_brokers/apache_hdfs_broker/src/main/thrift/
-
 # regression-test
 regression-test/framework/dependency-reduced-pom.xml
 regression-test/realdata/*
@@ -90,12 +91,15 @@ fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.tokens
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/gen/
 fe/fe-common/src/main/java/org/apache/doris/thrift
 fe/fe-common/src/main/java/org/apache/parquet
+fe/fe-thrift/src/main/java/org/apache/doris/thrift
+fe/fe-thrift/src/main/java/org/apache/parquet
 fe/fe-core/src/main/java/org/apache/parquet
 
 # BE
 be/build*/
 be/cmake-build*/
 be/ut_build*/
+be/compile-bench-results/
 be/src/gen_cpp/*.[cc, cpp, h]
 be/src/gen_cpp/opcode
 be/tags
@@ -147,3 +151,6 @@ compile_commands.json
 .github
 
 .worktrees/
+.worktree_initialized
+
+plan-doc/

@@ -21,7 +21,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TStorageBackendType;
 
 import com.google.common.base.Strings;
@@ -32,7 +31,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.Map;
 import java.util.Set;
 
-public class StorageBackend implements ParseNode {
+public class StorageBackend {
     private String location;
     private StorageDesc storageDesc;
 
@@ -49,17 +48,6 @@ public class StorageBackend implements ParseNode {
                           StorageType storageType, Map<String, String> properties) {
         this.storageDesc = new StorageDesc(storageName, storageType, properties);
         this.location = location;
-        /*boolean convertedToS3 = BosProperties.tryConvertBosToS3(properties, storageType);
-        if (convertedToS3) {
-            this.storageDesc.setStorageType(StorageBackend.StorageType.S3);
-            this.location = BosProperties.convertPathToS3(location);
-        } else {
-            this.location = location;
-        }*/
-    }
-
-    public void setStorageDesc(StorageDesc storageDesc) {
-        this.storageDesc = storageDesc;
     }
 
     public StorageDesc getStorageDesc() {
@@ -72,24 +60,6 @@ public class StorageBackend implements ParseNode {
 
     public void setLocation(String location) {
         this.location = location;
-    }
-
-    @Override
-    public void analyze() throws UserException {
-        StorageBackend.StorageType storageType = storageDesc.getStorageType();
-        if (storageType != StorageType.BROKER && StringUtils.isEmpty(storageDesc.getName())) {
-            storageDesc.setName(storageType.name());
-        }
-        if (storageType != StorageType.BROKER && storageType != StorageType.S3
-                && storageType != StorageType.HDFS) {
-            throw new NotImplementedException(storageType.toString() + " is not support now.");
-        }
-        FeNameFormat.checkCommonName("repository", storageDesc.getName());
-
-        if (Strings.isNullOrEmpty(location)) {
-            throw new AnalysisException("You must specify a location on the repository");
-        }
-        checkPath(location, storageType, null);
     }
 
     public void validate() throws UserException {
@@ -107,20 +77,6 @@ public class StorageBackend implements ParseNode {
             throw new AnalysisException("You must specify a location on the repository");
         }
         checkPath(location, storageType, null);
-    }
-
-    @Override
-    public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        StorageBackend.StorageType storageType = storageDesc.getStorageType();
-        sb.append(storageType.name());
-        if (storageType == StorageType.BROKER) {
-            sb.append(" `").append(storageDesc.getName()).append("`");
-        }
-        sb.append(" ON LOCATION ").append(location).append(" PROPERTIES(")
-                .append(new PrintableMap<>(storageDesc.getProperties(), " = ", true, false, true))
-                .append(")");
-        return sb.toString();
     }
 
     public enum StorageType {
@@ -183,7 +139,7 @@ public class StorageBackend implements ParseNode {
          * Includes: S3 (referring to all systems compatible with the S3 protocol),
          * HDFS, OFS, JFS, and AZURE. For S3, this is a generalized type that matches
          * any system whose storage type name is returned as "s3" (or compatible)
-         * by {@link org.apache.doris.datasource.property.storage.StorageProperties#getStorageName()}.
+         * by {@link org.apache.doris.datasource.storage.StorageAdapter#getStorageName()}.
          * <p>
          * This set is a temporary solution. Once parameter refactoring is fully supported
          * across all storage systems, this class can be removed.

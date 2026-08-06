@@ -34,6 +34,10 @@
 2	apple banana
 
 -- !lucene_not --
+4	banana cherry
+5	cherry date
+6	date elderberry
+7	fig grape
 
 -- !lucene_and_not --
 3	apple

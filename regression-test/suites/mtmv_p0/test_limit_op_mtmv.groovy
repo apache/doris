@@ -201,9 +201,9 @@ suite("test_limit_op_mtmv") {
         Assert.fail();
     }
 
-    // not allow modify engine
+    // not allow rename column
     test {
-        sql """ALTER TABLE ${mvName} MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");"""
+        sql """ALTER TABLE ${mvName} RENAME COLUMN num new_num;"""
         exception "Not allowed"
     }
 

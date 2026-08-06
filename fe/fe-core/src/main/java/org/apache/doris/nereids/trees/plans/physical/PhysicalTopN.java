@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -70,6 +71,11 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
         super(PlanType.PHYSICAL_TOP_N, orderKeys, phase, groupExpression, logicalProperties, physicalProperties,
                 statistics, child);
         Objects.requireNonNull(orderKeys, "orderKeys should not be null in PhysicalTopN.");
+        // limit/offset are always non-negative ("no limit" is represented by Long.MAX_VALUE). A
+        // negative value here means limit + offset overflowed somewhere upstream and would produce an
+        // illegal plan that hangs in BE; fail fast instead.
+        Preconditions.checkArgument(limit >= 0 && offset >= 0,
+                "PhysicalTopN limit and offset must be non-negative, but got limit=%s, offset=%s", limit, offset);
         this.limit = limit;
         this.offset = offset;
     }
@@ -113,14 +119,14 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     public PhysicalTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalTopN's children size must be 1, but real is %s", children.size());
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalTopN<>(orderKeys, limit, offset, phase,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
     public PhysicalTopN<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase,
-                groupExpression, getLogicalProperties(), child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalTopN<>(orderKeys, limit, offset, phase,
+                groupExpression, getLogicalProperties(), child()));
     }
 
     @Override
@@ -128,15 +134,15 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalTopN's children size must be 1, but real is %s", children.size());
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase,
-                groupExpression, logicalProperties.get(), children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalTopN<>(orderKeys, limit, offset, phase,
+                groupExpression, logicalProperties.get(), children.get(0)));
     }
 
     @Override
     public PhysicalTopN<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalTopN<>(orderKeys, limit, offset, phase,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override

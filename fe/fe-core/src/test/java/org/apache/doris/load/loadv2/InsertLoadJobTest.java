@@ -25,11 +25,10 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Optional;
 import java.util.Set;
@@ -37,29 +36,32 @@ import java.util.Set;
 public class InsertLoadJobTest {
 
     @Test
-    public void testGetTableNames(@Mocked Env env, @Mocked InternalCatalog catalog, @Injectable Database database,
-            @Injectable Table table) throws MetaNotFoundException {
-        UserIdentity userInfo = new UserIdentity("root", "localhost");
-        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1L, 1000, "", "", "", userInfo);
-        String tableName = "table1";
-        new Expectations() {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDb(anyLong);
-                result = Optional.of(database);
-                database.getTable(anyLong);
-                result = Optional.of(table);
-                table.getName();
-                result = tableName;
-            }
-        };
-        Set<String> tableNames = insertLoadJob.getTableNamesForShow();
-        Assert.assertEquals(1, tableNames.size());
-        Assert.assertTrue(tableNames.contains(tableName));
-        Assert.assertEquals(JobState.FINISHED, insertLoadJob.getState());
-        Assert.assertEquals(Integer.valueOf(100), Deencapsulation.getField(insertLoadJob, "progress"));
+    public void testGetTableNames() throws MetaNotFoundException {
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+            Database database = Mockito.mock(Database.class);
+            Table table = Mockito.mock(Table.class);
 
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            UserIdentity userInfo = new UserIdentity("root", "localhost");
+            Mockito.when(catalog.getDbOrMetaException(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(database.getFullName()).thenReturn("db1");
+            Mockito.when(database.getTableOrMetaException(Mockito.anyLong())).thenReturn(table);
+            InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1L, 1000, "", "", "", userInfo);
+            String tableName = "table1";
+
+            Mockito.when(catalog.getDb(Mockito.anyLong())).thenReturn(Optional.of(database));
+            Mockito.when(database.getTable(Mockito.anyLong())).thenReturn(Optional.of(table));
+            Mockito.when(table.getName()).thenReturn(tableName);
+
+            Set<String> tableNames = insertLoadJob.getTableNamesForShow();
+            Assert.assertEquals(1, tableNames.size());
+            Assert.assertTrue(tableNames.contains(tableName));
+            Assert.assertEquals(JobState.FINISHED, insertLoadJob.getState());
+            Assert.assertEquals(Integer.valueOf(100), Deencapsulation.getField(insertLoadJob, "progress"));
+        }
     }
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_and_internal_nested_namespace", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -96,7 +96,7 @@ suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docke
     }
     test {
         sql """drop database `nested.db1`;"""
-        exception """Can't drop database 'nested.db1'; database doesn't exist"""
+        exception """Failed to get database: 'nested.db1'"""
     }
     test {
         sql """select * from `nested.db1`.tbl1;"""
@@ -272,7 +272,7 @@ suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docke
     // can create nested ns, but can not drop because nested ns can not be seen
     test {
         sql """drop database `nested.db1`"""
-        exception """Can't drop database 'nested.db1'; database doesn't exist"""
+        exception """Failed to get database: 'nested.db1'"""
     }
     sql """create database if not exists `nsa.nsb`"""
     sql """create database if not exists `nsa.nsb.nsc`"""

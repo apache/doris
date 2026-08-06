@@ -181,11 +181,6 @@ public class BrokerInputFile implements InputFile {
                 reader.close(fd);
             }
 
-            @SuppressWarnings({"unchecked", "unused", "UnusedReturnValue"})
-            private <T extends Throwable, R> R uncheckedExceptionThrow(Throwable t) throws T {
-                throw (T) t;
-            }
-
             @Override
             public synchronized void mark(int readlimit) {
                 markPos = currentPos;

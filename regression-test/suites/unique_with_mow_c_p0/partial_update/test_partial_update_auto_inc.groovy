@@ -41,7 +41,7 @@ suite("test_partial_update_auto_inc") {
                             `id` BIGINT NOT NULL AUTO_INCREMENT,
                             `name` varchar(65533) NOT NULL COMMENT "用户姓名" )
                             UNIQUE KEY(`id`)
-                            CLUSTER BY(`name`)
+                            ORDER BY(`name`)
                             DISTRIBUTED BY HASH(`id`) BUCKETS 1
                             PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "${use_mow}"); """
 

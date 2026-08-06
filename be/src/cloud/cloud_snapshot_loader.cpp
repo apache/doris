@@ -30,13 +30,13 @@
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/rowset/rowset_writer.h"
-#include "olap/rowset/rowset_writer_context.h"
-#include "olap/tablet.h"
+#include "storage/olap_common.h"
+#include "storage/olap_define.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/rowset/rowset_writer.h"
+#include "storage/rowset/rowset_writer_context.h"
+#include "storage/tablet/tablet.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -164,6 +164,7 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
                 .is_doris_table = false,
                 .cache_base_path = "",
                 .file_size = static_cast<int64_t>(hdr_file_len),
+                .storage_resource_id {},
         };
         LOG(INFO) << "download hdr file: " << full_remote_hdr_path;
         io::FileReaderSPtr hdr_reader = nullptr;
@@ -209,6 +210,7 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
                     .is_doris_table = false,
                     .cache_base_path = "",
                     .file_size = static_cast<int64_t>(file_stat.size),
+                    .storage_resource_id {},
             };
             io::FileReaderSPtr file_reader = nullptr;
             RETURN_IF_ERROR(

@@ -50,31 +50,23 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
     }
 
     /*
-     * coalesce(null,null,expr,...) => coalesce(expr,...)
-     * coalesce(expr1(not null able ), expr2, ...., expr_n) => expr1
-     * coalesce(null,null) => null
-     * coalesce(expr1) => expr1
+     * coalesce(null, ..., null, expr, null) => expr
+     * coalesce(a, null, b, null) => coalesce(a, b)
+     * coalesce(a, b_not_nullable, c) => coalesce(a, b_not_nullable)
+     * coalesce(expr_not_nullable, ...) => expr_not_nullable
+     * coalesce(null, null) => null
+     * coalesce(expr) => expr
      * */
     private static Expression rewriteCoalesce(ExpressionMatchingContext<Coalesce> ctx) {
         Coalesce coalesce = ctx.expr;
-        if (1 == coalesce.arity()) {
-            return TypeCoercionUtils.ensureSameResultType(coalesce, coalesce.child(0), ctx.rewriteContext);
-        }
-        if (!(coalesce.child(0) instanceof NullLiteral) && coalesce.child(0).nullable()) {
-            return TypeCoercionUtils.ensureSameResultType(coalesce, coalesce, ctx.rewriteContext);
-        }
         ImmutableList.Builder<Expression> childBuilder = ImmutableList.builder();
         for (int i = 0; i < coalesce.arity(); i++) {
             Expression child = coalesce.children().get(i);
             if (child instanceof NullLiteral) {
                 continue;
             }
+            childBuilder.add(child);
             if (!child.nullable()) {
-                return TypeCoercionUtils.ensureSameResultType(coalesce, child, ctx.rewriteContext);
-            } else {
-                for (int j = i; j < coalesce.arity(); j++) {
-                    childBuilder.add(coalesce.children().get(j));
-                }
                 break;
             }
         }
@@ -83,23 +75,32 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
             return TypeCoercionUtils.ensureSameResultType(
                     coalesce, new NullLiteral(coalesce.getDataType()), ctx.rewriteContext
             );
-        } else {
+        } else if (newChildren.size() == 1) {
             return TypeCoercionUtils.ensureSameResultType(
-                    coalesce, coalesce.withChildren(newChildren), ctx.rewriteContext
+                    coalesce, newChildren.get(0), ctx.rewriteContext
             );
+        } else {
+            if (1 == newChildren.size()) {
+                return TypeCoercionUtils.ensureSameResultType(coalesce, newChildren.get(0), ctx.rewriteContext);
+            } else {
+                return TypeCoercionUtils.ensureSameResultType(
+                        coalesce, coalesce.withChildren(newChildren), ctx.rewriteContext
+                );
+            }
         }
     }
 
     /*
     * nvl(null,R) => R
     * nvl(L(not-nullable ),R) => L
+    * nvl(L,null) => L
     * */
     private static Expression rewriteNvl(ExpressionMatchingContext<Nvl> ctx) {
         Nvl nvl = ctx.expr;
         if (nvl.child(0) instanceof NullLiteral) {
             return TypeCoercionUtils.ensureSameResultType(nvl, nvl.child(1), ctx.rewriteContext);
         }
-        if (!nvl.child(0).nullable()) {
+        if (!nvl.child(0).nullable() || nvl.child(1) instanceof NullLiteral) {
             return TypeCoercionUtils.ensureSameResultType(nvl, nvl.child(0), ctx.rewriteContext);
         }
         return nvl;
@@ -108,10 +109,13 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
     /*
     * nullif(null, R) => Null
     * nullif(L, null) => Null
+    * nullif(null, null) => Null
      */
     private static Expression rewriteNullIf(ExpressionMatchingContext<NullIf> ctx) {
         NullIf nullIf = ctx.expr;
-        if (nullIf.child(0) instanceof NullLiteral || nullIf.child(1) instanceof NullLiteral) {
+        if (nullIf.child(0) instanceof NullLiteral && nullIf.child(1) instanceof NullLiteral) {
+            return TypeCoercionUtils.ensureSameResultType(nullIf, nullIf.child(0), ctx.rewriteContext);
+        } else if (nullIf.child(0) instanceof NullLiteral || nullIf.child(1) instanceof NullLiteral) {
             return TypeCoercionUtils.ensureSameResultType(
                     nullIf, new Nullable(nullIf.child(0)), ctx.rewriteContext
             );

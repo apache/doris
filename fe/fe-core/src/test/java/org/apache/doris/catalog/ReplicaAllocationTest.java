@@ -29,12 +29,12 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Maps;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -42,27 +42,31 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
 import java.util.Map;
 
 public class ReplicaAllocationTest {
-    @Mocked
-    SystemInfoService systemInfoService;
+    private SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+    private MockedStatic<Env> mockedEnvStatic;
 
     @Before
     public void setUp() throws DdlException {
-        new Expectations() {
-            {
-                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any, Maps.newHashMap(),
-                        (TStorageMedium) any, false, true);
-                minTimes = 0;
-                result = new Delegate() {
-                    Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation() {
-                        return Pair.of(Maps.newHashMap(), TStorageMedium.HDD);
-                    }
-                };
-            }
-        };
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+
+        Mockito.doAnswer(invocation -> Pair.of(Maps.newHashMap(), TStorageMedium.HDD))
+                .when(systemInfoService).selectBackendIdsForReplicaCreation(
+                        Mockito.any(ReplicaAllocation.class),
+                        Mockito.anyMap(),
+                        Mockito.nullable(TStorageMedium.class),
+                        Mockito.eq(false),
+                        Mockito.eq(true));
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
     }
 
     @Test

@@ -2,7 +2,8 @@ create database if not exists write_test;
 use write_test;
 
 DROP TABLE IF EXISTS test_doris_write_hive_partition_table_original; 
-CREATE TABLE test_doris_write_hive_partition_table_original (
+drop table if exists test_doris_write_hive_partition_table_original;
+create table test_doris_write_hive_partition_table_original (
   `v1` decimal(3,0), 
   `v2` string )
 PARTITIONED BY ( 

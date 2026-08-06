@@ -16,6 +16,7 @@
 // under the License.
 
 suite("analyze_agg") {
+    sql "set parallel_pipeline_task_num=2"
     sql """DROP TABLE IF EXISTS t1"""
     sql """DROP TABLE IF EXISTS t2"""
 

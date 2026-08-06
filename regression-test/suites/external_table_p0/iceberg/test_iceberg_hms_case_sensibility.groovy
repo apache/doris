@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_hms_case_sensibility", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_hms_case_sensibility", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return;
@@ -47,7 +47,7 @@ suite("test_iceberg_hms_case_sensibility", "p0,external,doris,external_docker,ex
             sql """create database iceberg_hms_case_db1;"""
             test {
                 sql """create database ICEBERG_HMS_CASE_DB1;""" // conflict
-                exception "Can't create database 'ICEBERG_HMS_CASE_DB1'; database exists"
+                exception "Namespace already exists: ICEBERG_HMS_CASE_DB1"
             }
             sql """create database ICEBERG_HMS_CASE_DB2;"""
             sql """create database if not exists ICEBERG_HMS_CASE_DB1;"""
@@ -59,18 +59,18 @@ suite("test_iceberg_hms_case_sensibility", "p0,external,doris,external_docker,ex
             qt_sql3 """show databases like "%iceberg_hms_case_db2%";"""
             test {
                 sql """create database ICEBERG_HMS_CASE_DB2;""" // conflict
-                exception "database exists"
+                exception "Namespace already exists"
                 exception "ICEBERG_HMS_CASE_DB2"
             }
             test {
                 sql """create database iceberg_hms_case_db2;""" // conflict
-                exception "database exists"
+                exception "Namespace already exists"
                 exception "iceberg_hms_case_db2"
             }
             // 2. drop database
             test {
                 sql """drop database ICEBERG_HMS_CASE_DB1"""
-                exception "database doesn't exist"
+                exception "Failed to get database"
                 exception "ICEBERG_HMS_CASE_DB1"
             }
             sql """drop database if exists ICEBERG_HMS_CASE_DB1;""" 
@@ -80,18 +80,18 @@ suite("test_iceberg_hms_case_sensibility", "p0,external,doris,external_docker,ex
 
             test {
                 sql """drop database ICEBERG_HMS_CASE_DB2;"""
-                exception "database doesn't exist"
+                exception "Failed to get database"
                 exception "ICEBERG_HMS_CASE_DB2"
             }
             sql """drop database iceberg_hms_case_db2;"""
             test {
                 sql """drop database iceberg_hms_case_db1"""
-                exception "database doesn't exist"
+                exception "Failed to get database"
                 exception "iceberg_hms_case_db1"
             }
             test {
                 sql """drop database iceberg_hms_case_db2"""
-                exception "database doesn't exist"
+                exception "Failed to get database"
                 exception "iceberg_hms_case_db2"
             }
             sql """drop database if exists iceberg_hms_case_db2;""" 
@@ -131,7 +131,7 @@ suite("test_iceberg_hms_case_sensibility", "p0,external,doris,external_docker,ex
             sql """create table case_tbl13 (k1 int);"""
             sql """create table CASE_TBL14 (k1 int);"""
 
-            qt_sql8 """show tables like "%CASE_TBL14%"""" // empty
+            qt_sql8 """show tables like "%CASE_TBL14%"""" // not empty, because lower=1
             qt_sql9 """show tables like "%case_tbl14%""""
             qt_sql10 """show tables like "%case_tbl13%""""
 

@@ -51,6 +51,22 @@ public class RebalancerTestUtil {
         return createBackend(id, totalCap, Lists.newArrayList(usedCap), 1);
     }
 
+    // Add only one path with specified storage medium, PathHash:id
+    public static Backend createBackend(long id, long totalCap, long usedCap, TStorageMedium medium) {
+        Backend be = new Backend(id, "192.168.0." + id, 9051);
+        Map<String, DiskInfo> disks = Maps.newHashMap();
+        DiskInfo diskInfo = new DiskInfo("/path1");
+        diskInfo.setPathHash(id);
+        diskInfo.setTotalCapacityB(totalCap);
+        diskInfo.setDataUsedCapacityB(usedCap);
+        diskInfo.setAvailableCapacityB(totalCap - usedCap);
+        diskInfo.setStorageMedium(medium);
+        disks.put(diskInfo.getRootPath(), diskInfo);
+        be.setDisks(ImmutableMap.copyOf(disks));
+        be.setAlive(true);
+        return be;
+    }
+
     /**
      * size of usedCaps should equal to diskNum.
      */

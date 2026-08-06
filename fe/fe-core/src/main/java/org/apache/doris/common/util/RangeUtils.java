@@ -35,8 +35,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.Collections;
 import java.util.Comparator;
@@ -135,55 +133,6 @@ public class RangeUtils {
             throw new DdlException("2 range lists are not stricly matched. "
                     + list1 + " vs. " + list2);
         }
-    }
-
-    public static Range<PartitionKey> readRange(DataInput in) throws IOException {
-        boolean hasLowerBound = false;
-        boolean hasUpperBound = false;
-        boolean lowerBoundClosed = false;
-        boolean upperBoundClosed = false;
-        PartitionKey lowerBound = null;
-        PartitionKey upperBound = null;
-
-        hasLowerBound = in.readBoolean();
-        if (hasLowerBound) {
-            lowerBoundClosed = in.readBoolean();
-            lowerBound = PartitionKey.read(in);
-        }
-
-        hasUpperBound = in.readBoolean();
-        if (hasUpperBound) {
-            upperBoundClosed = in.readBoolean();
-            upperBound = PartitionKey.read(in);
-        }
-
-        // Totally 9 cases. Both lower bound and upper bound could be open, closed or not exist
-        if (hasLowerBound && lowerBoundClosed && hasUpperBound && upperBoundClosed) {
-            return Range.closed(lowerBound, upperBound);
-        }
-        if (hasLowerBound && lowerBoundClosed && hasUpperBound && !upperBoundClosed) {
-            return Range.closedOpen(lowerBound, upperBound);
-        }
-        if (hasLowerBound && !lowerBoundClosed && hasUpperBound && upperBoundClosed) {
-            return Range.openClosed(lowerBound, upperBound);
-        }
-        if (hasLowerBound && !lowerBoundClosed && hasUpperBound && !upperBoundClosed) {
-            return Range.open(lowerBound, upperBound);
-        }
-        if (hasLowerBound && lowerBoundClosed && !hasUpperBound) {
-            return Range.atLeast(lowerBound);
-        }
-        if (hasLowerBound && !lowerBoundClosed && !hasUpperBound) {
-            return Range.greaterThan(lowerBound);
-        }
-        if (!hasLowerBound && hasUpperBound && upperBoundClosed) {
-            return Range.atMost(upperBound);
-        }
-        if (!hasLowerBound && hasUpperBound && !upperBoundClosed) {
-            return Range.lessThan(upperBound);
-        }
-        // Neither lower bound nor upper bound exists, return null. This means just one partition
-        return null;
     }
 
     // check if any ranges in "rangesToBeChecked" conflict with ranges in "baseRanges".

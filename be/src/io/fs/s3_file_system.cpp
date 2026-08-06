@@ -35,6 +35,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -87,10 +88,6 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
     S3ClientConf reset_conf;
     {
         std::shared_lock lock(_mtx);
-        if (conf.get_hash() == _conf.get_hash()) {
-            return Status::OK(); // Same conf
-        }
-
         reset_conf = _conf;
         reset_conf.ak = conf.ak;
         reset_conf.sk = conf.sk;
@@ -100,11 +97,18 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.max_connections = conf.max_connections;
         reset_conf.request_timeout_ms = conf.request_timeout_ms;
         reset_conf.use_virtual_addressing = conf.use_virtual_addressing;
+        reset_conf.is_internal_bucket = conf.is_internal_bucket;
 
         reset_conf.role_arn = conf.role_arn;
         reset_conf.external_id = conf.external_id;
         reset_conf.cred_provider_type = conf.cred_provider_type;
-        // Should check endpoint here?
+
+        // Compare full-field equality of the merged conf, not get_hash(): the hash is
+        // an XOR of crc32s and distinct configurations can collide, which would skip a
+        // required client rebuild (e.g. a credential update).
+        if (reset_conf == _conf) {
+            return Status::OK(); // Same conf
+        }
     }
 
     auto client = S3ClientFactory::instance().create(reset_conf);
@@ -195,6 +199,7 @@ Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
 
 Status S3FileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
                                         const FileReaderOptions& opts) {
+    TEST_SYNC_POINT_CALLBACK("S3FileSystem::open_file_internal", &file, &opts);
     auto key = DORIS_TRY(get_key(file));
     *reader = DORIS_TRY(S3FileReader::create(_client, _bucket, key, opts.file_size, nullptr));
     return Status::OK();

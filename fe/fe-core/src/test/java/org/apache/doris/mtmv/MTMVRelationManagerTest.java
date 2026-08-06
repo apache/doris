@@ -20,78 +20,37 @@ package org.apache.doris.mtmv;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.commons.collections4.CollectionUtils;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.Set;
 
 public class MTMVRelationManagerTest {
-    @Mocked
-    private BaseTableInfo mv1;
-    @Mocked
-    private BaseTableInfo mv2;
-    @Mocked
-    private BaseTableInfo t3;
-    @Mocked
-    private BaseTableInfo t4;
+    private BaseTableInfo mv1 = Mockito.mock(BaseTableInfo.class);
+    private BaseTableInfo mv2 = Mockito.mock(BaseTableInfo.class);
+    private BaseTableInfo t3 = Mockito.mock(BaseTableInfo.class);
+    private BaseTableInfo t4 = Mockito.mock(BaseTableInfo.class);
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
-        new Expectations() {
-            {
-                mv1.getCtlName();
-                minTimes = 0;
-                result = "ctl1";
+        Mockito.when(mv1.getCtlName()).thenReturn("ctl1");
+        Mockito.when(mv1.getDbName()).thenReturn("db1");
+        Mockito.when(mv1.getTableName()).thenReturn("mv1");
 
-                mv1.getDbName();
-                minTimes = 0;
-                result = "db1";
+        Mockito.when(mv2.getCtlName()).thenReturn("ctl1");
+        Mockito.when(mv2.getDbName()).thenReturn("db1");
+        Mockito.when(mv2.getTableName()).thenReturn("mv2");
 
-                mv1.getTableName();
-                minTimes = 0;
-                result = "mv1";
+        Mockito.when(t3.getCtlName()).thenReturn("ctl1");
+        Mockito.when(t3.getDbName()).thenReturn("db1");
+        Mockito.when(t3.getTableName()).thenReturn("t3");
 
-                mv2.getCtlName();
-                minTimes = 0;
-                result = "ctl1";
-
-                mv2.getDbName();
-                minTimes = 0;
-                result = "db1";
-
-                mv2.getTableName();
-                minTimes = 0;
-                result = "mv2";
-
-                t3.getCtlName();
-                minTimes = 0;
-                result = "ctl1";
-
-                t3.getDbName();
-                minTimes = 0;
-                result = "db1";
-
-                t3.getTableName();
-                minTimes = 0;
-                result = "t3";
-
-                t4.getCtlName();
-                minTimes = 0;
-                result = "ctl1";
-
-                t4.getDbName();
-                minTimes = 0;
-                result = "db1";
-
-                t4.getTableName();
-                minTimes = 0;
-                result = "t4";
-            }
-        };
+        Mockito.when(t4.getCtlName()).thenReturn("ctl1");
+        Mockito.when(t4.getDbName()).thenReturn("db1");
+        Mockito.when(t4.getTableName()).thenReturn("t4");
     }
 
     @Test

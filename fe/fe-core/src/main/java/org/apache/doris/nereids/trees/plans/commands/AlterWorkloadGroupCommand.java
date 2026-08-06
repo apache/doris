@@ -82,19 +82,24 @@ public class AlterWorkloadGroupCommand extends AlterCommand {
             throw new AnalysisException(WorkloadGroup.COMPUTE_GROUP + " can not be set in property.");
         }
 
-        ComputeGroup cg = null;
+        ComputeGroup cg;
         if (Config.isCloudMode()) {
             if (StringUtils.isEmpty(computeGroup)) {
-                computeGroup = Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME;
+                throw new UserException("Must specify compute group via 'FOR <compute_group>' "
+                        + "in cloud mode.");
             }
-            String cgName = computeGroup;
-            cg = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(cgName);
+            cg = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(computeGroup);
             if (cg == null) {
-                throw new UserException("Can not find compute group:" + cgName);
+                throw new UserException("Can not find compute group:" + computeGroup);
             }
         } else {
+            // In non-cloud mode, 'FOR <compute_group>' is also supported syntactically, but
+            // the value here actually refers to a resource group (Tag) — there are no real
+            // compute groups in non-cloud mode. The grammar is shared with cloud mode purely
+            // for consistency. When the clause is omitted, fall back to the default resource
+            // group Tag.VALUE_DEFAULT_TAG.
             if (StringUtils.isEmpty(computeGroup)) {
-                computeGroup = Tag.DEFAULT_BACKEND_TAG.value;
+                computeGroup = Tag.VALUE_DEFAULT_TAG;
             }
             cg = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(computeGroup);
         }

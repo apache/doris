@@ -20,7 +20,7 @@ suite("test_single_column_multi_index", "nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
-    
+
     boolean disableAutoCompaction = false
 
     def tableName = "test_single_column_multi_index"
@@ -50,11 +50,11 @@ suite("test_single_column_multi_index", "nonConcurrent") {
 
     def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
-        
+
         // load the json data
         streamLoad {
             table "${table_name}"
-            
+
             // set http request header params
             set 'label', label + "_" + UUID.randomUUID().toString()
             set 'read_json_by_line', read_flag
@@ -174,8 +174,7 @@ suite("test_single_column_multi_index", "nonConcurrent") {
 
     // Function to run match queries with debug points
     def runMatchQueries = { ->
-        sql """ set enable_common_expr_pushdown = true; """
-        sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         try {
@@ -201,10 +200,10 @@ suite("test_single_column_multi_index", "nonConcurrent") {
     def checkAndUpdateBeConfig = { ->
         def invertedIndexCompactionEnable = false
         def has_update_be_config = false
-        
+
         String backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
+
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def configList = parseJson(out.trim())
@@ -221,7 +220,7 @@ suite("test_single_column_multi_index", "nonConcurrent") {
                 logger.info("disable_auto_compaction: ${((List<String>) ele)[2]}")
             }
         }
-        
+
         return invertedIndexCompactionEnable
     }
 
@@ -234,7 +233,7 @@ suite("test_single_column_multi_index", "nonConcurrent") {
         runMatchQueries()
 
         def invertedIndexCompactionEnable = checkAndUpdateBeConfig()
-        
+
         try {
             set_be_config.call("inverted_index_compaction_enable", "true")
             check_config.call("inverted_index_compaction_enable", "true")
@@ -248,7 +247,7 @@ suite("test_single_column_multi_index", "nonConcurrent") {
                     assert(false)
                 }
             }
-            
+
             // Verify rowset count before compaction
             int rowsetCount = get_rowset_count.call(tablets)
             assert (rowsetCount == 11 * replicaNum)

@@ -44,9 +44,9 @@
 #include <string>
 
 #include "common/status.h"
-#include "jsonb_document.h"
-#include "jsonb_stream.h"
-#include "vec/core/types.h"
+#include "core/types.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_stream.h"
 
 namespace doris {
 
@@ -99,8 +99,6 @@ public:
             ;
         }
     }
-
-    bool writeKey(const char* key) { return writeKey(key, strlen(key)); }
 
     // write a key string (or key id if an external dict is provided)
     bool writeKey(const char* key, uint8_t len) {
@@ -328,11 +326,11 @@ public:
                 return false;
             }
 
-            if constexpr (std::same_as<T, vectorized::Decimal256>) {
+            if constexpr (std::same_as<T, Decimal256>) {
                 os_->put((JsonbTypeUnder)JsonbType::T_Decimal256);
-            } else if constexpr (std::same_as<T, vectorized::Decimal128V3>) {
+            } else if constexpr (std::same_as<T, Decimal128V3>) {
                 os_->put((JsonbTypeUnder)JsonbType::T_Decimal128);
-            } else if constexpr (std::same_as<T, vectorized::Decimal64>) {
+            } else if constexpr (std::same_as<T, Decimal64>) {
                 os_->put((JsonbTypeUnder)JsonbType::T_Decimal64);
             } else {
                 os_->put((JsonbTypeUnder)JsonbType::T_Decimal32);

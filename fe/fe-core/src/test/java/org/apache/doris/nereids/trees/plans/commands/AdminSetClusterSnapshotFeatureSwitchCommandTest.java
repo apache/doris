@@ -24,55 +24,53 @@ import org.apache.doris.common.Config;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class AdminSetClusterSnapshotFeatureSwitchCommandTest {
-    @Mocked
     private Env env;
-    @Mocked
     private ConnectContext connectContext;
-    @Mocked
     private AccessControllerManager accessControllerManager;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
 
     private String originalMinPrivilege;
 
     @BeforeEach
     public void setUp() {
         originalMinPrivilege = Config.cluster_snapshot_min_privilege;
+        env = Mockito.mock(Env.class);
+        connectContext = Mockito.mock(ConnectContext.class);
+        accessControllerManager = Mockito.mock(AccessControllerManager.class);
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(connectContext);
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(connectContext.getState()).thenReturn(new QueryState());
     }
 
     @AfterEach
     public void tearDown() {
         Config.cluster_snapshot_min_privilege = originalMinPrivilege;
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
     }
 
     private void runBefore() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                // Mock root user for privilege check
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = UserIdentity.ROOT;
-            }
-        };
+        Mockito.when(connectContext.isSkipAuth()).thenReturn(true);
+        // Mock root user for privilege check
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
     }
 
     @Test
@@ -100,17 +98,7 @@ public class AdminSetClusterSnapshotFeatureSwitchCommandTest {
         UserIdentity nonRootUser = new UserIdentity("admin", "%");
         nonRootUser.setIsAnalyzed();
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = nonRootUser;
-            }
-        };
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(nonRootUser);
         Config.deploy_mode = "cloud";
 
         AdminSetClusterSnapshotFeatureSwitchCommand command = new AdminSetClusterSnapshotFeatureSwitchCommand(true);
@@ -126,25 +114,9 @@ public class AdminSetClusterSnapshotFeatureSwitchCommandTest {
         UserIdentity adminUser = new UserIdentity("admin", "%");
         adminUser.setIsAnalyzed();
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = adminUser;
-            }
-        };
+        Mockito.when(accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN))
+                .thenReturn(true);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(adminUser);
         Config.deploy_mode = "cloud";
 
         AdminSetClusterSnapshotFeatureSwitchCommand command = new AdminSetClusterSnapshotFeatureSwitchCommand(true);
@@ -159,25 +131,9 @@ public class AdminSetClusterSnapshotFeatureSwitchCommandTest {
         UserIdentity normalUser = new UserIdentity("normal_user", "%");
         normalUser.setIsAnalyzed();
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = false;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = normalUser;
-            }
-        };
+        Mockito.when(accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN))
+                .thenReturn(false);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(normalUser);
         Config.deploy_mode = "cloud";
 
         AdminSetClusterSnapshotFeatureSwitchCommand command = new AdminSetClusterSnapshotFeatureSwitchCommand(true);

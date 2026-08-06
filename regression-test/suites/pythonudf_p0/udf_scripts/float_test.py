@@ -17,4 +17,6 @@
 
 
 def evaluate(arg1, arg2):
+    if arg1 is None or arg2 is None:
+        return None
     return arg1 - arg2

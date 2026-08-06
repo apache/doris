@@ -2,7 +2,10 @@ create database if not exists statistics;
 use statistics;
 
 
-CREATE TABLE IF NOT EXISTS `statistics`(
+drop table if exists `statistics`;
+
+
+create table `statistics`(
   `lo_orderkey` int,
   `lo_linenumber` int,
   `lo_custkey` int,
@@ -28,6 +31,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/suites/statistics/statistics';
-
-
-msck repair table statistics;

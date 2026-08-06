@@ -41,11 +41,11 @@ suite("test_single_column_multi_index1", "p0") {
 
     def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
-        
+
         // load the json data
         streamLoad {
             table "${table_name}"
-            
+
             // set http request header params
             set 'label', label + "_" + UUID.randomUUID().toString()
             set 'read_json_by_line', read_flag
@@ -86,8 +86,7 @@ suite("test_single_column_multi_index1", "p0") {
 
     // Function to run match queries with debug points
     def runMatchQueries = { ->
-        sql """ set enable_common_expr_pushdown = true; """
-        sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         try {
             qt_sql """ select /*+ SET_VAR(enable_match_without_inverted_index = true) */ count() from ${tableName} where (request = 'GET /images/hm_bg.jpg HTTP/1.0'); """
             qt_sql """ select /*+ SET_VAR(enable_match_without_inverted_index = true) */ count() from ${tableName} where (request match 'images'); """
@@ -144,11 +143,11 @@ suite("test_single_column_multi_index1", "p0") {
       wait_for_latest_op_on_table_finish(tableName, timeout)
       sql """ alter table ${tableName} add index request_keyword_idx(`request`) USING INVERTED;; """
       wait_for_latest_op_on_table_finish(tableName, timeout)
-      
+
       loadTestData()
       runMatchQueries()
 
-      
+
       if (!isCloudMode()) {
         sql """ BUILD INDEX request_text_idx ON ${tableName}; """
         wait_for_build_index_on_partition_finish(tableName, timeout)

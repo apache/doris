@@ -22,13 +22,14 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -109,12 +110,39 @@ public class CreateMap extends ScalarFunction
         if (arity() == 0) {
             return SIGNATURES;
         } else {
+            List<Expression> keys = Lists.newArrayList();
+            List<Expression> values = Lists.newArrayList();
+            for (int i = 0; i < arity(); i++) {
+                if (i % 2 == 0) {
+                    keys.add(child(i));
+                } else {
+                    values.add(child(i));
+                }
+            }
+            // TODO: use the find common type to get key and value type after we redefine type coercion in Doris.
+            Array keyArray = new Array(keys.toArray(new Expression[0]));
+            Array valueArray = new Array(values.toArray(new Expression[0]));
+            keyArray = (Array) TypeCoercionUtils.implicitCastInputTypes(keyArray, keyArray.expectedInputTypes());
+            valueArray = (Array) TypeCoercionUtils.implicitCastInputTypes(valueArray, valueArray.expectedInputTypes());
+            DataType keyType = ((ArrayType) (keyArray.getDataType())).getItemType();
+            DataType valueType = ((ArrayType) (valueArray.getDataType())).getItemType();
+            ImmutableList.Builder<DataType> childTypes = ImmutableList.builder();
+            for (int i = 0; i < arity(); i++) {
+                if (i % 2 == 0) {
+                    childTypes.add(keyType);
+                } else {
+                    childTypes.add(valueType);
+                }
+            }
             return ImmutableList.of(FunctionSignature.of(
                     getDataType(),
-                    children.stream()
-                            .map(ExpressionTrait::getDataType)
-                            .collect(ImmutableList.toImmutableList())
-            ));
+                    childTypes.build())
+            );
         }
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        return signature;
     }
 }

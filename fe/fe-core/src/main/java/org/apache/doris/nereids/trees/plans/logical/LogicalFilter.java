@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.DiffOutputInAsterisk;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -161,35 +162,42 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     public LogicalFilter<Plan> withConjuncts(Set<Expression> conjuncts) {
-        return new LogicalFilter<>(conjuncts, null, Optional.empty(), Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFilter<>(conjuncts, null, Optional.empty(), Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public LogicalFilter<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalFilter<>(conjuncts, predicate, Optional.empty(), Optional.empty(), children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFilter<>(conjuncts, predicate, Optional.empty(), Optional.empty(), children.get(0)));
     }
 
     @Override
     public LogicalFilter<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalFilter<>(conjuncts, predicate, groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFilter<>(conjuncts, predicate, groupExpression,
+                        Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalFilter<>(conjuncts, predicate, groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFilter<>(conjuncts, predicate, groupExpression, logicalProperties, children.get(0)));
     }
 
     public LogicalFilter<Plan> withConjunctsAndChild(Set<Expression> conjuncts, Plan child) {
-        return new LogicalFilter<>(conjuncts, child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFilter<>(conjuncts, child));
     }
 
     public LogicalFilter<Plan> withConjunctsAndProps(Set<Expression> conjuncts,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, Plan child) {
-        return new LogicalFilter<>(conjuncts, null, groupExpression, logicalProperties, child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFilter<>(conjuncts, null, groupExpression, logicalProperties, child));
     }
 
     @Override

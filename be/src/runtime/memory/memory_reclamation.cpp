@@ -17,20 +17,20 @@
 
 #include "runtime/memory/memory_reclamation.h"
 
+#include <algorithm>
 #include <unordered_map>
 
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/jemalloc_control.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/mem_info.h"
-#include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 int64_t MemoryReclamation::revoke_tasks_memory(
         int64_t need_free_mem, const std::vector<std::shared_ptr<ResourceContext>>& resource_ctxs,
@@ -118,8 +118,12 @@ int64_t MemoryReclamation::revoke_tasks_memory(
                 } else {
                     keep_wait_cancelling_tasks.push_back(
                             resource_ctx->task_controller()->debug_string());
-                    COUNTER_UPDATE(freed_memory_counter,
-                                   resource_ctx->memory_context()->current_memory_bytes());
+                    // Memory tracker consumption can be slightly negative due to
+                    // concurrent batched tracking; clamp to 0 for freed memory accounting.
+                    COUNTER_UPDATE(
+                            freed_memory_counter,
+                            std::max(int64_t(0),
+                                     resource_ctx->memory_context()->current_memory_bytes()));
                 }
                 is_filtered = true;
             }
@@ -158,8 +162,11 @@ int64_t MemoryReclamation::revoke_tasks_memory(
             if (ActionFuncImpl[action](resource_ctx.get(),
                                        Status::MemoryLimitExceeded(task_revoke_reason))) {
                 this_time_revoked_tasks.push_back(resource_ctx->task_controller()->debug_string());
+                // Memory tracker consumption can be slightly negative due to
+                // concurrent batched tracking; clamp to 0 for freed memory accounting.
                 COUNTER_UPDATE(freed_memory_counter,
-                               resource_ctx->memory_context()->current_memory_bytes());
+                               std::max(int64_t(0),
+                                        resource_ctx->memory_context()->current_memory_bytes()));
                 COUNTER_UPDATE(this_time_revoked_tasks_counter, 1);
                 if (freed_memory_counter->value() > need_free_mem) {
                     break;
@@ -248,5 +255,4 @@ void MemoryReclamation::je_purge_dirty_pages() {
 #endif
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

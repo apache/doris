@@ -31,10 +31,7 @@ public class ClearContextStatus implements CustomRewriter {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        jobContext.getCascadesContext().getStatementContext().getRewrittenCteConsumer().clear();
-        jobContext.getCascadesContext().getStatementContext().getRewrittenCteProducer().clear();
-        jobContext.getCascadesContext().getStatementContext().getCteIdToOutputIds().clear();
-        jobContext.getCascadesContext().getStatementContext().getConsumerIdToFilters().clear();
+        jobContext.getCascadesContext().getStatementContext().clearCteEnvironment();
         return plan;
     }
 }

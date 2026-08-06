@@ -23,10 +23,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
+import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.authenticate.ldap.LdapAuthenticator;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
@@ -35,18 +37,18 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
-import mockit.Verifications;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 import org.slf4j.Logger;
 import org.xnio.StreamConnection;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.util.List;
 
@@ -54,109 +56,89 @@ public class MysqlProtoTest {
     private static final Logger LOG = org.slf4j.LoggerFactory.getLogger(MysqlProtoTest.class);
     private static final String PASSWORD_CLEAR_TEXT = "123456";
 
-    @Mocked
-    private MysqlChannel channel;
-    @Mocked
-    private MysqlPassword password;
-    @Mocked
-    private Env env;
-    @Mocked
-    private InternalCatalog catalog;
-    @Mocked
-    private Auth auth;
-    @Mocked
-    private AccessControllerManager accessManager;
-    @Mocked
-    private LdapManager ldapManager;
-    @Mocked
-    private MysqlClearTextPacket clearTextPacket;
-    @Mocked
-    private StreamConnection streamConnection;
-    @Mocked
-    private LdapAuthenticator ldapAuthenticator;
-    @Mocked
-    private AuthenticatorManager authenticatorManager;
+    private MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+    private Env env = Mockito.mock(Env.class);
+    private InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+    private Auth auth = Mockito.mock(Auth.class);
+    private AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+    private LdapManager ldapManager = Mockito.mock(LdapManager.class);
+    private MysqlClearTextPacket clearTextPacket = Mockito.mock(MysqlClearTextPacket.class);
+    private StreamConnection streamConnection = Mockito.mock(StreamConnection.class);
+    private LdapAuthenticator ldapAuthenticator = Mockito.mock(LdapAuthenticator.class);
+    private AuthenticatorManager authenticatorManager = Mockito.mock(AuthenticatorManager.class);
+
+    private MockedStatic<MysqlPassword> mockedMysqlPassword;
+    private MockedStatic<Env> mockedEnv;
 
     @Before
     public void setUp() throws DdlException, AuthenticationException, IOException {
         FeConstants.runningUnitTest = true;
 
+        // mock StreamConnection.getPeerAddress() to avoid NPE in MysqlChannel constructor
+        Mockito.when(streamConnection.getPeerAddress())
+                .thenReturn(new java.net.InetSocketAddress("127.0.0.1", 12345));
+
+        // static mocks
+        mockedMysqlPassword = Mockito.mockStatic(MysqlPassword.class);
+        mockedMysqlPassword.when(() -> MysqlPassword.createRandomString(20)).thenReturn(new byte[20]);
+
+        mockedEnv = Mockito.mockStatic(Env.class);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
         // mock auth
-        new Expectations() {
-            {
-                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
+        Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.any(PrivPredicate.class))).thenReturn(true);
 
-                auth.checkPassword(anyString, anyString, (byte[]) any, (byte[]) any, (List<UserIdentity>) any);
-                minTimes = 0;
-                result = new Delegate() {
-                    void fakeCheckPassword(String remoteUser, String remoteHost, byte[] remotePasswd,
-                            byte[] randomString, List<UserIdentity> currentUser) {
-                        UserIdentity userIdentity = new UserIdentity("user", "192.168.1.1");
-                        currentUser.add(userIdentity);
-                    }
-                };
+        Mockito.doAnswer(inv -> {
+            List<UserIdentity> currentUser = inv.getArgument(4);
+            UserIdentity userIdentity = new UserIdentity("user", "192.168.1.1");
+            currentUser.add(userIdentity);
+            return null;
+        }).when(auth).checkPassword(Mockito.anyString(), Mockito.anyString(), Mockito.any(byte[].class),
+                Mockito.any(byte[].class), Mockito.any(List.class));
 
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(env.getAuthenticatorManager()).thenReturn(authenticatorManager);
 
-                env.getAuthenticatorManager();
-                minTimes = 0;
-                result = authenticatorManager;
+        Mockito.when(authenticatorManager.authenticate(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                Mockito.any(MysqlChannel.class), Mockito.any(MysqlSerializer.class),
+                Mockito.any(MysqlAuthPacket.class), Mockito.any(MysqlHandshakePacket.class))).thenReturn(true);
 
-                authenticatorManager.authenticate((ConnectContext) any, anyString, (MysqlChannel) any,
-                        (MysqlSerializer) any, (MysqlAuthPacket) any, (MysqlHandshakePacket) any);
-                minTimes = 0;
-                result = true;
+        Mockito.when(catalog.getDbNullable(Mockito.anyString())).thenReturn(new Database());
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.doNothing().when(env).changeDb(Mockito.nullable(ConnectContext.class), Mockito.anyString());
 
-                catalog.getDbNullable(anyString);
-                minTimes = 0;
-                result = new Database();
+        // channel.getSerializer() must return a real serializer for negotiate() to work
+        Mockito.when(channel.getSerializer()).thenReturn(MysqlSerializer.newInstance());
+    }
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
+    @After
+    public void tearDown() {
+        if (mockedMysqlPassword != null) {
+            mockedMysqlPassword.close();
+        }
+        if (mockedEnv != null) {
+            mockedEnv.close();
+        }
+    }
 
-                env.getAuth();
-                minTimes = 0;
-                result = auth;
-
-                env.changeDb((ConnectContext) any, anyString);
-                minTimes = 0;
-            }
-        };
-
-        new Expectations(env) {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-            }
-        };
-
+    private ConnectContext createContext() throws Exception {
+        ConnectContext context = new ConnectContext(streamConnection);
+        Field channelField = ConnectContext.class.getDeclaredField("mysqlChannel");
+        channelField.setAccessible(true);
+        channelField.set(context, channel);
+        return context;
     }
 
     private void mockChannel(String user, boolean sendOk) throws Exception {
         // mock channel
-        new Expectations() {
-            {
-                channel.sendAndFlush((ByteBuffer) any);
-                minTimes = 0;
-                result = new Delegate() {
-                    void sendAndFlush(ByteBuffer packet) throws IOException {
-                        if (!sendOk) {
-                            throw new IOException();
-                        }
-                    }
-                };
+        Mockito.doAnswer(inv -> {
+            if (!sendOk) {
+                throw new IOException();
             }
-        };
+            return null;
+        }).when(channel).sendAndFlush(Mockito.any(ByteBuffer.class));
 
         // mock auth packet
         MysqlSerializer serializer = MysqlSerializer.newInstance();
@@ -182,50 +164,22 @@ public class MysqlProtoTest {
         serializer.writeNulTerminateString("database");
 
         ByteBuffer buffer = serializer.toByteBuffer();
-        new Expectations() {
-            {
-                channel.fetchOnePacket();
-                minTimes = 0;
-                result = buffer;
-
-                channel.getRemoteIp();
-                minTimes = 0;
-                result = "192.168.1.1";
-            }
-        };
+        Mockito.when(channel.fetchOnePacket()).thenReturn(buffer);
+        Mockito.when(channel.getRemoteIp()).thenReturn("192.168.1.1");
     }
 
     private void mockMysqlClearTextPacket(String password) throws IOException {
-        new Expectations() {
-            {
-                clearTextPacket.getPassword();
-                minTimes = 0;
-                result = password;
-
-                clearTextPacket.readFrom((ByteBuffer) any);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        Mockito.when(clearTextPacket.getPassword()).thenReturn(password);
+        Mockito.when(clearTextPacket.readFrom(Mockito.any(ByteBuffer.class))).thenReturn(true);
     }
 
     private void mockPassword(boolean res) {
         // mock password
-        new Expectations(password) {
-            {
-                MysqlPassword.checkScramble((byte[]) any, (byte[]) any, (byte[]) any);
-                minTimes = 0;
-                result = res;
-
-                MysqlPassword.createRandomString(20);
-                minTimes = 0;
-                result = new byte[20];
-
-                MysqlPassword.getSaltFromPassword((byte[]) any);
-                minTimes = 0;
-                result = new byte[20];
-            }
-        };
+        mockedMysqlPassword.when(() -> MysqlPassword.checkScramble(Mockito.any(byte[].class),
+                Mockito.any(byte[].class), Mockito.any(byte[].class))).thenReturn(res);
+        mockedMysqlPassword.when(() -> MysqlPassword.createRandomString(20)).thenReturn(new byte[20]);
+        mockedMysqlPassword.when(() -> MysqlPassword.getSaltFromPassword(
+                Mockito.any(byte[].class))).thenReturn(new byte[20]);
     }
 
     private void mockAccess() throws Exception {
@@ -234,43 +188,17 @@ public class MysqlProtoTest {
     private void mockLdap(boolean userExist) throws IOException {
         Config.authentication_type = "ldap";
 
-        new Expectations() {
-            {
-                ldapAuthenticator.authenticate((AuthenticateRequest) any);
-                minTimes = 0;
-                result = true;
-
-                ldapManager.checkUserPasswd(anyString, anyString);
-                minTimes = 0;
-                result = userExist;
-
-                ldapManager.doesUserExist(anyString);
-                minTimes = 0;
-                result = userExist;
-            }
-        };
+        Mockito.when(ldapAuthenticator.authenticate(Mockito.any(AuthenticateRequest.class))).thenReturn(new AuthenticateResponse(true));
+        Mockito.when(ldapManager.checkUserPasswd(Mockito.anyString(), Mockito.anyString())).thenReturn(userExist);
+        Mockito.when(ldapManager.doesUserExist(Mockito.anyString())).thenReturn(userExist);
     }
 
-    private void mockInitCatalog(@Mocked CatalogMgr catalogMgr, ConnectContext context, String initCatalog)
+    private void mockInitCatalog(CatalogMgr catalogMgr, ConnectContext context, String initCatalog)
             throws Exception {
-        new Expectations() {
-            {
-                auth.getInitCatalog(anyString);
-                minTimes = 0;
-                result = initCatalog;
-
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = catalogMgr;
-
-                catalogMgr.getCatalog(anyString);
-                minTimes = 0;
-                result = catalog;
-
-                env.changeCatalog(context, anyString);
-                minTimes = 0;
-            }
-        };
+        Mockito.when(auth.getInitCatalog(Mockito.any())).thenReturn(initCatalog);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.doNothing().when(env).changeCatalog(Mockito.eq(context), Mockito.anyString());
     }
 
     @Test
@@ -278,30 +206,26 @@ public class MysqlProtoTest {
         mockChannel("user", true);
         mockPassword(true);
         mockAccess();
-        ConnectContext context = new ConnectContext(streamConnection);
+        ConnectContext context = createContext();
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
     }
 
     @Test
-    public void testNegotiateInitCatalog(@Mocked CatalogMgr catalogMgr) throws Exception {
+    public void testNegotiateInitCatalog() throws Exception {
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         mockChannel("user", true);
         mockPassword(true);
         mockAccess();
-        ConnectContext context = new ConnectContext(streamConnection);
+        ConnectContext context = createContext();
         context.setEnv(env);
         context.setThreadLocalInfo();
         String initCatalog = "external_catalog";
         mockInitCatalog(catalogMgr, context, initCatalog);
         Assert.assertTrue(MysqlProto.negotiate(context));
 
-        new Verifications() {
-            {
-                env.changeCatalog(context, initCatalog);
-                times = 1;
-            }
-        };
+        Mockito.verify(env, Mockito.times(1)).changeCatalog(context, initCatalog);
     }
 
     @Test
@@ -309,7 +233,7 @@ public class MysqlProtoTest {
         mockChannel("user", false);
         mockPassword(true);
         mockAccess();
-        ConnectContext context = new ConnectContext(streamConnection);
+        ConnectContext context = createContext();
         MysqlProto.negotiate(context);
         Assert.assertFalse(MysqlProto.negotiate(context));
     }
@@ -319,8 +243,77 @@ public class MysqlProtoTest {
         mockChannel("", true);
         mockPassword(true);
         mockAccess();
-        ConnectContext context = new ConnectContext(streamConnection);
+        ConnectContext context = createContext();
         Assert.assertFalse(MysqlProto.negotiate(context));
+    }
+
+    @Test
+    public void testNegotiateClientClosedConnectionDuringHandshake() throws Exception {
+        Mockito.when(channel.fetchOnePacket()).thenReturn(null);
+
+        ConnectContext context = createContext();
+        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, context.getState().getErrorCode());
+        Assert.assertEquals("Client closed connection during handshake", context.getState().getErrorMessage());
+    }
+
+    @Test
+    public void testNegotiateRejectsSslRequestWhenServerSslDisabled() throws Exception {
+        MysqlSerializer serializer = MysqlSerializer.newInstance();
+        serializer.writeInt4(MysqlCapability.SSL_CAPABILITY.getFlags());
+
+        Mockito.when(channel.fetchOnePacket()).thenReturn(serializer.toByteBuffer());
+
+        ConnectContext context = createContext();
+        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, context.getState().getErrorCode());
+        Assert.assertEquals("Client requested TLS/SSL, but Doris FE MySQL SSL is disabled",
+                context.getState().getErrorMessage());
+    }
+
+    @Test
+    public void testNegotiateSendsAuthenticatorErrorWhenResponseNotSent() throws Exception {
+        mockChannel("user", true);
+        mockPassword(true);
+        mockAccess();
+
+        Mockito.doAnswer(inv -> {
+            ConnectContext ctx = inv.getArgument(0);
+            ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
+            return false;
+        }).when(authenticatorManager).authenticate(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                Mockito.any(MysqlChannel.class), Mockito.any(MysqlSerializer.class),
+                Mockito.any(MysqlAuthPacket.class), Mockito.any(MysqlHandshakePacket.class));
+
+        Mockito.when(channel.isSend()).thenReturn(false);
+
+        ConnectContext context = createContext();
+        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assert.assertEquals(ErrorCode.ERR_ACCESS_DENIED_ERROR, context.getState().getErrorCode());
+
+        Mockito.verify(channel, Mockito.times(2)).sendAndFlush(Mockito.any(ByteBuffer.class));
+    }
+
+    @Test
+    public void testNegotiateDoesNotResendAuthenticatorErrorWhenResponseAlreadySent() throws Exception {
+        mockChannel("user", true);
+        mockPassword(true);
+        mockAccess();
+
+        Mockito.doAnswer(inv -> {
+            ConnectContext ctx = inv.getArgument(0);
+            ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
+            return false;
+        }).when(authenticatorManager).authenticate(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                Mockito.any(MysqlChannel.class), Mockito.any(MysqlSerializer.class),
+                Mockito.any(MysqlAuthPacket.class), Mockito.any(MysqlHandshakePacket.class));
+
+        Mockito.when(channel.isSend()).thenReturn(true);
+
+        ConnectContext context = createContext();
+        Assert.assertFalse(MysqlProto.negotiate(context));
+
+        Mockito.verify(channel, Mockito.times(1)).sendAndFlush(Mockito.any(ByteBuffer.class));
     }
 
     @Test
@@ -330,7 +323,7 @@ public class MysqlProtoTest {
         mockAccess();
         mockMysqlClearTextPacket(PASSWORD_CLEAR_TEXT);
         mockLdap(true);
-        ConnectContext context = new ConnectContext(streamConnection);
+        ConnectContext context = createContext();
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
@@ -344,7 +337,7 @@ public class MysqlProtoTest {
         mockAccess();
         mockLdap(false);
         mockMysqlClearTextPacket("654321");
-        ConnectContext context = new ConnectContext(streamConnection);
+        ConnectContext context = createContext();
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));

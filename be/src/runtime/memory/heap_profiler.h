@@ -20,7 +20,6 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class HeapProfiler {
 public:
@@ -43,5 +42,4 @@ private:
     std::mutex _mutex;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

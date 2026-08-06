@@ -345,7 +345,7 @@ suite("struct-md", "p0") {
     sql """ INSERT INTO ${tableName} (id, struct_basic) VALUES (1, STRUCT(1, 'John')), (2, STRUCT(2, 'Jane')), (3, STRUCT(3, 'Bob')) """
 
     test {
-        sql """ DELETE FROM ${tableName} WHERE struct_element(struct_basic, 1) = 1 """
+        sql """ DELETE FROM ${tableName} WHERE element_at(struct_basic, 1) = 1 """
         exception "Can not apply delete condition to column type: struct<id:int,name:text>"
     }
 
@@ -363,9 +363,9 @@ suite("struct-md", "p0") {
     """
     sql """ INSERT INTO ${tableName} (id, struct_basic) VALUES (1, STRUCT(1, 'John')), (2, STRUCT(2, 'Jane')), (3, STRUCT(3, 'Bob')) """
 
-    qt_sql """ select struct_element(struct_basic, 1), struct_element(struct_basic, 2), struct_element(struct_basic, 'id'), struct_element(struct_basic, 'name') from ${tableName} order by id """
+    qt_sql """ select element_at(struct_basic, 1), element_at(struct_basic, 2), element_at(struct_basic, 'id'), element_at(struct_basic, 'name') from ${tableName} order by id """
 
-    qt_sql """ SELECT STRUCT_ELEMENT(struct_basic, 1), STRUCT_ELEMENT(struct_basic, 'name') FROM ${tableName} order by id """
+    qt_sql """ SELECT element_at(struct_basic, 1), element_at(struct_basic, 'name') FROM ${tableName} order by id """
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
@@ -383,7 +383,7 @@ suite("struct-md", "p0") {
     sql """ insert into ${tableName} values (1, STRUCT(1, 'John', true)), (2, STRUCT(2, 'Jane', false)), (3, STRUCT(3, 'Bob', true)); """
 
     test {
-        sql """ delete from ${tableName} where struct_element(struct_basic, 'active') = true; """
+        sql """ delete from ${tableName} where element_at(struct_basic, 'active') = true; """
         exception "Can not apply delete condition to column type: struct<id:int,name:text,active:boolean>"
     }
 
@@ -391,9 +391,9 @@ suite("struct-md", "p0") {
 
     qt_sql """ SELECT STRUCT(1, 'Alice', true) as person;"""
 
-    qt_sql """ SELECT STRUCT_ELEMENT(STRUCT(1, 'Alice', true), 1); """
+    qt_sql """ SELECT element_at(STRUCT(1, 'Alice', true), 1); """
 
-    qt_sql """ SELECT STRUCT_ELEMENT(STRUCT(1, 'Alice', true), 2);"""
+    qt_sql """ SELECT element_at(STRUCT(1, 'Alice', true), 2);"""
     
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
@@ -411,7 +411,7 @@ suite("struct-md", "p0") {
     sql """ INSERT INTO ${tableName} VALUES (1, STRUCT(STRUCT('John', 25), STRUCT('New York', 10001)))"""
     sql """ INSERT INTO ${tableName} VALUES (2, STRUCT(STRUCT('Jane', 30), STRUCT('Los Angeles', 90001))) """
 
-    qt_sql """ SELECT STRUCT_ELEMENT(STRUCT_ELEMENT(struct_nested, 'person'), 'name'), STRUCT_ELEMENT(STRUCT_ELEMENT(struct_nested, 'address'), 'city') FROM ${tableName} order by id """
+    qt_sql """ SELECT element_at(element_at(struct_nested, 'person'), 'name'), element_at(element_at(struct_nested, 'address'), 'city') FROM ${tableName} order by id """
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
@@ -428,7 +428,7 @@ suite("struct-md", "p0") {
 
     sql """ INSERT INTO ${tableName} VALUES (1, STRUCT(1, ['tag1', 'tag2', 'tag3'])), (2, STRUCT(2, ['tag4', 'tag5'])) """
 
-    qt_sql """ SELECT STRUCT_ELEMENT(struct_array, 'id'), STRUCT_ELEMENT(struct_array, 'tags') FROM ${tableName} order by id """
+    qt_sql """ SELECT element_at(struct_array, 'id'), element_at(struct_array, 'tags') FROM ${tableName} order by id """
     
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
@@ -445,7 +445,7 @@ suite("struct-md", "p0") {
 
     sql """ INSERT INTO ${tableName} VALUES (1, STRUCT(1, MAP('key1', 1, 'key2', 2))) """
 
-    qt_sql """ SELECT STRUCT_ELEMENT(struct_map, 'id'), STRUCT_ELEMENT(struct_map, 'attributes') FROM ${tableName} order by id """
+    qt_sql """ SELECT element_at(struct_map, 'id'), element_at(struct_map, 'attributes') FROM ${tableName} order by id """
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
@@ -494,9 +494,9 @@ suite("struct-md", "p0") {
     )) """
 
     qt_sql """ SELECT 
-        STRUCT_ELEMENT(STRUCT_ELEMENT(struct_complex, 'basic_info'), 'name'),
-        STRUCT_ELEMENT(STRUCT_ELEMENT(struct_complex, 'contact'), 'email'),
-        STRUCT_ELEMENT(STRUCT_ELEMENT(STRUCT_ELEMENT(struct_complex, 'metadata'), 'stats'), 'views')
+        element_at(element_at(struct_complex, 'basic_info'), 'name'),
+        element_at(element_at(struct_complex, 'contact'), 'email'),
+        element_at(element_at(element_at(struct_complex, 'metadata'), 'stats'), 'views')
     FROM ${tableName} order by id """
 
     test {

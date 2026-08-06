@@ -146,14 +146,16 @@ public class CloudClusterChecker extends MasterDaemon {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("begin to drop clusterId: {}", delId);
                 }
-                List<Backend> toDel =
-                        new ArrayList<>(finalClusterIdToBackend.getOrDefault(delId, new ArrayList<>()));
-                cloudSystemInfoService.updateCloudBackends(new ArrayList<>(), toDel);
-                // del clusterName
                 String delClusterName = cloudSystemInfoService.getClusterNameByClusterId(delId);
                 if (delClusterName.isEmpty()) {
                     return;
                 }
+                ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().cancelTableFilterJobsForClusterChange(
+                        delClusterName, "system cancel: compute group " + delClusterName + " dropped");
+                List<Backend> toDel =
+                        new ArrayList<>(finalClusterIdToBackend.getOrDefault(delId, new ArrayList<>()));
+                cloudSystemInfoService.updateCloudBackends(new ArrayList<>(), toDel);
+                // del clusterName
                 // del clusterID
                 MetricRepo.unregisterCloudMetrics(delId, delClusterName, toDel);
                 cloudSystemInfoService.dropCluster(delId, delClusterName);
@@ -262,6 +264,9 @@ public class CloudClusterChecker extends MasterDaemon {
                 LOG.info("cluster_name corresponding to cluster_id has been changed,"
                         + " cluster_id : {} , current_cluster_name : {}, new_cluster_name :{}",
                         cid, currentClusterName, newClusterName);
+                ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().cancelTableFilterJobsForClusterChange(
+                        currentClusterName, "system cancel: compute group " + currentClusterName
+                                + " renamed to " + newClusterName);
                 // change all be's cluster_name
                 currentBes.forEach(b -> b.setCloudClusterName(newClusterName));
                 // update clusterNameToId

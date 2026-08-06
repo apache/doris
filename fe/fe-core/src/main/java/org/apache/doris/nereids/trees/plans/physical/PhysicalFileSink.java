@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
@@ -95,8 +96,8 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "PhysicalFileSink only accepts one child");
-        return new PhysicalFileSink<>(outputExprs, filePath, format, properties,
-                getLogicalProperties(), children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileSink<>(outputExprs, filePath, format,
+                properties, getLogicalProperties(), children.get(0)));
     }
 
     @Override
@@ -139,21 +140,21 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalFileSink<>(outputExprs, filePath, format, properties,
-                groupExpression, getLogicalProperties(), child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileSink<>(outputExprs, filePath, format,
+                properties, groupExpression, getLogicalProperties(), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalFileSink<>(outputExprs, filePath, format, properties,
-                groupExpression, logicalProperties.get(), children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileSink<>(outputExprs, filePath, format,
+                properties, groupExpression, logicalProperties.get(), children.get(0)));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalFileSink<>(outputExprs, filePath, format, properties, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileSink<>(outputExprs, filePath, format,
+                properties, groupExpression, getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override

@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <atomic>
-#include <condition_variable>
 #include <memory>
 
 #include "runtime/runtime_state.h"
@@ -27,22 +25,14 @@ namespace doris {
 
 class RuntimeState;
 
-// This class act as a super class of all context like things such as
-// plan fragment executor or pipelinefragmentcontext or pipelinexfragmentcontext
+// Base class for execution contexts (e.g. PipelineFragmentContext).
+//
+// For recursive CTE, the PFC (which inherits from this class) is held by external threads
+// (scanner threads, brpc callbacks, etc.) via weak_ptr<TaskExecutionContext>.
 class TaskExecutionContext : public std::enable_shared_from_this<TaskExecutionContext> {
 public:
-    TaskExecutionContext() = default;
-    virtual ~TaskExecutionContext() = default;
-
-    void ref_task_execution_ctx();
-
-    void unref_task_execution_ctx();
-
-    int has_task_execution_ctx_ref_count() const { return _has_task_execution_ctx_ref_count; }
-
-protected:
-    std::atomic<int> _has_task_execution_ctx_ref_count = 0;
-    std::condition_variable _notify_cv;
+    TaskExecutionContext();
+    virtual ~TaskExecutionContext();
 };
 
 using TaskExecutionContextSPtr = std::shared_ptr<TaskExecutionContext>;

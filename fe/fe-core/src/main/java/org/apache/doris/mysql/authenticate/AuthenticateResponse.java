@@ -18,27 +18,55 @@
 package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.Principal;
+import org.apache.doris.datasource.DelegatedCredential;
+
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.OptionalLong;
+import java.util.Set;
 
 public class AuthenticateResponse {
-    public static AuthenticateResponse failedResponse = new AuthenticateResponse(false);
+    public static final AuthenticateResponse failedResponse = new AuthenticateResponse(false);
 
     private boolean success;
     private UserIdentity userIdentity;
     private boolean isTemp = false;
+    private Principal principal;
+    private Set<String> authenticatedRoles = Collections.emptySet();
+    private AuthenticationFailureSummary failureSummary;
+    private DelegatedCredential delegatedCredential;
+    private Long credentialExpiresAtMillis;
 
     public AuthenticateResponse(boolean success) {
-        this.success = success;
+        this(success, null, false, null, Collections.emptySet(), null);
     }
 
     public AuthenticateResponse(boolean success, UserIdentity userIdentity) {
-        this.success = success;
-        this.userIdentity = userIdentity;
+        this(success, userIdentity, false);
     }
 
     public AuthenticateResponse(boolean success, UserIdentity userIdentity, boolean isTemp) {
+        this(success, userIdentity, isTemp, null, Collections.emptySet(), null);
+    }
+
+    public AuthenticateResponse(boolean success, UserIdentity userIdentity, boolean isTemp,
+            Principal principal, Set<String> authenticatedRoles) {
+        this(success, userIdentity, isTemp, principal, authenticatedRoles, null);
+    }
+
+    public AuthenticateResponse(boolean success, UserIdentity userIdentity, boolean isTemp,
+            Principal principal, Set<String> authenticatedRoles, AuthenticationFailureSummary failureSummary) {
         this.success = success;
         this.userIdentity = userIdentity;
         this.isTemp = isTemp;
+        this.principal = principal;
+        this.authenticatedRoles = immutableAuthenticatedRoles(authenticatedRoles);
+        this.failureSummary = failureSummary;
+    }
+
+    public static AuthenticateResponse failed(AuthenticationFailureSummary failureSummary) {
+        return new AuthenticateResponse(false, null, false, null, Collections.emptySet(), failureSummary);
     }
 
     public boolean isSuccess() {
@@ -65,12 +93,64 @@ public class AuthenticateResponse {
         isTemp = temp;
     }
 
+    public Principal getPrincipal() {
+        return principal;
+    }
+
+    public void setPrincipal(Principal principal) {
+        this.principal = principal;
+    }
+
+    public Set<String> getAuthenticatedRoles() {
+        return authenticatedRoles;
+    }
+
+    public void setAuthenticatedRoles(Set<String> authenticatedRoles) {
+        this.authenticatedRoles = immutableAuthenticatedRoles(authenticatedRoles);
+    }
+
+    public AuthenticationFailureSummary getFailureSummary() {
+        return failureSummary;
+    }
+
+    public void setFailureSummary(AuthenticationFailureSummary failureSummary) {
+        this.failureSummary = failureSummary;
+    }
+
+    public DelegatedCredential getDelegatedCredential() {
+        return delegatedCredential;
+    }
+
+    public void setDelegatedCredential(DelegatedCredential delegatedCredential) {
+        this.delegatedCredential = delegatedCredential;
+    }
+
+    public OptionalLong getCredentialExpiresAtMillis() {
+        return credentialExpiresAtMillis == null ? OptionalLong.empty() : OptionalLong.of(credentialExpiresAtMillis);
+    }
+
+    public void setCredentialExpiresAtMillis(long credentialExpiresAtMillis) {
+        this.credentialExpiresAtMillis = credentialExpiresAtMillis;
+    }
+
+    private static Set<String> immutableAuthenticatedRoles(Set<String> authenticatedRoles) {
+        if (authenticatedRoles.isEmpty()) {
+            return Collections.emptySet();
+        }
+        return Collections.unmodifiableSet(new LinkedHashSet<>(authenticatedRoles));
+    }
+
     @Override
     public String toString() {
         return "AuthenticateResponse{"
                 + "success=" + success
                 + ", userIdentity=" + userIdentity
                 + ", isTemp=" + isTemp
+                + ", principal=" + principal
+                + ", authenticatedRoles=" + authenticatedRoles
+                + ", delegatedCredential=" + delegatedCredential
+                + ", credentialExpiresAtMillis=" + credentialExpiresAtMillis
+                + ", failureSummary=" + failureSummary
                 + '}';
     }
 }

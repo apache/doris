@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -130,7 +129,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         List<String> dbNames = catalog.getDbNames();
         List<String> filteredDbNames = Lists.newArrayList();
         for (String fullName : dbNames) {
-            final String db = ClusterNamespace.getNameFromFullName(fullName);
+            final String db = fullName;
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullName,
                             PrivPredicate.SHOW)) {
@@ -171,10 +170,9 @@ public class MetaInfoActionV2 extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Catalog '" + catalogName + "' not found");
         }
 
-        String fullDbName = getFullDbName(dbName);
         DatabaseIf<TableIf> db;
         try {
-            db = catalog.getDbOrMetaException(fullDbName);
+            db = catalog.getDbOrMetaException(dbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
@@ -184,7 +182,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         try {
             for (TableIf tbl : db.getTables()) {
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName,
+                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
                                 tbl.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
@@ -244,14 +242,13 @@ public class MetaInfoActionV2 extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Catalog '" + catalogName + "' not found");
         }
 
-        String fullDbName = getFullDbName(dbName);
-        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, fullDbName,
+        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, dbName,
                 tblName, PrivPredicate.SHOW);
         String withMvPara = request.getParameter(PARAM_WITH_MV);
         boolean withMv = !Strings.isNullOrEmpty(withMvPara) && withMvPara.equals("1");
 
         try {
-            DatabaseIf db = catalog.getDbOrMetaException(fullDbName);
+            DatabaseIf db = catalog.getDbOrMetaException(dbName);
             db.readLock();
             try {
                 TableIf tbl = db.getTableOrMetaException(tblName, Table.TableType.OLAP);

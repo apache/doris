@@ -211,3 +211,10 @@ def validate_date(dt):
             status = 'normal'
         
         yield (dt, year, is_leap, status)
+
+
+def raise_in_module_udtf(value):
+    """Raise a stable error to verify UDTF exception propagation."""
+    if False:
+        yield value
+    raise TypeError("module_udtf_error_42")

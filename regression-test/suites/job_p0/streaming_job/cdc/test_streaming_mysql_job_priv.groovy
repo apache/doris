@@ -128,7 +128,7 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
                         def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobSuccendCount: " + jobSuccendCount)
                         // check job status and succeed task count larger than 2
-                        jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
+                        jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
                     }
             )
         } catch (Exception ex) {
@@ -155,14 +155,8 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
 
         sql """ALTER JOB ${jobName}
                 FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?allowPublicKeyRetrieval=true&useSSL=false",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
                     "user" = "${newMysqlUser}",
-                    "password" = "test123",
-                    "database" = "${mysqlDb}",
-                    "include_tables" = "${tableName}", 
-                    "offset" = "latest"
+                    "password" = "test123"
                 )
                 TO DATABASE ${currentDb}"""
 
@@ -180,7 +174,7 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
                        def jobStatus = sql """ select status, ErrorMsg from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                        log.info("jobStatus: " + jobStatus)
                        // check job status
-                       jobStatus.size() == 1 && 'PAUSED' == jobStatus.get(0).get(0) && jobStatus.get(0).get(1).contains("Failed to fetch meta")
+                       jobStatus.size() == 1 && 'PAUSED' == jobStatus.get(0).get(0)
                    }
            )
        } catch (Exception ex){

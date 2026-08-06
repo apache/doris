@@ -17,8 +17,12 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.PatternType;
+import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.thrift.TPatternType;
+
+import com.google.re2j.Pattern;
+import com.google.re2j.PatternSyntaxException;
 
 import java.util.Objects;
 
@@ -29,10 +33,10 @@ public class VariantField {
     private final String pattern;
     private final DataType dataType;
     private final String comment;
-    private final TPatternType patternType;
+    private final PatternType patternType;
 
     public VariantField(String pattern, DataType dataType, String comment) {
-        this(pattern, dataType, comment, TPatternType.MATCH_NAME_GLOB.name());
+        this(pattern, dataType, comment, PatternType.MATCH_NAME_GLOB.name());
     }
 
     /**
@@ -46,11 +50,11 @@ public class VariantField {
         this.pattern = Objects.requireNonNull(pattern, "pattern should not be null");
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
         this.comment = Objects.requireNonNull(comment, "comment should not be null");
-        TPatternType type;
-        if (TPatternType.MATCH_NAME.name().equalsIgnoreCase(patternType)) {
-            type = TPatternType.MATCH_NAME;
+        PatternType type;
+        if (PatternType.MATCH_NAME.name().equalsIgnoreCase(patternType)) {
+            type = PatternType.MATCH_NAME;
         } else {
-            type = TPatternType.MATCH_NAME_GLOB;
+            type = PatternType.MATCH_NAME_GLOB;
         }
         this.patternType = Objects.requireNonNull(type, "patternType should not be null");
     }
@@ -67,6 +71,35 @@ public class VariantField {
         return comment;
     }
 
+    /**
+     * Check if the given field name matches this field's pattern.
+     * This method uses a restricted glob syntax converted to regex.
+     *
+     * Supported glob syntax:
+     * - '*' matches any sequence of characters
+     * - '?' matches any single character
+     * - '[...]' matches any character in the brackets
+     * - '[!...]' matches any character not in the brackets
+     * - '\\' escapes the next character
+     *
+     * @param fieldName the field name to check
+     * @return true if the field name matches the pattern
+     */
+    public boolean matches(String fieldName) {
+        if (patternType == PatternType.MATCH_NAME) {
+            return pattern.equals(fieldName);
+        }
+        if (patternType != PatternType.MATCH_NAME_GLOB) {
+            return false;
+        }
+        try {
+            Pattern compiled = GlobRegexUtil.getOrCompilePattern(pattern);
+            return compiled.matcher(fieldName).matches();
+        } catch (PatternSyntaxException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+
     public org.apache.doris.catalog.VariantField toCatalogDataType() {
         return new org.apache.doris.catalog.VariantField(
                 pattern, dataType.toCatalogDataType(), comment, patternType);
@@ -78,7 +111,7 @@ public class VariantField {
      */
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        if (patternType == TPatternType.MATCH_NAME) {
+        if (patternType == PatternType.MATCH_NAME) {
             sb.append(patternType.toString()).append(" ");
         }
 

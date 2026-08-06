@@ -17,6 +17,7 @@
 
 #include "aws_common.h"
 
+#include <aws/core/client/ClientConfiguration.h>
 #include <glog/logging.h>
 
 namespace doris {
@@ -29,6 +30,16 @@ CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provi
         return CredProviderType::Simple;
     case cloud::CredProviderTypePB::INSTANCE_PROFILE:
         return CredProviderType::InstanceProfile;
+    case cloud::CredProviderTypePB::ENV:
+        return CredProviderType::Env;
+    case cloud::CredProviderTypePB::SYSTEM_PROPERTIES:
+        return CredProviderType::SystemProperties;
+    case cloud::CredProviderTypePB::WEB_IDENTITY:
+        return CredProviderType::WebIdentity;
+    case cloud::CredProviderTypePB::CONTAINER:
+        return CredProviderType::Container;
+    case cloud::CredProviderTypePB::ANONYMOUS:
+        return CredProviderType::Anonymous;
     default:
         __builtin_unreachable();
         LOG(WARNING) << "Invalid CredProviderTypePB value: " << cred_provider_type
@@ -74,4 +85,13 @@ std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_
     }
     return "";
 }
+
+void set_s3_client_default_http_scheme(Aws::Client::ClientConfiguration& client_config,
+                                       const std::string& scheme) {
+    if (client_config.endpointOverride.starts_with("http://") ||
+        client_config.endpointOverride.starts_with("https://")) {
+        return;
+    }
+    client_config.scheme = scheme == "http" ? Aws::Http::Scheme::HTTP : Aws::Http::Scheme::HTTPS;
 }
+} // namespace doris

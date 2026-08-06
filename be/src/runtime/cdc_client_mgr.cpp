@@ -34,14 +34,18 @@
 
 #include <atomic>
 #include <chrono>
+#include <iterator>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "http/http_client.h"
+#include "runtime/exec_env.h"
+#include "service/http/http_client.h"
 
 namespace doris {
 
@@ -148,9 +152,25 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
             _child_pid.store(0);
         }
 #endif
-    } else {
+    } else if (!_adopted_external.load()) {
         LOG(INFO) << "CDC client has never been started";
     }
+
+#ifndef BE_TEST
+    // Adopt an externally-managed cdc_client if the port already answers
+    // healthy (e.g. one started manually for debug / hotfix).
+    {
+        std::string adopt_response;
+        if (check_cdc_client_health(1, 0, adopt_response).ok()) {
+            if (!_adopted_external.exchange(true)) {
+                LOG(INFO) << "Adopting external cdc client on port "
+                          << doris::config::cdc_client_port;
+            }
+            return Status::OK();
+        }
+    }
+    _adopted_external.store(false);
+#endif
 
     const char* doris_home = getenv("DORIS_HOME");
     const char* log_dir = getenv("LOG_DIR");
@@ -159,6 +179,7 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
             "--server.port=" + std::to_string(doris::config::cdc_client_port);
     const std::string backend_http_port =
             "--backend.http.port=" + std::to_string(config::webserver_port);
+    const std::string cluster_token = "--cluster.token=" + ExecEnv::GetInstance()->token();
     const std::string java_opts = "-Dlog.path=" + std::string(log_dir);
 
     // check cdc jar exists
@@ -179,7 +200,40 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     }
     std::string path(java_home);
     std::string java_bin = path + "/bin/java";
-    // Capture signal to prevent child process from becoming a zombie process
+
+    // Pre-build everything the child needs before fork(): heap allocation after
+    // fork() in a multi-threaded process can deadlock on inherited libc locks.
+    std::vector<std::string> argv_storage;
+    argv_storage.emplace_back("java");
+    const std::string user_java_opts = doris::config::cdc_client_java_opts;
+    if (!user_java_opts.empty()) {
+        std::istringstream iss(user_java_opts);
+        argv_storage.insert(argv_storage.end(), std::istream_iterator<std::string>(iss),
+                            std::istream_iterator<std::string>());
+    }
+    argv_storage.emplace_back(java_opts);
+    // OOM safety net (last-wins, user opts cannot disable).
+    argv_storage.emplace_back("-XX:+ExitOnOutOfMemoryError");
+    // JDK17 opens for debezium ObjectSizeCalculator reflection.
+    argv_storage.emplace_back("--add-opens=java.base/java.lang=ALL-UNNAMED");
+    argv_storage.emplace_back("--add-opens=java.base/java.util=ALL-UNNAMED");
+    argv_storage.emplace_back("--add-opens=java.base/java.math=ALL-UNNAMED");
+    argv_storage.emplace_back("--add-opens=java.base/java.nio=ALL-UNNAMED");
+    argv_storage.emplace_back("-jar");
+    argv_storage.emplace_back(cdc_jar_path);
+    argv_storage.emplace_back(cdc_jar_port);
+    argv_storage.emplace_back(backend_http_port);
+    argv_storage.emplace_back(cluster_token);
+
+    std::vector<char*> argv;
+    argv.reserve(argv_storage.size() + 1);
+    for (auto& s : argv_storage) {
+        argv.push_back(const_cast<char*>(s.c_str()));
+    }
+    argv.push_back(nullptr);
+
+    const std::string cdc_out_file = std::string(log_dir) + "/cdc-client.out";
+
     struct sigaction act;
     act.sa_flags = 0;
     act.sa_handler = handle_sigchld;
@@ -192,33 +246,25 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
 #else
     pid_t pid = fork();
     if (pid < 0) {
-        // Fork failed
         st = Status::InternalError("Fork cdc client failed.");
         st.to_protobuf(result->mutable_status());
         return st;
     } else if (pid == 0) {
-        // Child process
-        // When the parent process is killed, the child process also needs to exit
+        // Child: async-signal-safe operations only until execv().
 #ifndef __APPLE__
         prctl(PR_SET_PDEATHSIG, SIGKILL);
 #endif
-        // Redirect stdout and stderr to log out file
-        std::string cdc_out_file = std::string(log_dir) + "/cdc-client.out";
         int out_fd = open(cdc_out_file.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
         if (out_fd < 0) {
             perror("open cdc-client.out file failed");
-            exit(1);
+            _exit(1);
         }
         dup2(out_fd, STDOUT_FILENO);
         dup2(out_fd, STDERR_FILENO);
         close(out_fd);
-
-        // java -jar -Dlog.path=xx cdc-client.jar --server.port=9096 --backend.http.port=8040
-        execlp(java_bin.c_str(), "java", java_opts.c_str(), "-jar", cdc_jar_path.c_str(),
-               cdc_jar_port.c_str(), backend_http_port.c_str(), (char*)NULL);
-        // If execlp returns, it means it failed
+        execv(java_bin.c_str(), argv.data());
         perror("Cdc client child process error");
-        exit(1);
+        _exit(1);
     } else {
         // Parent process: save PID and wait for startup
         _child_pid.store(pid);
@@ -231,7 +277,17 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
             _child_pid.store(0);
             st = Status::InternalError("Start cdc client failed.");
             st.to_protobuf(result->mutable_status());
+        } else if (kill(pid, 0) != 0) {
+            // Port healthy but our child has exited: an external process is
+            // answering. Treat as adoption instead of masking dead PID as success.
+            _child_pid.store(0);
+            if (!_adopted_external.exchange(true)) {
+                LOG(INFO) << "Forked cdc client " << pid << " exited but port "
+                          << doris::config::cdc_client_port
+                          << " is healthy, adopting external instance";
+            }
         } else {
+            _adopted_external.store(false);
             LOG(INFO) << "Start cdc client success, pid=" << pid
                       << ", status=" << status.to_string() << ", response=" << health_response;
         }

@@ -66,6 +66,18 @@
 1	2	3
 10	20	30
 
+-- !not_in_nullable_mark_join --
+1	0
+11	\N
+
+-- !not_in_nullable_mark_join_in_disjunction --
+1	0
+11	\N
+
+-- !not_in_nullable_mark_join_in_disjunction_build_null --
+1	0
+11	\N
+
 -- !mark_join_with_other_conjuncts1 --
 1	2
 1	3

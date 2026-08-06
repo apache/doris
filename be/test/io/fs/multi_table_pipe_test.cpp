@@ -23,7 +23,7 @@
 #include <memory>
 
 #include "gtest/gtest_pred_impl.h"
-#include "runtime/stream_load/stream_load_context.h"
+#include "load/stream_load/stream_load_context.h"
 
 namespace doris {
 using namespace doris::io;

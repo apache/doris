@@ -43,6 +43,8 @@
 #include "common/status.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
+#include "util/client_connection_provider.h"
+#include "util/defer_op.h"
 #include "util/dns_cache.h"
 #include "util/network_util.h"
 
@@ -64,7 +66,6 @@ using StubMap = phmap::parallel_flat_hash_map<
         std::allocator<std::pair<const std::string, StubEntry<T>>>, 8, std::mutex>;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class FailureDetectClosure : public ::google::protobuf::Closure {
 public:
     FailureDetectClosure(std::shared_ptr<AtomicStatus>& channel_st,
@@ -174,6 +175,14 @@ public:
             Status status = dns_cache->get(host, &realhost);
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host:" << status.to_string();
+                // The hostname is no longer resolvable, which normally means the backend
+                // was dropped from the cluster. Returning early is not enough: any stub
+                // cached under this host:port still holds a brpc Channel bound to the last
+                // resolved (now dead) IP, and brpc keeps health-checking that socket
+                // forever, which is the source of the endless
+                // "Fail to wait EPOLLOUT ... Connection timed out" warnings. Drop it here
+                // so the socket is closed along with the last reference to the stub.
+                _stub_map.erase(fmt::format("{}:{}", host, port));
                 return nullptr;
             }
         }
@@ -246,6 +255,10 @@ public:
                                                const std::string& connection_type = "",
                                                const std::string& connection_group = "") {
         brpc::ChannelOptions options;
+        Status status = doris::client::configure_brpc_channel_options(&options);
+        if (!status.ok()) {
+            throw status;
+        }
         if (protocol != "") {
             options.protocol = protocol;
         } else if (_protocol != "") {
@@ -353,5 +366,4 @@ private:
 
 using InternalServiceClientCache = BrpcClientCache<PBackendService_Stub>;
 using FunctionServiceClientCache = BrpcClientCache<PFunctionService_Stub>;
-#include "common/compile_check_end.h"
 } // namespace doris

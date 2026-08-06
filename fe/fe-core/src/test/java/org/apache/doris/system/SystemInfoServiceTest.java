@@ -190,13 +190,17 @@ public class SystemInfoServiceTest {
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy4, 3).size());
 
         BeSelectionPolicy policy5 = new BeSelectionPolicy.Builder().needLoadAvailable().build();
+        Assert.assertTrue(policy5.toString().contains("nonDecommissioned=true"));
         Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy5, 1).size());
         Assert.assertFalse(infoService.selectBackendIdsByPolicy(policy5, 1).contains(10001L));
         Assert.assertFalse(infoService.selectBackendIdsByPolicy(policy5, 1).contains(10002L));
         Assert.assertFalse(infoService.selectBackendIdsByPolicy(policy5, 1).contains(10005L));
-        Assert.assertEquals(2, infoService.selectBackendIdsByPolicy(policy5, 2).size());
-        Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy5, 2).contains(10003L));
-        Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy5, 2).contains(10004L));
+        Assert.assertFalse(infoService.selectBackendIdsByPolicy(policy5, 1).contains(10004L));
+        Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy5, 1).contains(10003L));
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy5, 2).size());
+        be3.setDecommissioning(true);
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy5, 1).size());
+        be3.setDecommissioning(false);
 
         // 5. set tags
         // reset all be
@@ -447,7 +451,7 @@ public class SystemInfoServiceTest {
     @Test
     public void testGetMinPipelineExecutorSize() {
         // Test case 1: No backends
-        int result = infoService.getMinPipelineExecutorSize();
+        int result = infoService.getMinPipelineExecutorSize("");
         Assert.assertEquals(1, result);
 
         // Test case 2: Single backend with pipeline executor size = 8
@@ -456,7 +460,7 @@ public class SystemInfoServiceTest {
         be1.setPipelineExecutorSize(8);
         be1.setAlive(true);
 
-        result = infoService.getMinPipelineExecutorSize();
+        result = infoService.getMinPipelineExecutorSize("");
         Assert.assertEquals(8, result);
 
         // Test case 3: Multiple backends with different pipeline executor sizes
@@ -470,7 +474,7 @@ public class SystemInfoServiceTest {
         be3.setPipelineExecutorSize(12);
         be3.setAlive(true);
 
-        result = infoService.getMinPipelineExecutorSize();
+        result = infoService.getMinPipelineExecutorSize("");
         Assert.assertEquals(4, result);
 
         // Test case 4: Backends with zero and negative pipeline executor sizes (should
@@ -485,7 +489,7 @@ public class SystemInfoServiceTest {
         be5.setPipelineExecutorSize(-1); // Should be ignored
         be5.setAlive(true);
 
-        result = infoService.getMinPipelineExecutorSize();
+        result = infoService.getMinPipelineExecutorSize("");
         Assert.assertEquals(4, result); // Still should be 4 from be2
 
         // Test case 5: All backends have zero or negative pipeline executor sizes
@@ -493,7 +497,7 @@ public class SystemInfoServiceTest {
         be2.setPipelineExecutorSize(-5);
         be3.setPipelineExecutorSize(0);
 
-        result = infoService.getMinPipelineExecutorSize();
+        result = infoService.getMinPipelineExecutorSize("");
         Assert.assertEquals(1, result); // Should return default value 1
 
         // Test case 6: Mix of positive and non-positive values
@@ -501,7 +505,7 @@ public class SystemInfoServiceTest {
         be2.setPipelineExecutorSize(0); // ignored
         be3.setPipelineExecutorSize(6); // This should be the minimum
 
-        result = infoService.getMinPipelineExecutorSize();
+        result = infoService.getMinPipelineExecutorSize("");
         Assert.assertEquals(6, result);
     }
 

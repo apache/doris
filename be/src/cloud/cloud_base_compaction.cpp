@@ -17,19 +17,20 @@
 
 #include "cloud/cloud_base_compaction.h"
 
+#include <gen_cpp/cloud.pb.h>
+
 #include <boost/container_hash/hash.hpp>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
+#include "core/value/vdatetime_value.h"
 #include "cpp/sync_point.h"
-#include "gen_cpp/cloud.pb.h"
-#include "olap/compaction.h"
-#include "olap/task/engine_checksum_task.h"
 #include "service/backend_options.h"
+#include "storage/compaction/compaction.h"
+#include "storage/task/engine_checksum_task.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -188,7 +189,7 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
         std::shared_lock rlock(_tablet->get_header_lock());
         _base_compaction_cnt = cloud_tablet()->base_compaction_cnt();
         _cumulative_compaction_cnt = cloud_tablet()->cumulative_compaction_cnt();
-        _input_rowsets = cloud_tablet()->pick_candidate_rowsets_to_base_compaction();
+        _input_rowsets = cloud_tablet()->pick_candidate_rowsets_to_base_compaction_unlocked();
     }
     if (auto st = check_version_continuity(_input_rowsets); !st.ok()) {
         DCHECK(false) << st;

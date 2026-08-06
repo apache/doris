@@ -1,0 +1,152 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <stdint.h>
+
+#include <map>
+#include <string>
+#include <unordered_map>
+
+#include "common/status.h"
+#include "exec/operator/operator.h"
+
+namespace doris {
+class RuntimeState;
+
+class MaterializationOperator;
+
+struct FetchRpcStruct {
+    std::shared_ptr<PBackendService_Stub> stub;
+    std::unique_ptr<brpc::Controller> cntl;
+    PMultiGetRequestV2 request;
+    PMultiGetResponseV2 response;
+    std::string backend_address;
+};
+
+struct MaterializationSharedState {
+public:
+    MaterializationSharedState() = default;
+
+    Status init_multi_requests(const TMaterializationNode& tnode, RuntimeState* state);
+    Status create_muiltget_result(const Columns& columns, bool eos);
+
+    Status merge_multi_response(RuntimeProfile* profile);
+    void get_block(Block* block);
+
+private:
+    void _update_profile_info(int64_t backend_id, RuntimeProfile* response_profile);
+    void _update_topn_lazy_materialization_profile(RuntimeProfile* profile);
+
+    struct TopNLazyMaterializationBackendStats {
+        std::string backend;
+        int64_t rows_read = 0;
+        int64_t segments_read = 0;
+        int64_t local_io_count = 0;
+        int64_t local_io_bytes = 0;
+        int64_t remote_io_count = 0;
+        int64_t remote_io_bytes = 0;
+        int64_t skip_cache_io_count = 0;
+        int64_t write_cache_bytes = 0;
+        int64_t local_io_time = 0;
+        int64_t remote_io_time = 0;
+        int64_t write_cache_io_time = 0;
+    };
+
+public:
+    bool rpc_struct_inited = false;
+
+    bool eos = false;
+    // empty materialization sink block not need to merge block
+    bool need_merge_block = true;
+    Block origin_block;
+    // The rowid column of the origin block. should be replaced by the column of the result block.
+    std::vector<int> rowid_locs;
+    std::vector<MutableBlock> response_blocks;
+    std::map<int64_t, FetchRpcStruct> rpc_struct_map;
+    // Register each line in which block to ensure the order of the result.
+    // Zero means NULL value.
+    std::vector<std::vector<int64_t>> block_order_results;
+    // backend id => <rpc profile info string key, rpc profile info string value>.
+    std::map<int64_t, std::map<std::string, fmt::memory_buffer>> backend_profile_info_string;
+
+    // Store the maximum number of rows processed by a single backend in the current batch
+    uint32_t _max_rows_per_backend = 0;
+    // Store the number of rows processed by each backend
+    std::unordered_map<int64_t, uint32_t> _backend_rows_count; // backend_id => rows_count
+
+private:
+    // backend id => accumulated TopN phase-2 profile stats.
+    std::map<int64_t, TopNLazyMaterializationBackendStats> _topn_lazy_materialization_backend_stats;
+};
+
+class MaterializationLocalState final : public PipelineXLocalState<FakeSharedState> {
+public:
+    using Parent = MaterializationOperator;
+    using Base = PipelineXLocalState<FakeSharedState>;
+
+    ENABLE_FACTORY_CREATOR(MaterializationLocalState);
+    MaterializationLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
+
+    Status init(RuntimeState* state, LocalStateInfo& info) override {
+        RETURN_IF_ERROR(Base::init(state, info));
+        _max_rpc_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), "MaxRpcTime", 2);
+        _merge_response_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), "MergeResponseTime", 2);
+        _max_rows_per_backend_counter =
+                ADD_COUNTER_WITH_LEVEL(custom_profile(), "MaxRowsPerBackend", TUnit::UNIT, 2);
+        return Status::OK();
+    }
+
+private:
+    friend class MaterializationOperator;
+    template <typename LocalStateType>
+    friend class StatefulOperatorX;
+
+    std::unique_ptr<Block> _child_block = Block::create_unique();
+    bool _child_eos = false;
+    MaterializationSharedState _materialization_state;
+    RuntimeProfile::Counter* _max_rpc_timer = nullptr;
+    RuntimeProfile::Counter* _merge_response_timer = nullptr;
+    RuntimeProfile::Counter* _max_rows_per_backend_counter = nullptr;
+};
+
+class MaterializationOperator final : public StatefulOperatorX<MaterializationLocalState> {
+public:
+    using Base = StatefulOperatorX<MaterializationLocalState>;
+    MaterializationOperator(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                            const DescriptorTbl& descs)
+            : Base(pool, tnode, operator_id, descs) {}
+
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
+
+    Status prepare(RuntimeState* state) override;
+
+    bool is_blockable(RuntimeState* state) const override { return true; }
+    bool need_more_input_data(RuntimeState* state) const override;
+    Status pull(RuntimeState* state, Block* output_block, bool* eos) const override;
+    Status push(RuntimeState* state, Block* input_block, bool eos) const override;
+
+private:
+    friend class MaterializationLocalState;
+
+    // Materialized slot by this node. The i-th result expr list refers to a slot of RowId
+    TMaterializationNode _materialization_node;
+    VExprContextSPtrs _rowid_exprs;
+};
+
+} // namespace doris

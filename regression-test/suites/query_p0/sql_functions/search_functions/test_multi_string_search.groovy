@@ -95,4 +95,11 @@ suite("test_multi_string_search", "arrow_flight_sql") {
     } catch (Exception ex) {
         assert("${ex}".contains("multi_match_any"))
     }
+
+    test {
+        sql '''
+            select MULTI_MATCH_ANY(cast('aaaaa' as STRING), cast(['aaaaa', '12345!@#$%^&*()_', '', '中文测试', '123', 'abs ss 123'] as ARRAY < STRING > ));
+        '''
+        exception "some expressions may be illegal"
+    }
 }

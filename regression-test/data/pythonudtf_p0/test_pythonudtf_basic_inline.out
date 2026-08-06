@@ -243,3 +243,7 @@ HELLO
 3	\N
 4	cherry
 
+-- !largeint_expand --
+100
+101
+

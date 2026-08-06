@@ -21,7 +21,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -39,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
@@ -107,18 +107,21 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     public LogicalWindow<Plan> withExpressionsAndChild(List<NamedExpression> windowExpressions, Plan child) {
-        return new LogicalWindow<>(windowExpressions, isChecked, child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWindow<>(windowExpressions, isChecked, child));
     }
 
     public LogicalWindow<Plan> withChecked(List<NamedExpression> windowExpressions, Plan child) {
-        return new LogicalWindow<>(windowExpressions, true, Optional.empty(),
-                Optional.of(getLogicalProperties()), child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWindow<>(windowExpressions, true, Optional.empty(),
+                Optional.of(getLogicalProperties()), child));
     }
 
     @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalWindow<>(windowExpressions, isChecked, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWindow<>(windowExpressions, isChecked, children.get(0)));
     }
 
     @Override
@@ -128,15 +131,17 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalWindow<>(windowExpressions, isChecked,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWindow<>(windowExpressions, isChecked,
+                groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalWindow<>(windowExpressions, isChecked, groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWindow<>(windowExpressions, isChecked, groupExpression, logicalProperties, children.get(0)));
     }
 
     /**
@@ -320,11 +325,26 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 && chosenRowNumberPartitionLimit == Long.MAX_VALUE)) {
             return null;
         } else {
-            // 4. check all windowExpression's order key is empty or is the same as chosenWindowFunc's order key
+            // 4. check all windowExpression's partition key and order key are compatible with chosenWindowFunc.
+            // The generated partitionTopN is pushed below the whole window node, so it prunes the input rows
+            // (keeping per-partition top-k of the chosen function) of every co-located window function.
+            // For another window function W to stay correct, every row that could affect W's value for a
+            // surviving row must also survive the pruning. This holds iff the chosen partition key is a
+            // SUBSET of W's partition key (chosen is coarser): then any row in W's partition with a smaller
+            // order value is also in the same chosen-partition with an order value <= the surviving row's,
+            // so its chosen-rank is within top-k and it is kept. The order key must also be compatible
+            // (empty or identical). Otherwise we must disable the optimization, e.g.
+            //   'row_number() over (partition by a order by c)' as rn together with
+            //   'row_number() over (partition by b order by c)' as rk, filter on rn
+            // (independent partitions), or a chosen partition (a, b) finer than a co-located 'partition by a'
+            // would prune rows the latter still needs and produce a wrong result.
             for (NamedExpression windowExpr : windowExpressions) {
                 if (windowExpr != null && windowExpr instanceof Alias
                         && windowExpr.child(0) instanceof WindowExpression) {
                     WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
+                    if (!windowFunc.getPartitionKeys().containsAll(chosenWindowFunc.getPartitionKeys())) {
+                        return null;
+                    }
                     if (windowFunc.getOrderKeys().isEmpty()
                             || windowFunc.getOrderKeys().equals(chosenWindowFunc.getOrderKeys())) {
                         continue;
@@ -419,24 +439,6 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             }
         }
         return false;
-    }
-
-    private void updateFuncDepsByWindowExpr(NamedExpression namedExpression, ImmutableSet.Builder<FdItem> builder) {
-        if (namedExpression.children().size() != 1 || !(namedExpression.child(0) instanceof WindowExpression)) {
-            return;
-        }
-        WindowExpression windowExpr = (WindowExpression) namedExpression.child(0);
-        List<Expression> partitionKeys = windowExpr.getPartitionKeys();
-
-        // Now we only support slot type keys
-        if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
-            return;
-        }
-        //ImmutableSet<Slot> slotSet = partitionKeys.stream()
-        //        .map(s -> (Slot) s)
-        //        .collect(ImmutableSet.toImmutableSet());
-        // TODO: if partition by keys are unique, output is uniform
-        // TODO: if partition by keys are uniform, output is unique
     }
 
     @Override

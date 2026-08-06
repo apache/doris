@@ -82,7 +82,7 @@ public class NereidsCoordinatorTest extends TestWithFeService {
     }
 
     private NereidsPlanner plan(String sql) throws IOException {
-        return plan(sql, createDefaultCtx());
+        return plan(sql, connectContext);
     }
 
     private NereidsPlanner plan(String sql, ConnectContext connectContext) throws IOException {

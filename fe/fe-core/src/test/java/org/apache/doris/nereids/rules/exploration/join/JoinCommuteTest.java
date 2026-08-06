@@ -43,11 +43,15 @@ import java.util.stream.Collectors;
 public class JoinCommuteTest implements MemoPatternMatchSupported {
     @Test
     void testInnerJoinCommute() {
+        testInnerJoinCommuteHelper(JoinType.INNER_JOIN);
+    }
+
+    private void testInnerJoinCommuteHelper(JoinType joinType) {
         LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
         LogicalPlan join = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .join(scan2, joinType, Pair.of(0, 0)) // t1.id = t2.id
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), join)
@@ -65,11 +69,16 @@ public class JoinCommuteTest implements MemoPatternMatchSupported {
 
     @Test
     void testParallelJoinCommute() {
+        testParallelJoinCommuteHelper(JoinType.LEFT_OUTER_JOIN);
+        testParallelJoinCommuteHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testParallelJoinCommuteHelper(JoinType joinType) {
         LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
         LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan2, joinType, Pair.of(0, 0))
                 .build();
         join = join.withJoinConjuncts(
                 ImmutableList.of(),
@@ -83,11 +92,15 @@ public class JoinCommuteTest implements MemoPatternMatchSupported {
 
     @Test
     void testJoinConjunctNullableWhenCommute() {
+        testJoinConjunctNullableWhenCommuteHelper(JoinType.LEFT_OUTER_JOIN, JoinType.RIGHT_OUTER_JOIN);
+    }
+
+    private void testJoinConjunctNullableWhenCommuteHelper(JoinType joinType1, JoinType joinType2) {
         LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
         LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan2, joinType1, Pair.of(0, 0))
                 .build();
         join = join.withJoinConjuncts(
                 ImmutableList.of(new EqualTo(scan1.getOutput().get(0).withNullable(true),
@@ -101,7 +114,7 @@ public class JoinCommuteTest implements MemoPatternMatchSupported {
                 .getAllPlan()
                 .stream()
                 .filter(plan -> plan instanceof LogicalJoin
-                        && ((LogicalJoin<?, ?>) plan).getJoinType() == JoinType.RIGHT_OUTER_JOIN)
+                        && ((LogicalJoin<?, ?>) plan).getJoinType() == joinType2)
                 .collect(Collectors.toList());
         Assertions.assertEquals(1, allPlan.size());
         // the input slot of join conjuncts should be nullable false after commute
@@ -122,5 +135,47 @@ public class JoinCommuteTest implements MemoPatternMatchSupported {
                         }
                     });
         }
+    }
+
+    @Test
+    void testAsofJoinOtherConjunctsNotCommute() {
+        testAsofJoinOtherConjunctsNotCommuteHelper(JoinType.ASOF_LEFT_INNER_JOIN, JoinType.ASOF_LEFT_INNER_JOIN);
+        testAsofJoinOtherConjunctsNotCommuteHelper(JoinType.ASOF_LEFT_OUTER_JOIN, JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testAsofJoinOtherConjunctsNotCommuteHelper(JoinType joinType, JoinType expectedSwap) {
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) new LogicalPlanBuilder(scan1)
+                        .join(scan2, joinType, Pair.of(0, 0))
+                        .build();
+
+        // represent ASOF match_condition as otherConjuncts (e.g. t1.ts > t2.ts)
+        join = join.withJoinConjuncts(
+                        join.getHashJoinConjuncts(),
+                        ImmutableList.of(new GreaterThan(scan1.getOutput().get(0), scan2.getOutput().get(0))),
+                        join.getJoinReorderContext());
+
+        List<Plan> allPlan = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                        .applyExploration(JoinCommute.BUSHY.build())
+                        .getAllPlan()
+                        .stream()
+                        .filter(plan -> plan instanceof LogicalJoin
+                                        && ((LogicalJoin<?, ?>) plan).getJoinType() == expectedSwap)
+                        .collect(Collectors.toList());
+        Assertions.assertEquals(1, allPlan.size());
+
+        LogicalJoin<?, ?> newJoin = (LogicalJoin<?, ?>) allPlan.get(0);
+        // other conjuncts should be commuted: left becomes scan2, right becomes scan1
+        Assertions.assertTrue(newJoin.getJoinType().isAsofLeftJoin());
+        Assertions.assertEquals(1, newJoin.getOtherJoinConjuncts().size());
+        Expression expr = newJoin.getOtherJoinConjuncts().get(0);
+        Assertions.assertTrue(expr instanceof GreaterThan);
+        GreaterThan gt = (GreaterThan) expr;
+        Assertions.assertTrue(gt.left() instanceof SlotReference);
+        Assertions.assertTrue(gt.right() instanceof SlotReference);
+        Assertions.assertEquals(scan1.getOutput().get(0), gt.left());
+        Assertions.assertEquals(scan2.getOutput().get(0), gt.right());
     }
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_rewrite_manifests", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_rewrite_manifests", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -348,7 +348,7 @@ suite("test_iceberg_rewrite_manifests", "p0,external,doris,external_docker,exter
             ALTER TABLE ${catalog_name}.${db_name}.${table_name}
             EXECUTE rewrite_manifests() WHERE id > 0
         """
-        exception "Action 'rewrite_manifests' does not support WHERE condition"
+        exception "WHERE condition is not supported for this EXECUTE action"
     }
 
     // Test on non-existent table

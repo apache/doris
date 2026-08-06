@@ -24,25 +24,27 @@ import org.apache.doris.cloud.proto.Cloud.FinishCopyRequest.Action;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
-import org.apache.doris.cloud.storage.ListObjectsResult;
-import org.apache.doris.cloud.storage.ObjectFile;
-import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileCompressType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
-import org.apache.hadoop.fs.GlobExpander;
-import org.apache.hadoop.fs.GlobFilter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -149,27 +151,32 @@ public class StageUtil {
         int matchedFileNum = 0;
         int loadedFileNum = 0;
         String reachLimitStr = "";
-        RemoteBase remote = RemoteBase.newInstance(objectInfo);
+        StorageAdapter storageAdapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
+        org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageAdapter);
+        Preconditions.checkState(rawFs instanceof ObjFileSystem,
+                "Stage operations require ObjFileSystem, but got: %s", rawFs.getClass().getSimpleName());
+        ObjFileSystem fs = (ObjFileSystem) rawFs;
 
         List<Pair<String, Boolean>> globs = analyzeGlob(copyId, pattern);
         LOG.info("Input copy into glob={}, analyzed={}", pattern, globs);
         try {
             PathMatcher matcher = getPathMatcher(pattern);
             boolean finish = false;
-            List<ObjectFile> matchPatternFiles = new ArrayList<>();
+            List<RemoteObject> matchPatternFiles = new ArrayList<>();
             for (int i = 0; i < globs.size() && !finish; i++) {
                 Pair<String, Boolean> glob = globs.get(i);
                 String continuationToken = null;
                 while (!finish) {
-                    ListObjectsResult listObjectsResult;
+                    RemoteObjects listObjectsResult;
                     if (glob.second) {
                         // list objects with sub prefix
-                        listObjectsResult = remote.listObjects(glob.first, continuationToken);
+                        listObjectsResult = fs.listObjectsWithPrefix(objectInfo.getPrefix(), glob.first,
+                                continuationToken);
                     } else {
                         // head object
-                        listObjectsResult = remote.headObject(glob.first);
+                        listObjectsResult = fs.headObjectWithMeta(objectInfo.getPrefix(), glob.first);
                     }
-                    listFileNum += listObjectsResult.getObjectInfoList().size();
+                    listFileNum += listObjectsResult.getObjectList().size();
                     long costSeconds = (System.currentTimeMillis() - startTimestamp) / 1000;
                     if (costSeconds >= 3600 || listFileNum >= 1000000) {
                         throw new DdlException("Abort list object for copyId=" + copyId
@@ -178,21 +185,26 @@ public class StageUtil {
                                 + " is correct.");
                     }
                     // 1. check if pattern is matched
-                    for (ObjectFile objectFile : listObjectsResult.getObjectInfoList()) {
+                    for (RemoteObject objectFile : listObjectsResult.getObjectList()) {
                         if (!matchPattern(objectFile.getRelativePath(), matcher)) {
                             LOG.info("not matchPattern path:{}", objectFile.getRelativePath());
                             continue;
                         }
+                        matchedFileNum++;
                         matchPatternFiles.add(objectFile);
                         // 2. filter files which are not copying or copied by other copy jobs
                         if (matchPatternFiles.size() >= Config.cloud_filter_copy_file_num_limit) {
+                            int batchSize = matchPatternFiles.size();
                             List<ObjectFilePB> filterCopyFiles = filterCopyFiles(stageId, tableId, force,
                                     matchPatternFiles);
+                            loadedFileNum += batchSize - filterCopyFiles.size();
                             fileStatus.addAll(
                                     generateFiles(filterCopyFiles, matchPatternFiles, objectInfo.getBucket()));
                             matchPatternFiles.clear();
                             // 3. check if reach any limit of fileNum/fileSize/fileMetaSize if select more than 1 file
-                            if (reachLimit(fileStatus, sizeLimit, fileNum, metaSizeLimit, reachLimitStr)) {
+                            String limitReason = reachLimit(fileStatus, sizeLimit, fileNum, metaSizeLimit);
+                            if (limitReason != null) {
+                                reachLimitStr = limitReason;
                                 finish = true;
                                 break;
                             }
@@ -205,46 +217,48 @@ public class StageUtil {
                 }
             }
             if (!matchPatternFiles.isEmpty()) {
+                int batchSize = matchPatternFiles.size();
                 List<ObjectFilePB> filterCopyFiles = filterCopyFiles(stageId, tableId, force, matchPatternFiles);
+                loadedFileNum += batchSize - filterCopyFiles.size();
                 fileStatus.addAll(generateFiles(filterCopyFiles, matchPatternFiles, objectInfo.getBucket()));
                 matchPatternFiles.clear();
             }
         } finally {
-            remote.close();
+            fs.close();
         }
         return Triple.of(matchedFileNum, loadedFileNum, reachLimitStr);
     }
 
-    private static boolean reachLimit(List<Pair<TBrokerFileStatus, ObjectFilePB>> objectFiles, long sizeLimit,
-            int fileNum, int metaSizeLimit, String reachLimitStr) {
+    /**
+     * Returns null if no limit is reached, or a descriptive string if a limit is hit.
+     */
+    private static String reachLimit(List<Pair<TBrokerFileStatus, ObjectFilePB>> objectFiles, long sizeLimit,
+            int fileNum, int metaSizeLimit) {
         if (objectFiles.size() == 0) {
-            return false;
+            return null;
         }
         if (fileNum > 0 && objectFiles.size() >= fileNum) {
-            reachLimitStr = ", reach num limit: " + fileNum;
             LOG.info("reach file num limit fileNum:{} objectFiles.size:{}", fileNum, objectFiles.size());
-            return true;
+            return ", reach num limit: " + fileNum;
         }
 
         long objectFilesSize = objectFiles.stream().mapToLong(f -> f.first.getSize()).sum();
         if (sizeLimit > 0 && objectFilesSize >= sizeLimit) {
-            reachLimitStr = ", reach size limit: " + sizeLimit;
             LOG.info("reach size limit sizeLimit:{}, objectFilesSize:{}", sizeLimit, objectFilesSize);
-            return true;
+            return ", reach size limit: " + sizeLimit;
         }
 
         long objectFilesSerializedSize = objectFiles.stream().mapToLong(f -> f.second.getSerializedSize()).sum();
         if (metaSizeLimit > 0 && objectFilesSerializedSize >= metaSizeLimit) {
-            reachLimitStr = ", reach meta size limit: " + metaSizeLimit;
             LOG.info("reach meta size limit metaSizeLimit:{} objectFilesSerializedSize:{}",
                     metaSizeLimit, objectFilesSerializedSize);
-            return true;
+            return ", reach meta size limit: " + metaSizeLimit;
         }
-        return false;
+        return null;
     }
 
     private static List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, boolean force,
-            List<ObjectFile> objectFiles) throws DdlException {
+            List<RemoteObject> objectFiles) throws DdlException {
         if (force) {
             return objectFiles.stream()
                     .map(f -> ObjectFilePB.newBuilder().setRelativePath(f.getRelativePath()).setEtag(f.getEtag())
@@ -268,7 +282,7 @@ public class StageUtil {
         return matcher.matches(path);
     }
 
-    public static String getFileInfoUniqueId(ObjectFile objectFile) {
+    public static String getFileInfoUniqueId(RemoteObject objectFile) {
         return objectFile.getRelativePath() + "_" + objectFile.getEtag();
     }
 
@@ -286,7 +300,7 @@ public class StageUtil {
             return globs;
         }
         try {
-            List<String> flattenedPatterns = GlobExpander.expand(glob);
+            List<String> flattenedPatterns = GlobPatterns.expand(glob);
             for (String flattenedPattern : flattenedPatterns) {
                 try {
                     globs.addAll(analyzeFlattenedPattern(flattenedPattern));
@@ -310,8 +324,7 @@ public class StageUtil {
         boolean sawWildcard = false;
         for (int componentIdx = 0; componentIdx < components.size(); componentIdx++) {
             String component = components.get(componentIdx);
-            GlobFilter globFilter = new GlobFilter(component);
-            if (globFilter.hasPattern()) {
+            if (GlobPatterns.hasWildcard(component)) {
                 if (componentIdx == components.size() - 1) {
                     List<Pair<String, Boolean>> pairs = analyzeLastComponent(component);
                     if (pairs != null) {
@@ -340,8 +353,7 @@ public class StageUtil {
             String sub = component.substring(1, component.length() - 1);
             List<String> splits = splitByComma(sub);
             for (String split : splits) {
-                GlobFilter globFilter = new GlobFilter(split);
-                if (globFilter.hasPattern()) {
+                if (GlobPatterns.hasWildcard(split)) {
                     results.add(Pair.of(getComponentPrefix(split), true));
                 } else {
                     results.add(Pair.of(unescapePathComponent(split), false));
@@ -396,7 +408,7 @@ public class StageUtil {
     }
 
     /*
-     * Glob process method are referenced from {@link org.apache.hadoop.fs.Globber}
+     * Glob process method are referenced from {@code org.apache.hadoop.fs.Globber}
      */
     private static String unescapePathComponent(String name) {
         return name.replaceAll("\\\\(.)", "$1");
@@ -404,7 +416,7 @@ public class StageUtil {
 
     private static List<String> getPathComponents(String path) {
         ArrayList<String> ret = new ArrayList<>();
-        for (String component : path.split(org.apache.hadoop.fs.Path.SEPARATOR)) {
+        for (String component : path.split("/")) {
             if (!component.isEmpty()) {
                 ret.add(component);
             }
@@ -430,13 +442,13 @@ public class StageUtil {
     }
 
     private static List<Pair<TBrokerFileStatus, ObjectFilePB>> generateFiles(List<ObjectFilePB> filterFiles,
-            List<ObjectFile> allFiles, String bucket) {
+            List<RemoteObject> allFiles, String bucket) {
         List<Pair<TBrokerFileStatus, ObjectFilePB>> files = new ArrayList<>();
         Map<String, ObjectFilePB> fileMap = new HashMap<>();
         for (ObjectFilePB filterFile : filterFiles) {
             fileMap.put(getFileInfoUniqueId(filterFile), filterFile);
         }
-        for (ObjectFile file : allFiles) {
+        for (RemoteObject file : allFiles) {
             if (fileMap.containsKey(getFileInfoUniqueId(file))) {
                 String objUrl = "s3://" + bucket + "/" + file.getKey();
                 files.add(Pair.of(new TBrokerFileStatus(objUrl, false, file.getSize(), true),
@@ -447,8 +459,8 @@ public class StageUtil {
     }
 
     public static List<String> parseLoadFiles(List<String> loadFiles, String bucket, String stagePrefix) {
-        if (!Config.cloud_delete_loaded_internal_stage_files || loadFiles == null || !RemoteBase.checkStagePrefix(
-                stagePrefix)) {
+        if (!Config.cloud_delete_loaded_internal_stage_files || loadFiles == null
+                || !ObjectInfoAdapter.checkStagePrefix(stagePrefix)) {
             return null;
         }
         String prefix = "s3://" + bucket + "/";

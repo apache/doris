@@ -20,6 +20,7 @@ suite("test_union") {
     String viewName = "${suiteName}_view"
     def db = "test_query_db"
     sql "use ${db}"
+    sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION'"
 
 //    order_qt_select "select k1, k2 from baseall union select k2, k3 from test"
 //    order_qt_select "select k2, count(k1) from ((select k2, avg(k1) k1 from baseall group by k2) union all (select k2, count(k1) k1 from test group by k2) )b group by k2 having k2 > 0 order by k2;"
@@ -269,8 +270,6 @@ suite("test_union") {
     }
     sql"""drop table ${new_union_table}"""
 
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set enable_nereids_planner=true'
     qt_union35 """select cast("2016-07-01" as date) union (select cast("2016-07-02 1:10:0" as date)) order by 1"""
 
     qt_union36 """SELECT a,2 as a FROM (SELECT '1' as a) b where a=1;"""
@@ -279,4 +278,70 @@ suite("test_union") {
         sql 'select * from (values (1, 2, 3), (4, 5, 6)) a'
         result([[1, 2, 3], [4, 5, 6]])
     }
+
+    sql """ set batch_size=1; """
+    def tblName1 = "test1"
+    sql """ DROP TABLE IF EXISTS ${tblName1} """
+    sql """
+            CREATE TABLE `${tblName1}` (
+            `a_key` varchar(255) NULL ,
+            `d_key` varchar(255) NULL ,
+            `c_key` varchar(32) NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`a_key`, `d_key`, `c_key`)
+            DISTRIBUTED BY HASH(`a_key`, `d_key`, `c_key`) BUCKETS 4
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2",
+            "disable_auto_compaction" = "false"
+            );
+     """
+
+
+     def tblName2 = "test2"
+     sql """ DROP TABLE IF EXISTS ${tblName2} """
+     sql """
+             CREATE TABLE `${tblName2}` (
+             `a_key` varchar(255) NULL ,
+             `d_key` varchar(255) NULL ,
+             `c_key` varchar(32) NULL
+             ) ENGINE=OLAP
+             UNIQUE KEY(`a_key`, `d_key`, `c_key`)
+             DISTRIBUTED BY HASH(`a_key`, `d_key`, `c_key`) BUCKETS 4
+             PROPERTIES (
+             "replication_allocation" = "tag.location.default: 1",
+             "in_memory" = "false",
+             "storage_format" = "V2",
+             "disable_auto_compaction" = "false"
+             );
+      """
+
+      sql """ insert into  ${tblName2} values("1", "2", "3"),("2", "3", "4") """
+      sql """ insert into  ${tblName1} values("1", "2", "3"),("2", "3", "4") """
+
+      qt_sql """ select a_key from (select * from ${tblName1} UNION ALL select * from ${tblName2}) t ORDER BY a_key + 1"""
+
+      sql """DROP TABLE IF EXISTS c5770_t1"""
+      sql """CREATE TABLE c5770_t1 (
+            `id` varchar(10) NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+      sql """DROP TABLE IF EXISTS c5770_t2"""
+      sql """CREATE TABLE c5770_t2 (
+            `id` varchar(20) NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+      explain {
+        sql("""select id from ( select id from c5770_t1 union all select id from c5770_t2 ) t;""")
+        contains("CAST")
+      }
 }

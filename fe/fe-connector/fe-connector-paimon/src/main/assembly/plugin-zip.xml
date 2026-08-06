@@ -1,0 +1,77 @@
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0
+                              http://maven.apache.org/xsd/assembly-2.2.0.xsd">
+    <id>plugin</id>
+    <formats>
+        <format>zip</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+
+    <fileSets>
+        <fileSet>
+            <directory>${project.build.directory}</directory>
+            <outputDirectory>lib</outputDirectory>
+            <includes>
+                <include>${project.build.finalName}.jar</include>
+            </includes>
+        </fileSet>
+    </fileSets>
+
+    <files>
+        <!--
+          The connector's settings template, at the ZIP ROOT (not lib/): the engine looks for
+          <pluginDir>/<name>.conf. Only the .template ships; build.sh seeds the live paimon.conf from
+          it with cp -n, so unzipping a newer plugin build over a deployed directory refreshes this
+          file but never the administrator's copy. The name must equal ConnectorProvider.name() +
+          ".conf.template" - PaimonConnectorConfTest fails if it drifts.
+        -->
+        <file>
+            <source>src/main/resources/paimon.conf.template</source>
+            <outputDirectory>/</outputDirectory>
+        </file>
+    </files>
+
+    <dependencySets>
+        <dependencySet>
+            <outputDirectory>lib</outputDirectory>
+            <useProjectArtifact>false</useProjectArtifact>
+            <excludes>
+                <!-- Provided by fe-core classloader (parent-first) -->
+                <exclude>org.apache.doris:fe-connector-spi</exclude>
+                <exclude>org.apache.doris:fe-extension-spi</exclude>
+                <exclude>org.apache.doris:fe-filesystem-api</exclude>
+                <!-- Thrift provided by fe-core: the doris-gen thrift types (fe-thrift, e.g.
+                     TFileScanRangeParams) resolve parent-first against the host's libthrift; bundling a
+                     child-first libthrift here splits org.apache.thrift.TBase across loaders and breaks
+                     TSerializer.serialize() with IncompatibleClassChangeError. Mirrors es/jdbc/hive/maxcompute. -->
+                <exclude>org.apache.doris:fe-thrift</exclude>
+                <exclude>org.apache.thrift:libthrift</exclude>
+                <!-- QUIC natives are unused: netty-bom force-manages the classifier jars to
+                     runtime scope, dragging ~11.7MB of unused native libs into the plugin. -->
+                <exclude>io.netty:netty-codec-native-quic</exclude>
+                <!-- Logging provided by host -->
+                <exclude>org.apache.logging.log4j:*</exclude>
+                <exclude>org.slf4j:*</exclude>
+            </excludes>
+        </dependencySet>
+    </dependencySets>
+</assembly>

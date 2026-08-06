@@ -17,4 +17,6 @@
 
 
 def evaluate(arg):
+    if arg is None:
+        return None
     return int(arg + 1)

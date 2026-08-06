@@ -1,0 +1,1368 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "core/data_type_serde/data_type_decimal_serde.h"
+
+#include <arrow/array/array_base.h>
+#include <arrow/array/array_decimal.h>
+#include <arrow/builder.h>
+#include <arrow/util/decimal.h>
+
+#include <algorithm>
+#include <limits>
+#include <type_traits>
+
+#include "arrow/type.h"
+#include "common/cast_set.h"
+#include "common/config.h"
+#include "common/consts.h"
+#include "core/column/column.h"
+#include "core/column/column_decimal.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/define_primitive_type.h"
+#include "core/data_type/storage_field_type.h"
+#include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/parquet_decode_source.h"
+#include "core/types.h"
+#include "exec/common/arithmetic_overflow.h"
+#include "exec/common/endian.h"
+#include "exprs/function/cast/cast_to_decimal.h"
+#include "exprs/function/cast/cast_to_string.h"
+#include "orc/Int128.hh"
+#include "util/jsonb_document.h"
+#include "util/jsonb_document_cast.h"
+#include "util/jsonb_writer.h"
+#include "util/string_parser.hpp"
+
+namespace doris {
+namespace {
+
+template <typename NativeType>
+NativeType decode_big_endian_signed_integer(const uint8_t* data, int length) {
+    if constexpr (std::is_same_v<NativeType, wide::Int256>) {
+        NativeType value = data != nullptr && length > 0 && (data[0] & 0x80) != 0 ? NativeType(-1)
+                                                                                  : NativeType(0);
+        for (int i = 0; i < length; ++i) {
+            value = (value << 8) + NativeType(data[i]);
+        }
+        return value;
+    } else {
+        using UnsignedNativeType =
+                std::conditional_t<std::is_same_v<NativeType, Int128>, unsigned __int128,
+                                   std::make_unsigned_t<NativeType>>;
+        UnsignedNativeType value = data != nullptr && length > 0 && (data[0] & 0x80) != 0
+                                           ? static_cast<UnsignedNativeType>(-1)
+                                           : 0;
+        for (int i = 0; i < length; ++i) {
+            value = static_cast<UnsignedNativeType>((value << 8) | data[i]);
+        }
+        return static_cast<NativeType>(value);
+    }
+}
+
+template <typename NativeType>
+NativeType decode_big_endian_full_width_integer(const uint8_t* data) {
+    using UnsignedNativeType =
+            std::conditional_t<std::is_same_v<NativeType, Int128>, unsigned __int128,
+                               std::make_unsigned_t<NativeType>>;
+    return static_cast<NativeType>(
+            to_endian<std::endian::big>(unaligned_load<UnsignedNativeType>(data)));
+}
+
+template <PrimitiveType T>
+bool decoded_decimal_value_fits(const typename PrimitiveTypeTraits<T>::CppType::NativeType& value,
+                                UInt32 precision) {
+    if constexpr (T == TYPE_DECIMALV2) {
+        const auto limit = DataTypeDecimal<T>::get_max_digits_number(precision);
+        return value >= -limit && value <= limit;
+    } else {
+        return value >= min_decimal_value<T>(precision).value &&
+               value <= max_decimal_value<T>(precision).value;
+    }
+}
+
+template <PrimitiveType T>
+bool decoded_decimal_int_value_fits(Int128 value, UInt32 precision) {
+    using NativeType = typename PrimitiveTypeTraits<T>::CppType::NativeType;
+    if constexpr (std::is_same_v<NativeType, wide::Int256>) {
+        const auto wide_value = wide::Int256(value);
+        return decoded_decimal_value_fits<T>(wide_value, precision);
+    } else if constexpr (T == TYPE_DECIMALV2) {
+        const auto limit = DataTypeDecimal<T>::get_max_digits_number(precision);
+        return value >= -limit && value <= limit;
+    } else {
+        return value >= static_cast<Int128>(min_decimal_value<T>(precision).value) &&
+               value <= static_cast<Int128>(max_decimal_value<T>(precision).value);
+    }
+}
+
+template <PrimitiveType T>
+Status read_decimal_decoded_value(const DecodedColumnView& view, UInt32 precision, int64_t row,
+                                  typename PrimitiveTypeTraits<T>::CppType* result) {
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
+    using NativeType = typename FieldType::NativeType;
+    NativeType native_value;
+    if (view.value_kind == DecodedValueKind::INT32) {
+        const auto* values = reinterpret_cast<const int32_t*>(view.values);
+        const auto value = static_cast<Int128>(values[row]);
+        if (!decoded_decimal_int_value_fits<T>(value, precision)) {
+            return Status::DataQualityError("Decoded decimal value is out of range");
+        }
+        native_value = NativeType(value);
+    } else if (view.value_kind == DecodedValueKind::INT64) {
+        const auto* values = reinterpret_cast<const int64_t*>(view.values);
+        const auto value = static_cast<Int128>(values[row]);
+        if (!decoded_decimal_int_value_fits<T>(value, precision)) {
+            return Status::DataQualityError("Decoded decimal value is out of range");
+        }
+        native_value = NativeType(value);
+    } else {
+        const auto& value = (*view.binary_values)[row];
+        const auto length = view.value_kind == DecodedValueKind::FIXED_BINARY
+                                    ? view.fixed_length
+                                    : cast_set<int, size_t, false>(value.size);
+        if (length > static_cast<int>(sizeof(NativeType))) {
+            return Status::DataQualityError("Decoded decimal binary value is too wide: length={}",
+                                            length);
+        }
+        native_value = decode_big_endian_signed_integer<NativeType>(
+                reinterpret_cast<const uint8_t*>(value.data), length);
+    }
+    if (!decoded_decimal_value_fits<T>(native_value, precision)) {
+        return Status::DataQualityError("Decoded decimal value is out of range");
+    }
+    *result = FieldType {native_value};
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status read_decimal_decoded_values(IColumn& column, const DecodedColumnView& view,
+                                   UInt32 precision) {
+    if (view.value_kind == DecodedValueKind::INT32 || view.value_kind == DecodedValueKind::INT64) {
+        if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+            return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+        }
+    } else if (view.binary_values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded binary values are null for {}", column.get_name());
+    }
+    auto& data = assert_cast<ColumnDecimal<T>&>(column).get_data();
+    const auto old_size = data.size();
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(typename PrimitiveTypeTraits<T>::CppType());
+            continue;
+        }
+        if (view.value_kind == DecodedValueKind::BINARY ||
+            view.value_kind == DecodedValueKind::FIXED_BINARY) {
+            const auto& value = (*view.binary_values)[row];
+            const auto length = view.value_kind == DecodedValueKind::FIXED_BINARY
+                                        ? view.fixed_length
+                                        : cast_set<int, size_t, false>(value.size);
+            if (value.data == nullptr && length > 0) {
+                if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                    decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                    continue;
+                }
+                return Status::Corruption("Decoded decimal binary value is null for {} at row {}",
+                                          column.get_name(), row);
+            }
+        }
+        typename PrimitiveTypeTraits<T>::CppType value;
+        auto st = read_decimal_decoded_value<T>(view, precision, row, &value);
+        if (!st.ok()) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            st.prepend(fmt::format(
+                    "Failed to decode decimal value for {} at row {}: ", column.get_name(), row));
+            return st;
+        }
+        data.push_back(value);
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+wide::Int256 parquet_decimal_limit(UInt32 precision) {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return wide::Int256(DataTypeDecimal<T>::get_max_digits_number(precision));
+    } else {
+        return wide::Int256(max_decimal_value<T>(precision).value);
+    }
+}
+
+template <PrimitiveType T>
+Status scale_parquet_decimal(wide::Int256 value, int32_t source_scale, int32_t target_scale,
+                             UInt32 target_precision, wide::Int256* result) {
+    DORIS_CHECK(result != nullptr);
+    const auto limit = parquet_decimal_limit<T>(target_precision);
+    if (source_scale > target_scale) {
+        const int64_t scale_delta = static_cast<int64_t>(source_scale) - target_scale;
+        if (scale_delta > BeConsts::MAX_DECIMAL256_PRECISION) {
+            if (value != 0) {
+                return Status::DataQualityError(
+                        "Parquet decimal loses precision while scaling from {} to {}", source_scale,
+                        target_scale);
+            }
+        } else {
+            // The precision bound above guarantees that narrowing the positive scale delta keeps
+            // the multiplier lookup in range.
+            const auto divisor =
+                    decimal_scale_multiplier<wide::Int256>(static_cast<UInt32>(scale_delta));
+            // Scale-down must be exact. Truncating before the target precision check silently
+            // changes source values and makes plain and dictionary decoding disagree with casts.
+            if (value % divisor != 0) {
+                return Status::DataQualityError(
+                        "Parquet decimal loses precision while scaling from {} to {}", source_scale,
+                        target_scale);
+            }
+            value /= divisor;
+        }
+    } else if (source_scale < target_scale) {
+        const int64_t scale_delta = static_cast<int64_t>(target_scale) - source_scale;
+        if (scale_delta > BeConsts::MAX_DECIMAL256_PRECISION) {
+            if (value != 0) {
+                return Status::DataQualityError(
+                        "Parquet decimal overflows while scaling from {} to {}", source_scale,
+                        target_scale);
+            }
+        } else {
+            // Keep the same checked narrowing invariant for scale-up as for exact scale-down.
+            const auto multiplier =
+                    decimal_scale_multiplier<wide::Int256>(static_cast<UInt32>(scale_delta));
+            if (value > limit / multiplier || value < -limit / multiplier) {
+                return Status::DataQualityError(
+                        "Parquet decimal overflows while scaling from {} to {}", source_scale,
+                        target_scale);
+            }
+            value *= multiplier;
+        }
+    }
+    if (value < -limit || value > limit) {
+        return Status::DataQualityError("Parquet decimal value is out of range");
+    }
+    *result = value;
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+class DecimalParquetConsumer final : public ParquetFixedValueConsumer,
+                                     public ParquetBinaryValueConsumer {
+public:
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
+    using NativeType = typename FieldType::NativeType;
+
+    DecimalParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
+                           UInt32 target_precision, int32_t target_scale,
+                           ParquetMaterializationState* state = nullptr)
+            : DecimalParquetConsumer(assert_cast<ColumnDecimal<T>&>(column).get_data(), context,
+                                     target_precision, target_scale, state) {}
+
+    DecimalParquetConsumer(typename ColumnDecimal<T>::Container& data,
+                           const ParquetDecodeContext& context, UInt32 target_precision,
+                           int32_t target_scale, ParquetMaterializationState* state = nullptr)
+            : _data(data),
+              _context(context),
+              _target_precision(target_precision),
+              _target_scale(target_scale),
+              _state(state) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        if (_context.physical_type == ParquetPhysicalType::INT32) {
+            DORIS_CHECK_EQ(value_width, sizeof(int32_t));
+            return append_integers<int32_t>(values, num_values);
+        }
+        if (_context.physical_type == ParquetPhysicalType::INT64) {
+            DORIS_CHECK_EQ(value_width, sizeof(int64_t));
+            return append_integers<int64_t>(values, num_values);
+        }
+        if (_context.physical_type != ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY) {
+            return Status::NotSupported("Unsupported Parquet physical type {} for decimal SerDe",
+                                        static_cast<int>(_context.physical_type));
+        }
+        DORIS_CHECK_EQ(value_width, static_cast<size_t>(_context.type_length));
+        if (_context.decimal_scale == _target_scale) {
+            // Same-scale values may use a narrow signed type selected by physical width, but
+            // target-precision validation must still happen before narrowing the result.
+            if (value_width <= sizeof(int32_t)) {
+                return append_same_scale_fixed_binary<int32_t>(values, num_values, value_width);
+            }
+            if (value_width <= sizeof(int64_t)) {
+                return append_same_scale_fixed_binary<int64_t>(values, num_values, value_width);
+            }
+            if (value_width <= sizeof(Int128)) {
+                return append_same_scale_fixed_binary<Int128>(values, num_values, value_width);
+            }
+        }
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            auto status =
+                    append_binary_value(values + row * value_width, value_width, old_size + row);
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                    _data[old_size + row] = FieldType();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+    Status consume(const StringRef* values, size_t num_values) override {
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            auto status = append_binary_value(reinterpret_cast<const uint8_t*>(values[row].data),
+                                              values[row].size, old_size + row);
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                    _data[old_size + row] = FieldType();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+    Status consume_plain_byte_array(const char* encoded_data, const uint32_t* payload_offsets,
+                                    const uint32_t* value_offsets, size_t num_values,
+                                    const std::vector<ParquetSelectionRange>&) override {
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            const size_t length = value_offsets[row + 1] - value_offsets[row];
+            auto status = append_binary_value(
+                    reinterpret_cast<const uint8_t*>(encoded_data + payload_offsets[row]), length,
+                    old_size + row);
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                    _data[old_size + row] = FieldType();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    template <typename SourceType>
+    Status append_same_scale_fixed_binary(const uint8_t* values, size_t num_values,
+                                          size_t value_width) {
+        if (value_width == sizeof(SourceType)) {
+            return append_same_scale_fixed_binary_impl<SourceType, true>(values, num_values,
+                                                                         value_width);
+        }
+        return append_same_scale_fixed_binary_impl<SourceType, false>(values, num_values,
+                                                                      value_width);
+    }
+
+    template <typename SourceType, bool full_width>
+    Status append_same_scale_fixed_binary_impl(const uint8_t* values, size_t num_values,
+                                               size_t value_width) {
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        const auto wide_limit = parquet_decimal_limit<T>(_target_precision);
+        const auto source_max = wide::Int256(std::numeric_limits<SourceType>::max());
+        const auto fixed_width = cast_set<int>(value_width);
+        const auto decode = [&](const uint8_t* value) {
+            if constexpr (full_width) {
+                return decode_big_endian_full_width_integer<SourceType>(value);
+            }
+            return decode_big_endian_signed_integer<SourceType>(value, fixed_width);
+        };
+        // A limit above signed max also covers the asymmetric minimum (-max - 1), so the whole
+        // source domain is safe to narrow without a per-row precision branch.
+        if (wide_limit > source_max) {
+            for (size_t row = 0; row < num_values; ++row) {
+                const auto source_value = decode(values + row * value_width);
+                _data[old_size + row] = FieldType {static_cast<NativeType>(source_value)};
+            }
+            return Status::OK();
+        }
+
+        const auto limit = static_cast<SourceType>(wide_limit);
+        for (size_t row = 0; row < num_values; ++row) {
+            const auto source_value = decode(values + row * value_width);
+            if (LIKELY(source_value >= -limit && source_value <= limit)) {
+                _data[old_size + row] = FieldType {static_cast<NativeType>(source_value)};
+                continue;
+            }
+            if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                _data[old_size + row] = FieldType();
+                continue;
+            }
+            _data.resize(old_size);
+            return Status::DataQualityError("Parquet decimal value is out of range");
+        }
+        return Status::OK();
+    }
+
+    template <typename SourceType>
+    Status append_integers(const uint8_t* values, size_t num_values) {
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        constexpr UInt32 SOURCE_DIGITS = std::numeric_limits<SourceType>::digits10 + 1;
+        if (_context.decimal_scale == _target_scale && SOURCE_DIGITS <= _target_precision) {
+            // The complete physical domain fits the target at the same scale, so narrowing cannot
+            // precede a failure check and the hot same-scale path needs no wide arithmetic.
+            for (size_t row = 0; row < num_values; ++row) {
+                const auto source_value =
+                        unaligned_load<SourceType>(values + row * sizeof(SourceType));
+                _data[old_size + row] = FieldType {NativeType(source_value)};
+            }
+            return Status::OK();
+        }
+        for (size_t row = 0; row < num_values; ++row) {
+            const auto source_value = unaligned_load<SourceType>(values + row * sizeof(SourceType));
+            auto status = append_wide_value(wide::Int256(source_value), old_size + row);
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                    _data[old_size + row] = FieldType();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+    Status append_binary_value(const uint8_t* value, size_t length, size_t output_row) {
+        if (UNLIKELY(length > sizeof(wide::Int256))) {
+            return Status::DataQualityError("Parquet decimal binary value is too wide: {}", length);
+        }
+        return append_wide_value(
+                decode_big_endian_signed_integer<wide::Int256>(value, cast_set<int>(length)),
+                output_row);
+    }
+
+    Status append_wide_value(wide::Int256 value, size_t output_row) {
+        wide::Int256 scaled_value;
+        RETURN_IF_ERROR(scale_parquet_decimal<T>(value, _context.decimal_scale, _target_scale,
+                                                 _target_precision, &scaled_value));
+        // Narrow only after scaling and target-precision validation. In particular, an INT64 or a
+        // sign-extended binary value must never wrap through Decimal32 before it can be rejected.
+        _data[output_row] = FieldType {static_cast<NativeType>(scaled_value)};
+        return Status::OK();
+    }
+
+    typename ColumnDecimal<T>::Container& _data;
+    const ParquetDecodeContext& _context;
+    UInt32 _target_precision;
+    int32_t _target_scale;
+    ParquetMaterializationState* _state;
+};
+
+template <PrimitiveType T>
+class DecimalPredicateParquetConsumer final : public ParquetFixedValueConsumer,
+                                              public ParquetBinaryValueConsumer {
+public:
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
+
+    DecimalPredicateParquetConsumer(const ParquetDecodeContext& context, UInt32 target_precision,
+                                    int32_t target_scale, bool enable_strict_mode,
+                                    ParquetLogicalValueConsumer& consumer,
+                                    typename ColumnDecimal<T>::Container& logical_values,
+                                    IColumn::Filter& conversion_nulls)
+            : _context(context),
+              _target_precision(target_precision),
+              _target_scale(target_scale),
+              _enable_strict_mode(enable_strict_mode),
+              _consumer(consumer),
+              _logical_values(logical_values),
+              _conversion_nulls(conversion_nulls) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        return convert_and_publish(num_values, [&](DecimalParquetConsumer<T>& converter) {
+            return converter.consume(values, num_values, value_width);
+        });
+    }
+
+    Status consume(const StringRef* values, size_t num_values) override {
+        return convert_and_publish(num_values, [&](DecimalParquetConsumer<T>& converter) {
+            return converter.consume(values, num_values);
+        });
+    }
+
+private:
+    template <typename Convert>
+    Status convert_and_publish(size_t num_values, Convert&& convert) {
+        _logical_values.clear();
+        _conversion_nulls.clear();
+        _conversion_nulls.resize_fill(num_values, 0);
+        ParquetMaterializationState state;
+        state.enable_strict_mode = _enable_strict_mode;
+        state.conversion_failure_null_map = &_conversion_nulls;
+        DecimalParquetConsumer<T> converter(_logical_values, _context, _target_precision,
+                                            _target_scale, &state);
+        RETURN_IF_ERROR(convert(converter));
+        return _consumer.consume(reinterpret_cast<const uint8_t*>(_logical_values.data()),
+                                 num_values, sizeof(FieldType), _conversion_nulls.data());
+    }
+
+    const ParquetDecodeContext& _context;
+    UInt32 _target_precision;
+    int32_t _target_scale;
+    bool _enable_strict_mode;
+    ParquetLogicalValueConsumer& _consumer;
+    typename ColumnDecimal<T>::Container& _logical_values;
+    IColumn::Filter& _conversion_nulls;
+};
+
+} // namespace
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
+                                                  const FormatOptions& options) const {
+    const auto row = str.size();
+    column.resize(row);
+
+    const ColumnString::Chars* chars = &str.get_chars();
+    const IColumn::Offsets* offsets = &str.get_offsets();
+
+    auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
+    auto& vec_to = column_to.get_data();
+    auto& null_map = column.get_null_map_data();
+    size_t current_offset = 0;
+    auto arg_precision = static_cast<UInt32>(precision);
+    auto arg_scale = static_cast<UInt32>(scale);
+    CastParameters params;
+    params.is_strict = false;
+    for (size_t i = 0; i < row; ++i) {
+        size_t next_offset = (*offsets)[i];
+        size_t string_size = next_offset - current_offset;
+
+        null_map[i] = !CastToDecimal::from_string(StringRef(&(*chars)[current_offset], string_size),
+                                                  vec_to[i], arg_precision, arg_scale, params);
+        current_offset = next_offset;
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
+        const ColumnString& str, IColumn& column, const FormatOptions& options,
+        const NullMap::value_type* null_map) const {
+    const auto row = str.size();
+    column.resize(row);
+
+    const ColumnString::Chars* chars = &str.get_chars();
+    const IColumn::Offsets* offsets = &str.get_offsets();
+
+    auto& column_to = assert_cast<ColumnType&>(column);
+    auto& vec_to = column_to.get_data();
+    size_t current_offset = 0;
+    auto arg_precision = static_cast<UInt32>(precision);
+    auto arg_scale = static_cast<UInt32>(scale);
+    CastParameters params;
+    params.is_strict = true;
+    for (size_t i = 0; i < row; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
+        size_t next_offset = (*offsets)[i];
+        size_t string_size = next_offset - current_offset;
+
+        if (!CastToDecimal::from_string(StringRef(&(*chars)[current_offset], string_size),
+                                        vec_to[i], arg_precision, arg_scale, params)) {
+            return Status::InvalidArgument(
+                    "parse number fail, string: '{}'",
+                    std::string((char*)&(*chars)[current_offset], string_size));
+        }
+        current_offset = next_offset;
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string(StringRef& str, IColumn& column,
+                                            const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+    FieldType to;
+
+    CastParameters params;
+    params.is_strict = false;
+
+    auto arg_precision = static_cast<UInt32>(precision);
+    auto arg_scale = static_cast<UInt32>(scale);
+
+    if (!CastToDecimal::from_string(str, to, arg_precision, arg_scale, params)) {
+        return Status::InvalidArgument("parse Decimal fail, string: '{}'", str.to_string());
+    }
+    column_to.insert_value(to);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_olap_string(const std::string& str, Field& field,
+                                                 const FormatOptions& options) const {
+    FieldType to;
+    CastParameters params;
+    params.is_strict = false;
+
+    // DecimalV3 (Decimal32/64/128I/256): zonemap stores the raw unscaled integer string.
+    //   E.g., Decimal(9,2) value 123.45 → to_olap_string() → "12345".
+    //   Caller sets ignore_scale=true → parse with scale=0 → internal int 12345. Correct.
+    //
+    // DecimalV2: zonemap stores "integer.fraction" with 9 zero-padded fractional digits.
+    //   E.g., DecimalV2 value 123.456 → to_olap_string() → "123.456000000".
+    //   Caller sets ignore_scale=false → parse with scale=9 → correctly restores the value.
+    //   Note: CastToDecimal::from_string() currently hardcodes DecimalV2Value::SCALE=9 for
+    //   DecimalV2, so the passed-in scale is effectively ignored. But callers should still
+    //   set ignore_scale=false for semantic correctness.
+    if (!CastToDecimal::from_string(StringRef(str), to, static_cast<UInt32>(precision),
+                                    options.ignore_scale ? 0 : static_cast<UInt32>(scale),
+                                    params)) {
+        return Status::InvalidArgument("parse Decimal fail, string: '{}'", str);
+    }
+    field = Field::create_field<T>(std::move(to));
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                        const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+    FieldType to;
+
+    CastParameters params;
+    params.is_strict = true;
+
+    auto arg_precision = static_cast<UInt32>(precision);
+    auto arg_scale = static_cast<UInt32>(scale);
+
+    if (!CastToDecimal::from_string(str, to, arg_precision, arg_scale, params)) {
+        return Status::InvalidArgument("parse Decimal fail, string: '{}'", str.to_string());
+    }
+    column_to.insert_value(to);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                         int64_t end_idx, BufferWritable& bw,
+                                                         FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
+                                                           BufferWritable& bw,
+                                                           FormatOptions& options) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    auto& col = assert_cast<const ColumnDecimal<T>&>(*ptr);
+    FieldType value = col.get_element(row_num);
+    auto decimal_str = value.to_string(scale);
+    bw.write(decimal_str.data(), decimal_str.size());
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                               const FormatOptions& options) const {
+    auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
+    FieldType val = {};
+    StringRef str_ref(slice.data, slice.size);
+    StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+    if constexpr (T == TYPE_DECIMALV2) {
+        val = DecimalV2Value(StringParser::string_to_decimal<TYPE_DECIMALV2>(
+                str_ref.data, cast_set<Int32>(str_ref.size), DecimalV2Value::PRECISION,
+                DecimalV2Value::SCALE, &result));
+    } else {
+        val.value = StringParser::string_to_decimal<T>(str_ref.data, cast_set<Int32>(str_ref.size),
+                                                       precision, scale, &result);
+    }
+    if (result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW) {
+        column_data.emplace_back(val);
+        return Status::OK();
+    }
+    return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
+                                   std::string(slice.data, slice.size).c_str(),
+                                   get_primitive_type());
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
+                                                      const NullMap* null_map,
+                                                      arrow::ArrayBuilder* array_builder,
+                                                      int64_t start, int64_t end,
+                                                      const cctz::time_zone& ctz) const {
+    auto& col = reinterpret_cast<const ColumnDecimal<T>&>(column);
+    if constexpr (T == TYPE_DECIMALV2) {
+        auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
+        std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                std::make_shared<arrow::Decimal128Type>(27, 9);
+        for (size_t i = start; i < end; ++i) {
+            if (null_map && (*null_map)[i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
+                continue;
+            }
+            const auto& data_ref = col.get_data_at(i);
+            const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
+            int64_t high = (p_value->value) >> 64;
+            uint64_t low = cast_set<uint64_t>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
+            arrow::Decimal128 value(high, low);
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column, *array_builder));
+        }
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
+        std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                std::make_shared<arrow::Decimal128Type>(38, col.get_scale());
+        for (size_t i = start; i < end; ++i) {
+            if (null_map && (*null_map)[i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
+                continue;
+            }
+            const auto& data_ref = col.get_data_at(i);
+            const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
+            int64_t high = (p_value->value) >> 64;
+            uint64_t low = cast_set<uint64_t>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
+            arrow::Decimal128 value(high, low);
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column, *array_builder));
+        }
+    } else if constexpr (T == TYPE_DECIMAL32) {
+        auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
+        std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                std::make_shared<arrow::Decimal128Type>(8, col.get_scale());
+        for (size_t i = start; i < end; ++i) {
+            if (null_map && (*null_map)[i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
+                continue;
+            }
+            Int128 p_value = col.get_element(i).value;
+            arrow::Decimal128 value(reinterpret_cast<const uint8_t*>(&p_value));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column, *array_builder));
+        }
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
+        std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                std::make_shared<arrow::Decimal128Type>(18, col.get_scale());
+        for (size_t i = start; i < end; ++i) {
+            if (null_map && (*null_map)[i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
+                continue;
+            }
+            Int128 p_value = col.get_element(i).value;
+            arrow::Decimal128 value(reinterpret_cast<const uint8_t*>(&p_value));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column, *array_builder));
+        }
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        auto& builder = reinterpret_cast<arrow::Decimal256Builder&>(*array_builder);
+        std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                std::make_shared<arrow::Decimal256Type>(76, col.get_scale());
+        for (size_t i = start; i < end; ++i) {
+            if (null_map && (*null_map)[i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
+                continue;
+            }
+            auto p_value = wide::Int256(col.get_element(i));
+            using half_type = wide::Int256::base_type; // uint64_t
+            half_type a0 = p_value.items[wide::Int256::_impl::little(0)];
+            half_type a1 = p_value.items[wide::Int256::_impl::little(1)];
+            half_type a2 = p_value.items[wide::Int256::_impl::little(2)];
+            half_type a3 = p_value.items[wide::Int256::_impl::little(3)];
+
+            std::array<uint64_t, 4> word_array = {a0, a1, a2, a3};
+            arrow::Decimal256 value(arrow::Decimal256::LittleEndianArray, word_array);
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column, *array_builder));
+        }
+    } else {
+        return Status::InvalidArgument("write_column_to_arrow with type " + column.get_name());
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
+                                                       const arrow::Array* arrow_array,
+                                                       int64_t start, int64_t end,
+                                                       const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
+    auto& column_data = static_cast<ColumnDecimal<T>&>(column).get_data();
+    // Decimal<Int128> for decimalv2
+    // Decimal<Int128I> for deicmalv3
+    if constexpr (T == TYPE_DECIMALV2) {
+        const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
+        const auto* arrow_decimal_type =
+                static_cast<const arrow::DecimalType*>(arrow_array->type().get());
+        const auto arrow_scale = arrow_decimal_type->scale();
+        // TODO check precision
+        for (auto value_i = start; value_i < end; ++value_i) {
+            auto value = unaligned_load<Decimal128V2>(concrete_array->Value(value_i));
+            // convert scale to 9;
+            if (9 > arrow_scale) {
+                using MaxNativeType = typename Decimal128V2::NativeType;
+                MaxNativeType converted_value = common::exp10_i128(9 - arrow_scale);
+                if (common::mul_overflow(static_cast<MaxNativeType>(value), converted_value,
+                                         converted_value)) {
+                    VLOG_DEBUG << "Decimal convert overflow";
+                    value = converted_value < 0
+                                    ? std::numeric_limits<typename Decimal128V2 ::NativeType>::min()
+                                    : std::numeric_limits<
+                                              typename Decimal128V2 ::NativeType>::max();
+                } else {
+                    value = converted_value;
+                }
+            } else if (9 < arrow_scale) {
+                value = value / common::exp10_i128(arrow_scale - 9);
+            }
+            column_data.emplace_back(value);
+        }
+    } else if constexpr (T == TYPE_DECIMAL32 || T == TYPE_DECIMAL64 || T == TYPE_DECIMAL128I) {
+        const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
+        for (auto value_i = start; value_i < end; ++value_i) {
+            const auto* value = concrete_array->Value(value_i);
+            auto decimal_value = unaligned_load<FieldType>(value);
+            column_data.emplace_back(decimal_value);
+        }
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        const auto* concrete_array = dynamic_cast<const arrow::Decimal256Array*>(arrow_array);
+        for (auto value_i = start; value_i < end; ++value_i) {
+            auto decimal_value = unaligned_load<FieldType>(concrete_array->Value(value_i));
+            column_data.emplace_back(decimal_value);
+        }
+    } else {
+        return Status::Error(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                             "read_column_from_arrow with type " + column.get_name());
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if constexpr (T == TYPE_DECIMAL32 || T == TYPE_DECIMAL64 || T == TYPE_DECIMAL128I ||
+                  T == TYPE_DECIMAL256) {
+        if (view.value_kind == DecodedValueKind::INT32 ||
+            view.value_kind == DecodedValueKind::INT64 ||
+            view.value_kind == DecodedValueKind::BINARY ||
+            view.value_kind == DecodedValueKind::FIXED_BINARY) {
+            return read_decimal_decoded_values<T>(column, view, precision);
+        }
+    }
+    return decoded_column_view_handle_conversion_failure(
+            column, view,
+            Status::NotSupported("Unsupported decoded values for {} from source kind {}",
+                                 get_name(), static_cast<int>(view.value_kind)));
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::read_parquet_dictionary(IColumn& column,
+                                                        ParquetDecodeSource& source,
+                                                        const ParquetDecodeContext& context) const {
+    if (context.logical_type != ParquetLogicalType::DECIMAL || context.decimal_scale < 0) {
+        return Status::NotSupported("Decimal SerDe requires Parquet DECIMAL metadata");
+    }
+    DecimalParquetConsumer<T> consumer(column, context, cast_set<UInt32>(precision), scale);
+    return source.decode_dictionary(consumer, consumer);
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::read_column_from_parquet(IColumn& column,
+                                                         ParquetDecodeSource& source,
+                                                         const ParquetDecodeContext& context,
+                                                         size_t num_values,
+                                                         ParquetMaterializationState& state) const {
+    if (context.logical_type != ParquetLogicalType::DECIMAL || context.decimal_scale < 0) {
+        return Status::NotSupported("Decimal SerDe requires Parquet DECIMAL metadata");
+    }
+    DecimalParquetConsumer<T> consumer(column, context, cast_set<UInt32>(precision), scale, &state);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        if (context.physical_type == ParquetPhysicalType::BYTE_ARRAY) {
+            return source.decode_binary_values(num_values, consumer);
+        }
+        return source.decode_fixed_values(num_values, consumer);
+    }
+
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        auto* output_null_map = state.begin_dictionary_conversion(source.dictionary_size());
+        DecimalParquetConsumer<T> dictionary_consumer(*state.typed_dictionary, context,
+                                                      cast_set<UInt32>(precision), scale, &state);
+        const Status dictionary_status =
+                source.decode_dictionary(dictionary_consumer, dictionary_consumer);
+        state.end_dictionary_conversion(output_null_map);
+        RETURN_IF_ERROR(dictionary_status);
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    return state.materialize_dictionary(column, source, num_values);
+}
+
+template <PrimitiveType T>
+bool DataTypeDecimalSerDe<T>::supports_parquet_raw_predicate(
+        const ParquetDecodeContext& context) const {
+    if (context.encoding == ParquetValueEncoding::DICTIONARY ||
+        context.logical_type != ParquetLogicalType::DECIMAL) {
+        return false;
+    }
+    return context.physical_type == ParquetPhysicalType::INT32 ||
+           context.physical_type == ParquetPhysicalType::INT64 ||
+           context.physical_type == ParquetPhysicalType::BYTE_ARRAY ||
+           context.physical_type == ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY;
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::read_parquet_raw_predicate(
+        ParquetDecodeSource& source, const ParquetDecodeContext& context, size_t num_values,
+        bool enable_strict_mode, ParquetLogicalValueConsumer& consumer) const {
+    if (!supports_parquet_raw_predicate(context)) {
+        return Status::NotSupported("Unsupported Parquet raw predicate conversion for {}",
+                                    get_name());
+    }
+    DecimalPredicateParquetConsumer<T> predicate_consumer(
+            context, static_cast<UInt32>(precision), scale, enable_strict_mode, consumer,
+            _parquet_predicate_values, _parquet_predicate_nulls);
+    if (context.physical_type == ParquetPhysicalType::BYTE_ARRAY) {
+        return source.decode_binary_values(num_values, predicate_consumer);
+    }
+    return source.decode_fixed_values(num_values, predicate_consumer);
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
+                                                             MysqlRowBinaryBuffer& result,
+                                                             int64_t row_idx, bool col_const,
+                                                             const FormatOptions& options) const {
+    auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
+    const auto col_index = index_check_const(row_idx, col_const);
+    if constexpr (T == TYPE_DECIMALV2) {
+        DecimalV2Value decimal_val(data[col_index]);
+        auto decimal_str = decimal_val.to_string(scale);
+        if (UNLIKELY(0 != result.push_string(decimal_str.c_str(), decimal_str.size()))) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+    } else {
+        char buf[FieldType::max_string_length()];
+        auto length = data[col_index].to_string(buf, scale, scale_multiplier);
+        if (UNLIKELY(0 != result.push_string(buf, length))) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
+                                                    const IColumn& column, const NullMap* null_map,
+                                                    orc::ColumnVectorBatch* orc_col_batch,
+                                                    int64_t start, int64_t end, Arena& arena,
+                                                    const FormatOptions& options) const {
+    if constexpr (T == TYPE_DECIMAL256) {
+        return Status::NotSupported("write_column_to_orc with type " + column.get_name());
+    } else {
+        constexpr bool use_int128 =
+                (sizeof(typename ColumnDecimal<T>::value_type) >= sizeof(Int128));
+        auto& col_data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
+        auto* cur_batch =
+                dynamic_cast<std::conditional_t<use_int128, orc::Decimal128VectorBatch,
+                                                orc::Decimal64VectorBatch>*>(orc_col_batch);
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                const auto& int_value = col_data[row_id];
+                if constexpr (T == TYPE_DECIMALV2) {
+                    // orc::Int128 only support construct from two int64_t values
+                    // so we need to split the int128 value into two int64_t values
+                    orc::Int128 value(int_value.value() >> 64, (uint64_t)int_value.value());
+                    cur_batch->values[row_id] = value;
+                } else if constexpr (use_int128) {
+                    // orc::Int128 only support construct from two int64_t values
+                    // so we need to split the int128 value into two int64_t values
+                    orc::Int128 value(int_value.value >> 64, (uint64_t)int_value.value);
+                    cur_batch->values[row_id] = value;
+                } else {
+                    cur_batch->values[row_id] = int_value.value;
+                }
+            }
+        }
+        cur_batch->numElements = end - start;
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_fixed_json(
+        IColumn& column, Slice& slice, uint64_t rows, uint64_t* num_deserialized,
+        const FormatOptions& options) const {
+    if (rows < 1) [[unlikely]] {
+        return Status::OK();
+    }
+    Status st = deserialize_one_cell_from_json(column, slice, options);
+    if (!st.ok()) {
+        return st;
+    }
+
+    DataTypeDecimalSerDe::insert_column_last_value_multiple_times(column, rows - 1);
+    *num_deserialized = rows;
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
+                                                                      uint64_t times) const {
+    if (times < 1) [[unlikely]] {
+        return;
+    }
+    auto& col = static_cast<ColumnDecimal<T>&>(column);
+    auto sz = col.size();
+
+    FieldType val = col.get_element(sz - 1);
+    for (int i = 0; i < times; i++) {
+        col.insert_value(val);
+    }
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                      Arena& mem_pool, int32_t col_id,
+                                                      int64_t row_num,
+                                                      const FormatOptions& options) const {
+    StringRef data_ref = column.get_data_at(row_num);
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
+    if constexpr (T == TYPE_DECIMALV2) {
+        Decimal128V2::NativeType val =
+                *reinterpret_cast<const Decimal128V2::NativeType*>(data_ref.data);
+        if (options.enable_row_store_compact_jsonb && val >= std::numeric_limits<int64_t>::min() &&
+            val <= std::numeric_limits<int64_t>::max()) {
+            result.writeInt(static_cast<int64_t>(val));
+        } else {
+            result.writeInt128(val);
+        }
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        Decimal128V3::NativeType val =
+                *reinterpret_cast<const Decimal128V3::NativeType*>(data_ref.data);
+        if (options.enable_row_store_compact_jsonb && val >= std::numeric_limits<int64_t>::min() &&
+            val <= std::numeric_limits<int64_t>::max()) {
+            result.writeInt(static_cast<int64_t>(val));
+        } else {
+            result.writeInt128(val);
+        }
+    } else if constexpr (T == TYPE_DECIMAL32) {
+        Decimal32::NativeType val = *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data);
+        if (options.enable_row_store_compact_jsonb) {
+            result.writeInt(val);
+        } else {
+            result.writeInt32(val);
+        }
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
+        if (options.enable_row_store_compact_jsonb) {
+            result.writeInt(val);
+        } else {
+            result.writeInt64(val);
+        }
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        // use binary type, since jsonb does not support int256
+        result.writeStartBinary();
+        result.writeBinary(data_ref.data, data_ref.size);
+        result.writeEndBinary();
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "write_one_cell_to_jsonb with type " + column.get_name());
+    }
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                        const FormatOptions& options) const {
+    auto& data =
+            assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    CastToString::push_decimal(data[row_num], scale, bw);
+}
+
+template <PrimitiveType T>
+std::string DataTypeDecimalSerDe<T>::to_olap_string(const Field& field) const {
+    auto value = field.get<T>();
+    if constexpr (T == TYPE_DECIMALV2) {
+        // DecimalV2 outputs "integer.fraction" with 9 zero-padded fractional digits.
+        // E.g., DecimalV2 value 123.456 → int_value=123, frac_value=456000000
+        //       → decimal12_t(123, 456000000).to_string() → "123.456000000".
+        // from_zonemap_string() sets ignore_scale=true internally, but DecimalV2's parser
+        // hardcodes scale=9 regardless, so the round-trip is correct either way.
+        decimal12_t decimal_val(value.int_value(), value.frac_value());
+        return decimal_val.to_string();
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        // DecimalV3: outputs the raw unscaled integer string.
+        // E.g., Decimal256(76,10) value 123.456 → internal int = 1234560000000
+        //       → "1234560000000".
+        // from_zonemap_string() sets ignore_scale=true to parse this as a raw integer.
+        return wide::to_string(value.value);
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        // Same as Decimal256: raw unscaled integer.
+        // E.g., Decimal(38,6) value 123.456 → internal int128 = 123456000
+        //       → "123456000".
+        fmt::memory_buffer buffer;
+        fmt::format_to(buffer, "{}", value.value);
+        return std::string(buffer.data(), buffer.size());
+    } else {
+        // Decimal32/64: raw unscaled integer.
+        // E.g., Decimal(9,2) value 123.45 → internal int32 = 12345 → "12345".
+        return std::to_string(value.value);
+    }
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to,
+                                              const FormatOptions& options) const {
+    auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
+    const size_t size = column.size();
+    const auto maybe_reserve_size = CastToString::string_length<T>;
+    column_to.get_chars().reserve(size * maybe_reserve_size);
+    column_to.get_offsets().reserve(size);
+    BufferWriter bw(column_to);
+    for (size_t i = 0; i < size; ++i) {
+        CastToString::push_decimal(data[i], scale, bw);
+        bw.commit();
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
+                                                          int64_t row_num,
+                                                          JsonbWriter& writer) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb");
+    } else {
+        const auto& data = assert_cast<const ColumnDecimal<T>&>(from_column).get_element(row_num);
+        if (!writer.writeDecimal(data, precision, scale)) {
+            return Status::InvalidArgument(
+                    "DataTypeDecimalSerDe<T>::serialize_column_to_jsonb failed");
+        }
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                                 ColumnString& to_column) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb_vector");
+    } else {
+        const auto size = from_column.size();
+        JsonbWriter writer;
+        const auto& data = assert_cast<const ColumnDecimal<T>&>(from_column).get_data();
+        for (int i = 0; i < size; i++) {
+            writer.reset();
+            if (!writer.writeDecimal(data[i], precision, scale)) {
+                return Status::InvalidArgument(
+                        "DataTypeDecimalSerDe<T>::serialize_column_to_jsonb failed");
+            }
+            to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+        }
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
+                                                              const JsonbValue* jsonb_value,
+                                                              CastParameters& castParms) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported("DECIMALV2 does not support deserialize_column_from_jsonb");
+    } else {
+        auto& data = assert_cast<ColumnDecimal<T>&>(column).get_data();
+        FieldType to;
+        if (!JsonbCast::cast_from_json_to_decimal(jsonb_value, to, precision, scale, castParms)) {
+            return JsonbCast::report_error(jsonb_value, T);
+        }
+        data.push_back(to);
+        return Status::OK();
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_jsonb_vector(
+        ColumnNullable& column_to, const ColumnString& col_from_json,
+        CastParameters& castParms) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported(
+                "DECIMALV2 does not support deserialize_column_from_jsonb_vector");
+    } else {
+        const size_t size = col_from_json.size();
+        const bool is_strict = castParms.is_strict;
+
+        auto& null_map = column_to.get_null_map_data();
+        auto& data = assert_cast<ColumnType&>(column_to.get_nested_column()).get_data();
+
+        null_map.resize_fill(size, false);
+        data.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            const auto& val = col_from_json.get_data_at(i);
+            auto* jsonb_value = handle_jsonb_value(val);
+            if (!jsonb_value) {
+                null_map[i] = true;
+                continue;
+            }
+            FieldType to;
+            if (!JsonbCast::cast_from_json_to_decimal(jsonb_value, to, precision, scale,
+                                                      castParms)) {
+                if (is_strict) {
+                    return JsonbCast::report_error(jsonb_value, T);
+                } else {
+                    null_map[i] = true;
+                    continue;
+                }
+            }
+            data[i] = to;
+        }
+        return Status::OK();
+    }
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
+                                                       const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
+    if constexpr (T == TYPE_DECIMALV2 || T == TYPE_DECIMAL128I || T == TYPE_DECIMAL32 ||
+                  T == TYPE_DECIMAL64) {
+        if (!arg->isInt()) {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "read_one_cell_from_jsonb with type '{}'", arg->typeName());
+        }
+        auto val = arg->int_val();
+        if constexpr (T == TYPE_DECIMALV2) {
+            col.insert_value(DecimalV2Value(static_cast<int128_t>(val)));
+        } else {
+            using NativeType = typename PrimitiveTypeTraits<T>::CppType::NativeType;
+            col.insert_value(
+                    typename PrimitiveTypeTraits<T>::CppType(static_cast<NativeType>(val)));
+        }
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        // use binary type, since jsonb does not support int256
+        const wide::Int256 val =
+                *reinterpret_cast<const wide::Int256*>(arg->unpack<JsonbBinaryVal>()->getBlob());
+        col.insert_value(Decimal256(val));
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_one_cell_from_jsonb with type " + column.get_name());
+    }
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
+                                                       ColumnString::Chars& chars,
+                                                       int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(primitive_type_to_storage_field_type(T));
+    const auto& data_ref = assert_cast<const ColumnDecimal<T>&>(src_column).get_data_at(row_num);
+    const auto& prec = static_cast<uint8_t>(precision);
+    const auto& sc = static_cast<uint8_t>(scale);
+
+    const size_t old_size = chars.size();
+    // FieldType + precision + scale + value
+    const size_t new_size =
+            old_size + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+
+    // FieldType + precision + scale + value
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&prec),
+           sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t),
+           reinterpret_cast<const char*>(&sc), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint8_t),
+           data_ref.data, data_ref.size);
+}
+
+template <PrimitiveType T>
+const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_column(const uint8_t* data,
+                                                                     IColumn& column) {
+    auto& col = assert_cast<ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column);
+    data += sizeof(uint8_t);
+    data += sizeof(uint8_t);
+    if constexpr (T == TYPE_DECIMAL32) {
+        col.insert_value(unaligned_load<Int32>(data));
+        data += sizeof(Int32);
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        col.insert_value(unaligned_load<Int64>(data));
+        data += sizeof(Int64);
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        col.insert_value(unaligned_load<Int128>(data));
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        col.insert_value(Decimal256(unaligned_load<wide::Int256>(data)));
+        data += sizeof(wide::Int256);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_binary_to_column with type " + column.get_name());
+    }
+    return data;
+}
+
+template <PrimitiveType T>
+const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_t* data,
+                                                                    Field& field, FieldInfo& info) {
+    const uint8_t precision = *data;
+    data += sizeof(uint8_t);
+    const uint8_t scale = *data;
+    data += sizeof(uint8_t);
+    info.precision = static_cast<int>(precision);
+    info.scale = static_cast<int>(scale);
+    if constexpr (T == TYPE_DECIMAL32) {
+        Int32 v = unaligned_load<Int32>(data);
+        field = Field::create_field<TYPE_DECIMAL32>(Decimal32(v));
+        data += sizeof(Int32);
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        Int64 v = unaligned_load<Int64>(data);
+        field = Field::create_field<TYPE_DECIMAL64>(Decimal64(v));
+        data += sizeof(Int64);
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        // Because __int128 in memory is not aligned, but GCC7 will generate SSE instruction
+        // for __int128 load/store. This will cause segment fault.
+        auto pack = unaligned_load<PackedInt128>(data);
+        field = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(pack.value));
+        data += sizeof(PackedInt128);
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        auto v = unaligned_load<wide::Int256>(data);
+        field = Field::create_field<TYPE_DECIMAL256>(Decimal256(v));
+        data += sizeof(wide::Int256);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_binary_to_field with type " + type_to_string(T));
+    }
+    return data;
+}
+
+template class DataTypeDecimalSerDe<TYPE_DECIMAL32>;
+template class DataTypeDecimalSerDe<TYPE_DECIMAL64>;
+template class DataTypeDecimalSerDe<TYPE_DECIMAL128I>;
+template class DataTypeDecimalSerDe<TYPE_DECIMALV2>;
+template class DataTypeDecimalSerDe<TYPE_DECIMAL256>;
+} // namespace doris

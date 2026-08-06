@@ -226,7 +226,7 @@ suite("right_join_filter") {
         } else if (i == 3) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [1, 3, 4, 9]) {
+                if (j in [1, 3, 4, 8, 9]) {
                     mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
@@ -266,7 +266,7 @@ suite("right_join_filter") {
         } else if (i == 7) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [4, 5, 7, 9]) {
+                if (j in [2, 4, 5, 7, 9]) {
                     mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {

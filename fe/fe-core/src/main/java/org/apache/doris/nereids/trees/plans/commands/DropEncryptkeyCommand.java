@@ -23,6 +23,7 @@ import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -52,7 +53,8 @@ public class DropEncryptkeyCommand extends DropCommand {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
         // analyze encryptkey name
-        encryptKeyName.analyze(ctx);
+        FeNameFormat.checkCommonName("EncryptKey", encryptKeyName.getKeyName());
+        encryptKeyName.analyze(ctx.getDatabase());
         EncryptKeySearchDesc encryptKeySearchDesc = new EncryptKeySearchDesc(encryptKeyName);
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(encryptKeyName.getDb());
         db.dropEncryptKey(encryptKeySearchDesc, ifExists);

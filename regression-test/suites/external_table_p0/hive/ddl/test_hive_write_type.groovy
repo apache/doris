@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_write_type", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
@@ -163,7 +163,8 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
             sql """ create database if not exists `test_hive_ex` """;
             test {
                 sql """ create database `test_hive_ex` """
-                exception "errCode = 2, detailMessage = Can't create database 'test_hive_ex'; database exists"
+                exception "Failed to create Hive database test_hive_ex"
+                exception "already exists"
             }
             sql """use `${catalog_name}`.`test_hive_ex`"""
 

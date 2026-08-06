@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -91,6 +92,15 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         }
         LOG.info("commitShadowIndex finished, dbId:{}, tableId:{}, jobId:{}, shadowIdxList:{}",
                 dbId, tableId, jobId, shadowIdxList);
+
+        List<Long> tabletIds = partitionIndexMap.cellSet().stream()
+                .flatMap(cell -> cell.getValue().getTablets().stream().map(Tablet::getId))
+                .collect(Collectors.toList());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("force sync tablet stats for table: {}, tabletNum: {}, tabletIds: {}", tableId,
+                    tabletIds.size(), tabletIds);
+        }
+        CloudTabletStatMgr.getInstance().addActiveTablets(tabletIds);
     }
 
     @Override
@@ -258,7 +268,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.variantEnableFlattenNested(), clusterKeyUids,
                                             tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                                             tbl.storageDictPageSize(), true,
-                                            columnSeqMapping);
+                                            columnSeqMapping,
+                                                    tbl.getVerticalCompactionNumColumnsPerGroup());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 requestBuilder.setDbId(dbId);

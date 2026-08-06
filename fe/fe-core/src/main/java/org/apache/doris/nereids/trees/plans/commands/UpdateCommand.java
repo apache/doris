@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -73,7 +74,7 @@ import javax.annotation.Nullable;
  * =>
  *  insert into t1 (c1, c3) select t2.c1, t2.c3 * 100 from t1 join t2 inner join t3 on t2.id = t3.id where t1.id = t2.id
  */
-public class UpdateCommand extends Command implements ForwardWithSync, Explainable {
+public class UpdateCommand extends Command implements ForwardWithSync, Explainable, SupportProfile {
     private final List<EqualTo> assignments;
     private final List<String> nameParts;
     private final @Nullable String tableAlias;
@@ -96,6 +97,24 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        // Check if target table is Iceberg table and route to ExternalRowLevelUpdatePlanBuilder if so
+        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
+        TableIf table = null;
+        try {
+            table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+        } catch (Exception e) {
+            // Table not found, will be handled by regular error flow
+        }
+
+        // Route row-level DML on external tables (e.g. iceberg) through the generic shell.
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = RowLevelDmlArgs.forUpdate(
+                    table, nameParts, tableAlias, assignments, logicalQuery);
+            new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.UPDATE).run(ctx, executor);
+            return;
+        }
+
         // NOTE: update command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
                 Optional.empty(), true, Optional.empty()).run(ctx, executor);
@@ -224,9 +243,14 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, tableNameParts);
-        if (!ExpressionAnalyzer.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
+        String catalogName = tableQualifier.get(0);
+        int lctNames = Env.getLowerCaseTableNames(catalogName);
+        int lcdbNames = Env.getLowerCaseDatabaseNames(catalogName);
+        if (!ExpressionAnalyzer.sameTableName(
+                    tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName, lctNames)
                 || (dbName != null
-                && !ExpressionAnalyzer.compareDbNameIgnoreClusterName(tableQualifier.get(1), dbName))) {
+                && !ExpressionAnalyzer.compareDbNameIgnoreClusterName(
+                        tableQualifier.get(1), dbName, lcdbNames))) {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
     }
@@ -251,11 +275,24 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
+        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = RowLevelDmlArgs.forUpdate(
+                    table, nameParts, tableAlias, assignments, logicalQuery);
+            return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.UPDATE).getExplainPlan(ctx);
+        }
         return completeQueryPlan(ctx, logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {
         return logicalQuery;
+    }
+
+    @Override
+    public List<String> getTargetTableNameParts() {
+        return nameParts;
     }
 
     @Override

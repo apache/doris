@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -97,14 +98,17 @@ public class LogicalWorkTableReference extends LogicalRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalWorkTableReference(relationId, cteId, outputs, nameParts,
-                groupExpression, Optional.ofNullable(getLogicalProperties()));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWorkTableReference(relationId, cteId, outputs, nameParts,
+                groupExpression, Optional.ofNullable(getLogicalProperties())));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalWorkTableReference(relationId, cteId, outputs, nameParts, groupExpression, logicalProperties);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWorkTableReference(relationId, cteId, outputs, nameParts,
+                        groupExpression, logicalProperties));
     }
 
     @Override
@@ -129,8 +133,9 @@ public class LogicalWorkTableReference extends LogicalRelation {
 
     @Override
     public LogicalWorkTableReference withRelationId(RelationId relationId) {
-        return new LogicalWorkTableReference(relationId, cteId, outputs, nameParts,
-                groupExpression, Optional.ofNullable(getLogicalProperties()));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalWorkTableReference(relationId, cteId, outputs, nameParts,
+                groupExpression, Optional.ofNullable(getLogicalProperties())));
     }
 
     @Override

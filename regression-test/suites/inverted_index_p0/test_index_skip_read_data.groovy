@@ -21,7 +21,7 @@ suite("test_index_skip_read_data", "p0"){
     def indexTbName2 = "test_index_skip_read_data_mow"
     def indexTbName3 = "test_index_skip_read_data_mor"
 
-    sql """ set enable_common_expr_pushdown = true; """
+    sql """ set enable_segment_limit_pushdown = true; """
     // dup
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
 
@@ -54,7 +54,7 @@ suite("test_index_skip_read_data", "p0"){
     qt_sql16 """ SELECT k1 FROM ${indexTbName1} WHERE k2 = 20 ORDER BY k1,k2,data; """
     qt_sql17 """ SELECT k1, k2 FROM ${indexTbName1} WHERE data = 300 ORDER BY k1,k2,data; """
     qt_sql18 """ SELECT k1, k2 FROM ${indexTbName1} WHERE data = 400 ORDER BY k1,k2,data; """
-    
+
 
 
     // mow

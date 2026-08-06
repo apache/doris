@@ -38,12 +38,10 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.HashSet;
 import java.util.List;
@@ -125,47 +123,24 @@ public class ColocateTableCheckerAndBalancerTest {
     }
 
     @Test
-    public void testBalance(@Mocked SystemInfoService infoService,
-            @Mocked LoadStatisticForTag statistic) {
-        new Expectations() {
-            {
-                infoService.getBackend(1L);
-                result = backend1;
-                minTimes = 0;
-                infoService.getBackend(2L);
-                result = backend2;
-                minTimes = 0;
-                infoService.getBackend(3L);
-                result = backend3;
-                minTimes = 0;
-                infoService.getBackend(4L);
-                result = backend4;
-                minTimes = 0;
-                infoService.getBackend(5L);
-                result = backend5;
-                minTimes = 0;
-                infoService.getBackend(6L);
-                result = backend6;
-                minTimes = 0;
-                infoService.getBackend(7L);
-                result = backend7;
-                minTimes = 0;
-                infoService.getBackend(8L);
-                result = backend8;
-                minTimes = 0;
-                infoService.getBackend(9L);
-                result = backend9;
-                minTimes = 0;
+    public void testBalance() {
+        SystemInfoService infoService = Mockito.mock(SystemInfoService.class);
+        LoadStatisticForTag statistic = Mockito.mock(LoadStatisticForTag.class);
 
-                statistic.getBackendLoadStatistic(anyLong);
-                result = new Delegate<BackendLoadStatistic>() {
-                    BackendLoadStatistic delegate(Long beId) {
-                        return new FakeBackendLoadStatistic(beId, null, null);
-                    }
-                };
-                minTimes = 0;
-            }
-        };
+        Mockito.when(infoService.getBackend(1L)).thenReturn(backend1);
+        Mockito.when(infoService.getBackend(2L)).thenReturn(backend2);
+        Mockito.when(infoService.getBackend(3L)).thenReturn(backend3);
+        Mockito.when(infoService.getBackend(4L)).thenReturn(backend4);
+        Mockito.when(infoService.getBackend(5L)).thenReturn(backend5);
+        Mockito.when(infoService.getBackend(6L)).thenReturn(backend6);
+        Mockito.when(infoService.getBackend(7L)).thenReturn(backend7);
+        Mockito.when(infoService.getBackend(8L)).thenReturn(backend8);
+        Mockito.when(infoService.getBackend(9L)).thenReturn(backend9);
+
+        Mockito.when(statistic.getBackendLoadStatistic(Mockito.anyLong())).thenAnswer(inv -> {
+            Long beId = inv.getArgument(0);
+            return new FakeBackendLoadStatistic(beId, null, null);
+        });
         GroupId groupId = new GroupId(10000, 10001);
         List<Column> distributionCols = Lists.newArrayList();
         distributionCols.add(new Column("k1", PrimitiveType.INT));
@@ -208,46 +183,24 @@ public class ColocateTableCheckerAndBalancerTest {
     }
 
     @Test
-    public void testFixBalanceEndlessLoop(@Mocked SystemInfoService infoService,
-            @Mocked LoadStatisticForTag statistic) {
-        new Expectations() {
-            {
-                infoService.getBackend(1L);
-                result = backend1;
-                minTimes = 0;
-                infoService.getBackend(2L);
-                result = backend2;
-                minTimes = 0;
-                infoService.getBackend(3L);
-                result = backend3;
-                minTimes = 0;
-                infoService.getBackend(4L);
-                result = backend4;
-                minTimes = 0;
-                infoService.getBackend(5L);
-                result = backend5;
-                minTimes = 0;
-                infoService.getBackend(6L);
-                result = backend6;
-                minTimes = 0;
-                infoService.getBackend(7L);
-                result = backend7;
-                minTimes = 0;
-                infoService.getBackend(8L);
-                result = backend8;
-                minTimes = 0;
-                infoService.getBackend(9L);
-                result = backend9;
-                minTimes = 0;
-                statistic.getBackendLoadStatistic(anyLong);
-                result = new Delegate<BackendLoadStatistic>() {
-                    BackendLoadStatistic delegate(Long beId) {
-                        return new FakeBackendLoadStatistic(beId, null, null);
-                    }
-                };
-                minTimes = 0;
-            }
-        };
+    public void testFixBalanceEndlessLoop() {
+        SystemInfoService infoService = Mockito.mock(SystemInfoService.class);
+        LoadStatisticForTag statistic = Mockito.mock(LoadStatisticForTag.class);
+
+        Mockito.when(infoService.getBackend(1L)).thenReturn(backend1);
+        Mockito.when(infoService.getBackend(2L)).thenReturn(backend2);
+        Mockito.when(infoService.getBackend(3L)).thenReturn(backend3);
+        Mockito.when(infoService.getBackend(4L)).thenReturn(backend4);
+        Mockito.when(infoService.getBackend(5L)).thenReturn(backend5);
+        Mockito.when(infoService.getBackend(6L)).thenReturn(backend6);
+        Mockito.when(infoService.getBackend(7L)).thenReturn(backend7);
+        Mockito.when(infoService.getBackend(8L)).thenReturn(backend8);
+        Mockito.when(infoService.getBackend(9L)).thenReturn(backend9);
+
+        Mockito.when(statistic.getBackendLoadStatistic(Mockito.anyLong())).thenAnswer(inv -> {
+            Long beId = inv.getArgument(0);
+            return new FakeBackendLoadStatistic(beId, null, null);
+        });
         GroupId groupId = new GroupId(10000, 10001);
         List<Column> distributionCols = Lists.newArrayList();
         distributionCols.add(new Column("k1", PrimitiveType.INT));
@@ -285,19 +238,14 @@ public class ColocateTableCheckerAndBalancerTest {
     }
 
     @Test
-    public void testFixBalanceEndlessLoop2(@Mocked SystemInfoService infoService,
-            @Mocked LoadStatisticForTag statistic) {
-        new Expectations() {
-            {
-                statistic.getBackendLoadStatistic(anyLong);
-                result = new Delegate<BackendLoadStatistic>() {
-                    BackendLoadStatistic delegate(Long beId) {
-                        return new FakeBackendLoadStatistic(beId, null, null);
-                    }
-                };
-                minTimes = 0;
-            }
-        };
+    public void testFixBalanceEndlessLoop2() {
+        SystemInfoService infoService = Mockito.mock(SystemInfoService.class);
+        LoadStatisticForTag statistic = Mockito.mock(LoadStatisticForTag.class);
+
+        Mockito.when(statistic.getBackendLoadStatistic(Mockito.anyLong())).thenAnswer(inv -> {
+            Long beId = inv.getArgument(0);
+            return new FakeBackendLoadStatistic(beId, null, null);
+        });
         GroupId groupId = new GroupId(10000, 10001);
         List<Column> distributionCols = Lists.newArrayList();
         ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId, distributionCols, 5, new ReplicaAllocation((short) 1));
@@ -318,18 +266,13 @@ public class ColocateTableCheckerAndBalancerTest {
     }
 
     @Test
-    public void testGetSortedBackendReplicaNumPairs(@Mocked LoadStatisticForTag statistic) {
-        new Expectations() {
-            {
-                statistic.getBackendLoadStatistic(anyLong);
-                result = new Delegate<BackendLoadStatistic>() {
-                    BackendLoadStatistic delegate(Long beId) {
-                        return new FakeBackendLoadStatistic(beId, null, null);
-                    }
-                };
-                minTimes = 0;
-            }
-        };
+    public void testGetSortedBackendReplicaNumPairs() {
+        LoadStatisticForTag statistic = Mockito.mock(LoadStatisticForTag.class);
+
+        Mockito.when(statistic.getBackendLoadStatistic(Mockito.anyLong())).thenAnswer(inv -> {
+            Long beId = inv.getArgument(0);
+            return new FakeBackendLoadStatistic(beId, null, null);
+        });
 
         GlobalColocateStatistic globalColocateStatistic = new GlobalColocateStatistic();
         // all buckets are on different be
@@ -376,101 +319,51 @@ public class ColocateTableCheckerAndBalancerTest {
     }
 
     @Test
-    public void testGetUnavailableBeIdsInGroup(@Mocked ColocateTableIndex colocateTableIndex,
-                                               @Mocked SystemInfoService infoService,
-                                               @Mocked Backend myBackend2,
-                                               @Mocked Backend myBackend3,
-                                               @Mocked Backend myBackend4,
-                                               @Mocked Backend myBackend5
-    ) {
+    public void testGetUnavailableBeIdsInGroup() {
+        ColocateTableIndex colocateTableIndex = Mockito.mock(ColocateTableIndex.class);
+        SystemInfoService infoService = Mockito.mock(SystemInfoService.class);
+        Backend myBackend2 = Mockito.mock(Backend.class);
+        Backend myBackend3 = Mockito.mock(Backend.class);
+        Backend myBackend4 = Mockito.mock(Backend.class);
+        Backend myBackend5 = Mockito.mock(Backend.class);
+
         GroupId groupId = new GroupId(10000, 10001);
         Tag tag = Tag.DEFAULT_BACKEND_TAG;
         Set<Long> allBackendsInGroup = Sets.newHashSet(1L, 2L, 3L, 4L, 5L);
-        new Expectations() {
-            {
-                infoService.getBackend(1L);
-                result = null;
-                minTimes = 0;
 
-                // backend2 is available
-                infoService.getBackend(2L);
-                result = myBackend2;
-                minTimes = 0;
-                myBackend2.isScheduleAvailable();
-                result = true;
-                minTimes = 0;
-                myBackend2.getLocationTag();
-                result = Tag.DEFAULT_BACKEND_TAG;
-                minTimes = 0;
-                myBackend2.isMixNode();
-                result = true;
-                minTimes = 0;
+        Mockito.when(infoService.getBackend(1L)).thenReturn(null);
 
-                // backend3 not available, and dead for a long time
-                infoService.getBackend(3L);
-                result = myBackend3;
-                minTimes = 0;
-                myBackend3.isScheduleAvailable();
-                result = false;
-                minTimes = 0;
-                myBackend3.isAlive();
-                result = false;
-                minTimes = 0;
-                myBackend3.getLastUpdateMs();
-                result = System.currentTimeMillis() - (Config.colocate_group_relocate_delay_second + 20) * 1000;
-                minTimes = 0;
-                myBackend3.getLocationTag();
-                result = Tag.DEFAULT_BACKEND_TAG;
-                minTimes = 0;
-                myBackend3.isMixNode();
-                result = true;
-                minTimes = 0;
+        // backend2 is available
+        Mockito.when(infoService.getBackend(2L)).thenReturn(myBackend2);
+        Mockito.when(myBackend2.isScheduleAvailable()).thenReturn(true);
+        Mockito.when(myBackend2.getLocationTag()).thenReturn(Tag.DEFAULT_BACKEND_TAG);
+        Mockito.when(myBackend2.isMixNode()).thenReturn(true);
 
-                // backend4 not available, and dead for a short time
-                infoService.getBackend(4L);
-                result = myBackend4;
-                minTimes = 0;
-                myBackend4.isScheduleAvailable();
-                result = false;
-                minTimes = 0;
-                myBackend4.isAlive();
-                result = false;
-                minTimes = 0;
-                myBackend4.getLastUpdateMs();
-                result = System.currentTimeMillis();
-                minTimes = 0;
-                myBackend4.getLocationTag();
-                result = Tag.DEFAULT_BACKEND_TAG;
-                minTimes = 0;
-                myBackend4.isMixNode();
-                result = true;
-                minTimes = 0;
+        // backend3 not available, and dead for a long time
+        Mockito.when(infoService.getBackend(3L)).thenReturn(myBackend3);
+        Mockito.when(myBackend3.isScheduleAvailable()).thenReturn(false);
+        Mockito.when(myBackend3.isAlive()).thenReturn(false);
+        Mockito.when(myBackend3.getLastUpdateMs()).thenReturn(System.currentTimeMillis() - (Config.colocate_group_relocate_delay_second + 20) * 1000);
+        Mockito.when(myBackend3.getLocationTag()).thenReturn(Tag.DEFAULT_BACKEND_TAG);
+        Mockito.when(myBackend3.isMixNode()).thenReturn(true);
 
-                // backend5 not available, and in decommission
-                infoService.getBackend(5L);
-                result = myBackend5;
-                minTimes = 0;
-                myBackend5.isScheduleAvailable();
-                result = false;
-                minTimes = 0;
-                myBackend5.isAlive();
-                result = true;
-                minTimes = 0;
-                myBackend5.isDecommissioned();
-                result = true;
-                minTimes = 0;
-                myBackend5.getLocationTag();
-                result = Tag.DEFAULT_BACKEND_TAG;
-                minTimes = 0;
-                myBackend5.isMixNode();
-                result = true;
-                minTimes = 0;
+        // backend4 not available, and dead for a short time
+        Mockito.when(infoService.getBackend(4L)).thenReturn(myBackend4);
+        Mockito.when(myBackend4.isScheduleAvailable()).thenReturn(false);
+        Mockito.when(myBackend4.isAlive()).thenReturn(false);
+        Mockito.when(myBackend4.getLastUpdateMs()).thenReturn(System.currentTimeMillis());
+        Mockito.when(myBackend4.getLocationTag()).thenReturn(Tag.DEFAULT_BACKEND_TAG);
+        Mockito.when(myBackend4.isMixNode()).thenReturn(true);
 
-                colocateTableIndex.getBackendsByGroup(groupId, tag);
-                result = allBackendsInGroup;
-                minTimes = 0;
-            }
-        };
+        // backend5 not available, and in decommission
+        Mockito.when(infoService.getBackend(5L)).thenReturn(myBackend5);
+        Mockito.when(myBackend5.isScheduleAvailable()).thenReturn(false);
+        Mockito.when(myBackend5.isAlive()).thenReturn(true);
+        Mockito.when(myBackend5.isDecommissioned()).thenReturn(true);
+        Mockito.when(myBackend5.getLocationTag()).thenReturn(Tag.DEFAULT_BACKEND_TAG);
+        Mockito.when(myBackend5.isMixNode()).thenReturn(true);
+
+        Mockito.when(colocateTableIndex.getBackendsByGroup(groupId, tag)).thenReturn(allBackendsInGroup);
 
         Set<Long> unavailableBeIds = Deencapsulation.invoke(balancer, "getUnavailableBeIdsInGroup",
                 infoService, colocateTableIndex, groupId, Tag.DEFAULT_BACKEND_TAG);
@@ -479,163 +372,73 @@ public class ColocateTableCheckerAndBalancerTest {
     }
 
     @Test
-    public void testGetAvailableBeIds(@Mocked SystemInfoService infoService,
-                                      @Mocked Backend myBackend2,
-                                      @Mocked Backend myBackend3,
-                                      @Mocked Backend myBackend4,
-                                      @Mocked Backend myBackend5,
-                                      @Mocked Backend myBackend6,
-                                      @Mocked Backend myBackend7,
-                                      @Mocked Backend myBackend8) throws AnalysisException {
+    public void testGetAvailableBeIds() throws AnalysisException {
+        SystemInfoService infoService = Mockito.mock(SystemInfoService.class);
+        Backend myBackend2 = Mockito.mock(Backend.class);
+        Backend myBackend3 = Mockito.mock(Backend.class);
+        Backend myBackend4 = Mockito.mock(Backend.class);
+        Backend myBackend5 = Mockito.mock(Backend.class);
+        Backend myBackend6 = Mockito.mock(Backend.class);
+        Backend myBackend7 = Mockito.mock(Backend.class);
+        Backend myBackend8 = Mockito.mock(Backend.class);
+
         List<Long> clusterBackendIds = Lists.newArrayList(1L, 2L, 3L, 4L, 5L);
-        new Expectations() {
-            {
-                infoService.getAllBackendIds(false);
-                result = clusterBackendIds;
-                minTimes = 0;
 
-                infoService.getBackend(1L);
-                result = null;
-                minTimes = 0;
+        Mockito.when(infoService.getAllBackendIds(false)).thenReturn(clusterBackendIds);
 
-                // backend2 is available
-                infoService.getBackend(2L);
-                result = myBackend2;
-                minTimes = 0;
-                myBackend2.isScheduleAvailable();
-                result = true;
-                minTimes = 0;
-                myBackend2.getLocationTag();
-                result = Tag.DEFAULT_BACKEND_TAG;
-                minTimes = 0;
-                myBackend2.isMixNode();
-                result = true;
-                minTimes = 0;
+        Mockito.when(infoService.getBackend(1L)).thenReturn(null);
 
-                // backend3 not available, and dead for a long time
-                infoService.getBackend(3L);
-                result = myBackend3;
-                minTimes = 0;
-                myBackend3.isScheduleAvailable();
-                result = false;
-                minTimes = 0;
-                myBackend3.isAlive();
-                result = false;
-                minTimes = 0;
-                myBackend3.getLastUpdateMs();
-                result = System.currentTimeMillis() - (Config.colocate_group_relocate_delay_second + 20) * 1000;
-                minTimes = 0;
-                myBackend3.getLocationTag();
-                result = Tag.DEFAULT_BACKEND_TAG;
-                minTimes = 0;
-                myBackend3.isMixNode();
-                result = true;
-                minTimes = 0;
+        // backend2 is available
+        Mockito.when(infoService.getBackend(2L)).thenReturn(myBackend2);
+        Mockito.when(myBackend2.isScheduleAvailable()).thenReturn(true);
+        Mockito.when(myBackend2.getLocationTag()).thenReturn(Tag.DEFAULT_BACKEND_TAG);
+        Mockito.when(myBackend2.isMixNode()).thenReturn(true);
 
-                // backend4 available, not alive but dead for a short time
-                infoService.getBackend(4L);
-                result = myBackend4;
-                minTimes = 0;
-                myBackend4.isScheduleAvailable();
-                result = false;
-                minTimes = 0;
-                myBackend4.isAlive();
-                result = false;
-                minTimes = 0;
-                myBackend4.getLastUpdateMs();
-                result = System.currentTimeMillis();
-                minTimes = 0;
-                myBackend4.getLocationTag();
-                result = Tag.DEFAULT_BACKEND_TAG;
-                minTimes = 0;
-                myBackend4.isMixNode();
-                result = true;
-                minTimes = 0;
+        // backend3 not available, and dead for a long time
+        Mockito.when(infoService.getBackend(3L)).thenReturn(myBackend3);
+        Mockito.when(myBackend3.isScheduleAvailable()).thenReturn(false);
+        Mockito.when(myBackend3.isAlive()).thenReturn(false);
+        Mockito.when(myBackend3.getLastUpdateMs()).thenReturn(System.currentTimeMillis() - (Config.colocate_group_relocate_delay_second + 20) * 1000);
+        Mockito.when(myBackend3.getLocationTag()).thenReturn(Tag.DEFAULT_BACKEND_TAG);
+        Mockito.when(myBackend3.isMixNode()).thenReturn(true);
 
-                // backend5 not available, and in decommission
-                infoService.getBackend(5L);
-                result = myBackend5;
-                minTimes = 0;
-                myBackend5.isScheduleAvailable();
-                result = false;
-                minTimes = 0;
-                myBackend5.isAlive();
-                result = true;
-                minTimes = 0;
-                myBackend5.isDecommissioned();
-                result = true;
-                minTimes = 0;
-                myBackend5.getLocationTag();
-                result = Tag.DEFAULT_BACKEND_TAG;
-                minTimes = 0;
-                myBackend5.isMixNode();
-                result = true;
-                minTimes = 0;
+        // backend4 available, not alive but dead for a short time
+        Mockito.when(infoService.getBackend(4L)).thenReturn(myBackend4);
+        Mockito.when(myBackend4.isScheduleAvailable()).thenReturn(false);
+        Mockito.when(myBackend4.isAlive()).thenReturn(false);
+        Mockito.when(myBackend4.getLastUpdateMs()).thenReturn(System.currentTimeMillis());
+        Mockito.when(myBackend4.getLocationTag()).thenReturn(Tag.DEFAULT_BACKEND_TAG);
+        Mockito.when(myBackend4.isMixNode()).thenReturn(true);
 
-                // backend6 is available, but with different tag
-                infoService.getBackend(5L);
-                result = myBackend6;
-                minTimes = 0;
-                myBackend6.isScheduleAvailable();
-                result = false;
-                minTimes = 0;
-                myBackend6.isAlive();
-                result = true;
-                minTimes = 0;
-                myBackend6.isDecommissioned();
-                result = false;
-                minTimes = 0;
-                myBackend6.getLocationTag();
-                result = Tag.create(Tag.TYPE_LOCATION, "new_loc");
-                minTimes = 0;
-                myBackend6.isMixNode();
-                result = true;
-                minTimes = 0;
+        // backend5 not available, and in decommission
+        Mockito.when(infoService.getBackend(5L)).thenReturn(myBackend5);
+        Mockito.when(myBackend5.isScheduleAvailable()).thenReturn(false);
+        Mockito.when(myBackend5.isAlive()).thenReturn(true);
+        Mockito.when(myBackend5.isDecommissioned()).thenReturn(true);
+        Mockito.when(myBackend5.getLocationTag()).thenReturn(Tag.DEFAULT_BACKEND_TAG);
+        Mockito.when(myBackend5.isMixNode()).thenReturn(true);
 
-                // backend7 is available, but in exclude sets
-                infoService.getBackend(5L);
-                result = myBackend7;
-                minTimes = 0;
-                myBackend7.isScheduleAvailable();
-                result = false;
-                minTimes = 0;
-                myBackend7.isAlive();
-                result = true;
-                minTimes = 0;
-                myBackend7.isDecommissioned();
-                result = false;
-                minTimes = 0;
-                myBackend7.getLocationTag();
-                result = Tag.DEFAULT_BACKEND_TAG;
-                minTimes = 0;
-                myBackend7.isMixNode();
-                result = true;
-                minTimes = 0;
-                myBackend7.getId();
-                result = 999L;
-                minTimes = 0;
+        // backend6 is available, but with different tag
+        Mockito.when(myBackend6.isScheduleAvailable()).thenReturn(false);
+        Mockito.when(myBackend6.isAlive()).thenReturn(true);
+        Mockito.when(myBackend6.isDecommissioned()).thenReturn(false);
+        Mockito.when(myBackend6.getLocationTag()).thenReturn(Tag.create(Tag.TYPE_LOCATION, "new_loc"));
+        Mockito.when(myBackend6.isMixNode()).thenReturn(true);
 
-                // backend8 is available, it's a compute node.
-                infoService.getBackend(5L);
-                result = myBackend8;
-                minTimes = 0;
-                myBackend8.isScheduleAvailable();
-                result = false;
-                minTimes = 0;
-                myBackend8.isAlive();
-                result = true;
-                minTimes = 0;
-                myBackend8.isDecommissioned();
-                result = false;
-                minTimes = 0;
-                myBackend8.getLocationTag();
-                result = Tag.DEFAULT_BACKEND_TAG;
-                minTimes = 0;
-                myBackend8.isMixNode();
-                result = false;
-                minTimes = 0;
-            }
-        };
+        // backend7 is available, but in exclude sets
+        Mockito.when(myBackend7.isScheduleAvailable()).thenReturn(false);
+        Mockito.when(myBackend7.isAlive()).thenReturn(true);
+        Mockito.when(myBackend7.isDecommissioned()).thenReturn(false);
+        Mockito.when(myBackend7.getLocationTag()).thenReturn(Tag.DEFAULT_BACKEND_TAG);
+        Mockito.when(myBackend7.isMixNode()).thenReturn(true);
+        Mockito.when(myBackend7.getId()).thenReturn(999L);
+
+        // backend8 is available, it's a compute node.
+        Mockito.when(myBackend8.isScheduleAvailable()).thenReturn(false);
+        Mockito.when(myBackend8.isAlive()).thenReturn(true);
+        Mockito.when(myBackend8.isDecommissioned()).thenReturn(false);
+        Mockito.when(myBackend8.getLocationTag()).thenReturn(Tag.DEFAULT_BACKEND_TAG);
+        Mockito.when(myBackend8.isMixNode()).thenReturn(false);
 
         List<Long> availableBeIds = Deencapsulation.invoke(balancer, "getAvailableBeIds",
                 Tag.DEFAULT_BACKEND_TAG, Sets.newHashSet(999L), infoService);

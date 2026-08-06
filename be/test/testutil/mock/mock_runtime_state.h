@@ -16,10 +16,10 @@
 // under the License.
 
 #pragma once
-#include "mock_query_context.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_descriptors.h"
+#include "testutil/mock/mock_query_context.h"
 
 namespace doris {
 
@@ -55,7 +55,7 @@ public:
                      ExecEnv* exec_env, QueryContext* ctx)
             : RuntimeState(query_id, fragment_id, query_options, query_globals, exec_env, ctx) {}
 
-    int batch_size() const override { return batsh_size; }
+    int batch_size() const override { return _batch_size; }
 
     bool enable_shared_exchange_sink_buffer() const override {
         return _enable_shared_exchange_sink_buffer;
@@ -74,8 +74,21 @@ public:
 
     bool enable_use_hybrid_sort() const override { return false; }
 
+    // Bypass the [1MB, 512MB] clamping in RuntimeState so tests can use tiny
+    // byte budgets (e.g. 1 or 50) to exercise block-splitting logic.
+    // When adaptive is disabled, fall back to RuntimeState's behavior (kMax)
+    // so the value is always a legal byte budget; tests should gate on
+    // config::enable_adaptive_batch_size directly to detect the disabled state.
+    size_t preferred_block_size_bytes() const override {
+        if (config::enable_adaptive_batch_size &&
+            _query_options.__isset.preferred_block_size_bytes) {
+            return _query_options.preferred_block_size_bytes;
+        }
+        return RuntimeState::preferred_block_size_bytes();
+    }
+
     // default batch size
-    int batsh_size = 4096;
+    int _batch_size = 4096;
     bool _enable_shared_exchange_sink_buffer = true;
     bool _enable_share_hash_table_for_broadcast_join = true;
     std::shared_ptr<MockContext> _mock_context = std::make_shared<MockContext>();

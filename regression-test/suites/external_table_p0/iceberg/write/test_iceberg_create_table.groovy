@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_create_table", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_create_table", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -58,22 +58,48 @@ suite("test_iceberg_create_table", "p0,external,doris,external_docker,external_d
 
         test {
             sql """ create table ${db1}.${tb1} (id int) engine = olap """
-            exception "Cannot create olap table out of internal catalog. Make sure 'engine' type is specified when use the catalog: ${catalog_name}"
+            exception "Engine 'olap' does not match catalog '${catalog_name}'."
         }
 
         test {
             sql """ create table ${db1}.${tb1} (id int) engine = hive """
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Iceberg type catalog can only use `iceberg` engine."
+            exception "Engine 'hive' does not match catalog '${catalog_name}'."
         }
 
         test {
             sql """ create table ${db1}.${tb1} (id int) engine = jdbc """
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Iceberg type catalog can only use `iceberg` engine."
+            exception "Engine 'jdbc' does not match catalog '${catalog_name}'."
         }
 
         sql """ create table ${db1}.${tb1} (id int) engine = iceberg """
         sql """ create table ${db1}.${tb2} (id int) """
+        sql """ create table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb3 (id int) order by (id asc) """
+        sql """ create table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb4 (id int) order by (id asc NULLS LAST)"""
+        sql """ create table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb5 (id int) order by (id desc) """
+        sql """ create table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb6 (id int) order by (id desc NULLS FIRST)"""
+        sql """ create table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb7 (id int, id2 int) order by (id desc NULLS FIRST, id2 asc NULLS LAST)"""
+        test {
+            sql """ create table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb8 (id int, id2 int) order by (id desc NULLS FIRST, id2 asc NULLS LAST, id3 asc) """
+            exception "does not exist in table"
+        }
+        test {
+            sql """ create table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb9 (id int, id2 int) order by (id desc NULLS FIRST, id2 asc NULLS LAST, id desc) """
+            exception "Duplicate sort order column"
+        }
+        def result = sql """ show create table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb7 """;
+        logger.info(" result: " + result)
+        assertTrue(result[0][1].contains('ORDER BY (`id` DESC NULLS FIRST, `id2` ASC NULLS LAST)'))
 
+        explain {
+            sql """ insert into test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb7 values(1,1)""";
+            contains "ORDER BY (`id` DESC NULLS FIRST, `id2` ASC NULLS LAST)"
+        }
+
+        sql """ drop table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb3 """
+        sql """ drop table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb4 """
+        sql """ drop table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb5 """
+        sql """ drop table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb6 """
+        sql """ drop table test_iceberg_create_table_db1.test_iceberg_create_table_db1_tb7 """
         sql """ drop table ${db1}.${tb1} """
         sql """ drop table ${db1}.${tb2} """
         sql """ drop database ${db1} """

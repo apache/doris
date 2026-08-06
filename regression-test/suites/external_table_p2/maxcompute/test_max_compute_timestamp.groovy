@@ -83,7 +83,7 @@ INSERT INTO TABLE timestamp_tb4 VALUES
     (timestamp '9999-12-31 23:59:59.999999876', timestamp_ntz '9999-12-31 23:59:59.999999876');
 */
 
-suite("test_max_compute_timestamp", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
+suite("test_max_compute_timestamp", "p2,external") {
 
 
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")

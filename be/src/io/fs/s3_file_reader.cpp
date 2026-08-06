@@ -32,16 +32,20 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/metrics/doris_metrics.h"
 #include "io/cache/block_file_cache.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_common.h"
+#include "runtime/file_scan_profile.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "runtime/workload_management/resource_context.h"
 #include "util/bvar_helper.h"
+#include "util/concurrency_stats.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
-#include "util/runtime_profile.h"
 #include "util/s3_util.h"
 
 namespace doris::io {
@@ -131,6 +135,8 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         return Status::InternalError("init s3 client error");
     }
 
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().s3_file_reader_read);
+
     int retry_count = 0;
     const int base_wait_time = config::s3_read_base_wait_time_ms; // Base wait time in milliseconds
     const int max_wait_time = config::s3_read_max_wait_time_ms; // Maximum wait time in milliseconds
@@ -211,7 +217,9 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
 void S3FileReader::_collect_profile_before_close() {
     if (_profile != nullptr) {
         const char* s3_profile_name = "S3Profile";
-        ADD_TIMER(_profile, s3_profile_name);
+        auto* total_time =
+                ADD_CHILD_TIMER(_profile, s3_profile_name,
+                                file_scan_profile::parent_or_root(_profile, file_scan_profile::IO));
         RuntimeProfile::Counter* total_get_request_counter =
                 ADD_CHILD_COUNTER(_profile, "TotalGetRequest", TUnit::UNIT, s3_profile_name);
         RuntimeProfile::Counter* too_many_request_err_counter =
@@ -228,6 +236,7 @@ void S3FileReader::_collect_profile_before_close() {
         COUNTER_UPDATE(too_many_request_sleep_time, _s3_stats.too_many_request_sleep_time_ms);
         COUNTER_UPDATE(total_bytes_read, _s3_stats.total_bytes_read);
         COUNTER_UPDATE(total_get_request_time_ns, _s3_stats.total_get_request_time_ns);
+        COUNTER_UPDATE(total_time, _s3_stats.total_get_request_time_ns);
     }
 }
 

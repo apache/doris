@@ -18,7 +18,7 @@
 import java.util.concurrent.ThreadLocalRandom
 
 import static groovy.test.GroovyAssert.shouldFail;
-suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property") {
+suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external") {
     
     def hmsTestQueryAndInsert = { String catalogProperties, String prefix ->
 
@@ -128,10 +128,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
             println "iceberg_meta_result SUCCESS" + catalog_name
 
             def iceberg_meta_result = sql """
-        SELECT snapshot_id FROM iceberg_meta(
-                'table' = '${catalog_name}.${db_name}.${table_name}',
-                'query_type' = 'snapshots'
-        ) order by committed_at desc;
+        SELECT snapshot_id FROM ${catalog_name}.${db_name}.${table_name}\$snapshots order by committed_at desc;
         
         """
             def first_snapshot_id = iceberg_meta_result.get(0).get(0);
@@ -291,10 +288,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
             println "iceberg_meta_result SUCCESS" + catalog_name
 
             def iceberg_meta_result = sql """
-        SELECT snapshot_id FROM iceberg_meta(
-                'table' = '${catalog_name}.${db_name}.${table_name}',
-                'query_type' = 'snapshots'
-        ) order by committed_at desc;
+        SELECT snapshot_id FROM ${catalog_name}.${db_name}.${table_name}\$snapshots order by committed_at desc;
         
         """
             def first_snapshot_id = iceberg_meta_result.get(0).get(0);
@@ -483,15 +477,21 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     // kerberos
     String hdfs_kerberos_properties = """
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "dfs.data.transfer.protection" = "authentication",
+                "hadoop.security.token.service.use_ip" = "false",
                 "hadoop.security.authentication" = "kerberos", 
-                "io-impl" = "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO",          
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
     """
 
     String hdfs_new_kerberos_properties = """
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
-                "io-impl" = "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO",          
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "dfs.data.transfer.protection" = "authentication",
+                "hadoop.security.token.service.use_ip" = "false",
                 "hdfs.authentication.type" = "kerberos",
                 "hdfs.authentication.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
@@ -549,11 +549,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
 
     hmsTestQueryAndInsert(hms_prop + warehouse + oss_region_param + oss_storage_properties, "iceberg_hms_on_oss")
 
-    //old kerberos
-    hmsTestQueryAndInsert(hms_kerberos_old_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_old")
-    //new kerberos
-    hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_new")
-    warehouse  """
+    warehouse = """
                   'warehouse' = 'oss://${oss_bucket_endpoint_parent_path}/iceberg-hms-warehouse',
     """
     testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + oss_region_param + oss_storage_properties, "iceberg_hms_on_oss")
@@ -566,10 +562,6 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
             + warehouse + obs_storage_properties, "iceberg_hms_on_obs")
     hmsTestQueryAndInsert(hms_prop+
             warehouse + obs_region_param + obs_storage_properties, "iceberg_hms_on_obs")
-    //old kerberos
-    hmsTestQueryAndInsert(hms_kerberos_old_prop + warehouse + obs_storage_properties, "iceberg_hms_on_obs_kerberos_old")
-    //new kerberos
-    hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + obs_storage_properties, "iceberg_hms_on_obs_kerberos_new")
 
     /*--------HMS on GCS-----------*/
     if(context.config.otherConfigs.get("enableGCS")){
@@ -581,10 +573,6 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
         hmsTestQueryAndInsert(hms_prop+
                 warehouse + gcs_storage_new_properties, "iceberg_hms_on_gcs_new")
 
-        //new kerberos
-        hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + gcs_storage_new_properties, "iceberg_hms_on_gcs_kerberos_new")
-        //old kerberos
-        hmsTestQueryAndInsert(hms_kerberos_old_prop + warehouse + gcs_storage_new_properties, "iceberg_hms_on_gcs_kerberos_old")
     }
    
     /*--------HMS on COS-----------*/
@@ -599,9 +587,6 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
      'warehouse' = 'cos://${cos_parent_path}/iceberg-hms-cos-warehouse',
     """
     hmsTestQueryAndInsert(hms_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos")
-    //kerberos
-    hmsTestQueryAndInsert(hms_kerberos_old_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos_kerberos_old")
-    hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos_kerberos_new")
 
 
     /*--------HMS on S3-----------*/

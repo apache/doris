@@ -18,11 +18,10 @@
 #pragma once
 
 #include "common/factory_creator.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/workload_management/io_throttle.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class ResourceContext;
 
@@ -45,6 +44,7 @@ public:
         // number rows returned by query.
         // only set once by result sink when closing.
         RuntimeProfile::Counter* returned_rows_counter_;
+        RuntimeProfile::Counter* process_rows_counter_;
         RuntimeProfile::Counter* shuffle_send_bytes_counter_;
         RuntimeProfile::Counter* shuffle_send_rows_counter_;
 
@@ -63,6 +63,7 @@ public:
             bytes_write_into_cache_counter_ =
                     ADD_COUNTER(profile_, "BytesWriteIntoCache", TUnit::BYTES);
             returned_rows_counter_ = ADD_COUNTER(profile_, "ReturnedRows", TUnit::UNIT);
+            process_rows_counter_ = ADD_COUNTER(profile_, "ProcessRows", TUnit::UNIT);
             shuffle_send_bytes_counter_ = ADD_COUNTER(profile_, "ShuffleSendBytes", TUnit::BYTES);
             shuffle_send_rows_counter_ =
                     ADD_COUNTER(profile_, "ShuffleSendRowsCounter_", TUnit::UNIT);
@@ -94,6 +95,7 @@ public:
         return stats_.bytes_write_into_cache_counter_->value();
     }
     int64_t returned_rows() const { return stats_.returned_rows_counter_->value(); }
+    int64_t process_rows() const { return stats_.process_rows_counter_->value(); }
     int64_t shuffle_send_bytes() const { return stats_.shuffle_send_bytes_counter_->value(); }
     int64_t shuffle_send_rows() const { return stats_.shuffle_send_rows_counter_->value(); }
 
@@ -117,6 +119,7 @@ public:
         stats_.bytes_write_into_cache_counter_->update(delta);
     }
     void update_returned_rows(int64_t delta) const { stats_.returned_rows_counter_->update(delta); }
+    void update_process_rows(int64_t delta) const { stats_.process_rows_counter_->update(delta); }
     void update_shuffle_send_bytes(int64_t delta) const {
         stats_.shuffle_send_bytes_counter_->update(delta);
     }
@@ -146,5 +149,4 @@ protected:
     ResourceContext* resource_ctx_ {nullptr};
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

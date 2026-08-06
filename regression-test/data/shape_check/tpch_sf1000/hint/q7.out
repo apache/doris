@@ -19,7 +19,7 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[supplier]
 --------------------------PhysicalProject
-----------------------------filter(n_name IN ('FRANCE', 'GERMANY'))
+----------------------------filter(n1.n_name IN ('FRANCE', 'GERMANY'))
 ------------------------------PhysicalOlapScan[nation(n1)]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
@@ -30,7 +30,7 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[customer]
 --------------------------PhysicalProject
-----------------------------filter(n_name IN ('FRANCE', 'GERMANY'))
+----------------------------filter(n2.n_name IN ('FRANCE', 'GERMANY'))
 ------------------------------PhysicalOlapScan[nation(n2)]
 
 Hint log:

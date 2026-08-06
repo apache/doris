@@ -19,19 +19,21 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
-import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -128,6 +130,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
     public static final String PROPERTIES_FILE_CACHE_TTL_SECONDS = "file_cache_ttl_seconds";
+    public static final long MAX_FILE_CACHE_TTL_SECONDS = Long.MAX_VALUE / 2L;
 
     // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
     public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
@@ -157,9 +160,17 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
 
-    public static final String PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "variant_enable_flatten_nested";
+    // Legacy persisted switch for flatten-nested variant behavior before it was deprecated.
+    @Deprecated
+    public static final String LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "variant_enable_flatten_nested";
 
-    public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
+    // Deprecated legacy switch for flatten-nested variant behavior.
+    // It is distinct from variant_enable_nested_group.
+    @Deprecated
+    public static final String PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "deprecated_variant_enable_flatten_nested";
+
+    public static final String PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP =
+            "vertical_compaction_num_columns_per_group";
 
     public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column"; // deprecated
 
@@ -188,13 +199,14 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
 
-    // binlog.enable, binlog.ttl_seconds, binlog.max_bytes, binlog.max_history_nums
+    // binlog.*
     public static final String PROPERTIES_BINLOG_PREFIX = "binlog.";
     public static final String PROPERTIES_BINLOG_ENABLE = "binlog.enable";
     public static final String PROPERTIES_BINLOG_TTL_SECONDS = "binlog.ttl_seconds";
     public static final String PROPERTIES_BINLOG_MAX_BYTES = "binlog.max_bytes";
     public static final String PROPERTIES_BINLOG_MAX_HISTORY_NUMS = "binlog.max_history_nums";
-
+    public static final String PROPERTIES_BINLOG_FORMAT = "binlog.format";
+    public static final String PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value";
     public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
             "enable_duplicate_without_keys_by_default";
     public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
@@ -237,6 +249,11 @@ public class PropertyAnalyzer {
     public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
             = Config.group_commit_data_bytes_default_value;
 
+    public static final String PROPERTIES_GROUP_COMMIT_MODE = "group_commit_mode";
+    public static final String GROUP_COMMIT_MODE_OFF = "off_mode";
+    public static final String GROUP_COMMIT_MODE_ASYNC = "async_mode";
+    public static final String GROUP_COMMIT_MODE_SYNC = "sync_mode";
+
     public static final String PROPERTIES_ENABLE_MOW_LIGHT_DELETE =
             "enable_mow_light_delete";
     public static final boolean PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE
@@ -251,14 +268,16 @@ public class PropertyAnalyzer {
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
     public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
     public static final long TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE = 1024;
-    public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 2000;
+    public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 1000;
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
     public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
+    public static final int VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE = 5;
 
     public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
 
     public static final String PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE = "variant_enable_typed_paths_to_sparse";
+    public static final String PROPERTIES_VARIANT_ENABLE_NESTED_GROUP = "variant_enable_nested_group";
     public static final String PROPERTIES_TDE_ALGORITHM = "tde_algorithm";
     public static final String AES256 = "AES256";
     public static final String SM4 = "SM4";
@@ -276,6 +295,10 @@ public class PropertyAnalyzer {
 
     // number of buckets when using doc snapshot serialization
     public static final String PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT = "variant_doc_hash_shard_count";
+
+    // stream properties
+    public static final String PROPERTIES_STREAM_TYPE = "type";
+    public static final String PROPERTIES_STREAM_SHOW_INITIAL_ROWS = "show_initial_rows";
 
     public enum RewriteType {
         PUT,      // always put property
@@ -386,7 +409,8 @@ public class PropertyAnalyzer {
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 try {
-                    DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
+                    DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(value,
+                            ScalarType.getDefaultDateType(Type.DATETIME));
                     cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
                 } catch (AnalysisException e) {
                     LOG.warn("dateLiteral failed, use max cool down time", e);
@@ -549,24 +573,6 @@ public class PropertyAnalyzer {
         return minLoadReplicaNum;
     }
 
-    public static String analyzeColumnSeparator(Map<String, String> properties, String oldColumnSeparator) {
-        String columnSeparator = oldColumnSeparator;
-        if (properties != null && properties.containsKey(PROPERTIES_COLUMN_SEPARATOR)) {
-            columnSeparator = properties.get(PROPERTIES_COLUMN_SEPARATOR);
-            properties.remove(PROPERTIES_COLUMN_SEPARATOR);
-        }
-        return columnSeparator;
-    }
-
-    public static String analyzeLineDelimiter(Map<String, String> properties, String oldLineDelimiter) {
-        String lineDelimiter = oldLineDelimiter;
-        if (properties != null && properties.containsKey(PROPERTIES_LINE_DELIMITER)) {
-            lineDelimiter = properties.get(PROPERTIES_LINE_DELIMITER);
-            properties.remove(PROPERTIES_LINE_DELIMITER);
-        }
-        return lineDelimiter;
-    }
-
     public static TStorageType analyzeStorageType(Map<String, String> properties) throws AnalysisException {
         // default is COLUMN
         TStorageType tStorageType = TStorageType.COLUMN;
@@ -618,18 +624,29 @@ public class PropertyAnalyzer {
     public static long analyzeTTL(Map<String, String> properties) throws AnalysisException {
         long ttlSeconds = 0;
         if (properties != null && properties.containsKey(PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
-            String ttlSecondsStr = properties.get(PROPERTIES_FILE_CACHE_TTL_SECONDS);
-            try {
-                ttlSeconds = Long.parseLong(ttlSecondsStr);
-                if (ttlSeconds < 0) {
-                    throw new NumberFormatException();
-                }
-            } catch (NumberFormatException e) {
-                throw new AnalysisException("The value " + ttlSecondsStr + " formats error or  is out of range "
-                           + "(0 < integer < Long.MAX_VALUE)");
-            }
+            ttlSeconds = analyzeFileCacheTtlSeconds(properties.get(PROPERTIES_FILE_CACHE_TTL_SECONDS));
         }
         return ttlSeconds;
+    }
+
+    public static long analyzeFileCacheTtlSeconds(String ttlSecondsStr) throws AnalysisException {
+        long ttlSeconds;
+        try {
+            ttlSeconds = Long.parseLong(ttlSecondsStr);
+        } catch (NumberFormatException e) {
+            throw invalidFileCacheTtlSecondsException(ttlSecondsStr);
+        }
+        if (ttlSeconds < 0 || ttlSeconds > MAX_FILE_CACHE_TTL_SECONDS) {
+            throw invalidFileCacheTtlSecondsException(ttlSecondsStr);
+        }
+        return ttlSeconds;
+    }
+
+    private static AnalysisException invalidFileCacheTtlSecondsException(String ttlSecondsStr) {
+        return new AnalysisException("The value " + ttlSecondsStr + " formats error or is out of range "
+                + "(0 <= integer <= " + MAX_FILE_CACHE_TTL_SECONDS + "). Larger values may overflow in BE "
+                + "and change TTL cache to normal cache; please use " + MAX_FILE_CACHE_TTL_SECONDS
+                + " or a smaller value.");
     }
 
     public static int analyzePartitionRetentionCount(Map<String, String> properties) throws AnalysisException {
@@ -825,6 +842,7 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
+    @Deprecated
     public static Boolean analyzeVariantFlattenNested(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return false;
@@ -840,26 +858,6 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED
-                + " must be `true` or `false`");
-    }
-
-    public static Boolean analyzeEnableSingleReplicaCompaction(Map<String, String> properties)
-            throws AnalysisException {
-        if (properties == null || properties.isEmpty()) {
-            return false;
-        }
-        String value = properties.get(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
-        // set enable single replica compaction false by default
-        if (null == value) {
-            return false;
-        }
-        properties.remove(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
-        if (value.equalsIgnoreCase("true")) {
-            return true;
-        } else if (value.equalsIgnoreCase("false")) {
-            return false;
-        }
-        throw new AnalysisException(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
                 + " must be `true` or `false`");
     }
 
@@ -1511,6 +1509,30 @@ public class PropertyAnalyzer {
             }
         }
 
+        // check PROPERTIES_BINLOG_FORMAT = "binlog.format";
+        if (properties.containsKey(PROPERTIES_BINLOG_FORMAT)) {
+            String format = properties.get(PROPERTIES_BINLOG_FORMAT);
+            try {
+                BinlogConfig.BinlogFormat.valueOf(format);
+                binlogConfigMap.put(PROPERTIES_BINLOG_FORMAT, format);
+                properties.remove(PROPERTIES_BINLOG_FORMAT);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog format value: " + format);
+            }
+        }
+
+        // check PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value"
+        if (properties.containsKey(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {
+            String needHistoricalValue = properties.get(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE);
+            if (!StringUtils.equalsAnyIgnoreCase(needHistoricalValue, "true", "false")) {
+                throw new AnalysisException("Invalid binlog need_historical_value value: " + needHistoricalValue);
+            }
+            binlogConfigMap.put(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE,
+                    String.valueOf(Boolean.parseBoolean(needHistoricalValue)));
+            properties.remove(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE);
+        }
+
+
         return binlogConfigMap;
     }
 
@@ -1856,11 +1878,11 @@ public class PropertyAnalyzer {
      * 1000
      *
      * @param properties
-     * @param defaultValue
      * @return
      * @throws AnalysisException
      */
-    public static int analyzeGroupCommitIntervalMs(Map<String, String> properties) throws AnalysisException {
+    public static int analyzeGroupCommitIntervalMs(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
         int groupCommitIntervalMs = PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE;
         if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
             String groupIntervalCommitMsStr = properties.get(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
@@ -1869,27 +1891,57 @@ public class PropertyAnalyzer {
             } catch (Exception e) {
                 throw new AnalysisException("parse group_commit_interval_ms format error");
             }
+            if (groupCommitIntervalMs <= 0) {
+                throw new AnalysisException("group_commit_interval_ms must be greater than 0");
+            }
 
-            properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            }
         }
 
         return groupCommitIntervalMs;
     }
 
-    public static int analyzeGroupCommitDataBytes(Map<String, String> properties) throws AnalysisException {
+    public static int analyzeGroupCommitDataBytes(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
         int groupCommitDataBytes = PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE;
         if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
             String groupIntervalCommitDataBytesStr = properties.get(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
             try {
                 groupCommitDataBytes = Integer.parseInt(groupIntervalCommitDataBytesStr);
             } catch (Exception e) {
-                throw new AnalysisException("parse group_commit_interval_ms format error");
+                throw new AnalysisException("parse group_commit_data_bytes format error");
+            }
+            if (groupCommitDataBytes <= 0) {
+                throw new AnalysisException("group_commit_data_bytes must be greater than 0");
             }
 
-            properties.remove(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            }
         }
 
         return groupCommitDataBytes;
+    }
+
+    public static String analyzeGroupCommitMode(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
+        String groupCommitMode = GROUP_COMMIT_MODE_OFF;
+        if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_MODE)) {
+            groupCommitMode = properties.get(PROPERTIES_GROUP_COMMIT_MODE);
+            if (!groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_OFF)
+                    && !groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_ASYNC)
+                    && !groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_SYNC)) {
+                throw new AnalysisException("Invalid group_commit_mode: " + groupCommitMode
+                        + ". Valid values: " + GROUP_COMMIT_MODE_OFF + ", " + GROUP_COMMIT_MODE_ASYNC
+                        + ", " + GROUP_COMMIT_MODE_SYNC);
+            }
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_MODE);
+            }
+        }
+        return groupCommitMode.toLowerCase();
     }
 
     /**
@@ -1897,14 +1949,6 @@ public class PropertyAnalyzer {
      */
     public static void checkCatalogProperties(Map<String, String> properties, boolean isAlter)
             throws AnalysisException {
-        // validate the properties of es catalog
-        if ("es".equalsIgnoreCase(properties.get("type"))) {
-            try {
-                EsResource.valid(properties, true);
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage());
-            }
-        }
         // validate access controller properties
         // eg:
         // (
@@ -2063,6 +2107,21 @@ public class PropertyAnalyzer {
         return enableTypedPathsToSparse;
     }
 
+    public static boolean analyzeEnableNestedGroup(Map<String, String> properties,
+                        boolean defaultValue) throws AnalysisException {
+        boolean enableNestedGroup = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP)) {
+            String enableNestedGroupStr = properties.get(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP);
+            try {
+                enableNestedGroup = Boolean.parseBoolean(enableNestedGroupStr);
+            } catch (Exception e) {
+                throw new AnalysisException("variant_enable_nested_group must be `true` or `false`");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP);
+        }
+        return enableNestedGroup;
+    }
+
     public static int analyzeVariantMaxSparseColumnStatisticsSize(Map<String, String> properties, int defuatValue)
                                                                                 throws AnalysisException {
         int maxSparseColumnStatisticsSize = defuatValue;
@@ -2071,11 +2130,11 @@ public class PropertyAnalyzer {
                     properties.get(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
             try {
                 maxSparseColumnStatisticsSize = Integer.parseInt(maxSparseColumnStatisticsSizeStr);
-                if (maxSparseColumnStatisticsSize < 0 || maxSparseColumnStatisticsSize > 50000) {
-                    throw new AnalysisException("variant_max_sparse_column_statistics_size must between 0 and 50000 ");
-                }
-            } catch (Exception e) {
+            } catch (NumberFormatException e) {
                 throw new AnalysisException("variant_max_sparse_column_statistics_size format error:" + e.getMessage());
+            }
+            if (maxSparseColumnStatisticsSize < 1 || maxSparseColumnStatisticsSize > 50000) {
+                throw new AnalysisException("variant_max_sparse_column_statistics_size must between 1 and 50000 ");
             }
 
             properties.remove(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
@@ -2090,8 +2149,8 @@ public class PropertyAnalyzer {
             String bucketNumStr = properties.get(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
             try {
                 bucketNum = Integer.parseInt(bucketNumStr);
-                if (bucketNum < 1 || bucketNum > 1024) {
-                    throw new AnalysisException("variant_sparse_hash_shard_count must between 1 and 1024 ");
+                if (bucketNum < 0 || bucketNum > 1024) {
+                    throw new AnalysisException("variant_sparse_hash_shard_count must between 0 and 1024 ");
                 }
             } catch (Exception e) {
                 throw new AnalysisException("variant_sparse_hash_shard_count format error:" + e.getMessage());
@@ -2176,6 +2235,23 @@ public class PropertyAnalyzer {
                         + "cannot be set together");
             }
         }
+        // variant_enable_nested_group=true is mutually exclusive with
+        // variant_enable_doc_mode=true and variant_max_subcolumns_count>0
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP)
+                && "true".equalsIgnoreCase(properties.get(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP))) {
+            if (properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)
+                    && "true".equalsIgnoreCase(properties.get(PROPERTIES_VARIANT_ENABLE_DOC_MODE))) {
+                throw new AnalysisException("variant_enable_nested_group and variant_enable_doc_mode "
+                        + "cannot both be true");
+            }
+            if (properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+                int count = Integer.parseInt(properties.get(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT));
+                if (count > 0) {
+                    throw new AnalysisException("variant_enable_nested_group cannot be true when "
+                            + "variant_max_subcolumns_count > 0");
+                }
+            }
+        }
     }
 
     public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {
@@ -2205,5 +2281,43 @@ public class PropertyAnalyzer {
             return TEncryptionAlgorithm.PLAINTEXT;
         }
         throw new AnalysisException("Invalid tde algorithm: " + name + ", only support AES256 and SM4 currently");
+    }
+
+    public static Integer analyzeVerticalCompactionNumColumnsPerGroup(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
+        }
+        String value = properties.get(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+        if (null == value) {
+            return VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
+        }
+        properties.remove(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+        try {
+            int num = Integer.parseInt(value);
+            if (num < 1) {
+                throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
+                        + " must be >= 1");
+            }
+            return num;
+        } catch (NumberFormatException e) {
+            throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
+                    + " must be a valid integer");
+        }
+    }
+
+    public static BaseTableStream.StreamScanType analyzeStreamType(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties != null && properties.containsKey(PROPERTIES_STREAM_TYPE)) {
+            String value = properties.get(PROPERTIES_STREAM_TYPE);
+            BaseTableStream.StreamScanType type = BaseTableStream.StreamScanType.getType(value);
+            if (type.equals(BaseTableStream.StreamScanType.UNKNOWN)) {
+                throw new AnalysisException("not supported " + PropertyAnalyzer.PROPERTIES_STREAM_TYPE
+                        +  ": " + value);
+            }
+            properties.remove(PROPERTIES_STREAM_TYPE);
+            return type;
+        }
+        return BaseTableStream.StreamScanType.MIN_DELTA;
     }
 }

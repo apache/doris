@@ -31,7 +31,6 @@ public class ModifyDistributionOp extends AlterTableOp {
     public ModifyDistributionOp(DistributionDescriptor distributionDesc) {
         super(AlterOpType.MODIFY_DISTRIBUTION);
         this.distributionDesc = distributionDesc;
-        this.needTableStable = false;
     }
 
     public DistributionDescriptor getDistributionDesc() {
@@ -46,6 +45,12 @@ public class ModifyDistributionOp extends AlterTableOp {
     @Override
     public boolean needChangeMTMVState() {
         return false;
+    }
+
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Changing distribution is allowed for row binlog tables.
+        return true;
     }
 
     @Override

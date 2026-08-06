@@ -18,6 +18,7 @@
 import java.util.stream.Collectors
 
 suite("query_cache") {
+    sql "set parallel_pipeline_task_num=2"
     def tableName = "table_3_undef_partitions2_keys3_properties4_distributed_by53"
 
     sql "set enable_sql_cache=false"
@@ -44,7 +45,6 @@ suite("query_cache") {
             "inverted_index_storage_format" = "V3",
             "light_schema_change" = "true",
             "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false",
             "group_commit_interval_ms" = "10000",
             "group_commit_data_bytes" = "134217728"
         )
@@ -251,7 +251,6 @@ GROUP BY col_int_undef_signed;
         "binlog.ttl_seconds" = "86400",
         "binlog.max_bytes" = "9223372036854775807",
         "binlog.max_history_nums" = "9223372036854775807",
-        "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000",
         "group_commit_data_bytes" = "134217728",
         "enable_mow_light_delete" = "false"

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDist
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -38,6 +40,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
@@ -49,6 +52,7 @@ public class AggregateUtils {
     public static final double MID_CARDINALITY_THRESHOLD = 0.01;
     public static final double HIGH_CARDINALITY_THRESHOLD = 0.1;
     public static final int LOW_NDV_THRESHOLD = 1024;
+    public static final int NDV_INSTANCE_BALANCE_MULTIPLIER = 512;
 
     public static AggregateFunction tryConvertToMultiDistinct(AggregateFunction function) {
         if (function instanceof SupportMultiDistinct && function.isDistinct()) {
@@ -59,10 +63,11 @@ public class AggregateUtils {
 
     /**countDistinctMultiExprToCountIf*/
     public static Expression countDistinctMultiExprToCountIf(Count count) {
-        Set<Expression> arguments = ImmutableSet.copyOf(count.getArguments());
-        Expression countExpr = count.getArgument(arguments.size() - 1);
-        for (int i = arguments.size() - 2; i >= 0; --i) {
-            Expression argument = count.getArgument(i);
+        Iterator<Expression> arguments = ImmutableSet.copyOf(count.getArguments())
+                .asList().reverse().iterator();
+        Expression countExpr = arguments.next();
+        while (arguments.hasNext()) {
+            Expression argument = arguments.next();
             If ifNull = new If(new IsNull(argument), NullLiteral.INSTANCE, countExpr);
             countExpr = assignNullType(ifNull);
         }
@@ -88,14 +93,52 @@ public class AggregateUtils {
                 && param.aggPhase.isLocal();
     }
 
-    /**hasUnknownStatistics*/
+    /** Whether the plan will run with one fragment instance on one BE. */
+    public static boolean isSingleExecutionInstance(ConnectContext connectContext) {
+        int beNumber = connectContext.getSessionVariable().getBeNumberForTest();
+        if (beNumber < 0) {
+            beNumber = connectContext.getEnv().getClusterInfo().getAllBackendByCurrentCluster(true).size();
+        }
+        beNumber = Math.max(1, beNumber);
+        String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
+        int parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName));
+        return beNumber == 1 && parallelInstance == 1;
+    }
+
+    /**
+     * Check whether any expression in the collection has unknown statistics.
+     * Statistics are considered unknown if they are null, isUnKnown(), or cannot be estimated.
+     * Note: when returning false, hotValue may still be unknown; use hasUnknownStatistics(..., true)
+     * if hot value presence is required.
+     *
+     * @param expressions expressions to check (e.g. group-by expressions)
+     * @param inputStatistics input statistics
+     * @return true if any expression has unknown statistics
+     */
     public static boolean hasUnknownStatistics(Collection<Expression> expressions, Statistics inputStatistics) {
+        return hasUnknownStatistics(expressions, inputStatistics, false);
+    }
+
+    /**
+     * Check whether any expression has unknown statistics, optionally requiring hot values.
+     * When requireHotValues is true, expressions without hotValues are also treated as unknown.
+     *
+     * @param expressions expressions to check
+     * @param inputStatistics input statistics
+     * @param requireHotValues if true, treat missing hotValues as unknown
+     * @return true if any expression has unknown statistics (or missing hot values when requireHotValues)
+     */
+    public static boolean hasUnknownStatistics(Collection<Expression> expressions,
+            Statistics inputStatistics, boolean requireHotValues) {
         for (Expression gbyExpr : expressions) {
             ColumnStatistic colStats = inputStatistics.findColumnStatistics(gbyExpr);
             if (colStats == null) {
                 colStats = ExpressionEstimation.estimate(gbyExpr, inputStatistics);
             }
             if (colStats == null || colStats.isUnKnown()) {
+                return true;
+            }
+            if (requireHotValues && colStats.hotValues == null) {
                 return true;
             }
         }
@@ -105,6 +148,34 @@ public class AggregateUtils {
     public static boolean containsCountDistinctMultiExpr(LogicalAggregate<? extends Plan> aggregate) {
         return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr ->
                 expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1);
+    }
+
+    /** e.g. Aggregation with avg(distinct a)(not support multiDistinct) or count(distinct a,b) will return true*/
+    public static boolean containsNotSupportMultiDistinctFunction(LogicalAggregate<? extends Plan> aggregate) {
+        return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr -> {
+            if (expr instanceof AggregateFunction && ((AggregateFunction) expr).isDistinct()) {
+                return !(expr instanceof SupportMultiDistinct)
+                        || expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1;
+            }
+            return false;
+        });
+    }
+
+    /** count agg function distinct group, up to 2*/
+    public static int distinctArgumentGroupCountUpToTwo(Aggregate<? extends Plan> aggregate) {
+        Set<Expression> distinctArgumentGroup = null;
+        for (AggregateFunction aggregateFunction : aggregate.getAggregateFunctions()) {
+            if (!aggregateFunction.isDistinct()) {
+                continue;
+            }
+            Set<Expression> currentGroup = ImmutableSet.copyOf(aggregateFunction.getDistinctArguments());
+            if (distinctArgumentGroup == null) {
+                distinctArgumentGroup = currentGroup;
+            } else if (!distinctArgumentGroup.equals(currentGroup)) {
+                return 2;
+            }
+        }
+        return distinctArgumentGroup == null ? 0 : 1;
     }
 
     /**getAllKeySet*/
@@ -129,9 +200,26 @@ public class AggregateUtils {
     public static Set<NamedExpression> getDistinctNamedExpr(LogicalAggregate<? extends Plan> aggregate) {
         return aggregate.getAggregateFunctions().stream()
                 .filter(AggregateFunction::isDistinct)
-                .flatMap(aggFunc -> aggFunc.getArguments().stream())
+                .flatMap(aggFunc -> aggFunc.getDistinctArguments().stream())
                 .filter(NamedExpression.class::isInstance)
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
+     * Check if order keys are identical to group-by keys (1-1 mapping, same order).
+     * Shared utility used by both PushTopnToAgg and SplitAggWithoutDistinct.
+     */
+    public static boolean isOrderKeysMatchGroupKeys(List<OrderKey> orderKeys,
+            List<Expression> groupByKeys) {
+        if (orderKeys.size() != groupByKeys.size()) {
+            return false;
+        }
+        for (int i = 0; i < groupByKeys.size(); i++) {
+            if (!groupByKeys.get(i).equals(orderKeys.get(i).getExpr())) {
+                return false;
+            }
+        }
+        return true;
     }
 }

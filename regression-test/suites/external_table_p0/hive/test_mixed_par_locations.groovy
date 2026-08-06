@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mixed_par_locations", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_mixed_par_locations", "p0,external") {
 
     def formats = ["_parquet", "_orc"]
     def q1 = """select * from test_mixed_par_locationsSUFFIX order by id;"""
@@ -27,7 +27,7 @@ suite("test_mixed_par_locations", "p0,external,hive,external_docker,external_doc
         logger.info("disable Hive test.")
         return;
     }
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
         String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_mixed_par_locations"

@@ -73,8 +73,9 @@ DEFINE_int32(num_cores, 0,
              " Impala. Setting it to 0 means Impala will use all available cores on the machine"
              " according to /proc/cpuinfo.");
 
+#include "common/compile_check_avoid_end.h"
+
 namespace doris {
-#include "common/compile_check_begin.h"
 // Helper function to warn if a given file does not contain an expected string as its
 // first line. If the file cannot be opened, no error is reported.
 void WarnIfFileNotEqual(const std::string& filename, const std::string& expected,
@@ -376,6 +377,17 @@ void CpuInfo::_get_cache_info(long cache_sizes[NUM_CACHE_LEVELS],
 #endif
 }
 
+long CpuInfo::get_l2_cache_size() {
+    static const long l2_cache_size = [] {
+        long cache_sizes[NUM_CACHE_LEVELS] = {};
+        long cache_line_sizes[NUM_CACHE_LEVELS] = {};
+        _get_cache_info(cache_sizes, cache_line_sizes);
+        constexpr long DEFAULT_L2_CACHE_SIZE = 256 * 1024;
+        return cache_sizes[L2_CACHE] > 0 ? cache_sizes[L2_CACHE] : DEFAULT_L2_CACHE_SIZE;
+    }();
+    return l2_cache_size;
+}
+
 std::string CpuInfo::debug_string() {
     DCHECK(initialized_);
     std::stringstream stream;
@@ -421,5 +433,4 @@ std::string CpuInfo::debug_string() {
     stream << std::endl;
     return stream.str();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

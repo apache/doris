@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_gcs", "p0,external,doris,new_catalog_property") {
+suite("test_paimon_gcs", "p0,external") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String gcs_warehouse = "s3://selectdb-qa-datalake-test/paimon_warehouse"

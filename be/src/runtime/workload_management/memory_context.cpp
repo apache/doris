@@ -20,7 +20,6 @@
 #include "runtime/workload_management/resource_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::string MemoryContext::debug_string() {
     return fmt::format("TaskId={}, Memory(Used={}, Limit={}, Peak={})",
@@ -30,5 +29,4 @@ std::string MemoryContext::debug_string() {
                        PrettyPrinter::print_bytes(peak_memory_bytes()));
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

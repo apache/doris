@@ -159,6 +159,16 @@ suite("map-md", "p0") {
 
     qt_sql """ SELECT CAST('{"key1":1,"key2":2}' AS MAP<STRING, INT>) """
 
+    qt_sql """ SELECT CAST('{"a":1,"a":2}' AS MAP<STRING, INT>) """
+
+    qt_sql """ SELECT size(CAST('{"a":1,"a":2}' AS MAP<STRING, INT>)) """
+
+    qt_sql """ SELECT element_at(CAST('{"a":1,"a":2}' AS MAP<STRING, INT>), 'a') """
+
+    qt_sql """ SELECT CAST('{"outer":{"a":1,"a":2}}' AS MAP<STRING, MAP<STRING, INT>>) """
+
+    qt_sql """ SELECT element_at(element_at(CAST('{"outer":{"a":1,"a":2}}' AS MAP<STRING, MAP<STRING, INT>>), 'outer'), 'a') """
+
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -399,7 +409,29 @@ suite("map-md", "p0") {
     qt_sql """ SELECT {'Alice': 20}['Alice']; """
 
     qt_sql """ SELECT ELEMENT_AT({'Alice': 20}, 'Alice');"""
-    
+
+    // test whether ELEMENT_AT executes normally in short-circuit-evaluation
+    sql """ DROP TABLE IF EXISTS test_map_sc; """
+    sql """ CREATE TABLE test_map_sc (
+                id INT,
+                join_key DATE,
+                col_map MAP<DATEV2, DATEV2>
+            )PROPERTIES ("replication_num" = "1");
+    """
+    sql """INSERT INTO test_map_sc VALUES
+            (1, '2024-01-01', {'2024-01-01': '2024-01-02'}),
+            (2, '2024-01-02', {'2024-01-01': '2024-01-03'});
+    """
+    sql """ SET short_circuit_evaluation = true; """
+    qt_element_at_short_circuit_evaluation_test """ 
+        SELECT
+            CASE
+                WHEN id > 0 THEN 1
+                ELSE element_at(col_map, DATE '2024-01-01')
+            END
+        FROM test_map_sc;
+    """
+    sql """ SET short_circuit_evaluation = false; """
     
     qt_sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
@@ -451,7 +483,7 @@ suite("map-md", "p0") {
     """
     sql """ INSERT INTO ${tableName} VALUES (1, MAP('key1', STRUCT(1, 'John'), 'key2', STRUCT(3, 'Jane'))) """
 
-    qt_sql """ SELECT STRUCT_ELEMENT(map_struct['key1'], 1), STRUCT_ELEMENT(map_struct['key1'], 'name') FROM ${tableName} order by id """
+    qt_sql """ SELECT element_at(map_struct['key1'], 1), element_at(map_struct['key1'], 'name') FROM ${tableName} order by id """
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """

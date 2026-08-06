@@ -25,14 +25,13 @@
 #include <ctime>
 
 #include "common/cast_set.h"
-#include "vec/common/int_exp.h"
-#include "vec/core/types.h"
-#include "vec/functions/cast/cast_to_timestamptz.h"
-#include "vec/runtime/time_value.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "core/types.h"
+#include "core/value/time_value.h"
+#include "core/value/vdatetime_value.h"
+#include "exec/common/int_exp.h"
+#include "exprs/function/cast/cast_to_timestamptz.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 VecDateTimeValue timestamp_from_datetime(const std::string& datetime_str) {
     tm time_tm;
     char* res = strptime(datetime_str.c_str(), "%Y-%m-%d %H:%M:%S", &time_tm);
@@ -165,5 +164,4 @@ std::string timev2_to_buffer_from_double(double time, int scale) {
 
     return fmt::to_string(buffer);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

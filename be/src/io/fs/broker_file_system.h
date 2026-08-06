@@ -28,7 +28,7 @@
 #include "common/status.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
-#include "runtime/client_cache.h"
+#include "util/client_cache.h"
 
 namespace doris {
 class TNetworkAddress;
