@@ -57,6 +57,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -202,9 +203,12 @@ class IvmAggDeltaHandler {
 
         // Dispatch each normalized aggregate target to its processor. The processor appends only the delta outputs
         // needed by that aggregate function, such as signed SUM, non-NULL COUNT, or MIN/MAX insert/delete extrema.
+        // When multiple targets share the same hidden state column (visible or hidden), only one delta
+        // aggregate output is emitted per column name.
+        Set<String> emittedDeltaNames = new HashSet<>();
         for (IvmAggTarget target : aggMeta.getAggTargets()) {
             aggFunctionRegistry.appendDeltaAggregateOutputs(
-                    target, dmlFactorSlot, deltaAggOutputs, aggExpressionBuilder);
+                    target, dmlFactorSlot, deltaAggOutputs, aggExpressionBuilder, emittedDeltaNames);
         }
 
         LogicalAggregate<?> deltaAgg = withDeltaAggregateOutput(normalizedAgg, deltaAggOutputs, newAggChild);
@@ -297,8 +301,13 @@ class IvmAggDeltaHandler {
             finalByColumnName.put(groupKey.getName(), deltaGroupKey(delta, groupKey.getName()));
         }
 
+        Set<String> visibleColumnNames = new HashSet<>();
+        for (IvmAggTarget target : aggMeta.getAggTargets()) {
+            visibleColumnNames.add(target.getVisibleSlot().getName());
+        }
         IvmAggApplyContext applyContext = new IvmAggApplyContext(
-                finalByColumnName, rawMvScan, delta.applyDeltaSlots, newGroupCount, aggExpressionBuilder);
+                finalByColumnName, rawMvScan, delta.applyDeltaSlots, newGroupCount, aggExpressionBuilder,
+                visibleColumnNames);
         for (IvmAggTarget target : aggMeta.getAggTargets()) {
             // The same processor that declared the target's delta outputs now merges old MV state and resolved delta
             // slots into the final visible column and any hidden state columns.

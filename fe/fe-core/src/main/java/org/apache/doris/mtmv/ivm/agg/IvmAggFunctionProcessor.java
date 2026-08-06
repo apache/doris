@@ -56,14 +56,27 @@ public abstract class IvmAggFunctionProcessor {
 
     /**
      * Common normalize implementation: visible alias stays visible, and processor-declared state keys become hidden
-     * aliases.
+     * aliases. An existing aggregate column is reused when the required hidden state {@code (aggClass, argExpr)}
+     * is already present in {@code aggColumnPool}; otherwise a new hidden column is created, registered in the
+     * pool, and appended to {@code hiddenAggOutputs}.
      */
-    IvmAggTargetSpec buildTargetSpec(int ordinal, AggregateFunction function, Alias visibleAlias) {
+    IvmAggTargetSpec buildTargetSpec(int ordinal, AggregateFunction function, Alias visibleAlias,
+            Map<IvmAggColumnKey, Slot> aggColumnPool, List<NamedExpression> hiddenAggOutputs) {
         ImmutableMap.Builder<IvmAggStateKey, Alias> hiddenAliases = ImmutableMap.builder();
         for (IvmAggStateKey stateKey : hiddenStateKeys(function)) {
-            hiddenAliases.put(stateKey, new Alias(
-                    hiddenStateAggregate(stateKey, function), IvmUtil.ivmAggHiddenColumnName(ordinal,
-                            stateKey.name())));
+            AggregateFunction stateFunc = hiddenStateAggregate(stateKey, function);
+            IvmAggColumnKey key = IvmAggColumnKey.of(
+                    IvmAggFunctionKind.valueOf(stateKey.name()), stateFunc.child(0));
+            Slot existingSlot = aggColumnPool.get(key);
+            if (existingSlot != null) {
+                hiddenAliases.put(stateKey, new Alias(existingSlot, existingSlot.getName()));
+                continue;
+            }
+            String colName = IvmUtil.ivmAggHiddenColumnName(ordinal, stateKey.name());
+            Alias newAlias = new Alias(stateFunc, colName);
+            hiddenAliases.put(stateKey, newAlias);
+            aggColumnPool.put(key, newAlias.toSlot());
+            hiddenAggOutputs.add(newAlias);
         }
         return new IvmAggTargetSpec(ordinal, handledFunctionKind(), visibleAlias,
                 hiddenAliases.build(), targetArguments(function));

@@ -85,7 +85,7 @@ class IvmAggCountProcessor extends IvmAggFunctionProcessor {
     public void appendApplyExpressions(IvmAggTarget target, IvmAggApplyContext applyContext) {
         IvmAggExpressionBuilder ctx = applyContext.expressions();
         if (target.isCountStar()) {
-            applyContext.putFinalExpression(target.getVisibleSlot().getName(),
+            applyContext.putFinalExpression(target, target.getVisibleSlot().getName(),
                     TypeCoercionUtils.castIfNotMatchType(
                             applyContext.newGroupCount(), target.getVisibleSlot().getDataType()));
             return;
@@ -95,7 +95,7 @@ class IvmAggCountProcessor extends IvmAggFunctionProcessor {
                 applyContext.oldMvSlotZeroIfNull(target.getVisibleSlot().getName()),
                 applyContext.deltaSlotValue(target, IvmAggFunctionKind.COUNT)),
                 "negative count for " + target.getVisibleSlot().getName());
-        applyContext.putFinalExpression(target.getVisibleSlot().getName(),
+        applyContext.putFinalExpression(target, target.getVisibleSlot().getName(),
                 new If(ctx.isPositive(newCount),
                         TypeCoercionUtils.castIfNotMatchType(newCount, target.getVisibleSlot().getDataType()),
                         ctx.zeroOf(target.getVisibleSlot().getDataType())));

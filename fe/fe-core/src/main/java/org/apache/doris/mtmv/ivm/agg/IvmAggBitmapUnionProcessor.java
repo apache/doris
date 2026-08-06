@@ -37,7 +37,7 @@ class IvmAggBitmapUnionProcessor extends IvmAggBitmapProcessor {
     public void appendApplyExpressions(IvmAggTarget target, IvmAggApplyContext applyContext) {
         // The visible MV column is the bitmap state itself, so merge old visible state with insert-delta bitmap.
         Slot oldBitmap = applyContext.rawMvSlot(target.getVisibleSlot().getName());
-        applyContext.putFinalExpression(target.getVisibleSlot().getName(),
+        applyContext.putFinalExpression(target, target.getVisibleSlot().getName(),
                 buildGuardedNewBitmap(target, applyContext, oldBitmap));
     }
 }

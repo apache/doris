@@ -39,6 +39,7 @@ import org.junit.jupiter.api.Assertions;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -81,7 +82,8 @@ abstract class IvmAggProcessorTestBase {
         }
         Map<String, Expression> finalByName = new HashMap<>();
         processor.appendApplyExpressions(target, new IvmAggApplyContext(finalByName, rawMvScan,
-                applyDeltaSlots, newGroupCount, IvmAggExpressionBuilder.INSTANCE));
+                applyDeltaSlots, newGroupCount, IvmAggExpressionBuilder.INSTANCE,
+                Collections.singleton(target.getVisibleSlot().getName())));
         return finalByName;
     }
 
