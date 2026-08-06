@@ -255,7 +255,7 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
                     // order by
                     OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
                     ListComparator<List<Comparable>> comparator =
-                        new ListComparator<>(orderByPairs.toArray(orderByPairArr));
+                            new ListComparator<>(orderByPairs.toArray(orderByPairArr));
                     orderedTableInfos = SortAndLimit.sortAndLimit(tabletInfos, comparator, sizeLimit);
                 } else {
                     orderedTableInfos = tabletInfos;
