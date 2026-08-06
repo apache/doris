@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/DataSinks_types.h>
+#include <gtest/gtest_prod.h>
 
 #include "common/atomic_shared_ptr.h"
 #include "common/status.h"
@@ -89,6 +90,7 @@ public:
 
 private:
     friend class IcebergTableSinkOperatorTest;
+    FRIEND_TEST(VIcebergTableWriterTest, RejectMissingPartitionSource);
 
     // The currently active partition writer (may be VIcebergPartitionWriter or VIcebergSortWriter).
     // Updated during write() to track which writer received the most recent data.

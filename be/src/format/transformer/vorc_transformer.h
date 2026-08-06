@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "format/table/iceberg/schema.h"
 #include "format/transformer/vparquet_transformer.h"
 #include "orc/Type.hh"
@@ -44,9 +45,12 @@ struct ColumnVectorBatch;
 } // namespace orc
 namespace iceberg {
 class NestedField;
+class Type;
 } // namespace iceberg
 
 namespace doris {
+
+bool iceberg_type_requires_binary_normalization(iceberg::Type& type);
 
 class VOrcOutputStream : public orc::OutputStream {
 public:
@@ -122,6 +126,7 @@ private:
     std::unique_ptr<orc::Writer> _writer;
 
     const iceberg::Schema* _iceberg_schema;
+    std::vector<uint8_t> _iceberg_binary_normalization_required;
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer
@@ -134,6 +139,8 @@ private:
 
     static constexpr const char* ORC_ICEBERG_ID_KEY = "iceberg.id";
     static constexpr const char* ORC_ICEBERG_REQUIRED_KEY = "iceberg.required";
+    static constexpr const char* ICEBERG_BINARY_TYPE = "iceberg.binary-type";
+    static constexpr const char* ICEBERG_FIXED_LENGTH = "iceberg.length";
     static constexpr const char* ICEBERG_LONG_TYPE = "iceberg.long-type";
 };
 

@@ -19,22 +19,36 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.expressions.Literal;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -43,6 +57,7 @@ import org.mockito.Mockito;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Test for InsertUtils.getFinalErrorMsg()
@@ -65,21 +80,37 @@ public class InsertUtilsTest {
 
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         DatabaseIf database = Mockito.mock(DatabaseIf.class);
-        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        Schema currentSchema = new Schema(3, ImmutableList.of(icebergDefaultField(1)));
+        Schema pinnedSchema = new Schema(2, ImmutableList.of(icebergDefaultField(2)));
         Mockito.when(table.getName()).thenReturn("table");
+        Mockito.when(table.getId()).thenReturn(17L);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(table.getIcebergTable()).thenReturn(icebergTable);
         Mockito.when(table.getDatabase()).thenReturn(database);
         Mockito.when(database.getFullName()).thenReturn("db");
         Mockito.when(database.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.getName()).thenReturn("catalog");
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(catalog.getEnableMappingVarbinary()).thenReturn(true);
+        Mockito.when(catalog.getEnableMappingTimestampTz()).thenReturn(true);
+        Mockito.when(icebergTable.schema()).thenReturn(currentSchema);
+        Mockito.when(icebergTable.schemas()).thenReturn(ImmutableMap.of(
+                pinnedSchema.schemaId(), pinnedSchema,
+                currentSchema.schemaId(), currentSchema));
+        Mockito.when(icebergTable.properties()).thenReturn(
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
+        Mockito.when(icebergTable.spec()).thenReturn(PartitionSpec.unpartitioned());
+        Mockito.when(icebergTable.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(icebergTable.location()).thenReturn("file:///tmp/table");
+        Mockito.when(icebergTable.uuid()).thenReturn(
+                UUID.fromString("00000000-0000-0000-0000-000000000017"));
         IcebergMvccSnapshot snapshot = new IcebergMvccSnapshot(new IcebergSnapshotCacheValue(
                 new IcebergPartitionInfo(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
                 new IcebergSnapshot(2L, 2L)));
         Mockito.when(table.loadSnapshot(Optional.empty(), Optional.empty())).thenReturn(snapshot);
-        Mockito.when(table.getBaseSchema(false)).thenAnswer(invocation -> {
-            boolean pinned = statementContext.getSnapshot(table).isPresent();
-            String defaultValue = pinned ? "2" : "1";
-            return ImmutableList.of(new Column("id", Type.INT, false, null, false, defaultValue, ""));
-        });
 
         UnboundInlineTable values = new UnboundInlineTable(ImmutableList.of(ImmutableList.of()));
         UnboundIcebergTableSink<Plan> sink = new UnboundIcebergTableSink<>(
@@ -95,6 +126,17 @@ public class InsertUtilsTest {
         List<List<NamedExpression>> rows = normalizedValues.getConstantExprsList();
         Assertions.assertEquals("2", rows.get(0).get(0).child(0).toSql());
         Mockito.verify(table, Mockito.times(1)).loadSnapshot(Optional.empty(), Optional.empty());
+    }
+
+    private static Types.NestedField icebergDefaultField(int value) {
+        return Types.NestedField.builder()
+                .withId(1)
+                .withName("id")
+                .isOptional(true)
+                .ofType(Types.IntegerType.get())
+                .withInitialDefault(Literal.of(value))
+                .withWriteDefault(Literal.of(value))
+                .build();
     }
 
     private String generateString(int length) {
@@ -285,5 +327,44 @@ public class InsertUtilsTest {
         Assertions.assertTrue(result.contains("please use `show load` for detail msg"));
         Assertions.assertFalse(result.contains(url));
         Assertions.assertTrue(result.length() <= MAX_TOTAL_BYTES);
+    }
+
+    @Test
+    public void icebergWriteDefaultExpandsExplicitDefault() {
+        Schema schema = new Schema(Types.NestedField.builder()
+                .withId(1)
+                .withName("v")
+                .isOptional(true)
+                .ofType(Types.IntegerType.get())
+                .withWriteDefault(Literal.of(35))
+                .build());
+        IcebergWriteSchemaContext writeSchemaContext = IcebergWriteSchemaContext.forSchema(
+                schema, 3, true, true);
+        Column column = writeSchemaContext.getColumns().get(0);
+
+        NamedExpression expression = InsertUtils.generateDefaultExpression(
+                column, Optional.of(writeSchemaContext));
+
+        Assertions.assertInstanceOf(Alias.class, expression);
+        Assertions.assertEquals("35", expression.child(0).toSql());
+    }
+
+    @Test
+    public void nativeDefaultStillExpandsExplicitDefault() {
+        Column column = new Column("v", Type.INT, false, null, true, "7", "");
+
+        NamedExpression expression = InsertUtils.generateDefaultExpression(column, Optional.empty());
+
+        Assertions.assertInstanceOf(UnboundAlias.class, expression);
+        Assertions.assertEquals("7", expression.child(0).toSql());
+    }
+
+    @Test
+    public void nullableColumnWithoutDefaultStillExpandsToNull() {
+        Column column = new Column("v", PrimitiveType.INT, true);
+
+        NamedExpression expression = InsertUtils.generateDefaultExpression(column, Optional.empty());
+
+        Assertions.assertInstanceOf(NullLiteral.class, expression.child(0));
     }
 }
