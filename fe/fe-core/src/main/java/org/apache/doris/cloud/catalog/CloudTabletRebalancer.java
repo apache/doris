@@ -83,7 +83,7 @@ import java.util.stream.Collectors;
 
 public class CloudTabletRebalancer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudTabletRebalancer.class);
-    private static final int MAX_GLOBAL_TABLET_SET_INITIAL_CAPACITY = 1 << 20;
+    private static final int MAX_GLOBAL_TABLET_SET_INITIAL_CAPACITY = 1 << 16;
     private static final Function<Long, Set<Long>> DEFAULT_GLOBAL_TABLET_SET_FACTORY =
             ignored -> ConcurrentHashMap.newKeySet();
 
@@ -316,7 +316,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     @Getter
-    private class InfightTablet {
+    private static class InfightTablet {
         private final long tabletId;
         private final String clusterId;
 
@@ -341,7 +341,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         public int hashCode() {
             int result = 1;
             result = 31 * result + Long.hashCode(tabletId);
-            return 31 * result + Objects.hashCode(clusterId);
+            return 31 * result + clusterId.hashCode();
         }
     }
 
@@ -992,11 +992,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     CloudReplica replica = (CloudReplica) r;
                     // clean secondary map
                     replica.checkAndClearSecondaryClusterToBe(cluster, needRehashDeadTime);
-                    InfightTablet taskKey = new InfightTablet(tablet.getId(), cluster);
                     // colocate table no need to update primary backends
                     if (isColocated) {
                         replica.clearClusterToBe(cluster);
-                        tabletToInfightTask.remove(taskKey);
+                        tabletToInfightTask.remove(new InfightTablet(tablet.getId(), cluster));
                         continue;
                     }
 
@@ -1014,6 +1013,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     }
 
                     // primary backend not available too long, change one
+                    InfightTablet taskKey = new InfightTablet(tablet.getId(), cluster);
                     long beId = -1L;
                     be = replica.getSecondaryBackend(cluster);
                     if (be != null && be.isQueryAvailable()) {
