@@ -34,19 +34,22 @@ import java.util.function.Supplier;
  * partition-batch) reuse the single {@link org.apache.doris.connector.spi.ConnectorSession} built on the
  * request thread and so reach this same scope concurrently. {@code computeIfAbsent} gives every caller of
  * a key the same instance — required for the shared table object and for the delete supply map that scan
- * and write both mutate. The loaders used by connectors do not re-enter this scope, so the map's
- * single-key atomicity is safe here.</p>
+ * and write both mutate. Loaders MUST NOT re-enter this scope: a recursive {@code computeIfAbsent}
+ * can throw {@code IllegalStateException} on a same-bin collision or silently drop entries during a
+ * mid-computation resize. Connectors that need scope-backed state during scan planning (e.g. iceberg's
+ * shared table and delete supply) nest a separate per-catalog memo map inside the scope, avoiding
+ * re-entry.</p>
  */
 public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
 
     private static final Logger LOG = LogManager.getLogger(ConnectorStatementScopeImpl.class);
 
-    private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Object, Object> cache = new ConcurrentHashMap<>();
     private boolean closed;
 
     @Override
     @SuppressWarnings("unchecked")
-    public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+    public <T> T computeIfAbsent(Object key, Supplier<T> loader) {
         return (T) cache.computeIfAbsent(key, k -> loader.get());
     }
 
