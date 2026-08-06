@@ -53,6 +53,9 @@ struct VariantShreddedTypedValue {
     // retain the decoded leaf without copying it or depending on scanner lifetime.
     ColumnPtr column;
     DataTypePtr type;
+    // Physical identities such as binary annotations cannot use the typed scalar state. In that
+    // case the format reader may return an exact Nullable<VariantV2> leaf instead.
+    ColumnPtr normalized;
 };
 
 // Format readers keep their native shredded representation behind this interface. Core Variant
@@ -76,15 +79,26 @@ public:
                                                                size_t length) const = 0;
     virtual std::shared_ptr<VariantShreddedState> select_indices(
             const uint32_t* indices_begin, const uint32_t* indices_end) const = 0;
+    // False means the state contains only projected leaves and cannot reconstruct root values.
+    virtual bool can_materialize() const = 0;
     // Appends another state only when both format-owned physical layouts have identical semantics.
     // An incompatible source must leave this state unchanged and return false.
     virtual bool try_append(const VariantShreddedState& source) = 0;
     virtual std::optional<VariantShreddedTypedValue> find_typed_value(
             std::span<const VariantShreddedPathSegment> path) const = 0;
+    // Produces an exact Variant representation of one requested path. Complete states may fall
+    // back to their canonical roots; projected states must preserve the format's physical scalar
+    // identity rather than inferring it from the decoded value.
+    virtual std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment> path) const = 0;
 
     // The returned column is cached and owned by this state, so borrowed VariantRef values remain
     // valid for the state lifetime. Implementations must not materialize before this is called.
     virtual const ColumnVariantV2& materialized_column() const = 0;
+    // Whole-column transport may encode only the retained projection because access-path planning
+    // guarantees that omitted fields have no downstream consumer. The returned column must be a
+    // self-contained, non-shredded wire representation with the same row count.
+    virtual const ColumnVariantV2& serialized_column() const = 0;
 };
 
 // ColumnVariantV2 stores a whole column in exactly one state: encoded Variant bytes, one nullable
@@ -146,6 +160,7 @@ public:
     const DataTypePtr& typed_type() const;
     std::optional<VariantShreddedTypedValue> find_shredded_typed_value(
             std::span<const VariantShreddedPathSegment> path) const;
+    const ColumnVariantV2& serialization_column() const;
     void ensure_encoded();
     ReadView read_view() const;
 
@@ -235,6 +250,8 @@ private:
     ColumnVariantV2(const ColumnVariantV2& other);
 
     uint32_t _find_or_insert_metadata(StringRef metadata);
+    void _replace_shredded_state_with(const ColumnVariantV2& replacement);
+    void _ensure_serialized();
     void _adopt_state_from(ColumnVariantV2& replacement);
     void _detach_metadata_for_write();
     void _check_invariants() const;

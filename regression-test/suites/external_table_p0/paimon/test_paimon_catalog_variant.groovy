@@ -34,6 +34,7 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
                 "s3.path.style.access" = "true"
             );"""
         sql """use `${catalogName}`.`test_paimon_spark`"""
+        sql """set enable_variant_v2 = true"""
         sql """set force_jni_scanner = true"""
 
         explain {
@@ -87,5 +88,137 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
         """
 
         sql """set force_jni_scanner = false"""
+
+        explain {
+            sql "select * from variant_smoke order by id"
+            check { explainString ->
+                def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
+                // Paimon can change the physical split count; every planned split must stay native.
+                return nativeSplits.find()
+                        && nativeSplits.group(1).toInteger() > 0
+                        && nativeSplits.group(1) == nativeSplits.group(2)
+            }
+        }
+
+        order_qt_native_full_variant """
+            select id, payload
+            from variant_smoke
+            order by id
+        """
+
+        order_qt_native_object_subpaths """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['age'] as int),
+                   cast(payload['profile']['city'] as string),
+                   cast(payload['active'] as boolean)
+            from variant_smoke
+            order by id
+        """
+
+        order_qt_native_null_and_missing """
+            select id,
+                   payload['missing'] is null,
+                   payload['not_exist'] is null
+            from variant_smoke
+            order by id
+        """
+
+        order_qt_native_root_array """
+            select id,
+                   cast(payload[1] as int),
+                   cast(payload[2] as string),
+                   cast(payload[3] as boolean),
+                   cast(payload[4] as string),
+                   cast(payload[5]['k'] as string)
+            from variant_smoke
+            where id = 3
+            order by id
+        """
+
+        order_qt_native_subpath_predicate """
+            select id, cast(payload['name'] as string)
+            from variant_smoke
+            where cast(payload['age'] as int) >= 20
+            order by id
+        """
+
+        ["variant_shredded", "variant_mixed_us", "variant_mixed_su"].each { tableName ->
+            explain {
+                sql "select * from ${tableName} order by id"
+                check { explainString ->
+                    def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
+                    return nativeSplits.find()
+                            && nativeSplits.group(1).toInteger() > 0
+                            && nativeSplits.group(1) == nativeSplits.group(2)
+                }
+            }
+        }
+
+        order_qt_native_shredded_projection """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['age'] as int),
+                   cast(payload['extra'] as string)
+            from variant_shredded
+            where cast(payload['age'] as int) >= 20
+            order by id
+        """
+
+        order_qt_native_mixed_us_partitions """
+            select id,
+                   cast(event_date as string),
+                   cast(payload['name'] as string),
+                   cast(payload['age'] as int),
+                   cast(payload['layout'] as string)
+            from variant_mixed_us
+            order by id
+        """
+
+        order_qt_native_mixed_us_root """
+            select id, cast(payload as string)
+            from variant_mixed_us
+            order by id
+        """
+
+        order_qt_native_mixed_su_partitions """
+            select id,
+                   cast(event_date as string),
+                   cast(payload['name'] as string),
+                   cast(payload['age'] as int),
+                   cast(payload['layout'] as string)
+            from variant_mixed_su
+            order by id
+        """
+
+        order_qt_native_mixed_su_root """
+            select id, cast(payload as string)
+            from variant_mixed_su
+            order by id
+        """
+
+        String internalDb = context.config.getDbNameByFile(context.file)
+        String mvName = "paimon_variant_mixed_mv"
+        sql """switch internal"""
+        sql """use `${internalDb}`"""
+        sql """drop materialized view if exists ${mvName}"""
+        try {
+            sql """
+                create materialized view ${mvName}
+                build deferred refresh complete on manual
+                distributed by random buckets 1
+                properties ('replication_num' = '1')
+                as
+                select cast(payload['name'] as string) as name, count(*) as row_count
+                from ${catalogName}.`test_paimon_spark`.variant_mixed_us
+                where event_date = '2026-06-01'
+                group by cast(payload['name'] as string)
+            """
+            sql """refresh materialized view ${mvName} complete"""
+            waitingMTMVTaskFinishedByMvName(mvName)
+            order_qt_native_mixed_us_mtmv """select * from ${mvName} order by name"""
+        } finally {
+            sql """drop materialized view if exists ${mvName}"""
+        }
     }
 }

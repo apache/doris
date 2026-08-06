@@ -15,6 +15,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "runtime/runtime_profile.h"
 
 namespace doris::format::parquet {
@@ -38,12 +40,12 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* level_only_read_time = nullptr;
     RuntimeProfile::Counter* level_only_skip_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr; // value materialization time (ns)
-    RuntimeProfile::Counter* variant_reconstruction_time = nullptr;
-    RuntimeProfile::Counter* variant_reconstructed_rows = nullptr;
-    RuntimeProfile::Counter* variant_direct_leaf_rows = nullptr;
-    RuntimeProfile::Counter* variant_direct_leaf_path_misses = nullptr;
-    RuntimeProfile::Counter* variant_direct_leaf_residual_fallbacks = nullptr;
-    RuntimeProfile::Counter* variant_direct_leaf_unsupported_fallbacks = nullptr;
+    std::shared_ptr<RuntimeProfile::Counter> variant_reconstruction_time;
+    std::shared_ptr<RuntimeProfile::Counter> variant_reconstructed_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_unsupported_fallbacks;
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
     RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;
@@ -174,12 +176,12 @@ struct ParquetProfile {
     RuntimeProfile::Counter* level_only_read_time = nullptr;
     RuntimeProfile::Counter* level_only_skip_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr;
-    RuntimeProfile::Counter* variant_reconstruction_time = nullptr;
-    RuntimeProfile::Counter* variant_reconstructed_rows = nullptr;
-    RuntimeProfile::Counter* variant_direct_leaf_rows = nullptr;
-    RuntimeProfile::Counter* variant_direct_leaf_path_misses = nullptr;
-    RuntimeProfile::Counter* variant_direct_leaf_residual_fallbacks = nullptr;
-    RuntimeProfile::Counter* variant_direct_leaf_unsupported_fallbacks = nullptr;
+    std::shared_ptr<RuntimeProfile::Counter> variant_reconstruction_time;
+    std::shared_ptr<RuntimeProfile::Counter> variant_reconstructed_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_unsupported_fallbacks;
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
     RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;

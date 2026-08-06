@@ -24,3 +24,45 @@ payload	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable
 -- !subpath_predicate --
 2	bob
 
+-- !native_full_variant --
+1	{"active":true,"age":18,"missing":null,"name":"alice","profile":{"city":"beijing","zip":100000},"score":98.5,"tags":["flink","paimon"]}
+2	{"active":false,"age":30,"extra":{"levels":[1,2,3]},"name":"bob","profile":{"city":"shanghai"},"tags":["doris"]}
+3	[1,"mixed",false,null,{"k":"v"}]
+
+-- !native_object_subpaths --
+1	alice	18	beijing	true
+2	bob	30	shanghai	false
+3	\N	\N	\N	\N
+
+-- !native_null_and_missing --
+1	false	true
+2	true	true
+3	true	true
+
+-- !native_root_array --
+3	1	mixed	false	null	v
+
+-- !native_subpath_predicate --
+2	bob
+
+-- !native_shredded_projection --
+2	bob	30	\N
+
+-- !native_mixed_us_partitions --
+1	2026-06-01	alice	18	unshredded
+2	2026-07-01	bob	30	shredded
+
+-- !native_mixed_us_root --
+1	{"age":18,"layout":"unshredded","name":"alice"}
+2	{"age":30,"layout":"shredded","name":"bob"}
+
+-- !native_mixed_su_partitions --
+1	2026-06-01	alice	18	shredded
+2	2026-07-01	bob	30	unshredded
+
+-- !native_mixed_su_root --
+1	{"age":18,"layout":"shredded","name":"alice"}
+2	{"age":30,"layout":"unshredded","name":"bob"}
+
+-- !native_mixed_us_mtmv --
+alice	1

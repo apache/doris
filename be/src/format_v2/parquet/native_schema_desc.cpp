@@ -65,6 +65,8 @@ enum class VariantPrimitiveAnnotation : uint8_t {
     NONE,
     INT8,
     INT16,
+    INT32,
+    INT64,
     DECIMAL,
     DATE,
     TIME_MICROS,
@@ -90,6 +92,15 @@ static VariantPrimitiveAnnotation variant_logical_annotation(
         }
         if (logical.INTEGER.bitWidth == 16) {
             return VariantPrimitiveAnnotation::INT16;
+        }
+        // Iceberg 1.11 writes full-width signed INTEGER annotations even though the Variant
+        // specification represents these widths without an annotation. Keep the widths distinct
+        // so validation only accepts them with the matching physical type.
+        if (logical.INTEGER.bitWidth == 32) {
+            return VariantPrimitiveAnnotation::INT32;
+        }
+        if (logical.INTEGER.bitWidth == 64) {
+            return VariantPrimitiveAnnotation::INT64;
         }
         return VariantPrimitiveAnnotation::UNSUPPORTED;
     }
@@ -136,6 +147,11 @@ static VariantPrimitiveAnnotation variant_converted_annotation(
         return VariantPrimitiveAnnotation::INT8;
     case tparquet::ConvertedType::INT_16:
         return VariantPrimitiveAnnotation::INT16;
+    // Parquet Java mirrors full-width logical annotations into these legacy converted types.
+    case tparquet::ConvertedType::INT_32:
+        return VariantPrimitiveAnnotation::INT32;
+    case tparquet::ConvertedType::INT_64:
+        return VariantPrimitiveAnnotation::INT64;
     case tparquet::ConvertedType::DECIMAL:
         return VariantPrimitiveAnnotation::DECIMAL;
     case tparquet::ConvertedType::DATE:
@@ -215,11 +231,13 @@ static Status validate_variant_primitive_type(const NativeFieldSchema& typed) {
         valid = annotation == VariantPrimitiveAnnotation::NONE ||
                 annotation == VariantPrimitiveAnnotation::INT8 ||
                 annotation == VariantPrimitiveAnnotation::INT16 ||
+                annotation == VariantPrimitiveAnnotation::INT32 ||
                 annotation == VariantPrimitiveAnnotation::DECIMAL ||
                 annotation == VariantPrimitiveAnnotation::DATE;
         break;
     case tparquet::Type::INT64:
         valid = annotation == VariantPrimitiveAnnotation::NONE ||
+                annotation == VariantPrimitiveAnnotation::INT64 ||
                 annotation == VariantPrimitiveAnnotation::DECIMAL ||
                 annotation == VariantPrimitiveAnnotation::TIME_MICROS ||
                 annotation == VariantPrimitiveAnnotation::TIMESTAMP_MICROS ||
@@ -266,17 +284,22 @@ private:
     bool _original;
 };
 
-static Status validate_variant_layout(const tparquet::SchemaElement& group_schema,
-                                      const NativeFieldSchema& group_field) {
-    const auto& annotation = group_schema.logicalType.VARIANT;
-    if (annotation.__isset.specification_version && annotation.specification_version != 1) {
+Status validate_variant_layout(const NativeFieldSchema& group_field,
+                               std::optional<int8_t> specification_version,
+                               bool allow_optional_shredded_metadata) {
+    if (specification_version.has_value() && *specification_version != 1) {
         return Status::NotSupported("Parquet Variant specification version {} is not supported",
-                                    annotation.specification_version);
+                                    *specification_version);
+    }
+    if (group_field.parquet_schema.__isset.repetition_type &&
+        group_field.parquet_schema.repetition_type == tparquet::FieldRepetitionType::REPEATED) {
+        return Status::NotSupported("repeated Parquet Variant group {} is not supported",
+                                    group_field.name);
     }
     if (group_field.children.size() < 2 || group_field.children.size() > 3) {
         return Status::Corruption(
                 "Parquet Variant {} must contain metadata, value, and optional typed_value",
-                group_schema.name);
+                group_field.name);
     }
 
     const NativeFieldSchema* metadata = nullptr;
@@ -292,22 +315,29 @@ static Status validate_variant_layout(const tparquet::SchemaElement& group_schem
             target = &typed_value;
         } else {
             return Status::Corruption("Parquet Variant {} has unexpected child {}",
-                                      group_schema.name, child.name);
+                                      group_field.name, child.name);
         }
         if (*target != nullptr) {
-            return Status::Corruption("Parquet Variant {} has duplicate child {}",
-                                      group_schema.name, child.name);
+            return Status::Corruption("Parquet Variant {} has duplicate child {}", group_field.name,
+                                      child.name);
         }
         *target = &child;
     }
     if (metadata == nullptr || value == nullptr) {
         return Status::Corruption("Parquet Variant {} requires metadata and value children",
-                                  group_schema.name);
+                                  group_field.name);
     }
+    const auto metadata_repetition = metadata->parquet_schema.repetition_type;
+    // Paimon makes every field in its shredded carrier optional. Restrict that compatibility to
+    // unannotated overrides; row materialization still rejects null metadata for a non-null value.
+    const bool valid_metadata_repetition =
+            metadata_repetition == tparquet::FieldRepetitionType::REQUIRED ||
+            (allow_optional_shredded_metadata && typed_value != nullptr &&
+             metadata_repetition == tparquet::FieldRepetitionType::OPTIONAL);
     if (!metadata->children.empty() || metadata->physical_type != tparquet::Type::BYTE_ARRAY ||
-        metadata->parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED) {
+        !valid_metadata_repetition) {
         return Status::Corruption("Parquet Variant {} metadata must be a required BYTE_ARRAY",
-                                  group_schema.name);
+                                  group_field.name);
     }
     const auto expected_value_repetition = typed_value == nullptr
                                                    ? tparquet::FieldRepetitionType::REQUIRED
@@ -317,13 +347,13 @@ static Status validate_variant_layout(const tparquet::SchemaElement& group_schem
     if (!value->children.empty() || value->physical_type != tparquet::Type::BYTE_ARRAY ||
         value->parquet_schema.repetition_type != expected_value_repetition) {
         return Status::Corruption("Parquet Variant {} value must be a {} BYTE_ARRAY",
-                                  group_schema.name,
+                                  group_field.name,
                                   typed_value == nullptr ? "required" : "optional");
     }
     if (typed_value != nullptr &&
         typed_value->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL) {
         return Status::Corruption("Parquet Variant {} typed_value must be optional",
-                                  group_schema.name);
+                                  group_field.name);
     }
 
     enum class WrapperContext : uint8_t { OBJECT_FIELD, ARRAY_ELEMENT };
@@ -945,7 +975,12 @@ Status NativeFieldDescriptor::parse_group_field(
             ScopedBoolOverride timestamp_tz_mapping(_enable_mapping_timestamp_tz, true);
             RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, group_field));
         }
-        RETURN_IF_ERROR(validate_variant_layout(group_schema, *group_field));
+        const auto& annotation = group_schema.logicalType.VARIANT;
+        const auto specification_version =
+                annotation.__isset.specification_version
+                        ? std::optional<int8_t>(annotation.specification_version)
+                        : std::nullopt;
+        RETURN_IF_ERROR(validate_variant_layout(*group_field, specification_version));
         group_field->variant_physical_type = group_field->data_type;
         // Native page readers dispatch groups from data_type, so preserve the physical STRUCT
         // here. The public Parquet schema maps it to logical Variant without losing this shape.

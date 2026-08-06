@@ -567,6 +567,23 @@ TEST(VariantBatchBuilderTest, IntegerAndDecimalWidthsAreMinimal) {
     EXPECT_EQ(value.array_at(integers.size() + decimals.size()).get_decimal().width, 16);
 }
 
+TEST(VariantBatchBuilderTest, AddValuePreservesExplicitPrimitiveWidths) {
+    const OwnedBuilderValue source = build_owned_value([](VariantBatchBuilder::Row& row) {
+        auto array = row.start_array();
+        row.add_scalar(VariantScalarRef::integer(7, 8));
+        row.add_scalar(VariantScalarRef::decimal(8, 2, 16));
+        array.finish();
+    });
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    row.add_value(source.ref());
+    row.finish();
+    VariantBatchBuilder imported = builder.finish_batch();
+
+    EXPECT_EQ(imported.value_at(0).array_at(0).primitive_id(), VariantPrimitiveId::INT64);
+    EXPECT_EQ(imported.value_at(0).array_at(1).primitive_id(), VariantPrimitiveId::DECIMAL16);
+}
+
 TEST(VariantBatchBuilderTest, DecimalValidationLargeIntFallbackAndExplicitWidths) {
     VariantBatchBuilder builder;
     auto row = builder.begin_row();

@@ -95,6 +95,11 @@ struct FileScanRequest {
     // predicate_columns, the value is semantically required and must still be validated and read.
     std::vector<LocalColumnId> count_star_placeholder_columns;
 
+    // Table formats may assign semantics that legacy physical files do not encode. Each path here
+    // identifies an unannotated Parquet group that the physical reader must validate and decode as
+    // Variant. Keeping this explicit prevents generic Parquet scans from guessing based on names.
+    std::vector<LocalColumnIndex> variant_schema_overrides;
+
     bool is_count_star_placeholder(LocalColumnId column_id) const {
         return std::ranges::find(count_star_placeholder_columns, column_id) !=
                count_star_placeholder_columns.end();

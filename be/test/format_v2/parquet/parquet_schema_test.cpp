@@ -227,6 +227,97 @@ TEST(ParquetSchemaTest, NativeSchemaRecognizesVariantLogicalGroup) {
     }
 }
 
+TEST(ParquetSchemaTest, AppliesTableFormatVariantOverrideToUnannotatedGroup) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__isset.logicalType = false;
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+    ASSERT_EQ(fields.size(), 1);
+    ASSERT_EQ(fields[0]->kind, ParquetColumnSchemaKind::STRUCT);
+
+    const std::vector overrides {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    const auto status = apply_variant_schema_overrides(descriptor, overrides, &fields);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::VARIANT);
+    EXPECT_TRUE(fields[0]->contains_variant);
+    EXPECT_EQ(remove_nullable(fields[0]->type)->get_primitive_type(), TYPE_VARIANT);
+    EXPECT_NE(fields[0]->variant_physical_type, nullptr);
+}
+
+TEST(ParquetSchemaTest, AppliesPaimonShreddedVariantOverrideWithOptionalMetadata) {
+    auto schema = shredded_object_variant_schema();
+    schema[1].__isset.logicalType = false;
+    schema[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+    const std::vector overrides {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    const auto status = apply_variant_schema_overrides(descriptor, overrides, &fields);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::VARIANT);
+}
+
+TEST(ParquetSchemaTest, RejectsMalformedUnannotatedVariantOverride) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__isset.logicalType = false;
+    schema[2].__set_name("unexpected");
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+    const std::vector overrides {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    const auto status = apply_variant_schema_overrides(descriptor, overrides, &fields);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("unexpected child"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, RejectsOptionalMetadataOutsidePaimonShreddedOverride) {
+    auto annotated_shredded = shredded_object_variant_schema();
+    annotated_shredded[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    NativeFieldDescriptor descriptor;
+    const auto annotated_status = descriptor.parse_from_thrift(annotated_shredded);
+    EXPECT_TRUE(annotated_status.is<ErrorCode::CORRUPTION>()) << annotated_status;
+
+    auto unannotated_unshredded = unshredded_variant_schema();
+    unannotated_unshredded[1].__isset.logicalType = false;
+    unannotated_unshredded[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    ASSERT_TRUE(descriptor.parse_from_thrift(unannotated_unshredded).ok());
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+    const std::vector overrides {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    const auto override_status = apply_variant_schema_overrides(descriptor, overrides, &fields);
+    EXPECT_TRUE(override_status.is<ErrorCode::CORRUPTION>()) << override_status;
+}
+
+TEST(ParquetSchemaTest, AppliesNestedTableFormatVariantOverride) {
+    auto schema = struct_with_variant_schema();
+    schema[3].__isset.logicalType = false;
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+    ASSERT_EQ(fields.size(), 1);
+    ASSERT_EQ(fields[0]->kind, ParquetColumnSchemaKind::STRUCT);
+    ASSERT_EQ(fields[0]->children.size(), 2);
+    ASSERT_EQ(fields[0]->children[1]->kind, ParquetColumnSchemaKind::STRUCT);
+
+    auto root_override = format::LocalColumnIndex::partial_local(0);
+    root_override.children.push_back(format::LocalColumnIndex::local(1));
+    const auto status = apply_variant_schema_overrides(descriptor, {root_override}, &fields);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(fields[0]->contains_variant);
+    EXPECT_EQ(fields[0]->children[1]->kind, ParquetColumnSchemaKind::VARIANT);
+    const auto& struct_type = assert_cast<const DataTypeStruct&>(*remove_nullable(fields[0]->type));
+    EXPECT_EQ(remove_nullable(struct_type.get_element(1))->get_primitive_type(), TYPE_VARIANT);
+}
+
 TEST(ParquetSchemaTest, NativeSchemaAcceptsRequiredAndOptionalVariantGroups) {
     for (const auto repetition :
          {tparquet::FieldRepetitionType::REQUIRED, tparquet::FieldRepetitionType::OPTIONAL}) {
@@ -358,6 +449,24 @@ TEST(ParquetSchemaTest, NativeVariantRejectsUnsupportedPrimitiveTypePairs) {
     mismatched_integer.logicalType.INTEGER.__set_isSigned(true);
     invalid_typed_values.push_back(mismatched_integer);
 
+    tparquet::SchemaElement mismatched_int32_annotation;
+    mismatched_int32_annotation.__set_type(tparquet::Type::INT64);
+    mismatched_int32_annotation.__set_logicalType(tparquet::LogicalType());
+    mismatched_int32_annotation.logicalType.__set_INTEGER(tparquet::IntType());
+    mismatched_int32_annotation.logicalType.INTEGER.__set_bitWidth(32);
+    mismatched_int32_annotation.logicalType.INTEGER.__set_isSigned(true);
+    mismatched_int32_annotation.__set_converted_type(tparquet::ConvertedType::INT_32);
+    invalid_typed_values.push_back(mismatched_int32_annotation);
+
+    tparquet::SchemaElement mismatched_int64_annotation;
+    mismatched_int64_annotation.__set_type(tparquet::Type::INT32);
+    mismatched_int64_annotation.__set_logicalType(tparquet::LogicalType());
+    mismatched_int64_annotation.logicalType.__set_INTEGER(tparquet::IntType());
+    mismatched_int64_annotation.logicalType.INTEGER.__set_bitWidth(64);
+    mismatched_int64_annotation.logicalType.INTEGER.__set_isSigned(true);
+    mismatched_int64_annotation.__set_converted_type(tparquet::ConvertedType::INT_64);
+    invalid_typed_values.push_back(mismatched_int64_annotation);
+
     tparquet::SchemaElement mismatched_decimal;
     mismatched_decimal.__set_type(tparquet::Type::INT32);
     mismatched_decimal.__set_logicalType(tparquet::LogicalType());
@@ -378,6 +487,25 @@ TEST(ParquetSchemaTest, NativeVariantRejectsUnsupportedPrimitiveTypePairs) {
         const auto status = descriptor.parse_from_thrift(
                 shredded_primitive_variant_schema(std::move(typed_value)));
         EXPECT_FALSE(status.ok()) << "unsupported Variant typed_value pair was accepted";
+    }
+}
+
+TEST(ParquetSchemaTest, NativeVariantAcceptsIcebergFullWidthSignedIntegerAnnotations) {
+    for (const auto [physical_type, bit_width] : {std::pair {tparquet::Type::INT32, int8_t {32}},
+                                                  std::pair {tparquet::Type::INT64, int8_t {64}}}) {
+        tparquet::SchemaElement typed_value;
+        typed_value.__set_type(physical_type);
+        typed_value.__set_logicalType(tparquet::LogicalType());
+        typed_value.logicalType.__set_INTEGER(tparquet::IntType());
+        typed_value.logicalType.INTEGER.__set_bitWidth(bit_width);
+        typed_value.logicalType.INTEGER.__set_isSigned(true);
+        typed_value.__set_converted_type(bit_width == 32 ? tparquet::ConvertedType::INT_32
+                                                         : tparquet::ConvertedType::INT_64);
+
+        NativeFieldDescriptor descriptor;
+        const auto status = descriptor.parse_from_thrift(
+                shredded_primitive_variant_schema(std::move(typed_value)));
+        EXPECT_TRUE(status.ok()) << status;
     }
 }
 

@@ -398,7 +398,7 @@ bool append_wrapper(const ParquetColumnSchema& schema, const IColumn& wrapper, s
 
 void encode_variant_range(const ParquetColumnSchema& schema, const IColumn& wrapper,
                           const ColumnNullable* outer_nullable, size_t begin, size_t end,
-                          ColumnVariantV2& variants) {
+                          bool require_metadata, ColumnVariantV2& variants) {
     try {
         VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = end - begin});
         for (size_t row = begin; row < end; ++row) {
@@ -408,14 +408,22 @@ void encode_variant_range(const ParquetColumnSchema& schema, const IColumn& wrap
                 output_row.finish();
                 continue;
             }
-            const Cell metadata_cell = struct_child_at(schema, wrapper, row, "metadata", nullptr);
-            if (metadata_cell.is_null) {
-                throw Exception(ErrorCode::CORRUPTION,
-                                "Parquet Variant {} has null metadata at row {}", schema.name, row);
+            VariantMetadataRef metadata;
+            if (find_child(schema, "metadata", nullptr) != nullptr) {
+                const Cell metadata_cell =
+                        struct_child_at(schema, wrapper, row, "metadata", nullptr);
+                if (metadata_cell.is_null) {
+                    throw Exception(ErrorCode::CORRUPTION,
+                                    "Parquet Variant {} has null metadata at row {}", schema.name,
+                                    row);
+                }
+                const StringRef metadata_bytes = metadata_cell.column->get_data_at(row);
+                metadata = {metadata_bytes.data, metadata_bytes.size};
+                metadata.validate();
+            } else if (require_metadata) {
+                throw Exception(ErrorCode::CORRUPTION, "Parquet Variant {} has no root metadata",
+                                schema.name);
             }
-            const StringRef metadata_bytes = metadata_cell.column->get_data_at(row);
-            const VariantMetadataRef metadata {metadata_bytes.data, metadata_bytes.size};
-            metadata.validate();
             (void)append_wrapper(schema, wrapper, row, metadata, output_row, WrapperContext::ROOT);
             output_row.finish();
         }
@@ -429,13 +437,16 @@ void encode_variant_range(const ParquetColumnSchema& schema, const IColumn& wrap
         // that dictionary, split without changing the destination column's already-valid batches.
         // Corrupt input still reaches a one-row range and propagates its original exception.
         const size_t middle = begin + (end - begin) / 2;
-        encode_variant_range(schema, wrapper, outer_nullable, begin, middle, variants);
-        encode_variant_range(schema, wrapper, outer_nullable, middle, end, variants);
+        encode_variant_range(schema, wrapper, outer_nullable, begin, middle, require_metadata,
+                             variants);
+        encode_variant_range(schema, wrapper, outer_nullable, middle, end, require_metadata,
+                             variants);
     }
 }
 
 ColumnVariantV2::MutablePtr encode_variant_column(const ParquetColumnSchema& schema,
-                                                  const IColumn& physical) {
+                                                  const IColumn& physical,
+                                                  bool require_metadata = true) {
     if (schema.kind != ParquetColumnSchemaKind::VARIANT) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Parquet column {} is not Variant",
                         schema.name);
@@ -454,7 +465,7 @@ ColumnVariantV2::MutablePtr encode_variant_column(const ParquetColumnSchema& sch
     for (size_t begin = 0; begin < physical.size(); begin += MAX_RECONSTRUCTION_BATCH_ROWS) {
         encode_variant_range(schema, wrapper, outer_nullable, begin,
                              std::min(physical.size(), begin + MAX_RECONSTRUCTION_BATCH_ROWS),
-                             *variants);
+                             require_metadata, *variants);
     }
     return variants;
 }
@@ -553,6 +564,72 @@ bool supports_direct_typed_variant_state(const ParquetColumnSchema& schema) {
     }
 }
 
+ColumnPtr normalize_projected_primitive_leaf(const ParquetColumnSchema& schema,
+                                             const ColumnPtr& typed) {
+    const auto& nullable = assert_cast<const ColumnNullable&>(*typed);
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = nullable.size()});
+    for (size_t row = 0; row < nullable.size(); ++row) {
+        auto output_row = builder.begin_row();
+        if (nullable.get_null_map_data()[row] != 0) {
+            output_row.add_null();
+        } else {
+            append_typed_scalar(schema, nullable.get_nested_column(), row, output_row);
+        }
+        output_row.finish();
+    }
+    auto values = ColumnVariantV2::create();
+    values->insert_encoded_batch(builder.finish_batch());
+    auto nulls = nullable.get_null_map_column().clone_resized(nullable.size());
+    return ColumnNullable::create(std::move(values), std::move(nulls));
+}
+
+bool find_materialized_path(VariantRef current, std::span<const VariantShreddedPathSegment> path,
+                            VariantRef* output) {
+    DORIS_CHECK(output != nullptr);
+    for (const auto& segment : path) {
+        if (segment.kind == VariantShreddedPathSegment::Kind::OBJECT_KEY) {
+            if (current.basic_type() != VariantBasicType::OBJECT ||
+                !current.object_find(segment.key, &current)) {
+                return false;
+            }
+            continue;
+        }
+        if (current.basic_type() != VariantBasicType::ARRAY) {
+            return false;
+        }
+        const int64_t count = current.num_elements();
+        const int64_t index = segment.index < 0 ? count + segment.index : segment.index;
+        if (index < 0 || index >= count) {
+            return false;
+        }
+        current = current.array_at(static_cast<uint32_t>(index));
+    }
+    *output = current;
+    return true;
+}
+
+ColumnPtr normalize_materialized_path(const ColumnVariantV2& materialized,
+                                      std::span<const VariantShreddedPathSegment> path) {
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = materialized.size()});
+    auto nulls = ColumnUInt8::create();
+    nulls->reserve(materialized.size());
+    for (size_t row = 0; row < materialized.size(); ++row) {
+        auto output_row = builder.begin_row();
+        VariantRef value;
+        if (find_materialized_path(materialized.get_value_ref(row), path, &value)) {
+            output_row.add_value(value);
+            nulls->insert_value(0);
+        } else {
+            output_row.add_null();
+            nulls->insert_value(1);
+        }
+        output_row.finish();
+    }
+    auto values = ColumnVariantV2::create();
+    values->insert_encoded_batch(builder.finish_batch());
+    return ColumnNullable::create(std::move(values), std::move(nulls));
+}
+
 bool same_data_type(const DataTypePtr& left, const DataTypePtr& right) {
     return (!left && !right) || (left && right && left->equals(*right));
 }
@@ -612,12 +689,14 @@ public:
     size_t size() const override { return _physical->size(); }
     size_t byte_size() const override {
         std::lock_guard lock(_materialization_lock);
-        return _physical->byte_size() + (_materialized ? _materialized->byte_size() : 0);
+        return _physical->byte_size() + (_materialized ? _materialized->byte_size() : 0) +
+               (_serialized ? _serialized->byte_size() : 0);
     }
     size_t allocated_bytes() const override {
         std::lock_guard lock(_materialization_lock);
         return _physical->allocated_bytes() +
-               (_materialized ? _materialized->allocated_bytes() : 0);
+               (_materialized ? _materialized->allocated_bytes() : 0) +
+               (_serialized ? _serialized->allocated_bytes() : 0);
     }
     void sanity_check() const override { _physical->sanity_check(); }
 
@@ -648,6 +727,8 @@ public:
                                                              _complete, _profile);
     }
 
+    bool can_materialize() const override { return _complete; }
+
     bool try_append(const VariantShreddedState& source) override {
         const auto* parquet_source = dynamic_cast<const ParquetVariantShreddedState*>(&source);
         if (parquet_source == nullptr || _complete != parquet_source->_complete ||
@@ -660,6 +741,7 @@ public:
         _physical = std::move(mutable_physical);
         std::lock_guard lock(_materialization_lock);
         _materialized.reset();
+        _serialized.reset();
         return true;
     }
 
@@ -705,21 +787,85 @@ public:
             }
             if (position + 1 == path.size()) {
                 if (typed_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
-                    check_and_get_column<ColumnNullable>(*typed) == nullptr ||
-                    !supports_direct_typed_variant_state(*typed_schema)) {
+                    check_and_get_column<ColumnNullable>(*typed) == nullptr) {
                     update_counter(_profile.variant_direct_leaf_unsupported_fallbacks, 1);
                     return std::nullopt;
+                }
+                if (!supports_direct_typed_variant_state(*typed_schema)) {
+                    if (_complete) {
+                        update_counter(_profile.variant_direct_leaf_unsupported_fallbacks, 1);
+                        return std::nullopt;
+                    }
+                    // A partial projection cannot reconstruct its root. Normalize only the exact
+                    // requested leaf so Parquet annotations survive heterogeneous file schemas.
+                    update_counter(_profile.variant_direct_leaf_rows,
+                                   static_cast<int64_t>(typed->size()));
+                    return VariantShreddedTypedValue {
+                            .column = nullptr,
+                            .type = nullptr,
+                            .normalized = normalize_projected_primitive_leaf(*typed_schema, typed)};
                 }
                 update_counter(_profile.variant_direct_leaf_rows,
                                static_cast<int64_t>(typed->size()));
                 return VariantShreddedTypedValue {.column = std::move(typed),
-                                                  .type = remove_nullable(typed_schema->type)};
+                                                  .type = remove_nullable(typed_schema->type),
+                                                  .normalized = nullptr};
             }
             if (typed_schema->kind != ParquetColumnSchemaKind::STRUCT) {
                 return path_miss();
             }
         }
         return std::nullopt;
+    }
+
+    std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment> path) const override {
+        if (path.empty()) {
+            return std::nullopt;
+        }
+
+        const ParquetColumnSchema* typed_schema = nullptr;
+        ColumnPtr typed = struct_child(*_schema, _physical, "typed_value", &typed_schema);
+        if (typed && typed_schema->kind == ParquetColumnSchemaKind::STRUCT) {
+            bool direct = true;
+            for (size_t position = 0; position < path.size(); ++position) {
+                if (path[position].kind != VariantShreddedPathSegment::Kind::OBJECT_KEY) {
+                    direct = false;
+                    break;
+                }
+                const std::string_view key(path[position].key.data, path[position].key.size);
+                const ParquetColumnSchema* wrapper_schema = nullptr;
+                ColumnPtr wrapper = struct_child(*typed_schema, typed, key, &wrapper_schema);
+                if (!wrapper) {
+                    direct = false;
+                    break;
+                }
+                ColumnPtr residual = struct_child(*wrapper_schema, wrapper, "value", nullptr);
+                if (residual && has_present_value(residual)) {
+                    direct = false;
+                    break;
+                }
+                typed = struct_child(*wrapper_schema, wrapper, "typed_value", &typed_schema);
+                if (!typed) {
+                    direct = false;
+                    break;
+                }
+                if (position + 1 == path.size()) {
+                    direct = typed_schema->kind == ParquetColumnSchemaKind::PRIMITIVE &&
+                             check_and_get_column<ColumnNullable>(*typed) != nullptr;
+                } else if (typed_schema->kind != ParquetColumnSchemaKind::STRUCT) {
+                    direct = false;
+                    break;
+                }
+            }
+            if (direct) {
+                return normalize_projected_primitive_leaf(*typed_schema, typed);
+            }
+        }
+        if (!_complete) {
+            return std::nullopt;
+        }
+        return normalize_materialized_path(materialized_column(), path);
     }
 
     const ColumnVariantV2& materialized_column() const override {
@@ -730,7 +876,7 @@ public:
                     "A projected Parquet Variant can only serve its validated shredded leaves");
         }
         if (!_materialized) {
-            SCOPED_TIMER(_profile.variant_reconstruction_time);
+            SCOPED_TIMER(_profile.variant_reconstruction_time.get());
             _materialized = encode_variant_column(*_schema, *_physical);
             update_counter(_profile.variant_reconstructed_rows,
                            static_cast<int64_t>(_physical->size()));
@@ -738,10 +884,25 @@ public:
         return *_materialized;
     }
 
+    const ColumnVariantV2& serialized_column() const override {
+        if (_complete) {
+            return materialized_column();
+        }
+        std::lock_guard lock(_materialization_lock);
+        if (!_serialized) {
+            // Projected states intentionally omit root metadata, but an exchange buffer still
+            // needs self-contained bytes. Rebuild only retained paths; access-path planning is the
+            // invariant that prevents a downstream consumer from observing an omitted field.
+            _serialized = encode_variant_column(*_schema, *_physical, false);
+        }
+        return *_serialized;
+    }
+
 private:
-    static void update_counter(RuntimeProfile::Counter* counter, int64_t value) {
+    static void update_counter(const std::shared_ptr<RuntimeProfile::Counter>& counter,
+                               int64_t value) {
         if (counter != nullptr) {
-            COUNTER_UPDATE(counter, value);
+            COUNTER_UPDATE(counter.get(), value);
         }
     }
 
@@ -751,6 +912,7 @@ private:
     ParquetColumnReaderProfile _profile;
     mutable std::mutex _materialization_lock;
     mutable ColumnVariantV2::MutablePtr _materialized;
+    mutable ColumnVariantV2::MutablePtr _serialized;
 };
 
 MutableColumnPtr build_variant_column(std::shared_ptr<const ParquetColumnSchema> schema,

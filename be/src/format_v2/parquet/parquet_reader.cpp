@@ -332,8 +332,30 @@ DataTypePtr apply_timestamp_tz_mapping(ParquetColumnSchema* column_schema) {
         }
         column_schema->type = nullable_like_original(
                 column_schema->type, std::make_shared<DataTypeStruct>(child_types, child_names));
+    } else if (column_schema->kind == ParquetColumnSchemaKind::VARIANT) {
+        Strings child_names;
+        child_names.reserve(column_schema->children.size());
+        for (const auto& child : column_schema->children) {
+            child_names.push_back(child->name);
+        }
+        column_schema->variant_physical_type =
+                nullable_like_original(column_schema->variant_physical_type,
+                                       std::make_shared<DataTypeStruct>(child_types, child_names));
     }
     return column_schema->type;
+}
+
+void apply_timestamp_tz_mapping_in_variants(ParquetColumnSchema* column_schema) {
+    DORIS_CHECK(column_schema != nullptr);
+    if (column_schema->kind == ParquetColumnSchemaKind::VARIANT) {
+        // Shredded Variant timestamps always represent instants, even when the surrounding table
+        // did not request catalog-level TIMESTAMPTZ mapping for ordinary Parquet columns.
+        apply_timestamp_tz_mapping(column_schema);
+        return;
+    }
+    for (auto& child : column_schema->children) {
+        apply_timestamp_tz_mapping_in_variants(child.get());
+    }
 }
 
 static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schema,
@@ -526,6 +548,21 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     }
     auto request_snapshot = request;
     DORIS_CHECK(request_snapshot != nullptr);
+    if (!request_snapshot->variant_schema_overrides.empty()) {
+        // Apply table-format semantics before Variant projection planning. The override is the
+        // explicit proof that an otherwise ordinary Parquet group is a Variant carrier.
+        RETURN_IF_ERROR(apply_variant_schema_overrides(
+                _state->file_context.native_metadata->schema(),
+                request_snapshot->variant_schema_overrides, &_state->file_schema));
+        for (auto& column_schema : _state->file_schema) {
+            apply_timestamp_tz_mapping_in_variants(column_schema.get());
+        }
+        _state->file_context.contains_variant =
+                std::ranges::any_of(_state->file_schema, [](const auto& column) {
+                    DORIS_CHECK(column != nullptr);
+                    return column->contains_variant;
+                });
+    }
     size_t retained_variant_leaf_projections = 0;
     if (_state->file_context.contains_variant) {
         retained_variant_leaf_projections =
