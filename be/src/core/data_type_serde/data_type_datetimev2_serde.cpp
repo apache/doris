@@ -605,8 +605,10 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
     auto& timestamp_builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
     std::shared_ptr<arrow::TimestampType> timestamp_type =
             std::static_pointer_cast<arrow::TimestampType>(array_builder->type());
-    const std::string& timezone = timestamp_type->timezone();
-    const cctz::time_zone& real_ctz = timezone.empty() ? cctz::utc_time_zone() : ctz;
+    // DATETIMEV2 is normally written as a timezone-naive Arrow timestamp. Keep support for
+    // timezone-aware target schemas because legacy Parquet INT96 output needs the writer timezone.
+    static const auto utc_timezone = cctz::utc_time_zone();
+    const auto& conversion_timezone = timestamp_type->timezone().empty() ? utc_timezone : ctz;
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(
@@ -614,7 +616,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
         } else {
             int64_t timestamp = 0;
             DateV2Value<DateTimeV2ValueType> datetime_val = col_data[i];
-            datetime_val.unix_timestamp(&timestamp, real_ctz);
+            datetime_val.unix_timestamp(&timestamp, conversion_timezone);
 
             if (_scale > 3) {
                 uint32_t microsecond = datetime_val.microsecond();

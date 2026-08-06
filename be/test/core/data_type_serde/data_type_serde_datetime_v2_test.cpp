@@ -532,4 +532,29 @@ TEST_F(DataTypeDateTimeV2SerDeTest, ArrowTimezoneNaiveTimestampIgnoresSessionTim
     EXPECT_EQ("1969-12-31 23:59:59.123456", column->get_data()[2].to_string(6));
 }
 
+TEST_F(DataTypeDateTimeV2SerDeTest, WriteArrowTimestampRespectsTargetTimezone) {
+    auto source_column = ColumnDateTimeV2::create();
+    DateV2Value<DateTimeV2ValueType> source_value;
+    source_value.unchecked_set_time(2025, 2, 7, 20, 12, 1, 123456);
+    source_column->insert_value(source_value);
+
+    cctz::time_zone shanghai_timezone;
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai_timezone));
+
+    auto write_timestamp = [&](const std::shared_ptr<arrow::DataType>& timestamp_type) {
+        arrow::TimestampBuilder builder(timestamp_type, arrow::default_memory_pool());
+        EXPECT_TRUE(serde_datetime_v2_6
+                            ->write_column_to_arrow(*source_column, nullptr, &builder, 0,
+                                                    source_column->size(), shanghai_timezone)
+                            .ok());
+        std::shared_ptr<arrow::Array> array;
+        EXPECT_TRUE(builder.Finish(&array).ok());
+        return assert_cast<const arrow::TimestampArray&>(*array).Value(0);
+    };
+
+    EXPECT_EQ(1738959121123456, write_timestamp(arrow::timestamp(arrow::TimeUnit::MICRO)));
+    EXPECT_EQ(1738930321123456,
+              write_timestamp(arrow::timestamp(arrow::TimeUnit::MICRO, "Asia/Shanghai")));
+}
+
 } // namespace doris

@@ -97,17 +97,25 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     case TYPE_DATEV2:
         *result = std::make_shared<arrow::Date32Type>();
         break;
-    // TODO: maybe need to distinguish TYPE_DATETIME and TYPE_TIMESTAMPTZ
     case TYPE_TIMESTAMPTZ:
-    case TYPE_DATETIMEV2:
+    case TYPE_DATETIMEV2: {
+        arrow::TimeUnit::type time_unit;
         if (type->get_scale() > 3) {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
+            time_unit = arrow::TimeUnit::MICRO;
         } else if (type->get_scale() > 0) {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MILLI, timezone);
+            time_unit = arrow::TimeUnit::MILLI;
         } else {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::SECOND, timezone);
+            time_unit = arrow::TimeUnit::SECOND;
+        }
+        // Doris DATETIMEV2 is a wall-clock value without a timezone, while TIMESTAMPTZ represents
+        // an instant with timezone semantics.
+        if (type->get_primitive_type() == TYPE_DATETIMEV2) {
+            *result = std::make_shared<arrow::TimestampType>(time_unit);
+        } else {
+            *result = std::make_shared<arrow::TimestampType>(time_unit, timezone);
         }
         break;
+    }
     case TYPE_DECIMALV2:
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
