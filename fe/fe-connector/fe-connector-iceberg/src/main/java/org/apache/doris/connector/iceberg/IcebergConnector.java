@@ -32,6 +32,7 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.JdbcDriverUrlSecurity;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
@@ -1374,11 +1375,15 @@ public class IcebergConnector implements Connector {
 
     /**
      * Enforces JDBC driver-url security at CREATE CATALOG (mirrors {@code PaimonConnector.preCreateValidation}):
-     * for the jdbc flavor a configured {@code iceberg.jdbc.driver_url} is routed through the engine's
-     * {@link ConnectorValidationContext#validateAndResolveDriverPath} hook (the FE format /
-     * {@code jdbc_driver_url_white_list} / {@code jdbc_driver_secure_path} gates), so a rejected url fails
-     * CREATE CATALOG before the jar is ever loaded by {@link #maybeRegisterJdbcDriver}. Non-jdbc flavors are
-     * a no-op.
+     * for the jdbc flavor a configured {@code iceberg.jdbc.driver_url} is first put through the mandatory,
+     * non-configurable {@link JdbcDriverUrlSecurity} rule shared with the jdbc / paimon-jdbc catalogs, then
+     * routed through the engine's {@link ConnectorValidationContext#validateAndResolveDriverPath} hook (the FE
+     * format / {@code jdbc_driver_url_white_list} / {@code jdbc_driver_secure_path} gates), so a rejected url
+     * fails CREATE CATALOG before the jar is ever loaded by {@link #maybeRegisterJdbcDriver}. Same order as
+     * {@code JdbcDorisConnector.preCreateValidation}. Non-jdbc flavors are a no-op.
+     *
+     * <p>ALTER CATALOG does not reach this hook; {@code IcebergConnectorProvider.validateProperties} applies
+     * the same rule on that path.
      */
     @Override
     public void preCreateValidation(ConnectorValidationContext validationContext) throws Exception {
@@ -1387,6 +1392,7 @@ public class IcebergConnector implements Connector {
         }
         String driverUrl = IcebergCatalogFactory.firstNonBlank(properties, IcebergConnectorProperties.JDBC_DRIVER_URL);
         if (StringUtils.isNotBlank(driverUrl)) {
+            JdbcDriverUrlSecurity.check(driverUrl);
             validationContext.validateAndResolveDriverPath(driverUrl);
         }
     }

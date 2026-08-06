@@ -6,6 +6,18 @@ This is the codebase for Apache Doris, an MPP OLAP database. It primarily consis
 
 For security scans, vulnerability triage, security reviews, and changes involving authentication, authorization, network boundaries, external catalogs, cloud tenancy, or other security-sensitive behavior, read `SECURITY.md` first, then follow it to `threat-model.md`. Use `threat-model.md` to determine in-scope components, trust boundaries, attacker roles, explicit non-goals, and triage classification. Findings that are out of model or by design under `threat-model.md` should be reported as such, not treated as Doris vulnerabilities. Such reviews will not be conducted unless explicitly requested by the user, and no conclusions regarding this matter need to be provided.
 
+## Remote Artifacts and Dynamic Code Loading
+
+Do not add any new code path that fetches an artifact from a user-supplied URL and loads it into a Doris process. This covers `driver_url`-style catalog/resource properties, plugin and UDF locations, and any other property whose value reaches a `URLClassLoader`, `Class.forName`, `System.load`/`dlopen`, or an equivalent BE-side loader. A user who can write such a property gets code execution inside the process that loads it, so the property's effective privilege is that process, not the DDL privilege it was gated on.
+
+The existing `driver_url` paths (jdbc / iceberg-jdbc / paimon-jdbc catalogs) remain for backward compatibility. They are grandfathered, not a precedent — do not copy the pattern into a new connector or feature.
+
+When a feature genuinely needs an operator-supplied artifact, read it from a local, operator-controlled directory (the `jdbc_drivers_dir` / plugin-directory pattern), not from a URL. The ADBC catalog's `AdbcDriverPathResolver` is the model: remote schemes rejected outright, a scheme-less value restricted to a bare file name so no path separator can escape the configured directory, and the check placed where the artifact is loaded rather than only at CREATE.
+
+Every consumer of the **jdbc-flavored** `driver_url` (the jdbc / iceberg-jdbc / paimon-jdbc catalogs, which do accept a URL) must route the raw value through `JdbcDriverUrlSecurity.check` (`fe-connector-spi`) before it reaches a class loader, on **both** the CREATE and the ALTER CATALOG path — in practice the connector provider's `validateProperties`, which fe-core runs on both and never on replay. That class is the single source of truth for the rule; do not fork or re-derive it per connector. Such a connector must also declare the value from `ConnectorProvider.driverUrlsToValidate`, which is how the operator's `jdbc_driver_secure_path` / `jdbc_driver_url_white_list` policy reaches the ALTER CATALOG path — ALTER never runs `Connector.preCreateValidation`, where CREATE applies that policy, so a connector that skips the declaration lets an ALTER repoint the jar past the operator's configuration.
+
+Separately, any new outbound HTTP request the FE or BE issues to a host named by a non-SUPER user is an SSRF surface. Call it out explicitly in the PR description together with the privilege required to reach it.
+
 ## When running in a WORKTREE directory
 
 To ensure smooth test execution without interference between worktrees, the first thing to do upon entering a worktree directory is to check if `.worktree_initialized` exists. If not, execute `hooks/setup_worktree.sh`, setting `$ROOT_WORKSPACE_PATH` to the base directory (typically `${DORIS_REPO}`) beforehand. After successful execution, verify that `.worktree_initialized` has been touched and that `thirdparty/installed` dependencies exist correctly. Also check if submodules have been properly initialized; if not, do so manually.

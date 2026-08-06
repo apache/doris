@@ -22,7 +22,9 @@ import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.JdbcDriverUrlSecurity;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -90,6 +92,12 @@ public class PaimonConnectorProvider implements ConnectorProvider {
     public void validateProperties(Map<String, String> properties) {
         checkMetaCacheProperties(properties);
         warnIgnoredDeadTableCacheKeys(properties);
+        // The mandatory, non-configurable driver_url rule shared with the jdbc and iceberg-jdbc catalogs
+        // (all three reach the same URLClassLoader + Class.forName sink from a catalog property). This
+        // hook is what the engine runs on CREATE *and* ALTER CATALOG, so it is the one that keeps a
+        // traversal / non-bare-name driver jar out of PaimonConnector's class loader;
+        // preCreateValidation covers CREATE only. Never runs on replay.
+        driverUrlsToValidate(properties).forEach(JdbcDriverUrlSecurity::check);
         // #65955: an unknown or unparseable paimon.table-option.* must fail the CREATE/ALTER CATALOG.
         // Upstream got this from AbstractPaimonProperties.initNormalizeAndCheckProps(), which the SPI
         // path no longer runs; validateProperties is this path's fail-fast hook.
@@ -117,6 +125,22 @@ public class PaimonConnectorProvider implements ConnectorProvider {
             }
         });
         validateProperties(candidate);
+    }
+
+    /**
+     * Only the jdbc flavor loads a driver jar; on every other flavor {@code jdbc.driver_url} is dead config
+     * that never reaches a class loader, so declaring it would turn a previously-accepted catalog into a
+     * CREATE/ALTER failure for no security gain. See {@link ConnectorProvider#driverUrlsToValidate}.
+     */
+    @Override
+    public List<String> driverUrlsToValidate(Map<String, String> properties) {
+        if (!PaimonConnectorProperties.JDBC.equals(PaimonCatalogFactory.resolveFlavor(properties))) {
+            return Collections.emptyList();
+        }
+        String driverUrl = PaimonCatalogFactory.firstNonBlank(
+                properties, PaimonConnectorProperties.JDBC_DRIVER_URL);
+        return StringUtils.isBlank(driverUrl)
+                ? Collections.emptyList() : Collections.singletonList(driverUrl);
     }
 
     /**
