@@ -532,6 +532,14 @@ VExprSPtr binary_predicate(TExprOpcode::type opcode, const VExprSPtr& left,
     return expr;
 }
 
+VExprSPtr null_predicate(const VExprSPtr& child, bool is_null) {
+    // Preserve the nested child expression so filter-only access paths remain discoverable.
+    auto expr =
+            std::make_shared<TestFunctionExpr>(is_null ? "is_null_pred" : "is_not_null_pred", u8());
+    expr->add_child(child);
+    return expr;
+}
+
 VExprSPtr cast_expr(const VExprSPtr& child, DataTypePtr target_type) {
     auto expr = Cast::create_shared(std::move(target_type));
     expr->add_child(child);
