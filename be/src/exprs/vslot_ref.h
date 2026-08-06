@@ -31,15 +31,18 @@ class TExprNode;
 class Block;
 class VExprContext;
 
-class VSlotRef MOCK_REMOVE(final) : public VExpr {
+class VSlotRef : public VExpr {
     ENABLE_FACTORY_CREATOR(VSlotRef);
 
 public:
     VSlotRef(const TExprNode& node);
     VSlotRef(const SlotDescriptor* desc);
+    VSlotRef(int slot_id, int column_id, int column_uniq_id, const DataTypePtr& type,
+             std::string column_name);
 #ifdef BE_TEST
     VSlotRef() = default;
     void set_slot_id(int slot_id) { _slot_id = slot_id; }
+    void set_column_name(const std::string* column_name) { _column_name = column_name; }
 #endif
     void set_column_id(int column_id) { _column_id = column_id; }
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
@@ -58,6 +61,7 @@ public:
     int column_id() const { return _column_id; }
 
     MOCK_FUNCTION int slot_id() const { return _slot_id; }
+    int column_uniq_id() const { return _column_uniq_id; }
 
     bool equals(const VExpr& other) override;
 
@@ -67,16 +71,24 @@ public:
         column_ids.insert(_column_id);
     }
 
-    MOCK_FUNCTION const std::string& column_name() const { return *_column_name; }
+    virtual const std::string& column_name() const { return *_column_name; }
 
     uint64_t get_digest(uint64_t seed) const override;
 
     double execute_cost() const override { return 0.0; }
+    Status clone_node(VExprSPtr* cloned_expr) const override;
+
+protected:
+    VSlotRef(int slot_id, int column_id, int column_uniq_id)
+            : _slot_id(slot_id), _column_id(column_id), _column_uniq_id(column_uniq_id) {
+        _node_type = TExprNodeType::SLOT_REF;
+    }
 
 private:
     int _slot_id;
     int _column_id;
     int _column_uniq_id = -1;
+    std::string _owned_column_name;
     const std::string* _column_name = nullptr;
     const std::string _column_label;
 };

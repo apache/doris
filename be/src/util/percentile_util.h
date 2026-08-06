@@ -35,7 +35,7 @@
 namespace doris {
 
 inline void check_quantile(double quantile) {
-    if (quantile < 0 || quantile > 1) {
+    if (!std::isfinite(quantile) || quantile < 0 || quantile > 1) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "quantile in func percentile should in [0, 1], but real data is:" +
                                 std::to_string(quantile));

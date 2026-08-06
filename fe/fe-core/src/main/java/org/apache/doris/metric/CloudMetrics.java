@@ -58,13 +58,16 @@ public class CloudMetrics {
     // Per-method meta-service RPC metrics
     public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_TOTAL;
     public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_FAILED;
+    public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_RATE_LIMITED;
     public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_RETRY;
     public static AutoMappedMetric<GaugeMetricImpl<Double>> META_SERVICE_RPC_PER_SECOND;
     public static AutoMappedMetric<HistogramMetric> META_SERVICE_RPC_LATENCY;
+    public static AutoMappedMetric<HistogramMetric> META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY;
 
     // Aggregate meta-service metrics
     public static LongCounterMetric META_SERVICE_RPC_ALL_TOTAL;
     public static LongCounterMetric META_SERVICE_RPC_ALL_FAILED;
+    public static LongCounterMetric META_SERVICE_RPC_ALL_RATE_LIMITED;
     public static LongCounterMetric META_SERVICE_RPC_ALL_RETRY;
     public static GaugeMetricImpl<Double> META_SERVICE_RPC_ALL_PER_SECOND;
 
@@ -155,6 +158,9 @@ public class CloudMetrics {
         META_SERVICE_RPC_FAILED = MetricRepo.addLabeledMetrics("method", () ->
             new LongCounterMetric("meta_service_rpc_failed", MetricUnit.NOUNIT,
                 "failed meta service RPC calls"));
+        META_SERVICE_RPC_RATE_LIMITED = MetricRepo.addLabeledMetrics("method", () ->
+            new LongCounterMetric("meta_service_rpc_rate_limited", MetricUnit.NOUNIT,
+                "rate limited meta service RPC calls"));
         META_SERVICE_RPC_RETRY = MetricRepo.addLabeledMetrics("method", () ->
             new LongCounterMetric("meta_service_rpc_retry", MetricUnit.NOUNIT,
                 "meta service RPC retry attempts"));
@@ -170,6 +176,14 @@ public class CloudMetrics {
         });
         MetricRepo.DORIS_METRIC_REGISTER.addHistogramMetrics(
                 "meta_service_rpc_latency", META_SERVICE_RPC_LATENCY, Config::isCloudMode);
+        META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY = new AutoMappedMetric<>(methodName -> {
+            List<MetricLabel> labels = Collections.singletonList(new MetricLabel("method", methodName));
+            return new HistogramMetric(MetricRegistry.name("meta_service", "rpc", "rate_limit_wait",
+                    "latency", "ms"), labels);
+        });
+        MetricRepo.DORIS_METRIC_REGISTER.addHistogramMetrics(
+                "meta_service_rpc_rate_limit_wait_latency", META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY,
+                Config::isCloudMode);
 
         // Aggregate meta-service metrics
         META_SERVICE_RPC_ALL_TOTAL = new LongCounterMetric("meta_service_rpc_all_total",
@@ -178,6 +192,9 @@ public class CloudMetrics {
         META_SERVICE_RPC_ALL_FAILED = new LongCounterMetric("meta_service_rpc_all_failed",
             MetricUnit.NOUNIT, "total failed meta service RPC calls");
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_FAILED);
+        META_SERVICE_RPC_ALL_RATE_LIMITED = new LongCounterMetric("meta_service_rpc_all_rate_limited",
+            MetricUnit.NOUNIT, "total rate limited meta service RPC calls");
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_RATE_LIMITED);
         META_SERVICE_RPC_ALL_RETRY = new LongCounterMetric("meta_service_rpc_all_retry",
             MetricUnit.NOUNIT, "total meta service RPC retry attempts");
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_RETRY);

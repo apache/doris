@@ -33,7 +33,7 @@ public class JdbcConnectorProviderValidateTest {
     private Map<String, String> validProps() {
         Map<String, String> props = new HashMap<>();
         props.put("jdbc_url", "jdbc:mysql://localhost:3306/db");
-        props.put("driver_url", "/path/to/driver.jar");
+        props.put("driver_url", "mysql-connector-java-8.0.25.jar");
         props.put("driver_class", "com.mysql.cj.jdbc.Driver");
         return props;
     }
@@ -77,8 +77,35 @@ public class JdbcConnectorProviderValidateTest {
     public void testPrefixedPropertiesAccepted() {
         Map<String, String> props = new HashMap<>();
         props.put("jdbc.jdbc_url", "jdbc:mysql://localhost:3306/db");
-        props.put("jdbc.driver_url", "/path/to/driver.jar");
+        props.put("jdbc.driver_url", "mysql-connector-java-8.0.25.jar");
         props.put("jdbc.driver_class", "com.mysql.cj.jdbc.Driver");
+        Assertions.assertDoesNotThrow(() -> provider.validateProperties(props));
+    }
+
+    @Test
+    public void testDriverUrlTraversalRejected() {
+        // The driver_url security rule is enforced via validateProperties (the CREATE/ALTER hook).
+        Map<String, String> props = validProps();
+        props.put("driver_url", "file:///opt/doris/plugins/jdbc_drivers/../../etc/evil.jar");
+        IllegalArgumentException ex = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> provider.validateProperties(props));
+        Assertions.assertTrue(ex.getMessage().contains("traversal"));
+    }
+
+    @Test
+    public void testDriverUrlBareNameWithDirectoryRejected() {
+        Map<String, String> props = validProps();
+        props.put("driver_url", "sub/dir/driver.jar");
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> provider.validateProperties(props));
+    }
+
+    @Test
+    public void testDriverUrlNormalHttpsAccepted() {
+        Map<String, String> props = validProps();
+        props.put("driver_url", "https://repo.example.com/jdbc/mysql-connector-j-8.4.0.jar");
         Assertions.assertDoesNotThrow(() -> provider.validateProperties(props));
     }
 

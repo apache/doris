@@ -17,17 +17,11 @@
 
 package org.apache.doris.datasource.metacache;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 
-import com.github.benmanes.caffeine.cache.CacheLoader;
-import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.List;
-import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -35,7 +29,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Test to verify MetaCache does not deadlock when removal listener calls invalidateAll().
+ * Test to verify sync removal listeners do not deadlock when nested invalidation happens.
  */
 public class MetaCacheDeadlockTest {
 
@@ -48,43 +42,25 @@ public class MetaCacheDeadlockTest {
                 new ThreadPoolManager.BlockedPolicy("TestExecutor", 200)
         );
 
-        CacheLoader<String, List<Pair<String, String>>> namesCacheLoader = key -> Lists.newArrayList();
-        CacheLoader<String, Optional<String>> tableLoader = key -> Optional.of("table-" + key);
-
-        MetaCache<String> tableCache = new MetaCache<>(
+        CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 100);
+        MetaCacheEntry<String, String> tableCache = MetaCacheEntry.withSyncRemovalListener(
                 "tableCache",
+                key -> "table-" + key,
+                cacheSpec,
                 executor,
-                OptionalLong.empty(),
-                OptionalLong.empty(),
-                100,
-                namesCacheLoader,
-                tableLoader,
-                (key, value, cause) -> { });
-
+                (key, value, cause) -> {
+                });
         for (int i = 0; i < 100; i++) {
-            tableCache.updateCache("table" + i, "table" + i, "table-" + i, i);
+            tableCache.put("table" + i, "table-" + i);
         }
 
-        CacheLoader<String, Optional<String>> dbLoader = key -> {
-            try {
-                Thread.sleep(10);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            return Optional.of("db-" + key);
-        };
-
-        MetaCache<String> dbCache = new MetaCache<>(
+        MetaCacheEntry<String, String> dbCache = MetaCacheEntry.withSyncRemovalListener(
                 "databaseCache",
+                key -> "db-" + key,
+                CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 1),
                 executor,
-                OptionalLong.empty(),
-                OptionalLong.empty(),
-                1,
-                namesCacheLoader,
-                dbLoader,
                 (key, value, cause) -> tableCache.invalidateAll());
-
-        dbCache.updateCache("db0", "db0", "db-0", 0);
+        dbCache.put("db0", "db-0");
 
         CountDownLatch startLatch = new CountDownLatch(1);
         CountDownLatch doneLatch = new CountDownLatch(5);
@@ -93,7 +69,7 @@ public class MetaCacheDeadlockTest {
             new Thread(() -> {
                 try {
                     startLatch.await();
-                    dbCache.updateCache("db" + idx, "db" + idx, "db-" + idx, idx);
+                    dbCache.put("db" + idx, "db-" + idx);
                 } catch (Exception e) {
                     // Ignore
                 } finally {
@@ -108,7 +84,7 @@ public class MetaCacheDeadlockTest {
         executor.shutdown();
         boolean terminated = executor.awaitTermination(1, TimeUnit.SECONDS);
 
-        Assert.assertTrue("MetaCache deadlock detected. Ensure metaObjCache uses buildCacheWithSyncRemovalListener.",
+        Assert.assertTrue("MetaCacheEntry deadlock detected. Ensure sync removal listeners use direct execution.",
                 completed && terminated);
     }
 }

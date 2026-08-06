@@ -48,6 +48,10 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
     private final ExternalDatabase database;
     private final ExternalTable targetTable;
     private final DMLCommandType dmlCommandType;
+    // Rewrite (compaction) marker, carried from UnboundConnectorTableSink.isRewrite so the physical sink
+    // can force single-node GATHER output for a rewrite_data_files INSERT-SELECT. Part of plan identity
+    // (equals/hashCode) so the memo never collapses a rewrite sink onto a non-rewrite one. Defaults false.
+    private final boolean rewrite;
 
     /**
      * constructor
@@ -57,6 +61,7 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
                                      List<Column> cols,
                                      List<NamedExpression> outputExprs,
                                      DMLCommandType dmlCommandType,
+                                     boolean rewrite,
                                      Optional<GroupExpression> groupExpression,
                                      Optional<LogicalProperties> logicalProperties,
                                      CHILD_TYPE child) {
@@ -64,6 +69,7 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
         this.database = Objects.requireNonNull(database, "database != null in LogicalConnectorTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalConnectorTableSink");
         this.dmlCommandType = dmlCommandType;
+        this.rewrite = rewrite;
     }
 
     /** Update output expressions based on child output and replace child. */
@@ -73,7 +79,7 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
                 .collect(ImmutableList.toImmutableList());
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalConnectorTableSink<>(database, targetTable, cols, output,
-                dmlCommandType, Optional.empty(), Optional.empty(), child));
+                dmlCommandType, rewrite, Optional.empty(), Optional.empty(), child));
     }
 
     @Override
@@ -81,13 +87,13 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
         Preconditions.checkArgument(children.size() == 1, "LogicalConnectorTableSink only accepts one child");
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalConnectorTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, Optional.empty(), Optional.empty(), children.get(0)));
+                dmlCommandType, rewrite, Optional.empty(), Optional.empty(), children.get(0)));
     }
 
     public LogicalConnectorTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalConnectorTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, Optional.empty(), Optional.empty(), child()));
+                dmlCommandType, rewrite, Optional.empty(), Optional.empty(), child()));
     }
 
     public ExternalDatabase getDatabase() {
@@ -100,6 +106,10 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
 
     public DMLCommandType getDmlCommandType() {
         return dmlCommandType;
+    }
+
+    public boolean isRewrite() {
+        return rewrite;
     }
 
     @Override
@@ -115,13 +125,14 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
         }
         LogicalConnectorTableSink<?> that = (LogicalConnectorTableSink<?>) o;
         return dmlCommandType == that.dmlCommandType
+                && rewrite == that.rewrite
                 && Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable) && Objects.equals(cols, that.cols);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, cols, dmlCommandType);
+        return Objects.hash(super.hashCode(), database, targetTable, cols, dmlCommandType, rewrite);
     }
 
     @Override
@@ -131,7 +142,8 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),
                 "cols", cols,
-                "dmlCommandType", dmlCommandType
+                "dmlCommandType", dmlCommandType,
+                "rewrite", rewrite
         );
     }
 
@@ -144,7 +156,7 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalConnectorTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child()));
+                dmlCommandType, rewrite, groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
@@ -152,6 +164,6 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalConnectorTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, groupExpression, logicalProperties, children.get(0)));
+                dmlCommandType, rewrite, groupExpression, logicalProperties, children.get(0)));
     }
 }

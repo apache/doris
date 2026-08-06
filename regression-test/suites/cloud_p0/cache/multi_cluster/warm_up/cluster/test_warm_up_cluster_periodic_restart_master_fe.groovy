@@ -84,6 +84,39 @@ suite('test_warm_up_cluster_periodic_restart_master_fe', 'docker') {
         }
     }
 
+    def logFileCacheQueueMetrics = { label, cluster ->
+        def metricNames = [
+            "file_cache_cache_size",
+            "file_cache_ttl_cache_size",
+            "file_cache_ttl_cache_lru_queue_size",
+            "file_cache_ttl_cache_lru_queue_element_count",
+            "file_cache_normal_queue_cache_size",
+            "file_cache_normal_queue_element_count",
+            "file_cache_index_queue_cache_size",
+            "file_cache_index_queue_element_count",
+            "file_cache_disposable_queue_cache_size",
+            "file_cache_disposable_queue_element_count",
+        ]
+
+        def backends = sql """SHOW BACKENDS"""
+        def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
+        for (be in cluster_bes) {
+            def ip = be[1]
+            def port = be[5]
+            def values = metricNames.collectEntries { metricName ->
+                [(metricName): getBrpcMetrics(ip, port, metricName)]
+            }
+            logger.info("${label}, ${cluster} be ${ip}:${port}, file cache queue metrics: ${values}")
+        }
+    }
+
+    def logFileCacheQueueMetricsOnClusters = { label, clusters ->
+        for (cluster in clusters) {
+            logFileCacheQueueMetrics(label, cluster)
+            logFileCacheDownloadMetrics(cluster)
+        }
+    }
+
     def logWarmUpRowsetMetrics = { cluster ->
         def backends = sql """SHOW BACKENDS"""
         def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
@@ -109,6 +142,8 @@ suite('test_warm_up_cluster_periodic_restart_master_fe', 'docker') {
     }
 
     def checkTTLCacheSizeSumEqual = { cluster1, cluster2 ->
+        logFileCacheQueueMetricsOnClusters("before ttl cache size equality check", [cluster1, cluster2])
+
         def backends = sql """SHOW BACKENDS"""
 
         def srcBes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster1}\"""") }
@@ -195,13 +230,18 @@ suite('test_warm_up_cluster_periodic_restart_master_fe', 'docker') {
 
         // Clear hotspot statistics
         sql """truncate table __internal_schema.cloud_cache_hotspot;"""
+        logFileCacheQueueMetricsOnClusters("after restart master fe, before clear cache",
+                [clusterName1, clusterName2])
         clearFileCacheOnAllBackends()
+        logFileCacheQueueMetricsOnClusters("after clear cache", [clusterName1, clusterName2])
 
         for (int i = 0; i < 1000; i++) {
             sql """SELECT * FROM customer"""
         }
+        logFileCacheQueueMetricsOnClusters("after querying source cluster", [clusterName1, clusterName2])
 
         sleep(5000)
+        logFileCacheQueueMetricsOnClusters("after waiting periodic warm up", [clusterName1, clusterName2])
 
         def hotspot = sql """select * from __internal_schema.cloud_cache_hotspot;"""
         logger.info("hotspot: {}", hotspot)

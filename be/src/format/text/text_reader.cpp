@@ -34,6 +34,7 @@
 #include "exec/scan/scanner.h"
 #include "format/csv/csv_reader.h"
 #include "format/file_reader/new_plain_text_line_reader.h"
+#include "format/hive_text_util.h"
 #include "format/line_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
@@ -60,7 +61,7 @@ void HiveTextFieldSplitter::_split_field_single_char(const Slice& line,
     for (size_t i = 0; i < size; ++i) {
         if (data[i] == _value_sep[0]) {
             // hive will escape the field separator in string
-            if (_escape_char != 0 && i > 0 && data[i - 1] == _escape_char) {
+            if (_escape_char != 0 && is_hive_text_separator_escaped(data, i, _escape_char)) {
                 continue;
             }
             process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
@@ -98,7 +99,7 @@ void HiveTextFieldSplitter::_split_field_multi_char(const Slice& line,
         }
         if (j == (int)_value_sep_len - 1) {
             size_t curpos = i - _value_sep_len + 1;
-            if (_escape_char != 0 && curpos > 0 && data[curpos - 1] == _escape_char) {
+            if (_escape_char != 0 && is_hive_text_separator_escaped(data, curpos, _escape_char)) {
                 j = next[j];
                 continue;
             }

@@ -516,7 +516,7 @@ TEST_F(AggOperatorTestWithGroupBy, test_no_need_finalize_mem_reuse_with_shared_o
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
-    const auto& aggregate_function = sink_op->_aggregate_evaluators[0]->function();
+    const auto* aggregate_function = sink_op->_aggregate_evaluators[0];
     auto serialized_type = aggregate_function->get_serialized_type();
     Block block {ColumnHelper::create_column_with_name<DataTypeInt64>({}),
                  ColumnWithTypeAndName(aggregate_function->create_serialize_column(),

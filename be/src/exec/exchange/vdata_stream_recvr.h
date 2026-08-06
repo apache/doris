@@ -48,12 +48,12 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/thread_context.h"
-#include "runtime/workload_group/workload_group.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
 class MemTracker;
 class PBlock;
+class PTransmitDataParams;
 class MemTrackerLimiter;
 class RuntimeState;
 
@@ -180,6 +180,8 @@ public:
     ~SenderQueue();
 
     Status get_batch(Block* next_block, bool* eos);
+
+    bool has_data_or_finished();
 
     Status add_block(std::unique_ptr<PBlock> pblock, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done, const int64_t wait_for_worker,

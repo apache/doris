@@ -81,6 +81,16 @@ import java.util.TreeSet;
  * NereidsLoadUtils
  */
 public class NereidsLoadUtils {
+    static boolean hasImportColumn(List<NereidsImportColumnDesc> importColumnDescs, Column tableColumn) {
+        for (NereidsImportColumnDesc importColumnDesc : importColumnDescs) {
+            if (importColumnDesc.getColumnName() != null
+                    && importColumnDesc.getColumnName().equalsIgnoreCase(tableColumn.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * parse a expression list as 'select expr1, expr2,... exprn' into a nereids Expression List
      */

@@ -753,4 +753,62 @@ public class ConnectContextTest {
         Assert.assertNotNull(ctx.getConnectAttributes());
         Assert.assertTrue(ctx.getConnectAttributes().isEmpty());
     }
+
+    // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259).
+    // closeFlightSqlDeferredExecutors() is the single place that releases those deferred coordinators
+    // (and with them the external-table batch SplitSource and the query queue slot). The following
+    // tests pin the leak-prevention contract of that method: every deferred executor is finalized,
+    // the list is cleared so nothing is finalized twice or retained, and one failing executor does
+    // not strand the others' resources.
+
+    @Test
+    public void testCloseFlightSqlDeferredExecutorsFinalizesEachExecutor() {
+        ConnectContext ctx = new ConnectContext();
+        StmtExecutor deferred1 = Mockito.mock(StmtExecutor.class);
+        StmtExecutor deferred2 = Mockito.mock(StmtExecutor.class);
+        ctx.addFlightSqlDeferredExecutor(deferred1);
+        ctx.addFlightSqlDeferredExecutor(deferred2);
+
+        ctx.closeFlightSqlDeferredExecutors();
+
+        // Both deferred coordinators must be finalized, otherwise their SplitSource and query queue
+        // slot leak after the DoGet phase.
+        Mockito.verify(deferred1).finalizeArrowFlightQuery();
+        Mockito.verify(deferred2).finalizeArrowFlightQuery();
+    }
+
+    @Test
+    public void testCloseFlightSqlDeferredExecutorsClearsListSoSecondCallIsNoOp() {
+        ConnectContext ctx = new ConnectContext();
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        ctx.addFlightSqlDeferredExecutor(deferred);
+
+        // More than one teardown path can fire for the same connection (e.g. the next query cleans
+        // up, then the connection is later torn down). The list must be cleared after the first
+        // call so the executor is finalized exactly once and is not retained (leaked) afterwards.
+        ctx.closeFlightSqlDeferredExecutors();
+        ctx.closeFlightSqlDeferredExecutors();
+
+        Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
+    }
+
+    @Test
+    public void testCloseFlightSqlDeferredExecutorsFinalizesRemainingWhenOneFails() {
+        ConnectContext ctx = new ConnectContext();
+        StmtExecutor failing = Mockito.mock(StmtExecutor.class);
+        StmtExecutor healthy = Mockito.mock(StmtExecutor.class);
+        Mockito.doThrow(new RuntimeException("finalize failed")).when(failing).finalizeArrowFlightQuery();
+        ctx.addFlightSqlDeferredExecutor(failing);
+        ctx.addFlightSqlDeferredExecutor(healthy);
+
+        // A single bad coordinator must not abort the cleanup: the call must not throw, and the
+        // healthy executor must still be finalized so its resources are released.
+        ctx.closeFlightSqlDeferredExecutors();
+        Mockito.verify(healthy).finalizeArrowFlightQuery();
+
+        // The list is cleared up front, so neither executor is reprocessed on a later teardown.
+        ctx.closeFlightSqlDeferredExecutors();
+        Mockito.verify(failing, Mockito.times(1)).finalizeArrowFlightQuery();
+        Mockito.verify(healthy, Mockito.times(1)).finalizeArrowFlightQuery();
+    }
 }

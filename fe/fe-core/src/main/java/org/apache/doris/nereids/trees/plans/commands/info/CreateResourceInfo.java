@@ -25,7 +25,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -91,7 +91,8 @@ public class CreateResourceInfo {
             throw new AnalysisException("Resource type can't be null");
         }
 
-        if (AzureProperties.guessIsMe(properties)) {
+        // Facade twin of the legacy AzureProperties.guessIsMe static (guess-only heuristics).
+        if (StorageAdapter.matchesProviderGuess("AZURE", properties)) {
             resourceType = ResourceType.AZURE;
             return;
         }

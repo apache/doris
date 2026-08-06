@@ -702,19 +702,22 @@ suite("parse_sql_from_sql_cache") {
                 }),
                 extraThread("testMultiFrontends", {
                     retryTestSqlCache(3, 1000) {
-                        def aliveFrontends = sql_return_maparray("show frontends")
+                        def aliveJoinedFrontends = sql_return_maparray("show frontends")
                                 .stream()
-                                .filter { it["Alive"].toString().equalsIgnoreCase("true") }
+                                .filter {
+                                    it["Alive"].toString().equalsIgnoreCase("true")
+                                            && it["Join"].toString().equalsIgnoreCase("true")
+                                }
                                 .collect(Collectors.toList())
 
-                        if (aliveFrontends.size() <= 1) {
+                        if (aliveJoinedFrontends.size() <= 1) {
                             return
                         }
 
-                        def fe1 = aliveFrontends[0]["Host"] + ":" + aliveFrontends[0]["QueryPort"]
+                        def fe1 = aliveJoinedFrontends[0]["Host"] + ":" + aliveJoinedFrontends[0]["QueryPort"]
                         def fe2 = fe1
-                        if (aliveFrontends.size() > 1) {
-                            fe2 = aliveFrontends[1]["Host"] + ":" + aliveFrontends[1]["QueryPort"]
+                        if (aliveJoinedFrontends.size() > 1) {
+                            fe2 = aliveJoinedFrontends[1]["Host"] + ":" + aliveJoinedFrontends[1]["QueryPort"]
                         }
 
                         log.info("fe1: ${fe1}")

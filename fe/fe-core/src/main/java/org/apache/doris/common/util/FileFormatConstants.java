@@ -31,7 +31,6 @@ public class FileFormatConstants {
     public static final String FORMAT_WAL = "wal";
     public static final String FORMAT_ARROW = "arrow";
     public static final String FORMAT_NATIVE = "native";
-    public static final String FORMAT_LANCE = "lance";
 
     public static final String PROP_FORMAT = "format";
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -51,6 +50,7 @@ public class FileFormatConstants {
     public static final String PROP_ENCLOSE = "enclose";
     public static final String PROP_ENABLE_MAPPING_VARBINARY = "enable_mapping_varbinary";
     public static final String PROP_ENABLE_MAPPING_TIMESTAMP_TZ = "enable_mapping_timestamp_tz";
+    public static final String PROP_HIVE_PARQUET_TIME_ZONE = "hive.parquet.time-zone";
 
     // decimal(p,s)
     public static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");

@@ -202,7 +202,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
      * Get the current balance type for a compute group, falling back to global balance type if not found
      */
     private BalanceTypeEnum getCurrentBalanceType(String clusterId) {
-        ComputeGroup cg = cloudSystemInfoService.getComputeGroupById(clusterId);
+        CloudComputeGroupMeta cg = cloudSystemInfoService.getComputeGroupById(clusterId);
         if (cg == null) {
             LOG.debug("compute group not found, use global balance type, id {}", clusterId);
             return globalBalanceTypeEnum;
@@ -219,7 +219,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
      * Get the current task timeout for a compute group, falling back to global timeout if not found
      */
     private int getCurrentTaskTimeout(String clusterId) {
-        ComputeGroup cg = cloudSystemInfoService.getComputeGroupById(clusterId);
+        CloudComputeGroupMeta cg = cloudSystemInfoService.getComputeGroupById(clusterId);
         if (cg == null) {
             return Config.cloud_pre_heating_time_limit_sec;
         }
@@ -233,15 +233,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private boolean isComputeGroupBalanceChanged(String clusterId) {
-        ComputeGroup cg = cloudSystemInfoService.getComputeGroupById(clusterId);
+        CloudComputeGroupMeta cg = cloudSystemInfoService.getComputeGroupById(clusterId);
         if (cg == null) {
             return false;
         }
 
         BalanceTypeEnum computeGroupBalanceType = cg.getBalanceType();
         int computeGroupTimeout = cg.getBalanceWarmUpTaskTimeout();
-        return computeGroupBalanceType != ComputeGroup.DEFAULT_COMPUTE_GROUP_BALANCE_ENUM
-               || computeGroupTimeout != ComputeGroup.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT;
+        return computeGroupBalanceType != CloudComputeGroupMeta.DEFAULT_COMPUTE_GROUP_BALANCE_ENUM
+               || computeGroupTimeout != CloudComputeGroupMeta.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT;
     }
 
     public CloudTabletRebalancer(CloudSystemInfoService cloudSystemInfoService) {
@@ -339,7 +339,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private class InfightTask {
-        public long pickedTabletId;
+        public Long pickedTabletId;
         public long srcBe;
         public long destBe;
         public long startTimestamp;
@@ -375,12 +375,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private static class WarmupTabletTask {
-        private final long pickedTabletId;
+        private final Long pickedTabletId;
         private final long srcBe;
         private final long destBe;
         private final String clusterId;
 
-        WarmupTabletTask(long pickedTabletId, long srcBe, long destBe, String clusterId) {
+        WarmupTabletTask(Long pickedTabletId, long srcBe, long destBe, String clusterId) {
             this.pickedTabletId = pickedTabletId;
             this.srcBe = srcBe;
             this.destBe = destBe;
@@ -1058,23 +1058,29 @@ public class CloudTabletRebalancer extends MasterDaemon {
                                 ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> beToTabletsInTable,
                                 ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
                                     partToTablets) {
+        fillBeToTablets(Long.valueOf(be), Long.valueOf(tableId), Long.valueOf(partId), Long.valueOf(indexId),
+                Long.valueOf(tabletId), globalBeToTablets, beToTabletsInTable, partToTablets);
+    }
+
+    void fillBeToTablets(Long be, Long tableId, Long partId, Long indexId, Long tabletId,
+                                ConcurrentHashMap<Long, Set<Long>> globalBeToTablets,
+                                ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> beToTabletsInTable,
+                                ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                                    partToTablets) {
         // global
-        globalBeToTablets.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        globalBeToTablets.get(be).add(tabletId);
+        globalBeToTablets.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
 
         // table
-        beToTabletsInTable.putIfAbsent(tableId, new ConcurrentHashMap<Long, Set<Long>>());
-        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfTable = beToTabletsInTable.get(tableId);
-        beToTabletsOfTable.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        beToTabletsOfTable.get(be).add(tabletId);
+        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfTable =
+                beToTabletsInTable.computeIfAbsent(tableId, ignored -> new ConcurrentHashMap<>());
+        beToTabletsOfTable.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
 
         // partition
-        partToTablets.putIfAbsent(partId, new ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>());
-        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets = partToTablets.get(partId);
-        indexToTablets.putIfAbsent(indexId, new ConcurrentHashMap<Long, Set<Long>>());
-        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfIndex = indexToTablets.get(indexId);
-        beToTabletsOfIndex.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        beToTabletsOfIndex.get(be).add(tabletId);
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets =
+                partToTablets.computeIfAbsent(partId, ignored -> new ConcurrentHashMap<>());
+        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfIndex =
+                indexToTablets.computeIfAbsent(indexId, ignored -> new ConcurrentHashMap<>());
+        beToTabletsOfIndex.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
     }
 
     private void enqueueWarmupTask(WarmupTabletTask task) {
@@ -1176,25 +1182,29 @@ public class CloudTabletRebalancer extends MasterDaemon {
         Map<Long, Boolean> tmpDbInternal = new HashMap<>();
 
         loopCloudReplica((Database db, Table table, Partition partition, MaterializedIndex index, String cluster) -> {
-            boolean isColocated = Env.getCurrentColocateIndex().isColocateTable(table.getId());
-            tmpTableToDb.put(table.getId(), db.getId());
-            tmpPartitionToDb.put(partition.getId(), db.getId());
-            tmpDbInternal.computeIfAbsent(db.getId(), k -> {
+            Long dbId = db.getId();
+            Long tableId = table.getId();
+            Long partitionId = partition.getId();
+            Long indexId = index.getId();
+            boolean isColocated = Env.getCurrentColocateIndex().isColocateTable(tableId);
+            tmpTableToDb.put(tableId, dbId);
+            tmpPartitionToDb.put(partitionId, dbId);
+            tmpDbInternal.computeIfAbsent(dbId, k -> {
                 String name = db.getFullName();
                 return name != null && INTERNAL_DB_NAMES.contains(name);
             });
             for (Tablet tablet : index.getTablets()) {
-                long tabletId = tablet.getId();
+                Long tabletId = tablet.getId();
                 // active tablet scoring (used for scheduling order)
                 if (activeTabletIds != null && !activeTabletIds.isEmpty() && activeTabletIds.contains(tabletId)) {
-                    tmpTableActive.merge(table.getId(), 1L, Long::sum);
-                    tmpPartitionActive.merge(partition.getId(), 1L, Long::sum);
-                    tmpDbActive.merge(db.getId(), 1L, Long::sum);
+                    tmpTableActive.merge(tableId, 1L, Long::sum);
+                    tmpPartitionActive.merge(partitionId, 1L, Long::sum);
+                    tmpDbActive.merge(dbId, 1L, Long::sum);
                 }
                 for (Replica r : tablet.getReplicas()) {
                     CloudReplica replica = (CloudReplica) r;
                     if (isColocated) {
-                        long beId = -1L;
+                        Long beId = -1L;
                         try {
                             beId = replica.getColocatedBeId(cluster);
                         } catch (ComputeGroupException e) {
@@ -1209,13 +1219,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     }
 
                     Backend be = replica.getPrimaryBackend(cluster, false);
-                    long beId = be == null ? -1L : be.getId();
+                    Long beId = be == null ? Long.valueOf(-1L) : Long.valueOf(be.getId());
                     if (!allBes.contains(beId)) {
                         continue;
                     }
 
                     Backend secondaryBe = replica.getSecondaryBackend(cluster);
-                    long secondaryBeId = secondaryBe == null ? -1L : secondaryBe.getId();
+                    Long secondaryBeId = secondaryBe == null ? Long.valueOf(-1L) : Long.valueOf(secondaryBe.getId());
                     if (allBes.contains(secondaryBeId)) {
                         Set<Long> tablets = tmpBeToTabletsGlobalInSecondary
                                 .computeIfAbsent(secondaryBeId, k -> new HashSet<>());
@@ -1224,11 +1234,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
                     InfightTablet taskKey = new InfightTablet(tabletId, cluster);
                     InfightTask task = tabletToInfightTask.get(taskKey);
-                    long futureBeId = task == null ? beId : task.destBe;
-                    fillBeToTablets(beId, table.getId(), partition.getId(), index.getId(), tabletId,
+                    Long futureBeId = task == null ? beId : Long.valueOf(task.destBe);
+                    Long routeTabletId = task == null ? tabletId : task.pickedTabletId;
+                    fillBeToTablets(beId, tableId, partitionId, indexId, routeTabletId,
                             tmpBeToTabletsGlobal, beToTabletsInTable, this.partitionToTablets);
 
-                    fillBeToTablets(futureBeId, table.getId(), partition.getId(), index.getId(), tabletId,
+                    fillBeToTablets(futureBeId, tableId, partitionId, indexId, routeTabletId,
                             tmpFutureBeToTabletsGlobal, futureBeToTabletsInTable, futurePartitionToTablets);
                 }
             }
@@ -1498,6 +1509,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
             req.setHost(srcBackend.getHost());
             req.setBrpcPort(srcBackend.getBrpcPort());
             req.setTabletIds(new ArrayList<>(tabletIds));
+            // Tell the receiving BE its own compute group id, so it can set _self_compute_group_id.
+            // In normal intra-CG rebalance, src and dest belong to the same compute group.
+            String srcComputeGroupId = srcBackend.getCloudClusterId();
+            if (srcComputeGroupId != null && !srcComputeGroupId.isEmpty()) {
+                req.setCloudComputeGroupId(srcComputeGroupId);
+            }
             TWarmUpCacheAsyncResponse result = client.warmUpCacheAsync(req);
             if (result.getStatus().getStatusCode() != TStatusCode.OK) {
                 LOG.warn("pre cache failed status {} {}", result.getStatus().getStatusCode(),
@@ -1612,7 +1629,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
     }
 
-    private void updateBeToTablets(long tabletId, long srcBe, long destBe,
+    private void updateBeToTablets(Long tabletId, Long srcBe, Long destBe,
                                    ConcurrentHashMap<Long, Set<Long>> globalBeToTablets,
                                    ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> beToTabletsInTable,
                                    ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long,
@@ -1622,9 +1639,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
             LOG.warn("tablet {} meta not found in inverted index, skip updateBeToTablets", tabletId);
             return;
         }
-        long tableId = tabletMeta.getTableId();
-        long partId = tabletMeta.getPartitionId();
-        long indexId = tabletMeta.getIndexId();
+        Long tableId = tabletMeta.getTableId();
+        Long partId = tabletMeta.getPartitionId();
+        Long indexId = tabletMeta.getIndexId();
 
         Set<Long> globalSrcTablets = globalBeToTablets.get(srcBe);
         if (globalSrcTablets == null || !globalSrcTablets.remove(tabletId)) {
@@ -1652,8 +1669,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
         }
 
-        fillBeToTablets(destBe, tableId, partId, indexId, tabletId, globalBeToTablets, beToTabletsInTable,
-                        partToTablets);
+        fillBeToTablets(destBe, tableId, partId, indexId, tabletId, globalBeToTablets,
+                beToTabletsInTable, partToTablets);
     }
 
     private void updateClusterToBeMap(long tabletId, long destBe, String clusterId,
@@ -1909,8 +1926,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 break; // no need balance
             }
 
-            long srcBe = pairInfo.srcBe;
-            long destBe = pairInfo.destBe;
+            Long srcBe = pairInfo.srcBe;
+            Long destBe = pairInfo.destBe;
 
             Long pickedTabletId = pickTabletPreferCold(srcBe, beToTablets.get(srcBe),
                     this.activeTabletIds, pickedTabletIds);
@@ -2065,7 +2082,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         return chosen;
     }
 
-    private boolean preheatAndUpdateTablet(long pickedTabletId, long srcBe, long destBe, String clusterId,
+    private boolean preheatAndUpdateTablet(Long pickedTabletId, Long srcBe, Long destBe, String clusterId,
                                      BalanceType balanceType) {
         Backend srcBackend = cloudSystemInfoService.getBackend(srcBe);
         Backend destBackend = cloudSystemInfoService.getBackend(destBe);
@@ -2091,7 +2108,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         return true;
     }
 
-    private boolean transferTablet(long pickedTabletId, long srcBe, long destBe, String clusterId,
+    private boolean transferTablet(Long pickedTabletId, Long srcBe, Long destBe, String clusterId,
                             BalanceType balanceType, List<UpdateCloudReplicaInfo> infos) {
         LOG.debug("transfer {} from {} to {}, cluster {}, type {}",
                 pickedTabletId, srcBe, destBe, clusterId, balanceType);

@@ -155,7 +155,8 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-eval "bash ${TP_DIR}/download-thirdparty.sh ${packages[*]}"
+prepare_arrow_paimon_download_packages "${packages[@]}"
+bash "${TP_DIR}/download-thirdparty.sh" "${ARROW_PAIMON_DOWNLOAD_PACKAGES[@]}"
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
@@ -998,6 +999,7 @@ build_flatbuffers() {
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
 
     cp flatc ../../../installed/bin/flatc
+    rm -rf ../../../installed/include/flatbuffers
     cp -r ../include/flatbuffers ../../../installed/include/flatbuffers
     cp libflatbuffers.a ../../../installed/lib/libflatbuffers.a
 }
@@ -1063,6 +1065,7 @@ build_grpc() {
 # arrow
 build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
+    invalidate_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
 
     mkdir -p release
@@ -1122,6 +1125,7 @@ build_arrow() {
         -Dxsimd_SOURCE=BUNDLED \
         -DBrotli_SOURCE=BUNDLED \
         -DARROW_LZ4_USE_SHARED=OFF \
+        -DLZ4_ROOT="${TP_INSTALL_DIR};${TP_INSTALL_DIR}/include/lz4" \
         -DLZ4_LIB="${TP_INSTALL_DIR}/lib/liblz4.a" -DLZ4_INCLUDE_DIR="${TP_INSTALL_DIR}/include/lz4" \
         -DLz4_SOURCE=SYSTEM \
         -DARROW_ZSTD_USE_SHARED=OFF \
@@ -1144,9 +1148,97 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
+    strip_lib libarrow_compute.a
     strip_lib libparquet.a
     strip_lib libarrow_dataset.a
     strip_lib libarrow_acero.a
+
+    publish_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
+}
+
+# arrow-adbc
+# Produces three artifacts from one source tree:
+#   libadbc_driver_manager.a  -- statically linked into doris_be
+#   libadbc_driver_jni.so     -- loaded by the FE adbc connector
+#   libadbc_driver_sqlite.so  -- BE unit tests only, not shipped
+# and installs a fourth that is not built here:
+#   libadbc_driver_flightsql.so -- prebuilt, adbc tests only, not shipped
+build_arrow_adbc() {
+    check_if_source_exist "${ARROW_ADBC_SOURCE}"
+
+    local adbc_src="${TP_SOURCE_DIR}/${ARROW_ADBC_SOURCE}"
+
+    # The SQLite driver needs a SQLite3 development package, which Doris does not
+    # ship and most build hosts lack. arrow-adbc vendors the amalgamation, so build
+    # it here into a scratch prefix and hand the paths to FindSQLite3. It ends up
+    # statically inside libadbc_driver_sqlite.so, so nothing sqlite is installed.
+    local sqlite_host="${adbc_src}/c/${BUILD_DIR}-sqlite-host"
+    rm -rf "${sqlite_host}"
+    mkdir -p "${sqlite_host}/include" "${sqlite_host}/lib"
+    "${CC}" -O2 -fPIC -DSQLITE_ENABLE_COLUMN_METADATA=1 \
+        -c "${adbc_src}/c/vendor/sqlite3/sqlite3.c" -o "${sqlite_host}/sqlite3.o"
+    ar rcs "${sqlite_host}/lib/libsqlite3.a" "${sqlite_host}/sqlite3.o"
+    cp -f "${adbc_src}/c/vendor/sqlite3/sqlite3.h" "${sqlite_host}/include/"
+
+    # (1) driver manager + sqlite driver
+    cd "${adbc_src}/c"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_LIBDIR=lib64 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DADBC_DRIVER_MANAGER=ON \
+        -DADBC_DRIVER_SQLITE=ON \
+        -DADBC_BUILD_STATIC=ON \
+        -DADBC_BUILD_SHARED=ON \
+        -DADBC_BUILD_TESTS=OFF \
+        -DADBC_USE_CCACHE=OFF \
+        -DSQLite3_INCLUDE_DIR="${sqlite_host}/include" \
+        -DSQLite3_LIBRARY="${sqlite_host}/lib/libsqlite3.a" \
+        ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+
+    # (2) JNI bridge for the FE. Must come after (1): it links the driver manager.
+    #     Built directly rather than through upstream's java/CMakeLists.txt, which
+    #     shells out to Maven just to generate the JNI header; that header is
+    #     checked in as a patch instead (see thirdparty/patches). Also not taken
+    #     from the Maven jar: the prebuilt binary there requires GLIBC_2.34 and
+    #     GLIBCXX_3.4.31, which excludes CentOS 7/8, Rocky 8, Ubuntu 20.04 and more.
+    #     Only jni.h is needed, so any JDK will do.
+    if [[ ! -f "${JAVA_HOME}/include/jni.h" ]]; then
+        echo "arrow-adbc: JAVA_HOME must point at a JDK (no ${JAVA_HOME}/include/jni.h)"
+        exit 1
+    fi
+    local jni_md_dir='linux'
+    if [[ "${KERNEL}" == 'Darwin' ]]; then
+        jni_md_dir='darwin'
+    fi
+
+    "${CXX}" -std="c++${TP_CXX_STANDARD}" -O2 -fPIC -shared \
+        -I"${JAVA_HOME}/include" \
+        -I"${JAVA_HOME}/include/${jni_md_dir}" \
+        -I"${adbc_src}/java/driver/jni/doris_generated" \
+        -I"${TP_INCLUDE_DIR}" \
+        "${adbc_src}/java/driver/jni/src/main/cpp/jni_wrapper.cc" \
+        -o "${TP_INSTALL_DIR}/lib64/libadbc_driver_jni.so" \
+        "${TP_INSTALL_DIR}/lib64/libadbc_driver_manager.a"
+
+    # (3) Flight SQL driver. Not built: upstream implements it in Go, so it comes
+    #     prebuilt out of the release wheel that download-thirdparty.sh unpacked
+    #     (see vars.sh). Nothing links against it; the FE and BE dlopen it at run
+    #     time, and only the adbc tests ask for it.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+        check_if_source_exist "${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+        cp -f "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}/libadbc_driver_flightsql.so" \
+            "${TP_INSTALL_DIR}/lib64/libadbc_driver_flightsql.so"
+    fi
+
+    rm -rf "${sqlite_host}"
 }
 
 # abseil
@@ -1617,8 +1709,38 @@ build_jemalloc_doris() {
     # It is not easy to remove `with-jemalloc-prefix`, which may affect the compatibility between third-party and old version codes.
     # Also, will building failed on Mac, it said can't find mallctl symbol. because jemalloc's default prefix on macOS is "je_", not "".
     # Maybe can use alias instead of overwrite.
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
-        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+    if [[ "${KERNEL}" == 'Darwin' ]]; then
+        # Doris does not build GNU libunwind on macOS, and Apple/LLVM libunwind does not provide
+        # jemalloc's required unw_backtrace symbol. Keep macOS on its original profiler backtrace
+        # path instead of forcing a Linux-only libunwind configuration.
+        CFLAGS="${cflags}" \
+            ../configure --prefix="${TP_INSTALL_DIR}" \
+            --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
+            --with-jemalloc-prefix=je --enable-prof \
+            --disable-cxx --disable-libdl --disable-shared
+    else
+        CPPFLAGS="-I${TP_INCLUDE_DIR}" CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR}" \
+            LIBS="-llzma -lz" \
+            ../configure --prefix="${TP_INSTALL_DIR}" \
+            --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
+            --with-jemalloc-prefix=je --enable-prof --enable-prof-libunwind \
+            --disable-prof-libgcc --disable-cxx --disable-libdl --disable-shared
+
+        # The stack trace API redirects dl_iterate_phdr to a PHDR cache. On glibc platforms,
+        # jemalloc heap profiling must not silently fall back to libgcc's _Unwind_Backtrace path,
+        # because that path can re-enter the loader-lock implementation while a sampled target
+        # thread is interrupted.
+        if ! grep -qE "result: prof-libunwind +: 1$" config.log; then
+            echo "ERROR: jemalloc prof-libunwind is not enabled; refusing libgcc-backed heap profiles." >&2
+            grep -E "result: prof-(libunwind|libgcc|gcc) +:" config.log >&2 || true
+            exit 1
+        fi
+        if grep -qE "result: prof-libgcc +: 1$" config.log; then
+            echo "ERROR: jemalloc prof-libgcc is enabled; heap profiling must use libunwind only." >&2
+            grep -E "result: prof-(libunwind|libgcc|gcc) +:" config.log >&2 || true
+            exit 1
+        fi
+    fi
 
     make -j "${PARALLEL}"
     make install
@@ -2012,6 +2134,8 @@ build_pugixml() {
 # paimon-cpp
 build_paimon_cpp() {
     check_if_source_exist "${PAIMON_CPP_SOURCE}"
+    require_arrow_prebuilt_for_paimon "${TP_INSTALL_DIR}"
+    invalidate_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
     cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
 
     rm -rf "${BUILD_DIR}"
@@ -2058,6 +2182,7 @@ build_paimon_cpp() {
         mkdir -p "${paimon_deps_dir}"
         for paimon_arrow_dep in \
             libarrow.a \
+            libarrow_compute.a \
             libarrow_filesystem.a \
             libarrow_dataset.a \
             libarrow_acero.a \
@@ -2091,6 +2216,69 @@ build_paimon_cpp() {
     fi
 
     echo "Paimon-cpp internal dependencies installed successfully"
+    publish_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
+}
+
+# lance-c
+build_lance_c() {
+    check_if_source_exist "${LANCE_C_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+
+    local cargo_bin="${LANCE_C_CARGO:-${CARGO:-cargo}}"
+    if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
+        echo "cargo is required to build lance-c. Install Rust 1.91.0 or set LANCE_C_CARGO."
+        exit 1
+    fi
+    if [[ ! -x "${TP_INSTALL_DIR}/bin/protoc" ]]; then
+        echo "protoc is required to build lance-c. Build protobuf first."
+        exit 1
+    fi
+
+    local required_rust_version="1.91.0"
+    local cargo_env=(
+        "CARGO_BUILD_JOBS=${PARALLEL}"
+        "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
+        "PROTOC=${TP_INSTALL_DIR}/bin/protoc"
+    )
+    if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
+        if ! rustup toolchain list | grep -Eq '^1\.91\.0([[:space:]-]|$)'; then
+            rustup toolchain install "${required_rust_version}" --profile minimal
+        fi
+        cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
+    fi
+
+    local cargo_version
+    if ! cargo_version="$(env "${cargo_env[@]}" "${cargo_bin}" --version | awk '{print $2}')"; then
+        echo "failed to get cargo version for lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+    if [[ "${cargo_version}" != "${required_rust_version}" ]]; then
+        echo "lance-c requires Rust/Cargo ${required_rust_version}, but found ${cargo_version}."
+        echo "Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
+    fi
+
+    local cargo_args=(build --release --locked)
+    if [[ "$(echo "${LANCE_C_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+        cargo_args+=(--offline)
+    fi
+    env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
+
+    mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
+    rm -rf "${TP_INSTALL_DIR}/include/lance"
+    cp -av include/lance "${TP_INSTALL_DIR}/include/"
+    cp -v "${BUILD_DIR}/release/liblance_c.a" "${TP_INSTALL_DIR}/lib64/"
+
+    if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
+        strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/liblance_c.a"
+    fi
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -2121,6 +2309,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         thrift
         leveldb
         brpc
+        lzma
+        libunwind
         jemalloc_doris
         rocksdb
         krb5 # before cyrus_sasl
@@ -2131,6 +2321,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         cares
         grpc # after cares, protobuf
         arrow
+        arrow_adbc
+        lance_c
         s2
         bitshuffle
         croaringbitmap
@@ -2144,7 +2336,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         mysql
         aws_sdk
         js_and_css
-        lzma
         xml2
         idn
         gsasl
@@ -2157,7 +2348,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         xxhash
         concurrentqueue
         fast_float
-        libunwind
         avx2neon
         libdeflate
         streamvbyte
@@ -2223,6 +2413,15 @@ cleanup_package_source() {
         librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
         flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
         arrow)           src_var="ARROW_SOURCE" ;;
+        arrow_adbc)
+            # arrow_adbc also unpacks the prebuilt flightsql driver, clean both
+            if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" && -d "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+                echo "Cleaning up source: ${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+                rm -rf "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}" \
+                    "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}"-*.dist-info
+            fi
+            src_var="ARROW_ADBC_SOURCE"
+            ;;
         brotli)          src_var="BROTLI_SOURCE" ;;
         cares)           src_var="CARES_SOURCE" ;;
         grpc)            src_var="GRPC_SOURCE" ;;
@@ -2267,6 +2466,7 @@ cleanup_package_source() {
         juicefs)         src_var="JUICEFS_SOURCE" ;;
         pugixml)         src_var="PUGIXML_SOURCE" ;;
         paimon_cpp)      src_var="PAIMON_CPP_SOURCE" ;;
+        lance_c)         src_var="LANCE_C_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
         lzma)            src_var="LZMA_SOURCE" ;;
         xml2)            src_var="XML2_SOURCE" ;;

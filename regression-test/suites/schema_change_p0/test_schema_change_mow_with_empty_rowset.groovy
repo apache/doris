@@ -68,6 +68,7 @@ suite("test_schema_change_mow_with_empty_rowset", "p0") {
     Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
         {
             String res = getJobState(tableName)
+            logger.info("alter table ${tableName} job state: ${res}")
             if (res == "FINISHED" || res == "CANCELLED") {
                 assertEquals("FINISHED", res)
                 return true

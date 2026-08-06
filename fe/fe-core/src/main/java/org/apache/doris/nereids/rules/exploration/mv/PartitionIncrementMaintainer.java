@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
@@ -60,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.ImmutableEqualSet;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -410,6 +412,9 @@ public class PartitionIncrementMaintainer {
         @Override
         public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
                 PartitionIncrementCheckContext context) {
+            if (!planOutputContainsPartitionColumnToCheck(aggregate, context)) {
+                return super.visitLogicalAggregate(aggregate, context);
+            }
             Set<Expression> groupByExprSet = new HashSet<>(aggregate.getGroupByExpressions());
             if (groupByExprSet.isEmpty()) {
                 context.addFailReason("group by sets is empty, doesn't contain the target partition");
@@ -426,6 +431,9 @@ public class PartitionIncrementMaintainer {
 
         @Override
         public Void visitLogicalWindow(LogicalWindow<? extends Plan> window, PartitionIncrementCheckContext context) {
+            if (!planOutputContainsPartitionColumnToCheck(window, context)) {
+                return super.visitLogicalWindow(window, context);
+            }
             List<NamedExpression> windowExpressions = window.getWindowExpressions();
             if (windowExpressions.isEmpty()) {
                 context.addFailReason("window expression is empty, doesn't contain the target partition");
@@ -434,7 +442,7 @@ public class PartitionIncrementMaintainer {
                 return visit(window, context);
             }
             for (NamedExpression namedExpression : windowExpressions) {
-                if (!checkWindowPartition(namedExpression, context)) {
+                if (!checkWindowPartition(namedExpression, window, context)) {
                     context.addFailReason("window partition sets doesn't contain the target partition");
                     context.collectFailedTableSet(window);
                     context.setFailFast(true);
@@ -442,6 +450,29 @@ public class PartitionIncrementMaintainer {
                 }
             }
             return super.visitLogicalWindow(window, context);
+        }
+
+        @Override
+        public Void visitLogicalPartitionTopN(LogicalPartitionTopN<? extends Plan> partitionTopN,
+                PartitionIncrementCheckContext context) {
+            if (!planOutputContainsPartitionColumnToCheck(partitionTopN, context)) {
+                return super.visitLogicalPartitionTopN(partitionTopN, context);
+            }
+            if (partitionTopN.hasGlobalLimit()) {
+                // A global limit/topN selects the top rows across all partitions rather than within
+                // each partition, so a change in one source partition can move the global winner and
+                // affect multiple MV partitions. That breaks partition-local maintenance, so reject it.
+                context.addFailReason("partition topN has global limit, which is not partition local");
+                context.collectFailedTableSet(partitionTopN);
+                context.setFailFast(true);
+                return super.visitLogicalPartitionTopN(partitionTopN, context);
+            }
+            if (!checkPartitionKeysContainPartitionToCheck(partitionTopN.getPartitionKeys(), partitionTopN, context)) {
+                context.addFailReason("partition topN partition keys doesn't contain the target partition");
+                context.collectFailedTableSet(partitionTopN);
+                context.setFailFast(true);
+            }
+            return super.visitLogicalPartitionTopN(partitionTopN, context);
         }
 
         @Override
@@ -456,6 +487,7 @@ public class PartitionIncrementMaintainer {
                     || plan instanceof LogicalWindow
                     || (plan instanceof LogicalUnion
                     && ((LogicalUnion) plan).getQualifier() == SetOperation.Qualifier.ALL)
+                    || plan instanceof LogicalPartitionTopN
                     || plan instanceof LogicalCTEAnchor
                     || plan instanceof LogicalCTEConsumer
                     || plan instanceof LogicalCTEProducer
@@ -471,28 +503,56 @@ public class PartitionIncrementMaintainer {
             return super.visit(plan, context);
         }
 
-        private boolean checkWindowPartition(Expression expression, PartitionIncrementCheckContext context) {
+        private boolean checkWindowPartition(Expression expression, Plan currentPlan,
+                PartitionIncrementCheckContext context) {
             List<Object> windowExpressions =
                     expression.collectToList(expressionTreeNode -> expressionTreeNode instanceof WindowExpression);
             for (Object windowExpressionObj : windowExpressions) {
                 WindowExpression windowExpression = (WindowExpression) windowExpressionObj;
-                List<Expression> partitionKeys = windowExpression.getPartitionKeys();
-                Set<Column> originalPartitionbyExprSet = new HashSet<>();
-                partitionKeys.forEach(groupExpr -> {
-                    if (groupExpr instanceof SlotReference && groupExpr.isColumnFromTable()) {
-                        originalPartitionbyExprSet.add(((SlotReference) groupExpr).getOriginalColumn().get());
-                    }
-                });
-                Set<SlotReference> contextPartitionColumnSet = getPartitionColumnsToCheck(context);
-                if (contextPartitionColumnSet.isEmpty()) {
-                    return false;
-                }
-                if (contextPartitionColumnSet.stream().noneMatch(
-                        partition -> originalPartitionbyExprSet.contains(partition.getOriginalColumn().get()))) {
+                if (!checkPartitionKeysContainPartitionToCheck(windowExpression.getPartitionKeys(),
+                        currentPlan, context)) {
                     return false;
                 }
             }
             return true;
+        }
+
+        private boolean checkPartitionKeysContainPartitionToCheck(List<Expression> partitionKeys,
+                Plan currentPlan, PartitionIncrementCheckContext context) {
+            // Match by slot exprId, not catalog Column: Column.equals ignores the owning table, so an
+            // unrelated same-schema column (e.g. l.p vs r.p) would be wrongly accepted as the tracked key.
+            Set<SlotReference> partitionKeySlotSet = new HashSet<>();
+            partitionKeys.forEach(partitionKey -> {
+                if (partitionKey instanceof SlotReference && partitionKey.isColumnFromTable()) {
+                    partitionKeySlotSet.add((SlotReference) partitionKey);
+                }
+            });
+            Set<SlotReference> contextPartitionColumnSet = getPartitionColumnsToCheck(context);
+            if (contextPartitionColumnSet.isEmpty()) {
+                return false;
+            }
+            if (contextPartitionColumnSet.stream().anyMatch(partitionKeySlotSet::contains)) {
+                return true;
+            }
+            // Also accept a key that is a different slot but proven equal to the tracked column, e.g.
+            // window over (partition by r.p) on an inner join l.p = r.p, or a forwarding alias p AS p_alias.
+            // currentPlan's DataTrait carries these equalities (bottom-up) even though this top-down check
+            // runs before the join equalities reach the context.
+            ImmutableEqualSet<Slot> equalSet = currentPlan.getLogicalProperties().getTrait().getEqualSet();
+            return contextPartitionColumnSet.stream().anyMatch(contextSlot ->
+                    partitionKeySlotSet.stream().anyMatch(keySlot -> equalSet.isEqual(contextSlot, keySlot)));
+        }
+
+        private boolean planOutputContainsPartitionColumnToCheck(Plan plan, PartitionIncrementCheckContext context) {
+            Set<Slot> outputSet = plan.getOutputSet();
+            for (NamedExpression namedExpression : context.getPartitionAndRefExpressionMap().keySet()) {
+                // Plan outputs are slots, so only tracked partition expressions already resolved
+                // to slots can match here.
+                if (namedExpression instanceof Slot && outputSet.contains(namedExpression)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private Set<SlotReference> getPartitionColumnsToCheck(PartitionIncrementCheckContext context) {

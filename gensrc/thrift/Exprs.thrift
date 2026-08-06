@@ -88,6 +88,10 @@ enum TExprNodeType {
   TRY_CAST_EXPR = 41
   // for search DSL function
   SEARCH_EXPR = 42,
+  // Normal predicate expression
+  PREDICATE = 43,
+  // Normal literal
+  LITERAL = 44,
 }
 
 //enum TAggregationOp {
@@ -325,6 +329,10 @@ struct TExprNode {
   39: optional bool is_cast_nullable
   40: optional TSearchParam search_param
   41: optional bool short_circuit_evaluation
+  // Lambda argument names in the current lambda scope. It is used by BE to
+  // distinguish current-scope lambda arguments from captured outer lambda
+  // arguments when nested lambda expressions contain duplicated column ids.
+  42: optional list<string> lambda_argument_names
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

@@ -207,10 +207,15 @@ public:
 
     static constexpr size_t max_precision() { return max_decimal_precision<T>(); }
 
-    DataTypeDecimal(UInt32 arg_precision = max_decimal_precision<T>(),
-                    UInt32 arg_scale = default_decimal_scale<T>(),
-                    UInt32 arg_original_precision = UINT32_MAX,
-                    UInt32 arg_original_scale = UINT32_MAX)
+    DataTypeDecimal(
+            UInt32 arg_precision = max_decimal_precision<T>(),
+            UInt32 arg_scale = default_decimal_scale<T>(),
+            // For decimalv2 only, record the original(schema) precision and scale.
+            // UINT32_MAX means original precision and scale are unknown.
+            // Decimalv2 will be converted to Decimal(27, 9) in memory when doing any calculations,
+            // but when casting decimalv2 to string, it's better to keep the presion and
+            // scale of it's original value in schema.
+            UInt32 arg_original_precision = UINT32_MAX, UInt32 arg_original_scale = UINT32_MAX)
             : DecimalScaleInfo<T>(arg_precision, arg_scale, arg_original_precision,
                                   arg_original_scale) {}
 

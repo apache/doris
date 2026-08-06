@@ -20,7 +20,7 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF3 RF5 RF7
 ------------------------------PhysicalProject
---------------------------------filter((p_name like '%green%'))
+--------------------------------filter((part.p_name like '%green%'))
 ----------------------------------PhysicalOlapScan[part] apply RFs: RF8
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()

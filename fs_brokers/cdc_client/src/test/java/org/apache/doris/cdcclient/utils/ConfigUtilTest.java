@@ -271,6 +271,21 @@ class ConfigUtilTest {
     }
 
     @Test
+    void parseAllExcludeColumns_preservesOriginalCase() {
+        // Table name in config key is preserved as-is; callers must use the
+        // same case that Debezium returns (which is the PG/MySQL stored name).
+        Map<String, String> config = new HashMap<>();
+        config.put("table.MyTable.exclude_columns", "a,b");
+        config.put("table.T_User.exclude_columns", "c");
+
+        Map<String, Set<String>> all = ConfigUtil.parseAllExcludeColumns(config);
+
+        assertEquals(2, all.size());
+        assertEquals(Set.of("a", "b"), all.get("MyTable"));
+        assertEquals(Set.of("c"), all.get("T_User"));
+    }
+
+    @Test
     void parseAllTargetTableMappings_skipsEmptyValues() {
         Map<String, String> config = new HashMap<>();
         config.put("table.src.target_table", "dst");
@@ -280,6 +295,31 @@ class ConfigUtilTest {
 
         assertEquals(1, mappings.size());
         assertEquals("dst", mappings.get("src"));
+    }
+
+    @Test
+    void parseAllTargetTableMappings_preservesOriginalCase() {
+        Map<String, String> config = new HashMap<>();
+        config.put("table.MyTable.target_table", "DstTable");
+        config.put("table.Src.target_table", "Dst2");
+
+        Map<String, String> mappings = ConfigUtil.parseAllTargetTableMappings(config);
+
+        assertEquals(2, mappings.size());
+        assertEquals("DstTable", mappings.get("MyTable"));
+        assertEquals("Dst2", mappings.get("Src"));
+    }
+
+    // ─── getTableList case handling ───────────────────────────────────────────
+
+    @Test
+    void tableListPreservesOriginalCase() {
+        // include_tables values are passed through as-is; Flink CDC's (?i) regex
+        // handles case-insensitive matching downstream.
+        Map<String, String> config = new HashMap<>();
+        config.put(DataSourceConfigKeys.INCLUDE_TABLES, "MyTable, T_User");
+        String[] result = ConfigUtil.getTableList("db", config);
+        assertArrayEquals(new String[] {"db.MyTable", "db.T_User"}, result);
     }
 
     // ─── toStringMap ──────────────────────────────────────────────────────────

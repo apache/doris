@@ -140,7 +140,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         }
     }
 
-    private void assembleAudit(AuditEvent event) {
+    private synchronized void assembleAudit(AuditEvent event) {
         fillLogBuffer(event, auditLogBuffer);
         ++auditLogNum;
     }
@@ -287,4 +287,3 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         }
     }
 }
-

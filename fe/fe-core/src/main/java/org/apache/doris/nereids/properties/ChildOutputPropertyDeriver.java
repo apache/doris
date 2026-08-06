@@ -71,9 +71,11 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -421,7 +423,14 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             Preconditions.checkState(childDistSpec instanceof DistributionSpecHash,
                     "child dist spec is not hash spec");
 
-            return new PhysicalProperties(childDistSpec, new OrderSpec(partitionTopN.getOrderKeys()));
+            // Declare the delivered order via getOutputOrderKeys() (= [partitionKeys, orderKeys]), NOT
+            // getOrderKeys() (= orderKeys only). getOrderKeys() is the executable sort key list sent to BE, from
+            // which order keys that duplicate a partition key are pruned (they are constant within each partition,
+            // so sorting on them is redundant). The two-phase-global output order property, however, must remain
+            // the full [partitionKeys, orderKeys] -- the same order this node declared before that pruning split.
+            // Keeping it full stays in lockstep with the parent window's required order (RequestPropertyDeriver),
+            // so OrderSpec.satisfy passes and no redundant sort enforcer is inserted above this PartitionTopN.
+            return new PhysicalProperties(childDistSpec, new OrderSpec(partitionTopN.getOutputOrderKeys()));
         }
     }
 
@@ -440,53 +449,78 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             return PhysicalProperties.GATHER;
         }
 
-        // TODO: open comment when support `enable_local_shuffle_planner`
-        // int distributeToChildIndex
-        //         = setOperation.<Integer>getMutableState(PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX).orElse(-1);
-        // if (distributeToChildIndex >= 0
-        //         && childrenDistribution.get(distributeToChildIndex) instanceof DistributionSpecHash) {
-        //     DistributionSpecHash childDistribution
-        //             = (DistributionSpecHash) childrenDistribution.get(distributeToChildIndex);
-        //     List<SlotReference> childToIndex = setOperation.getRegularChildrenOutputs().get(distributeToChildIndex);
-        //     Map<ExprId, Integer> idToOutputIndex = new LinkedHashMap<>();
-        //     for (int j = 0; j < childToIndex.size(); j++) {
-        //         idToOutputIndex.put(childToIndex.get(j).getExprId(), j);
-        //     }
-        //
-        //     List<ExprId> orderedShuffledColumns = childDistribution.getOrderedShuffledColumns();
-        //     List<ExprId> setOperationDistributeColumnIds = new ArrayList<>();
-        //     for (ExprId tableDistributeColumnId : orderedShuffledColumns) {
-        //         Integer index = idToOutputIndex.get(tableDistributeColumnId);
-        //         if (index == null) {
-        //             break;
-        //         }
-        //         setOperationDistributeColumnIds.add(setOperation.getOutput().get(index).getExprId());
-        //     }
-        //     // check whether the set operation output all distribution columns of the child
-        //     if (setOperationDistributeColumnIds.size() == orderedShuffledColumns.size()) {
-        //         boolean isUnion = setOperation instanceof Union;
-        //         boolean shuffleToRight = distributeToChildIndex > 0;
-        //         if (!isUnion && shuffleToRight) {
-        //             return new PhysicalProperties(
-        //                     new DistributionSpecHash(
-        //                             setOperationDistributeColumnIds,
-        //                             ShuffleType.EXECUTION_BUCKETED
-        //                     )
-        //             );
-        //         } else {
-        //             // keep the distribution as the child
-        //             return new PhysicalProperties(
-        //                     new DistributionSpecHash(
-        //                             setOperationDistributeColumnIds,
-        //                             childDistribution.getShuffleType(),
-        //                             childDistribution.getTableId(),
-        //                             childDistribution.getSelectedIndexId(),
-        //                             childDistribution.getPartitionIds()
-        //                     )
-        //             );
-        //         }
-        //     }
-        // }
+        // After ChildrenPropertiesRegulator the children distributions are already legal, so the
+        // output is derived by describing what the children provide:
+        // 1. one or more NATURAL children: output the first NATURAL child's distribution
+        //    (several NATURAL children behave like colocate);
+        // 2. no NATURAL but some STORAGE_BUCKETED child: output its STORAGE_BUCKETED distribution;
+        // 3. all EXECUTION_BUCKETED children: output the execution hash (the generic loop below);
+        // 4. anything else (e.g. random): output a non-specific property (also below).
+        // When the basic child does not directly output its shuffle columns, or the children do
+        // not agree, this falls through to the generic loop below, which is equivalence-set aware
+        // and checks that every child maps its shuffle columns to the same set-operation output
+        // positions before it claims a bucketed output. The basic child is recomputed from the
+        // children distributions instead of being carried as mutable planner state, because mutable
+        // state does not survive the with-copies in chooseBestPlan() and the
+        // RecomputePhysicalPropertiesPostProcessor re-derivation, while this recomputation is
+        // deterministic on any copy of the plan.
+        int distributeToChildIndex = -1;
+        int firstStorageBucketedIndex = -1;
+        for (int i = 0; i < childrenDistribution.size(); i++) {
+            if (childrenDistribution.get(i) instanceof DistributionSpecHash) {
+                ShuffleType childShuffleType
+                        = ((DistributionSpecHash) childrenDistribution.get(i)).getShuffleType();
+                if (childShuffleType == ShuffleType.NATURAL) {
+                    distributeToChildIndex = i;
+                    break;
+                } else if (childShuffleType == ShuffleType.STORAGE_BUCKETED
+                        && firstStorageBucketedIndex < 0) {
+                    firstStorageBucketedIndex = i;
+                }
+            }
+        }
+        if (distributeToChildIndex < 0) {
+            distributeToChildIndex = firstStorageBucketedIndex;
+        }
+        if (distributeToChildIndex >= 0) {
+            DistributionSpecHash childDistribution
+                    = (DistributionSpecHash) childrenDistribution.get(distributeToChildIndex);
+            List<SlotReference> childToIndex = setOperation.getRegularChildrenOutputs().get(distributeToChildIndex);
+            Map<ExprId, Integer> idToOutputIndex = new LinkedHashMap<>();
+            for (int j = 0; j < childToIndex.size(); j++) {
+                idToOutputIndex.put(childToIndex.get(j).getExprId(), j);
+            }
+
+            List<ExprId> orderedShuffledColumns = childDistribution.getOrderedShuffledColumns();
+            List<ExprId> setOperationDistributeColumnIds = new ArrayList<>();
+            for (ExprId tableDistributeColumnId : orderedShuffledColumns) {
+                Integer index = idToOutputIndex.get(tableDistributeColumnId);
+                if (index == null) {
+                    break;
+                }
+                setOperationDistributeColumnIds.add(setOperation.getOutput().get(index).getExprId());
+            }
+            // check whether the set operation output all distribution columns of the child
+            if (setOperationDistributeColumnIds.size() == orderedShuffledColumns.size()) {
+                // Keep the basic child's specific storage layout as the set operation output. When
+                // the basic child is on the right (shuffleToRight) the output rows are physically
+                // placed by the right child's storage bucket function, so advertising that layout is
+                // truthful: a parent can co-locate this set operation against the same layout, while
+                // a sibling on a different layout is re-aligned rather than wrongly co-located. (The
+                // earlier "Can not find tablet ... in the bucket" failure came from advertising a
+                // layout-less EXECUTION_BUCKETED here, which erased the table id so two different-
+                // layout set operations looked co-locatable; preserving the layout fixes that.)
+                return new PhysicalProperties(
+                        new DistributionSpecHash(
+                                setOperationDistributeColumnIds,
+                                childDistribution.getShuffleType(),
+                                childDistribution.getTableId(),
+                                childDistribution.getSelectedIndexId(),
+                                childDistribution.getPartitionIds()
+                        )
+                );
+            }
+        }
 
         for (int i = 0; i < childrenDistribution.size(); i++) {
             DistributionSpec childDistribution = childrenDistribution.get(i);

@@ -53,13 +53,18 @@ public class ElementAt extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable,
             PropagateNullLiteral, PreferPushDownProject {
 
+    private static final FunctionSignature VARIANT_KEY_SIGNATURE =
+            FunctionSignature.ret(VariantType.INSTANCE)
+                    .args(VariantType.INSTANCE, VarcharType.SYSTEM_DEFAULT);
+    private static final FunctionSignature VARIANT_INDEX_SIGNATURE =
+            FunctionSignature.ret(VariantType.INSTANCE)
+                    .args(VariantType.INSTANCE, BigIntType.INSTANCE);
+
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(new FollowToAnyDataType(0))
                     .args(ArrayType.of(new AnyDataType(0)), BigIntType.INSTANCE),
-            FunctionSignature.ret(VariantType.INSTANCE)
-                    .args(VariantType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(VariantType.INSTANCE)
-                    .args(VariantType.INSTANCE, BigIntType.INSTANCE),
+            VARIANT_KEY_SIGNATURE,
+            VARIANT_INDEX_SIGNATURE,
             FunctionSignature.ret(new FollowToAnyDataType(1))
                     .args(MapType.of(new AnyDataType(0), new AnyDataType(1)), new FollowToAnyDataType(0))
     );
@@ -126,6 +131,15 @@ public class ElementAt extends ScalarFunction
         if (arg0Type instanceof StructType) {
             return ImmutableList.of(FunctionSignature.ret(structFieldType((StructType) arg0Type))
                     .args(arg0Type, child(1).getDataType()));
+        }
+        if (arg0Type instanceof VariantType) {
+            DataType selectorType = child(1).getDataType();
+            if (selectorType.isIntegralType() || selectorType.isBooleanType()) {
+                return ImmutableList.of(VARIANT_INDEX_SIGNATURE);
+            }
+            if (selectorType.isStringLikeType()) {
+                return ImmutableList.of(VARIANT_KEY_SIGNATURE);
+            }
         }
         return SIGNATURES;
     }

@@ -32,6 +32,7 @@
 #include "format/parquet/parquet_column_convert.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/schema_desc.h"
+#include "io/fs/file_reader.h"
 #include "storage/olap_scan_common.h"
 #include "storage/segment/row_ranges.h"
 #include "util/timezone_utils.h"

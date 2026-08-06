@@ -61,7 +61,6 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -78,6 +77,7 @@ import io.debezium.connector.postgresql.connection.Lsn;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
 import io.debezium.connector.postgresql.connection.PostgresReplicationConnection;
 import io.debezium.connector.postgresql.spi.SlotState;
+import io.debezium.jdbc.JdbcConfiguration;
 import io.debezium.jdbc.JdbcConnection;
 import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
@@ -99,17 +99,6 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     public PostgresSourceReader() {
         super();
         this.setSerializer(new PostgresDebeziumJsonDeserializer());
-    }
-
-    @Override
-    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
-        super.initialize(jobId, dataSource, config);
-        // Inject PG schema refresher so the deserializer can fetch accurate column types on DDL
-        if (serializer instanceof PostgresDebeziumJsonDeserializer) {
-            ((PostgresDebeziumJsonDeserializer) serializer)
-                    .setPgSchemaRefresher(
-                            tableId -> refreshSingleTableSchema(tableId, config, jobId));
-        }
     }
 
     // First open only, NOT initialize: a rebuilt reader must not recreate a dropped slot.
@@ -270,7 +259,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         String schema = cdcConfig.get(DataSourceConfigKeys.SCHEMA);
         Preconditions.checkNotNull(schema, "schema is required");
         configFactory.schemaList(new String[] {schema});
-        configFactory.includeSchemaChanges(false);
+        boolean schemaChangeEnabled =
+                Boolean.parseBoolean(
+                        cdcConfig.getOrDefault(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "true"));
+        configFactory.includeSchemaChanges(schemaChangeEnabled);
 
         // Set table list
         String[] tableList = ConfigUtil.getTableList(schema, cdcConfig);
@@ -583,29 +575,6 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         }
     }
 
-    /**
-     * Fetch the current schema for a single table directly from PostgreSQL via JDBC.
-     *
-     * <p>Called by {@link PostgresDebeziumJsonDeserializer} when a schema change (ADD/DROP column)
-     * is detected, to obtain accurate PG column types for DDL generation.
-     *
-     * @return the fresh {@link TableChanges.TableChange}
-     */
-    private TableChanges.TableChange refreshSingleTableSchema(
-            TableId tableId, Map<String, String> config, String jobId) {
-        PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
-        PostgresDialect dialect = new PostgresDialect(sourceConfig);
-        try (JdbcConnection jdbcConnection = dialect.openJdbcConnection(sourceConfig)) {
-            CustomPostgresSchema customPostgresSchema =
-                    new CustomPostgresSchema((PostgresConnection) jdbcConnection, sourceConfig);
-            Map<TableId, TableChanges.TableChange> schemas =
-                    customPostgresSchema.getTableSchema(Collections.singletonList(tableId));
-            return schemas.get(tableId);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     @Override
     protected FetchTask<SourceSplitBase> createFetchTaskFromSplit(
             JobBaseConfig jobConfig, SourceSplitBase split) {
@@ -690,11 +659,12 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     jobId);
             return true;
         }
-        PostgresDialect dialect = new PostgresDialect(getSourceConfig(jobConfig));
+        JdbcConfiguration jdbcConfig =
+                getSourceConfig(jobConfig).getDbzConnectorConfig().getJdbcConfig();
         boolean cleaned = true;
         if (dropPub) {
             LOG.info("Dropping auto-created publication {} for job {}", pubName, jobId);
-            try (PostgresConnection connection = dialect.openJdbcConnection()) {
+            try (PostgresConnection connection = createCleanupConnection(jdbcConfig)) {
                 connection.execute("DROP PUBLICATION IF EXISTS " + pubName);
             } catch (Exception ex) {
                 LOG.warn(
@@ -703,7 +673,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                         jobId,
                         ex.getMessage());
             }
-            if (publicationExists(dialect, pubName)) {
+            if (publicationExists(jdbcConfig, pubName)) {
                 LOG.warn(
                         "Publication {} for job {} still present after drop, will retry",
                         pubName,
@@ -713,8 +683,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         }
         if (dropSlot) {
             LOG.info("Dropping auto-created replication slot {} for job {}", slotName, jobId);
-            try {
-                dialect.removeSlot(slotName);
+            try (PostgresConnection connection = createCleanupConnection(jdbcConfig)) {
+                connection.dropReplicationSlot(slotName);
             } catch (Exception ex) {
                 LOG.warn(
                         "Drop of replication slot {} for job {} failed: {}",
@@ -722,7 +692,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                         jobId,
                         ex.getMessage());
             }
-            if (slotExists(dialect, slotName)) {
+            if (slotExists(jdbcConfig, slotName)) {
                 LOG.warn(
                         "Replication slot {} for job {} still present after drop, will retry",
                         slotName,
@@ -733,8 +703,12 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         return cleaned;
     }
 
-    private boolean slotExists(PostgresDialect dialect, String slotName) {
-        try (PostgresConnection connection = dialect.openJdbcConnection()) {
+    static PostgresConnection createCleanupConnection(JdbcConfiguration jdbcConfig) {
+        return new PostgresConnection(jdbcConfig, PostgresConnection.CONNECTION_GENERAL);
+    }
+
+    private boolean slotExists(JdbcConfiguration jdbcConfig, String slotName) {
+        try (PostgresConnection connection = createCleanupConnection(jdbcConfig)) {
             return connection.queryAndMap(
                     "SELECT 1 FROM pg_replication_slots WHERE slot_name = '" + slotName + "'",
                     rs -> rs.next());
@@ -747,8 +721,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         }
     }
 
-    private boolean publicationExists(PostgresDialect dialect, String pubName) {
-        try (PostgresConnection connection = dialect.openJdbcConnection()) {
+    private boolean publicationExists(JdbcConfiguration jdbcConfig, String pubName) {
+        try (PostgresConnection connection = createCleanupConnection(jdbcConfig)) {
             return connection.queryAndMap(
                     "SELECT 1 FROM pg_publication WHERE pubname = '" + pubName + "'",
                     rs -> rs.next());

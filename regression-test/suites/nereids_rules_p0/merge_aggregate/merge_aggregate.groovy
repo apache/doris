@@ -265,4 +265,34 @@ suite("merge_aggregate") {
         (select a,max(b) as col1, count(b) as col4, a as col10, a as col11 
         from mal_test1 group by a) t group by col10, col11 order by 1,2,3;
     """
+
+    sql "drop table if exists mal_duplicate_alias_distinct"
+    sql """
+        create table mal_duplicate_alias_distinct (
+            a int not null,
+            b int not null,
+            c int null
+        )
+        duplicate key (a, b, c)
+        distributed by hash(a) buckets 1
+        properties("replication_num" = "1");
+    """
+    sql """
+        insert into mal_duplicate_alias_distinct values
+            (1, 10, 100), (1, 10, 101), (1, 20, 100),
+            (2, 10, 200), (2, 20, 200), (2, 30, 201),
+            (3, 30, null), (3, 40, null);
+    """
+    sql "sync"
+
+    order_qt_duplicate_alias_distinct_result """
+        select g1, g2, sum(s) as total_s
+        from (
+            select a as g1, a as g2, count(distinct c) as s
+            from mal_duplicate_alias_distinct
+            group by a, b
+        ) t
+        group by g1, g2
+        order by g1, g2;
+    """
 }

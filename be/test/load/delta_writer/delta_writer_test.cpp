@@ -44,6 +44,7 @@
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -685,7 +686,7 @@ TEST_F(TestDeltaWriter, vec_write) {
         columns[21]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
 
         block.set_columns(std::move(columns));
-        res = delta_writer->write(&block, {0});
+        res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
     }
 
@@ -775,11 +776,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     }
 
     generate_data(&block, 123, 456, 100);
-    res = delta_writer->write(&block, {0});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
     ASSERT_TRUE(res.ok());
 
     generate_data(&block, 123, 456, 90);
-    res = delta_writer->write(&block, {1});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
     ASSERT_TRUE(res.ok());
 
     res = delta_writer->close();
@@ -898,11 +899,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         }
 
         generate_data(&block, 10, 123, 100);
-        res = delta_writer1->write(&block, {0});
+        res = delta_writer1->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
 
         generate_data(&block, 20, 123, 100);
-        res = delta_writer1->write(&block, {1});
+        res = delta_writer1->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
         ASSERT_TRUE(res.ok());
 
         res = delta_writer1->close();
@@ -927,11 +928,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         }
 
         generate_data(&block, 10, 123, 110);
-        res = delta_writer2->write(&block, {0});
+        res = delta_writer2->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
 
         generate_data(&block, 20, 123, 90);
-        res = delta_writer2->write(&block, {1});
+        res = delta_writer2->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
         ASSERT_TRUE(res.ok());
 
         res = delta_writer2->close();

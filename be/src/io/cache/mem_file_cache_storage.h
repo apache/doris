@@ -23,12 +23,9 @@
 
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
+#include "io/cache/shard_mem_cache.h"
 
 namespace doris::io {
-
-struct MemBlock {
-    std::shared_ptr<char[]> addr;
-};
 
 class MemFileCacheStorage : public FileCacheStorage {
 public:
@@ -36,8 +33,13 @@ public:
     ~MemFileCacheStorage() override;
     Status init(BlockFileCache* _mgr) override;
     Status append(const FileCacheKey& key, const Slice& value) override;
+    Status appendv(const FileCacheKey& key, const Slice* values, size_t value_cnt) override;
+    Status append_iobuf(const FileCacheKey& key, const butil::IOBuf& value) override;
+    Status abort(const FileCacheKey& key);
     Status finalize(const FileCacheKey& key, const size_t size) override;
     Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
+    Status read_to_iobuf(const FileCacheKey& key, size_t value_offset, size_t bytes_req,
+                         butil::IOBuf* out, size_t* bytes_read) override;
     Status remove(const FileCacheKey& key) override;
     Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
                                 const size_t size) override;
@@ -49,8 +51,17 @@ public:
     FileCacheStorageType get_type() override { return MEMORY; }
 
 private:
-    std::unordered_map<FileWriterMapKey, MemBlock, FileWriterMapKeyHash> _cache_map;
-    std::mutex _cache_map_mtx;
+    uint64_t get_shard_num(const FileWriterMapKey& key) const {
+        FileWriterMapKeyHash hash_func;
+        std::size_t hash = hash_func(key);
+
+        return hash & _shard_mask;
+    }
+
+    // new code
+    uint64_t _shard_nums = 1;
+    uint64_t _shard_mask = 0;
+    std::vector<std::shared_ptr<ShardMemHashTable>> _shard_cache_map;
 };
 
 } // namespace doris::io

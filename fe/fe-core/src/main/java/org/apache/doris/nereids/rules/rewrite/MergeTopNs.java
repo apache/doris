@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 
@@ -57,6 +59,10 @@ public class MergeTopNs extends OneRewriteRuleFactory {
                     long limit = topN.getLimit();
                     long childOffset = childTopN.getOffset();
                     long childLimit = childTopN.getLimit();
+                    if (Utils.addOverflows(offset, childOffset)) {
+                        throw new AnalysisException(
+                                "offset overflows long range when merging TopNs: " + offset + " + " + childOffset);
+                    }
                     long newOffset = offset + childOffset;
                     // The parent's offset is applied on top of the child's output, so only
                     // (childLimit - offset) of the child's rows survive. Clamp the merged limit

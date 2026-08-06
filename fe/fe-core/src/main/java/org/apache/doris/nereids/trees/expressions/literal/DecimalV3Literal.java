@@ -174,7 +174,12 @@ public class DecimalV3Literal extends FractionalLiteral {
 
     @Override
     public String computeToSql() {
-        return value.toPlainString();
+        return getStringValue();
+    }
+
+    @Override
+    public String getStringValue() {
+        return value.setScale(((DecimalV3Type) dataType).getScale(), RoundingMode.HALF_UP).toPlainString();
     }
 
     @Override

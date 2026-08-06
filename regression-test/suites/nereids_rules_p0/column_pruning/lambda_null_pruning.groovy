@@ -39,7 +39,8 @@ suite("lambda_null_pruning") {
     // Case 1: single-variable constant lambda body + IS NULL
     // body = Literal(true), array item variable unreferenced
     // collectArrayPathInLambda won't register full-access path.
-    // If IS NULL already registered [a.NULL], pruning goes wrong.
+    // The array data path must be present for array_count(); the NULL metadata path may remain
+    // in the plan and is consumed at the array level.
     // ================================================================
     explain {
         sql """
@@ -47,7 +48,8 @@ suite("lambda_null_pruning") {
             FROM lambda_null_pruning_tbl ORDER BY id
         """
         contains "nested columns"
-        notContains "a.NULL"
+        contains "a.*"
+        contains "a.NULL"
     }
 
     order_qt_case1 """
@@ -61,7 +63,8 @@ suite("lambda_null_pruning") {
     //   x -> body references -> visitArrayItemSlot fires -> [a, *] OK
     //   y -> body does NOT reference -> visitArrayItemSlot missing
     //   b IS NULL -> [b, NULL] registered -> bug triggered
-    // After fix: fallback adds [b, *] for unreferenced y
+    // After fix: fallback adds [b, *] for unreferenced y. NULL metadata paths may still remain
+    // beside the full array data paths.
     // ================================================================
     explain {
         sql """
@@ -70,8 +73,10 @@ suite("lambda_null_pruning") {
             FROM lambda_null_pruning_tbl ORDER BY id
         """
         contains "nested columns"
-        notContains "a.NULL"
-        notContains "b.NULL"
+        contains "a.*"
+        contains "a.NULL"
+        contains "b.*"
+        contains "b.NULL"
     }
 
     order_qt_case2 """
@@ -92,8 +97,10 @@ suite("lambda_null_pruning") {
             FROM lambda_null_pruning_tbl ORDER BY id
         """
         contains "nested columns"
-        notContains "a.NULL"
-        notContains "b.NULL"
+        contains "a.*"
+        contains "a.NULL"
+        contains "b.*"
+        contains "b.NULL"
     }
 
     order_qt_case3 """
@@ -111,7 +118,8 @@ suite("lambda_null_pruning") {
             FROM lambda_null_pruning_tbl ORDER BY id
         """
         contains "nested columns"
-        notContains "a.NULL"
+        // array_filter returns the array itself, so the full array path covers the null flag.
+        contains "all access paths: [a]"
     }
 
     order_qt_case4 """
@@ -128,7 +136,8 @@ suite("lambda_null_pruning") {
             FROM lambda_null_pruning_tbl ORDER BY id
         """
         contains "nested columns"
-        notContains "a.NULL"
+        contains "a.*"
+        contains "a.NULL"
     }
 
     // ================================================================
@@ -140,7 +149,8 @@ suite("lambda_null_pruning") {
             FROM lambda_null_pruning_tbl ORDER BY id
         """
         contains "nested columns"
-        notContains "a.OFFSET"
+        contains "a.*"
+        contains "a.OFFSET"
     }
 
     order_qt_case6 """

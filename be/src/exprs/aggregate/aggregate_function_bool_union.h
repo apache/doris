@@ -85,6 +85,10 @@ public:
                         .get_element(row_num));
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnUInt8>(columns[0]);
+    }
+
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -102,7 +106,8 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnUInt8&>(to).insert_value(this->data(place).get());
+        assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(to).insert_value(
+                this->data(place).get());
     }
 };
 } // namespace doris

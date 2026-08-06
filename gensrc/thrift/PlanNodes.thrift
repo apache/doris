@@ -324,6 +324,10 @@ struct TIcebergDeleteFileDesc {
     6: optional i64 content_offset;
     7: optional i64 content_size_in_bytes;
     8: optional TFileFormatType file_format;
+    // Original Iceberg delete file path before Doris storage path normalization.
+    9: optional string original_path;
+    // Referenced data file path. Required to materialize rows from deletion vectors.
+    10: optional string referenced_data_file_path;
 }
 
 struct TIcebergFileDesc {
@@ -355,6 +359,12 @@ struct TPaimonDeletionFileDesc {
     3: optional i64 length;
 }
 
+enum TPaimonReaderType {
+    PAIMON_NATIVE = 0,
+    PAIMON_JNI = 1,
+    PAIMON_CPP = 2,
+}
+
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
@@ -372,6 +382,8 @@ struct TPaimonFileDesc {
     14: optional string paimon_table  // deprecated
     15: optional i64 row_count // deprecated
     16: optional i64 schema_id; // for schema change.
+    // Reader implementation for logical paimon split. Native file split uses range format type.
+    17: optional TPaimonReaderType reader_type;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -466,6 +478,11 @@ struct TTableFormatFileDesc {
     // ES per-shard parameters (used when table_format_type == "es")
     // Contains: index, type, shard_id, host_port, es_hosts
     13: optional map<string, string> es_params
+    // ADBC connection and query parameters (used when table_format_type == "adbc").
+    // Keys: driver_path, driver_entrypoint, uri, username, password,
+    //       adbc.<option> passthrough, and either query_sql or partition_b64.
+    // The partition descriptor is opaque binary, so it travels base64-encoded.
+    14: optional map<string, string> adbc_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -548,6 +565,15 @@ struct TFileScanRangeParams {
     32: optional map<string, string> es_docvalue_context
     // ES fields field→keyword mappings
     33: optional map<string, string> es_fields_context
+    // Versioned Iceberg scan semantics negotiated by FE. Absence/zero preserves legacy BE
+    // behavior during a BE-first rolling upgrade; version 1 enables file-wide ID projection and
+    // logical initial-default materialization.
+    34: optional i32 iceberg_scan_semantics_version
+    // FE-generated identity for sharing a deserialized table across JNI scanners in one scan node.
+    35: optional string serialized_table_cache_key
+    // HMS catalog property hive.parquet.time-zone. When absent, format_v2 keeps INT96 wall-clock
+    // values unchanged. When present, only INT96 TIMESTAMP values are converted with this zone.
+    36: optional string hive_parquet_time_zone
 }
 
 struct TFileRangeDesc {
@@ -643,6 +669,7 @@ struct TPaimonMetadataParams {
   9: optional map<string, string> paimon_props
 }
 
+// deprecated
 struct THudiMetadataParams {
   1: optional Types.THudiQueryType hudi_query_type
   2: optional string catalog
@@ -763,7 +790,7 @@ struct TMetaScanRange {
   9: optional TPartitionsMetadataParams partitions_params
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
-  12: optional THudiMetadataParams hudi_params
+  12: optional THudiMetadataParams hudi_params // deprecated
   13: optional TPaimonMetadataParams paimon_params // deprecated
 
   // for quering sys tables for Paimon/Iceberg
@@ -1008,6 +1035,8 @@ struct TOlapScanNode {
   // Only partitions that are candidates for pruning are included; partitions FE
   // does not want pruned (e.g. default catch-all) are omitted from this list.
   27: optional list<TPartitionBoundary> partition_boundaries
+  // Slot ids of extra storage key columns used only to align the scan tuple with storage schema.
+  28: optional set<i32> extra_key_column_slot_ids
 }
 
 struct TEqJoinCondition {
@@ -1699,6 +1728,10 @@ struct TPlanNode {
   52: optional TRecCTEScanNode rec_cte_scan_node
   53: optional TBucketedAggregationNode bucketed_agg_node
   54: optional TLocalExchangeNode local_exchange_node
+  // COUNT(*) and COUNT(col) share push_down_agg_type_opt=COUNT, but file readers need to know
+  // whether a projected scan slot is the aggregate argument or merely the placeholder retained by
+  // column pruning. Empty means row-count semantics; non-empty identifies explicit COUNT columns.
+  55: optional list<Types.TSlotId> push_down_count_slot_ids
 
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections

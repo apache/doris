@@ -18,6 +18,7 @@
 
 suite("bilateral_eager_agg") {
     sql """
+        set fe_debug=true;
         drop table if exists t_pdajos_1;
         CREATE TABLE `t_pdajos_1` (
           `k` int NOT NULL COMMENT "join key",
@@ -894,7 +895,59 @@ suite("bilateral_eager_agg") {
          GROUP BY t1.k;
      """
 
-    // Reset session variables to defaults
-    sql "SET eager_aggregation_mode = 0;"
-    sql "SET force_eager_agg_hint = '';"
+     sql """
+         SET force_eager_agg_hint = '';
+         set eager_aggregation_mode=1;
+         DROP TABLE IF EXISTS bilateral_left;
+         DROP TABLE IF EXISTS bilateral_right;
+         
+         CREATE TABLE bilateral_left (
+             filter_date DATE NULL,
+             value_date  DATE NULL,
+             flag        BOOLEAN NULL
+         )
+         DUPLICATE KEY(filter_date)
+         DISTRIBUTED BY HASH(filter_date) BUCKETS 1
+         PROPERTIES (
+             "replication_num" = "1"
+         );
+         
+         CREATE TABLE bilateral_right (
+             lower_bound BIGINT NULL,
+             upper_bound BIGINT NULL
+         )
+         DUPLICATE KEY(lower_bound)
+         DISTRIBUTED BY HASH(lower_bound) BUCKETS 1
+         PROPERTIES (
+             "replication_num" = "1"
+         );
+         
+         INSERT INTO bilateral_left VALUES
+             ('2018-01-08', '2019-01-01', FALSE),
+             ('2018-01-08', '2020-01-01', FALSE),
+             ('2018-01-08', '2021-01-01', TRUE),
+             ('2018-01-09', '2022-01-01', TRUE);
+         
+         INSERT INTO bilateral_right VALUES
+             (1, 2),
+             (2, 2),
+             (3, 2),
+             (NULL, 2);
+     """
+
+     order_qt_bilateral_max """
+         SELECT
+             MAX(
+                 CASE
+                     WHEN l.flag THEN '2000-06-03'
+                     WHEN TRUE THEN l.value_date
+                 END
+             ) AS max_date,
+             l.flag AS group_flag
+         FROM bilateral_left l
+         RIGHT JOIN bilateral_right r
+             ON r.lower_bound <= r.upper_bound
+         WHERE l.filter_date = '2018-01-08'
+         GROUP BY group_flag;
+     """
 }

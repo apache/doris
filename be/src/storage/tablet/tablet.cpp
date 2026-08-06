@@ -1209,7 +1209,8 @@ bool Tablet::suitable_for_compaction(
         CompactionType compaction_type,
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
 #ifndef BE_TEST
-    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION &&
+    if ((compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
+         compaction_type == CompactionType::BINLOG_COMPACTION) &&
         cumulative_compaction_policy != nullptr) {
         std::lock_guard wrlock(_meta_lock);
         if (_cumulative_compaction_policy == nullptr ||
@@ -3267,8 +3268,7 @@ Status Tablet::prepare_txn(TPartitionId partition_id, TTransactionId transaction
     }
 
     std::lock_guard<std::mutex> push_lock(get_push_lock());
-    return _engine.txn_manager()->prepare_txn(partition_id, transaction_id, tablet_id(),
-                                              tablet_uid(), load_id, ingest);
+    return _engine.txn_manager()->prepare_txn(partition_id, *this, transaction_id, load_id, ingest);
 }
 
 } // namespace doris

@@ -577,6 +577,11 @@ public:
     /// otherwise appended after other child profiles.
     RuntimeProfile* create_child(const std::string& name, bool indent = true, bool prepend = false);
 
+    /// Returns an existing child profile with 'name', or creates it if absent. Lookup and creation
+    /// are atomic so concurrent callers cannot race while initializing a shared profile subtree.
+    RuntimeProfile* get_or_create_child(const std::string& name, bool indent = true,
+                                        bool prepend = false);
+
     // Merges the src profile into this one, combining counters that have an identical
     // path. Info strings from profiles are not merged. 'src' would be a const if it
     // weren't for locking.

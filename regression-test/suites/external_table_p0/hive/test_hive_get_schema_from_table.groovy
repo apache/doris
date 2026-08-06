@@ -78,7 +78,8 @@ suite("test_hive_get_schema_from_table", "p0,external") {
            'type'='hms',
            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
            'hadoop.username' = 'hive',
-           'get_schema_from_table' = 'true'
+           'get_schema_from_table' = 'true',
+           'hive.parquet.time-zone' = 'Asia/Shanghai'
        );"""
 
        sql """switch ${catalog_name}"""

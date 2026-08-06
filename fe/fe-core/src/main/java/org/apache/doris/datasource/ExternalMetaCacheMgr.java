@@ -20,20 +20,15 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
-import org.apache.doris.datasource.hive.HiveExternalMetaCache;
-import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
-import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalMetaCache;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheRegistry;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheRouteResolver;
-import org.apache.doris.datasource.metacache.LegacyMetaCacheFactory;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
-import org.apache.doris.datasource.paimon.PaimonExternalMetaCache;
 import org.apache.doris.fs.FileSystemCache;
 
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
@@ -61,11 +56,6 @@ public class ExternalMetaCacheMgr {
     private static final Logger LOG = LogManager.getLogger(ExternalMetaCacheMgr.class);
     private static final String ENTRY_SCHEMA = "schema";
     private static final String ENGINE_DEFAULT = "default";
-    private static final String ENGINE_HIVE = "hive";
-    private static final String ENGINE_HUDI = "hudi";
-    private static final String ENGINE_ICEBERG = "iceberg";
-    private static final String ENGINE_PAIMON = "paimon";
-    private static final String ENGINE_MAXCOMPUTE = "maxcompute";
     private static final String ENGINE_DORIS = "doris";
 
     /**
@@ -94,7 +84,6 @@ public class ExternalMetaCacheMgr {
     private ExecutorService scheduleExecutor;
     private final ExternalMetaCacheRegistry cacheRegistry;
     private final ExternalMetaCacheRouteResolver routeResolver;
-    private final LegacyMetaCacheFactory legacyMetaCacheFactory;
 
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
@@ -128,8 +117,6 @@ public class ExternalMetaCacheMgr {
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
         cacheRegistry = new ExternalMetaCacheRegistry();
         routeResolver = new ExternalMetaCacheRouteResolver(cacheRegistry);
-        legacyMetaCacheFactory = new LegacyMetaCacheFactory(commonRefreshExecutor);
-
         initEngineCaches();
     }
 
@@ -158,31 +145,6 @@ public class ExternalMetaCacheMgr {
 
     ExternalMetaCache engine(String engine) {
         return cacheRegistry.resolve(engine);
-    }
-
-    public HiveExternalMetaCache hive(long catalogId) {
-        prepareCatalogByEngine(catalogId, ENGINE_HIVE);
-        return (HiveExternalMetaCache) engine(ENGINE_HIVE);
-    }
-
-    public HudiExternalMetaCache hudi(long catalogId) {
-        prepareCatalogByEngine(catalogId, ENGINE_HUDI);
-        return (HudiExternalMetaCache) engine(ENGINE_HUDI);
-    }
-
-    public IcebergExternalMetaCache iceberg(long catalogId) {
-        prepareCatalogByEngine(catalogId, ENGINE_ICEBERG);
-        return (IcebergExternalMetaCache) engine(ENGINE_ICEBERG);
-    }
-
-    public PaimonExternalMetaCache paimon(long catalogId) {
-        prepareCatalogByEngine(catalogId, ENGINE_PAIMON);
-        return (PaimonExternalMetaCache) engine(ENGINE_PAIMON);
-    }
-
-    public MaxComputeExternalMetaCache maxCompute(long catalogId) {
-        prepareCatalogByEngine(catalogId, ENGINE_MAXCOMPUTE);
-        return (MaxComputeExternalMetaCache) engine(ENGINE_MAXCOMPUTE);
     }
 
     public DorisExternalMetaCache doris(long catalogId) {
@@ -219,6 +181,10 @@ public class ExternalMetaCacheMgr {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateCatalog",
                 () -> cache.invalidateCatalogEntries(catalogId)));
+        // Cache B (Nereids sorted-partition-ranges) has no db/catalog-scoped eviction, so a catalog-level
+        // REFRESH must drop ALL of its entries -- else binary-search pruning could serve ranges older than
+        // the refreshed metadata. Coarse but correct (a rebuild is cheap and lazy). Mirrors invalidateTable.
+        invalidateSortedPartitionsCache();
     }
 
     public void invalidateCatalogByEngine(long catalogId, String engine) {
@@ -231,6 +197,9 @@ public class ExternalMetaCacheMgr {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "removeCatalog",
                 () -> cache.invalidateCatalog(catalogId)));
+        // Drop ALL Cache B entries: the catalog is going away and Cache B has no catalog-scoped eviction.
+        // (invalidateAll needs no catalog name, so this is safe even after the catalog was already removed.)
+        invalidateSortedPartitionsCache();
     }
 
     public void removeCatalogByEngine(long catalogId, String engine) {
@@ -242,12 +211,37 @@ public class ExternalMetaCacheMgr {
     public void invalidateDb(long catalogId, String dbName) {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
+        // Cache B has no db-scoped eviction key, so a db-level REFRESH drops ALL entries (coarse but
+        // correct -- a rebuild is cheap and lazy). Mirrors invalidateTable's Cache B wiring.
+        invalidateSortedPartitionsCache();
     }
 
     public void invalidateTable(long catalogId, String dbName, String tableName) {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateTable",
                 () -> cache.invalidateTable(catalogId, dbName, tableName)));
+        // Also drop the Nereids sorted-partition-ranges cache for this external table so binary-search
+        // pruning does not serve ranges older than the refreshed metadata.
+        CatalogIf<?> ctl = getCatalog(catalogId);
+        if (ctl != null) {
+            Env.getCurrentEnv().getSortedPartitionsCacheManager().invalidateTable(ctl.getName(), dbName, tableName);
+        }
+    }
+
+    /**
+     * Drops ALL entries of the Nereids sorted-partition-ranges cache (Cache B). Used by the db/catalog-level
+     * invalidations, which have no finer-grained (db/catalog-scoped) eviction key on that cache. Null-safe:
+     * during early startup / checkpoint replay {@code Env.getCurrentEnv()} or its cache manager may be unset.
+     */
+    private void invalidateSortedPartitionsCache() {
+        Env env = Env.getCurrentEnv();
+        if (env == null) {
+            return;
+        }
+        NereidsSortedPartitionsCacheManager mgr = env.getSortedPartitionsCacheManager();
+        if (mgr != null) {
+            mgr.invalidateAll();
+        }
     }
 
     public void invalidateTableByEngine(long catalogId, String engine, String dbName, String tableName) {
@@ -303,11 +297,6 @@ public class ExternalMetaCacheMgr {
 
     private void registerBuiltinEngineCaches() {
         cacheRegistry.register(new DefaultExternalMetaCache(ENGINE_DEFAULT, commonRefreshExecutor));
-        cacheRegistry.register(new HiveExternalMetaCache(commonRefreshExecutor, fileListingExecutor));
-        cacheRegistry.register(new HudiExternalMetaCache(commonRefreshExecutor));
-        cacheRegistry.register(new IcebergExternalMetaCache(commonRefreshExecutor));
-        cacheRegistry.register(new PaimonExternalMetaCache(commonRefreshExecutor));
-        cacheRegistry.register(new MaxComputeExternalMetaCache(commonRefreshExecutor));
         cacheRegistry.register(new DorisExternalMetaCache(commonRefreshExecutor));
     }
 
@@ -342,10 +331,16 @@ public class ExternalMetaCacheMgr {
         if (catalog == null) {
             return null;
         }
-        if (catalog.getProperties() == null) {
-            return Maps.newHashMap();
+        Map<String, String> props = catalog.getProperties() == null
+                ? Maps.newHashMap()
+                : Maps.newHashMap(catalog.getProperties());
+        // Let a plugin/SPI catalog overlay DERIVED meta-cache config (e.g. a connector-provided schema-cache
+        // TTL) onto this EPHEMERAL copy used to size the cache. Connector-agnostic (virtual dispatch; the base
+        // ExternalCatalog is a no-op) and non-persisting (this copy is throwaway -> no SHOW CREATE leak).
+        if (catalog instanceof ExternalCatalog) {
+            ((ExternalCatalog) catalog).overlayMetaCacheConfig(props);
         }
-        return Maps.newHashMap(catalog.getProperties());
+        return props;
     }
 
     private void logMissingCatalogSkip(long catalogId, String operation) {
@@ -396,8 +391,8 @@ public class ExternalMetaCacheMgr {
         }
     }
 
-    public LegacyMetaCacheFactory legacyMetaCacheFactory() {
-        return legacyMetaCacheFactory;
+    public ExecutorService commonRefreshExecutor() {
+        return commonRefreshExecutor;
     }
 
     public static Map<String, String> getCacheStats(CacheStats cacheStats, long estimatedSize) {

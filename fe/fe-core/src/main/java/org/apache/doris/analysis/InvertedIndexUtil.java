@@ -134,13 +134,41 @@ public class InvertedIndexUtil {
         }
     }
 
-    private static boolean isSingleByte(String str) {
+    private static boolean isAscii(String str) {
         for (int i = 0; i < str.length(); i++) {
-            if (str.charAt(i) > 0xFF) {
+            if (str.charAt(i) > 0x7F) {
                 return false;
             }
         }
         return true;
+    }
+
+    public static void checkCharFilterProperties(Map<String, String> properties) throws AnalysisException {
+        String charFilterType = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
+        if (charFilterType == null) {
+            return;
+        }
+
+        String charFilterPattern = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
+        String charFilterReplacement = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT);
+        if (!INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE.equals(charFilterType)) {
+            throw new AnalysisException("Invalid 'char_filter_type', only '"
+                    + INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE + "' is supported");
+        }
+        if (charFilterPattern == null || charFilterPattern.isEmpty()) {
+            throw new AnalysisException("Missing 'char_filter_pattern' for 'char_replace' filter type");
+        }
+        if (!isAscii(charFilterPattern)) {
+            throw new AnalysisException("'char_filter_pattern' must contain only ASCII characters");
+        }
+        if (charFilterReplacement != null) {
+            if (charFilterReplacement.isEmpty() || charFilterReplacement.length() != 1) {
+                throw new AnalysisException("'char_filter_replacement' must be a single non-empty character");
+            }
+            if (!isAscii(charFilterReplacement)) {
+                throw new AnalysisException("'char_filter_replacement' must contain only ASCII characters");
+            }
+        }
     }
 
     private static void checkInvertedIndexProperties(Map<String, String> properties, PrimitiveType colType,
@@ -174,9 +202,6 @@ public class InvertedIndexUtil {
         }
         String parserMode = properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
         String supportPhrase = properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY);
-        String charFilterType = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
-        String charFilterPattern = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
-        String charFilterReplacement = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT);
         String ignoreAbove = properties.get(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY);
         String lowerCase = properties.get(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
         String stopWords = properties.get(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
@@ -233,23 +258,7 @@ public class InvertedIndexUtil {
                     + ", support_phrase must be true or false");
         }
 
-        if (charFilterType != null) {
-            if (!INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE.equals(charFilterType)) {
-                throw new AnalysisException("Invalid 'char_filter_type', only '"
-                    + INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE + "' is supported");
-            }
-            if (charFilterPattern == null || charFilterPattern.isEmpty()) {
-                throw new AnalysisException("Missing 'char_filter_pattern' for 'char_replace' filter type");
-            }
-            if (!isSingleByte(charFilterPattern)) {
-                throw new AnalysisException("'char_filter_pattern' must contain only ASCII characters");
-            }
-            if (charFilterReplacement != null && !charFilterReplacement.isEmpty()) {
-                if (!isSingleByte(charFilterReplacement)) {
-                    throw new AnalysisException("'char_filter_replacement' must contain only ASCII characters");
-                }
-            }
-        }
+        checkCharFilterProperties(properties);
 
         if (ignoreAbove != null) {
             try {

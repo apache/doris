@@ -59,6 +59,7 @@
 #include "io/fs/local_file_system.h"
 #include "load/memtable/memtable_flush_executor.h"
 #include "load/stream_load/stream_load_recorder.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "storage/binlog.h"
 #include "storage/data_dir.h"
@@ -325,10 +326,12 @@ Status StorageEngine::_open() {
     _memtable_flush_executor->init(_disk_num);
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
-    _calc_delete_bitmap_executor->init(config::calc_delete_bitmap_max_thread);
+    _calc_delete_bitmap_executor->init("TabletCalcDeleteBitmapThreadPool",
+                                       config::calc_delete_bitmap_max_thread);
 
     _calc_delete_bitmap_executor_for_load = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor_for_load->init(
+            "LoadCalcDeleteBitmapThreadPool",
             config::calc_delete_bitmap_for_load_max_thread > 0
                     ? config::calc_delete_bitmap_for_load_max_thread
                     : std::max(1, CpuInfo::num_cores() / 2));

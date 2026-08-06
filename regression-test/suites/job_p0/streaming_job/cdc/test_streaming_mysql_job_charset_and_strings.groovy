@@ -31,8 +31,8 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // Same themes run twice: ids 1-6 via JDBC/snapshot, ids 101-106 via binlog.
 // Plus UPDATEs that switch a row's payload through binlog.
 //
-// JDBC URL uses characterEncoding=utf8 to keep the driver round-trip stable;
-// gbk and latin1 columns are converted by MySQL on insert.
+// The streaming job URL omits Unicode and character encoding options to verify
+// that the MySQL defaults are added before metadata discovery and snapshot reads.
 suite("test_streaming_mysql_job_charset_and_strings", "p0,external,mysql,external_docker,external_docker_mysql,nondatalake") {
     def jobName = "test_streaming_mysql_job_charset_and_strings_name"
     def currentDb = (sql "select database()")[0][0]
@@ -98,7 +98,7 @@ suite("test_streaming_mysql_job_charset_and_strings", "p0,external,mysql,externa
         sql """CREATE JOB ${jobName}
                 ON STREAMING
                 FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8",
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?serverTimezone=UTC",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.mysql.cj.jdbc.Driver",
                     "user" = "root",

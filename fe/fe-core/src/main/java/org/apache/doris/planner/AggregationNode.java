@@ -89,6 +89,10 @@ public class AggregationNode extends PlanNode {
         updateplanNodeName();
     }
 
+    public boolean isNeedsFinalize() {
+        return needsFinalize;
+    }
+
     // Used by new optimizer
     public void setUseStreamingPreagg(boolean useStreamingPreagg) {
         this.useStreamingPreagg = useStreamingPreagg;

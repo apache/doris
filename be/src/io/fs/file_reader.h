@@ -21,11 +21,16 @@
 #include <stddef.h>
 
 #include <memory>
+#include <string>
 
 #include "common/status.h"
 #include "io/fs/path.h"
 #include "util/profile_collector.h"
 #include "util/slice.h"
+
+namespace butil {
+class IOBuf;
+}
 
 namespace doris {
 
@@ -59,6 +64,9 @@ struct FileReaderOptions {
     int64_t mtime = 0;
     // Used to query the location of the file cache
     int64_t tablet_id = -1;
+    // Storage resource id of the remote file system. Used by peer fill to reconstruct
+    // the source file system without scanning tablet rowsets on the peer.
+    std::string storage_resource_id;
 
     static const FileReaderOptions DEFAULT;
 };
@@ -79,6 +87,12 @@ public:
     /// the caller must ensure that the IOContext exists during the left cycle of read_at()
     Status read_at(size_t offset, Slice result, size_t* bytes_read,
                    const IOContext* io_ctx = nullptr);
+    /// Read up to bytes_req bytes from offset and append them to out.
+    /// bytes_read is always set to the actual number of bytes appended on success; reading past
+    /// EOF is clamped to the file size and returns OK with fewer bytes. out and bytes_read must be
+    /// non-null. Readers that do not override the IOBuf path return NotSupported.
+    Status read_at_iobuf(size_t offset, size_t bytes_req, butil::IOBuf* out, size_t* bytes_read,
+                         const IOContext* io_ctx = nullptr);
 
     virtual Status close() = 0;
 
@@ -96,6 +110,10 @@ public:
 protected:
     virtual Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                 const IOContext* io_ctx) = 0;
+    // Default implementation returns NotSupported. Override this in readers that can
+    // fill iobuf directly.
+    virtual Status read_at_iobuf_impl(size_t offset, size_t bytes_req, butil::IOBuf* out,
+                                      size_t* bytes_read, const IOContext* io_ctx);
 };
 
 using FileReaderSPtr = std::shared_ptr<FileReader>;

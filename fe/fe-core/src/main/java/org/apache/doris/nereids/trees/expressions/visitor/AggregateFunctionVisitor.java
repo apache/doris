@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmap
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileReservoir;
@@ -156,15 +157,15 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitBoolAnd(BoolAnd boolAnd, C context) {
-        return visitAggregateFunction(boolAnd, context);
+        return visitNullableAggregateFunction(boolAnd, context);
     }
 
     default R visitBoolOr(BoolOr boolOr, C context) {
-        return visitAggregateFunction(boolOr, context);
+        return visitNullableAggregateFunction(boolOr, context);
     }
 
     default R visitBoolXor(BoolXor boolXor, C context) {
-        return visitAggregateFunction(boolXor, context);
+        return visitNullableAggregateFunction(boolXor, context);
     }
 
     default R visitCollectList(CollectList collectList, C context) {
@@ -329,6 +330,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitPercentileApprox(PercentileApproxWeighted percentileApprox, C context) {
         return visitNullableAggregateFunction(percentileApprox, context);
+    }
+
+    default R visitPercentileApproxArray(PercentileApproxArray percentileApproxArray, C context) {
+        return visitAggregateFunction(percentileApproxArray, context);
     }
 
     default R visitPercentileArray(PercentileArray percentileArray, C context) {

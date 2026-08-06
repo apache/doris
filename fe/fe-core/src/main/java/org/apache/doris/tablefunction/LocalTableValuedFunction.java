@@ -21,8 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGlobResponse;
 import org.apache.doris.proto.InternalService.PGlobResponse.PFileInfo;
@@ -66,18 +65,19 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         Map<String, String> props = super.parseCommonProperties(properties);
 
         try {
-            this.storageProperties = StorageProperties.createPrimary(props);
-            backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
-            String uri = storageProperties.validateAndGetUri(props);
-            filePath = storageProperties.validateAndNormalizeUri(uri);
-        } catch (UserException e) {
+            this.storageAdapter = StorageAdapter.of(props);
+            backendConnectProperties.putAll(storageAdapter.getBackendConfigProperties());
+            String uri = storageAdapter.validateAndGetUri(props);
+            filePath = storageAdapter.validateAndNormalizeUri(uri);
+        } catch (RuntimeException e) {
+            // legacy wrapped checked UserException here; the facade throws unchecked, keep the
+            // same user-facing AnalysisException classification and message shape
             throw new AnalysisException("Failed check storage props, " + e.getMessage(), e);
         }
 
-
-        backendId = Long.parseLong(storageProperties.getBackendConfigProperties()
+        backendId = Long.parseLong(storageAdapter.getBackendConfigProperties()
                 .getOrDefault(PROP_BACKEND_ID, "-1"));
-        sharedStorage = Boolean.parseBoolean(storageProperties.getBackendConfigProperties()
+        sharedStorage = Boolean.parseBoolean(storageAdapter.getBackendConfigProperties()
                 .getOrDefault(PROP_SHARED_STORAGE, "false"));
 
         // If not shared storage, backend_id is required

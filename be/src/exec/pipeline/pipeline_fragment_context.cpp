@@ -123,6 +123,7 @@
 #include "exec/spill/spill_file.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_buffer_mgr.h"
@@ -145,7 +146,6 @@ PipelineFragmentContext::PipelineFragmentContext(
           _exec_env(exec_env),
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back),
-          _is_report_on_cancel(true),
           _params(request),
           _parallel_instances(_params.__isset.parallel_instances ? _params.parallel_instances : 0),
           _need_notify_close(request.__isset.need_notify_close ? request.need_notify_close
@@ -174,8 +174,8 @@ bool PipelineFragmentContext::is_timeout(timespec now) const {
 }
 
 // notify_close() transitions the PFC from "waiting for external close notification" to
-// "self-managed close". For recursive CTE fragments, the old PFC is kept alive until
-// the rerun_fragment(wait_for_destroy) RPC calls this to trigger shutdown.
+// "self-managed close". A recursive CTE PFC normally remains registered until rerun_fragment()
+// calls this for WAIT_FOR_DESTROY or FINAL_CLOSE; cancellation can also call it.
 // Returns true if all tasks have already closed (i.e., the PFC can be safely destroyed).
 bool PipelineFragmentContext::notify_close() {
     bool all_closed = false;
@@ -184,7 +184,7 @@ bool PipelineFragmentContext::notify_close() {
         std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks >= _total_tasks) {
             if (_need_notify_close) {
-                // Fragment was cancelled and waiting for notify to close.
+                // The fragment finished while waiting for the external close notification.
                 // Record that we need to remove from fragment mgr, but do it
                 // after releasing _task_mutex to avoid ABBA deadlock with
                 // dump_pipeline_tasks() (which acquires _pipeline_map lock
@@ -193,7 +193,7 @@ bool PipelineFragmentContext::notify_close() {
             }
             all_closed = true;
         }
-        // make fragment release by self after cancel
+        // Allow the fragment to be removed now or after its remaining tasks close.
         _need_notify_close = false;
     }
     if (need_remove) {
@@ -240,9 +240,7 @@ void PipelineFragmentContext::cancel(const Status reason) {
     }
 
     _query_ctx->cancel(reason, _fragment_id);
-    if (reason.is<ErrorCode::LIMIT_REACH>()) {
-        _is_report_on_cancel = false;
-    } else {
+    if (!reason.is<ErrorCode::LIMIT_REACH>() && !reason.is<ErrorCode::FINISHED>()) {
         for (auto& id : _fragment_instance_ids) {
             LOG(WARNING) << "PipelineFragmentContext cancel instance: " << print_id(id);
         }
@@ -1522,9 +1520,30 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     bool fe_with_old_version = false;
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
+        if (enable_query_cache) {
+            if (_query_cache_runtime == nullptr) {
+                // The plan tree is built in pre-order and the cache source
+                // sits above the scan, so the runtime it created must already
+                // exist here. Running the scan with its own runtime instead
+                // would silently drop data on a HIT (the scan skips scanning
+                // while no cache source emits the entry), so a malformed plan
+                // shape must fail loudly.
+                return Status::InternalError(
+                        "query cache runtime is absent at the scan node, node_id={}, "
+                        "cache node_id={}",
+                        tnode.node_id, _params.fragment.query_cache_param.node_id);
+            }
+            if (tnode.olap_scan_node.__isset.read_row_binlog &&
+                tnode.olap_scan_node.read_row_binlog) {
+                // Row-binlog scans read a different data stream: they must
+                // neither serve nor fill the query cache.
+                _query_cache_runtime->disable_for_binlog_scan();
+            }
+        }
         op = std::make_shared<OlapScanOperatorX>(
                 pool, tnode, next_operator_id(), descs, _num_instances,
-                enable_query_cache ? _params.fragment.query_cache_param : TQueryCacheParam {});
+                enable_query_cache ? _params.fragment.query_cache_param : TQueryCacheParam {},
+                enable_query_cache ? _query_cache_runtime : nullptr);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;
@@ -1586,8 +1605,13 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         auto create_query_cache_operator = [&](PipelinePtr& new_pipe) {
             auto cache_node_id = _params.local_params[0].per_node_scan_ranges.begin()->first;
             auto cache_source_id = next_operator_id();
+            if (_query_cache_runtime == nullptr) {
+                _query_cache_runtime =
+                        std::make_shared<QueryCacheRuntime>(_params.fragment.query_cache_param);
+            }
             op = std::make_shared<CacheSourceOperatorX>(pool, cache_node_id, cache_source_id,
-                                                        _params.fragment.query_cache_param);
+                                                        _params.fragment.query_cache_param,
+                                                        _query_cache_runtime);
             RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
 
             const auto downstream_pipeline_id = cur_pipe->id();
@@ -2538,12 +2562,10 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
     try {
         try {
             (*coord)->reportExecStatus(res, params);
-        } catch ([[maybe_unused]] apache::thrift::transport::TTransportException& e) {
-#ifndef ADDRESS_SANITIZER
+        } catch (apache::thrift::transport::TTransportException& e) {
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
                          << ", instance id: " << print_id(req.fragment_instance_id) << " to "
                          << req.coord_addr << ", err: " << e.what();
-#endif
             rpc_status = coord->reopen();
 
             if (!rpc_status.ok()) {
@@ -2568,26 +2590,17 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
 
 Status PipelineFragmentContext::send_report(bool done) {
     Status exec_status = _query_ctx->exec_status();
-    // If plan is done successfully, but _is_report_success is false,
-    // no need to send report.
-    // Load will set _is_report_success to true because load wants to know
-    // the process.
-    if (!_is_report_success && done && exec_status.ok()) {
-        return Status::OK();
-    }
 
-    // If both _is_report_success and _is_report_on_cancel are false,
-    // which means no matter query is success or failed, no report is needed.
-    // This may happen when the query limit reached and
-    // a internal cancellation being processed
-    // When limit is reached the fragment is also cancelled, but _is_report_on_cancel will
-    // be set to false, to avoid sending fault report to FE.
-    if (!_is_report_success && !_is_report_on_cancel) {
-        if (done) {
-            // if done is true, which means the query is finished successfully, we can safely close the fragment instance without sending report to FE, and just return OK status here.
+    if (!_is_report_success) {
+        // _is_report_success means this is not a load job, do not need to report to fe periodically.
+        if (exec_status.is<ErrorCode::LIMIT_REACH>() || exec_status.is<ErrorCode::FINISHED>() ||
+            exec_status.ok()) {
             return Status::OK();
+        } else {
+            // else it means there is some error in processing the query, and we need to send report to FE to let FE know the error.
         }
-        return Status::NeedSendAgain("");
+    } else {
+        // This is a load job, need report the process status to FE periodly, so that FE can know the process of the load job.
     }
 
     std::vector<RuntimeState*> runtime_states;

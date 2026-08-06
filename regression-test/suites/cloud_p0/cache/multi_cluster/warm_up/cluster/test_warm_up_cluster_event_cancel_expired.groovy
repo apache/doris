@@ -153,10 +153,19 @@ suite('test_warm_up_cluster_event_cancel_expired', 'docker') {
         logger.info("waiting for FE to expire+remove cancelled job")
         def removed = false
         for (int i = 0; i < 60; i++) {
-            def rows = sql """SHOW WARM UP JOB WHERE ID = ${jobId}"""
-            if (rows.isEmpty()) {
+            try {
+                def rows = sql """SHOW WARM UP JOB WHERE ID = ${jobId}"""
+                if (rows.isEmpty()) {
+                    removed = true
+                    logger.info("job ${jobId} removed from FE after ${i}s")
+                    break
+                }
+            } catch (Exception e) {
+                if (!e.getMessage().contains("cloud warm up with job ${jobId} does not exist")) {
+                    throw e
+                }
                 removed = true
-                logger.info("job ${jobId} removed from FE after ${i}s")
+                logger.info("job ${jobId} removed from FE after ${i}s: ${e.getMessage()}")
                 break
             }
             sleep(1000)

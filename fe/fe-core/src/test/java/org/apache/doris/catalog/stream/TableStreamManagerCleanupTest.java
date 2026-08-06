@@ -167,15 +167,11 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         Map<Long, Long> partitionConsumptionTime = new HashMap<>();
         partitionConsumptionTime.put(keptPartitionId, 111L);
         partitionConsumptionTime.put(removedPartitionId, 222L);
-        Map<Long, Long> historicalPartitionOffset = new HashMap<>();
-        historicalPartitionOffset.put(keptPartitionId, 101L);
-        historicalPartitionOffset.put(removedPartitionId, 202L);
         Map<Long, Long> historicalPartitionTSO = new HashMap<>();
         historicalPartitionTSO.put(keptPartitionId, 1001L);
         historicalPartitionTSO.put(removedPartitionId, 2002L);
         Deencapsulation.setField(stream, "partitionOffset", partitionOffset);
         Deencapsulation.setField(stream, "partitionConsumptionTime", partitionConsumptionTime);
-        Deencapsulation.setField(stream, "historicalPartitionOffset", historicalPartitionOffset);
         Deencapsulation.setField(stream, "historicalPartitionTSO", historicalPartitionTSO);
     }
 
@@ -183,16 +179,13 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             boolean removedExpected) {
         Map<Long, Long> partitionOffset = Deencapsulation.getField(stream, "partitionOffset");
         Map<Long, Long> partitionConsumptionTime = Deencapsulation.getField(stream, "partitionConsumptionTime");
-        Map<Long, Long> historicalPartitionOffset = Deencapsulation.getField(stream, "historicalPartitionOffset");
         Map<Long, Long> historicalPartitionTSO = Deencapsulation.getField(stream, "historicalPartitionTSO");
 
         Assertions.assertTrue(partitionOffset.containsKey(keptPartitionId));
         Assertions.assertTrue(partitionConsumptionTime.containsKey(keptPartitionId));
-        Assertions.assertTrue(historicalPartitionOffset.containsKey(keptPartitionId));
         Assertions.assertTrue(historicalPartitionTSO.containsKey(keptPartitionId));
         Assertions.assertEquals(!removedExpected, partitionOffset.containsKey(removedPartitionId));
         Assertions.assertEquals(!removedExpected, partitionConsumptionTime.containsKey(removedPartitionId));
-        Assertions.assertEquals(!removedExpected, historicalPartitionOffset.containsKey(removedPartitionId));
         Assertions.assertEquals(!removedExpected, historicalPartitionTSO.containsKey(removedPartitionId));
     }
 

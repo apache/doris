@@ -181,6 +181,10 @@ public:
                                 tablet_schema->column(i).name(),
                                 tablet_schema->column(i).aggregation());
                     }
+                    const auto* column = finalized_block.get_by_position(i).column.get();
+                    const IColumn* function_columns[] = {column};
+                    function->check_input_columns_type(function_columns);
+                    function->check_result_column_type(*column);
                     agg_functions.push_back(function);
                     // create aggregate data
                     auto* place = new char[function->size_of_data()];

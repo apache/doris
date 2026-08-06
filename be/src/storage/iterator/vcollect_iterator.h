@@ -182,7 +182,7 @@ private:
         bool _use_insert_order_when_same = false;
         // Ordering direction of the tie-break column when keys are equal:
         // - false : larger value sorts first (UNIQUE_KEYS sequence column).
-        // - true  : smaller value sorts first (row binlog LSN column).
+        // - true  : smaller value sorts first (row binlog TSO column).
         // The two cases are mutually exclusive (DCHECK at construction site).
         bool _small_seq_first = false;
     };

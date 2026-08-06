@@ -19,10 +19,13 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.ExpressionEvaluator;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -90,12 +93,12 @@ public class StrToDate extends ScalarFunction
          * Return type is DATETIME
          */
         DataType returnType;
-        if (getArgument(1) instanceof StringLikeLiteral) {
-            if (DateLiteral.hasTimePart(((StringLikeLiteral) getArgument(1)).getStringValue())) {
+        Literal formatLiteral = getConstantFormatLiteral();
+        if (formatLiteral != null) {
+            if (DateLiteral.hasTimePart(formatLiteral.getStringValue())) {
                 //FIXME: Here will pass different scale to BE with same input types. Need to be fixed.
                 returnType = DateTimeV2Type.SYSTEM_DEFAULT;
-                if (returnType.isDateTimeV2Type()
-                        && DateLiteral.hasMicroSecondPart(((StringLikeLiteral) getArgument(1)).getStringValue())) {
+                if (DateLiteral.hasMicroSecondPart(formatLiteral.getStringValue())) {
                     returnType = DateTimeV2Type.MAX;
                 }
             } else {
@@ -105,6 +108,24 @@ public class StrToDate extends ScalarFunction
             returnType = DateTimeV2Type.MAX;
         }
         return signature.withReturnType(returnType);
+    }
+
+    private StringLikeLiteral getConstantFormatLiteral() {
+        Expression format = getArgument(1);
+        if (!format.isConstant()) {
+            return null;
+        }
+        if (!format.getDataType().isStringLikeType()) {
+            format = new Cast(format, StringType.INSTANCE);
+        }
+        if (format instanceof StringLikeLiteral) {
+            return (StringLikeLiteral) format;
+        }
+        Expression evaluated = ExpressionEvaluator.INSTANCE.eval(format);
+        if (evaluated instanceof StringLikeLiteral) {
+            return (StringLikeLiteral) evaluated;
+        }
+        return null;
     }
 
     /**

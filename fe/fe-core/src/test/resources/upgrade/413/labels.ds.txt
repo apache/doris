@@ -1,0 +1,25 @@
+# generated from 4.1.3 by Gen413Fixtures -- do not edit by hand
+# <label>\t<target class FQN>\t<ABSTRACT if the label can never be emitted>
+CloudInternalCatalog	org.apache.doris.cloud.datasource.CloudInternalCatalog
+EsExternalCatalog	org.apache.doris.datasource.es.EsExternalCatalog
+HMSExternalCatalog	org.apache.doris.datasource.hive.HMSExternalCatalog
+IcebergDLFExternalCatalog	org.apache.doris.datasource.iceberg.IcebergDLFExternalCatalog
+IcebergExternalCatalog	org.apache.doris.datasource.iceberg.IcebergExternalCatalog	ABSTRACT
+IcebergGlueExternalCatalog	org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog
+IcebergHMSExternalCatalog	org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog
+IcebergHadoopExternalCatalog	org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog
+IcebergJdbcExternalCatalog	org.apache.doris.datasource.iceberg.IcebergJdbcExternalCatalog
+IcebergRestExternalCatalog	org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog
+IcebergS3TablesExternalCatalog	org.apache.doris.datasource.iceberg.IcebergS3TablesExternalCatalog
+InternalCatalog	org.apache.doris.datasource.InternalCatalog
+JdbcExternalCatalog	org.apache.doris.datasource.jdbc.JdbcExternalCatalog
+LakeSoulExternalCatalog	org.apache.doris.datasource.lakesoul.LakeSoulExternalCatalog
+MaxComputeExternalCatalog	org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog
+PaimonDLFExternalCatalog	org.apache.doris.datasource.paimon.PaimonDLFExternalCatalog
+PaimonExternalCatalog	org.apache.doris.datasource.paimon.PaimonExternalCatalog
+PaimonFileExternalCatalog	org.apache.doris.datasource.paimon.PaimonFileExternalCatalog
+PaimonHMSExternalCatalog	org.apache.doris.datasource.paimon.PaimonHMSExternalCatalog
+PaimonRestExternalCatalog	org.apache.doris.datasource.paimon.PaimonRestExternalCatalog
+RemoteDorisExternalCatalog	org.apache.doris.datasource.doris.RemoteDorisExternalCatalog
+TestExternalCatalog	org.apache.doris.datasource.test.TestExternalCatalog
+TrinoConnectorExternalCatalog	org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog

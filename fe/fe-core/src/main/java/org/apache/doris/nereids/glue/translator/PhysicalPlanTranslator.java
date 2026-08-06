@@ -36,46 +36,30 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.write.ConnectorWriteConfig;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWriteSortColumn;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.PluginDrivenScanNode;
+import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.hive.source.HiveScanNode;
-import org.apache.doris.datasource.hudi.source.HudiScanNode;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
-import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
-import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
-import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
-import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
-import org.apache.doris.datasource.paimon.source.PaimonScanNode;
-import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
-import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
-import org.apache.doris.fs.DirectoryLister;
-import org.apache.doris.fs.FileSystemDirectoryLister;
-import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
+import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
+import org.apache.doris.datasource.scan.FileQueryScanNode;
+import org.apache.doris.datasource.scan.PluginDrivenScanNode;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
@@ -120,9 +104,11 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBaseExternalTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
@@ -133,23 +119,19 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeTVFScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -201,14 +183,9 @@ import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.HashJoinNode;
-import org.apache.doris.planner.HiveTableSink;
-import org.apache.doris.planner.IcebergDeleteSink;
-import org.apache.doris.planner.IcebergMergeSink;
-import org.apache.doris.planner.IcebergTableSink;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.MaterializationNode;
-import org.apache.doris.planner.MaxComputeTableSink;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.NestedLoopJoinNode;
@@ -239,6 +216,7 @@ import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
+import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -259,6 +237,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -285,8 +264,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
     private final StatsErrorEstimator statsErrorEstimator;
     private final PlanTranslatorContext context;
-
-    private DirectoryLister directoryLister;
 
     public PhysicalPlanTranslator() {
         this(null, null);
@@ -569,66 +546,38 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
-    public PlanFragment visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink,
-                                                   PlanTranslatorContext context) {
-        PlanFragment rootFragment = hiveTableSink.child().accept(this, context);
+    public PlanFragment visitPhysicalExternalRowLevelDeleteSink(
+            PhysicalExternalRowLevelDeleteSink<? extends Plan> deleteSink, PlanTranslatorContext context) {
+        PlanFragment rootFragment = deleteSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
-        HiveTableSink sink = new HiveTableSink((HMSExternalTable) hiveTableSink.getTargetTable());
-        rootFragment.setSink(sink);
+        // The DELETE target is a PluginDrivenExternalTable: route through the connector's
+        // PluginDrivenTableSink with WriteOperation.DELETE so the connector's planWrite emits its
+        // TIcebergDeleteSink dialect. No output-expr / materialized-name loop is needed: the row id reaches
+        // BE as the __DORIS_ICEBERG_ROWID_COL__ block column (a real hidden column), and viceberg_delete_sink
+        // resolves it by block-name, not by output-expr name.
+        rootFragment.setSink(buildPluginRowLevelDmlSink(deleteSink, WriteOperation.DELETE, false));
         return rootFragment;
     }
 
     @Override
-    public PlanFragment visitPhysicalIcebergTableSink(PhysicalIcebergTableSink<? extends Plan> icebergTableSink,
-                                                      PlanTranslatorContext context) {
-        PlanFragment rootFragment = icebergTableSink.child().accept(this, context);
+    public PlanFragment visitPhysicalExternalRowLevelMergeSink(
+            PhysicalExternalRowLevelMergeSink<? extends Plan> mergeSink, PlanTranslatorContext context) {
+        PlanFragment rootFragment = mergeSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        // BE's viceberg_merge_sink resolves the operation / row-id columns by the output-expr names
+        // (TPlanFragment.output_exprs), which are the sink-input slots' col_names — independent of the sink
+        // dialect. The synthesized operation column has no backing Column, so its slot col_name is empty
+        // unless we materialize the label here; this must happen before the sink is built (the connector
+        // receives only ConnectorColumns + table metadata and cannot recover the slot hint).
         List<Expr> outputExprs = Lists.newArrayList();
-        icebergTableSink.getOutput().stream().map(Slot::getExprId)
-                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-        IcebergTableSink sink = new IcebergTableSink((IcebergExternalTable) icebergTableSink.getTargetTable());
-        rootFragment.setSink(sink);
-        sink.setOutputExprs(outputExprs);
-        return rootFragment;
-    }
-
-    @Override
-    public PlanFragment visitPhysicalMaxComputeTableSink(PhysicalMaxComputeTableSink<? extends Plan> mcTableSink,
-                                                          PlanTranslatorContext context) {
-        PlanFragment rootFragment = mcTableSink.child().accept(this, context);
-        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
-        MaxComputeTableSink sink = new MaxComputeTableSink(
-                (MaxComputeExternalTable) mcTableSink.getTargetTable());
-        rootFragment.setSink(sink);
-        return rootFragment;
-    }
-
-    @Override
-    public PlanFragment visitPhysicalIcebergDeleteSink(PhysicalIcebergDeleteSink<? extends Plan> icebergDeleteSink,
-                                                       PlanTranslatorContext context) {
-        PlanFragment rootFragment = icebergDeleteSink.child().accept(this, context);
-        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
-        IcebergDeleteSink sink = new IcebergDeleteSink(
-                (IcebergExternalTable) icebergDeleteSink.getTargetTable(),
-                icebergDeleteSink.getDeleteContext());
-        rootFragment.setSink(sink);
-        return rootFragment;
-    }
-
-    @Override
-    public PlanFragment visitPhysicalIcebergMergeSink(PhysicalIcebergMergeSink<? extends Plan> icebergMergeSink,
-                                                      PlanTranslatorContext context) {
-        PlanFragment rootFragment = icebergMergeSink.child().accept(this, context);
-        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
-        List<Expr> outputExprs = Lists.newArrayList();
-        for (Slot slot : icebergMergeSink.getOutput()) {
+        for (Slot slot : mergeSink.getOutput()) {
             SlotRef slotRef = Objects.requireNonNull(context.findSlotRef(slot.getExprId()),
                     "Missing slot ref for iceberg merge sink output");
             SlotDescriptor slotDesc = slotRef.getDesc();
             if (slotDesc != null && slotDesc.getColumn() == null) {
                 String label = slotDesc.getLabel();
                 if (label != null && !label.isEmpty()) {
-                    if (IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(label)
+                    if (MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(label)
                             || Column.ICEBERG_ROWID_COL.equalsIgnoreCase(label)) {
                         slotDesc.setMaterializedColumnName(label);
                     }
@@ -637,11 +586,73 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             outputExprs.add(slotRef);
         }
         rootFragment.setOutputExprs(outputExprs);
-        IcebergMergeSink sink = new IcebergMergeSink(
-                (IcebergExternalTable) icebergMergeSink.getTargetTable(),
-                icebergMergeSink.getDeleteContext());
-        rootFragment.setSink(sink);
+        // The MERGE/UPDATE target is a PluginDrivenExternalTable: route through the connector's
+        // PluginDrivenTableSink with WriteOperation.MERGE so the connector's planWrite emits its
+        // TIcebergMergeSink dialect (which threads its own sort_fields).
+        // SQL MERGE INTO carries the cardinality requirement onto the write handle; UPDATE shares this
+        // sink dialect but has no such rule, so it threads false (see PhysicalExternalRowLevelMergeSink).
+        rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, WriteOperation.MERGE,
+                mergeSink.isRequireMergeCardinalityCheck()));
         return rootFragment;
+    }
+
+    /**
+     * Builds the plugin-driven sink for an iceberg row-level DML (DELETE / MERGE) whose target has
+     * been flipped to a {@link PluginDrivenExternalTable}. Mirrors {@link #visitPhysicalConnectorTableSink}'s
+     * connector resolution (catalog -&gt; connector -&gt; metadata -&gt; pinned table handle) but threads the
+     * given {@link WriteOperation} so the connector's {@code planWrite} dispatches to its DELETE / MERGE BE sink
+     * dialect ({@code TIcebergDeleteSink} / {@code TIcebergMergeSink}) instead of the INSERT dialect. A
+     * row-level DML has no engine write-sort ({@code writeSortInfo == null}): DELETE is unsorted and MERGE
+     * carries its sort inside the connector's {@code TIcebergMergeSink.sort_fields}. The statement's MVCC read
+     * snapshot is pinned onto the write handle (reusing the scan-side pin, Fix B) so the connector's RowDelta
+     * re-derives its deletes from the same snapshot the scan read.
+     */
+    private PluginDrivenTableSink buildPluginRowLevelDmlSink(
+            PhysicalBaseExternalTableSink<? extends Plan> sink, WriteOperation writeOperation,
+            boolean requireMergeCardinalityCheck) {
+        PluginDrivenExternalTable targetTable = (PluginDrivenExternalTable) sink.getTargetTable();
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) targetTable.getCatalog();
+
+        Connector connector = catalog.getConnector();
+        ConnectorSession connSession = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(connSession, connector);
+
+        // Convert the WHOLE type, not just its primitive tag: a row-level DML always carries the hidden
+        // __DORIS_ICEBERG_ROWID_COL__ STRUCT, and the target may hold ARRAY/MAP/STRUCT data columns.
+        // Naming only the tag would drop the children and yield a childless (invalid) complex type.
+        List<ConnectorColumn> connectorColumns = sink.getCols().stream()
+                .map(col -> new ConnectorColumn(col.getName(),
+                        ConnectorColumnConverter.toConnectorType(col.getType()),
+                        null, col.isAllowNull(), null))
+                .collect(java.util.stream.Collectors.toList());
+
+        // Resolve the table handle first so BOTH the write-admission gate and the write provider are chosen
+        // per-table (a heterogeneous gateway routes iceberg-on-HMS to its sibling by the handle type);
+        // byte-identical for every single-format connector (the per-handle overloads default to connector-level).
+        ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
+                targetTable.getRemoteDbName(), targetTable.getRemoteName())
+                .orElseThrow(() -> new AnalysisException(
+                        "Table not found: " + targetTable.getRemoteDbName()
+                                + "." + targetTable.getRemoteName()
+                                + " in catalog " + catalog.getName()));
+        // The provider both admits the operation and plans the sink, so resolve it once: several connectors
+        // build a fresh provider per call and iceberg's construction reaches the live remote catalog.
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
+        Set<WriteOperation> writeOps = writePlanProvider == null
+                ? EnumSet.noneOf(WriteOperation.class)
+                : writePlanProvider.supportedOperations();
+        if (!(writeOps.contains(WriteOperation.DELETE) || writeOps.contains(WriteOperation.MERGE))) {
+            throw new AnalysisException(
+                    "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
+                            + ") does not support row-level DML operations");
+        }
+        providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
+                metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
+
+        // writeSortInfo == null: a row-level DML has no engine-resolved write sort (MERGE's sort lives in the
+        // connector's TIcebergMergeSink.sort_fields, DELETE is unsorted).
+        return new PluginDrivenTableSink(targetTable, writePlanProvider, connSession,
+                providerTableHandle, connectorColumns, null, writeOperation, requireMergeCardinalityCheck);
     }
 
     @Override
@@ -659,34 +670,87 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Get write config from the connector
         Connector connector = catalog.getConnector();
         ConnectorSession connSession = catalog.buildConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(connSession);
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(connSession, connector);
 
-        // Convert sink columns to connector columns for INSERT SQL generation
+        // Convert sink columns to connector columns for INSERT SQL generation. The whole type is
+        // converted (see the row-level DML arm): a bare primitive tag drops an ARRAY/MAP/STRUCT
+        // column's children and yields a childless, invalid complex type.
         List<ConnectorColumn> connectorColumns = connectorTableSink.getCols().stream()
                 .map(col -> new ConnectorColumn(col.getName(),
-                        ConnectorType.of(col.getType().getPrimitiveType().toString()),
+                        ConnectorColumnConverter.toConnectorType(col.getType()),
                         null, col.isAllowNull(), null))
                 .collect(java.util.stream.Collectors.toList());
 
-        ConnectorWriteConfig writeConfig;
-        if (metadata.supportsInsert()) {
-            ConnectorTableHandle tableHandle = metadata.getTableHandle(connSession,
-                    targetTable.getRemoteDbName(), targetTable.getRemoteName())
-                    .orElseThrow(() -> new AnalysisException(
-                            "Table not found: " + targetTable.getRemoteDbName()
-                                    + "." + targetTable.getRemoteName()
-                                    + " in catalog " + catalog.getName()));
-            writeConfig = metadata.getWriteConfig(
-                    connSession, tableHandle, connectorColumns);
-        } else {
+        // Every write-capable connector builds its own opaque TDataSink via its write-plan
+        // provider (jdbc / maxcompute / iceberg). A connector whose declared write operations do
+        // not include INSERT does not support writes.
+        // Resolve the table handle first so BOTH the INSERT-admission gate and the write provider are chosen
+        // per-table (a heterogeneous gateway routes iceberg-on-HMS to its sibling by the handle type);
+        // byte-identical for every single-format connector (the per-handle overloads default to connector-level).
+        ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
+                targetTable.getRemoteDbName(), targetTable.getRemoteName())
+                .orElseThrow(() -> new AnalysisException(
+                        "Table not found: " + targetTable.getRemoteDbName()
+                                + "." + targetTable.getRemoteName()
+                                + " in catalog " + catalog.getName()));
+        // Resolve the provider once: it both admits INSERT and plans the sink (see the row-level DML arm).
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
+        if (writePlanProvider == null
+                || !writePlanProvider.supportedOperations().contains(WriteOperation.INSERT)) {
             throw new AnalysisException(
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                             + ") does not support INSERT operations");
         }
 
-        PluginDrivenTableSink sink = new PluginDrivenTableSink(targetTable, writeConfig);
-        rootFragment.setSink(sink);
+        // Thread the statement's MVCC snapshot pin onto the WRITE handle, reusing the exact scan-side pin
+        // logic so a DML's write anchors at the SAME snapshot its scan read (the pin is keyed by
+        // catalog/db/table in StatementContext, so the write target resolves the scan's pin). WHY: an MVCC
+        // connector's RowDelta DELETE/MERGE re-derives the deletes to remove from the write's base snapshot,
+        // while BE unions the scan-time deletes into the new DV — pinning both at the read snapshot keeps
+        // them on one snapshot ([SHOULD-2] / Fix B). A no-op for non-MVCC tables (jdbc/maxcompute) and any
+        // connector whose handle is not snapshot-pinned, so it is byte-identical for every current write path.
+        providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
+                metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
+
+        // The connector declares its write-sort columns (e.g. an iceberg WRITE ORDERED BY) as positions
+        // into the sink's full-schema output; the engine resolves them to bound slots and builds the
+        // TSortInfo here (the connector's planWrite has no bound exprs). Empty for connectors with no
+        // write sort (jdbc/maxcompute) -> null, byte-identical unsorted sink.
+        TSortInfo writeSortInfo = buildConnectorWriteSortInfo(
+                writePlanProvider.getWriteSortColumns(connSession, providerTableHandle),
+                connectorTableSink, context);
+
+        // A distributed rewrite_data_files INSERT-SELECT threads WriteOperation.REWRITE so the connector's
+        // planWrite enters its REWRITE arm (RewriteFiles semantics) instead of the plain-INSERT append; the
+        // rewrite marker rides on the sink (PhysicalConnectorTableSink.isRewrite), not on a ConnectContext or
+        // an instanceof Iceberg. Ordinary connector INSERTs keep WriteOperation.INSERT (byte-identical).
+        WriteOperation writeOperation = connectorTableSink.isRewrite()
+                ? WriteOperation.REWRITE : WriteOperation.INSERT;
+        PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
+                writePlanProvider, connSession, providerTableHandle, connectorColumns, writeSortInfo,
+                writeOperation);
+        rootFragment.setSink(providerSink);
         return rootFragment;
+    }
+
+    private TSortInfo buildConnectorWriteSortInfo(List<ConnectorWriteSortColumn> sortColumns,
+            PhysicalConnectorTableSink<? extends Plan> connectorTableSink, PlanTranslatorContext context) {
+        // null == no write sort order -> no TSortInfo (jdbc/maxcompute, unsorted iceberg). A non-null
+        // list (even empty) means the target has a sort order, so emit a TSortInfo (empty ordering for a
+        // sort order with no engine-resolvable column), matching legacy's unconditional setSortInfo.
+        if (sortColumns == null) {
+            return null;
+        }
+        List<Expr> orderingExprs = Lists.newArrayList();
+        List<Boolean> isAscOrder = Lists.newArrayList();
+        List<Boolean> nullsFirst = Lists.newArrayList();
+        for (ConnectorWriteSortColumn sortColumn : sortColumns) {
+            orderingExprs.add(context.findSlotRef(
+                    connectorTableSink.getOutput().get(sortColumn.getColumnIndex()).getExprId()));
+            isAscOrder.add(sortColumn.isAsc());
+            nullsFirst.add(sortColumn.isNullsFirst());
+        }
+        return new SortInfo(orderingExprs, isAscOrder, nullsFirst, null).toThrift();
     }
 
     @Override
@@ -733,60 +797,30 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         // TODO(cmy): determine the needCheckColumnPriv param
         ScanNode scanNode;
-        if (table instanceof HMSExternalTable) {
-            if (directoryLister == null) {
-                this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
-                        Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
+        // Plugin-driven (SPI) tables are matched first; the connector-specific
+        // instanceof branches below are migration-period fallbacks that get removed
+        // as each connector lands on the SPI in P3-P7.
+        if (table instanceof PluginDrivenExternalTable) {
+            PluginDrivenExternalCatalog pluginCatalog =
+                    (PluginDrivenExternalCatalog) table.getCatalog();
+            PluginDrivenScanNode pluginScanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(),
+                    tupleDescriptor, false, sv, context.getScanContext(), pluginCatalog,
+                    ((PluginDrivenExternalTable) table));
+            // Forward the pruned partitions so the connector reads only the surviving partitions
+            // (mirrors the legacy MaxCompute / Hive branches below).
+            pluginScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
+            // Forward TABLESAMPLE (mirrors the legacy Hive branch below). Whether it is actually applied
+            // is decided in PluginDrivenScanNode by the connector's supportsTableSample() capability: a
+            // connector whose split ranges carry byte lengths (Hive) samples; the others no-op with a
+            // warning. Without this forward the sample is silently dropped and the query scans the full table.
+            if (fileScan.getTableSample().isPresent()) {
+                pluginScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
+                        fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
             }
-            switch (((HMSExternalTable) table).getDlaType()) {
-                case ICEBERG:
-                    scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
-                            context.getScanContext());
-                    break;
-                case HIVE:
-                    scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv, directoryLister,
-                            context.getScanContext());
-                    HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
-                    hiveScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
-                    if (fileScan.getTableSample().isPresent()) {
-                        hiveScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
-                                fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
-                    }
-                    break;
-                case HUDI:
-                    // HUDI table should be handled by visitPhysicalHudiScan, not here.
-                    // If we reach here, it means LogicalHudiScan was incorrectly converted to
-                    // PhysicalFileScan.
-                    throw new RuntimeException("HUDI table should use PhysicalHudiScan instead of PhysicalFileScan. "
-                            + "This indicates a bug in the optimizer rules. "
-                            + "FileScan class: " + fileScan.getClass().getSimpleName());
-                default:
-                    throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
-            }
-        } else if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable) {
-            scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
-                    context.getScanContext());
-        } else if (table.getType() == TableIf.TableType.PAIMON_EXTERNAL_TABLE) {
-            scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
-                    context.getScanContext());
-        } else if (table instanceof TrinoConnectorExternalTable) {
-            scanNode = new TrinoConnectorScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
-                    context.getScanContext());
-        } else if (table instanceof MaxComputeExternalTable) {
-            scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor,
-                    fileScan.getSelectedPartitions(), false, sv, context.getScanContext());
-        } else if (table instanceof LakeSoulExternalTable) {
-            scanNode = new LakeSoulScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
-                    context.getScanContext());
+            scanNode = pluginScanNode;
         } else if (table instanceof RemoteDorisExternalTable) {
             scanNode = new RemoteDorisScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());
-        } else if (table instanceof PluginDrivenExternalTable) {
-            PluginDrivenExternalCatalog pluginCatalog =
-                    (PluginDrivenExternalCatalog) table.getCatalog();
-            scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
-                    false, sv, context.getScanContext(), pluginCatalog,
-                    ((PluginDrivenExternalTable) table));
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
@@ -821,36 +855,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return planFragment;
     }
 
-    @Override
-    public PlanFragment visitPhysicalHudiScan(PhysicalHudiScan hudiScan, PlanTranslatorContext context) {
-        if (directoryLister == null) {
-            this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
-                    Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
-        }
-        List<Slot> slots = hudiScan.getOutput();
-        ExternalTable table = hudiScan.getTable();
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
-
-        if (!(table instanceof HMSExternalTable) || ((HMSExternalTable) table).getDlaType() != DLAType.HUDI) {
-            throw new RuntimeException("Invalid table type for Hudi scan: " + table.getType());
-        }
-        HudiScanNode hudiScanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
-                hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), ConnectContext.get().getSessionVariable(),
-                directoryLister, context.getScanContext());
-        if (hudiScan.getTableSnapshot().isPresent()) {
-            hudiScanNode.setQueryTableSnapshot(hudiScan.getTableSnapshot().get());
-        }
-        hudiScanNode.setSelectedPartitions(hudiScan.getSelectedPartitions());
-        hudiScanNode.setDistributeExprLists(getDistributeExpr(hudiScan));
-        return getPlanFragmentForPhysicalFileScan(hudiScan, context, hudiScanNode);
-    }
-
     @NotNull
     private PlanFragment getPlanFragmentForPhysicalFileScan(PhysicalFileScan fileScan, PlanTranslatorContext context,
             ScanNode scanNode) {
         scanNode.setNereidsId(fileScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
         scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
+        scanNode.setPushDownCountSlotIds(context.getRelationPushCountArgumentExprIds(fileScan.getRelationId())
+                .stream()
+                .map(exprId -> Objects.requireNonNull(context.findSlotRef(exprId),
+                        "missing slot for pushed-down COUNT argument " + exprId).getSlotId())
+                .collect(Collectors.toList()));
         scanNode.setHasPartitionPredicate(fileScan.hasPartitionPredicate());
 
         if (fileScan.getStats() != null) {
@@ -878,10 +893,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private PlanFragment computePhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
         List<Slot> slots = olapScan.getOutput();
         OlapTable olapTable = olapScan.getTable();
-        if (olapScan.isIncrementalScan()) {
-            olapTable = new RowBinlogTableWrapper(((OlapTableStreamWrapper) olapTable).getBaseTable(),
-                    (OlapTableStreamWrapper) olapTable);
-        }
         // generate real output tuple
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, olapTable, context);
         List<SlotDescriptor> slotDescriptors = tupleDescriptor.getSlots();
@@ -898,7 +909,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // generate base index tuple because this fragment partitioned expr relay on slots of based index
-        if (!olapScan.isIncrementalScan() && olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
+        if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
             generateTupleDesc(olapScan.getBaseOutputs(), olapTable, context);
         }
 
@@ -960,21 +971,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     olapScan.getTableSample().get().sampleValue, olapScan.getTableSample().get().seek));
         }
 
-        if (olapScan.isIncrementalScan()) {
-            olapScanNode.setSelectedIndexInfo(olapTable.getBaseIndexId(), false, "binlog<row> read");
-        } else {
-            // TODO:  remove this switch?
-            switch (olapScan.getTable().getKeysType()) {
-                case AGG_KEYS:
-                case UNIQUE_KEYS:
-                case DUP_KEYS:
-                    PreAggStatus preAgg = olapScan.getPreAggStatus();
-                    olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(),
-                            preAgg.getOffReason());
-                    break;
-                default:
-                    throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());
-            }
+        // TODO:  remove this switch?
+        switch (olapScan.getTable().getKeysType()) {
+            case AGG_KEYS:
+            case UNIQUE_KEYS:
+            case DUP_KEYS:
+                PreAggStatus preAgg = olapScan.getPreAggStatus();
+                olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(),
+                        preAgg.getOffReason());
+                break;
+            default:
+                throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());
         }
 
         // apply change scan info if present
@@ -1410,6 +1417,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         context.setRelationPushAggOp(
                 storageLayerAggregate.getRelation().getRelationId(), pushAggOp);
+        context.setRelationPushCountArgumentExprIds(
+                storageLayerAggregate.getRelation().getRelationId(),
+                pushAggOp == TPushAggOp.COUNT
+                        ? storageLayerAggregate.getCountArgumentExprIds() : ImmutableList.of());
 
         PlanFragment planFragment = storageLayerAggregate.getRelation().accept(this, context);
 
@@ -2496,14 +2507,34 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             setOperationNode.setColocate(true);
         }
 
-        // TODO: open comment when support `enable_local_shuffle_planner`
-        // for (Plan child : setOperation.children()) {
-        //     PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
-        //     if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
-        //         setOperationNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
-        //         break;
-        //     }
-        // }
+        // Storage-bucketed children only appear when the FE local shuffle planner is active:
+        // ChildrenPropertiesRegulator and RequestPropertyDeriver both gate the bucket-shuffle
+        // alternative on enableLocalShufflePlanner. Gate the marker on the same flag so the
+        // dependency is explicit and a future planner change that produced a STORAGE_BUCKETED
+        // distribution outside the local-shuffle planner cannot silently mark BUCKET_SHUFFLE here.
+        //
+        // Within that gate a storage-bucketed child means the regulator chose the bucket shuffle
+        // alternative (it enforces the other children onto the basic child's buckets), so the marker
+        // simply follows that decision. It must not re-check the table id independently: the basic
+        // child selection in the regulator is the single place that vets the layout, and re-checking
+        // here could suppress a bucket shuffle the property model already committed to and desync a
+        // parent that aligned to the set operation output.
+        //
+        // Unlike hash join, BUCKET_SHUFFLE is not exclusive with isColocate above: for a set
+        // operation isColocate describes the bucket-aligned scheduling of the fragment (the
+        // basic child scans buckets directly), while BUCKET_SHUFFLE describes how the other
+        // children arrive (bucket-shuffle exchanges). Both routes converge to the same
+        // bucket-hash local exchange requirement in SetOperationNode.enforceAndDeriveLocalExchange.
+        if (context.getSessionVariable() != null
+                && context.getSessionVariable().isEnableLocalShufflePlanner()) {
+            for (Plan child : setOperation.children()) {
+                PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
+                if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
+                    setOperationNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+                    break;
+                }
+            }
+        }
 
         return setOperationFragment;
     }
@@ -2608,7 +2639,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // push sort to scan opt
             if (sortNode.getChild(0) instanceof OlapScanNode) {
                 OlapScanNode scanNode = ((OlapScanNode) sortNode.getChild(0));
-                if (checkPushSort(sortNode, scanNode.getOlapTable())) {
+                // When the offset is set, the pushed scan limit is limit + offset. If that overflows the
+                // long range it would wrap to a negative limit, so skip the whole push-sort-to-scan
+                // optimization (do not push the sort info either); the sort node still applies the real
+                // limit/offset. Sort info and sort limit are always pushed together.
+                boolean limitOverflows = sortNode.getOffset() > 0
+                        && Utils.addOverflows(sortNode.getLimit(), sortNode.getOffset());
+                if (checkPushSort(sortNode, scanNode.getOlapTable()) && !limitOverflows) {
                     SortInfo sortInfo = sortNode.getSortInfo();
                     scanNode.setSortInfo(sortInfo);
                     if (sortNode.getOffset() > 0) {
@@ -3002,6 +3039,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .collect(Collectors.toSet());
             requiredWithVirtualColumns.addAll(virtualColumnInputSlotIds);
         }
+        if (scanNode instanceof OlapScanNode) {
+            preserveExtraStorageKeySlots((OlapScanNode) scanNode, requiredWithVirtualColumns);
+        } else if (scanNode instanceof PluginDrivenScanNode) {
+            preserveConnectorMustReadSlots((PluginDrivenScanNode) scanNode, requiredWithVirtualColumns);
+        }
         // Find the smallest column, for count(*) or other situation that slot is empty after prune
         SlotDescriptor smallest = getSmallestSlot(scanNode.getTupleDesc().getSlots());
         scanNode.getTupleDesc().getSlots().removeIf(s -> !requiredWithVirtualColumns.contains(s.getId()));
@@ -3019,6 +3061,69 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             context.removeScanFromStatsUnknownColumnsMap(scanNode);
         }
+    }
+
+    private void preserveExtraStorageKeySlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
+        if (!shouldPreserveStorageKeySlots(scanNode)) {
+            return;
+        }
+        for (SlotDescriptor slot : scanNode.getTupleDesc().getSlots()) {
+            Column column = slot.getColumn();
+            if (column == null || !column.isKey()) {
+                // OLAP scan tuples follow the storage schema, where key columns form the prefix.
+                break;
+            }
+            if (!requiredSlotIds.contains(slot.getId())) {
+                scanNode.getExtraKeyColumnSlotIds().add(slot.getId().asInt());
+                requiredSlotIds.add(slot.getId());
+            }
+        }
+    }
+
+    /**
+     * Keeps the slots of the columns a plugin connector must read for this scan even when the query
+     * references none of them — the plugin-table counterpart of {@link #preserveExtraStorageKeySlots}, and
+     * for the same reason: a reader that merges or suppresses rows by key needs the key whether or not the
+     * user selected it. The connector answers per scan
+     * ({@code ConnectorScanPlanProvider.getMustReadColumns}, empty by default), so every connector that needs
+     * nothing beyond the projection prunes exactly as before.
+     *
+     * <p>Only the scan's tuple is widened. The project above it was already given its own output tuple and
+     * project list a few lines up, so a column preserved here is read and then dropped — it never reaches the
+     * query's output.</p>
+     *
+     * <p>A name that matches no slot fails the query loud rather than being skipped: it means the connector
+     * and the engine disagree about the table's columns, and the connector's reader would then be handed a
+     * scan missing a column it said it needs — silently wrong rows, not an error. Static + visible for testing
+     * so the ask-and-preserve step is pinned without a live connector.</p>
+     */
+    @VisibleForTesting
+    static void preserveConnectorMustReadSlots(PluginDrivenScanNode scanNode, Set<SlotId> requiredSlotIds) {
+        Set<String> mustRead = scanNode.mustReadColumnsFromConnector();
+        if (mustRead.isEmpty()) {
+            return;
+        }
+        Set<String> missing = Sets.newLinkedHashSet(mustRead);
+        for (SlotDescriptor slot : scanNode.getTupleDesc().getSlots()) {
+            Column column = slot.getColumn();
+            if (column != null && mustRead.contains(column.getName())) {
+                requiredSlotIds.add(slot.getId());
+                missing.remove(column.getName());
+            }
+        }
+        if (!missing.isEmpty()) {
+            throw new AnalysisException("connector requires column(s) " + missing
+                    + " to be read, but the scan has no such column");
+        }
+    }
+
+    private boolean shouldPreserveStorageKeySlots(OlapScanNode scanNode) {
+        long selectedIndexId = scanNode.getSelectedIndexId() == -1
+                ? scanNode.getOlapTable().getBaseIndexId()
+                : scanNode.getSelectedIndexId();
+        KeysType keysType = scanNode.getOlapTable().getIndexMetaByIndexId(selectedIndexId).getKeysType();
+        return keysType == KeysType.AGG_KEYS
+                || (keysType == KeysType.UNIQUE_KEYS && !scanNode.getOlapTable().getEnableUniqueKeyMergeOnWrite());
     }
 
     /**
@@ -3254,10 +3359,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             for (ExprId exprId : mergeSpec.getDeletePartitionExprIds()) {
                 deletePartitionExprs.add(context.findSlotRef(exprId));
             }
-            List<DataPartition.IcebergPartitionField> insertPartitionFields = Lists.newArrayList();
-            for (DistributionSpecMerge.IcebergPartitionField field : mergeSpec.getInsertPartitionFields()) {
+            List<DataPartition.MergePartitionField> insertPartitionFields = Lists.newArrayList();
+            for (DistributionSpecMerge.MergePartitionField field : mergeSpec.getInsertPartitionFields()) {
                 Expr sourceExpr = context.findSlotRef(field.getSourceExprId());
-                insertPartitionFields.add(new DataPartition.IcebergPartitionField(
+                insertPartitionFields.add(new DataPartition.MergePartitionField(
                         sourceExpr,
                         field.getTransform(),
                         field.getParam(),

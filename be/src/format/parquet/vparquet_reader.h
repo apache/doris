@@ -40,6 +40,7 @@
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 #include "storage/olap_scan_common.h"
 #include "util/obj_lru_cache.h"
@@ -94,6 +95,7 @@ public:
     struct ReaderStatistics {
         int32_t filtered_row_groups = 0;
         int32_t filtered_row_groups_by_min_max = 0;
+        int32_t filtered_row_groups_by_expr_zonemap = 0;
         int32_t filtered_row_groups_by_bloom_filter = 0;
         int32_t read_row_groups = 0;
         int64_t filtered_group_rows = 0;
@@ -115,6 +117,9 @@ public:
         int64_t predicate_filter_time = 0;
         int64_t dict_filter_rewrite_time = 0;
         int64_t bloom_filter_read_time = 0;
+        int64_t expr_zonemap_unusable_evals = 0;
+        int64_t in_zonemap_point_check_count = 0;
+        int64_t in_zonemap_range_only_count = 0;
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -139,6 +144,9 @@ public:
 #ifdef BE_TEST
     // for unit test
     void set_file_reader(io::FileReaderSPtr file_reader);
+    void set_conjuncts_for_test(const VExprContextSPtrs& conjuncts) {
+        _lazy_read_ctx.conjuncts = conjuncts;
+    }
 #endif
 
     // Override to build table_info_node from Parquet file metadata using by_parquet_name.
@@ -152,6 +160,12 @@ public:
 
     // set the delete rows in current parquet file
     void set_delete_rows(const std::vector<int64_t>* delete_rows) { _delete_rows = delete_rows; }
+
+    // DVs stay compressed in the query cache. Only row ids belonging to the row group being opened
+    // are materialized for the legacy RowGroupReader position-delete interface.
+    void set_deletion_vector(const roaring::Roaring64Map* deletion_vector) {
+        _deletion_vector = deletion_vector;
+    }
 
     int64_t size() const { return _file_reader->size(); }
 
@@ -205,7 +219,8 @@ public:
     int64_t get_total_rows() const override;
 
     bool has_delete_operations() const override {
-        return _delete_rows != nullptr && !_delete_rows->empty();
+        return (_delete_rows != nullptr && !_delete_rows->empty()) ||
+               (_deletion_vector != nullptr && !_deletion_vector->isEmpty());
     }
 
     /// Disable row-group range filtering (needed when reading delete files
@@ -245,6 +260,7 @@ private:
     struct ParquetProfile {
         RuntimeProfile::Counter* filtered_row_groups = nullptr;
         RuntimeProfile::Counter* filtered_row_groups_by_min_max = nullptr;
+        RuntimeProfile::Counter* filtered_row_groups_by_expr_zonemap = nullptr;
         RuntimeProfile::Counter* filtered_row_groups_by_bloom_filter = nullptr;
         RuntimeProfile::Counter* to_read_row_groups = nullptr;
         RuntimeProfile::Counter* total_row_groups = nullptr;
@@ -287,6 +303,9 @@ private:
         RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
         RuntimeProfile::Counter* convert_time = nullptr;
         RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
+        RuntimeProfile::Counter* expr_zonemap_unusable = nullptr;
+        RuntimeProfile::Counter* in_zonemap_point_check = nullptr;
+        RuntimeProfile::Counter* in_zonemap_range_only = nullptr;
     };
 
     // ---- set_fill_columns sub-functions ----
@@ -314,6 +333,11 @@ private:
             const RowGroupReader::RowGroupIndex& row_group_index,
             const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
             RowRanges* candidate_row_ranges);
+    Status _process_expr_zonemap_page_filter(
+            ParquetPredicate::CachedPageIndexStat* cached_page_index,
+            RowRanges* candidate_row_ranges, bool* filtered_row_group_by_expr_zonemap);
+    bool _expr_zonemap_page_slot_index(const VExprContextSPtr& conjunct, int* cid) const;
+    bool _has_expr_zonemap_page_filter() const;
 
     // check this range contain this row group.
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group) const;
@@ -323,6 +347,7 @@ private:
             const tparquet::RowGroup& row_group,
             const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
             bool* filter_group, bool* filtered_by_min_max, bool* filtered_by_bloom_filter);
+    Status _process_expr_zonemap_filter(const tparquet::RowGroup& row_group, bool* filter_group);
 
     /*
      * 1. row group min-max filter
@@ -391,6 +416,8 @@ private:
     // Deleted rows will be marked by Iceberg/Paimon. So we should filter deleted rows when reading it.
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
+    const roaring::Roaring64Map* _deletion_vector = nullptr;
+    std::vector<int64_t> _row_group_deletion_vector_rows;
 
     // parquet file reader object
     RuntimeProfile* _profile = nullptr;

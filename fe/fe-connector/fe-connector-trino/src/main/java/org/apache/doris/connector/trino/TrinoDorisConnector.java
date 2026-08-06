@@ -17,11 +17,13 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorValidationContext;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 
 import com.google.common.collect.ImmutableMap;
 import io.trino.Session;
@@ -74,12 +76,20 @@ public class TrinoDorisConnector implements Connector {
     }
 
     @Override
-    public org.apache.doris.connector.api.ConnectorTestResult testConnection(ConnectorSession session) {
+    public void preCreateValidation(ConnectorValidationContext context) {
+        // Lift plugin loading + connector-factory resolution from first-query
+        // to CREATE CATALOG time, so misconfigured plugin dir / connector name
+        // surfaces immediately instead of on the first SELECT.
+        ensureInitialized();
+    }
+
+    @Override
+    public org.apache.doris.connector.spi.ConnectorTestResult testConnection(ConnectorSession session) {
         ensureInitialized();
         if (trinoConnector != null) {
-            return org.apache.doris.connector.api.ConnectorTestResult.success();
+            return org.apache.doris.connector.spi.ConnectorTestResult.success();
         }
-        return org.apache.doris.connector.api.ConnectorTestResult.failure("Trino connector not initialized");
+        return org.apache.doris.connector.spi.ConnectorTestResult.failure("Trino connector not initialized");
     }
 
     @Override
@@ -154,18 +164,28 @@ public class TrinoDorisConnector implements Connector {
                     deprecated, connectorNameStr);
         }
 
-        // 2. Initialize Trino plugin infrastructure (singleton)
-        String pluginDir = TrinoBootstrap.resolvePluginDir(properties);
+        // 2. Initialize Trino plugin infrastructure (singleton).
+        // The plugin dir is a deployment-level setting: this plugin's classloader cannot see FE Config
+        // directly, so it arrives either in this plugin's own trino-connector.conf or, for a deployment
+        // that has not moved to that file, from fe.conf through the engine environment.
+        String pluginDir = TrinoBootstrap.resolvePluginDir(properties,
+                ConnectorConf.get(context, TrinoConnectorProvider.CONF_PLUGIN_DIR,
+                        TrinoConnectorProvider.ENV_PLUGIN_DIR, null));
         TrinoBootstrap bootstrap = TrinoBootstrap.getInstance(pluginDir);
 
         // 3. Create Trino Connector + Session for this catalog
         TrinoBootstrap.TrinoConnectionResult result = bootstrap.createConnection(
                 context.getCatalogName(), connectorNameStr, trinoProperties);
 
-        this.trinoConnector = result.getConnector();
+        // Publish the guard field (trinoConnector) LAST. ensureInitialized() and the other readers use
+        // `trinoConnector != null` as the initialized flag and then read trinoSession/trinoCatalogHandle.
+        // Assigning the guard after its dependencies means a concurrent reader that sees it non-null is
+        // guaranteed (via the volatile write/read happens-before) to also see the fully-published
+        // session / catalog handle / name — closing the transient half-initialized NPE window.
         this.trinoSession = result.getSession();
         this.trinoCatalogHandle = result.getCatalogHandle();
         this.trinoConnectorName = result.getConnectorName();
+        this.trinoConnector = result.getConnector();
 
         LOG.info("Trino connector initialized for catalog '{}', connector: {}",
                 context.getCatalogName(), connectorNameStr);

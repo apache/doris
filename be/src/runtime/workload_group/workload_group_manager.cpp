@@ -30,6 +30,7 @@
 #include "exec/pipeline/task_scheduler.h"
 #include "exec/scan/scanner_scheduler.h"
 #include "information_schema/schema_scanner_helper.h"
+#include "runtime/cluster_info.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
@@ -968,6 +969,13 @@ void WorkloadGroupMgr::stop() {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
     for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
         iter->second->try_stop_schedulers();
+    }
+}
+
+void WorkloadGroupMgr::destroy_schedulers() {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
+        iter->second->destroy_schedulers();
     }
 }
 

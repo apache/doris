@@ -352,7 +352,7 @@ public class LoadAction extends RestBaseController {
             LOG.info("redirect stream load 2PC action to destination={}, db: {}, txn: {}, operation: {}",
                     redirectAddr.toString(), dbName, request.getHeader(TXN_ID_KEY), txnOperation);
 
-            RedirectView redirectView = redirectTo(request, redirectAddr);
+            RedirectView redirectView = redirectToBackend(request, redirectAddr);
             return redirectView;
 
         } catch (Exception e) {
@@ -367,7 +367,12 @@ public class LoadAction extends RestBaseController {
     }
 
     private String getCloudClusterName(HttpServletRequest request) {
-        String cloudClusterName = request.getHeader(SessionVariable.CLOUD_CLUSTER);
+        String cloudClusterName = request.getHeader(SessionVariable.COMPUTE_GROUP);
+        if (!Strings.isNullOrEmpty(cloudClusterName)) {
+            return cloudClusterName;
+        }
+
+        cloudClusterName = request.getHeader(SessionVariable.CLOUD_CLUSTER);
         if (!Strings.isNullOrEmpty(cloudClusterName)) {
             return cloudClusterName;
         }
@@ -669,9 +674,10 @@ public class LoadAction extends RestBaseController {
     private Object createRedirectResponse(HttpServletRequest request, HttpServletResponse response,
             TNetworkAddress redirectAddr, boolean isStreamLoad, String dbName, String tableName, String label)
             throws IOException {
-        String redirectUrl = buildRedirectUrl(request, redirectAddr);
+        String redirectUrl = buildRedirectUrlToBackend(request, redirectAddr, request.getRequestURI(),
+                request.getQueryString());
         if (!shouldUseBoundedDrainForStreamLoad(isStreamLoad)) {
-            return redirectTo(request, redirectAddr);
+            return redirectToBackend(request, redirectAddr);
         }
         writeTemporaryRedirect(response, redirectUrl);
         DrainDecision drainDecision = decideDrainDecisionForStreamLoadRedirect(request);
@@ -808,7 +814,7 @@ public class LoadAction extends RestBaseController {
         if (!Strings.isNullOrEmpty(queryString)) {
             redirectQuery = queryString + "&" + redirectQuery;
         }
-        String redirectUrl = buildRedirectUrl(request, addr, modifiedPath, redirectQuery);
+        String redirectUrl = buildRedirectUrlToBackend(request, addr, modifiedPath, redirectQuery);
 
         LOG.info("Redirect stream load forward url: {}, forward_to: {}",
                 "http://" + addr.getHostname() + ":" + addr.getPort() + modifiedPath, forwardTarget);

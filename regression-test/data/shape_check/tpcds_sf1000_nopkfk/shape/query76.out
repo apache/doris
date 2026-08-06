@@ -14,7 +14,7 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->ss_item_sk
 --------------------------PhysicalProject
-----------------------------filter(ss_customer_sk IS NULL)
+----------------------------filter(store_sales.ss_customer_sk IS NULL)
 ------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF3
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[item]
@@ -23,13 +23,13 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[item] apply RFs: RF1
 ------------------------PhysicalProject
---------------------------filter(ws_promo_sk IS NULL)
+--------------------------filter(web_sales.ws_promo_sk IS NULL)
 ----------------------------PhysicalOlapScan[web_sales] apply RFs: RF4
 --------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->cs_item_sk
 --------------------------PhysicalProject
-----------------------------filter(cs_bill_customer_sk IS NULL)
+----------------------------filter(catalog_sales.cs_bill_customer_sk IS NULL)
 ------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF5
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[item]

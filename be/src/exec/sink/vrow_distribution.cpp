@@ -35,6 +35,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "exec/sink/writer/vtablet_writer.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -112,6 +113,7 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_be_endpoint(be_endpoint);
     request.__set_write_single_replica(_write_single_replica);
     request.__set_load_to_single_tablet(_tablet_finder->is_find_tablet_every_sink());
+    request.__set_enable_adaptive_random_bucket(_tablet_finder->is_adaptive_random_bucket());
     if (_state && _state->get_query_ctx()) {
         // Pass query_id to FE so it can determine if this is a multi-instance load by checking Coordinator
         request.__set_query_id(_state->get_query_ctx()->query_id());
@@ -146,13 +148,14 @@ Status VRowDistribution::automatic_create_partition() {
     Status status(Status::create(result.status));
     VLOG_NOTICE << "automatic partition rpc end response " << result;
     if (result.status.status_code == TStatusCode::OK) {
-        RETURN_IF_ERROR(_create_partition_callback(_caller, &result));
-        // add new created partitions
+        // Add new partitions before incremental open because adaptive random bucket builds
+        // sender/receiver routing params from _vpartition.
         RETURN_IF_ERROR(_vpartition->add_partitions(result.partitions));
         for (const auto& part : result.partitions) {
             _new_partition_ids.insert(part.id);
             VLOG_TRACE << "record new id: " << part.id;
         }
+        RETURN_IF_ERROR(_create_partition_callback(_caller, &result));
     }
 
     // Record this request's elapsed time
@@ -214,6 +217,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
     std::string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_be_endpoint(be_endpoint);
     request.__set_load_to_single_tablet(_tablet_finder->is_find_tablet_every_sink());
+    request.__set_enable_adaptive_random_bucket(_tablet_finder->is_adaptive_random_bucket());
     if (_state && _state->get_query_ctx()) {
         // Pass query_id to FE so it can determine if this is a multi-instance load by checking Coordinator
         request.__set_query_id(_state->get_query_ctx()->query_id());
@@ -248,17 +252,18 @@ Status VRowDistribution::_replace_overwriting_partition() {
     Status status(Status::create(result.status));
     VLOG_NOTICE << "auto detect replace partition result: " << result;
     if (result.status.status_code == TStatusCode::OK) {
-        // Reuse the function as the args' structure are same. It adds nodes/locations
-        // and waits for incremental_open before the new tablets become routable.
-        auto result_as_create = cast_as_create_result(result);
-        RETURN_IF_ERROR(_create_partition_callback(_caller, &result_as_create));
         // record new partitions
         for (const auto& part : result.partitions) {
             _new_partition_ids.insert(part.id);
             VLOG_TRACE << "record new id: " << part.id;
         }
         // replace data in _partitions
+        // Adaptive random bucket builds sender/receiver routing params from _vpartition during
+        // incremental open, so the replacement must be visible first.
         RETURN_IF_ERROR(_vpartition->replace_partitions(request_part_ids, result.partitions));
+        // Reuse the function as the args' structure are same. It adds nodes/locations.
+        auto result_as_create = cast_as_create_result(result);
+        RETURN_IF_ERROR(_create_partition_callback(_caller, &result_as_create));
     }
 
     return status;
@@ -292,7 +297,9 @@ void VRowDistribution::_filter_block_by_skip(Block* block, RowPartTabletIds& row
         if (!_skip[i]) {
             row_ids.emplace_back(i);
             partition_ids.emplace_back(_partitions[i]->id);
-            tablet_ids.emplace_back(_tablet_ids[i]);
+            if (!_tablet_finder->is_adaptive_random_bucket()) {
+                tablet_ids.emplace_back(_tablet_ids[i]);
+            }
         }
     }
 }
@@ -315,7 +322,9 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
             if (nullable_column->get_bool_inline(i) && !_skip[i]) {
                 row_ids.emplace_back(i);
                 partition_ids.emplace_back(_partitions[i]->id);
-                tablet_ids.emplace_back(_tablet_ids[i]);
+                if (!_tablet_finder->is_adaptive_random_bucket()) {
+                    tablet_ids.emplace_back(_tablet_ids[i]);
+                }
             }
         }
     } else if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
@@ -334,7 +343,9 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
             if (filter[i] != 0 && !_skip[i]) {
                 row_ids.emplace_back(i);
                 partition_ids.emplace_back(_partitions[i]->id);
-                tablet_ids.emplace_back(_tablet_ids[i]);
+                if (!_tablet_finder->is_adaptive_random_bucket()) {
+                    tablet_ids.emplace_back(_tablet_ids[i]);
+                }
             }
         }
     }
@@ -345,7 +356,9 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
 Status VRowDistribution::_filter_block(Block* block,
                                        std::vector<RowPartTabletIds>& row_part_tablet_ids) {
     for (int i = 0; i < _schema->indexes().size(); i++) {
-        _get_tablet_ids(block, i, _tablet_ids);
+        if (!_tablet_finder->is_adaptive_random_bucket()) {
+            _get_tablet_ids(block, i, _tablet_ids);
+        }
         auto& where_clause = _schema->indexes()[i]->where_clause;
         if (where_clause != nullptr) {
             RETURN_IF_ERROR(_filter_block_by_skip_and_where_clause(block, where_clause,
@@ -525,7 +538,9 @@ void VRowDistribution::_reset_row_part_tablet_ids(
         // This is important for performance.
         row_ids.reserve(rows);
         partition_ids.reserve(rows);
-        tablet_ids.reserve(rows);
+        if (!_tablet_finder->is_adaptive_random_bucket()) {
+            tablet_ids.reserve(rows);
+        }
     }
 }
 

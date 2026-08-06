@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -422,41 +421,6 @@ public class ExpressionUtils {
     }
 
     /**
-     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * <p>
-     * for example:
-     * - SlotReference to a column:
-     * col
-     * - Cast on SlotReference:
-     * cast(int_col as string)
-     * cast(cast(int_col as long) as string)
-     *
-     * @param expr input expression
-     * @return Return Optional[ExprId] of underlying slot reference if input expression is a slot or cast on slot.
-     *         Otherwise, return empty optional result.
-     */
-    public static Optional<ExprId> isSlotOrCastOnSlot(Expression expr) {
-        return extractSlotOrCastOnSlot(expr).map(Slot::getExprId);
-    }
-
-    /**
-     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     */
-    public static Optional<Slot> extractSlotOrCastOnSlot(Expression expr) {
-        while (expr instanceof Cast) {
-            expr = expr.child(0);
-        }
-
-        if (expr instanceof SlotReference) {
-            return Optional.of((Slot) expr);
-        } else {
-            return Optional.empty();
-        }
-    }
-
-    /**
      * Generate replaceMap Slot -> Expression from NamedExpression[Expression as name]
      */
     public static Map<Slot, Expression> generateReplaceMap(List<? extends NamedExpression> namedExpressions) {
@@ -788,16 +752,41 @@ public class ExpressionUtils {
      * infer notNulls slot from predicate
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
-        ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(predicates.size());
-        for (Expression predicate : filterCheapPredicatesForNotNull(predicates)) {
+        Set<Slot> targetSlots = new HashSet<>();
+        for (Expression predicate : predicates) {
             for (Slot slot : predicate.getInputSlots()) {
-                Map<Expression, Expression> replaceMap = new HashMap<>();
-                Literal nullLiteral = new NullLiteral(slot.getDataType());
-                replaceMap.put(slot, nullLiteral);
-                Expression evalExpr = FoldConstantRule.evaluate(
-                        ExpressionUtils.replace(predicate, replaceMap),
-                        new ExpressionRewriteContext(cascadesContext));
-                if (evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr)) {
+                if (!(slot instanceof MarkJoinSlotReference)) {
+                    targetSlots.add(slot);
+                }
+            }
+        }
+        return inferNotNullSlots(predicates, targetSlots, cascadesContext);
+    }
+
+    /**
+     * infer notNulls slot from predicate but these slots must be in the given target slots.
+     */
+    public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, Set<Slot> targetSlots,
+            CascadesContext cascadesContext) {
+        ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(targetSlots.size());
+        Set<Slot> inputSlots = new HashSet<>();
+        for (Expression predicate : predicates) {
+            if (predicate.getWidth() > MAX_INFER_NOT_NULL_EXPR_WIDTH
+                    || predicate.getDepth() > MAX_INFER_NOT_NULL_EXPR_DEPTH) {
+                continue;
+            }
+            Set<Slot> predicateInputSlots = predicate.getInputSlots();
+            Set<Slot> candidateSlots = Sets.intersection(predicateInputSlots, targetSlots);
+            if (candidateSlots.isEmpty()) {
+                continue;
+            }
+            Optional<Set<Slot>> mergedInputSlots = mergeInputSlotsWithinLimit(inputSlots, predicateInputSlots);
+            if (!mergedInputSlots.isPresent()) {
+                continue;
+            }
+            inputSlots = mergedInputSlots.get();
+            for (Slot slot : candidateSlots) {
+                if (isNullRejecting(predicate, slot, cascadesContext)) {
                     notNullSlots.add(slot);
                 }
             }
@@ -805,45 +794,17 @@ public class ExpressionUtils {
         return notNullSlots.build();
     }
 
-    /**
-     * Return whether all predicates are cheap enough for not-null inference.
-     */
-    public static boolean isCheapEnoughToInferNotNull(Collection<? extends Expression> predicates) {
-        Set<Slot> inputSlots = new HashSet<>();
-        for (Expression predicate : predicates) {
-            Optional<Set<Slot>> mergedInputSlots = mergeInputSlotsIfCheap(predicate, inputSlots);
-            if (!mergedInputSlots.isPresent()) {
-                return false;
-            }
-            inputSlots = mergedInputSlots.get();
-        }
-        return true;
+    private static boolean isNullRejecting(Expression predicate, Slot slot, CascadesContext cascadesContext) {
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        Literal nullLiteral = new NullLiteral(slot.getDataType());
+        replaceMap.put(slot, nullLiteral);
+        Expression evalExpr = FoldConstantRule.evaluate(
+                ExpressionUtils.replace(predicate, replaceMap),
+                new ExpressionRewriteContext(cascadesContext));
+        return evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr);
     }
 
-    /**
-     * Filter predicates that are cheap enough for not-null inference.
-     */
-    public static Set<Expression> filterCheapPredicatesForNotNull(
-            Collection<? extends Expression> predicates) {
-        Set<Slot> inputSlots = new HashSet<>();
-        Set<Expression> cheapPredicates = Sets.newLinkedHashSet();
-        for (Expression predicate : predicates) {
-            Optional<Set<Slot>> mergedInputSlots = mergeInputSlotsIfCheap(predicate, inputSlots);
-            if (!mergedInputSlots.isPresent()) {
-                continue;
-            }
-            inputSlots = mergedInputSlots.get();
-            cheapPredicates.add(predicate);
-        }
-        return cheapPredicates;
-    }
-
-    private static Optional<Set<Slot>> mergeInputSlotsIfCheap(Expression predicate, Set<Slot> inputSlots) {
-        if (predicate.getWidth() > MAX_INFER_NOT_NULL_EXPR_WIDTH
-                || predicate.getDepth() > MAX_INFER_NOT_NULL_EXPR_DEPTH) {
-            return Optional.empty();
-        }
-        Set<Slot> predicateInputSlots = predicate.getInputSlots();
+    private static Optional<Set<Slot>> mergeInputSlotsWithinLimit(Set<Slot> inputSlots, Set<Slot> predicateInputSlots) {
         if (predicateInputSlots.size() > MAX_INFER_NOT_NULL_INPUT_SLOTS) {
             return Optional.empty();
         }
@@ -866,20 +827,6 @@ public class ExpressionUtils {
         return newPredicates.build();
     }
 
-    /**
-     * infer notNulls slot from predicate but these slots must be in the given slots.
-     */
-    public static Set<Expression> inferNotNull(Set<Expression> predicates, Set<Slot> slots,
-            CascadesContext cascadesContext) {
-        ImmutableSet.Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size());
-        for (Slot slot : inferNotNullSlots(predicates, cascadesContext)) {
-            if (slots.contains(slot)) {
-                newPredicates.add(new Not(new IsNull(slot), true));
-            }
-        }
-        return newPredicates.build();
-    }
-
     public static boolean isGeneratedNotNull(Expression expression) {
         return expression instanceof Not
                 && ((Not) expression).isGeneratedIsNotNull()
@@ -887,13 +834,13 @@ public class ExpressionUtils {
     }
 
     /** flatExpressions */
-    public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressionLists) {
+    public static <E extends Expression> Set<E> flatExpressions(List<List<E>> expressionLists) {
         int num = 0;
         for (List<E> expressionList : expressionLists) {
             num += expressionList.size();
         }
 
-        ImmutableList.Builder<E> flatten = ImmutableList.builderWithExpectedSize(num);
+        ImmutableSet.Builder<E> flatten = ImmutableSet.builderWithExpectedSize(num);
         for (List<E> expressionList : expressionLists) {
             flatten.addAll(expressionList);
         }

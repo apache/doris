@@ -43,6 +43,7 @@
 
 namespace doris {
 
+class ResourceContext;
 class RuntimeState;
 class TupleDescriptor;
 class WorkloadGroup;
@@ -96,16 +97,9 @@ public:
         COMPLETED, // finished with result or error, waiting to be collected by scan node
         EOS,       // finished and no more data, waiting to be collected by scan node
     };
-    ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
-        _resource_ctx = thread_context()->resource_ctx();
-        DorisMetrics::instance()->scanner_task_cnt->increment(1);
-    }
+    ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner);
 
-    ~ScanTask() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
-        DorisMetrics::instance()->scanner_task_cnt->increment(-1);
-        cached_block.reset();
-    }
+    ~ScanTask();
 
 private:
     // whether current scanner is finished
@@ -267,6 +261,7 @@ protected:
     /// 3. `_free_blocks_memory_usage` < `_max_bytes_in_queue`, remains enough memory to scale up
     /// 4. At most scale up `MAX_SCALE_UP_RATIO` times to `_max_thread_num`
     void _set_scanner_done();
+    bool _is_shared_scan_limit_exhausted() const;
 
     RuntimeState* _state = nullptr;
     ScanLocalStateBase* _local_state = nullptr;
@@ -336,6 +331,7 @@ protected:
     std::shared_ptr<ResourceContext> _resource_ctx;
     std::shared_ptr<Dependency> _dependency = nullptr;
     std::shared_ptr<doris::TaskHandle> _task_handle;
+    std::weak_ptr<doris::TaskExecutor> _task_executor;
 
     std::atomic<int64_t> _block_memory_usage = 0;
 

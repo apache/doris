@@ -44,8 +44,6 @@ public:
 
     void clear();
 
-    IOlapColumnDataAccessor* get_converted_column(uint32_t cid) { return _converted_columns[cid]; }
-
     bool need_before() const { return _opt.write_before; }
 
     const std::vector<IOlapColumnDataAccessor*>& source_key_columns() const { return _key_columns; }
@@ -53,11 +51,11 @@ public:
 
     std::unique_ptr<OlapBlockDataConvertor>& olap_data_convertor() { return _olap_data_convertor; }
 
-    void filter_source_ids(std::vector<uint32_t>& full_cids, std::vector<uint32_t>& res_cids) {
-        res_cids.reserve(full_cids.size());
-        std::set_intersection(_normal_column_ids.begin(), _normal_column_ids.end(),
-                              full_cids.begin(), full_cids.end(), std::back_inserter(res_cids));
-    }
+    size_t normal_column_count() const { return _normal_column_ids.size(); }
+
+    bool is_normal_column(uint32_t source_cid) const;
+
+    size_t normal_column_ordinal(uint32_t source_cid) const;
 
 private:
     const SegmentWriteBinlogOptions& _opt;
@@ -96,7 +94,9 @@ private:
 
     uint32_t _normal_col_start_id = 0;
     uint32_t _before_col_start_id = 0;
-    uint32_t _binlog_col_start_id = 0;
+    uint32_t _binlog_tso_col_id = 0;
+    uint32_t _binlog_lsn_col_id = 0;
+    uint32_t _binlog_op_col_id = 0;
 
     std::unique_ptr<RowBinlogSourceDataWriter> _source_data_writer;
     std::unique_ptr<HistoricalRowRetriever> _historical_data_writer;

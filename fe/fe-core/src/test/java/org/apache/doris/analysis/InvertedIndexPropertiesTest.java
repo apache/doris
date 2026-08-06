@@ -17,6 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +28,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class InvertedIndexPropertiesTest {
+
+    private static void assertCheckCharFilterPropertiesThrows(Map<String, String> props, String expectedMessage) {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> InvertedIndexUtil.checkCharFilterProperties(props));
+        Assertions.assertTrue(exception.getMessage().contains(expectedMessage), exception.getMessage());
+    }
 
     // --- getInvertedIndexParser ---
 
@@ -221,6 +231,116 @@ public class InvertedIndexPropertiesTest {
         props.put("char_filter_replacement", "_");
         Map<String, String> result = InvertedIndexProperties.getInvertedIndexCharFilter(props);
         Assertions.assertEquals("_", result.get("char_filter_replacement"));
+    }
+
+    @Test
+    public void testCheckCharFilterPropertiesRejectsEmptyReplacement() {
+        Map<String, String> props = new HashMap<>();
+        props.put("char_filter_type", "char_replace");
+        props.put("char_filter_pattern", ".");
+        props.put("char_filter_replacement", "");
+        assertCheckCharFilterPropertiesThrows(props, "'char_filter_replacement' must be a single non-empty character");
+    }
+
+    @Test
+    public void testCheckCharFilterPropertiesRejectsMultiCharReplacement() {
+        Map<String, String> props = new HashMap<>();
+        props.put("char_filter_type", "char_replace");
+        props.put("char_filter_pattern", ".");
+        props.put("char_filter_replacement", "xyz");
+        assertCheckCharFilterPropertiesThrows(props, "'char_filter_replacement' must be a single non-empty character");
+    }
+
+    @Test
+    public void testCheckCharFilterPropertiesAllowsMissingType() {
+        Assertions.assertDoesNotThrow(() -> InvertedIndexUtil.checkCharFilterProperties(new HashMap<>()));
+    }
+
+    @Test
+    public void testCheckCharFilterPropertiesRejectsInvalidType() {
+        Map<String, String> props = new HashMap<>();
+        props.put("char_filter_type", "invalid");
+        assertCheckCharFilterPropertiesThrows(props, "Invalid 'char_filter_type'");
+    }
+
+    @Test
+    public void testCheckCharFilterPropertiesRejectsMissingPattern() {
+        Map<String, String> props = new HashMap<>();
+        props.put("char_filter_type", "char_replace");
+        assertCheckCharFilterPropertiesThrows(props, "Missing 'char_filter_pattern' for 'char_replace' filter type");
+    }
+
+    @Test
+    public void testCheckCharFilterPropertiesRejectsEmptyPattern() {
+        Map<String, String> props = new HashMap<>();
+        props.put("char_filter_type", "char_replace");
+        props.put("char_filter_pattern", "");
+        assertCheckCharFilterPropertiesThrows(props, "Missing 'char_filter_pattern' for 'char_replace' filter type");
+    }
+
+    @Test
+    public void testCheckCharFilterPropertiesRejectsNonAsciiPattern() {
+        Map<String, String> props = new HashMap<>();
+        props.put("char_filter_type", "char_replace");
+        props.put("char_filter_pattern", "中");
+        assertCheckCharFilterPropertiesThrows(props, "'char_filter_pattern' must contain only ASCII characters");
+    }
+
+    @Test
+    public void testCheckCharFilterPropertiesRejectsLatin1Pattern() {
+        Map<String, String> props = new HashMap<>();
+        props.put("char_filter_type", "char_replace");
+        props.put("char_filter_pattern", "é");
+        assertCheckCharFilterPropertiesThrows(props, "'char_filter_pattern' must contain only ASCII characters");
+    }
+
+    @Test
+    public void testCheckCharFilterPropertiesAllowsNullReplacement() {
+        Map<String, String> props = new HashMap<>();
+        props.put("char_filter_type", "char_replace");
+        props.put("char_filter_pattern", ".");
+
+        Assertions.assertDoesNotThrow(() -> InvertedIndexUtil.checkCharFilterProperties(props));
+    }
+
+    @Test
+    public void testCheckCharFilterPropertiesRejectsNonAsciiReplacement() {
+        Map<String, String> props = new HashMap<>();
+        props.put("char_filter_type", "char_replace");
+        props.put("char_filter_pattern", ".");
+        props.put("char_filter_replacement", "中");
+        assertCheckCharFilterPropertiesThrows(props, "'char_filter_replacement' must contain only ASCII characters");
+    }
+
+    @Test
+    public void testCheckCharFilterPropertiesRejectsLatin1Replacement() {
+        Map<String, String> props = new HashMap<>();
+        props.put("char_filter_type", "char_replace");
+        props.put("char_filter_pattern", ".");
+        props.put("char_filter_replacement", "é");
+        assertCheckCharFilterPropertiesThrows(props, "'char_filter_replacement' must contain only ASCII characters");
+    }
+
+    @Test
+    public void testCheckCharFilterPropertiesAllowsSingleAsciiReplacement() {
+        Map<String, String> props = new HashMap<>();
+        props.put("char_filter_type", "char_replace");
+        props.put("char_filter_pattern", ".");
+        props.put("char_filter_replacement", "_");
+
+        Assertions.assertDoesNotThrow(() -> InvertedIndexUtil.checkCharFilterProperties(props));
+    }
+
+    @Test
+    public void testCheckInvertedIndexParserAllowsDotCharFilterPattern() {
+        Map<String, String> props = new HashMap<>();
+        props.put("parser", "english");
+        props.put("char_filter_type", "char_replace");
+        props.put("char_filter_pattern", ".");
+        props.put("char_filter_replacement", "_");
+
+        Assertions.assertDoesNotThrow(() -> InvertedIndexUtil.checkInvertedIndexParser("c",
+                PrimitiveType.VARCHAR, props, TInvertedIndexFileStorageFormat.V2));
     }
 
     // --- buildAnalyzerSqlFragment (migrated from InvertedIndexSqlGeneratorTest) ---

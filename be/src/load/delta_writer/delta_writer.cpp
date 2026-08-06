@@ -36,6 +36,7 @@
 #include "core/block/block.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "load/memtable/memtable_flush_executor.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
@@ -135,6 +136,11 @@ void BaseDeltaWriter::set_tablet_load_rowset_num_info(
     collect_tablet_load_rowset_num_info(tablet, tablet_infos);
 }
 
+int64_t BaseDeltaWriter::table_id() const {
+    DORIS_CHECK(_req.table_schema_param != nullptr);
+    return _req.table_schema_param->table_id();
+}
+
 DeltaWriter::~DeltaWriter() = default;
 
 Status BaseDeltaWriter::init() {
@@ -155,9 +161,21 @@ Status BaseDeltaWriter::init() {
     return Status::OK();
 }
 
-Status DeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs) {
-    if (UNLIKELY(row_idxs.empty())) {
+Status DeltaWriter::write(const Block* block, const TabletAddRowsPayload& rows,
+                          bool* memtable_flushed) {
+    if (memtable_flushed != nullptr) {
+        *memtable_flushed = false;
+    }
+    if (UNLIKELY(rows.row_idxs.empty())) {
         return Status::OK();
+    }
+    if (_req.enable_table_memtable_backpressure && !_req.is_high_priority) {
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_table_memtable_backpressure(
+                [this]() {
+                    std::lock_guard<std::mutex> l(_lock);
+                    return _is_cancelled;
+                },
+                table_id());
     }
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
@@ -172,11 +190,22 @@ Status DeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_i
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    return _memtable_writer->write(block, row_idxs);
+    return _memtable_writer->write(block, rows, memtable_flushed);
 }
 
 Status BaseDeltaWriter::wait_flush() {
     return _memtable_writer->wait_flush();
+}
+
+Status BaseDeltaWriter::flush_memtable_async() {
+    return _memtable_writer->flush_async();
+}
+
+Status DeltaWriter::flush_memtable_async() {
+    _lock_watch.start();
+    std::lock_guard<std::mutex> l(_lock);
+    _lock_watch.stop();
+    return BaseDeltaWriter::flush_memtable_async();
 }
 
 Status DeltaWriter::close() {

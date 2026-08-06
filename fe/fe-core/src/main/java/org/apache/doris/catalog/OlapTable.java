@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -1564,7 +1565,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // select the non-empty partition ids belonging to this table.
     //
     // ATTN: partitions not belonging to this table will be filtered.
-    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds) {
+    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds,
+            Optional<StreamReadMode> streamReadMode) {
         if (Config.isCloudMode() && Config.enable_cloud_snapshot_version) {
             // Assumption: all partitions are CloudPartition.
             List<CloudPartition> partitions = partitionIds.stream()
@@ -1911,37 +1913,43 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public long getAvgRowLength() {
-        long rowCount = 0;
-        long dataSize = 0;
-        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            rowCount += entry.getValue().getBaseIndex().getRowCount();
-            dataSize += entry.getValue().getBaseIndex().getDataSize(false, false);
-        }
-        if (rowCount > 0) {
-            return dataSize / rowCount;
-        } else {
-            return 0;
-        }
+        return getTableStatusStats().getAvgRowLength();
     }
 
     @Override
     public long getDataLength() {
-        long dataSize = 0;
-        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            dataSize += entry.getValue().getBaseIndex().getLocalSegmentSize();
-            dataSize += entry.getValue().getBaseIndex().getRemoteSegmentSize();
-        }
-        return dataSize;
+        return getTableStatusStats().getDataLength();
     }
 
     @Override
     public long getIndexLength() {
-        long indexSize = 0;
+        return getTableStatusStats().getIndexLength();
+    }
+
+    @Override
+    public TableStatusStats getTableStatusStats() {
+        long rowCount = 0;
+        long rowCountForAvg = 0;
+        long dataSizeForAvg = 0;
+        long dataLength = 0;
+        long indexLength = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            indexSize += entry.getValue().getBaseIndex().getLocalIndexSize();
-            indexSize += entry.getValue().getBaseIndex().getRemoteIndexSize();
+            MaterializedIndex baseIndex = entry.getValue().getBaseIndex();
+            long baseIndexRowCount = baseIndex.getRowCount();
+            rowCount += baseIndexRowCount == UNKNOWN_ROW_COUNT ? 0 : baseIndexRowCount;
+            rowCountForAvg += baseIndexRowCount;
+            for (Tablet tablet : baseIndex.getTablets()) {
+                for (Replica replica : tablet.getReplicas()) {
+                    if (replica.getState() == Replica.ReplicaState.NORMAL) {
+                        dataSizeForAvg += replica.getDataSize();
+                    }
+                    dataLength += replica.getLocalSegmentSize() + replica.getRemoteSegmentSize();
+                    indexLength += replica.getLocalInvertedIndexSize() + replica.getRemoteInvertedIndexSize();
+                }
+            }
         }
-        return indexSize;
+        long avgRowLength = rowCountForAvg > 0 ? dataSizeForAvg / rowCountForAvg : 0;
+        return new TableStatusStats(rowCount, dataLength, avgRowLength, indexLength);
     }
 
     // Get the signature string of this table with specified partitions.
@@ -2425,7 +2433,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         boolean needHistoricalValue = getBinlogConfig().getNeedHistoricalValue();
         List<Column> beforeColumns = new ArrayList<>();
 
-        for (Column column : getBaseSchema(false)) {
+        for (Column column : getBaseSchema(true)) {
+            if (!column.isVisible() && !column.isKey()) {
+                continue;
+            }
             Preconditions.checkState(!column.getType().isVariantType(),
                     "binlog<Row> does not support VARIANT column: " + column.getName());
             Preconditions.checkState(!column.isAutoInc(),
@@ -2447,15 +2458,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             tableRowBinlogSchema.addAll(beforeColumns);
         }
 
-        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_LSN_COL, ScalarType.createType(PrimitiveType.LARGEINT),
+        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_TSO_COL,
+                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, true, -1,
+                ColumnDef.DefaultValue.NOT_SET, "doris binlog tso column", false).toColumn());
+        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_LSN_COL, ScalarType.createType(PrimitiveType.BIGINT),
                 false, AggregateType.NONE, false, -1, ColumnDef.DefaultValue.NOT_SET,
                 "doris binlog lsn column", false).toColumn());
         tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_OPERATION_COL,
-                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, true, -1,
+                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, false, -1,
                 ColumnDef.DefaultValue.NOT_SET, "doris binlog operation column", false).toColumn());
-        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_TIMESTAMP_COL,
-                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, true, -1,
-                ColumnDef.DefaultValue.NOT_SET, "doris binlog timestamp column", false).toColumn());
 
         for (Column column : tableRowBinlogSchema) {
             if (!column.isKey()) {

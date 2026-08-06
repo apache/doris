@@ -31,11 +31,12 @@
 #include "core/data_type/data_type.h"
 #include "core/string_ref.h"
 #include "runtime/exec_env.h"
-#include "service/point_query_executor.h"
 #include "storage/binlog.h"
 #include "storage/data_dir.h"
 #include "storage/iterator/olap_data_convertor.h"
-#include "storage/key_coder.h"
+#include "storage/key/row_key_encoder.h"
+#include "storage/mow/historical_row_fetcher.h"
+#include "storage/mow/key_probe.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_reader_context.h"
@@ -68,25 +69,30 @@ void insert_value_to_nullable_column(IColumn* dst_column, const IColumn& src_col
 Status PrimaryKeyModelRowRetriever::init(const HistoricalRowRetrieverContext& context) {
     _context = context;
     _key_columns.resize(_context.tablet_schema->num_key_columns());
-    auto& tablet_schema = _context.tablet_schema;
-    for (size_t cid = 0; cid < tablet_schema->num_key_columns(); ++cid) {
-        const auto& column = tablet_schema->column(cid);
-        _key_coders.push_back(get_key_coder(column.type()));
-    }
-    // encode the sequence id into the primary key index
-    if (tablet_schema->has_sequence_col()) {
-        const auto& column = tablet_schema->column(tablet_schema->sequence_col_idx());
-        _seq_coder = const_cast<KeyCoder*>(get_key_coder(column.type()));
-    }
+    _key_encoder = std::make_unique<RowKeyEncoder>(*_context.tablet_schema, /*mow=*/true);
+    _row_fetcher = std::make_unique<HistoricalRowFetcher>(_context);
     return Status::OK();
+}
+
+PrimaryKeyModelRowRetriever::PrimaryKeyModelRowRetriever() = default;
+
+PrimaryKeyModelRowRetriever::~PrimaryKeyModelRowRetriever() = default;
+
+void PrimaryKeyModelRowRetriever::clear() {
+    _key_columns.clear();
+    _seq_column = nullptr;
+    _use_default_or_null_flag.clear();
+    _has_default_or_nullable = false;
+    _operators.clear();
+    _old_delete_signs.clear();
+    // drops the previous block's rowset pins and read plan
+    DCHECK(_context.tablet_schema != nullptr) << "clear() before init()";
+    _row_fetcher = std::make_unique<HistoricalRowFetcher>(_context);
 }
 
 Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_sign_column_data,
                                                             size_t row_pos, size_t num_rows) {
-    auto* tablet = static_cast<Tablet*>(_context.tablet.get());
     auto& tablet_schema = _context.tablet_schema;
-
-    DCHECK(_context.partial_update_info);
 
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
@@ -95,60 +101,51 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
+    CHECK(_context.rowset_writer_ctx != nullptr);
+    bool write_before =
+            _context.rowset_writer_ctx->write_binlog_opt().write_binlog_config().write_before;
+    // The lookup uses the tablet's latest schema, the delete-sign rule the source schema. Hold the
+    // shared pointer: tablet_schema() hands out a copy and the probe only borrows it.
+    TabletSchemaSPtr lookup_schema = _context.tablet->tablet_schema();
+    MowKeyProbe probe = MowKeyProbe::for_row_binlog(_context.tablet.get(), lookup_schema.get(),
+                                                    tablet_schema->has_sequence_col(), _mow_context,
+                                                    write_before);
+    // the binlog retriever reports no partial update counters
+    PartialUpdateStats discarded_stats;
+
     for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
         // After converting to olap column, [0, num_rows) in the result column is corresponding to
         // [row_pos, row_pos + num_rows) in the original block
         size_t delta_pos = block_pos - row_pos;
-        std::string key = _full_encode_keys(_key_columns, delta_pos);
-
-        _maybe_invalid_row_cache(key);
-        if (_seq_column != nullptr) {
-            _encode_seq_column(_seq_column, delta_pos, &key);
-        }
+        std::string key = encode_mow_key_invalidate_cache(
+                *_key_encoder, _key_columns, _seq_column, delta_pos, _seq_column != nullptr,
+                _context.tablet->tablet_id(), *tablet_schema, _context.write_type);
 
         // mark key with delete sign as deleted.
         bool have_delete_sign =
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
 
-        RowLocation loc;
-        // save rowset shared ptr so this rowset wouldn't delete
-        RowsetSharedPtr rowset;
-        auto st = tablet->lookup_row_key(key, tablet->tablet_schema().get(), _seq_column != nullptr,
-                                         specified_rowsets, &loc, _mow_context->max_version,
-                                         segment_caches, &rowset);
-        if (st.is<KEY_NOT_FOUND>()) {
+        ProbeOutcome outcome = DORIS_TRY(probe.probe(key, /*segment_pos=*/0, _seq_column != nullptr,
+                                                     have_delete_sign, specified_rowsets,
+                                                     segment_caches, discarded_stats));
+        if (outcome.result == KeyProbeResult::NOT_FOUND) {
             // it's an insert row
             _has_default_or_nullable = true;
             _use_default_or_null_flag.emplace_back(true);
             _operators.emplace_back(have_delete_sign ? ROW_BINLOG_DELETE : ROW_BINLOG_APPEND);
             continue;
         }
-        if (!st.ok() && !st.is<KEY_ALREADY_EXISTS>()) {
-            LOG(WARNING) << "failed to lookup row key, error: " << st;
-            return st;
-        }
-
-        CHECK(_context.rowset_writer_ctx != nullptr);
-        bool write_before =
-                _context.rowset_writer_ctx->write_binlog_opt().write_binlog_config().write_before;
-        // 1. if the delete sign is marked, it means that the value columns of the row will not
-        //    be read. So we don't need to read the missing values from the previous rows.
-        // 2. the one exception is when there are sequence columns in the table, we need to read
-        //    the sequence columns, otherwise it may cause the merge-on-read based compaction
-        //    policy to produce incorrect results.
-        // 3. if row binlog needs BEFORE image, delete rows must still read historical values so
-        //    __BEFORE__* columns can be populated.
-        if (have_delete_sign && !tablet_schema->has_sequence_col() && !write_before) {
+        if (outcome.use_default_or_null) {
             _has_default_or_nullable = true;
             _use_default_or_null_flag.emplace_back(true);
             _operators.emplace_back(ROW_BINLOG_DELETE);
         } else {
             // partial update should not contain invisible columns
             _use_default_or_null_flag.emplace_back(false);
-            _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
+            _row_fetcher->pin_rowset(outcome.rowset);
             // currently we think row_pos must be zero, so we won't consider row_pos > 0
             DCHECK(row_pos == 0);
-            _rssid_to_rid.prepare_to_read(loc, delta_pos);
+            _row_fetcher->plan_fixed_read(outcome.loc, delta_pos);
             _operators.emplace_back(have_delete_sign ? ROW_BINLOG_DELETE : ROW_BINLOG_UPDATE);
         }
     }
@@ -167,9 +164,9 @@ Status PrimaryKeyModelRowRetriever::build_after_block(Block* block, size_t row_p
     if (_context.partial_update_info == nullptr) {
         return Status::InternalError("partial update info is null");
     }
-    return _rssid_to_rid.fill_missing_columns(
-            _context, _rsid_to_rowset, *_context.tablet_schema, *block, _use_default_or_null_flag,
-            _has_default_or_nullable, cast_set<uint32_t>(row_pos), block);
+    return _row_fetcher->fill_missing_columns(
+            *_context.tablet_schema, *block, _use_default_or_null_flag, _has_default_or_nullable,
+            cast_set<uint32_t>(row_pos), block, &_old_delete_signs);
 }
 
 Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
@@ -192,9 +189,9 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
 
     // key: logical row index in current batch; value: index in old_value_block
     std::map<uint32_t, uint32_t> read_index;
-    RETURN_IF_ERROR(_rssid_to_rid.read_columns_by_plan(*tablet_schema, value_cids, _rsid_to_rowset,
-                                                       old_value_block, &read_index, false,
-                                                       nullptr));
+    RETURN_IF_ERROR(_row_fetcher->read_columns(*tablet_schema, value_cids, old_value_block,
+                                               &read_index, /*force_read_old_delete_signs=*/true));
+    RETURN_IF_ERROR(_fill_old_delete_signs(old_value_block, read_index, num_rows));
 
     {
         auto mutable_before_columns_guard = before_block->mutate_columns_scoped();
@@ -202,8 +199,8 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
         // Fill each row in before_block.
         for (uint32_t idx = 0; idx < num_rows; ++idx) {
             auto it = read_index.find(idx);
-            if (it == read_index.end()) {
-                // No historical row, fill BEFORE with NULL.
+            if (it == read_index.end() || _old_delete_signs[idx] != 0) {
+                // No live historical row, fill BEFORE with NULL.
                 for (size_t i = 0; i < value_cids.size(); ++i) {
                     auto* nullable_column =
                             assert_cast<ColumnNullable*>(mutable_before_columns[i].get());
@@ -223,63 +220,37 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
     return Status::OK();
 }
 
-std::string PrimaryKeyModelRowRetriever::_full_encode_keys(
-        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos, bool null_first) {
-    return _full_encode_keys(_key_coders, key_columns, pos, null_first);
-}
+Status PrimaryKeyModelRowRetriever::revise_operators_by_old_delete_sign(size_t num_rows) {
+    if (_operators.empty() || _row_fetcher->empty()) {
+        return Status::OK();
+    }
+    DCHECK_EQ(_operators.size(), num_rows);
 
-std::string PrimaryKeyModelRowRetriever::_full_encode_keys(
-        const std::vector<const KeyCoder*>& key_coders,
-        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos, bool null_first) {
-    assert(key_columns.size() == key_coders.size());
+    if (_old_delete_signs.empty()) {
+        // If no BEFORE/missing column was read, read only old delete signs here.
+        Block old_delete_sign_block;
+        std::map<uint32_t, uint32_t> read_index;
+        RETURN_IF_ERROR(_row_fetcher->read_columns(*_context.tablet_schema,
+                                                   std::vector<uint32_t> {}, old_delete_sign_block,
+                                                   &read_index,
+                                                   /*force_read_old_delete_signs=*/true));
+        RETURN_IF_ERROR(_fill_old_delete_signs(old_delete_sign_block, read_index, num_rows));
+    }
+    DCHECK_EQ(_old_delete_signs.size(), num_rows);
 
-    std::string encoded_keys;
-    size_t cid = 0;
-    for (const auto& column : key_columns) {
-        auto field = column->get_data_at(pos);
-        if (UNLIKELY(!field)) {
-            if (null_first) {
-                encoded_keys.push_back(KeyConsts::KEY_NULL_FIRST_MARKER);
-            } else {
-                encoded_keys.push_back(KeyConsts::KEY_NORMAL_MARKER);
-            }
-            ++cid;
-            continue;
+    for (size_t idx = 0; idx < num_rows; ++idx) {
+        if (_operators[idx] == ROW_BINLOG_UPDATE && _old_delete_signs[idx] != 0) {
+            _operators[idx] = ROW_BINLOG_APPEND;
         }
-        encoded_keys.push_back(KeyConsts::KEY_NORMAL_MARKER);
-        DCHECK(key_coders[cid] != nullptr);
-        key_coders[cid]->full_encode_ascending(field, &encoded_keys);
-        ++cid;
     }
-    return encoded_keys;
+    return Status::OK();
 }
 
-void PrimaryKeyModelRowRetriever::_encode_seq_column(const IOlapColumnDataAccessor* seq_column,
-                                                     size_t pos, std::string* encoded_keys) {
-    auto field = seq_column->get_data_at(pos);
-    // To facilitate the use of the primary key index, encode the seq column
-    // to the minimum value of the corresponding length when the seq column
-    // is null
-    if (UNLIKELY(!field)) {
-        auto& tablet_schema = _context.tablet_schema;
-        encoded_keys->push_back(KeyConsts::KEY_NULL_FIRST_MARKER);
-        size_t seq_col_length = tablet_schema->column(tablet_schema->sequence_col_idx()).length();
-        encoded_keys->append(seq_col_length, KeyConsts::KEY_MINIMAL_MARKER);
-        return;
-    }
-    encoded_keys->push_back(KeyConsts::KEY_NORMAL_MARKER);
-    _seq_coder->full_encode_ascending(field, encoded_keys);
+Status PrimaryKeyModelRowRetriever::_fill_old_delete_signs(
+        const Block& old_value_block, const std::map<uint32_t, uint32_t>& read_index,
+        size_t num_rows) {
+    return _row_fetcher->fill_old_delete_signs(old_value_block, read_index, num_rows,
+                                               &_old_delete_signs);
 }
 
-void PrimaryKeyModelRowRetriever::_maybe_invalid_row_cache(const std::string& key) {
-    // Just invalid row cache for simplicity, since the rowset is not visible at present.
-    // If we update/insert cache, if load failed rowset will not be visible but cached data
-    // will be visible, and lead to inconsistency.
-    if (!config::disable_storage_row_cache &&
-        _context.tablet_schema->has_row_store_for_all_columns() &&
-        _context.write_type == DataWriteType::TYPE_DIRECT) {
-        // invalidate cache
-        RowCache::instance()->erase({_context.tablet->tablet_id(), key});
-    }
-}
 } // namespace doris::segment_v2

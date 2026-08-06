@@ -403,9 +403,9 @@ public class ShowDataCommand extends ShowCommand {
                     DebugUtil.printByteWithUnit(totalRemoteInvertedSize),
                     DebugUtil.printByteWithUnit(totalBinlogSize)));
             totalRows.add(Arrays.asList("Quota", String.valueOf(replicaQuota),
-                    DebugUtil.printByteWithUnit(quota), "", "", "", "", ""));
+                    DebugUtil.printByteWithUnit(quota), "", "", "", "", "", ""));
             totalRows.add(Arrays.asList("Left", String.valueOf(replicaCountLeft),
-                    DebugUtil.printByteWithUnit(left), "", "", "", "", ""));
+                    DebugUtil.printByteWithUnit(left), "", "", "", "", "", ""));
         }
     }
 

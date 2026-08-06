@@ -36,6 +36,9 @@
 
 namespace doris {
 
+static constexpr int64_t kMiB = 1024L * 1024;
+static constexpr int64_t kGiB = 1024L * kMiB;
+
 class TestCloudSizeBasedCumulativeCompactionPolicy : public testing::Test {
 public:
     TestCloudSizeBasedCumulativeCompactionPolicy()
@@ -118,7 +121,7 @@ private:
 };
 
 static RowsetSharedPtr create_rowset(Version version, int num_segments, bool overlapping,
-                                     int data_size) {
+                                     int64_t data_size) {
     auto rs_meta = std::make_shared<RowsetMeta>();
     rs_meta->set_rowset_type(BETA_ROWSET); // important
     rs_meta->_rowset_meta_pb.set_start_version(version.first);
@@ -132,6 +135,30 @@ static RowsetSharedPtr create_rowset(Version version, int num_segments, bool ove
         return nullptr;
     }
     return rowset;
+}
+
+static int64_t total_disk_size(const std::vector<RowsetSharedPtr>& rowsets) {
+    int64_t total_size = 0;
+    for (const auto& rowset : rowsets) {
+        total_size += rowset->total_disk_size();
+    }
+    return total_size;
+}
+
+static std::vector<RowsetSharedPtr> create_max_score_trim_candidates(bool include_stranded_head) {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    if (include_stranded_head) {
+        candidate_rowsets.push_back(create_rowset(Version(13, 56), 0, false, 0));
+    }
+    candidate_rowsets.push_back(create_rowset(Version(57, 57), 192, true, 256 * 1024 * 1024));
+    candidate_rowsets.push_back(create_rowset(Version(58, 58), 0, false, 0));
+    candidate_rowsets.push_back(create_rowset(Version(59, 59), 0, false, 0));
+    candidate_rowsets.push_back(create_rowset(Version(60, 60), 150, true, 256 * 1024 * 1024));
+    for (int64_t version = 61; version <= 67; ++version) {
+        candidate_rowsets.push_back(
+                create_rowset(Version(version, version), 1, false, 1024 * 1024));
+    }
+    return candidate_rowsets;
 }
 
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
@@ -149,6 +176,157 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
     RowsetSharedPtr output_rowset = create_rowset(Version(3, 5), 5, false, 100 * 1024 * 1024);
     Version version(1, 1);
     EXPECT_EQ(policy.new_cumulative_point(&_tablet, output_rowset, version, 2), 6);
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_large_head_not_repeated_when_output_below_promotion) {
+    CloudTablet _tablet(_engine, _tablet_meta);
+    _tablet._base_size = 20L * kGiB;
+
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    auto large_head = create_rowset(Version(2, 2), 1, false, 1023L * kMiB);
+    candidate_rowsets.push_back(large_head);
+    for (int i = 0; i < 20; i++) {
+        candidate_rowsets.push_back(create_rowset(Version(i + 3, i + 3), 1, true, kMiB));
+    }
+    ASSERT_GT(total_disk_size(candidate_rowsets), kGiB);
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    policy.pick_input_rowsets(&_tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    EXPECT_EQ(20, input_rowsets.size());
+    EXPECT_EQ(20, compaction_score);
+    EXPECT_EQ(3, input_rowsets.front()->start_version());
+    EXPECT_EQ(22, input_rowsets.back()->end_version());
+    EXPECT_LT(total_disk_size(input_rowsets), kGiB);
+
+    auto output_rowset = create_rowset(Version(3, 22), 1, false, 20L * kMiB);
+    EXPECT_EQ(2, policy.new_cumulative_point(&_tablet, output_rowset, last_delete_version, 2));
+
+    std::vector<RowsetSharedPtr> next_candidate_rowsets {large_head, output_rowset};
+    input_rowsets.clear();
+    compaction_score = 0;
+    policy.pick_input_rowsets(&_tablet, next_candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    EXPECT_TRUE(input_rowsets.empty());
+    EXPECT_EQ(0, compaction_score);
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_large_head_single_overlapping_tail_selected) {
+    CloudTablet _tablet(_engine, _tablet_meta);
+    _tablet._base_size = 20L * kGiB;
+
+    std::vector<RowsetSharedPtr> candidate_rowsets {
+            create_rowset(Version(2, 2), 1, false, 900L * kMiB),
+            create_rowset(Version(3, 3), 5, true, 128L * kMiB)};
+    ASSERT_GT(total_disk_size(candidate_rowsets), kGiB);
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    policy.pick_input_rowsets(&_tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    ASSERT_EQ(1, input_rowsets.size());
+    EXPECT_EQ(5, compaction_score);
+    EXPECT_EQ(3, input_rowsets.front()->start_version());
+    EXPECT_EQ(128L * kMiB, input_rowsets.front()->total_disk_size());
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_single_overlapping_rowset_not_trimmed_empty) {
+    CloudTablet _tablet(_engine, _tablet_meta);
+    _tablet._base_size = 20L * kGiB;
+
+    std::vector<RowsetSharedPtr> candidate_rowsets {
+            create_rowset(Version(2, 2), 3, true, 2L * kGiB)};
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    policy.pick_input_rowsets(&_tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    EXPECT_EQ(1, input_rowsets.size());
+    EXPECT_EQ(3, compaction_score);
+    EXPECT_EQ(2, input_rowsets.front()->start_version());
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_single_non_overlapping_rowset_still_skipped) {
+    CloudTablet _tablet(_engine, _tablet_meta);
+    _tablet._base_size = 20L * kGiB;
+
+    std::vector<RowsetSharedPtr> candidate_rowsets {
+            create_rowset(Version(2, 2), 1, false, 2L * kGiB)};
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    policy.pick_input_rowsets(&_tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    EXPECT_TRUE(input_rowsets.empty());
+    EXPECT_EQ(0, compaction_score);
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_restores_successor_for_non_overlapping_singleton) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 1024L * 1024 * 1024;
+    tablet._tablet_meta->_enable_unique_key_merge_on_write = true;
+    auto candidate_rowsets = create_max_score_trim_candidates(true);
+    ASSERT_EQ(12, candidate_rowsets.size());
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    ASSERT_EQ(2, input_rowsets.size());
+    EXPECT_EQ(Version(13, 56), input_rowsets[0]->version());
+    EXPECT_EQ(Version(57, 57), input_rowsets[1]->version());
+    EXPECT_EQ(193, compaction_score);
+
+    auto output_rowset = create_rowset(Version(13, 57), 1, false, 256 * 1024 * 1024);
+    ASSERT_NE(nullptr, output_rowset);
+    EXPECT_EQ(58, policy.new_cumulative_point(&tablet, output_rowset, last_delete_version, 13));
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_keeps_single_overlapping_rowset_after_trim) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 1024L * 1024 * 1024;
+    auto candidate_rowsets = create_max_score_trim_candidates(false);
+    ASSERT_EQ(11, candidate_rowsets.size());
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    // The tail was trimmed, but the overlapping head remains mergeable by itself.
+    ASSERT_EQ(1, input_rowsets.size());
+    EXPECT_GT(candidate_rowsets.size(), input_rowsets.size());
+    EXPECT_EQ(Version(57, 57), input_rowsets.front()->version());
+    EXPECT_EQ(192, compaction_score);
 }
 
 // Test case: Empty rowset compaction with skip_trim

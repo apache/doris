@@ -43,6 +43,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
+#include "core/string_ref.h"
 #include "core/value/timestamptz_value.h"
 #include "exec/common/util.hpp"
 #include "exec/pipeline/pipeline_task.h"
@@ -70,12 +71,25 @@
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 
 namespace doris {
 
 class RowDescriptor;
 class RuntimeState;
+
+ZoneMapFilterResult VExpr::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const {
+    return unsupported_zonemap_filter(ctx);
+}
+
+ZoneMapFilterResult VExpr::evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const {
+    return ZoneMapFilterResult::kUnsupported;
+}
+
+ZoneMapFilterResult VExpr::evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const {
+    return ZoneMapFilterResult::kUnsupported;
+}
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(readability-function-size)
@@ -372,6 +386,51 @@ VExpr::VExpr(DataTypePtr type, bool is_slotref)
     }
 }
 
+TExprNode VExpr::clone_texpr_node() const {
+    TExprNode node;
+    node.__set_node_type(_node_type);
+    node.__set_opcode(_opcode);
+    node.__set_type(create_type_desc(remove_nullable(_data_type)->get_primitive_type(),
+                                     static_cast<int>(_data_type->get_precision()),
+                                     static_cast<int>(_data_type->get_scale())));
+    node.__set_is_nullable(_data_type->is_nullable());
+    node.__set_num_children(get_num_children());
+    node.__set_fn(_fn);
+    return node;
+}
+
+Status VExpr::clone_node(VExprSPtr* cloned_expr) const {
+    DORIS_CHECK(cloned_expr != nullptr);
+    return Status::NotSupported("Cannot clone expression {} for file-local rewrite", expr_name());
+}
+
+Status VExpr::deep_clone(VExprSPtr* cloned_expr,
+                         const VExprCloneNodeOverride& clone_node_override) const {
+    DORIS_CHECK(cloned_expr != nullptr);
+
+    VExprSPtr cloned;
+    if (clone_node_override) {
+        RETURN_IF_ERROR(clone_node_override(*this, &cloned));
+    }
+    if (cloned == nullptr) {
+        RETURN_IF_ERROR(clone_node(&cloned));
+    }
+    DORIS_CHECK(cloned != nullptr);
+
+    VExprSPtrs cloned_children;
+    cloned_children.reserve(_children.size());
+    for (const auto& child : _children) {
+        DORIS_CHECK(child != nullptr);
+        VExprSPtr cloned_child;
+        RETURN_IF_ERROR(child->deep_clone(&cloned_child, clone_node_override));
+        cloned_children.push_back(std::move(cloned_child));
+    }
+    cloned->set_children(std::move(cloned_children));
+    cloned->reset_prepare_state();
+    *cloned_expr = std::move(cloned);
+    return Status::OK();
+}
+
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
     ++context->_depth_num;
     if (context->_depth_num > config::max_depth_of_expr_tree) {
@@ -399,6 +458,15 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     return Status::OK();
+}
+
+void VExpr::reset_prepare_state() {
+    _prepared = false;
+    _prepare_finished = false;
+    _open_finished = false;
+    for (auto& child : _children) {
+        child->reset_prepare_state();
+    }
 }
 
 void VExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
@@ -751,8 +819,9 @@ Status VExpr::get_const_col(VExprContext* context,
         return Status::OK();
     }
 
-    if (_constant_col != nullptr) {
-        DCHECK(column_wrapper != nullptr);
+    if (_constant_col != nullptr && column_wrapper == nullptr) {
+        return Status::OK();
+    } else if (_constant_col != nullptr) {
         *column_wrapper = _constant_col;
         return Status::OK();
     }

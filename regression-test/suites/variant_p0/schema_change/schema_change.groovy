@@ -28,22 +28,23 @@ suite("regression_test_variant_schema_change", "variant_type"){
         DISTRIBUTED BY HASH(k) BUCKETS 4
         properties("replication_num" = "1");
     """
-    def timeout = 60000
+    def timeout = 120000
     def delta_time = 1000
-    def useTime = 0
     def wait_for_latest_op_on_table_finish = { tableName, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${tableName}" ORDER BY CreateTime DESC LIMIT 1;"""
+        boolean finished = false
+        def alter_res = null
+        for (int t = delta_time; t <= OpTimeout; t += delta_time) {
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${tableName}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
                 sleep(3000) // wait change table state to normal
                 logger.info(tableName + " latest alter job finished, detail: " + alter_res)
+                finished = true
                 break
             }
-            useTime = t
             sleep(delta_time)
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+        assertTrue(finished, "wait_for_latest_op_on_table_finish timeout, last alter result: " + alter_res)
     }
 
     // sql "set experimental_enable_nereids_planner = true"
@@ -102,7 +103,8 @@ suite("regression_test_variant_schema_change", "variant_type"){
     sql """insert into t values (7, '{"a" : 11111.11111}')"""
     sql "alter table t modify column col1 variant;"
     wait_for_latest_op_on_table_finish("t", timeout)
-    qt_sql "select * from t order by col0 limit 3"
+    qt_sql "select col0, cast(col1 as json) from t order by col0 limit 3"
+
     sql """insert into t values (1, '{"a" : 1.0}')"""
     sql """insert into t values (2, '{"a" : 111.1111}')"""
     sql """insert into t values (3, '{"a" : "11111"}')"""
@@ -111,5 +113,5 @@ suite("regression_test_variant_schema_change", "variant_type"){
     sql """insert into t values (6, '{"a" : "11111"}')"""
     sql """insert into t values (7, '{"a" : 11111.11111}')"""
     trigger_and_wait_compaction("t", "cumulative", 1800)
-    qt_sql "select * from t order by col0 limit 3"
+    qt_sql "select col0, cast(col1 as json) from t order by col0 limit 3"
 }

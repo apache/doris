@@ -232,7 +232,7 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
     // for AGG_KEYS if a version is deleted, the lower version no need to agg_update
     // Tie-break direction depends on `_small_seq_first`:
     //   - false (UNIQUE_KEYS sequence column): larger value sorts first (cmp_res < 0 => lhs sorts first).
-    //   - true  (row binlog LSN column):       smaller value sorts first (cmp_res > 0 => lhs sorts first).
+    //   - true  (row binlog TSO column):       smaller value sorts first (cmp_res > 0 => lhs sorts first).
     bool lower = (cmp_res != 0) ? (_small_seq_first ? (cmp_res > 0) : (cmp_res < 0))
                                 : (_use_insert_order_when_same ? (lhs->version() > rhs->version())
                                                                : (lhs->version() < rhs->version()));
@@ -287,23 +287,23 @@ Status VCollectIterator::_topn_next(Block* block) {
         return Status::Error<END_OF_FILE>("");
     }
 
+    // `block` is reused below as the per-rowset read buffer. Keep TopN candidates in a
+    // separate mutable block with the same schema so stored row positions remain stable.
     auto clone_block = block->clone_empty();
-    // Initialize virtual slot columns by schema (avoid runtime type checks):
-    // use _reader_context.vir_col_idx_to_type to construct real columns for those positions.
-    if (!_reader->_reader_context.vir_col_idx_to_type.empty()) {
-        const auto& idx_to_type = _reader->_reader_context.vir_col_idx_to_type;
-        for (const auto& kv : idx_to_type) {
-            size_t idx = kv.first;
-            if (idx < clone_block.columns()) {
-                clone_block.get_by_position(idx).column = kv.second->create_column();
-            }
-        }
+    // Initialize virtual slot columns by schema (avoid runtime type checks).
+    for (const auto& [cid, expr_ctx] : _reader->_reader_context.virtual_column_exprs) {
+        auto it = std::find(_reader->_return_columns.begin(), _reader->_return_columns.end(), cid);
+        DORIS_CHECK(it != _reader->_return_columns.end());
+        auto idx = cast_set<size_t>(std::distance(_reader->_return_columns.begin(), it));
+        DORIS_CHECK(idx < clone_block.columns());
+        clone_block.get_by_position(idx).column = expr_ctx->root()->data_type()->create_column();
     }
+    const size_t clone_block_columns = clone_block.columns();
     MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
 
     const std::vector<uint32_t>* sort_columns = _reader->_reader_context.read_orderby_key_columns;
     for (auto column_idx : *sort_columns) {
-        DORIS_CHECK(column_idx < clone_block.columns());
+        DORIS_CHECK(column_idx < clone_block_columns);
     }
     size_t first_sort_column_idx = (*sort_columns)[0];
 
@@ -698,11 +698,11 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
             }
         }
 
-        int32_t lsn_col_id = _reader->_tablet_schema->binlog_lsn_col_idx();
-        if (lsn_col_id >= 0) {
+        int32_t tso_col_id = _reader->_tablet_schema->binlog_tso_col_idx();
+        if (tso_col_id >= 0) {
             DCHECK(sequence_loc == -1);
             for (int loc = 0; loc < _reader->_return_columns.size(); ++loc) {
-                if (_reader->_return_columns[loc] == static_cast<uint32_t>(lsn_col_id)) {
+                if (_reader->_return_columns[loc] == static_cast<uint32_t>(tso_col_id)) {
                     sequence_loc = loc;
                     break;
                 }
@@ -711,7 +711,7 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
 
         _heap = std::make_unique<MergeHeap>(LevelIteratorComparator(
                 sequence_loc, _is_reverse, _reader->_reader_context.use_insert_order_when_same,
-                lsn_col_id >= 0));
+                tso_col_id >= 0));
         for (auto&& child : _children) {
             DCHECK(child != nullptr);
             //DCHECK(child->current_row().ok());

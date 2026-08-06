@@ -278,6 +278,7 @@ protected:
     // define the interface for reading and writing data as heavy interface
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
+    FifoThreadPool _peer_fetch_pool;
     FifoThreadPool _light_work_pool;
     FifoThreadPool _arrow_flight_work_pool;
 };

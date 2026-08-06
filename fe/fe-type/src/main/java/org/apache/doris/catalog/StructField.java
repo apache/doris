@@ -40,13 +40,22 @@ public class StructField {
     @SerializedName(value = "containsNull")
     private final boolean containsNull; // Now always true (nullable field)
 
+    // Runtime-only schema change intent; do not persist it as part of the table schema.
+    private transient boolean commentSpecified;
+
     public static final String DEFAULT_FIELD_NAME = "col";
 
     public StructField(String name, Type type, String comment, boolean containsNull) {
+        this(name, type, comment, containsNull, !Strings.isNullOrEmpty(comment));
+    }
+
+    public StructField(String name, Type type, String comment, boolean containsNull,
+            boolean commentSpecified) {
         this.name = name.toLowerCase();
         this.type = type;
         this.comment = comment;
         this.containsNull = containsNull;
+        this.commentSpecified = commentSpecified;
     }
 
     public StructField(String name, Type type) {
@@ -63,6 +72,10 @@ public class StructField {
 
     public String getComment() {
         return comment;
+    }
+
+    public boolean isCommentSpecified() {
+        return commentSpecified || !Strings.isNullOrEmpty(comment);
     }
 
     public String getName() {
@@ -96,7 +109,7 @@ public class StructField {
         if (type != null) {
             sb.append(":").append(typeSql);
         }
-        if (!Strings.isNullOrEmpty(comment)) {
+        if (isCommentSpecified()) {
             sb.append(String.format(" comment '%s'", comment));
         }
         return sb.toString();
@@ -116,7 +129,7 @@ public class StructField {
             typeStr = typeStr.substring(lpad);
             sb.append(":").append(typeStr);
         }
-        if (!Strings.isNullOrEmpty(comment)) {
+        if (isCommentSpecified()) {
             sb.append(String.format(" COMMENT '%s'", comment));
         }
         return sb.toString();
@@ -153,7 +166,7 @@ public class StructField {
         if (type != null) {
             sb.append(":").append(type);
         }
-        if (!Strings.isNullOrEmpty(comment)) {
+        if (isCommentSpecified()) {
             sb.append(String.format(" COMMENT '%s'", comment));
         }
         return sb.toString();

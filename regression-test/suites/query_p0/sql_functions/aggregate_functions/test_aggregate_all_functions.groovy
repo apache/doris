@@ -102,8 +102,13 @@ suite("test_aggregate_all_functions", "arrow_flight_sql") {
     sql "insert into ${tableName_03} select dt,page,to_bitmap(user_id_int) user_id from ${tableName_04}"
     sql "insert into ${tableName_03} select dt,page,bitmap_hash(user_id_str) user_id from ${tableName_04}"
 
-    qt_select_all1 "select *, bitmap_to_string(user_id) from pv_bitmap order by 1,2;"
-    qt_select_all2 "select *, bitmap_to_string(user_id) from pv_bitmap where dt = 20220202 order by 1,2;"
+    if (context.useArrowFlightSql()) {
+        qt_select_all1_arrow "select dt, page, bitmap_to_string(user_id) from pv_bitmap order by 1,2;"
+        qt_select_all2_arrow "select dt, page, bitmap_to_string(user_id) from pv_bitmap where dt = 20220202 order by 1,2;"
+    } else {
+        qt_select_all1 "select *, bitmap_to_string(user_id) from pv_bitmap order by 1,2;"
+        qt_select_all2 "select *, bitmap_to_string(user_id) from pv_bitmap where dt = 20220202 order by 1,2;"
+    }
 
     qt_bitmap_intersect "select dt, bitmap_to_string(bitmap_intersect(user_id_bitmap)) from ${tableName_04} group by dt order by dt"
 

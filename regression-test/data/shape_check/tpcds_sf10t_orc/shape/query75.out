@@ -21,7 +21,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------filter((item.i_category = 'Sports'))
 --------------------------PhysicalOlapScan[item]
 ------------------PhysicalProject
---------------------filter(d_year IN (2000, 2001))
+--------------------filter(date_dim.d_year IN (2000, 2001))
 ----------------------PhysicalOlapScan[date_dim]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->ss_sold_date_sk
@@ -37,7 +37,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------filter((item.i_category = 'Sports'))
 --------------------------PhysicalOlapScan[item]
 ------------------PhysicalProject
---------------------filter(d_year IN (2000, 2001))
+--------------------filter(date_dim.d_year IN (2000, 2001))
 ----------------------PhysicalOlapScan[date_dim]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->ws_sold_date_sk
@@ -53,14 +53,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------filter((item.i_category = 'Sports'))
 --------------------------PhysicalOlapScan[item]
 ------------------PhysicalProject
---------------------filter(d_year IN (2000, 2001))
+--------------------filter(date_dim.d_year IN (2000, 2001))
 ----------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((curr_yr.i_brand_id = prev_yr.i_brand_id) and (curr_yr.i_category_id = prev_yr.i_category_id) and (curr_yr.i_class_id = prev_yr.i_class_id) and (curr_yr.i_manufact_id = prev_yr.i_manufact_id)) otherCondition=(((cast(cast(sales_cnt as DECIMALV3(17, 2)) as DECIMALV3(23, 8)) / cast(sales_cnt as DECIMALV3(17, 2))) < 0.900000)) build RFs:RF6 i_brand_id->i_brand_id;RF7 i_class_id->i_class_id;RF8 i_category_id->i_category_id;RF9 i_manufact_id->i_manufact_id
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((curr_yr.i_brand_id = prev_yr.i_brand_id) and (curr_yr.i_category_id = prev_yr.i_category_id) and (curr_yr.i_class_id = prev_yr.i_class_id) and (curr_yr.i_manufact_id = prev_yr.i_manufact_id)) otherCondition=(((cast(cast(curr_yr.sales_cnt as DECIMALV3(17, 2)) as DECIMALV3(23, 8)) / cast(prev_yr.sales_cnt as DECIMALV3(17, 2))) < 0.900000)) build RFs:RF6 i_brand_id->i_brand_id;RF7 i_class_id->i_class_id;RF8 i_category_id->i_category_id;RF9 i_manufact_id->i_manufact_id
 --------------filter((curr_yr.d_year = 2001))
 ----------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF6 RF7 RF8 RF9
 --------------filter((prev_yr.d_year = 2000))

@@ -37,11 +37,18 @@ under the License.
         Contains the core FileSystem interface, value types (Location, FileEntry, BlockInfo),
         streaming types (FileIterator, DorisInputFile, DorisOutputStream), and utility helpers.
 
-        Zero third-party external dependencies — pure JDK only. Both fe-core callers and
-        filesystem provider implementations depend on this artifact.
+        Zero third-party external dependencies — pure JDK plus fe-foundation only. Both fe-core
+        callers and filesystem provider implementations depend on this artifact.
     </description>
 
     <dependencies>
+        <!-- The only internal dependency: fe-foundation supplies the shared auth abstraction
+             (ExecutionAuthenticator/IOCallable) exposed by HadoopStorageProperties. -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

@@ -334,6 +334,20 @@ echo "===== Patching thirdparty archives..."
 # This is to avoid duplicated patch.
 ###################################################################################
 PATCHED_MARK="patched_mark"
+ARROW_PAIMON_PATCH_FINGERPRINT_MARK="patched_mark_arrow_paimon_fingerprint"
+ARROW_PAIMON_BUILD_FINGERPRINT=""
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ||
+      " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
+    ARROW_PAIMON_BUILD_FINGERPRINT="$(arrow_paimon_build_fingerprint)"
+fi
+
+reset_arrow_paimon_source() {
+    local archive_name="$1"
+    local source_name="$2"
+    echo "Resetting ${source_name} because its patch state is incomplete or stale"
+    rm -rf "${TP_SOURCE_DIR:?}/${source_name}"
+    "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${archive_name}" -C "${TP_SOURCE_DIR}/"
+}
 
 # glog patch
 if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
@@ -438,21 +452,42 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
         fi
         cd -
     fi
-    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-17.0.0" ]]; then
-        cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
-        if [[ ! -f "${PATCHED_MARK}" ]]; then
+    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-24.0.0" ]]; then
+        arrow_fingerprint_mark="${TP_SOURCE_DIR}/${ARROW_SOURCE}/${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+        if ! [[ -f "${TP_SOURCE_DIR}/${ARROW_SOURCE}/${PATCHED_MARK}" &&
+               -f "${arrow_fingerprint_mark}" ]] ||
+           [[ "$(<"${arrow_fingerprint_mark}")" != "${ARROW_PAIMON_BUILD_FINGERPRINT}" ]]; then
+            reset_arrow_paimon_source "${ARROW_NAME}" "${ARROW_SOURCE}"
+            cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
             # Paimon-cpp parquet patches: row-group-aware batch reader, max_row_group_size,
             # GetBufferedSize(), int96 NANO guard, and Thrift_VERSION empty fix.
-            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-paimon.patch"
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-paimon.patch"
 
-            # apache-arrow-17.0.0-force-write-int96-timestamps.patch : 
-            # Introducing the parameter that forces writing int96 timestampes for compatibility with Paimon cpp. 
-            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
+            # Introducing the parameter that forces writing INT96 timestamps for
+            # compatibility with the Doris Parquet writer.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-force-write-int96-timestamps.patch"
+
+            # Add Parquet LZO page decompression support used by file scanner v2.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-lzo.patch"
             touch "${PATCHED_MARK}"
+            printf '%s\n' "${ARROW_PAIMON_BUILD_FINGERPRINT}" \
+                >"${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+            cd -
         fi
-        cd -
     fi
     echo "Finished patching ${ARROW_SOURCE}"
+fi
+
+# arrow-adbc patch adds the pre-generated JNI header, so that building the JNI
+# bridge needs no Maven. See the patch header for how to regenerate it.
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW_ADBC " ]]; then
+    cd "${TP_SOURCE_DIR}/${ARROW_ADBC_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-adbc-24-pregenerated-jni-header.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${ARROW_ADBC_SOURCE}"
 fi
 
 # patch librdkafka to avoid crash
@@ -479,6 +514,20 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " JEMALLOC_DORIS " ]]; then
         cd -
     fi
     echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
+fi
+
+# patch libunwind so Doris can force GNU libunwind to use the BE PHDR cache
+# without changing ordinary dl_iterate_phdr callers.
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUNWIND " ]]; then
+    if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.6.2" ]]; then
+        cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.6.2-doris-phdr-cache.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LIBUNWIND_SOURCE}"
 fi
 
 # patch hyperscan
@@ -714,16 +763,26 @@ fi
 
 # patch paimon-cpp
 if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
-    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        if patch -p1 -N --batch --dry-run <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch" >/dev/null 2>&1; then
-            patch -p1 -N --batch <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
-        else
-            echo "Skip paimon-cpp patch: already applied or not applicable for current source"
-        fi
+    PAIMON_CPP_ARROW_24_PATCHED_MARK="patched_mark_arrow_24"
+    PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK="patched_mark_arrow_24_compute"
+    paimon_fingerprint_mark="${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+    if ! [[ -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PATCHED_MARK}" &&
+           -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_ARROW_24_PATCHED_MARK}" &&
+           -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK}" &&
+           -f "${paimon_fingerprint_mark}" ]] ||
+       [[ "$(<"${paimon_fingerprint_mark}")" != "${ARROW_PAIMON_BUILD_FINGERPRINT}" ]]; then
+        reset_arrow_paimon_source "${PAIMON_CPP_NAME}" "${PAIMON_CPP_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+        patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
+        patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compatibility.patch"
+        patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compute.patch"
         touch "${PATCHED_MARK}"
+        touch "${PAIMON_CPP_ARROW_24_PATCHED_MARK}"
+        touch "${PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK}"
+        printf '%s\n' "${ARROW_PAIMON_BUILD_FINGERPRINT}" \
+            >"${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+        cd -
     fi
-    cd -
     echo "Finished patching ${PAIMON_CPP_SOURCE}"
 fi
 

@@ -64,7 +64,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.UniqueIdUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.scan.FileScanNode;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
@@ -199,6 +199,10 @@ public class StmtExecutor {
 
     @Setter
     private volatile Coordinator coord = null;
+    // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
+    // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
+    // is skipped.
+    private volatile boolean deferredForArrowFlight = false;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
     private Planner planner;
@@ -593,6 +597,7 @@ public class StmtExecutor {
         TUniqueId firstQueryId = queryId;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        boolean disableCloudVersionCacheOnRetry = false;
         // If the query is an `outfile` statement,
         // we execute it only once to avoid exporting redundant data.
         if (parsedStmt instanceof Queriable) {
@@ -600,7 +605,11 @@ public class StmtExecutor {
         }
         for (int i = 1; i <= retryTime; i++) {
             try {
-                execute(queryId);
+                if (disableCloudVersionCacheOnRetry) {
+                    executeWithVersionCacheDisabled(queryId);
+                } else {
+                    execute(queryId);
+                }
                 return;
             } catch (UserException e) {
                 if (!SystemInfoService.needRetryWithReplan(e.getMessage()) || i == retryTime) {
@@ -612,6 +621,7 @@ public class StmtExecutor {
                 if (this.coord != null && this.coord.isQueryCancelled()) {
                     throw e;
                 }
+                disableCloudVersionCacheOnRetry = shouldDisableCloudVersionCacheOnRetry(e.getMessage());
                 TUniqueId lastQueryId = queryId;
                 queryId = UniqueIdUtils.fastUniqueId();
                 int randomMillis = 10 + (int) (Math.random() * 10);
@@ -632,8 +642,37 @@ public class StmtExecutor {
         }
     }
 
+    // Temporarily disable the cloud version cache for this single attempt so that the retry
+    // re-fetches the visible version from meta-service, then restore the user-set TTLs.
+    private void executeWithVersionCacheDisabled(TUniqueId queryId) throws Exception {
+        SessionVariable sessionVariable = context.getSessionVariable();
+        long oldPartitionTtl = sessionVariable.cloudPartitionVersionCacheTtlMs;
+        long oldTableTtl = sessionVariable.cloudTableVersionCacheTtlMs;
+        try {
+            sessionVariable.cloudPartitionVersionCacheTtlMs = 0;
+            sessionVariable.cloudTableVersionCacheTtlMs = 0;
+            LOG.info("temporarily set {} from {} to 0 and {} from {} to 0 before retry. {}",
+                    SessionVariable.CLOUD_PARTITION_VERSION_CACHE_TTL_MS, oldPartitionTtl,
+                    SessionVariable.CLOUD_TABLE_VERSION_CACHE_TTL_MS, oldTableTtl,
+                    context.getQueryIdentifier());
+            execute(queryId);
+        } finally {
+            sessionVariable.cloudPartitionVersionCacheTtlMs = oldPartitionTtl;
+            sessionVariable.cloudTableVersionCacheTtlMs = oldTableTtl;
+        }
+    }
+
+    boolean shouldDisableCloudVersionCacheOnRetry(String errorMessage) {
+        return Config.isCloudMode()
+                && errorMessage != null
+                && errorMessage.contains(SystemInfoService.ERROR_E230)
+                && (context.getSessionVariable().cloudPartitionVersionCacheTtlMs != 0
+                || context.getSessionVariable().cloudTableVersionCacheTtlMs != 0);
+    }
+
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
+        context.setEffectiveCloudCluster(null);
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
             context.setReturnResultFromLocal(true);
         }
@@ -660,6 +699,11 @@ public class StmtExecutor {
                 throw e;
             }
         } finally {
+            // Preserve the effective per-query compute group before SET_VAR values are reverted.
+            // Audit logging runs after this method returns and otherwise sees the session value.
+            if (Config.isCloudMode()) {
+                context.setEffectiveCloudCluster(sessionVariable.getCloudCluster());
+            }
             // Snapshot changed session variables (including SET_VAR hint values) BEFORE revert,
             // so the audit log (logged after execute() returns, i.e. after the revert below) can
             // reflect what was actually in effect for this statement instead of the reverted values.
@@ -1001,6 +1045,23 @@ public class StmtExecutor {
         QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
     }
 
+    public boolean isDeferredForArrowFlight() {
+        return deferredForArrowFlight;
+    }
+
+    // Finalize an Arrow Flight query whose coordinator was kept alive across the
+    // GetFlightInfo -> DoGet phases: close the coordinator (releasing external-table batch
+    // SplitSources and the query queue slot) and then unregister the query. See #62259.
+    public void finalizeArrowFlightQuery() {
+        try {
+            if (coord != null) {
+                coord.close();
+            }
+        } finally {
+            finalizeQuery();
+        }
+    }
+
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         int retryTime = Config.max_query_retry_time;
@@ -1014,6 +1075,13 @@ public class StmtExecutor {
                             DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                     context.setQueryId(newQueryId);
                     context.setNeedRegenerateInstanceId(newQueryId);
+                    // Each retry attempt gets a fresh per-statement connector scope. The previous attempt's scope
+                    // was closed by its own query-finish callback (registered under the previous query id), so
+                    // reusing it would memoize into an already-closed scope whose values then never close. Reset
+                    // closes (idempotent) and drops it; this attempt builds a fresh one under the new query id.
+                    if (context.getStatementContext() != null) {
+                        context.getStatementContext().resetConnectorStatementScope();
+                    }
                     if (Config.isCloudMode()) {
                         // sleep random millis [1000, 1500] ms
                         // in the begining of retryTime/2
@@ -1436,6 +1504,22 @@ public class StmtExecutor {
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
+                // Defer closing the coordinator to ConnectContext (closed on the next query or
+                // connection teardown) instead of in the finally block below. This gate covers
+                // every Arrow Flight query whose results are produced on the BE (coordBase ==
+                // coord) -- internal-table and external, batch or not. It is REQUIRED only for an
+                // external-table scan in batch mode, where the BE lazily fetches splits from the FE
+                // during the later DoGet phase, so closing the coordinator here would release its
+                // batch SplitSource too early and break DoGet. Other remote-result queries do not
+                // need deferral (the BE buffers their result independently) but are captured by the
+                // same gate; the trade-off is their coordinator, query queue slot and query
+                // registration stay held until the next query / teardown instead of being released
+                // at the end of GetFlightInfo. Point queries use a different coordBase (not
+                // deferred). See #62259.
+                if (coordBase == coord) {
+                    deferredForArrowFlight = true;
+                    context.addFlightSqlDeferredExecutor(this);
+                }
                 return;
             }
 
@@ -1545,7 +1629,12 @@ public class StmtExecutor {
             this.coord = null;
             throw e;
         } finally {
-            coordBase.close();
+            // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
+            // (next query / connection teardown), so the BE can still fetch splits during DoGet.
+            // See #62259.
+            if (!deferredForArrowFlight) {
+                coordBase.close();
+            }
         }
     }
 
@@ -1614,9 +1703,12 @@ public class StmtExecutor {
                 "delete_existing_files requires a remote outfile sink");
         Preconditions.checkState(outFileClause.getBrokerDesc().storageType() != StorageType.LOCAL,
                 "delete_existing_files is not supported for local outfile sinks");
+        // Concrete filesystems only accept their native schemes; normalize legacy compatibility
+        // schemes (e.g. cos:// with s3.* properties) before crossing the plugin boundary.
+        String filePath = outFileClause.getBrokerDesc().getFileLocation(outFileClause.getFilePath());
         try (org.apache.doris.filesystem.FileSystem fs =
                 FileSystemFactory.getFileSystem(outFileClause.getBrokerDesc())) {
-            fs.delete(Location.of(FileSystemUtil.extractParentDirectory(outFileClause.getFilePath())), true);
+            fs.delete(Location.of(FileSystemUtil.extractParentDirectory(filePath)), true);
         } catch (java.io.IOException e) {
             throw new UserException("Failed to delete existing files: " + e.getMessage(), e);
         }

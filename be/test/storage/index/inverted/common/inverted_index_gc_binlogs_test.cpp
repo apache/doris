@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include "storage/index/index_writer.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta_manager.h"

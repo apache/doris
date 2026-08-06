@@ -17,9 +17,11 @@
 
 #include <algorithm>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
+#include "common/check.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -28,6 +30,7 @@
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
@@ -36,18 +39,17 @@
 #include "core/data_type/data_type_number.h"
 #include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/lambda_function/lambda_execution_context.h"
 #include "exprs/lambda_function/lambda_function.h"
 #include "exprs/lambda_function/lambda_function_factory.h"
 #include "exprs/vcolumn_ref.h"
-#include "exprs/vslot_ref.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vlambda_function_expr.h"
 
 namespace doris {
-class VExprContext;
 
 // extend a block with all required parameters
 struct LambdaArgs {
-    // the lambda function need the column ids of all the slots
-    std::vector<int> output_slot_ref_indexs;
     // which line is extended to the original block
     int64_t current_row_idx = 0;
     // when a block is filled, the array may be truncated, recording where it was truncated
@@ -76,34 +78,18 @@ public:
 
     std::string get_name() const override { return name; }
 
+    Status prepare(RuntimeState* state, const VExprSPtrs& children) override {
+        RETURN_IF_ERROR(LambdaFunction::prepare(state, children));
+        DCHECK_GE(children.size(), 2);
+
+        return _prepare_lambda_argument_binding(children[0], children.size() - 1,
+                                                _lambda_argument_binding);
+    }
+
     Status execute(VExprContext* context, const Block* block, const Selector* expr_selector,
                    size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
                    const VExprSPtrs& children) const override {
         LambdaArgs args_info;
-        // collect used slot ref in lambda function body
-        std::vector<int>& output_slot_ref_indexs = args_info.output_slot_ref_indexs;
-        _collect_slot_ref_column_id(children[0], output_slot_ref_indexs);
-
-        int gap = 0;
-        if (!output_slot_ref_indexs.empty()) {
-            auto max_id = std::ranges::max_element(output_slot_ref_indexs);
-            gap = *max_id + 1;
-            _set_column_ref_column_id(children[0], gap);
-        }
-
-        std::vector<std::string> names(gap);
-        DataTypes data_types(gap);
-
-        for (int i = 0; i < gap; ++i) {
-            if (_contains_column_id(output_slot_ref_indexs, i)) {
-                names[i] = block->get_by_position(i).name;
-                data_types[i] = block->get_by_position(i).type;
-            } else {
-                // padding some mock data to hold the position, like call block#rows function need
-                names[i] = "temp";
-                data_types[i] = std::make_shared<DataTypeUInt8>();
-            }
-        }
 
         ///* array_map(lambda,arg1,arg2,.....) *///
         //1. child[1:end]->execute(src_block)
@@ -126,6 +112,7 @@ public:
         ColumnPtr first_array_offsets = nullptr;
         //2. get the result column from executed expr, and the needed is nested column of array
         std::vector<ColumnPtr> lambda_datas(arguments.size());
+        DataTypes lambda_argument_types(arguments.size());
 
         for (int i = 0; i < arguments.size(); ++i) {
             const auto& array_column_type_name = arguments[i];
@@ -153,7 +140,6 @@ public:
 
             // here is the array column
             const auto& col_array = assert_cast<const ColumnArray&>(*column_array);
-            const auto& col_type = assert_cast<const DataTypeArray&>(*type_array);
 
             if (i == 0) {
                 nested_array_column_rows = col_array.get_data_ptr()->size();
@@ -180,15 +166,71 @@ public:
                 }
             }
             lambda_datas[i] = col_array.get_data_ptr();
-            names.push_back("R" + array_column_type_name.name);
-            data_types.push_back(col_type.get_nested_type());
+            const auto& col_type = assert_cast<const DataTypeArray&>(*type_array);
+            lambda_argument_types[i] = col_type.get_nested_type();
         }
+        std::set<int> required_input_column_ids;
+        children[0]->collect_slot_column_ids(required_input_column_ids);
+        context->lambda_execution_context().collect_visible_binding_column_positions(
+                required_input_column_ids);
+        const int lambda_argument_base =
+                required_input_column_ids.empty() ? 0 : *required_input_column_ids.rbegin() + 1;
+        if (!_lambda_argument_binding.bind_by_name) {
+            RETURN_IF_ERROR(
+                    _set_legacy_lambda_argument_gap(children[0]->get_child(0), lambda_argument_base,
+                                                    _lambda_argument_binding.argument_size));
+        }
+        std::vector<std::string> names(lambda_argument_base);
+        DataTypes data_types(lambda_argument_base);
+        std::vector<bool> materialized_input_columns(lambda_argument_base, false);
+        names.reserve(lambda_argument_base + arguments.size());
+        data_types.reserve(lambda_argument_base + arguments.size());
+        for (int column_id : required_input_column_ids) {
+            if (column_id < 0 || static_cast<size_t>(column_id) >= block->columns()) {
+                return Status::InternalError(
+                        "array_map lambda input column id {} is outside input block, block={}",
+                        column_id, block->dump_structure());
+            }
+            materialized_input_columns[column_id] = true;
+            names[column_id] = block->get_by_position(column_id).name;
+            data_types[column_id] = block->get_by_position(column_id).type;
+        }
+        for (int i = 0; i < lambda_argument_base; ++i) {
+            if (!materialized_input_columns[i]) {
+                // Keep sparse input positions stable for SlotRef/parent lambda bindings without
+                // materializing unrelated wide-table columns into every lambda batch.
+                names[i] = "temp";
+                data_types[i] = std::make_shared<DataTypeUInt8>();
+            }
+        }
+        for (int i = 0; i < arguments.size(); ++i) {
+            const auto& array_column_type_name = arguments[i];
+            if (_lambda_argument_binding.bind_by_name &&
+                i < _lambda_argument_binding.names.size()) {
+                names.push_back(_lambda_argument_binding.names[i]);
+            } else {
+                names.push_back("R" + array_column_type_name.name);
+            }
+            data_types.push_back(lambda_argument_types[i]);
+        }
+
+        LambdaExecutionContext::Frame lambda_frame;
+        lambda_frame.bind_by_name = _lambda_argument_binding.bind_by_name;
+        lambda_frame.parent_bindings_visible = true;
+        for (int i = 0; i < _lambda_argument_binding.argument_size; ++i) {
+            const int column_position = lambda_argument_base + i;
+            if (_lambda_argument_binding.bind_by_name) {
+                lambda_frame.argument_bindings.push_back(
+                        {_lambda_argument_binding.names[i], column_position});
+            }
+        }
+        LambdaExecutionContext::FrameGuard lambda_frame_guard(context->lambda_execution_context(),
+                                                              std::move(lambda_frame));
 
         // if column_array is NULL, we know the array_data_column will not write any data,
         // so the column is empty. eg : (x) -> concat('|',x + "1"). if still execute the lambda function, will cause the bolck rows are not equal
         // the x column is empty, but "|" is const literal, size of column is 1, so the block rows is 1, but the x column is empty, will be coredump.
-        if (std::any_of(lambda_datas.begin(), lambda_datas.end(),
-                        [](const auto& v) { return v->empty(); })) {
+        if (std::ranges::any_of(lambda_datas, [](const auto& v) { return v->empty(); })) {
             DataTypePtr nested_type;
             bool is_nullable = result_type->is_nullable();
             if (is_nullable) {
@@ -231,33 +273,26 @@ public:
                 if (mem_reuse) {
                     columns[i] = lambda_block.get_by_position(i).column->assert_mutable();
                 } else {
-                    if (_contains_column_id(output_slot_ref_indexs, i) || i >= gap) {
-                        // TODO: maybe could create const column, so not insert_many_from when extand data
-                        // but now here handle batch_size of array nested data every time, so maybe have different rows
-                        columns[i] = data_types[i]->create_column();
-                    } else {
-                        columns[i] = data_types[i]
-                                             ->create_column_const_with_default_value(0)
-                                             ->assert_mutable();
-                    }
+                    columns[i] = data_types[i]->create_column();
                 }
             }
             // batch_size of array nested data every time inorder to avoid memory overflow
-            while (columns[gap]->size() < batch_size) {
-                long max_step = batch_size - columns[gap]->size();
+            while (columns[lambda_argument_base]->size() < batch_size) {
+                long max_step = batch_size - columns[lambda_argument_base]->size();
                 long current_step = std::min(
                         max_step, (long)(args_info.cur_size - args_info.current_offset_in_array));
                 size_t pos = args_info.array_start + args_info.current_offset_in_array;
                 for (int i = 0; i < arguments.size() && current_step > 0; ++i) {
-                    columns[gap + i]->insert_range_from(*lambda_datas[i], pos, current_step);
+                    columns[lambda_argument_base + i]->insert_range_from(*lambda_datas[i], pos,
+                                                                         current_step);
                 }
                 args_info.current_offset_in_array += current_step;
                 args_info.current_repeat_times += current_step;
                 if (args_info.current_offset_in_array >= args_info.cur_size) {
                     args_info.current_row_eos = true;
                 }
-                _extend_data(columns, block, args_info.current_repeat_times, gap,
-                             args_info.current_row_idx, output_slot_ref_indexs);
+                _repeat_input_columns(columns, block, args_info.current_repeat_times,
+                                      materialized_input_columns, args_info.current_row_idx);
                 args_info.current_repeat_times = 0;
                 if (args_info.current_row_eos) {
                     //current row is end of array, move to next row
@@ -329,52 +364,104 @@ public:
     }
 
 private:
-    bool _contains_column_id(const std::vector<int>& output_slot_ref_indexs, int id) const {
-        const auto it = std::find(output_slot_ref_indexs.begin(), output_slot_ref_indexs.end(), id);
-        return it != output_slot_ref_indexs.end();
+    struct LambdaArgumentBinding {
+        bool bind_by_name = true;
+        size_t argument_size = 0;
+        std::vector<std::string> names;
+    };
+
+    Status _prepare_lambda_argument_binding(const VExprSPtr& expr, size_t expected_argument_size,
+                                            LambdaArgumentBinding& argument_binding) const {
+        DORIS_CHECK_EQ(expr->node_type(), TExprNodeType::LAMBDA_FUNCTION_EXPR);
+        const auto* lambda_expr = assert_cast<const VLambdaFunctionExpr*>(expr.get());
+
+        argument_binding.argument_size = 0;
+        argument_binding.names.clear();
+        argument_binding.bind_by_name = lambda_expr->has_argument_names();
+
+        if (!argument_binding.bind_by_name) {
+            if (_contains_nested_lambda_call(expr->get_child(0))) {
+                return Status::InternalError(
+                        "Cannot resolve nested lambda argument without lambda metadata");
+            }
+            argument_binding.argument_size = expected_argument_size;
+            argument_binding.names.resize(expected_argument_size);
+            return Status::OK();
+        }
+
+        argument_binding.names = lambda_expr->argument_names();
+        if (argument_binding.names.size() > expected_argument_size) {
+            return Status::InternalError(
+                    "lambda argument metadata size exceeds parameter size, maximum={}, actual={}",
+                    expected_argument_size, argument_binding.names.size());
+        }
+        argument_binding.argument_size = argument_binding.names.size();
+        if (std::ranges::any_of(argument_binding.names,
+                                [](const auto& argument_name) { return argument_name.empty(); })) {
+            return Status::InternalError("lambda argument metadata contains empty name");
+        }
+        return Status::OK();
     }
 
-    void _set_column_ref_column_id(VExprSPtr expr, int gap) const {
-        for (const auto& child : expr->children()) {
-            if (child->is_column_ref()) {
-                auto* ref = static_cast<VColumnRef*>(child.get());
-                ref->set_gap(gap);
-            } else {
-                _set_column_ref_column_id(child, gap);
+    Status _set_legacy_lambda_argument_gap(const VExprSPtr& expr, int lambda_argument_base,
+                                           size_t argument_size) const {
+        if (expr->is_column_ref()) {
+            auto* ref = static_cast<VColumnRef*>(expr.get());
+            DORIS_CHECK_GE(ref->column_id(), 0);
+            DORIS_CHECK_LT(static_cast<size_t>(ref->column_id()), argument_size);
+            const int argument_index = ref->column_id();
+            ref->set_gap(lambda_argument_base + argument_index - ref->column_id());
+        } else {
+            for (const auto& child : expr->children()) {
+                RETURN_IF_ERROR(_set_legacy_lambda_argument_gap(child, lambda_argument_base,
+                                                                argument_size));
             }
         }
+        return Status::OK();
     }
 
-    void _collect_slot_ref_column_id(VExprSPtr expr,
-                                     std::vector<int>& output_slot_ref_indexs) const {
-        for (const auto& child : expr->children()) {
-            if (child->is_slot_ref()) {
-                const auto* ref = static_cast<VSlotRef*>(child.get());
-                output_slot_ref_indexs.push_back(ref->column_id());
-            } else {
-                _collect_slot_ref_column_id(child, output_slot_ref_indexs);
-            }
+    bool _is_lambda_call_with_lambda_expr(const VExprSPtr& expr) const {
+        return expr->node_type() == TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR &&
+               !expr->children().empty() &&
+               expr->children()[0]->node_type() == TExprNodeType::LAMBDA_FUNCTION_EXPR;
+    }
+
+    bool _contains_nested_lambda_call(const VExprSPtr& expr) const {
+        if (_is_lambda_call_with_lambda_expr(expr)) {
+            return true;
         }
+        return std::ranges::any_of(expr->children(), [this](const auto& child) {
+            return _contains_nested_lambda_call(child);
+        });
     }
 
-    void _extend_data(std::vector<MutableColumnPtr>& columns, const Block* block,
-                      int current_repeat_times, int size, int64_t current_row_idx,
-                      const std::vector<int>& output_slot_ref_indexs) const {
-        if (!current_repeat_times || !size) {
+    void _repeat_input_columns(std::vector<MutableColumnPtr>& columns, const Block* block,
+                               int repeat_times,
+                               const std::vector<bool>& materialized_input_columns,
+                               int64_t row_idx) const {
+        if (!repeat_times || materialized_input_columns.empty()) {
             return;
         }
-        for (int i = 0; i < size; i++) {
-            if (_contains_column_id(output_slot_ref_indexs, i)) {
-                auto src_column =
-                        block->get_by_position(i).column->convert_to_full_column_if_const();
-                columns[i]->insert_many_from(*src_column, current_row_idx, current_repeat_times);
-            } else {
-                // must be column const
-                DCHECK(is_column_const(*columns[i]));
-                columns[i]->resize(columns[i]->size() + current_repeat_times);
+        for (size_t i = 0; i < materialized_input_columns.size(); i++) {
+            if (!materialized_input_columns[i]) {
+                columns[i]->resize(columns[i]->size() + repeat_times);
+                continue;
             }
+            DORIS_CHECK(block != nullptr);
+            auto src_column = block->get_by_position(i).column->convert_to_full_column_if_const();
+            if (check_and_get_column<ColumnNothing>(src_column.get())) {
+                // A ColumnNothing in the outer block is a placeholder for an unmaterialized
+                // virtual column. Keep it as a placeholder in the lambda block as well, so
+                // VirtualSlotRef can still materialize it lazily if the lambda body reads it.
+                if (!check_and_get_column<ColumnNothing>(columns[i].get())) {
+                    columns[i] = ColumnNothing::create(columns[i]->size());
+                }
+            }
+            columns[i]->insert_many_from(*src_column, row_idx, repeat_times);
         }
     }
+
+    LambdaArgumentBinding _lambda_argument_binding;
 };
 
 void register_function_array_map(doris::LambdaFunctionFactory& factory) {

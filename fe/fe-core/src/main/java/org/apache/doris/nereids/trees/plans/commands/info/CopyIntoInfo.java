@@ -43,9 +43,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.S3PropertyUtils;
-import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -85,6 +82,8 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -288,7 +287,7 @@ public class CopyIntoInfo {
         String path;
         for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
             path = dataDescription.getFilePaths().get(i);
-            dataDescription.getFilePaths().set(i, S3PropertyUtils.convertPathToS3(path));
+            dataDescription.getFilePaths().set(i, convertPathToS3(path));
             StorageBackend.checkPath(path, brokerDesc.getStorageType(), null);
             dataDescription.getFilePaths().set(i, path);
         }
@@ -422,17 +421,19 @@ public class CopyIntoInfo {
         ObjectStoreInfoPB objInfo = stagePB.getObjInfo();
         stagePrefix = objInfo.getPrefix();
         objectInfo = ObjectInfoAdapter.analyzeStageObjectStoreInfo(stagePB);
-        brokerProperties.put(S3Properties.Env.ENDPOINT, objInfo.getEndpoint());
-        brokerProperties.put(S3Properties.Env.REGION, objInfo.getRegion());
-        brokerProperties.put(S3Properties.Env.ACCESS_KEY, objectInfo.getAk());
-        brokerProperties.put(S3Properties.Env.SECRET_KEY, objectInfo.getSk());
+        // Exact literals of the legacy S3Properties.Env.* constants.
+        brokerProperties.put("AWS_ENDPOINT", objInfo.getEndpoint());
+        brokerProperties.put("AWS_REGION", objInfo.getRegion());
+        brokerProperties.put("AWS_ACCESS_KEY", objectInfo.getAk());
+        brokerProperties.put("AWS_SECRET_KEY", objectInfo.getSk());
         if (objectInfo.getToken() != null) {
-            brokerProperties.put(S3Properties.Env.TOKEN, objectInfo.getToken());
+            brokerProperties.put("AWS_TOKEN", objectInfo.getToken());
         }
         brokerProperties.put(S3_BUCKET, objInfo.getBucket());
         brokerProperties.put(S3_PREFIX, objInfo.getPrefix());
         // S3 Provider properties should be case insensitive.
-        brokerProperties.put(StorageProperties.FS_PROVIDER_KEY, objInfo.getProvider().toString().toUpperCase());
+        // "provider" is the exact literal of the legacy StorageProperties.FS_PROVIDER_KEY.
+        brokerProperties.put("provider", objInfo.getProvider().toString().toUpperCase());
         StageProperties stageProperties = new StageProperties(stagePB.getPropertiesMap());
         this.copyIntoProperties.mergeProperties(stageProperties);
         this.copyIntoProperties.validate();
@@ -508,5 +509,17 @@ public class CopyIntoInfo {
 
     public String getPattern() {
         return this.legacyCopyFromParam.getStageAndPattern().getPattern();
+    }
+
+    /** Direct copy of the legacy {@code S3PropertyUtils.convertPathToS3} pure function. */
+    private static String convertPathToS3(String path) {
+        try {
+            URI orig = new URI(path);
+            URI s3url = new URI("s3", orig.getRawAuthority(),
+                    orig.getRawPath(), orig.getRawQuery(), orig.getRawFragment());
+            return s3url.toString();
+        } catch (URISyntaxException e) {
+            return path;
+        }
     }
 }

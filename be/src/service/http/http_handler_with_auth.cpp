@@ -19,6 +19,7 @@
 
 #include <gen_cpp/HeartbeatService_types.h>
 
+#include "runtime/cluster_info.h"
 #include "service/http/http_channel.h"
 #include "service/http/utils.h"
 #include "util/client_cache.h"

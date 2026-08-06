@@ -18,18 +18,17 @@
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -52,7 +51,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.ComplexDataType;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -84,27 +87,39 @@ import java.util.stream.Stream;
  *         ->T2(D)
  */
 public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
-    public static final int BIG_JOIN_BUILD_SIZE = 400_000;
+    public static final int BIG_JOIN_BUILD_SIZE = 1_000_000;
     private static final double LOWER_AGGREGATE_EFFECT_COEFFICIENT = 10000;
     private static final double LOW_AGGREGATE_EFFECT_COEFFICIENT = 1000;
     private static final double MEDIUM_AGGREGATE_EFFECT_COEFFICIENT = 100;
+    private static final double HIGH_AGGREGATE_EFFECT_COEFFICIENT = 10;
+    private static final double SMALL_BROADCAST_REJECT_COEFFICIENT = 1000;
     private static final String JOIN_CNT = "joinCnt";
     private final StatsDerive derive = new StatsDerive(false);
+
+    @Override
+    public Plan visit(Plan plan, PushDownAggContext context) {
+        return plan;
+    }
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context) {
         if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
             return join;
         }
+        ConnectContext connectContext = context.getCascadesContext().getConnectContext();
+        boolean isSmallBroadcastBottomJoin = isSmallBroadcastJoin(join, connectContext) && isBottomJoin(join);
+        if (connectContext.getSessionVariable().eagerAggregationOnBroadcastJoin
+                && isSmallBroadcastBottomJoin && !outputStringOrComplexType(join.right())) {
+            Plan aggOnJoin = genAggregate(join, context);
+            if (aggOnJoin != join) {
+                return aggOnJoin;
+            }
+        }
         Pair<Boolean, Boolean> pushSide = decideJoinPushSide(join, context);
         boolean toLeft = pushSide.first;
         boolean toRight = pushSide.second;
         if (!toLeft && !toRight) {
-            if (SessionVariable.isEagerAggregationOnJoin()) {
-                return genAggregate(join, context);
-            } else {
-                return join;
-            }
+            return join;
         }
 
         // construct left and right group by keys
@@ -145,15 +160,16 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
         }
 
-        boolean passThroughBigJoin = isPassThroughBigJoin(join, context);
         boolean leftNeedOutputCount = needOutputCountForJoinChild(join, toLeft, toRight,
                 context.needOutputCount(), rightFuncs);
         boolean rightNeedOutputCount = needOutputCountForJoinChild(join, toRight, toLeft,
                 context.needOutputCount(), leftFuncs);
-        Optional<PushDownAggContext> leftChildContext = toLeft ? Optional.of(context.forOneBranch(leftFuncs,
-                leftAliasMap, leftChildGroupByKeys, passThroughBigJoin, leftNeedOutputCount)) : Optional.empty();
-        Optional<PushDownAggContext> rightChildContext = toRight ? Optional.of(context.forOneBranch(rightFuncs,
-                rightAliasMap, rightChildGroupByKeys, passThroughBigJoin, rightNeedOutputCount)) : Optional.empty();
+        Optional<PushDownAggContext> leftChildContext = toLeft ? Optional.ofNullable(context.forOneBranch(leftFuncs,
+                leftAliasMap, leftChildGroupByKeys, isPassThroughHeavyJoin(join.right(), context),
+                leftNeedOutputCount, isSmallBroadcastBottomJoin)) : Optional.empty();
+        Optional<PushDownAggContext> rightChildContext = toRight ? Optional.ofNullable(context.forOneBranch(rightFuncs,
+                rightAliasMap, rightChildGroupByKeys, isPassThroughHeavyJoin(join.left(), context),
+                rightNeedOutputCount, false)) : Optional.empty();
 
         Plan newLeft = join.left();
         Plan newRight = join.right();
@@ -172,11 +188,32 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         LogicalJoin<? extends Plan, ? extends Plan> newJoin = (LogicalJoin<? extends Plan, ? extends Plan>)
                 join.withChildren(newLeft, newRight);
 
-        if (leftChildCountSlot.isPresent() || rightChildCountSlot.isPresent()) {
+        if ((leftChildContext.isPresent() && rightChildContext.isPresent())
+                || leftChildCountSlot.isPresent() || rightChildCountSlot.isPresent()) {
             return buildCanonicalJoinProject(newJoin, context, leftChildContext, rightChildContext,
                     leftChildCountSlot, rightChildCountSlot);
         }
         return newJoin;
+    }
+
+    private boolean isPassThroughHeavyJoin(Plan joinChild, PushDownAggContext context) {
+        if (context.isPassThroughHeavyJoin() || SessionVariable.getEagerAggregationMode() > 0) {
+            return true;
+        } else {
+            Statistics stats = joinChild.getStats();
+            if (stats == null) {
+                stats = joinChild.accept(derive, new StatsDerive.DeriveContext());
+            }
+            // String or complex outputs make join-row materialization expensive.
+            // Eager aggregation reduces joined rows and thus lowers
+            // ProbeWhenProbeSideOutputTime and ProbeWhenBuildSideOutputTime.
+            return stats.getRowCount() > BIG_JOIN_BUILD_SIZE || outputStringOrComplexType(joinChild);
+        }
+    }
+
+    private boolean outputStringOrComplexType(Plan plan) {
+        return plan.getOutput().stream().anyMatch(slot ->
+                slot.getDataType() instanceof CharacterType || slot.getDataType() instanceof ComplexDataType);
     }
 
     private Pair<Boolean, Boolean> decideJoinPushSide(
@@ -222,7 +259,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return Pair.of(false, false);
         }
         if (deduplicateOnly) {
-            return adjustPushSideForCaseWhen(join, context, toLeft, toRight);
+            return adjustPushSideForNullToNonNull(join, context, toLeft, toRight);
         }
         if (toLeft && toRight) {
             return join.getJoinType().isInnerOrCrossJoin()
@@ -230,7 +267,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     : Pair.of(false, false);
         }
         // one-side push down
-        Pair<Boolean, Boolean> pushSide = adjustPushSideForCaseWhen(join, context, toLeft, toRight);
+        Pair<Boolean, Boolean> pushSide = adjustPushSideForNullToNonNull(join, context, toLeft, toRight);
         if (!pushSide.first && !pushSide.second) {
             return pushSide;
         }
@@ -250,13 +287,14 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 && hasAggNeedJoinMultiplicityRecovery(oppositeAggFunctions);
     }
 
-    private Pair<Boolean, Boolean> adjustPushSideForCaseWhen(
+    private Pair<Boolean, Boolean> adjustPushSideForNullToNonNull(
             LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context,
             boolean toLeft, boolean toRight) {
-        // Do not push aggregation to the nullable side of outer joins when agg function contains case-when.
-        // CaseWhen expressions may produce non-null values from null-padded rows (e.g., WHEN col IS NULL THEN -54),
+        // Do not push aggregation to the nullable side of outer joins when agg function contains
+        // a NullToNonNullFunction (e.g. COALESCE, NVL, IF, CASE WHEN, NULL_OR_EMPTY).
+        // These expressions may produce non-null values from null-padded rows,
         // so pre-aggregation before the join loses those contributions.
-        if (!(context.hasDecomposedAggIf || context.hasCaseWhen)) {
+        if (!(context.hasDecomposedAggIf || context.containsNullToNonNull)) {
             return Pair.of(toLeft, toRight);
         }
         JoinType joinType = join.getJoinType();
@@ -273,8 +311,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         return Pair.of(toLeft, toRight);
     }
 
-    // Do not push agg(literal) or agg(preserved_side_col) to the nullable side of outer joins.
-    // Aggregates like count(*), sum(2), min(1) etc. aggregate over all physical rows,
+    // Do not push count(*)/agg(literal)(e.g. sum(2), min(1)) to the nullable side of outer joins.
+    // Aggregates without input from the nullable side aggregate over all physical rows,
     // including null-extended rows from the outer join.
     // After pushdown to the nullable side, unmatched rows produce NULL for the pre-aggregated value,
     // losing the contribution of those rows (e.g. sum(2) should add 2 per unmatched row,
@@ -308,17 +346,25 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         return Pair.of(toLeft, toRight);
     }
 
-    private boolean isPassThroughBigJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
-            PushDownAggContext context) {
-        if (context.isPassThroughBigJoin()) {
-            return true;
-        } else {
-            Statistics stats = join.right().getStats();
-            if (stats == null) {
-                stats = join.right().accept(derive, new StatsDerive.DeriveContext());
-            }
-            return stats.getRowCount() > BIG_JOIN_BUILD_SIZE || SessionVariable.getEagerAggregationMode() > 0;
+    private boolean isSmallBroadcastJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
+            ConnectContext context) {
+        if (!JoinUtils.couldBroadcast(join)) {
+            return false;
         }
+        SessionVariable sessionVariable = context.getSessionVariable();
+        Statistics stats = join.right().getStats();
+        if (stats == null) {
+            stats = join.right().accept(derive, new StatsDerive.DeriveContext());
+        }
+        return stats.getRowCount() <= sessionVariable.getBroadcastRowCountLimit()
+                && stats.getRowCount() <= sessionVariable.eagerAggBroadcastRowCount;
+    }
+
+    private boolean isBottomJoin(LogicalJoin<? extends Plan, ? extends Plan> join) {
+        return join.children().stream().allMatch(plan ->
+                plan.allMatch(node ->
+                        node instanceof LogicalFilter<?> || node instanceof LogicalProject<?>
+                                || node instanceof LogicalRelation));
     }
 
     private void fillGroupByKeys(LogicalJoin<? extends Plan, ? extends Plan> join, Plan child,
@@ -382,22 +428,25 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             aggFunctions.add(newAggFunc);
         }
         // After pushing expressions past the project, the agg functions may now
-        // contain If/CaseWhen that were hidden behind slot references before.
-        // e.g. count(#slot) where #slot = if(cond, a, b) in the project.
-        // We must re-check and update hasCaseWhen accordingly.
-        boolean newHasCaseWhen = context.hasCaseWhen;
-        if (!newHasCaseWhen) {
+        // contain NullToNonNull expressions that were hidden behind slot references before.
+        // e.g. count(#slot) where #slot = coalesce(a, 0) in the project.
+        // We must re-check and update containsNullToNonNull accordingly.
+        boolean newContainsNullToNonNull = context.containsNullToNonNull;
+        if (!newContainsNullToNonNull) {
             for (AggregateFunction aggFunc : aggFunctions) {
-                if (aggFunc.anyMatch(e -> e instanceof CaseWhen || e instanceof If)) {
-                    newHasCaseWhen = true;
+                if (aggFunc.children().stream().anyMatch(
+                        arg -> arg.anyMatch(e ->
+                                NullToNonNullFunction.canConvertNullToNonNull((Expression) e)))) {
+                    newContainsNullToNonNull = true;
                     break;
                 }
             }
         }
         PushDownAggContext newContext = new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
-                context.getCascadesContext(), context.isPassThroughBigJoin(),
-                context.hasDecomposedAggIf, newHasCaseWhen,
-                context.getBilateralState(), context.needOutputCount());
+                context.getCascadesContext(), context.isPassThroughHeavyJoin(),
+                context.hasDecomposedAggIf, newContainsNullToNonNull,
+                context.getBilateralState(), context.needOutputCount(), context.isPassThroughJoinOrUnion(),
+                context.isSmallBroadcastBottomJoin());
         return newContext;
     }
 
@@ -527,8 +576,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     .collect(Collectors.toList());
             PushDownAggContext contextForChild = new PushDownAggContext(aggFunctionsForChild, groupKeysForChild,
                     aliasMapForChild, context.getCascadesContext(),
-                    context.isPassThroughBigJoin(), context.hasDecomposedAggIf, context.hasCaseWhen,
-                    context.getBilateralState(), context.needOutputCount());
+                    context.isPassThroughHeavyJoin(), context.hasDecomposedAggIf, context.containsNullToNonNull,
+                    context.getBilateralState(), context.needOutputCount(), true, false);
             inheritHintActionsToUnionChild(context, contextForChild, aggFunctionsForChild);
             Plan newChild = child.accept(this, contextForChild);
             if (newChild != child) {
@@ -744,6 +793,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     @Override
     public Plan visitLogicalRelation(LogicalRelation relation, PushDownAggContext context) {
+        if (context.aggFuncAndGroupKeyAllEmpty()) {
+            return relation;
+        }
         return genAggregate(relation, context);
     }
 
@@ -767,7 +819,47 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private Plan genAggregate(Plan child, PushDownAggContext context) {
+        if (!context.isPassThroughJoinOrUnion()) {
+            return child;
+        }
         if (isPushDisabledByVariable(context)) {
+            return child;
+        }
+        // Forbid creating a scalar aggregate (aggregate without GROUP BY keys) during
+        // push-down. A scalar aggregate emits 1 row even when its input is empty
+        // (SQL standard: SELECT COUNT(*) FROM empty_table returns 1 row with 0).
+        // When placed below a join, that 1 row joins with rows from the other side,
+        // producing phantom rows that do not exist in the original query.
+        //
+        // This guard is placed at the aggregate-creation boundary rather than upstream
+        // (e.g. visitLogicalJoin or createContextFromProject) because context.groupKeys
+        // can change during intermediate rewrites. Checking groupKeys.isEmpty() early
+        // would either fire on a stale empty state (missing a later filter that adds
+        // keys) or fail to fire because a constant key has not yet been resolved to
+        // empty input slots. Example plan that reaches genAggregate with groupKeys=[]:
+        //
+        //   Aggregate(group=[k], sum(z))
+        //     CrossJoin
+        //       Project(1 AS k, A.v + B.v AS z)
+        //         InnerJoin(A.id = B.id)
+        //           Scan A
+        //           Scan B
+        //       Scan R
+        //
+        // Walk:
+        // 1. visitLogicalJoin(crossJoin): parentContext.groupKeys=[k]
+        //    → fillGroupByKeys puts k in leftChildGroupByKeys → forOneBranch succeeds
+        // 2. visitLogicalProject: createContextFromProject maps k through "1 AS k"
+        //    → literal 1 has no input slots → newContext.groupKeys=[]
+        // 3. visitLogicalJoin(innerJoin): sum(A.v+B.v) spans both sides
+        //    → toLeft=false, toRight=false → falls back to genAggregate with groupKeys=[]
+        //    → without this guard, creates scalar agg below crossJoin → phantom rows
+        //
+        // If the guard were at visitLogicalJoin step 1, groupKeys=[k] (non-empty) would
+        // pass. If at createContextFromProject step 2, it would block before a downstream
+        // filter had the chance to add keys. Only genAggregate sees the final state.
+        // See regression test: scalar_agg_pushdown.groovy
+        if (context.getGroupKeys().isEmpty()) {
             return child;
         }
         if (checkStats(child, context) || isPushEnabledByVariable(context)) {
@@ -790,21 +882,23 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 aggOutputExpressions.add(outputCountAlias.get());
             }
             LogicalAggregate genAgg = new LogicalAggregate(context.getGroupKeys(), aggOutputExpressions, child);
-            NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
-            Plan normalized = normalizeAggregate.normalizeAgg(genAgg, Optional.empty(),
-                    context.getCascadesContext());
 
             for (AggregateFunction func : context.getAggFunctions()) {
                 Alias a = context.getAliasMap().get(func);
-                Slot pushedSlot = normalized.getOutput().stream()
+                Slot pushedSlot = genAgg.getOutput().stream()
                         .filter(slot -> slot.getExprId().equals(a.getExprId()))
                         .findFirst()
                         .orElse(a.toSlot());
                 context.getBilateralState().registerPushedAggFuncSlot(a.getExprId(), pushedSlot);
             }
             outputCountAlias.ifPresent(
-                    alias -> context.getBilateralState().registerCountSlot(normalized, alias.toSlot()));
-            return normalized;
+                    alias -> context.getBilateralState().registerCountSlot(genAgg, alias.toSlot()));
+            // Return non-normalized aggregate directly. The optimizer fix-point loop
+            // will invoke NormalizeAggregate rule in the next iteration if needed.
+            // Explicit normalization here is redundant (the original aggregate was
+            // already normalized) and could alter expression shapes that the push-down
+            // logic relies on for correct NullToNonNullFunction detection.
+            return genAgg;
         } else {
             return child;
         }
@@ -1212,10 +1306,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (mode > 0) {
             // when mode=1, any join is regarded as big join in order to
             // push down aggregation through at least one join
-            return context.isPassThroughBigJoin();
+            return context.isPassThroughHeavyJoin();
         }
 
-        if (!context.isPassThroughBigJoin() && !context.hasDecomposedAggIf) {
+        if (!context.isPassThroughHeavyJoin() && !context.hasDecomposedAggIf) {
             return false;
         }
 
@@ -1232,8 +1326,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         List<ColumnStatistic> lower = Lists.newArrayList();
         List<ColumnStatistic> medium = Lists.newArrayList();
         List<ColumnStatistic> high = Lists.newArrayList();
+        List<ColumnStatistic> extremelyHigh = Lists.newArrayList();
 
-        List<ColumnStatistic>[] cards = new List[] { lower, medium, high };
+        List<ColumnStatistic>[] cards = new List[] { lower, medium, high, extremelyHigh };
 
         for (NamedExpression key : context.getGroupKeys()) {
             ColumnStatistic colStats = ExpressionEstimation.INSTANCE.estimate(key, stats);
@@ -1245,6 +1340,24 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
             groupKeysStats.add(colStats);
             cards[groupByCardinality(colStats, stats.getRowCount())].add(colStats);
+        }
+
+        if (!extremelyHigh.isEmpty() && context.getGroupKeys().size() > 1) {
+            return false;
+        }
+
+        // Pushing aggregation below a small broadcast join may introduce an extra
+        // shuffle on the large probe side. Only do so when the aggregation can
+        // significantly reduce the input rows.
+        if (context.isSmallBroadcastBottomJoin()) {
+            for (ColumnStatistic colStats : groupKeysStats) {
+                if (colStats.isUnKnown) {
+                    return false;
+                }
+                if (colStats.ndv * SMALL_BROADCAST_REJECT_COEFFICIENT > stats.getRowCount()) {
+                    return false;
+                }
+            }
         }
 
         double lowerCartesian = 1.0;
@@ -1290,7 +1403,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     // < LOW_AGGREGATE_EFFECT_COEFFICIENT
     // lower(0): row_count / cardinality >= LOW_AGGREGATE_EFFECT_COEFFICIENT
     private int groupByCardinality(ColumnStatistic colStats, double rowCount) {
-        if (rowCount == 0 || colStats.ndv * MEDIUM_AGGREGATE_EFFECT_COEFFICIENT > rowCount) {
+        if (rowCount == 0 || colStats.ndv * HIGH_AGGREGATE_EFFECT_COEFFICIENT > rowCount) {
+            return 3;
+        } else if (colStats.ndv * MEDIUM_AGGREGATE_EFFECT_COEFFICIENT > rowCount) {
             return 2;
         } else if (colStats.ndv * MEDIUM_AGGREGATE_EFFECT_COEFFICIENT <= rowCount
                 && colStats.ndv * LOW_AGGREGATE_EFFECT_COEFFICIENT > rowCount) {

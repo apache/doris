@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.util.Utils;
 
 /**
  * Split limit into two phase
@@ -38,8 +40,13 @@ public class SplitLimit extends OneRewriteRuleFactory {
                 .then(limit -> {
                     long l = limit.getLimit();
                     long o = limit.getOffset();
+                    if (Utils.addOverflows(l, o)) {
+                        throw new AnalysisException(
+                                "limit + offset overflows the long range in two-phase limit");
+                    }
                     return new LogicalLimit<>(l, o,
-                            LimitPhase.GLOBAL, new LogicalLimit<>(l + o, 0, LimitPhase.LOCAL, limit.child())
+                            LimitPhase.GLOBAL,
+                            new LogicalLimit<>(l + o, 0, LimitPhase.LOCAL, limit.child())
                     );
                 }).toRule(RuleType.SPLIT_LIMIT);
     }

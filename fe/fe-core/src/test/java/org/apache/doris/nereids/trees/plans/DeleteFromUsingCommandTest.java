@@ -68,6 +68,60 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
                 + "properties(\n"
                 + "    \"replication_num\"=\"1\"\n"
                 + ")");
+        createTable("create table gen_value (\n"
+                + "    a int,\n"
+                + "    b int,\n"
+                + "    c int as (b + 1),\n"
+                + "    d int\n"
+                + ")\n"
+                + "unique key(a)\n"
+                + "distributed by hash(a) buckets 4\n"
+                + "properties(\n"
+                + "    \"replication_num\"=\"1\",\n"
+                + "    \"enable_unique_key_merge_on_write\" = \"true\",\n"
+                + "    \"enable_mow_light_delete\" = \"false\"\n"
+                + ")");
+        createTable("create table gen_key (\n"
+                + "    a int,\n"
+                + "    c int as (b + 1),\n"
+                + "    b int,\n"
+                + "    d int\n"
+                + ")\n"
+                + "unique key(a, c)\n"
+                + "distributed by hash(a) buckets 4\n"
+                + "properties(\n"
+                + "    \"replication_num\"=\"1\",\n"
+                + "    \"enable_unique_key_merge_on_write\" = \"true\",\n"
+                + "    \"enable_mow_light_delete\" = \"false\"\n"
+                + ")");
+        createTable("create table gen_value_required (\n"
+                + "    a int,\n"
+                + "    b int,\n"
+                + "    c int as (b + 1),\n"
+                + "    d int not null\n"
+                + ")\n"
+                + "unique key(a)\n"
+                + "distributed by hash(a) buckets 4\n"
+                + "properties(\n"
+                + "    \"replication_num\"=\"1\",\n"
+                + "    \"enable_unique_key_merge_on_write\" = \"true\",\n"
+                + "    \"enable_mow_light_delete\" = \"false\"\n"
+                + ")");
+        createTable("create table gen_variant (\n"
+                + "    id int not null,\n"
+                + "    create_time datetime not null,\n"
+                + "    order_no varchar(128) not null,\n"
+                + "    receive_address_detail varchar(1024) not null default \"{}\",\n"
+                + "    d int not null,\n"
+                + "    new_col variant as (receive_address_detail) null\n"
+                + ")\n"
+                + "unique key(id, create_time, order_no)\n"
+                + "distributed by hash(order_no) buckets 4\n"
+                + "properties(\n"
+                + "    \"replication_num\"=\"1\",\n"
+                + "    \"enable_unique_key_merge_on_write\" = \"true\",\n"
+                + "    \"enable_mow_light_delete\" = \"false\"\n"
+                + ")");
     }
 
     @Test
@@ -103,6 +157,41 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
                                                 )
                                         )
                                 )
+                        )
+                );
+    }
+
+    @Test
+    public void testDeletePartialUpdateWithGeneratedValueColumn() {
+        assertDeletePartialUpdateAnalyze("delete from gen_value t using src where t.a = src.k1");
+    }
+
+    @Test
+    public void testDeletePartialUpdateWithGeneratedKeyColumn() {
+        assertDeletePartialUpdateAnalyze("delete from gen_key t using src where t.a = src.k1");
+    }
+
+    @Test
+    public void testDeletePartialUpdateWithNotNullValueColumn() {
+        assertDeletePartialUpdateAnalyze("delete from gen_value_required t using src where t.a = src.k1");
+    }
+
+    @Test
+    public void testDeletePartialUpdateWithVariantGeneratedColumn() {
+        assertDeletePartialUpdateAnalyze("delete from gen_variant t using src where t.id = src.k1");
+    }
+
+    private void assertDeletePartialUpdateAnalyze(String sql) {
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        Assertions.assertInstanceOf(DeleteFromUsingCommand.class, parsed);
+        DeleteFromUsingCommand command = ((DeleteFromUsingCommand) parsed);
+        LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
+        PlanChecker.from(connectContext, plan)
+                .analyze(plan)
+                .rewrite()
+                .matches(
+                        logicalOlapTableSink(
+                                logicalProject()
                         )
                 );
     }

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -51,6 +52,7 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                         // TODO: complex orderby
                         .when(topn ->
                                 ConnectContext.get() != null
+                                        && !Utils.addOverflows(topn.getLimit(), topn.getOffset())
                                         && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                         >= topn.getLimit() + topn.getOffset())
                         .when(topN -> topN.getOrderKeys().stream().map(OrderKey::getExpr)
@@ -70,6 +72,13 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                         .when(topN -> topN.getOrderKeys().stream().map(OrderKey::getExpr)
                                 .allMatch(Slot.class::isInstance))
                         .then(topN -> {
+                            // limit + offset overflowing the long range means no child can hold that
+                            // many rows, so pushing the TopN below the join cannot reduce anything;
+                            // skip the rewrite. (The direct TopN -> Join branch is gated the same way
+                            // via topn_opt_limit_threshold.)
+                            if (Utils.addOverflows(topN.getLimit(), topN.getOffset())) {
+                                return null;
+                            }
                             LogicalProject<LogicalJoin<Plan, Plan>> project = topN.child();
                             LogicalJoin<Plan, Plan> join = project.child();
 
@@ -183,6 +192,7 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
 
     private Plan pushTopNToChild(LogicalTopN<? extends Plan> topN, Plan child, List<Slot> orderbySlots,
             List<Slot> requiredOutputSlots) {
+        long childLimit = topN.getLimit() + topN.getOffset();
         // Keep only the slots that this child actually outputs. When pushing to
         // one side of an outer join, requiredOutputSlots may include columns from
         // the other side which this child cannot provide.
@@ -191,19 +201,19 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 .filter(childOutputSet::contains)
                 .collect(Collectors.toList());
         if (childRequired.isEmpty()) {
-            return topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, child);
+            return topN.withLimitChild(childLimit, 0, child);
         }
         // Ensure the child outputs all required columns. If the child already
         // outputs everything needed, no extra Project is required.
         Set<Slot> requiredSet = new HashSet<>(childRequired);
         requiredSet.addAll(orderbySlots);
         if (childOutputSet.containsAll(requiredSet)) {
-            return topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, child);
+            return topN.withLimitChild(childLimit, 0, child);
         }
         List<NamedExpression> childOutput = child.getOutput().stream()
                 .filter(requiredSet::contains)
                 .collect(Collectors.toList());
         Plan topNChild = PlanUtils.projectOrSelf(childOutput, child);
-        return topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, topNChild);
+        return topN.withLimitChild(childLimit, 0, topNChild);
     }
 }

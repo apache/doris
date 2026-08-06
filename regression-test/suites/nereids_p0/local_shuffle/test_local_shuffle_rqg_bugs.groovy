@@ -1200,8 +1200,10 @@ suite("test_local_shuffle_rqg_bugs") {
         for (planner in ['false', 'true']) {
             def actual = sql q25413(
                 "${base25413}, experimental_use_serial_exchange=true, enable_local_shuffle_planner=${planner}")
-            assertEquals(expected25413, actual,
+            assertEquals(expected25413[0][0], actual[0][0],
                 "Bug 20b planner=${planner}: distinct count must not be inflated under serial exchange")
+            assertEquals(expected25413[0][1] as double, actual[0][1] as double, 1.0e-12,
+                "Bug 20b planner=${planner}: std result mismatch under serial exchange")
         }
         logger.info("Bug 20b: PASSED")
     } catch (Throwable t) {

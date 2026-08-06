@@ -151,6 +151,12 @@ public:
         this->data(place).add(new_value, current_time, half_decay);
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnFloat64>(columns[0]);
+        this->template check_argument_column_type<ColumnFloat64>(columns[1]);
+        this->template check_argument_column_type<ColumnFloat64>(columns[2]);
+    }
+
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
         this->data(place).merge(this->data(rhs));
@@ -166,7 +172,8 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnFloat64&>(to).get_data().push_back(this->data(place).get());
+        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                this->data(place).get());
     }
 };
 

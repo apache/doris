@@ -449,6 +449,46 @@ TEST_F(SchemaUtilTest, get_subpaths_equal_to_max) {
                 uid_to_paths_set_info[1].sub_path_set.end());
 }
 
+TEST_F(SchemaUtilTest, get_subpaths_selects_empty_key_as_subpath) {
+    variant_util::PathToNoneNullValues path_stats = {
+            {"", 1000}, {"path1", 900}, {"path2", 800}, {"path3", 700}};
+
+    TabletSchema::PathsSetInfo limited_paths;
+    variant_util::VariantCompactionUtil::get_subpaths(2, path_stats, limited_paths);
+    EXPECT_TRUE(limited_paths.sub_path_set.contains(""));
+    EXPECT_FALSE(limited_paths.sparse_path_set.contains(""));
+    EXPECT_TRUE(limited_paths.sub_path_set.contains("path1"));
+    EXPECT_TRUE(limited_paths.sparse_path_set.contains("path2"));
+    EXPECT_TRUE(limited_paths.sparse_path_set.contains("path3"));
+
+    TabletSchema::PathsSetInfo exact_limit_paths;
+    variant_util::VariantCompactionUtil::get_subpaths(4, path_stats, exact_limit_paths);
+    EXPECT_TRUE(exact_limit_paths.sub_path_set.contains(""));
+    EXPECT_FALSE(exact_limit_paths.sparse_path_set.contains(""));
+    EXPECT_TRUE(exact_limit_paths.sub_path_set.contains("path1"));
+    EXPECT_TRUE(exact_limit_paths.sub_path_set.contains("path2"));
+    EXPECT_TRUE(exact_limit_paths.sub_path_set.contains("path3"));
+
+    TabletSchema::PathsSetInfo unlimited_paths;
+    variant_util::VariantCompactionUtil::get_subpaths(0, path_stats, unlimited_paths);
+    EXPECT_TRUE(unlimited_paths.sub_path_set.contains(""));
+    EXPECT_TRUE(unlimited_paths.sparse_path_set.empty());
+    EXPECT_FALSE(unlimited_paths.sparse_path_set.contains(""));
+    EXPECT_TRUE(unlimited_paths.sub_path_set.contains("path1"));
+    EXPECT_TRUE(unlimited_paths.sub_path_set.contains("path2"));
+    EXPECT_TRUE(unlimited_paths.sub_path_set.contains("path3"));
+
+    variant_util::PathToNoneNullValues low_rank_empty_key_stats = {
+            {"path1", 1000}, {"path2", 900}, {"", 100}};
+    TabletSchema::PathsSetInfo low_rank_empty_key_paths;
+    variant_util::VariantCompactionUtil::get_subpaths(2, low_rank_empty_key_stats,
+                                                      low_rank_empty_key_paths);
+    EXPECT_FALSE(low_rank_empty_key_paths.sub_path_set.contains(""));
+    EXPECT_TRUE(low_rank_empty_key_paths.sparse_path_set.contains(""));
+    EXPECT_TRUE(low_rank_empty_key_paths.sub_path_set.contains("path1"));
+    EXPECT_TRUE(low_rank_empty_key_paths.sub_path_set.contains("path2"));
+}
+
 TEST_F(SchemaUtilTest, get_subpaths_multiple_variants) {
     TabletSchema schema;
     TabletColumn variant1;
@@ -1522,6 +1562,7 @@ TEST_F(SchemaUtilTest, get_compaction_nested_columns) {
 
 TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_subpaths) {
     TabletColumn variant;
+    variant.set_name("v1");
     variant.set_unique_id(30);
     variant.set_variant_max_subcolumns_count(3);
     variant.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
@@ -1532,6 +1573,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_subpaths) {
     TabletColumnPtr parent_column = std::make_shared<TabletColumn>(variant);
 
     TabletSchema::PathsSetInfo paths_set_info;
+    paths_set_info.sub_path_set.insert("");
     paths_set_info.sub_path_set.insert("a");
     paths_set_info.sub_path_set.insert("b");
     doris::variant_util::PathToDataTypes path_to_data_types;
@@ -1540,10 +1582,20 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_subpaths) {
 
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             paths_set_info, parent_column, schema, path_to_data_types, sparse_paths, output_schema);
-    EXPECT_EQ(output_schema->num_columns(), 2);
+    EXPECT_EQ(output_schema->num_columns(), 3);
+    bool found_empty_key = false;
     for (const auto& column : output_schema->columns()) {
+        if (column->name() == "v1.") {
+            found_empty_key = true;
+            const auto relative_path = column->path_info_ptr()->copy_pop_front();
+            EXPECT_FALSE(relative_path.empty());
+            EXPECT_TRUE(relative_path.get_path().empty());
+            ASSERT_EQ(relative_path.get_parts().size(), 1);
+            EXPECT_TRUE(relative_path.get_parts()[0].key.empty());
+        }
         EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
     }
+    EXPECT_TRUE(found_empty_key);
 
     output_schema = std::make_shared<TabletSchema>();
     path_to_data_types.clear();
@@ -1551,10 +1603,14 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_subpaths) {
     path_to_data_types[PathInData("b")] = {std::make_shared<DataTypeString>()};
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             paths_set_info, parent_column, schema, path_to_data_types, sparse_paths, output_schema);
-    EXPECT_EQ(output_schema->num_columns(), 2);
+    EXPECT_EQ(output_schema->num_columns(), 3);
     bool found_int = false, found_str = false;
+    found_empty_key = false;
     for (const auto& column : output_schema->columns()) {
-        if (column->name().ends_with("a")) {
+        if (column->name() == "v1.") {
+            found_empty_key = true;
+            EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
+        } else if (column->name().ends_with("a")) {
             EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_INT);
             found_int = true;
         } else if (column->name().ends_with("b")) {
@@ -1562,15 +1618,15 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_subpaths) {
             found_str = true;
         }
     }
-    EXPECT_TRUE(found_int && found_str);
+    EXPECT_TRUE(found_empty_key && found_int && found_str);
 
     output_schema = std::make_shared<TabletSchema>();
     sparse_paths.insert("a");
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             paths_set_info, parent_column, schema, path_to_data_types, sparse_paths, output_schema);
-    EXPECT_EQ(output_schema->num_columns(), 2);
+    EXPECT_EQ(output_schema->num_columns(), 3);
     for (const auto& column : output_schema->columns()) {
-        if (column->name().ends_with("a")) {
+        if (column->name() == "v1." || column->name().ends_with("a")) {
             EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
         } else if (column->name().ends_with("b")) {
             EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_STRING);
@@ -1585,7 +1641,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_subpaths) {
     }
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             paths_set_info, parent_column, schema, path_to_data_types, sparse_paths, output_schema);
-    EXPECT_EQ(output_schema->num_columns(), 2);
+    EXPECT_EQ(output_schema->num_columns(), 3);
     for (const auto& column : output_schema->columns()) {
         EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
     }
@@ -1704,6 +1760,8 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     path_to_data_types[PathInData("b")] = {std::make_shared<DataTypeString>()}; // -> STRING
     path_to_data_types[PathInData("typed", true)] = {std::make_shared<DataTypeString>()};
     path_to_data_types[PathInData("shared")] = {std::make_shared<DataTypeInt32>()};
+    path_to_data_types[PathInData("")] = {std::make_shared<DataTypeString>()};
+    path_to_data_types[PathInData()] = {std::make_shared<DataTypeString>()};
 
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     TabletSchema::PathsSetInfo paths_set_info;
@@ -1711,8 +1769,9 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
             paths_set_info, parent_column, target, path_to_data_types, output_schema);
 
-    EXPECT_EQ(output_schema->num_columns(), 3);
+    EXPECT_EQ(output_schema->num_columns(), 4);
     bool found_a = false, found_b = false, found_typed = false, found_shared = false;
+    int empty_key_column_count = 0;
     for (const auto& col : output_schema->columns()) {
         if (col->name() == "v1.a") {
             found_a = true;
@@ -1737,9 +1796,19 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
             EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_INT);
             EXPECT_EQ(col->parent_unique_id(), 1);
             EXPECT_EQ(col->path_info_ptr()->get_path(), "v1.shared");
+        } else if (col->name() == "v1.") {
+            ++empty_key_column_count;
+            EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_STRING);
+            EXPECT_EQ(col->parent_unique_id(), 1);
+            const auto relative_path = col->path_info_ptr()->copy_pop_front();
+            EXPECT_FALSE(relative_path.empty());
+            EXPECT_TRUE(relative_path.get_path().empty());
+            ASSERT_EQ(relative_path.get_parts().size(), 1);
+            EXPECT_TRUE(relative_path.get_parts()[0].key.empty());
         }
     }
     EXPECT_TRUE(found_a && found_b && found_shared);
+    EXPECT_EQ(empty_key_column_count, 1);
     EXPECT_FALSE(found_typed);
 
     ASSERT_TRUE(paths_set_info.subcolumn_indexes.find("a") !=
@@ -1751,11 +1820,47 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     EXPECT_FALSE(paths_set_info.subcolumn_indexes.contains("typed"));
     ASSERT_TRUE(paths_set_info.subcolumn_indexes.contains("shared"));
     EXPECT_EQ(paths_set_info.subcolumn_indexes.at("shared").size(), 1);
+    ASSERT_TRUE(paths_set_info.subcolumn_indexes.contains(""));
+    EXPECT_EQ(paths_set_info.subcolumn_indexes.at("").size(), 1);
     EXPECT_FALSE(paths_set_info.typed_path_set.contains("typed"));
     EXPECT_TRUE(paths_set_info.sub_path_set.contains("a"));
     EXPECT_TRUE(paths_set_info.sub_path_set.contains("b"));
     EXPECT_TRUE(paths_set_info.sub_path_set.contains("shared"));
     EXPECT_FALSE(paths_set_info.sub_path_set.contains("typed"));
+    EXPECT_TRUE(paths_set_info.sub_path_set.contains(""));
+    EXPECT_FALSE(paths_set_info.sparse_path_set.contains(""));
+
+    doris::variant_util::PathToDataTypes root_path_to_data_types;
+    root_path_to_data_types[PathInData()] = {std::make_shared<DataTypeString>()};
+    TabletSchemaSPtr root_output_schema = std::make_shared<TabletSchema>();
+    TabletSchema::PathsSetInfo root_paths_set_info;
+
+    variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
+            root_paths_set_info, parent_column, target, root_path_to_data_types,
+            root_output_schema);
+
+    EXPECT_EQ(root_output_schema->num_columns(), 0);
+    EXPECT_FALSE(root_paths_set_info.sparse_path_set.contains(""));
+    EXPECT_FALSE(root_paths_set_info.sub_path_set.contains(""));
+
+    TabletSchemaSPtr empty_key_output_schema = std::make_shared<TabletSchema>();
+    TabletSchema::PathsSetInfo empty_key_paths_set_info;
+    empty_key_paths_set_info.sub_path_set.insert("");
+
+    variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
+            empty_key_paths_set_info, parent_column, target, root_path_to_data_types,
+            empty_key_output_schema);
+
+    ASSERT_EQ(empty_key_output_schema->num_columns(), 1);
+    const auto& empty_key_column = empty_key_output_schema->column(0);
+    EXPECT_EQ(empty_key_column.name(), "v1.");
+    EXPECT_EQ(empty_key_column.type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
+    EXPECT_EQ(empty_key_column.parent_unique_id(), 1);
+    const auto relative_path = empty_key_column.path_info_ptr()->copy_pop_front();
+    EXPECT_FALSE(relative_path.empty());
+    EXPECT_TRUE(relative_path.get_path().empty());
+    ASSERT_EQ(relative_path.get_parts().size(), 1);
+    EXPECT_TRUE(relative_path.get_parts()[0].key.empty());
 }
 
 // Test has_different_structure_in_same_path function indirectly through check_variant_has_no_ambiguous_paths

@@ -28,6 +28,7 @@
 #include <type_traits>
 
 #include "core/column/column_complex.h"
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_number.h"
@@ -42,9 +43,6 @@ class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-template <typename T>
-class ColumnStr;
-using ColumnString = ColumnStr<UInt32>;
 
 template <PrimitiveType T>
 struct AggOrthBitmapBaseData {
@@ -52,6 +50,7 @@ public:
     using ColVecData =
             std::conditional_t<is_int_or_bool(T) || is_float_or_double(T),
                                typename PrimitiveTypeTraits<T>::ColumnType, ColumnString>;
+    static constexpr bool has_key_columns = true;
 
     void reset() {
         bitmap = {};
@@ -131,7 +130,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnBitmap&>(to);
+        auto& column = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(result.empty() ? AggOrthBitmapBaseData<T>::bitmap.intersect()
                                                       : result);
     }
@@ -171,7 +170,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnInt64&>(to);
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
 };
@@ -208,7 +207,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnInt64&>(to);
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(result ? result
                                               : AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
@@ -223,6 +222,7 @@ public:
     using ColVecData =
             std::conditional_t<is_int_or_bool(T) || is_float_or_double(T),
                                typename PrimitiveTypeTraits<T>::ColumnType, ColumnString>;
+    static constexpr bool has_key_columns = true;
 
     void add(const IColumn** columns, size_t row_num) {
         const auto& bitmap_col =
@@ -281,7 +281,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnBitmap&>(to);
+        auto& column = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(!result.empty() ? result
                                                        : this->bitmap_expr_cal.bitmap_calculate());
     }
@@ -321,7 +321,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnInt64&>(to);
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(result ? result
                                               : this->bitmap_expr_cal.bitmap_calculate_count());
     }
@@ -337,6 +337,7 @@ private:
 
 struct OrthBitmapUnionCountData {
     static constexpr auto name = "orthogonal_bitmap_union_count";
+    static constexpr bool has_key_columns = false;
 
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeInt64>(); }
     // Here no need doing anything, so only given an function declaration
@@ -357,7 +358,7 @@ struct OrthBitmapUnionCountData {
     void read(BufferReadable& buf) { buf.read_binary(result); }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnInt64&>(to);
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().emplace_back(result ? result : value.cardinality());
     }
 
@@ -393,6 +394,21 @@ public:
              Arena&) const override {
         this->data(place).init_add_key(columns, row_num, _argument_size);
         this->data(place).add(columns, row_num);
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnBitmap>(columns[0]);
+        if constexpr (Impl::has_key_columns) {
+            if (UNLIKELY(_argument_size < 2)) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} input type check failed: expected at least 2 "
+                        "arguments, but got {}",
+                        get_name(), _argument_size));
+            }
+            for (int i = 1; i < _argument_size; ++i) {
+                this->template check_argument_column_type<typename Impl::ColVecData>(columns[i]);
+            }
+        }
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,

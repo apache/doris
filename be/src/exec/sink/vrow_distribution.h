@@ -57,7 +57,12 @@ public:
         std::string value;
         value.reserve(row_ids.size() * 15);
         for (int i = 0; i < row_ids.size(); i++) {
-            value.append(fmt::format("[{}, {}, {}]", row_ids[i], partition_ids[i], tablet_ids[i]));
+            if (i < tablet_ids.size()) {
+                value.append(
+                        fmt::format("[{}, {}, {}]", row_ids[i], partition_ids[i], tablet_ids[i]));
+            } else {
+                value.append(fmt::format("[{}, {}]", row_ids[i], partition_ids[i]));
+            }
         }
         return value;
     }

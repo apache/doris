@@ -34,6 +34,56 @@ where batch = 2 and id >= 14;
 delete from dv_test
 where id % 2 = 1;
 
+drop table if exists dv_test_orc;
+create table dv_test_orc (
+    id int,
+    batch int,
+    data string
+)
+using iceberg
+tblproperties (
+    'format-version' = '3',
+    'write.format.default' = 'orc',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into dv_test_orc values
+    (1, 1, 'a'), (2, 1, 'b'), (3, 1, 'c'), (4, 1, 'd'),
+    (5, 1, 'e'), (6, 1, 'f'), (7, 1, 'g'), (8, 1, 'h');
+
+delete from dv_test_orc
+where batch = 1 and id in (3, 4, 5);
+
+insert into dv_test_orc values
+    (9, 2, 'i'), (10, 2, 'j'), (11, 2, 'k'), (12, 2, 'l'),
+    (13, 2, 'm'), (14, 2, 'n'), (15, 2, 'o'), (16, 2, 'p');
+
+delete from dv_test_orc
+where batch = 2 and id >= 14;
+
+delete from dv_test_orc
+where id % 2 = 1;
+
+drop table if exists dv_test_no_delete;
+create table dv_test_no_delete (
+    id int,
+    batch int,
+    data string
+)
+using iceberg
+tblproperties (
+    'format-version' = '3',
+    'write.delete.mode' = 'merge-on-read',
+    'write.update.mode' = 'merge-on-read',
+    'write.merge.mode' = 'merge-on-read'
+);
+
+insert into dv_test_no_delete values
+    (1, 1, 'a'), (2, 1, 'b'), (3, 1, 'c'), (4, 1, 'd'),
+    (5, 1, 'e'), (6, 1, 'f'), (7, 1, 'g'), (8, 1, 'h');
+
 drop table if exists dv_test_v2;
 create table dv_test_v2 (
     id int,

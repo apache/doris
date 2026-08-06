@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.jobs.executor;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
@@ -161,6 +160,7 @@ import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
 import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
+import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
@@ -336,6 +336,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     ),
                                     // push down SEMI Join
                                     bottomUp(
+                                            new SemiJoinCommute(),
                                             new TransposeSemiJoinLogicalJoin(),
                                             new TransposeSemiJoinLogicalJoinProject(),
                                             new TransposeSemiJoinAgg(),
@@ -408,6 +409,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     topDown(
                                             new PruneOlapScanPartition(),
                                             new PruneEmptyPartition(),
+                                            new NormalizeOlapTableStreamScan(),
                                             new PruneFileScanPartition(),
                                             new PushDownFilterIntoSchemaScan()
                                     )
@@ -575,6 +577,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 ),
                                 // push down SEMI Join
                                 bottomUp(
+                                        new SemiJoinCommute(),
                                         new TransposeSemiJoinLogicalJoin(),
                                         new TransposeSemiJoinLogicalJoinProject(),
                                         new TransposeSemiJoinAgg(),
@@ -728,6 +731,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new LogicalResultSinkToShortCircuitPointQuery(),
                                 new PruneOlapScanPartition(),
                                 new PruneEmptyPartition(),
+                                // Stream lowering needs the pruned partitions and must finish before
+                                // OperativeColumnDerive treats stream virtual columns as scan slots.
+                                new NormalizeOlapTableStreamScan(),
                                 new PruneFileScanPartition(),
                                 new PushDownFilterIntoSchemaScan(),
                                 new PruneOlapScanTablet()
@@ -892,14 +898,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ImmutableSet.of(LogicalCTEAnchor.class),
                 () -> {
                     List<RewriteJob> rewriteJobs = Lists.newArrayListWithExpectedSize(300);
-                    if (Config.enable_table_stream) {
-                        rewriteJobs.addAll(jobs(
-                                        topic("normalize olap table stream scan",
-                                                topDown(new NormalizeOlapTableStreamScan())
-                                        )
-                                )
-                        );
-                    }
                     rewriteJobs.addAll(jobs(
                             topic("cte inline and pull up all cte anchor",
                                     custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),

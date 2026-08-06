@@ -21,9 +21,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.FederationBackendPolicy;
-import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.NodeSelectionStrategy;
+import org.apache.doris.datasource.scan.FederationBackendPolicy;
+import org.apache.doris.datasource.scan.NodeSelectionStrategy;
+import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -32,7 +32,6 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Multimap;
-import org.apache.hadoop.fs.Path;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -155,10 +154,10 @@ public class FederationBackendPolicyTest {
             for (Split split : assignedSplits) {
                 FileSplit fileSplit = (FileSplit) split;
                 ++totalSplitNum;
-                if (fileSplit.getPath().getPath().equals(new Path("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"))) {
+                if (fileSplit.getPath().getNormalizedLocation().equals("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc")) {
                     Assert.assertEquals("172.30.0.100", backend.getHost());
                     checkedLocalSplit.add(true);
-                } else if (fileSplit.getPath().getPath().equals(new Path("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00003-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"))) {
+                } else if (fileSplit.getPath().getNormalizedLocation().equals("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00003-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc")) {
                     Assert.assertEquals("172.30.0.106", backend.getHost());
                     checkedLocalSplit.add(true);
                 }
@@ -670,6 +669,22 @@ public class FederationBackendPolicyTest {
 
         fileSplit.setTargetSplitSize(2000L);
         Assert.assertEquals(50, fileSplit.getSplitWeight().getRawValue());
+    }
+
+    // Regression for the NPE in testGenerateRandomly: FileSplit is Lombok @Data, whose generated
+    // equals()/hashCode() invoke getSelfSplitWeight(). A split that never sets a size-based weight
+    // leaves selfSplitWeight null, so the getter must surface the "-1 = not provided" sentinel
+    // instead of unboxing null (which threw NPE during the multimap comparison).
+    @Test
+    public void testFileSplitEqualsHashCodeWithUnsetWeight() {
+        LocationPath path = LocationPath.of("s1");
+        // Two distinct instances that share the same LocationPath are field-equal, so equals()
+        // proceeds past the identity short-circuit and exercises getSelfSplitWeight().
+        FileSplit a = new FileSplit(path, 0, 1000, 1000, 0, null, Collections.emptyList());
+        FileSplit b = new FileSplit(path, 0, 1000, 1000, 0, null, Collections.emptyList());
+        Assert.assertEquals(-1L, a.getSelfSplitWeight());
+        Assert.assertEquals(a, b);
+        Assert.assertEquals(a.hashCode(), b.hashCode());
     }
 
     @Test

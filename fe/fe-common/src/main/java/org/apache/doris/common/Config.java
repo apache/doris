@@ -135,6 +135,13 @@ public class Config extends ConfigBase {
             description = {"Whether to check for table lock leaks"})
     public static boolean check_table_lock_leaky = false;
 
+    @ConfField(mutable = false, description = {"当前 FE 节点所属的 Resource Group。可通过命令行参数 "
+            + "`--local_resource_group` 或环境变量 `DORIS_LOCAL_RESOURCE_GROUP` 覆盖。空字符串表示未设置。",
+            "The Resource Group that the current FE node belongs to. It can be overridden by the "
+                    + "`--local_resource_group` command line option or the "
+                    + "`DORIS_LOCAL_RESOURCE_GROUP` environment variable. An empty string means unset."})
+    public static String local_resource_group = "";
+
     @ConfField(mutable = true, masterOnly = false,
             description = {"PreparedStatement stmtId starting position, used for testing only"})
     public static long prepared_stmt_start_id = -1;
@@ -152,7 +159,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The safe path of the JDBC driver. When creating a JDBC Catalog, "
             + "you can configure multiple files or network paths that are allowed to be used, "
             + "separated by semicolons. "
-            + "The default is * to allow all; if set to empty, it also means to allow all"})
+            + "The default is * to allow all; if set to empty, it also means to allow all. "
+            + "When set to concrete paths, driver URLs are matched structurally (component-based), "
+            + "so path traversal and prefix confusion are rejected."})
     public static String jdbc_driver_secure_path = "*";
 
     @ConfField(description = {"Functions that MySQL JDBC Catalog does not support pushing down"})
@@ -165,7 +174,9 @@ public class Config extends ConfigBase {
                     + "these variables, it just needs to accept them without error."})
     public static String[] mysql_compat_var_whitelist = {};
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Force SQLServer Jdbc Catalog encrypt to false"})
+    @ConfField(description = {"Force SQLServer Jdbc Catalog encrypt to false. "
+            + "This is a security-sensitive switch (it disables SQLServer JDBC transport encryption), "
+            + "so it can only be set in fe.conf and is not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static boolean force_sqlserver_jdbc_encrypt_false = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -484,7 +495,7 @@ public class Config extends ConfigBase {
                     + "starts for the first time. You can also specify one."})
     public static int cluster_id = -1;
 
-    @ConfField(description = {"Cluster token used for internal authentication."})
+    @ConfField(sensitive = true, description = {"Cluster token used for internal authentication."})
     public static String auth_token = "";
 
     @ConfField(mutable = true, masterOnly = true,
@@ -626,6 +637,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "Whether to enable memtable on sink node by default in stream load"})
     public static boolean stream_load_default_memtable_on_sink_node = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable forwarding group commit stream load to follower nodes."
+                    + " If true, stream load with group commit mode will be forwarded to a follower FE round robin."})
+    public static boolean enable_forward_group_commit_stream_load_to_follower = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum timeout for load jobs, in seconds."})
     public static int max_load_timeout_second = 259200; // 3days
@@ -812,6 +828,18 @@ public class Config extends ConfigBase {
     // For forward compatibility, will be removed later.
     // check token when download image file.
     @ConfField public static boolean enable_token_check = true;
+
+    @ConfField(sensitive = true, description = {"Cluster token for FE meta-service internal HTTP authentication. "
+            + "When set (non-empty), FE meta-service endpoints (such as image/role/check/put/journal_id) "
+            + "additionally require the caller to present a matching token header, on top of the existing "
+            + "node-host check. Empty (default) keeps the legacy behavior of node-host check only, so "
+            + "existing clusters and rolling upgrades are unaffected. Must be identical on all FEs and "
+            + "provisioned in fe.conf before enabling, otherwise FEs will reject each other.",
+            "FE meta-service 内部 HTTP 鉴权使用的集群 token。设置(非空)后,meta-service 端点(如 "
+            + "image/role/check/put/journal_id)在原有 node-host 校验之上,额外要求调用方携带匹配的 token 头。"
+            + "为空(默认)时维持仅 node-host 校验的旧行为,存量集群与滚动升级不受影响。必须在所有 FE 上取值一致,"
+            + "并在启用前写入 fe.conf,否则 FE 之间会互相拒绝。"})
+    public static String fe_meta_auth_token = "";
 
     /**
      * Set to true if you deploy Palo using thirdparty deploy manager
@@ -2008,7 +2036,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 10;
+    public static int max_be_exec_version = 11;
 
     /**
      * Min data version of backends serialize block.
@@ -2141,6 +2169,17 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Maximum cache number of database and table instances in external catalogs."})
     public static long max_meta_object_cache_num = 1000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "Stripe count used by multi-key MetaCacheEntry instances such as external object caches."})
+    public static int external_meta_cache_object_entry_lock_stripes = 256;
+
+    @ConfField(mutable = true, masterOnly = false, description = {
+            "Whether to synchronously refresh external database/table names when a name lookup misses in an "
+                    + "existing cached snapshot. This option is enabled by default to preserve existing external "
+                    + "catalog visibility behavior. Disable it to avoid repeated remote name enumeration for "
+                    + "non-existent objects."})
+    public static boolean enable_external_meta_cache_name_miss_refresh = true;
+
     @ConfField(description = {"Maximum cache number of Hive partitioned tables."})
     public static long max_hive_partition_table_cache_num = 10000;
 
@@ -2193,11 +2232,6 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The auto-refresh interval of the external meta cache."})
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
 
-    // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
-    @ConfField(mutable = true, masterOnly = false,
-            description = {"Whether external meta cache uses manual miss load instead of Caffeine sync load."})
-    public static boolean enable_external_meta_cache_manual_miss_load = true;
-
     /**
      * Github workflow test type, for setting some session variables
      * only for certain test type. E.g. only settting batch_size to small
@@ -2247,12 +2281,18 @@ public class Config extends ConfigBase {
     public static boolean enable_fqdn_mode = false;
 
     /**
-     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
-     * otherwise it will throw an AnalysisException.
+     * @deprecated No-op since the hms/iceberg SPI cutover: external views (hive, iceberg) are always served.
+     *     Retained for one release so operator fe.conf that sets it still parses; will be removed later.
      */
+    @Deprecated
     @ConfField(mutable = true)
     public static boolean enable_query_hive_views = true;
 
+    /**
+     * @deprecated No-op since the iceberg SPI cutover: external views (hive, iceberg) are always served.
+     *     Retained for one release so operator fe.conf that sets it still parses; will be removed later.
+     */
+    @Deprecated
     @ConfField(mutable = true)
     public static boolean enable_query_iceberg_views = true;
 
@@ -2822,10 +2862,6 @@ public class Config extends ConfigBase {
             "The maximum number of worker threads for the HTTP SQL submitter."})
     public static int http_sql_submitter_max_worker_threads = 2;
 
-    @ConfField(mutable = false, masterOnly = false, description = {
-            "The maximum number of worker threads for the HTTP upload submitter."})
-    public static int http_load_submitter_max_worker_threads = 2;
-
     @ConfField(mutable = true, masterOnly = true, description = {
             "The threshold of load labels' number. After this number is exceeded, "
                     + "the labels of the completed import jobs or tasks will be deleted, "
@@ -2857,9 +2893,12 @@ public class Config extends ConfigBase {
                     + "multiple integration names are comma-separated"})
     public static String authentication_chain = "";
 
+    // The dir the trino-connector catalog loads Trino's own plugins from, used verbatim. Keep the
+    // default in sync with BE config trino_connector_plugin_dir: FE and BE load the same plugins and
+    // an operator who leaves both untouched expects both to find them.
     @ConfField(mutable = true, masterOnly = false, description = {
             "Specify the default plugins loading path for the trino-connector catalog"})
-    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/connectors";
+    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/trino_plugins";
 
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
@@ -3066,7 +3105,7 @@ public class Config extends ConfigBase {
     public static int drop_rpc_retry_num = 200;
 
     @ConfField
-    public static int default_get_version_from_ms_timeout_second = 3;
+    public static int default_get_version_from_ms_timeout_second = 30;
 
     @ConfField(mutable = true)
     public static boolean enable_cloud_multi_replica = false;
@@ -3232,10 +3271,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int mow_calculate_delete_bitmap_retry_times = 10;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(description = {
             "The allowlist for S3 load endpoints. If it is empty, no allowlist will be set. "
-                    + "For example: s3_load_endpoint_white_list=a,b,c"})
+                    + "For example: s3_load_endpoint_white_list=a,b,c. "
+                    + "This can only be set in fe.conf and takes effect after a restart; "
+                    + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static String[] s3_load_endpoint_white_list = {};
+
+    @ConfField(description = {
+            "The default scheme for S3 endpoints without an explicit scheme. Valid values are http and https."},
+            options = {"http", "https"})
+    public static String s3_client_http_scheme = "https";
 
     @ConfField(mutable = true, description = {
             "For deterministic S3 paths (without wildcards like *, ?), use HEAD requests instead of "
@@ -3266,9 +3312,11 @@ public class Config extends ConfigBase {
             ".dfs.core.cloudapi.de"
     };
 
-    @ConfField(mutable = true, description = {
+    @ConfField(description = {
             "The allowlist for JDBC driver URLs. If it is empty, no allowlist will be set. "
-                    + "For example: jdbc_driver_url_white_list=a,b,c"})
+                    + "For example: jdbc_driver_url_white_list=a,b,c. "
+                    + "This can only be set in fe.conf and takes effect after a restart; "
+                    + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static String[] jdbc_driver_url_white_list = {};
 
     @ConfField(description = {"The maximum length of label in Stream Load is limited."})
@@ -3400,6 +3448,12 @@ public class Config extends ConfigBase {
                             + "to other BEs in cloud mode."})
     public static int rehash_tablet_after_be_dead_seconds = 3600;
 
+    @ConfField(mutable = false, masterOnly = true,
+            description = {
+                    "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. "
+                            + "If false, use the legacy modulo placement. Restart-only."})
+    public static boolean enable_cloud_colocate_consistent_hash = true;
+
     @ConfField(mutable = true, description = {
             "Whether to enable the automatic start-stop feature in cloud model, default is true."})
     public static boolean enable_auto_start_for_cloud_cluster = true;
@@ -3458,6 +3512,38 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {
             "In cloud mode, the retry count when the FE request to meta service times out. Default is 1."})
     public static int meta_service_rpc_timeout_retry_times = 1;
+
+    @ConfField(mutable = true, description = {
+            "Whether to enable QPS rate limit for RPC requests to meta service."})
+    public static boolean meta_service_rpc_rate_limit_enabled = false;
+
+    @ConfField(mutable = true, description = {
+            "Default QPS limit for each method (requests per second) in each cpu core, "
+                    + "non-positive value (<= 0) means no limit"})
+    public static int meta_service_rpc_rate_limit_default_qps_per_core = 50;
+
+    @ConfField(mutable = true,
+            callback = MetaServiceRpcRateLimitConfigValidator.QpsConfigHandler.class,
+            description = {
+                "QPS limit config per rpc method to meta service in per cpu core, "
+                    + "format: method1:qps1;method2:qps2, "
+                    + "e.g.: getPartitionVersion:100;getTableVersion:100;getTabletStats:50, "
+                    + "non-positive value (<= 0) means no limit"})
+    public static String meta_service_rpc_rate_limit_qps_per_core_config
+            = "getPartitionVersion:500;getTableVersion:500;getTabletStats:50;beginTxn:50";
+
+    @ConfField(mutable = true,
+            callback = MetaServiceRpcRateLimitConfigValidator.PositiveIntConfigHandler.class,
+            description = {
+                "Burst window for meta service RPC rate limit in seconds. "
+                    + "The long-term average QPS is unchanged, while calls can burst within this window."})
+    public static int meta_service_rpc_rate_limit_burst_seconds = 2;
+
+    @ConfField(mutable = true, callback = MetaServiceRpcRateLimitConfigValidator.NonNegativeLongConfigHandler.class,
+            description = {
+                "Max wait time in milliseconds when meta service RPC is rate limited, "
+                    + "zero means fail fast."})
+    public static long meta_service_rpc_rate_limit_wait_timeout_ms = 1000;
 
     @ConfField(mutable = true, description = {
             "In cloud mode, the auto start and stop ignores the databases used by internal jobs, "
@@ -3694,4 +3780,16 @@ public class Config extends ConfigBase {
                     + "obtaining partition version information when calculating the delete bitmap. Enabled "
                     + "by default."})
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable adaptive random bucket load. When enabled, each BE computes its own local "
+                    + "bucket set (buckets whose primary replica it hosts) from the tablet location info "
+                    + "sent by FE, and rotates across those buckets once per-tablet write volume exceeds "
+                    + "the threshold (default 200 MB). This reduces import memory pressure and improves "
+                    + "throughput for random-distribution tables. Covers all load types uniformly.",
+            "是否启用自适应随机桶导入。开启后每个 BE 根据 FE 下发的 tablet 位置信息自行计算本地桶集合"
+                    + "（持有主副本的桶），并在单个 tablet 写入量超过阈值（默认 200 MB）后在本地桶之间轮转。"
+                    + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
+    public static boolean enable_adaptive_random_bucket_load = true;
+
 }

@@ -39,6 +39,7 @@ import com.sleepycat.je.rep.util.ReplicationGroupAdmin;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -59,6 +60,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 public class BDBEnvironmentTest {
     private static final Logger LOG = LogManager.getLogger(BDBEnvironmentTest.class);
@@ -122,6 +124,19 @@ public class BDBEnvironmentTest {
         byte[] byteArray = new byte[32];
         new SecureRandom().nextBytes(byteArray);
         return byteArray;
+    }
+
+    private void assertDatabaseValueEventually(BDBEnvironment environment, String dbName,
+            DatabaseEntry key, DatabaseEntry expectedValue) {
+        Awaitility.await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> {
+            Assertions.assertEquals(1, environment.getDatabaseNames().size());
+            Database database = environment.openDatabase(dbName);
+            Assertions.assertNotNull(database);
+            DatabaseEntry actualValue = new DatabaseEntry();
+            Assertions.assertEquals(OperationStatus.SUCCESS,
+                    database.get(null, key, actualValue, LockMode.DEFAULT));
+            Assertions.assertArrayEquals(expectedValue.getData(), actualValue.getData());
+        });
     }
 
     private static DatabaseEntry longToEntry(long value) {
@@ -690,12 +705,12 @@ public class BDBEnvironmentTest {
                     continue;
                 }
 
-                Assertions.assertEquals(1, entryPair.first.getDatabaseNames().size());
-                Database followerDb = entryPair.first.openDatabase(beginDbName);
-                DatabaseEntry readValue = new DatabaseEntry();
-                Assertions.assertEquals(OperationStatus.SUCCESS, followerDb.get(null, key, readValue, LockMode.DEFAULT));
-                Assertions.assertEquals(new String(value.getData()), new String(readValue.getData()));
+                assertDatabaseValueEventually(entryPair.first, beginDbName, key, value);
             }
+
+            long count = masterDb.count();
+            DatabaseEntry localCommitKey = new DatabaseEntry(new byte[]{1, 2, 3});
+            DatabaseEntry localCommitValue = new DatabaseEntry(new byte[]{4, 5, 6});
 
             ReplicatedEnvironment replicatedEnvironment = masterPair.first.getReplicatedEnvironment();
             Field envImplField = ReplicatedEnvironment.class.getDeclaredField("repEnvironmentImpl");
@@ -706,19 +721,20 @@ public class BDBEnvironmentTest {
             Field environmentImplField = com.sleepycat.je.Environment.class.getDeclaredField("environmentImpl");
             environmentImplField.setAccessible(true);
             RepImpl implSpy = Mockito.spy(impl);
-            envImplField.set(replicatedEnvironment, implSpy);
-            environmentImplField.set(replicatedEnvironment, implSpy);
             Mockito.doThrow(new InsufficientAcksException("mocked"))
                     .when(implSpy).postLogCommitHook(Mockito.any(), Mockito.any());
 
-            long count = masterDb.count();
-            final Database oldMasterDb = masterDb;
-            Assertions.assertThrows(InsufficientAcksException.class, () -> {
-                // Since this key is not replicated to any replicas, it should not be read.
-                DatabaseEntry k = new DatabaseEntry(new byte[]{1, 2, 3});
-                DatabaseEntry v = new DatabaseEntry(new byte[]{4, 5, 6});
-                oldMasterDb.put(null, k, v);
-            });
+            try {
+                envImplField.set(replicatedEnvironment, implSpy);
+                environmentImplField.set(replicatedEnvironment, implSpy);
+                final Database oldMasterDb = masterDb;
+                // Simulate an acknowledgement failure after the transaction is committed locally.
+                Assertions.assertThrows(InsufficientAcksException.class,
+                        () -> oldMasterDb.put(null, localCommitKey, localCommitValue));
+            } finally {
+                envImplField.set(replicatedEnvironment, impl);
+                environmentImplField.set(replicatedEnvironment, impl);
+            }
 
             LOG.info("close old master {} | {}", masterPair.second.name, masterPair.second.dir);
             masterDb.close();
@@ -741,9 +757,10 @@ public class BDBEnvironmentTest {
             // The local commit txn is readable!!!
             Assertions.assertEquals(count + 1, masterDb.count());
 
-            key = new DatabaseEntry(new byte[]{1, 2, 3});
             DatabaseEntry readValue = new DatabaseEntry();
-            Assertions.assertEquals(OperationStatus.SUCCESS, masterDb.get(null, key, readValue, LockMode.DEFAULT));
+            Assertions.assertEquals(OperationStatus.SUCCESS,
+                    masterDb.get(null, localCommitKey, readValue, LockMode.DEFAULT));
+            Assertions.assertArrayEquals(localCommitValue.getData(), readValue.getData());
         } finally {
             followersInfo.stream().forEach(entryPair -> {
                 entryPair.first.close();

@@ -28,12 +28,18 @@
 #include <limits>
 #include <type_traits>
 
+#include "common/config.h"
+#include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/data_type_date_or_datetime_serde.h"
+#include "core/data_type_serde/data_type_datetimev2_serde.h"
+#include "core/data_type_serde/data_type_datev2_serde.h"
+#include "core/field.h"
 #include "core/types.h"
 #include "testutil/test_util.h"
 #include "util/slice.h"
@@ -104,6 +110,20 @@ public:
         test_func(column_uint8->get_ptr(), serde_uint8, "TINYINT_UNSIGNED.csv");
     }
 };
+
+class RowStoreCompactJsonbConfigGuard {
+public:
+    explicit RowStoreCompactJsonbConfigGuard(bool enabled)
+            : _old_value(config::enable_row_store_compact_jsonb) {
+        config::enable_row_store_compact_jsonb = enabled;
+    }
+
+    ~RowStoreCompactJsonbConfigGuard() { config::enable_row_store_compact_jsonb = _old_value; }
+
+private:
+    bool _old_value;
+};
+
 TEST_F(DataTypeNumberSerDeTest, serdes) {
     auto test_func = [](const auto& serde, const auto& source_column) {
         using SerdeType = decltype(serde);
@@ -370,6 +390,283 @@ TEST_F(DataTypeNumberSerDeTest, ArrowStringToUnsignedDateLikeTypes) {
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(1, datetimev2_column->size());
     EXPECT_EQ(20240102112233ULL, datetimev2_column->get_data()[0].to_date_int_val());
+}
+
+static JsonbType expected_jsonb_integer_type(int128_t value) {
+    if (value >= std::numeric_limits<int8_t>::min() &&
+        value <= std::numeric_limits<int8_t>::max()) {
+        return JsonbType::T_Int8;
+    }
+    if (value >= std::numeric_limits<int16_t>::min() &&
+        value <= std::numeric_limits<int16_t>::max()) {
+        return JsonbType::T_Int16;
+    }
+    if (value >= std::numeric_limits<int32_t>::min() &&
+        value <= std::numeric_limits<int32_t>::max()) {
+        return JsonbType::T_Int32;
+    }
+    if (value >= std::numeric_limits<int64_t>::min() &&
+        value <= std::numeric_limits<int64_t>::max()) {
+        return JsonbType::T_Int64;
+    }
+    return JsonbType::T_Int128;
+}
+
+template <typename SerDeType>
+void check_number_row_store_jsonb_width(const SerDeType& serde,
+                                        const typename SerDeType::ColumnType& source_column,
+                                        JsonbType expected_type) {
+    JsonbWriterT<JsonbOutStream> jsonb_writer;
+    jsonb_writer.writeStartObject();
+    Arena pool;
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
+    options.enable_row_store_compact_jsonb = config::enable_row_store_compact_jsonb;
+    serde.write_one_cell_to_jsonb(source_column, jsonb_writer, pool, 0, 0, options);
+    jsonb_writer.writeEndObject();
+
+    const JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                    jsonb_writer.getOutput()->getSize(), &pdoc);
+    ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st;
+    const JsonbDocument& doc = *pdoc;
+    auto it = doc->begin();
+    ASSERT_TRUE(it != doc->end());
+    ASSERT_EQ(it->value()->type, expected_type);
+
+    MutableColumnPtr dst = source_column.clone_empty();
+    serde.read_one_cell_from_jsonb(*dst, it->value());
+    ASSERT_EQ(dst->size(), 1);
+    const auto* typed_dst = assert_cast<const typename SerDeType::ColumnType*>(dst.get());
+    EXPECT_EQ(typed_dst->get_element(0), source_column.get_element(0));
+}
+
+template <PrimitiveType T>
+void check_number_row_store_jsonb_width(typename PrimitiveTypeTraits<T>::CppType value,
+                                        JsonbType expected_type) {
+    using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
+    auto column = ColumnType::create();
+    column->insert_value(value);
+    DataTypeNumberSerDe<T> serde;
+    check_number_row_store_jsonb_width(serde, *column, expected_type);
+}
+
+template <PrimitiveType T>
+void check_number_row_store_jsonb_read_compat(const JsonbValue* value,
+                                              typename PrimitiveTypeTraits<T>::CppType expected) {
+    using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
+    auto dst = ColumnType::create();
+    DataTypeNumberSerDe<T> serde;
+    serde.read_one_cell_from_jsonb(*dst, value);
+    ASSERT_EQ(dst->size(), 1);
+    EXPECT_EQ(dst->get_element(0), expected);
+}
+
+template <PrimitiveType T, typename Writer>
+void check_number_row_store_jsonb_encoded_read_compat(
+        typename PrimitiveTypeTraits<T>::CppType expected, JsonbType expected_type,
+        Writer write_value) {
+    JsonbWriterT<JsonbOutStream> jsonb_writer;
+    jsonb_writer.writeStartObject();
+    jsonb_writer.writeKey(static_cast<JsonbKeyValue::keyid_type>(0));
+    write_value(jsonb_writer);
+    jsonb_writer.writeEndObject();
+
+    const JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                    jsonb_writer.getOutput()->getSize(), &pdoc);
+    ASSERT_TRUE(st.ok()) << st;
+    auto it = (*pdoc)->begin();
+    ASSERT_TRUE(it != (*pdoc)->end());
+    ASSERT_EQ(it->value()->type, expected_type);
+    check_number_row_store_jsonb_read_compat<T>(it->value(), expected);
+}
+
+TEST_F(DataTypeNumberSerDeTest, RowStoreIntegerJsonbWidth) {
+    {
+        RowStoreCompactJsonbConfigGuard guard(false);
+        check_number_row_store_jsonb_width<TYPE_BOOLEAN>(1, JsonbType::T_Int8);
+        check_number_row_store_jsonb_width<TYPE_TINYINT>(-1, JsonbType::T_Int8);
+        check_number_row_store_jsonb_width<TYPE_SMALLINT>(1, JsonbType::T_Int16);
+        check_number_row_store_jsonb_width<TYPE_INT>(1, JsonbType::T_Int32);
+        check_number_row_store_jsonb_width<TYPE_BIGINT>(1, JsonbType::T_Int64);
+        check_number_row_store_jsonb_width<TYPE_LARGEINT>(static_cast<Int128>(1),
+                                                          JsonbType::T_Int128);
+    }
+
+    {
+        RowStoreCompactJsonbConfigGuard guard(true);
+        check_number_row_store_jsonb_width<TYPE_BOOLEAN>(1, JsonbType::T_Int8);
+        check_number_row_store_jsonb_width<TYPE_TINYINT>(-1, JsonbType::T_Int8);
+        check_number_row_store_jsonb_width<TYPE_SMALLINT>(1, JsonbType::T_Int8);
+        check_number_row_store_jsonb_width<TYPE_SMALLINT>(128, JsonbType::T_Int16);
+        check_number_row_store_jsonb_width<TYPE_INT>(1, JsonbType::T_Int8);
+        check_number_row_store_jsonb_width<TYPE_INT>(128, JsonbType::T_Int16);
+        check_number_row_store_jsonb_width<TYPE_INT>(32768, JsonbType::T_Int32);
+
+        check_number_row_store_jsonb_width<TYPE_BIGINT>(1, JsonbType::T_Int8);
+        check_number_row_store_jsonb_width<TYPE_BIGINT>(128, JsonbType::T_Int16);
+        check_number_row_store_jsonb_width<TYPE_BIGINT>(32768, JsonbType::T_Int32);
+        check_number_row_store_jsonb_width<TYPE_BIGINT>(static_cast<Int64>(1) << 40,
+                                                        JsonbType::T_Int64);
+
+        check_number_row_store_jsonb_width<TYPE_LARGEINT>(static_cast<Int128>(1),
+                                                          JsonbType::T_Int8);
+        check_number_row_store_jsonb_width<TYPE_LARGEINT>(static_cast<Int128>(1) << 40,
+                                                          JsonbType::T_Int64);
+        check_number_row_store_jsonb_width<TYPE_LARGEINT>(static_cast<Int128>(1) << 100,
+                                                          JsonbType::T_Int128);
+    }
+
+    // Backward compatibility: existing row-store data may still contain fixed-width tags.
+    check_number_row_store_jsonb_encoded_read_compat<TYPE_BOOLEAN>(
+            1, JsonbType::T_Int8, [](JsonbWriter& writer) { writer.writeInt8(1); });
+    check_number_row_store_jsonb_encoded_read_compat<TYPE_TINYINT>(
+            -1, JsonbType::T_Int8, [](JsonbWriter& writer) { writer.writeInt8(-1); });
+    check_number_row_store_jsonb_encoded_read_compat<TYPE_SMALLINT>(
+            1, JsonbType::T_Int16, [](JsonbWriter& writer) { writer.writeInt16(1); });
+    check_number_row_store_jsonb_encoded_read_compat<TYPE_INT>(
+            1, JsonbType::T_Int32, [](JsonbWriter& writer) { writer.writeInt32(1); });
+    check_number_row_store_jsonb_encoded_read_compat<TYPE_BIGINT>(
+            1, JsonbType::T_Int64, [](JsonbWriter& writer) { writer.writeInt64(1); });
+    check_number_row_store_jsonb_encoded_read_compat<TYPE_LARGEINT>(
+            static_cast<Int128>(1), JsonbType::T_Int128,
+            [](JsonbWriter& writer) { writer.writeInt128(1); });
+
+    // The reader accepts compact tags even when compact writes are disabled.
+    RowStoreCompactJsonbConfigGuard guard(false);
+    check_number_row_store_jsonb_encoded_read_compat<TYPE_BIGINT>(
+            1, JsonbType::T_Int8, [](JsonbWriter& writer) { writer.writeInt8(1); });
+    check_number_row_store_jsonb_encoded_read_compat<TYPE_LARGEINT>(
+            static_cast<Int128>(1), JsonbType::T_Int8,
+            [](JsonbWriter& writer) { writer.writeInt8(1); });
+}
+
+TEST_F(DataTypeNumberSerDeTest, RowStoreDateTimeJsonbWidth) {
+    VecDateTimeValue date;
+    date.unchecked_set_time(2026, 5, 20, 0, 0, 0);
+    auto date_column = ColumnDate::create();
+    date_column->insert_value(date);
+    DataTypeDateSerDe<> date_serde;
+    {
+        RowStoreCompactJsonbConfigGuard guard(false);
+        check_number_row_store_jsonb_width(date_serde, *date_column, JsonbType::T_Int64);
+    }
+    {
+        RowStoreCompactJsonbConfigGuard guard(true);
+        check_number_row_store_jsonb_width(
+                date_serde, *date_column,
+                expected_jsonb_integer_type(*reinterpret_cast<const Int64*>(&date)));
+    }
+    const auto date_raw_value = *reinterpret_cast<const Int64*>(&date);
+    check_number_row_store_jsonb_encoded_read_compat<TYPE_DATE>(
+            date, JsonbType::T_Int64,
+            [date_raw_value](JsonbWriter& writer) { writer.writeInt64(date_raw_value); });
+
+    VecDateTimeValue datetime;
+    datetime.unchecked_set_time(2026, 5, 20, 1, 2, 3);
+    auto datetime_column = ColumnDateTime::create();
+    datetime_column->insert_value(datetime);
+    DataTypeDateTimeSerDe datetime_serde(0);
+    {
+        RowStoreCompactJsonbConfigGuard guard(false);
+        check_number_row_store_jsonb_width(datetime_serde, *datetime_column, JsonbType::T_Int64);
+    }
+    {
+        RowStoreCompactJsonbConfigGuard guard(true);
+        check_number_row_store_jsonb_width(
+                datetime_serde, *datetime_column,
+                expected_jsonb_integer_type(*reinterpret_cast<const Int64*>(&datetime)));
+    }
+    const auto datetime_raw_value = *reinterpret_cast<const Int64*>(&datetime);
+    check_number_row_store_jsonb_encoded_read_compat<TYPE_DATETIME>(
+            datetime, JsonbType::T_Int64,
+            [datetime_raw_value](JsonbWriter& writer) { writer.writeInt64(datetime_raw_value); });
+
+    DateV2Value<DateV2ValueType> datev2;
+    datev2.unchecked_set_time(2026, 5, 20, 0, 0, 0, 0);
+    {
+        RowStoreCompactJsonbConfigGuard guard(false);
+        check_number_row_store_jsonb_width<TYPE_DATEV2>(datev2, JsonbType::T_Int32);
+    }
+    {
+        RowStoreCompactJsonbConfigGuard guard(true);
+        check_number_row_store_jsonb_width<TYPE_DATEV2>(
+                datev2, expected_jsonb_integer_type(*reinterpret_cast<const UInt32*>(&datev2)));
+    }
+    const auto datev2_raw_value = *reinterpret_cast<const UInt32*>(&datev2);
+    check_number_row_store_jsonb_encoded_read_compat<TYPE_DATEV2>(
+            datev2, JsonbType::T_Int32, [datev2_raw_value](JsonbWriter& writer) {
+                writer.writeInt32(static_cast<Int32>(datev2_raw_value));
+            });
+
+    DateV2Value<DateTimeV2ValueType> datetimev2;
+    datetimev2.unchecked_set_time(2026, 5, 20, 1, 2, 3, 0);
+    {
+        RowStoreCompactJsonbConfigGuard guard(false);
+        check_number_row_store_jsonb_width<TYPE_DATETIMEV2>(datetimev2, JsonbType::T_Int64);
+    }
+    {
+        RowStoreCompactJsonbConfigGuard guard(true);
+        check_number_row_store_jsonb_width<TYPE_DATETIMEV2>(
+                datetimev2,
+                expected_jsonb_integer_type(*reinterpret_cast<const UInt64*>(&datetimev2)));
+    }
+    const auto datetimev2_raw_value = *reinterpret_cast<const UInt64*>(&datetimev2);
+    check_number_row_store_jsonb_encoded_read_compat<TYPE_DATETIMEV2>(
+            datetimev2, JsonbType::T_Int64, [datetimev2_raw_value](JsonbWriter& writer) {
+                writer.writeInt64(static_cast<Int64>(datetimev2_raw_value));
+            });
+}
+
+// to_olap_string / from_zonemap_string must round-trip finite floating-point
+// extremes (±DBL_MAX / ±FLT_MAX). The old digits10+1 (16g/7g) formatter rounded
+// DBL_MAX up to 1.797693134862316e+308 — larger than the largest finite double —
+// so from_olap_string parsed it to ±inf and rejected it, and the zone-map min/max
+// never got materialized.
+TEST_F(DataTypeNumberSerDeTest, OlapStringRoundTripFloatExtremes) {
+    auto check_double = [&](double v) {
+        Field field = Field::create_field<TYPE_DOUBLE>(v);
+        std::string s = serde_float64->to_olap_string(field);
+        Field back;
+        Status st = serde_float64->from_zonemap_string(s, back);
+        ASSERT_TRUE(st.ok()) << "double round-trip failed: v=" << v << " str='" << s << "'";
+        EXPECT_EQ(back.get<TYPE_DOUBLE>(), v) << "str='" << s << "'";
+    };
+    auto check_float = [&](float v) {
+        Field field = Field::create_field<TYPE_FLOAT>(v);
+        std::string s = serde_float32->to_olap_string(field);
+        Field back;
+        Status st = serde_float32->from_zonemap_string(s, back);
+        ASSERT_TRUE(st.ok()) << "float round-trip failed: v=" << v << " str='" << s << "'";
+        EXPECT_EQ(back.get<TYPE_FLOAT>(), v) << "str='" << s << "'";
+    };
+
+    // finite extremes — these broke before the fix
+    check_double(std::numeric_limits<double>::max());    // 1.7976931348623157e308
+    check_double(std::numeric_limits<double>::lowest()); // -1.7976931348623157e308
+    check_float(std::numeric_limits<float>::max());
+    check_float(std::numeric_limits<float>::lowest());
+
+    // neighbors of extremes + precision-sensitive values — also broke before
+    // the fix (digits10+1 is short of max_digits10)
+    check_double(std::nextafter(std::numeric_limits<double>::max(),
+                                0.0));                // 1 ULP below DBL_MAX, 16g -> inf
+    check_double(std::numeric_limits<double>::min()); // smallest normal, 16g loses precision
+    check_double(2.0000000164243876);                 // ordinary double needing 17 sig digits
+    check_float(std::nextafter(std::numeric_limits<float>::max(), 0.0f)); // 1 ULP below FLT_MAX
+    check_float(std::numeric_limits<float>::min());                       // smallest normal float
+
+    // ordinary values must still round-trip exactly
+    check_double(0.0);
+    check_double(-0.0);
+    check_double(1.0);
+    check_double(3.141592653589793);
+    check_double(1e300);
+    check_double(-1e308);
+    check_float(3.14f);
+    check_float(0.0f);
 }
 
 } // namespace doris

@@ -203,9 +203,9 @@ suite("test_variant_predefine_doc_value", "nonConcurrent"){
 
     // // schema change
     // // 1. add column
-    sql "alter table test_predefine1 add column v2 variant<'dcm':double,'dt':string> default null"
+    sql "alter table test_predefine1 add column v2 variant<'dcm':double,'dt':string, properties(\"variant_enable_doc_mode\" = \"false\")> default null"
     sql """insert into test_predefine1 values(101, '{"a" :1}', '{"dcm": 1111111}')""" 
-    sql "alter table test_predefine1 add column v3 variant<'dcm':double,'dt':string,'ip':string> default null"
+    sql "alter table test_predefine1 add column v3 variant<'dcm':double,'dt':string,'ip':string, properties(\"variant_enable_doc_mode\" = \"false\")> default null"
     sql """insert into test_predefine1 values(102, '{"a" :1}', '{"dcm": 1111111}', '{"dcm": 1111111}');"""
     // 2. todo support alter column type
     // sql "alter table test_predefine1 modify column v3 variant<dcm:decimal,dt:datetime,ip:ipv6>"

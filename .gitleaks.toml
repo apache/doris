@@ -7,6 +7,24 @@ useDefault = true
 id = "generic-api-key"
 
 [[rules.allowlists]]
+description = "Ignore generated random-string fixtures in selected regression outputs"
+condition = "AND"
+regexTarget = "match"
+paths = [
+    '''^regression-test/data/datatype_p0/nested_types/query/test_nested_types_insert_into_with_s3\.out$''',
+    '''^regression-test/data/datatype_p0/nested_types/query/test_nestedtypes_csv_insert_into_with_s3\.out$''',
+    '''^regression-test/data/external_table_p0/tvf/test_http_tvf\.out$''',
+    '''^regression-test/data/external_table_p0/tvf/test_local_tvf_with_complex_type_element_at\.out$''',
+]
+regexes = ['''[A-Za-z0-9]{6}-[A-Za-z0-9]{7}-[A-Za-z0-9]{3}-[A-Za-z0-9]{4}''']
+
+[[rules.allowlists]]
+description = "Ignore prose 'version token: iceberg/paimon' in code comments/plan-doc — a cache version-token discussion, not a credential (generic-api-key false positive: 'iceberg/paimon' entropy 3.52 barely clears the 3.5 threshold)"
+condition = "AND"
+regexTarget = "match"
+regexes = ['''token:\s*iceberg/paimon''']
+
+[[rules.allowlists]]
 description = "Ignore the fake OIDC token fixture in AuthenticatorManagerTest"
 condition = "AND"
 regexTarget = "line"
@@ -33,6 +51,16 @@ condition = "AND"
 regexTarget = "line"
 paths = ['''^tools/release-tools/release\.env$''']
 regexes = ['''SIGNING_KEY="[A-F0-9]{40}"''']
+
+[[rules]]
+id = "jwt"
+
+[[rules.allowlists]]
+description = "Ignore the fake JWT fixture in DelegatedCredentialTest"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^fe/fe-core/src/test/java/org/apache/doris/datasource/DelegatedCredentialTest\.java$''']
+regexes = ['''"eyJhbGciOiJub25lIn0\.eyJleHAiOjE3MDAwMDAwMDB9\."''']
 
 [[rules]]
 id = "private-key"

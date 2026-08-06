@@ -39,6 +39,7 @@ public class DataSourceConfigKeys {
     public static final String SNAPSHOT_PARALLELISM = "snapshot_parallelism";
     public static final String SNAPSHOT_PARALLELISM_DEFAULT = "1";
     public static final String SKIP_SNAPSHOT_BACKFILL = "skip_snapshot_backfill";
+    public static final String SCHEMA_CHANGE_ENABLED = "schema_change_enabled";
     // MySQL CDC client identity. Single value "5400" or range "5400-5408".
     public static final String SERVER_ID = "server_id";
     public static final String SSL_MODE = "ssl_mode";

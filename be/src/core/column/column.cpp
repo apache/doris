@@ -32,12 +32,11 @@ std::string IColumn::dump_structure() const {
     std::stringstream res;
     res << get_name() << "(size = " << size();
 
-    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
-        res << ", " << subcolumn->dump_structure();
+    ColumnCallback callback = [&](const IColumn& subcolumn) {
+        res << ", " << subcolumn.dump_structure();
     };
 
-    // simply read using for_each_subcolumn without modification; const_cast can be used.
-    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    for_each_subcolumn(callback);
 
     res << ")";
     return res.str();
@@ -45,11 +44,10 @@ std::string IColumn::dump_structure() const {
 
 int IColumn::count_const_column() const {
     int count = is_column_const(*this) ? 1 : 0;
-    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
-        count += subcolumn->count_const_column();
+    ColumnCallback callback = [&](const IColumn& subcolumn) {
+        count += subcolumn.count_const_column();
     };
-    // simply read using for_each_subcolumn without modification; const_cast can be used.
-    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    for_each_subcolumn(callback);
     return count;
 }
 
@@ -76,6 +74,11 @@ bool IColumn::column_boolean_check() const {
                 ++result_size_hint;
             }
         }
+        if (result_size_hint == nested_col.size()) {
+            // Filtering an all-non-null column preserves every row, so copying nested payloads
+            // only for validation can exhaust memory for large complex columns.
+            return nested_col.column_boolean_check();
+        }
         auto nested_col_skip_null = nested_col.filter(not_null_filter, result_size_hint);
         return nested_col_skip_null->column_boolean_check();
     }
@@ -95,13 +98,12 @@ bool IColumn::column_boolean_check() const {
     };
 
     bool is_valid = check_boolean_is_zero_or_one(*this);
-    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
-        if (!subcolumn->column_boolean_check()) {
+    ColumnCallback callback = [&](const IColumn& subcolumn) {
+        if (!subcolumn.column_boolean_check()) {
             is_valid = false;
         }
     };
-    // simply read using for_each_subcolumn without modification; const_cast can be used.
-    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    for_each_subcolumn(callback);
     return is_valid;
 }
 
@@ -122,13 +124,12 @@ bool IColumn::null_map_check() const {
     };
 
     bool is_valid = check_null_map_is_zero_or_one(*this);
-    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
-        if (!subcolumn->null_map_check()) {
+    ColumnCallback callback = [&](const IColumn& subcolumn) {
+        if (!subcolumn.null_map_check()) {
             is_valid = false;
         }
     };
-    // simply read using for_each_subcolumn without modification; const_cast can be used.
-    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    for_each_subcolumn(callback);
     return is_valid;
 }
 
@@ -231,15 +232,14 @@ bool is_column_const(const IColumn& column) {
 }
 
 void IColumn::check_const_only_in_top_level() const {
-    ColumnCallback throw_if_const = [&](WrappedPtr& column) {
-        const ColumnPtr& col = const_cast<const WrappedPtr&>(column);
-        if (is_column_const(*col)) {
+    ColumnCallback throw_if_const = [&](const IColumn& column) {
+        if (is_column_const(column)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "const column is not allowed to be nested, but got {}",
-                                   col->get_name());
+                                   column.get_name());
         }
     };
-    const_cast<IColumn*>(this)->for_each_subcolumn(throw_if_const);
+    for_each_subcolumn(throw_if_const);
 }
 
 } // namespace doris

@@ -31,7 +31,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
@@ -45,8 +45,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
-import org.apache.hadoop.fs.GlobExpander;
-import org.apache.hadoop.fs.GlobFilter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -153,8 +151,8 @@ public class StageUtil {
         int matchedFileNum = 0;
         int loadedFileNum = 0;
         String reachLimitStr = "";
-        StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-        org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageProps);
+        StorageAdapter storageAdapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
+        org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageAdapter);
         Preconditions.checkState(rawFs instanceof ObjFileSystem,
                 "Stage operations require ObjFileSystem, but got: %s", rawFs.getClass().getSimpleName());
         ObjFileSystem fs = (ObjFileSystem) rawFs;
@@ -302,7 +300,7 @@ public class StageUtil {
             return globs;
         }
         try {
-            List<String> flattenedPatterns = GlobExpander.expand(glob);
+            List<String> flattenedPatterns = GlobPatterns.expand(glob);
             for (String flattenedPattern : flattenedPatterns) {
                 try {
                     globs.addAll(analyzeFlattenedPattern(flattenedPattern));
@@ -326,8 +324,7 @@ public class StageUtil {
         boolean sawWildcard = false;
         for (int componentIdx = 0; componentIdx < components.size(); componentIdx++) {
             String component = components.get(componentIdx);
-            GlobFilter globFilter = new GlobFilter(component);
-            if (globFilter.hasPattern()) {
+            if (GlobPatterns.hasWildcard(component)) {
                 if (componentIdx == components.size() - 1) {
                     List<Pair<String, Boolean>> pairs = analyzeLastComponent(component);
                     if (pairs != null) {
@@ -356,8 +353,7 @@ public class StageUtil {
             String sub = component.substring(1, component.length() - 1);
             List<String> splits = splitByComma(sub);
             for (String split : splits) {
-                GlobFilter globFilter = new GlobFilter(split);
-                if (globFilter.hasPattern()) {
+                if (GlobPatterns.hasWildcard(split)) {
                     results.add(Pair.of(getComponentPrefix(split), true));
                 } else {
                     results.add(Pair.of(unescapePathComponent(split), false));
@@ -412,7 +408,7 @@ public class StageUtil {
     }
 
     /*
-     * Glob process method are referenced from {@link org.apache.hadoop.fs.Globber}
+     * Glob process method are referenced from {@code org.apache.hadoop.fs.Globber}
      */
     private static String unescapePathComponent(String name) {
         return name.replaceAll("\\\\(.)", "$1");
@@ -420,7 +416,7 @@ public class StageUtil {
 
     private static List<String> getPathComponents(String path) {
         ArrayList<String> ret = new ArrayList<>();
-        for (String component : path.split(org.apache.hadoop.fs.Path.SEPARATOR)) {
+        for (String component : path.split("/")) {
             if (!component.isEmpty()) {
                 ret.add(component);
             }

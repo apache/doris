@@ -1841,7 +1841,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         AbortTxnResponse abortTxnResponse = null;
         try {
-            abortTxnResponse = abortTransactionImpl(dbId, transactionId, reason, null);
+            abortTxnResponse = abortTransactionImpl(dbId, transactionId, reason, txnCommitAttachment);
         } finally {
             handleAfterAbort(abortTxnResponse, txnCommitAttachment, transactionId,
                     callbackInfo.first, callbackInfo.second);
@@ -1905,6 +1905,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         builder.setTxnId(transactionId);
         builder.setReason(reason);
         builder.setCloudUniqueId(Config.cloud_unique_id);
+        if (txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+            builder.setCommitAttachment(TxnUtil.rlTaskTxnCommitAttachmentToPb(
+                    (RLTaskTxnCommitAttachment) txnCommitAttachment));
+        }
 
         final AbortTxnRequest abortTxnRequest = builder.build();
         AbortTxnResponse abortTxnResponse = null;
@@ -2783,6 +2787,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
      */
     private void notifyBesMakeTmpRsVisible(CommitTxnResponse commitTxnResponse,
                                            List<TabletCommitInfo> tabletCommitInfos) {
+        if (commitTxnResponse.getIsLazyCommit()
+                && commitTxnResponse.getIsLazyCommitIncomplete()) {
+            LOG.info("skip make cloud tmp rowsets visible for incomplete lazy commit, txn_id: {}",
+                    commitTxnResponse.getTxnInfo().getTxnId());
+            return;
+        }
         if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()
                 || !Config.enable_notify_be_after_load_txn_commit) {
             return;

@@ -20,7 +20,13 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
+#include "core/data_type/data_type_bitmap.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 
 namespace doris {
@@ -43,11 +49,32 @@ public:
     }
 };
 
+class FunctionNullLiteralBeTestMock : public IFunction {
+public:
+    static constexpr auto name = "null_literal_be_test_mock";
+
+    static FunctionPtr create() { return std::make_shared<FunctionNullLiteralBeTestMock>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes&) const override {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    Status execute_impl(FunctionContext*, Block&, const ColumnNumbers&, uint32_t,
+                        size_t) const override {
+        return Status::OK();
+    }
+};
+
 class SimpleFunctionFactoryTest : public testing::Test {
     void SetUp() override {
         static std::once_flag oc;
         std::call_once(oc, []() {
             SimpleFunctionFactory::instance().register_function<FunctionBeTestMock>();
+            SimpleFunctionFactory::instance().register_function<FunctionNullLiteralBeTestMock>();
         });
     }
 
@@ -67,6 +94,22 @@ TEST_F(SimpleFunctionFactoryTest, test_return_type_check) {
                          "be_test_mock", {}, std::make_shared<DataTypeInt64>(), {},
                          BeExecVersionManager::get_newest_version()),
                  doris::Exception);
+}
+
+TEST_F(SimpleFunctionFactoryTest, test_null_literal_skips_return_type_inference) {
+    auto null_literal_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_NULL, true);
+    ASSERT_TRUE(null_literal_type->is_nullable());
+    ASSERT_TRUE(null_literal_type->is_null_literal());
+
+    ColumnsWithTypeAndName arguments = {{nullptr, null_literal_type, "null"}};
+    // The mock infers BIGINT, but a NULL literal should let the FE-provided nullable type win.
+    auto expected_return_type = make_nullable(std::make_shared<DataTypeInt32>());
+    FunctionBasePtr function;
+    ASSERT_NO_THROW(function = SimpleFunctionFactory::instance().get_function(
+                            FunctionNullLiteralBeTestMock::name, arguments, expected_return_type));
+    ASSERT_NE(function, nullptr);
+    EXPECT_TRUE(function->get_return_type()->equals(*expected_return_type));
 }
 
 TEST_F(SimpleFunctionFactoryTest, test_return_all) {
@@ -92,6 +135,36 @@ TEST_F(SimpleFunctionFactoryTest, test_return_all) {
         //     SUCCEED();
         // } catch (...) {
         // }
+    }
+}
+
+TEST_F(SimpleFunctionFactoryTest, test_bitmap_count_new_version_return_type) {
+    ColumnsWithTypeAndName arguments = {
+            {nullptr, make_nullable(std::make_shared<DataTypeBitMap>()), ""},
+            {nullptr, make_nullable(std::make_shared<DataTypeBitMap>()), ""}};
+    auto& factory = SimpleFunctionFactory::instance();
+
+    for (const auto& [function_name, new_function_name] :
+         std::vector<std::pair<std::string, std::string>> {
+                 {"bitmap_and_count", "bitmap_and_count_v2"},
+                 {"bitmap_or_count", "bitmap_or_count_v2"},
+                 {"bitmap_xor_count", "bitmap_xor_count_v2"},
+                 {"bitmap_and_not_count", "bitmap_and_not_count_v2"}}) {
+        auto old_builder = std::dynamic_pointer_cast<FunctionBuilderImpl>(
+                factory.function_creators.find(function_name)->second());
+        ASSERT_NE(old_builder, nullptr);
+        EXPECT_TRUE(old_builder->get_return_type(arguments)->is_nullable());
+
+        auto new_builder = std::dynamic_pointer_cast<FunctionBuilderImpl>(
+                factory.function_creators.find(new_function_name)->second());
+        ASSERT_NE(new_builder, nullptr);
+        EXPECT_FALSE(new_builder->get_return_type(arguments)->is_nullable());
+
+        auto new_func = SimpleFunctionFactory::instance().get_function(
+                function_name, arguments, std::make_shared<DataTypeInt64>(),
+                {.new_version_bitmap_op_count = true}, BeExecVersionManager::get_newest_version());
+        EXPECT_EQ(new_func->get_name(), new_function_name);
+        EXPECT_FALSE(new_func->get_return_type()->is_nullable());
     }
 }
 

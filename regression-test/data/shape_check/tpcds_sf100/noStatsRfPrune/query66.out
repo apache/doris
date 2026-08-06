@@ -32,7 +32,7 @@ PhysicalResultSink
 ------------------------------------filter((time_dim.t_time <= 77621) and (time_dim.t_time >= 48821))
 --------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalProject
---------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
+--------------------------------filter(ship_mode.sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 ----------------------------------PhysicalOlapScan[ship_mode]
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
@@ -56,6 +56,6 @@ PhysicalResultSink
 ------------------------------------filter((time_dim.t_time <= 77621) and (time_dim.t_time >= 48821))
 --------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalProject
---------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
+--------------------------------filter(ship_mode.sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 ----------------------------------PhysicalOlapScan[ship_mode]
 

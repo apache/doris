@@ -69,6 +69,8 @@ public:
 
     Status flush_single_block(const Block* block) override;
 
+    Status flush_single_block(const Block* block, int32_t segment_id) override;
+
     // GroupRowsetWriter does not support build a single rowset; its build is
     // delegated to underlying writers.
     Status build(RowsetSharedPtr& rowset) override {
@@ -106,10 +108,7 @@ public:
         return Status::NotSupported("GroupRowsetWriter::get_segment_num_rows to be implemented");
     }
 
-    int32_t allocate_segment_id() override {
-        LOG(FATAL) << "GroupRowsetWriter::allocate_segment_id is not supported";
-        return -1;
-    }
+    int32_t allocate_segment_id() override;
 
     int32_t get_allocated_segment_id() override {
         DCHECK(_txn_rowset_writer != nullptr);

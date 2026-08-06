@@ -706,6 +706,7 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("COMPUTE_GROUP", ScalarType.createStringType())
+                                    .column("FIRST_ERROR_MSG", ScalarType.createStringType())
                                     .build())
             )
             .put("load_jobs",
@@ -861,6 +862,14 @@ public class SchemaTable extends Table {
                             .column("CREATE_TIME", ScalarType.createStringType())
                             .column("ALTER_USER", ScalarType.createStringType())
                             .column("MODIFY_TIME", ScalarType.createStringType())
+                            .build()))
+            .put("extensions",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "extensions", TableType.SCHEMA,
+                        builder().column("EXTENSION_NAME", ScalarType.createStringType())
+                            .column("EXTENSION_TYPE", ScalarType.createStringType())
+                            .column("EXTENSION_VERSION", ScalarType.createStringType())
+                            .column("SOURCE", ScalarType.createStringType())
+                            .column("DESCRIPTION", ScalarType.createStringType())
                             .build()))
             .put("table_streams",
                     new SchemaTable(SystemIdGenerator.getNextId(), "table_streams", TableType.SCHEMA,

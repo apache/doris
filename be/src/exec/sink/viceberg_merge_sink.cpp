@@ -19,12 +19,17 @@
 
 #include <fmt/format.h>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/consts.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "exec/sink/sink_common.h"
 #include "exec/sink/viceberg_delete_sink.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
@@ -52,8 +57,10 @@ Status VIcebergMergeSink::init_properties(ObjectPool* pool, const RowDescriptor&
 
     _table_writer = std::make_unique<VIcebergTableWriter>(_table_sink, _table_output_expr_ctxs,
                                                           nullptr, nullptr);
+    _table_writer->defer_file_cleanup_until_outer_close();
     _delete_writer = std::make_unique<VIcebergDeleteSink>(_delete_sink, _delete_output_expr_ctxs,
                                                           nullptr, nullptr);
+    _delete_writer->defer_file_cleanup_until_outer_close();
     RETURN_IF_ERROR(_table_writer->init_properties(pool, row_desc));
     RETURN_IF_ERROR(_delete_writer->init_properties(pool));
     return Status::OK();
@@ -65,6 +72,14 @@ Status VIcebergMergeSink::open(RuntimeState* state, RuntimeProfile* profile) {
     _written_rows_counter = ADD_COUNTER(profile, "RowsWritten", TUnit::UNIT);
     _insert_rows_counter = ADD_COUNTER(profile, "InsertRows", TUnit::UNIT);
     _delete_rows_counter = ADD_COUNTER(profile, "DeleteRows", TUnit::UNIT);
+    // The query-wide version keeps validation all-or-nothing during a rolling BE upgrade.
+    _require_merge_cardinality_check =
+            _require_merge_cardinality_check &&
+            state->be_exec_version() >= SUPPORT_ICEBERG_MERGE_CARDINALITY_VERSION;
+    if (_require_merge_cardinality_check) {
+        _matched_row_id_state_bytes_counter =
+                ADD_COUNTER(profile, "MatchedRowIdStateBytes", TUnit::BYTES);
+    }
     _send_data_timer = ADD_TIMER(profile, "SendDataTime");
     _open_timer = ADD_TIMER(profile, "OpenTime");
     _close_timer = ADD_TIMER(profile, "CloseTime");
@@ -94,8 +109,6 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
         return Status::OK();
     }
 
-    _row_count += output_block.rows();
-
     if (_operation_idx < 0 || _row_id_idx < 0) {
         return Status::InternalError("Iceberg merge sink missing operation/row_id columns");
     }
@@ -120,16 +133,25 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
         if (delete_op) {
             delete_filter[i] = 1;
             has_delete = true;
-            ++_delete_row_count;
             ++delete_rows;
         }
         if (insert_op) {
             insert_filter[i] = 1;
             has_insert = true;
-            ++_insert_row_count;
             ++insert_rows;
         }
     }
+
+    if (_require_merge_cardinality_check) {
+        // The physical sink hashes matched rows by row_id, so exact state retained across blocks
+        // enforces SQL MERGE cardinality for the whole query without changing UPDATE semantics.
+        RETURN_IF_ERROR(_validate_matched_row_ids(output_block, delete_filter.data()));
+        COUNTER_SET(_matched_row_id_state_bytes_counter,
+                    static_cast<int64_t>(_matched_row_id_state_size));
+    }
+    _row_count += output_block.rows();
+    _delete_row_count += delete_rows;
+    _insert_row_count += insert_rows;
 
     bool skip_io = false;
 #ifdef BE_TEST
@@ -167,6 +189,105 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
     return Status::OK();
 }
 
+Status VIcebergMergeSink::_validate_matched_row_ids(const Block& block,
+                                                    const uint8_t* delete_filter) {
+    const auto& row_id = block.get_by_position(_row_id_idx);
+    const IColumn* row_id_data = row_id.column.get();
+    const IDataType* row_id_type = row_id.type.get();
+    const auto* nullable_row_id = check_and_get_column<ColumnNullable>(row_id_data);
+    if (nullable_row_id != nullptr) {
+        row_id_data = nullable_row_id->get_nested_column_ptr().get();
+    }
+    if (const auto* nullable_type = check_and_get_data_type<DataTypeNullable>(row_id_type)) {
+        row_id_type = nullable_type->get_nested_type().get();
+    }
+
+    const auto* struct_column = check_and_get_column<ColumnStruct>(row_id_data);
+    const auto* struct_type = check_and_get_data_type<DataTypeStruct>(row_id_type);
+    if (struct_column == nullptr || struct_type == nullptr) {
+        return Status::InternalError("Iceberg merge row_id column is not a struct");
+    }
+
+    int file_path_idx = -1;
+    int row_position_idx = -1;
+    const auto& field_names = struct_type->get_element_names();
+    for (size_t i = 0; i < field_names.size(); ++i) {
+        std::string field_name = doris::to_lower(field_names[i]);
+        if (field_name == "file_path") {
+            file_path_idx = static_cast<int>(i);
+        } else if (field_name == "row_position") {
+            row_position_idx = static_cast<int>(i);
+        }
+    }
+    if (file_path_idx < 0 || row_position_idx < 0) {
+        return Status::InternalError(
+                "Iceberg merge row_id must contain file_path and row_position fields");
+    }
+
+    const auto& file_path_column = struct_column->get_column_ptr(file_path_idx);
+    const auto& row_position_column = struct_column->get_column_ptr(row_position_idx);
+    const auto* nullable_file_path = check_and_get_column<ColumnNullable>(file_path_column.get());
+    const auto* nullable_row_position =
+            check_and_get_column<ColumnNullable>(row_position_column.get());
+    const auto* file_paths =
+            check_and_get_column<ColumnString>(remove_nullable(file_path_column).get());
+    const auto* row_positions = check_and_get_column<ColumnVector<TYPE_BIGINT>>(
+            remove_nullable(row_position_column).get());
+    if (file_paths == nullptr || row_positions == nullptr) {
+        return Status::InternalError("Iceberg merge row_id fields have incorrect types");
+    }
+
+    std::map<roaring::Roaring64Map*, size_t> touched_bitmap_sizes;
+    for (size_t i = 0; i < block.rows(); ++i) {
+        if (delete_filter[i] == 0) {
+            continue;
+        }
+        if ((nullable_row_id != nullptr && nullable_row_id->is_null_at(i)) ||
+            (nullable_file_path != nullptr && nullable_file_path->is_null_at(i)) ||
+            (nullable_row_position != nullptr && nullable_row_position->is_null_at(i))) {
+            return Status::InternalError("Iceberg merge matched row_id cannot be null");
+        }
+
+        int64_t row_position = row_positions->get_element(i);
+        if (row_position < 0) {
+            return Status::InternalError("Invalid row_position {} in Iceberg merge row_id",
+                                         row_position);
+        }
+        // Intern each file path once and keep exact positions in a compressed bitmap; retaining a
+        // full path string per matched row makes MERGE memory grow with path_length * row_count.
+        auto [file_it, inserted] =
+                _matched_row_positions.try_emplace(file_paths->get_data_at(i).to_string());
+        auto* positions = &file_it->second;
+        auto touched_it = touched_bitmap_sizes.find(positions);
+        if (touched_it == touched_bitmap_sizes.end()) {
+            touched_it = touched_bitmap_sizes.emplace(positions, positions->getSizeInBytes()).first;
+        }
+        if (inserted) {
+            _matched_row_id_state_size +=
+                    sizeof(std::pair<const std::string, roaring::Roaring64Map>);
+            _matched_row_id_state_size += file_it->first.capacity();
+            _matched_row_id_state_size += touched_it->second;
+        }
+        if (!positions->addChecked(static_cast<uint64_t>(row_position))) {
+            return Status::InvalidArgument(
+                    "Iceberg MERGE failed because multiple source rows matched the same target "
+                    "row");
+        }
+    }
+
+    // Measure only bitmaps touched by this block; rescanning all retained files on every write
+    // makes a many-file MERGE quadratic in the number of input blocks.
+    for (const auto& [positions, previous_size] : touched_bitmap_sizes) {
+        size_t current_size = positions->getSizeInBytes();
+        if (current_size >= previous_size) {
+            _matched_row_id_state_size += current_size - previous_size;
+        } else {
+            _matched_row_id_state_size -= previous_size - current_size;
+        }
+    }
+    return Status::OK();
+}
+
 Status VIcebergMergeSink::close(Status close_status) {
     SCOPED_TIMER(_close_timer);
 
@@ -201,10 +322,14 @@ Status VIcebergMergeSink::close(Status close_status) {
         COUNTER_SET(_delete_rows_counter, static_cast<int64_t>(_delete_row_count));
     }
 
-    if (!table_status.ok()) {
-        return table_status;
+    Status result_status = table_status.ok() ? delete_status : table_status;
+    if (_table_writer) {
+        _table_writer->finish_deferred_file_cleanup(result_status);
     }
-    return delete_status;
+    if (_delete_writer) {
+        _delete_writer->finish_deferred_file_cleanup(result_status);
+    }
+    return result_status;
 }
 
 Status VIcebergMergeSink::_build_inner_sinks() {
@@ -213,6 +338,9 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     }
 
     const auto& merge_sink = _t_sink.iceberg_merge_sink;
+    // Missing means an old FE plan, which predates SQL MERGE cardinality validation.
+    _require_merge_cardinality_check = merge_sink.__isset.require_merge_cardinality_check &&
+                                       merge_sink.require_merge_cardinality_check;
 
     TIcebergTableSink table_sink;
     if (merge_sink.__isset.db_name) {
@@ -253,6 +381,9 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     }
     if (merge_sink.__isset.broker_addresses) {
         table_sink.__set_broker_addresses(merge_sink.broker_addresses);
+    }
+    if (merge_sink.__isset.collect_column_stats) {
+        table_sink.__set_collect_column_stats(merge_sink.collect_column_stats);
     }
     _table_sink.__set_type(TDataSinkType::ICEBERG_TABLE_SINK);
     _table_sink.__set_iceberg_table_sink(table_sink);

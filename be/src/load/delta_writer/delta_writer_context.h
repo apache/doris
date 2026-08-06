@@ -23,6 +23,8 @@
 
 #include <vector>
 
+#include "core/custom_allocator.h"
+
 namespace doris {
 
 class TupleDescriptor;
@@ -51,6 +53,12 @@ struct WriteRequest {
     bool write_file_cache = false;
     WriteRequestType write_req_type = WriteRequestType::DATA;
     std::string storage_vault_id;
+    bool enable_table_memtable_backpressure = false;
+};
+
+struct TabletAddRowsPayload {
+    DorisVector<uint32_t> row_idxs;
+    DorisVector<int64_t> row_binlog_lsns = {};
 };
 
 } // namespace doris

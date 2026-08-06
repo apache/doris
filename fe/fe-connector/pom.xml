@@ -37,18 +37,112 @@ under the License.
         Contains NO Java code; only lists sub-modules.
     </description>
 
+    <properties>
+        <!--
+          The CONNECTOR plugin API version, declared exactly once. This single property is the only
+          number: it is filtered into fe-connector-spi's META-INF/doris/connector-plugin-api-version
+          .properties (what the FE kernel expects) AND stamped into every connector plugin jar's
+          MANIFEST below (what a plugin declares). Both sides of the comparison therefore come from
+          one value in one build; there is no second number that could drift.
+
+          Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the connector SPI
+          surface - adding an interface or a method counts, not only removing or changing one. That
+          definition is what makes minor two-way compatible. See
+          plan-doc/designs/2026-07-29-plugin-api-version-check-design.md.
+
+          The contract this version describes spans fe-connector-spi and - because
+          connector plugins link them too - fe-extension-spi and fe-filesystem-api. Changing either
+          of the latter two means bumping this property as well (and fe-extension-spi means bumping
+          all four families).
+        -->
+        <connector.plugin.api.version>4.0</connector.plugin.api.version>
+    </properties>
+
     <modules>
-        <module>fe-connector-api</module>
         <module>fe-connector-spi</module>
+        <module>fe-connector-cache</module>
+        <module>fe-connector-metastore-api</module>
+        <module>fe-connector-metastore-spi</module>
+        <!-- Per-engine metastore backends (ServiceLoader providers); depended on by their connectors.
+             Maven topologically orders the reactor by the dependency graph. -->
+        <module>fe-connector-metastore-paimon</module>
+        <module>fe-connector-metastore-iceberg</module>
+        <module>fe-connector-metastore-hms</module>
         <module>fe-connector-es</module>
         <module>fe-connector-trino</module>
         <module>fe-connector-maxcompute</module>
         <module>fe-connector-jdbc</module>
+        <module>fe-connector-adbc</module>
+        <!-- Slim HMS metastore-client shade (relocates org.apache.thrift to
+             shade.doris.hive.org.apache.thrift); MUST build before fe-connector-hms which depends on
+             it. Replaces the fat org.apache.doris:hive-catalog-shade for the fe-connector closure. -->
+        <module>fe-connector-hms-hive-shade</module>
         <module>fe-connector-hms</module>
         <module>fe-connector-hive</module>
+        <!-- FIX-C: paimon HMS-thrift shade (relocates org.apache.thrift to a paimon-private
+             package); MUST build before fe-connector-paimon which depends on it. -->
+        <module>fe-connector-paimon-hive-shade</module>
         <module>fe-connector-paimon</module>
         <module>fe-connector-hudi</module>
         <module>fe-connector-iceberg</module>
     </modules>
+
+    <build>
+        <plugins>
+            <!--
+              Stamps the declared CONNECTOR plugin API version into every connector jar's MANIFEST.
+              Inherited by all child modules, so the eight connectors that ship as plugin zips carry
+              it without a per-module pom change; the loader reads it back from the jar that defines
+              the ConnectorProvider. Merges with (does not replace) the ASF parent's maven-jar-plugin
+              <archive><manifest> configuration.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Doris-Connector-Plugin-Api-Version>${connector.plugin.api.version}</Doris-Connector-Plugin-Api-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+            <!--
+              Forbidden-import gate: fe-connector modules MUST NOT import
+              fe-core internals. See plan-doc/01-spi-extensions-rfc.md §15.4
+              and build-support/check-fe-connector-imports.sh
+              (self-test build-support/tests/test-fe-connector-imports.sh).
+
+              Runs once in this aggregator's validate phase (inherited=false
+              keeps the 11 child modules from re-running the same scan).
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <inherited>false</inherited>
+                <executions>
+                    <execution>
+                        <id>check-fe-connector-imports</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <!--
+                              Use ${project.basedir}-relative path so we don't
+                              depend on directory-maven-plugin's `fe.dir`
+                              property (which is only set at `initialize`).
+                            -->
+                            <executable>${project.basedir}/../../build-support/check-fe-connector-imports.sh</executable>
+                            <arguments>
+                                <argument>${project.basedir}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>

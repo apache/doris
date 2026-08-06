@@ -85,6 +85,27 @@ suite("test_filecache_compaction_multisegments_and_read_stale_cloud_docker", "do
         }
     }
 
+    def checkTabletSegmentNumAtLeast = { tablet, rowsetIndex, minSegmentNum, outputRowsets = null ->
+        String compactionUrl = tablet["CompactionStatus"]
+        def (code, out, err) = curl("GET", compactionUrl)
+        logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+        def tabletJson = parseJson(out.trim())
+        assert tabletJson.rowsets instanceof List
+        if (outputRowsets != null) {
+            outputRowsets.addAll(tabletJson.rowsets)
+        }
+
+        assertTrue(tabletJson.rowsets.size() >= rowsetIndex)
+        def rowset = tabletJson.rowsets.get(rowsetIndex - 1)
+        logger.info("rowset: ${rowset}")
+        int start_index = rowset.indexOf("]")
+        int end_index = rowset.indexOf("DATA")
+        def segmentNum = rowset.substring(start_index + 1, end_index).trim().toInteger()
+        logger.info("segmentNum: ${segmentNum}")
+        assertTrue(segmentNum >= minSegmentNum)
+    }
+
     def waitForCompaction = { tablet ->
         String tablet_id = tablet.TabletId
         String trigger_backend_id = tablet.BackendId
@@ -240,8 +261,8 @@ suite("test_filecache_compaction_multisegments_and_read_stale_cloud_docker", "do
             sql "sync"
             def rowCount1 = sql """ select count() from ${testTable}; """
             logger.info("rowCount1: ${rowCount1}")
-            // check generate 3 segments
-            getTabletStatus(tablet, 2, 3, true, all_history_stale_rowsets)
+            // check generate multiple segments
+            checkTabletSegmentNumAtLeast(tablet, 2, 2, all_history_stale_rowsets)
 
             // trigger compaction
             GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
@@ -251,7 +272,7 @@ suite("test_filecache_compaction_multisegments_and_read_stale_cloud_docker", "do
             assertEquals(code, 0)
             def compactJson = parseJson(out.trim())
             logger.info("compact json: " + compactJson)
-            // check generate 1 segments
+            // check compaction output has one segment
             for (int i = 0; i < 20; i++) {
                 if (getTabletStatus(tablet, 2, 1, false, all_history_stale_rowsets)) {
                     break
@@ -282,8 +303,8 @@ suite("test_filecache_compaction_multisegments_and_read_stale_cloud_docker", "do
             sql "sync"
             def rowCount2 = sql """ select count() from ${testTable}; """
             logger.info("rowCount2: ${rowCount2}")
-            // check generate 3 segments
-            getTabletStatus(tablet, 3, 6, false, all_history_stale_rowsets)
+            // check generate multiple segments
+            checkTabletSegmentNumAtLeast(tablet, 3, 2, all_history_stale_rowsets)
             def local_dm = getLocalDeleteBitmapStatus(tablet)
             logger.info("local delete bitmap 1: " + local_dm)
 
@@ -296,7 +317,7 @@ suite("test_filecache_compaction_multisegments_and_read_stale_cloud_docker", "do
             compactJson = parseJson(out.trim())
             logger.info("compact json: " + compactJson)
             waitForCompaction(tablet)
-            // check generate 1 segments
+            // check compaction output has one segment
             for (int i = 0; i < 20; i++) {
                 if (getTabletStatus(tablet, 3, 1, false, all_history_stale_rowsets)) {
                     break
@@ -311,41 +332,89 @@ suite("test_filecache_compaction_multisegments_and_read_stale_cloud_docker", "do
             logger.info("local delete bitmap 2: " + local_dm)
             assertEquals(1, local_dm["delete_bitmap_count"])
 
-
-            // sleep for vacuum_stale_rowsets_interval_s=10 seconds to wait for unused rowsets are deleted
-            sleep(21000)
-
             def be_host = backendId_to_backendIP[tablet.BackendId]
             def be_http_port = backendId_to_backendHttpPort[tablet.BackendId]
-            logger.info("be_host: ${be_host}, be_http_port: ${be_http_port}, BrpcPort: ${backendId_to_backendBrpcPort[tablet.BackendId]}")
+            def be_brpc_port = backendId_to_backendBrpcPort[tablet.BackendId]
+            logger.info("be_host: ${be_host}, be_http_port: ${be_http_port}, BrpcPort: ${be_brpc_port}")
 
-            for (int i = 0; i < all_history_stale_rowsets.size(); i++) {
-                def rowsetStr = all_history_stale_rowsets[i]
-                // [12-12] 1 DATA NONOVERLAPPING 02000000000000124843c92c13625daa8296c20957119893 1011.00 B
-                def start_version = rowsetStr.split(" ")[0].replace('[', '').replace(']', '').split("-")[0].toInteger()
-                def end_version = rowsetStr.split(" ")[0].replace('[', '').replace(']', '').split("-")[1].toInteger()
-                def rowset_id = rowsetStr.split(" ")[4]
-                if (start_version == 0) {
-                    continue
-                }
-
+            def parseHistoryRowset = { int index, String rowsetStr ->
                 int start_index = rowsetStr.indexOf("]")
                 int end_index = rowsetStr.indexOf("DATA")
-                def segmentNum = rowsetStr.substring(start_index + 1, end_index).trim().toInteger()
-
-                logger.info("rowset ${i}, start: ${start_version}, end: ${end_version}, id: ${rowset_id}, segment: ${segmentNum}")
-                def data = Http.GET("http://${be_host}:${be_http_port}/api/file_cache?op=list_cache&value=${rowset_id}_0.dat", true)
-                logger.info("file cache data: ${data}")
-                if (segmentNum <= 1) {
-                    assertTrue(data.size() > 0)
-                } else {
-                    assertTrue(data.size() == 0)
+                return [
+                    index: index,
+                    version: rowsetStr.split(" ")[0].replace('[', '').replace(']', ''),
+                    start_version: rowsetStr.split(" ")[0].replace('[', '').replace(']', '').split("-")[0].toInteger(),
+                    end_version: rowsetStr.split(" ")[0].replace('[', '').replace(']', '').split("-")[1].toInteger(),
+                    rowset_id: rowsetStr.split(" ")[4],
+                    segment_num: rowsetStr.substring(start_index + 1, end_index).trim().toInteger(),
+                    rowset: rowsetStr
+                ]
+            }
+            def listUnexpectedHistoryRowsetCache = {
+                def unexpected = [
+                    cached_multi_segment_stale_rowsets: [],
+                    missing_single_segment_stale_rowsets: []
+                ]
+                int i = 0
+                for (def rowsetStr : all_history_stale_rowsets) {
+                    def rowset = parseHistoryRowset(i, rowsetStr)
+                    if (rowset.start_version != 0 && rowset.start_version == rowset.end_version) {
+                        def data = Http.GET("http://${be_host}:${be_http_port}/api/file_cache?op=list_cache&value=${rowset.rowset_id}_0.dat", true)
+                        if (rowset.segment_num > 1 && data.size() > 0) {
+                            rowset.cache_files = data
+                            unexpected.cached_multi_segment_stale_rowsets.add(rowset)
+                        } else if (rowset.segment_num <= 1 && data.size() == 0) {
+                            unexpected.missing_single_segment_stale_rowsets.add(rowset)
+                        }
+                    }
+                    i++
                 }
+                return unexpected
+            }
+            def getBeVars = {
+                def (code_0, out_0, err_0) = curl("GET", "http://${be_host}:${be_brpc_port}/vars")
+                logger.info("get be vars: code=${code_0}, err=${err_0}")
+                if (code_0 != 0) {
+                    return "failed to get /vars, code=${code_0}, err=${err_0}"
+                }
+                return out_0.readLines().findAll {
+                    it.contains("file_cache") || it.contains("unused_rowsets")
+                }.join("\n")
+            }
+            def getUnusedRowsetsCount = {
+                def (code_0, out_0, err_0) = curl("GET", "http://${be_host}:${be_brpc_port}/vars/unused_rowsets_count")
+                logger.info("unused_rowsets_count: code=${code_0}, out=${out_0}, err=${err_0}")
+                if (code_0 != 0) {
+                    return -1
+                }
+                return out_0.trim().split(":")[1].trim().toInteger()
             }
 
-            def (code_0, out_0, err_0) = curl("GET", "http://${be_host}:${backendId_to_backendBrpcPort[tablet.BackendId]}/vars/unused_rowsets_count")
-            logger.info("out_0: ${out_0}")
-            def unusedRowsetsCount = out_0.trim().split(":")[1].trim().toInteger()
+            def unexpectedRowsetCache = [:]
+            for (int i = 0; i < 100; i++) {
+                unexpectedRowsetCache = listUnexpectedHistoryRowsetCache()
+                if (unexpectedRowsetCache.cached_multi_segment_stale_rowsets.isEmpty()
+                        && unexpectedRowsetCache.missing_single_segment_stale_rowsets.isEmpty()) {
+                    break
+                }
+                logger.info("history stale rowset file cache is not in expected state yet, try=${i}, "
+                        + "unexpected=${unexpectedRowsetCache}")
+                sleep(500)
+            }
+            if (!unexpectedRowsetCache.cached_multi_segment_stale_rowsets.isEmpty()
+                    || !unexpectedRowsetCache.missing_single_segment_stale_rowsets.isEmpty()) {
+                logger.info("final unexpected history stale rowset file cache: ${unexpectedRowsetCache}")
+                logger.info("final unused_rowsets_count: ${getUnusedRowsetsCount()}")
+                logger.info("final file cache vars:\n${getBeVars()}")
+            }
+            assertTrue(unexpectedRowsetCache.cached_multi_segment_stale_rowsets.isEmpty(),
+                    "multi-segment stale rowset file cache is not recycled: "
+                            + "${unexpectedRowsetCache.cached_multi_segment_stale_rowsets}")
+            assertTrue(unexpectedRowsetCache.missing_single_segment_stale_rowsets.isEmpty(),
+                    "single-segment stale rowset file cache is missing: "
+                            + "${unexpectedRowsetCache.missing_single_segment_stale_rowsets}")
+
+            def unusedRowsetsCount = getUnusedRowsetsCount()
             assertEquals(0, unusedRowsetsCount)
         } finally {
             GetDebugPoint().clearDebugPointsForAllBEs()

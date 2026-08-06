@@ -48,6 +48,38 @@ suite("group_array_intersect") {
     sql """INSERT INTO `group_array_intersect_test`(id, c_array_bigint) VALUES (23, [1234567890123456]), (24, [1234567890123456, 2333333333333333]);"""
     sql """INSERT INTO `group_array_intersect_test`(id, c_array_decimal) VALUES (25, [1.34,2.00188888888888888]), (26, [1.34,2.00123344444455555]);"""
 
+    qt_outer_nullable_case_if """
+        SELECT
+            array_sort(group_array_intersect(
+                CASE id
+                    WHEN 0 THEN [1, 2]
+                    WHEN 1 THEN CAST(NULL AS ARRAY<INT>)
+                    ELSE [2, 3]
+                END
+            )),
+            array_sort(group_array_intersect(
+                IF(id = 1, CAST(NULL AS ARRAY<INT>),
+                   IF(id = 0, [1, 2], [2, 3]))
+            ))
+        FROM group_array_intersect_test
+        WHERE id BETWEEN 0 AND 2
+    """
+
+    qt_string_null_element_does_not_match_empty_string """
+        SELECT result
+        FROM (
+            SELECT id, array_sort(group_array_intersect(c_array_string) OVER (
+                ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            )) AS result
+            FROM (
+                SELECT 1 AS id, CAST([''] AS ARRAY<STRING>) AS c_array_string
+                UNION ALL
+                SELECT 2 AS id, CAST([NULL] AS ARRAY<STRING>) AS c_array_string
+            ) t
+        ) w
+        WHERE id = 2
+    """
+
     qt_int_1 """select array_sort(group_array_intersect(c_array_int)) from group_array_intersect_test where id in (6, 12);"""
     qt_int_2 """select array_sort(group_array_intersect(c_array_int)) from group_array_intersect_test where id in (14, 12);"""
     qt_int_3 """select array_sort(group_array_intersect(c_array_int)) from group_array_intersect_test where id in (0, 6);"""

@@ -96,7 +96,7 @@ suite("iceberg_and_internal_nested_namespace", "p0,external") {
     }
     test {
         sql """drop database `nested.db1`;"""
-        exception """Can't drop database 'nested.db1'; database doesn't exist"""
+        exception """Failed to get database: 'nested.db1'"""
     }
     test {
         sql """select * from `nested.db1`.tbl1;"""
@@ -272,7 +272,7 @@ suite("iceberg_and_internal_nested_namespace", "p0,external") {
     // can create nested ns, but can not drop because nested ns can not be seen
     test {
         sql """drop database `nested.db1`"""
-        exception """Can't drop database 'nested.db1'; database doesn't exist"""
+        exception """Failed to get database: 'nested.db1'"""
     }
     sql """create database if not exists `nsa.nsb`"""
     sql """create database if not exists `nsa.nsb.nsc`"""

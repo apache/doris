@@ -59,6 +59,7 @@
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 #include "util/uuid_generator.h"

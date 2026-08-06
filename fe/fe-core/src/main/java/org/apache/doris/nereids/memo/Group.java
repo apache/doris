@@ -308,6 +308,10 @@ public class Group {
         }
     }
 
+    public void putBestPlan(GroupExpression expression, Cost cost, PhysicalProperties properties) {
+        setBestPlan(expression, cost, properties);
+    }
+
     /**
      * replace best plan with new properties
      */

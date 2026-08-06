@@ -44,6 +44,7 @@ struct FileWriterOptions {
     // this shortens the inconsistent time window.
     bool used_by_s3_committer = false;
     bool write_file_cache = false;
+    bool allow_adaptive_file_cache_write = true;
     bool is_cold_data = false;
     bool sync_file_data = true;              // Whether flush data into storage system
     uint64_t file_cache_expiration_time = 0; // Relative time
@@ -109,13 +110,15 @@ protected:
         io::UInt128Wrapper path_hash = BlockFileCache::hash(path.filename().native());
         BlockFileCache* file_cache_ptr = FileCacheFactory::instance()->get_by_path(path_hash);
 
-        bool has_enough_file_cache_space = config::enable_file_cache_adaptive_write &&
+        bool has_enough_file_cache_space = opts->allow_adaptive_file_cache_write &&
+                                           config::enable_file_cache_adaptive_write &&
                                            (opts->approximate_bytes_to_write > 0) &&
                                            (file_cache_ptr->approximate_available_cache_size() >
                                             opts->approximate_bytes_to_write);
 
         VLOG_DEBUG << "path:" << path.filename().native()
                    << ", write_file_cache:" << opts->write_file_cache
+                   << ", allow_adaptive_file_cache_write:" << opts->allow_adaptive_file_cache_write
                    << ", has_enough_file_cache_space:" << has_enough_file_cache_space
                    << ", approximate_bytes_to_write:" << opts->approximate_bytes_to_write
                    << ", file_cache_available_size:"

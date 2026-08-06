@@ -814,11 +814,8 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
                 return;
             }
         }
-        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy;
-        if (compaction_type != CompactionType::BINLOG_COMPACTION) {
-            cumulative_compaction_policy = all_cumulative_compaction_policies.at(
-                    tablet_ptr->tablet_meta()->compaction_policy());
-        }
+        auto cumulative_compaction_policy = all_cumulative_compaction_policies.at(
+                tablet_ptr->tablet_meta()->compaction_policy());
         int8_t prefer_compaction_level = -1;
         uint32_t current_compaction_score =
                 tablet_ptr->calc_compaction_score(compaction_type, &prefer_compaction_level);

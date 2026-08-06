@@ -40,7 +40,7 @@ TEST_F(BinlogBlockReaderUtilsTest, ResolveBeforeColumnIndex) {
     block.insert({std::move(col_key), int_type, "k1"});
     block.insert({std::move(col_val), int_type, "v1"});
     block.insert({std::move(col_before_val), int_type, "__BEFORE__v1__"});
-    block.insert({std::move(col_op), int_type, "__DORIS_BINLOG_OP__"});
+    block.insert({std::move(col_op), int_type, BINLOG_OP_COL});
 
     EXPECT_EQ(binlog::resolve_before_column_index(block, 1, 3), 2);
     EXPECT_EQ(binlog::resolve_before_column_index(block, 3, 3), 3);
@@ -55,7 +55,7 @@ TEST_F(BinlogBlockReaderUtilsTest, ResolveBeforeColumnIndexFallbackWhenMissing) 
     Block block;
     block.insert({std::move(col_key), int_type, "k1"});
     block.insert({std::move(col_val), int_type, "v1"});
-    block.insert({std::move(col_op), int_type, "__DORIS_BINLOG_OP__"});
+    block.insert({std::move(col_op), int_type, BINLOG_OP_COL});
 
     // If __BEFORE__v1__ is missing, fall back to the current column to avoid out-of-bounds.
     EXPECT_EQ(binlog::resolve_before_column_index(block, 1, 2), 1);

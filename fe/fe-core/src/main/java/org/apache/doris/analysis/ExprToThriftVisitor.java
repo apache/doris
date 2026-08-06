@@ -497,6 +497,7 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     @Override
     public Void visitLambdaFunctionExpr(LambdaFunctionExpr expr, TExprNode msg) {
         msg.setNodeType(TExprNodeType.LAMBDA_FUNCTION_EXPR);
+        msg.setLambdaArgumentNames(expr.getNames());
         return null;
     }
 

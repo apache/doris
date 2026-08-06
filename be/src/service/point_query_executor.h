@@ -42,6 +42,7 @@
 #include "core/block/block.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "exprs/vexpr_fwd.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
@@ -315,6 +316,8 @@ private:
 
     Status _output_data();
 
+    void _init_remote_scan_cache_write_limiter();
+
     static void release_rowset(RowsetSharedPtr* r) {
         if (r && *r) {
             VLOG_DEBUG << "release rowset " << (*r)->rowset_id();
@@ -342,6 +345,7 @@ private:
     Metrics _profile_metrics;
     bool _binary_row_format = false;
     OlapReaderStatistics _read_stats;
+    std::unique_ptr<io::RemoteScanCacheWriteLimiter> _remote_scan_cache_write_limiter;
     int32_t _row_hits = 0;
     // snapshot read version
     int64_t _version = -1;

@@ -33,6 +33,8 @@
 
 namespace doris {
 class OlapScanner;
+class QueryCacheRuntime;
+struct QueryCacheInstanceDecision;
 } // namespace doris
 
 namespace doris {
@@ -77,6 +79,8 @@ private:
     Status _process_conjuncts(RuntimeState* state) override;
     bool _is_key_column(const std::string& col_name) override;
 
+    bool can_push_down_column_predicate(const SlotDescriptor* slot) override;
+
     Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
                                              StringRef* constant_str,
                                              doris::FunctionContext** fn_ctx,
@@ -85,6 +89,7 @@ private:
     PushDownType _should_push_down_bloom_filter() const override {
         return PushDownType::ACCEPTABLE;
     }
+
     PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 
     PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
@@ -93,6 +98,7 @@ private:
                        ? PushDownType::ACCEPTABLE
                        : PushDownType::UNACCEPTABLE;
     }
+
     PushDownType _should_push_down_in_predicate() const override {
         return PushDownType::ACCEPTABLE;
     }
@@ -108,6 +114,10 @@ private:
     bool _storage_no_merge() override;
 
     bool _read_mor_as_dup();
+    // True for MIN_DELTA / DETAIL binlog scans, which read through BlockReader's merge (op
+    // synthesis + BEFORE/AFTER split) and thus must keep predicates above the reader. Returns bool
+    // to avoid leaking the thrift binlog-scan-type enum into this header.
+    bool _is_binlog_merge_scan() const;
     bool _push_down_topn(const RuntimePredicate& predicate) override {
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
@@ -164,6 +174,17 @@ private:
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _stats_rp_filtered_counter = nullptr;
+    // Number of whole segments skipped by expression ZoneMap evaluation.
+    RuntimeProfile::Counter* _expr_zonemap_filtered_segment_counter = nullptr;
+    // Number of pages skipped by expression ZoneMap evaluation after page index ranges are built.
+    RuntimeProfile::Counter* _expr_zonemap_filtered_page_counter = nullptr;
+    // Number of expression ZoneMap evaluations that reached the evaluator but could not use the
+    // current ZoneMap context, such as missing slot/page ZoneMap or unusable range statistics.
+    RuntimeProfile::Counter* _expr_zonemap_unusable_counter = nullptr;
+    // Number of IN-predicate ZoneMap evaluations that used per-value point checks.
+    RuntimeProfile::Counter* _in_zonemap_point_check_counter = nullptr;
+    // Number of IN-predicate ZoneMap evaluations that fell back to min/max range overlap only.
+    RuntimeProfile::Counter* _in_zonemap_range_only_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
     RuntimeProfile::Counter* _dict_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
@@ -207,6 +228,7 @@ private:
     RuntimeProfile::Counter* _lazy_read_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_counter = nullptr;
+    RuntimeProfile::Counter* _lazy_read_pruned_timer = nullptr;
 
     // total pages read
     // used by segment v2
@@ -327,10 +349,13 @@ private:
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReadSource> _read_sources;
 
+    // The per-instance query cache decision shared with the cache source
+    // operator of the same fragment. Null when the query cache is disabled.
+    // HIT: leave _scan_ranges empty so nothing is scanned; INCREMENTAL: scan
+    // only the pre-captured delta read sources in (cached, current] version.
+    std::shared_ptr<QueryCacheInstanceDecision> _query_cache_decision;
+
     std::map<SlotId, VExprContextSPtr> _slot_id_to_virtual_column_expr;
-    std::map<SlotId, size_t> _slot_id_to_index_in_block;
-    // this map is needed for scanner opening.
-    std::map<SlotId, DataTypePtr> _slot_id_to_col_type;
 
     // ---- Runtime-filter partition pruning ----
     // Attaches this per-instance pruner to the shared parse result owned by
@@ -345,7 +370,8 @@ class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
 public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs, int parallel_tasks,
-                      const TQueryCacheParam& cache_param);
+                      const TQueryCacheParam& cache_param,
+                      std::shared_ptr<QueryCacheRuntime> query_cache_runtime = nullptr);
 
     Status prepare(RuntimeState* state) override;
 
@@ -361,6 +387,10 @@ private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;
     TQueryCacheParam _cache_param;
+    // Shared with the cache source operator of the same fragment so both
+    // consume the same per-instance cache decision (see QueryCacheRuntime).
+    // Null when the query cache is disabled.
+    std::shared_ptr<QueryCacheRuntime> _query_cache_runtime;
     TabletSchemaSPtr _tablet_schema;
 };
 

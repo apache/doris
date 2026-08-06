@@ -25,6 +25,8 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader.h"
+#include "io/io_common.h"
+#include "storage/olap_common.h"
 
 namespace doris::segment_v2 {
 
@@ -58,8 +60,9 @@ public:
     // - If the ordinal is out of range or the corresponding meta is missing/corrupted,
     //   returns ErrorCode::CORRUPTION.
     Status get_column_meta_by_column_ordinal_id(const SegmentFooterPB& footer,
-                                                uint32_t column_ordinal_id,
-                                                ColumnMetaPB* out) const;
+                                                uint32_t column_ordinal_id, ColumnMetaPB* out,
+                                                OlapReaderStatistics* stats = nullptr,
+                                                const io::IOContext* source_io_ctx = nullptr) const;
 
     // Get ColumnMetaPB for the given column unique id using the provided footer.
     // column_uid is TabletColumn.unique_id / ColumnMetaPB.unique_id.
@@ -72,7 +75,8 @@ public:
     // - If the uid does not exist in this segment (no physical column for this uid),
     //   returns ErrorCode::NOT_FOUND.
     Status get_column_meta_by_uid(const SegmentFooterPB& footer, int32_t column_uid,
-                                  ColumnMetaPB* out) const;
+                                  ColumnMetaPB* out, OlapReaderStatistics* stats = nullptr,
+                                  const io::IOContext* source_io_ctx = nullptr) const;
 
     // Fast existence check for a given column unique id.
     //
@@ -83,7 +87,9 @@ public:
 
     // Traverse all ColumnMetaPBs using the provided footer.
     Status traverse_metas(const SegmentFooterPB& footer,
-                          const std::function<void(const ColumnMetaPB&)>& visitor) const;
+                          const std::function<void(const ColumnMetaPB&)>& visitor,
+                          OlapReaderStatistics* stats = nullptr,
+                          const io::IOContext* source_io_ctx = nullptr) const;
 
 private:
     std::unique_ptr<Impl> _impl;

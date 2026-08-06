@@ -105,7 +105,7 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                        __BEFORE__v2__
                 FROM binlog("table" = "test_mow_multi_segment_with_binlog")
                 WHERE k1 IN (1, 3000, 5000)
-                ORDER BY __DORIS_BINLOG_LSN__
+                ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
             """
 
             // second load: first write keys [2048, 7000] with seq=3.
@@ -152,7 +152,7 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                        __BEFORE__v2__
                 FROM binlog("table" = "test_mow_multi_segment_with_binlog")
                 WHERE k1 IN (1, 3000, 5000)
-                ORDER BY __DORIS_BINLOG_LSN__
+                ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
             """
 
             // third load: partial update spans multiple segments and has overlap inside the same load.
@@ -208,7 +208,7 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                        __BEFORE__v2__
                 FROM binlog("table" = "test_mow_multi_segment_with_binlog")
                 WHERE k1 IN (1, 3000, 5000)
-                ORDER BY __DORIS_BINLOG_LSN__
+                ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
             """
 
             sql "SET skip_delete_bitmap = true"
@@ -225,7 +225,7 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                        __BEFORE__v2__
                 FROM binlog("table" = "test_mow_multi_segment_with_binlog")
                 WHERE k1 IN (1, 3000, 5000)
-                ORDER BY __DORIS_BINLOG_LSN__
+                ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
             """
         } finally {
             sql "SET enable_unique_key_partial_update = false"

@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss_customer_sk = customer.c_customer_sk)) otherCondition=((if((year_total > 0.0), (year_total / year_total), NULL) > if((year_total > 0.0), (year_total / year_total), NULL))) build RFs:RF11 c_customer_sk->ws_bill_customer_sk
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss_customer_sk = customer.c_customer_sk)) otherCondition=((if((t_w_firstyear.year_total > 0.0), (t_w_secyear.year_total / t_w_firstyear.year_total), NULL) > if((t_s_firstyear.year_total > 0.0), (t_s_secyear.year_total / t_s_firstyear.year_total), NULL))) build RFs:RF11 c_customer_sk->ws_bill_customer_sk
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecHash]

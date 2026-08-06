@@ -136,14 +136,14 @@ PhysicalResultSink
 
 -- !expr_unequal_infer_same_table2 --
 PhysicalResultSink
---filter((abs(c) < 1) and (abs(d) < abs(c)))
+--filter((abs(t1.c) < 1) and (abs(t1.d) < abs(t1.c)))
 ----PhysicalOlapScan[infer_unequal_predicates_t1(t1)]
 
 -- !expr_unequal_infer_diff_table --
 PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN](abs(d) < abs(c))
 ----PhysicalOlapScan[infer_unequal_predicates_t1(t1)]
-----filter((abs(c) < 1))
+----filter((abs(t2.c) < 1))
 ------PhysicalOlapScan[infer_unequal_predicates_t2(t2)]
 
 -- !not_infer_expr1 --
