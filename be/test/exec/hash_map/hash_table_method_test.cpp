@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <new>
+
 #include "core/data_type/data_type_number.h"
 #include "exec/common/columns_hashing.h"
 #include "exec/common/hash_table/hash.h"
