@@ -23,6 +23,7 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VariantType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -80,5 +81,14 @@ public class PaimonTypeMappingReadTest {
                 "a NOT NULL nested struct field must map to a non-null ConnectorType child");
         Assertions.assertTrue(struct.isChildNullable(1),
                 "a nullable nested struct field stays nullable");
+    }
+
+    @Test
+    public void variantUsesExecutionCarrierOnRead() {
+        ConnectorType variant = PaimonTypeMapping.toConnectorType(
+                new VariantType(), PaimonTypeMapping.Options.DEFAULT);
+
+        Assertions.assertEquals("VARIANT_COMPUTE_V2", variant.getTypeName(),
+                "Paimon Variant must stay queryable in Nereids and both JNI and native readers");
     }
 }
