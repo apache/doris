@@ -346,7 +346,9 @@ private:
     // External Parquet readers revisit several pages inside the same cache block. Promote only a
     // repeatedly accessed block so a one-off page keeps the existing exact local-read cost.
     static constexpr size_t MAX_MEMORY_BLOCK_CACHE_BYTES = 16 * 1024 * 1024;
-    static constexpr uint8_t MEMORY_BLOCK_PROMOTION_ACCESSES = 3;
+    // Parquet reads a small page header before its payload. Promote on the second access so a
+    // header-only skip avoids a 1 MiB read, while a header-plus-payload sequence reuses the block.
+    static constexpr uint8_t MEMORY_BLOCK_PROMOTION_ACCESSES = 2;
     std::mutex _memory_block_cache_mutex;
     std::map<size_t, std::shared_ptr<std::vector<char>>> _memory_block_cache;
     std::map<size_t, uint8_t> _memory_block_access_counts;

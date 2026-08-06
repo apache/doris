@@ -10554,7 +10554,7 @@ TEST_F(BlockFileCacheTest,
     EXPECT_FALSE(read_stats.from_peer_cache);
 }
 
-TEST_F(BlockFileCacheTest, external_reader_reuses_exact_cache_range_from_memory) {
+TEST_F(BlockFileCacheTest, external_reader_promotes_cache_block_on_second_partial_read) {
     const std::string content = "abcdefghijklmnop";
     const fs::path file_path =
             create_cached_remote_reader_test_file("external_reader_memory_reuse", content);
@@ -10595,14 +10595,13 @@ TEST_F(BlockFileCacheTest, external_reader_reuses_exact_cache_range_from_memory)
     EXPECT_EQ(first, "cdef");
     EXPECT_TRUE(reader._memory_block_cache.empty());
 
-    std::string promoted(4, '#');
-    for (int attempt = 0; attempt < 2; ++attempt) {
-        cache_hit = false;
-        ASSERT_TRUE(reader.read_at_from_cache(2, Slice(promoted.data(), promoted.size()),
-                                              &bytes_read, &cache_hit)
-                            .ok());
-        ASSERT_TRUE(cache_hit);
-    }
+    std::string second(4, '#');
+    cache_hit = false;
+    ASSERT_TRUE(reader.read_at_from_cache(2, Slice(second.data(), second.size()), &bytes_read,
+                                          &cache_hit)
+                        .ok());
+    ASSERT_TRUE(cache_hit);
+    EXPECT_EQ(second, "cdef");
     ASSERT_FALSE(reader._memory_block_cache.empty());
 
     auto [align_left, align_size] =
@@ -10615,13 +10614,13 @@ TEST_F(BlockFileCacheTest, external_reader_reuses_exact_cache_range_from_memory)
         fs::remove(block->get_cache_file(), ignore);
     }
 
-    std::string second(4, '#');
+    std::string reused(4, '#');
     cache_hit = false;
-    ASSERT_TRUE(reader.read_at_from_cache(2, Slice(second.data(), second.size()), &bytes_read,
+    ASSERT_TRUE(reader.read_at_from_cache(2, Slice(reused.data(), reused.size()), &bytes_read,
                                           &cache_hit)
                         .ok());
     EXPECT_TRUE(cache_hit);
-    EXPECT_EQ(second, "cdef");
+    EXPECT_EQ(reused, "cdef");
 }
 
 } // namespace doris::io
