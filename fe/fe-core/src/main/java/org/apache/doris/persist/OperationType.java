@@ -430,6 +430,9 @@ public class OperationType {
 
     public static final short OP_BEGIN_SNAPSHOT = 1100;
     public static final short OP_META_SYNC_POINT = 1101;
+    // Compatibility only. Old 26.0 cloud builds wrote table metadata change
+    // records with this opcode, but replaying them is no longer needed.
+    public static final short OP_TABLE_META_CHANGE = 1102;
 
     /**
      * Get opcode name by op code.
