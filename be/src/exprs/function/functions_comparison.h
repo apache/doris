@@ -322,8 +322,7 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
 
     const auto effective_op = slot_literal->literal_on_left ? symmetric_op(op) : op;
     const auto& literal = slot_literal->literal;
-    const bool literal_is_nan =
-            expr_zonemap::field_is_nan(literal, remove_nullable(slot_type)->get_primitive_type());
+    const bool literal_is_nan = literal.is_nan();
     const bool hidden_nan_can_match = (effective_op == Op::EQ && literal_is_nan) ||
                                       (effective_op == Op::NE && !literal_is_nan) ||
                                       (effective_op == Op::GT && !literal_is_nan) ||
@@ -391,8 +390,7 @@ inline bool can_evaluate_equality(const VExprSPtrs& arguments, Op op) {
     const auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
     DORIS_CHECK(slot_literal.has_value());
     // Bloom membership cannot disprove Doris NaN equality across different physical encodings.
-    return !expr_zonemap::field_is_nan(
-            slot_literal->literal, remove_nullable(slot_literal->slot_type)->get_primitive_type());
+    return !slot_literal->literal.is_nan();
 }
 
 inline bool dictionary_value_matches(const Field& value, const Field& literal, Op op) {

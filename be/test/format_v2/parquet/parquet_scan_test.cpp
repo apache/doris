@@ -25,6 +25,7 @@
 #include <parquet/arrow/writer.h>
 #include <parquet/encoding.h>
 
+#include <bit>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -66,6 +67,7 @@
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_reader.h"
+#include "format_v2/parquet/reader/native/block_split_bloom_filter.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
@@ -566,6 +568,47 @@ VExprContextSPtr create_string_in_conjunct(int column_id, const std::vector<std:
     for (const auto& value : values) {
         root->add_child(
                 VLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(value)));
+    }
+    return VExprContext::create_shared(std::move(root));
+}
+
+DataTypePtr floating_data_type(PrimitiveType type) {
+    if (type == TYPE_FLOAT) {
+        return std::make_shared<DataTypeFloat32>();
+    }
+    DORIS_CHECK(type == TYPE_DOUBLE);
+    return std::make_shared<DataTypeFloat64>();
+}
+
+VExprContextSPtr create_floating_function_conjunct(int column_id, PrimitiveType type,
+                                                   const std::string& function_name,
+                                                   TExprOpcode::type opcode, const Field& value) {
+    const auto data_type = floating_data_type(type);
+    auto root = create_binary_predicate(
+            function_name, opcode,
+            VSlotRef::create_shared(column_id, column_id, -1, make_nullable(data_type),
+                                    "floating_key"),
+            VLiteral::create_shared(data_type, value));
+    return VExprContext::create_shared(std::move(root));
+}
+
+VExprContextSPtr create_floating_in_conjunct(int column_id, PrimitiveType type,
+                                             const std::vector<Field>& values, bool is_not_in) {
+    const auto data_type = floating_data_type(type);
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::IN_PRED);
+    node.__set_type(result_type->to_thrift());
+    node.__set_num_children(static_cast<int16_t>(values.size() + 1));
+    node.__set_is_nullable(true);
+    TInPredicate in_predicate;
+    in_predicate.__set_is_not_in(is_not_in);
+    node.__set_in_predicate(in_predicate);
+    auto root = VInPredicate::create_shared(node);
+    root->add_child(VSlotRef::create_shared(column_id, column_id, -1, make_nullable(data_type),
+                                            "floating_key"));
+    for (const auto& value : values) {
+        root->add_child(VLiteral::create_shared(data_type, value));
     }
     return VExprContext::create_shared(std::move(root));
 }
@@ -1173,6 +1216,22 @@ std::shared_ptr<arrow::Array> build_int64_array(const std::vector<int64_t>& valu
     return finish_array(&builder);
 }
 
+std::shared_ptr<arrow::Array> build_float_array(const std::vector<float>& values) {
+    arrow::FloatBuilder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_double_array(const std::vector<double>& values) {
+    arrow::DoubleBuilder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
 std::shared_ptr<arrow::Array> build_int8_array(const std::vector<int8_t>& values) {
     arrow::Int8Builder builder;
     for (const auto value : values) {
@@ -1295,6 +1354,111 @@ void write_table(const std::string& file_path, const std::shared_ptr<arrow::Tabl
     }
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       row_group_size, builder.build()));
+}
+
+template <typename T>
+std::vector<uint8_t> build_parquet_bloom_filter(const T* values, size_t count) {
+    format::parquet::native::BlockSplitBloomFilter bloom_filter;
+    DORIS_CHECK(bloom_filter
+                        .init(segment_v2::BloomFilter::MINIMUM_BYTES,
+                              segment_v2::HashStrategyPB::XX_HASH_64)
+                        .ok());
+    for (size_t index = 0; index < count; ++index) {
+        bloom_filter.add_bytes(reinterpret_cast<const char*>(&values[index]), sizeof(T));
+    }
+
+    tparquet::BloomFilterAlgorithm algorithm;
+    algorithm.__set_BLOCK(tparquet::SplitBlockAlgorithm());
+    tparquet::BloomFilterHash hash;
+    hash.__set_XXHASH(tparquet::XxHash());
+    tparquet::BloomFilterCompression compression;
+    compression.__set_UNCOMPRESSED(tparquet::Uncompressed());
+    tparquet::BloomFilterHeader header;
+    header.__set_numBytes(static_cast<int32_t>(bloom_filter.size()));
+    header.__set_algorithm(algorithm);
+    header.__set_hash(hash);
+    header.__set_compression(compression);
+
+    std::vector<uint8_t> bytes;
+    ThriftSerializer serializer(/*compact=*/true, 64);
+    DORIS_CHECK(serializer.serialize(&header, &bytes).ok());
+    bytes.insert(bytes.end(), bloom_filter.data(), bloom_filter.data() + bloom_filter.size());
+    return bytes;
+}
+
+void append_floating_bloom_filters(const std::string& file_path,
+                                   const std::vector<float>& float_values,
+                                   const std::vector<double>& double_values) {
+    DORIS_CHECK(float_values.size() == double_values.size());
+    std::ifstream input(file_path, std::ios::binary | std::ios::ate);
+    DORIS_CHECK(input.good());
+    const auto input_size = static_cast<std::streamoff>(input.tellg());
+    DORIS_CHECK(input_size >= static_cast<std::streamoff>(8));
+    std::vector<uint8_t> file_bytes(cast_set<size_t>(input_size));
+    input.seekg(0);
+    input.read(reinterpret_cast<char*>(file_bytes.data()), cast_set<std::streamsize>(input_size));
+    DORIS_CHECK(input.good());
+    DORIS_CHECK(memcmp(file_bytes.data() + file_bytes.size() - 4, "PAR1", 4) == 0);
+
+    const uint32_t footer_size = decode_fixed32_le(file_bytes.data() + file_bytes.size() - 8);
+    DORIS_CHECK(footer_size <= file_bytes.size() - 8);
+    const size_t footer_offset = file_bytes.size() - 8 - footer_size;
+    uint32_t thrift_size = footer_size;
+    tparquet::FileMetaData metadata;
+    DORIS_CHECK(
+            deserialize_thrift_msg(file_bytes.data() + footer_offset, &thrift_size, true, &metadata)
+                    .ok());
+
+    file_bytes.resize(footer_offset);
+    size_t first_row = 0;
+    for (auto& row_group : metadata.row_groups) {
+        const size_t row_count = cast_set<size_t>(row_group.num_rows);
+        DORIS_CHECK(row_group.columns.size() >= 2);
+        DORIS_CHECK(first_row + row_count <= float_values.size());
+        const auto append_column_bloom = [&]<typename T>(size_t column_id,
+                                                         const std::vector<T>& values) {
+            auto bytes = build_parquet_bloom_filter(values.data() + first_row, row_count);
+            auto& column = row_group.columns[column_id].meta_data;
+            column.__set_bloom_filter_offset(cast_set<int64_t>(file_bytes.size()));
+            column.__set_bloom_filter_length(cast_set<int32_t>(bytes.size()));
+            file_bytes.insert(file_bytes.end(), bytes.begin(), bytes.end());
+        };
+        append_column_bloom(0, float_values);
+        append_column_bloom(1, double_values);
+        first_row += row_count;
+    }
+    DORIS_CHECK(first_row == float_values.size());
+
+    std::vector<uint8_t> footer;
+    ThriftSerializer serializer(/*compact=*/true, 1024);
+    DORIS_CHECK(serializer.serialize(&metadata, &footer).ok());
+    file_bytes.insert(file_bytes.end(), footer.begin(), footer.end());
+    std::array<uint8_t, sizeof(uint32_t)> encoded_footer_size {};
+    encode_fixed32_le(encoded_footer_size.data(), cast_set<uint32_t>(footer.size()));
+    file_bytes.insert(file_bytes.end(), encoded_footer_size.begin(), encoded_footer_size.end());
+    file_bytes.insert(file_bytes.end(), {'P', 'A', 'R', '1'});
+
+    std::ofstream output(file_path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(file_bytes.data()), file_bytes.size());
+    output.close();
+    DORIS_CHECK(output.good());
+}
+
+void write_floating_parquet_file_with_bloom_filters(const std::string& file_path) {
+    const std::vector<float> float_values {
+            -1.0F, -0.0F, 1.0F, 0.5F, std::bit_cast<float>(uint32_t {0x7fc00001U}),
+            -2.0F, 2.0F,  4.0F};
+    const std::vector<double> double_values {
+            -1.0, -0.0, 1.0, 0.5, std::bit_cast<double>(uint64_t {0x7ff8000000000001ULL}),
+            -2.0, 2.0,  4.0};
+    auto schema = arrow::schema({arrow::field("float_value", arrow::float32(), false),
+                                 arrow::field("double_value", arrow::float64(), false),
+                                 arrow::field("id", arrow::int32(), false)});
+    auto table = arrow::Table::Make(
+            schema, {build_float_array(float_values), build_double_array(double_values),
+                     build_int32_array({0, 1, 2, 3, 4, 5, 6, 7})});
+    write_table(file_path, table, 4);
+    append_floating_bloom_filters(file_path, float_values, double_values);
 }
 
 void write_required_adjusted_time_parquet_file(const std::string& file_path) {
@@ -1780,6 +1944,83 @@ protected:
     std::filesystem::path _test_dir;
     std::string _file_path;
 };
+
+TEST_F(ParquetScanTest, FloatingPredicatesPreserveDorisSemanticsWithRealBloomFilters) {
+    write_floating_parquet_file_with_bloom_filters(_file_path);
+
+    const auto expect_ids = [&](int column_id, const VExprContextSPtr& conjunct,
+                                const ColumnInt32::Container& expected,
+                                bool expect_bloom_pruning = false) {
+        RuntimeProfile profile("profile");
+        auto reader = create_reader(0, -1, &profile);
+        TQueryOptions options;
+        options.__set_enable_parquet_filter_by_bloom_filter(true);
+        RuntimeState state {options, TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        use_schema_order_positions(request.get(), schema);
+        format::FileScanRequestBuilder request_builder(request.get());
+        ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(column_id)).ok());
+        ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(2)).ok());
+        request->predicate_only_columns.push_back(format::LocalColumnId(column_id));
+        ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+        ASSERT_TRUE(conjunct->open(&state).ok());
+        request->conjuncts.push_back(conjunct);
+        ASSERT_TRUE(reader->open(request).ok());
+
+        ColumnInt32::Container actual;
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            const auto& ids = int32_data_column(*block.get_by_position(2).column).get_data();
+            actual.insert(actual.end(), ids.begin(), ids.end());
+        }
+        EXPECT_EQ(actual, expected);
+        if (expect_bloom_pruning) {
+            EXPECT_EQ(counter_value(profile, "RowGroupsFilteredByBloomFilter"), 1);
+        }
+        conjunct->close();
+    };
+
+    const auto check_type = [&]<PrimitiveType Type>(int column_id) {
+        using CppType = typename PrimitiveTypeTraits<Type>::CppType;
+        const CppType query_nan = [] {
+            if constexpr (Type == TYPE_FLOAT) {
+                return std::bit_cast<float>(uint32_t {0x7fc00002U});
+            } else {
+                return std::bit_cast<double>(uint64_t {0x7ff8000000000002ULL});
+            }
+        }();
+        const auto nan = Field::create_field<Type>(query_nan);
+        const auto zero = Field::create_field<Type>(CppType {0});
+        const auto one = Field::create_field<Type>(CppType {1});
+        const auto absent = Field::create_field<Type>(CppType {10});
+
+        expect_ids(column_id,
+                   create_floating_function_conjunct(column_id, Type, "eq", TExprOpcode::EQ, nan),
+                   {4});
+        expect_ids(column_id, create_floating_in_conjunct(column_id, Type, {absent, nan}, false),
+                   {4});
+        expect_ids(column_id, create_floating_in_conjunct(column_id, Type, {zero}, true),
+                   {0, 2, 3, 4, 5, 6, 7});
+        expect_ids(column_id,
+                   create_floating_function_conjunct(column_id, Type, "eq", TExprOpcode::EQ, zero),
+                   {1}, true);
+        expect_ids(column_id,
+                   create_floating_function_conjunct(column_id, Type, "gt", TExprOpcode::GT, one),
+                   {4, 6, 7});
+    };
+
+    // The file stores different NaN payloads and -0.0, so these scans exercise both semantic
+    // equivalence classes through the real V2 footer-statistics and Bloom-filter path.
+    check_type.template operator()<TYPE_FLOAT>(0);
+    check_type.template operator()<TYPE_DOUBLE>(1);
+}
 
 TEST(ParquetScanSelectionTest, CompactFilterShrinksCurrentSelection) {
     format::parquet::SelectionVector selection(4);

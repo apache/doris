@@ -183,7 +183,7 @@ Status materialize_hybrid_set_for_zonemap_filter(HybridSetBase& set, const DataT
             auto literal = VLiteral::create_shared(literal_node);
             Field field;
             literal->get_column_ptr()->get(0, field);
-            result->contains_nan |= field_is_nan(field, value_type->get_primitive_type());
+            result->contains_nan |= field.is_nan();
             result->values.emplace_back(std::move(field));
         }
         iterator->next();
