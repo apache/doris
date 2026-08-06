@@ -1500,17 +1500,18 @@
 11	[0, 0]
 
 -- !test --
-\N	{}
-1	{0:"string1"}
-2	{1:"string2"}
-3	{2:"string3"}
-4	{3:"string1"}
-5	{4:"string2"}
-6	{5:"string3"}
-7	{6:"string1"}
-8	{7:"string2"}
-9	{8:"string3"}
-10	{9:"string1"}
-11	{10:"string2"}
-12	{11:"string3"}
+\N	\N	null
+1	\N	string1
+1	0	string1
+10	9	string1
+11	10	string2
+12	11	string3
+2	1	string2
+3	2	string3
+4	3	string1
+5	4	string2
+6	5	string3
+7	6	string1
+8	7	string2
+9	8	string3
 

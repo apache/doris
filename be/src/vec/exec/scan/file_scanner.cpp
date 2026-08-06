@@ -247,6 +247,12 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     if (_runtime_filter_partition_prune_ctxs.empty() || _partition_col_descs.empty()) {
         return Status::OK();
     }
+    if (_partition_col_descs.size() != _partition_slot_descs.size()) {
+        // This range only carries values for a subset of the partition slots (e.g. a file
+        // written under an older Iceberg partition spec). The prune conjuncts may reference
+        // unbound slots whose block columns would stay empty, so skip pruning this range.
+        return Status::OK();
+    }
     size_t partition_value_column_size = 1;
 
     // 1. Get partition key values to string columns.
@@ -1535,30 +1541,66 @@ Status FileScanner::_generate_partition_columns() {
     _partition_col_descs.clear();
     _partition_value_is_null.clear();
     const TFileRangeDesc& range = _current_range;
-    if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
-        if (range.__isset.columns_from_path_is_null) {
-            DORIS_CHECK(range.columns_from_path_is_null.size() == range.columns_from_path.size());
+    if (!range.__isset.columns_from_path || _partition_slot_descs.empty()) {
+        return Status::OK();
+    }
+    if (range.__isset.columns_from_path_is_null) {
+        DORIS_CHECK(range.columns_from_path_is_null.size() == range.columns_from_path.size());
+    }
+    if (!_is_load && range.__isset.columns_from_path_keys) {
+        // Ranges of one scanner may carry different columns_from_path_keys. E.g. after
+        // Iceberg partition evolution, a file written under an older partition spec only
+        // carries the identity partition values of that spec (possibly none), while
+        // _partition_slot_descs was built from the first range's keys. So bind values by
+        // this range's own key list. A partition slot absent from this range's keys is
+        // read from the data file instead (for such tables all partition columns are
+        // also file slots, see IcebergScanNode.getPathPartitionKeys).
+        if (range.columns_from_path.size() != range.columns_from_path_keys.size()) {
+            return Status::InternalError(
+                    "columns_from_path size {} does not match columns_from_path_keys size {}",
+                    range.columns_from_path.size(), range.columns_from_path_keys.size());
+        }
+        std::unordered_map<std::string, size_t> name_to_value_index;
+        for (size_t i = 0; i < range.columns_from_path_keys.size(); ++i) {
+            name_to_value_index.emplace(range.columns_from_path_keys[i], i);
         }
         for (const auto& slot_desc : _partition_slot_descs) {
-            if (slot_desc) {
-                auto it = _partition_slot_index_map.find(slot_desc->id());
-                if (it == std::end(_partition_slot_index_map)) {
-                    return Status::InternalError("Unknown source slot descriptor, slot_id={}",
-                                                 slot_desc->id());
-                }
-                if (it->second < 0 ||
-                    static_cast<size_t>(it->second) >= range.columns_from_path.size()) {
-                    return Status::InternalError(
-                            "Invalid partition value index {}, value count {} for column {}",
-                            it->second, range.columns_from_path.size(), slot_desc->col_name());
-                }
-                const std::string& column_from_path = range.columns_from_path[it->second];
-                _partition_col_descs.emplace(slot_desc->col_name(),
-                                             std::make_tuple(column_from_path, slot_desc));
-                if (range.__isset.columns_from_path_is_null) {
-                    _partition_value_is_null.emplace(slot_desc->col_name(),
-                                                     range.columns_from_path_is_null[it->second]);
-                }
+            if (!slot_desc) {
+                continue;
+            }
+            auto it = name_to_value_index.find(slot_desc->col_name());
+            if (it == name_to_value_index.end()) {
+                continue;
+            }
+            _partition_col_descs.emplace(
+                    slot_desc->col_name(),
+                    std::make_tuple(range.columns_from_path[it->second], slot_desc));
+            if (range.__isset.columns_from_path_is_null) {
+                _partition_value_is_null.emplace(slot_desc->col_name(),
+                                                 range.columns_from_path_is_null[it->second]);
+            }
+        }
+        return Status::OK();
+    }
+    for (const auto& slot_desc : _partition_slot_descs) {
+        if (slot_desc) {
+            auto it = _partition_slot_index_map.find(slot_desc->id());
+            if (it == std::end(_partition_slot_index_map)) {
+                return Status::InternalError("Unknown source slot descriptor, slot_id={}",
+                                             slot_desc->id());
+            }
+            if (it->second < 0 ||
+                static_cast<size_t>(it->second) >= range.columns_from_path.size()) {
+                return Status::InternalError(
+                        "Invalid partition value index {}, value count {} for column {}",
+                        it->second, range.columns_from_path.size(), slot_desc->col_name());
+            }
+            const std::string& column_from_path = range.columns_from_path[it->second];
+            _partition_col_descs.emplace(slot_desc->col_name(),
+                                         std::make_tuple(column_from_path, slot_desc));
+            if (range.__isset.columns_from_path_is_null) {
+                _partition_value_is_null.emplace(slot_desc->col_name(),
+                                                 range.columns_from_path_is_null[it->second]);
             }
         }
     }
