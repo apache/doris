@@ -208,6 +208,14 @@ void visit_typed_scalar_column(const ColumnNullable& nullable, PrimitiveType typ
                                   });
 }
 
+VariantField field_from_scalar(const VariantScalarRef& scalar) {
+    DorisVector<char> value(scalar.encoded_size());
+    scalar.write_physical(value.data(), value.size());
+    return VariantField::from_ref({.metadata = {.data = VARIANT_EMPTY_METADATA.data(),
+                                                .size = VARIANT_EMPTY_METADATA.size()},
+                                   .value = {value.data(), value.size()}});
+}
+
 template <typename Sink, typename Hash>
 void update_typed_hashes(const ColumnNullable& nullable, PrimitiveType type, uint32_t scale,
                          Hash* __restrict hashes, const uint8_t* __restrict null_data) {
@@ -306,11 +314,6 @@ ValidatedTypedInput validate_typed_input(ColumnPtr column, DataTypePtr scalar_ty
     validate_typed_decimal_scale(nested, type, scalar_type->get_scale());
 
     return {.column = std::move(column), .type = std::move(scalar_type)};
-}
-
-[[noreturn]] void throw_deferred(std::string_view method, std::string_view task) {
-    throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                    "ColumnVariantV2::{} is deferred until {} is complete", method, task);
 }
 
 [[noreturn]] void throw_unsupported(std::string_view method) {
@@ -527,10 +530,6 @@ void ColumnVariantV2::clear() {
 // Validate the encoded batch before appending metadata, ids, and values.
 void ColumnVariantV2::insert_encoded_rows( // NOLINT(readability-function-size)
         const EncodedDataView& data) {
-    if (_typed) {
-        ensure_encoded();
-    }
-    DORIS_CHECK(_typed_type == nullptr) << "encoded state cannot retain a typed data type";
     validate_offsets(data.metadata_bytes, data.metadata_offsets, "metadata");
     validate_offsets(data.value_bytes, data.value_offsets, "value");
 
@@ -560,12 +559,8 @@ void ColumnVariantV2::insert_encoded_rows( // NOLINT(readability-function-size)
         validate_variant_metadata(metadata_at(id));
     }
 
-    require_exclusive(_meta_ids, "metadata ids");
-    require_exclusive(_values, "values");
-    auto& values = *_values;
-    auto& metadata_ids = *_meta_ids;
-    reserve_rows(values, metadata_ids, data.value_bytes.size, rows);
-
+    // Validate every row before changing a typed destination or appending to an encoded one.
+    // This keeps input errors atomic without introducing a second temporary column.
     if (data.meta_ids.empty()) {
         const VariantMetadataRef metadata = metadata_at(0);
         for (size_t row = 0; row < rows; ++row) {
@@ -575,6 +570,30 @@ void ColumnVariantV2::insert_encoded_rows( // NOLINT(readability-function-size)
                     {.metadata = metadata,
                      .value = {data.value_bytes.data + begin, static_cast<size_t>(end - begin)}});
         }
+    } else {
+        for (size_t row = 0; row < rows; ++row) {
+            const uint32_t source_id = data.meta_ids[row];
+            DORIS_CHECK_LT(source_id, metadata_count) << "encoded row metadata id is out of range";
+            const uint32_t begin = data.value_offsets[row];
+            const uint32_t end = data.value_offsets[row + 1];
+            validate_variant_payload(
+                    {.metadata = metadata_at(source_id),
+                     .value = {data.value_bytes.data + begin, static_cast<size_t>(end - begin)}});
+        }
+    }
+
+    if (_typed) {
+        ensure_encoded();
+    }
+    DORIS_CHECK(_typed_type == nullptr) << "encoded state cannot retain a typed data type";
+    require_exclusive(_meta_ids, "metadata ids");
+    require_exclusive(_values, "values");
+    auto& values = *_values;
+    auto& metadata_ids = *_meta_ids;
+    reserve_rows(values, metadata_ids, data.value_bytes.size, rows);
+
+    if (data.meta_ids.empty()) {
+        const VariantMetadataRef metadata = metadata_at(0);
         const uint32_t id = _find_or_insert_metadata({metadata.data, metadata.size});
         values.insert_many_continuous_binary_data(data.value_bytes.data, data.value_offsets.data(),
                                                   rows);
@@ -584,13 +603,8 @@ void ColumnVariantV2::insert_encoded_rows( // NOLINT(readability-function-size)
         auto& destination_ids = metadata_ids.get_data();
         for (size_t row = 0; row < rows; ++row) {
             const uint32_t source_id = data.meta_ids[row];
-            DORIS_CHECK_LT(source_id, metadata_count) << "encoded row metadata id is out of range";
+            DCHECK_LT(source_id, metadata_count);
             const VariantMetadataRef metadata = metadata_at(source_id);
-            const uint32_t begin = data.value_offsets[row];
-            const uint32_t end = data.value_offsets[row + 1];
-            validate_variant_payload(
-                    {.metadata = metadata,
-                     .value = {data.value_bytes.data + begin, static_cast<size_t>(end - begin)}});
             if (remap[source_id] == UNMAPPED_METADATA_ID) {
                 remap[source_id] = _find_or_insert_metadata({metadata.data, metadata.size});
             }
@@ -605,11 +619,6 @@ void ColumnVariantV2::insert_encoded_rows( // NOLINT(readability-function-size)
 }
 
 void ColumnVariantV2::insert_encoded_batch(const VariantBatchBuilder& block) {
-    if (_typed) {
-        ensure_encoded();
-    }
-    DORIS_CHECK(_typed_type == nullptr) << "encoded state cannot retain a typed data type";
-
     const size_t rows = block.num_rows();
     const std::span<const uint32_t> offsets = block.value_offsets();
     DORIS_CHECK_EQ(offsets.size(), rows + 1)
@@ -623,6 +632,10 @@ void ColumnVariantV2::insert_encoded_batch(const VariantBatchBuilder& block) {
     DORIS_CHECK_EQ(offsets.front(), 0);
     DORIS_CHECK_EQ(static_cast<size_t>(offsets.back()), value_bytes.size);
 
+    if (_typed) {
+        ensure_encoded();
+    }
+    DORIS_CHECK(_typed_type == nullptr) << "encoded state cannot retain a typed data type";
     require_exclusive(_meta_ids, "metadata ids");
     require_exclusive(_values, "values");
     auto& values = *_values;
@@ -649,16 +662,62 @@ VariantRef ColumnVariantV2::get_value_ref(size_t row) const {
     return {.metadata = {.data = metadata.data, .size = metadata.size}, .value = value};
 }
 
-Field ColumnVariantV2::operator[](size_t) const {
-    throw_deferred("operator[]", "T1.7b Field rebind");
+Field ColumnVariantV2::operator[](size_t row) const {
+    Field result;
+    get(row, result);
+    return result;
 }
 
-void ColumnVariantV2::get(size_t, Field&) const {
-    throw_deferred("get", "T1.7b Field rebind");
+void ColumnVariantV2::get(size_t row, Field& result) const {
+    if (UNLIKELY(row >= size())) {
+        throw Exception(ErrorCode::OUT_OF_BOUND,
+                        "Index ({}) for getting Variant field is out of range for size {}", row,
+                        size());
+    }
+
+    VariantField value;
+    if (_typed) {
+        const auto& nullable = assert_cast<const ColumnNullable&>(*_typed);
+        visit_typed_scalar_column(
+                nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), row, row + 1,
+                [&](size_t, const VariantScalarRef& scalar) { value = field_from_scalar(scalar); });
+    } else {
+        value = VariantField::from_ref(get_value_ref(row));
+    }
+    result = Field::create_field<TYPE_VARIANT>(std::move(value));
 }
 
-void ColumnVariantV2::insert(const Field&) {
-    throw_deferred("insert(Field)", "T1.7b Field rebind");
+void ColumnVariantV2::insert(const Field& field) {
+    VariantField null_value;
+    const VariantField* value = nullptr;
+    if (field.get_type() == TYPE_NULL) {
+        null_value = field_from_scalar(VariantScalarRef::null_value());
+        value = &null_value;
+    } else if (field.get_type() == TYPE_VARIANT) {
+        value = &field.get<TYPE_VARIANT>();
+        if (value->is_legacy()) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "ColumnVariantV2 cannot insert a legacy VariantMap Field");
+        }
+    } else {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "ColumnVariantV2 only accepts Variant or NULL Field values, got {}",
+                        field.get_type_name());
+    }
+
+    const VariantRef ref = value->ref();
+    if (ref.metadata.size > std::numeric_limits<uint32_t>::max() ||
+        ref.value.size > std::numeric_limits<uint32_t>::max()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant Field row exceeds ColumnString uint32 limits");
+    }
+    const std::array<uint32_t, 2> metadata_offsets {0, static_cast<uint32_t>(ref.metadata.size)};
+    const std::array<uint32_t, 2> value_offsets {0, static_cast<uint32_t>(ref.value.size)};
+    insert_encoded_rows({.metadata_bytes = {ref.metadata.data, ref.metadata.size},
+                         .metadata_offsets = metadata_offsets,
+                         .meta_ids = {},
+                         .value_bytes = ref.value,
+                         .value_offsets = value_offsets});
 }
 
 void ColumnVariantV2::insert_default() {
@@ -762,23 +821,24 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
     const size_t value_end = source_offsets[start + length - 1];
     const bool destination_has_no_metadata =
             static_cast<const ColumnString::Ptr&>(_metadatas)->empty();
-    const bool adopt_metadata = empty() && destination_has_no_metadata;
+    const bool copy_metadata_dictionary = empty() && destination_has_no_metadata;
     const bool already_shared =
             static_cast<const ColumnString::Ptr&>(_metadatas).get() == source._metadatas.get();
     DorisVector<uint32_t> remap;
-    if (!adopt_metadata && !already_shared) {
+    if (!copy_metadata_dictionary && !already_shared) {
         remap.assign(source_metadatas.size(), UNMAPPED_METADATA_ID);
     }
     auto& values = *_values;
     auto& metadata_ids = *_meta_ids;
     reserve_rows(values, metadata_ids, value_end - value_begin, length);
-    if (adopt_metadata) {
-        _metadatas = source._metadatas;
+    if (copy_metadata_dictionary) {
+        static_cast<ColumnString::Ptr&>(_metadatas) = cast_column_ptr<ColumnString>(
+                source._metadatas->clone_resized(source_metadatas.size()));
     }
     const bool shared_metadata =
             static_cast<const ColumnString::Ptr&>(_metadatas).get() == source._metadatas.get();
     values.insert_range_from(source_values, start, length);
-    if (shared_metadata) {
+    if (copy_metadata_dictionary || shared_metadata) {
         metadata_ids.insert_range_from(*source._meta_ids, start, length);
     } else {
         auto& destination_ids = metadata_ids.get_data();
@@ -843,23 +903,24 @@ void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
 
     const bool destination_has_no_metadata =
             static_cast<const ColumnString::Ptr&>(_metadatas)->empty();
-    const bool adopt_metadata = empty() && destination_has_no_metadata;
+    const bool copy_metadata_dictionary = empty() && destination_has_no_metadata;
     const bool already_shared =
             static_cast<const ColumnString::Ptr&>(_metadatas).get() == source._metadatas.get();
     DorisVector<uint32_t> remap;
-    if (!adopt_metadata && !already_shared) {
+    if (!copy_metadata_dictionary && !already_shared) {
         remap.assign(source_metadatas.size(), UNMAPPED_METADATA_ID);
     }
     auto& values = *_values;
     auto& metadata_ids = *_meta_ids;
     metadata_ids.get_data().reserve(metadata_ids.size() + rows);
-    if (adopt_metadata) {
-        _metadatas = source._metadatas;
+    if (copy_metadata_dictionary) {
+        static_cast<ColumnString::Ptr&>(_metadatas) = cast_column_ptr<ColumnString>(
+                source._metadatas->clone_resized(source_metadatas.size()));
     }
     const bool shared_metadata =
             static_cast<const ColumnString::Ptr&>(_metadatas).get() == source._metadatas.get();
     values.insert_indices_from(source_values, indices_begin, indices_end);
-    if (shared_metadata) {
+    if (copy_metadata_dictionary || shared_metadata) {
         metadata_ids.insert_indices_from(*source._meta_ids, indices_begin, indices_end);
     } else {
         auto& destination_ids = metadata_ids.get_data();

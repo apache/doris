@@ -508,7 +508,10 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
     size_t input_id = 0;
     for (auto i : including_cids) {
-        full_block.replace_by_position(i, data.block->get_by_position(input_id++).column);
+        const auto& input_column = data.block->get_by_position(input_id++);
+        auto& full_column = full_block.get_by_position(i);
+        full_column.column = input_column.column;
+        full_column.type = input_column.type;
     }
 
     if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
@@ -756,7 +759,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
     DCHECK(delete_signs != nullptr);
 
     for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
-        full_block.replace_by_position(cid, data.block->get_by_position(cid).column);
+        const auto& input_column = data.block->get_by_position(cid);
+        auto& full_column = full_block.get_by_position(cid);
+        full_column.column = input_column.column;
+        full_column.type = input_column.type;
     }
 
     // 4. write primary key columns data

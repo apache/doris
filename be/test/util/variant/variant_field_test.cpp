@@ -299,6 +299,30 @@ TEST(VariantFieldTest, CopyAndMoveOwnTheirBytes) {
     EXPECT_EQ(decoded.ref().get_string(), StringRef("owned"));
 }
 
+TEST(VariantFieldTest, LegacyMoveKeepsSourceAsEmptyLegacyMap) {
+    VariantMap legacy;
+    legacy.emplace(PathInData("a"), FieldWithDataType {.field = Field::create_field<TYPE_INT>(7)});
+    VariantField source(std::move(legacy));
+
+    VariantField moved(std::move(source));
+    EXPECT_TRUE(moved.is_legacy());
+    EXPECT_EQ(moved.legacy_map().at(PathInData("a")).field.get<TYPE_INT>(), 7);
+    // V1 reused moved-from std::map fields as empty maps; retain that contract until V1 is removed.
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    EXPECT_TRUE(source.is_legacy());
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    EXPECT_TRUE(source.legacy_map().empty());
+
+    VariantField assigned;
+    assigned = std::move(moved);
+    EXPECT_TRUE(assigned.is_legacy());
+    EXPECT_EQ(assigned.legacy_map().at(PathInData("a")).field.get<TYPE_INT>(), 7);
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    EXPECT_TRUE(moved.is_legacy());
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    EXPECT_TRUE(moved.legacy_map().empty());
+}
+
 TEST(VariantFieldTest, PreservesLegalNonCanonicalBytes) {
     const std::string unsorted_metadata = metadata({"b", "a"}, false);
     const std::string null_value = primitive(VariantPrimitiveId::NULL_VALUE);

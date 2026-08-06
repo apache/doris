@@ -26,6 +26,7 @@
 
 suite("test_variant_cast_strict_mode", "variant_type") {
 
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """ set default_variant_enable_doc_mode = false """
 
     def variant_src = "test_variant_cast_strict_mode_src"
@@ -49,10 +50,10 @@ suite("test_variant_cast_strict_mode", "variant_type") {
     // Insert rows: some have "val" field, some don't (mixed schema)
     sql """
         INSERT INTO ${variant_src} VALUES
-        (1, '{"val":"100.50", "name":"a"}'),
-        (2, '{"val":"200.75", "name":"b"}'),
-        (3, '{"name":"c"}'),
-        (4, '{"val":"300.25", "name":"d"}')
+        (1, ${variantV2Function}('{"val":"100.50", "name":"a"}')),
+        (2, ${variantV2Function}('{"val":"200.75", "name":"b"}')),
+        (3, ${variantV2Function}('{"name":"c"}')),
+        (4, ${variantV2Function}('{"val":"300.25", "name":"d"}'))
     """
 
     sql """

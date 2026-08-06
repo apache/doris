@@ -405,6 +405,8 @@ bool is_supported_scalar_target(const DataTypePtr& type) {
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
     case TYPE_TIMESTAMPTZ:
+    case TYPE_IPV4:
+    case TYPE_IPV6:
         return true;
     default:
         return false;
