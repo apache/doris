@@ -50,11 +50,10 @@ public class InferMarkSlotNotNullMapTest extends ExpressionRewriteTestHelper {
         // pair.first is based on the simplified predicate (non-mark-slot children in And/Or
         // are replaced by true/false): true when it taking false or null always evaluates
         // to false or null; pair.second is based on the original predicate: true when it
-        // taking false or null always evaluates to false or null and taking true always
-        // evaluates to true
-        assertMarkSlotPair(new And(BooleanLiteral.FALSE, markSlot1), markSlot1, true, false);
+        // taking false or null always evaluates to false or null
+        assertMarkSlotPair(new And(BooleanLiteral.FALSE, markSlot1), markSlot1, true, true);
         assertMarkSlotPair(new And(BooleanLiteral.TRUE, markSlot1), markSlot1, true, true);
-        assertMarkSlotPair(new And(NullLiteral.INSTANCE, markSlot1), markSlot1, true, false);
+        assertMarkSlotPair(new And(NullLiteral.INSTANCE, markSlot1), markSlot1, true, true);
         // or(true, markSlot1): after simplification the child true is replaced by false, so
         // the simplified predicate or(false, markSlot1) taking false or null evaluates to
         // false or null, making pair.first true; the original or(true, markSlot1) taking
@@ -106,23 +105,23 @@ public class InferMarkSlotNotNullMapTest extends ExpressionRewriteTestHelper {
         assertMarkSlotPair(new Or(markSlot1, markSlot2), markSlot1, false, false);
         assertMarkSlotPair(new Or(markSlot1, markSlot2), markSlot2, false, false);
         // and(markSlot1, markSlot2): the target slot taking false or null always evaluates
-        // to false or null, but taking true can evaluate to false, so pair.second is false
-        assertMarkSlotPair(new And(markSlot1, markSlot2), markSlot1, true, false);
-        assertMarkSlotPair(new And(markSlot1, markSlot2), markSlot2, true, false);
+        // to false or null in both the simplified and the original predicate
+        assertMarkSlotPair(new And(markSlot1, markSlot2), markSlot1, true, true);
+        assertMarkSlotPair(new And(markSlot1, markSlot2), markSlot2, true, true);
 
         // and(or(markSlot1, markSlot2), false): after simplification the non-mark-slot child
         // false is replaced by true, so the simplified predicate taking false can evaluate
         // to true when the other mark slot is true, making pair.first false; the original
-        // predicate always evaluates to false, but taking true evaluates to false, so
-        // pair.second is false too
+        // predicate always evaluates to false or null, making pair.second true
         assertMarkSlotPair(new And(new Or(markSlot1, markSlot2), BooleanLiteral.FALSE),
-                markSlot1, false, false);
+                markSlot1, false, true);
         assertMarkSlotPair(new And(new Or(markSlot1, markSlot2), BooleanLiteral.FALSE),
-                markSlot2, false, false);
+                markSlot2, false, true);
 
-        // markSlot1 is equivalent to being true regardless of markSlot2, while markSlot2
-        // taking true evaluates to true only when markSlot1 is true, so for markSlot2 both
-        // pair.first and pair.second are false
+        // markSlot1 taking false or null always evaluates to false or null in both the
+        // simplified and the original predicate, while markSlot2 taking false evaluates
+        // to true when markSlot1 is true, so for markSlot2 both pair.first and pair.second
+        // are false
         Expression predicate = new And(new Nvl(markSlot1, BooleanLiteral.FALSE),
                 new Or(markSlot1, markSlot2));
         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> result =
@@ -140,8 +139,8 @@ public class InferMarkSlotNotNullMapTest extends ExpressionRewriteTestHelper {
         // and(markSlot1, slot): the non-mark-slot child is replaced by true after
         // simplification, so the simplified predicate and(markSlot1, true) taking false
         // or null evaluates to false or null, making pair.first true; the original
-        // predicate and(markSlot1, slot) taking true cannot be folded to true, so
-        // pair.second is false
+        // predicate and(markSlot1, slot) taking null evaluates to the slot, which is
+        // neither false nor null, making pair.second false
         assertMarkSlotPair(new And(markSlot1, slot), markSlot1, true, false);
 
         // or(markSlot1, slot): the non-mark-slot child is replaced by false after
