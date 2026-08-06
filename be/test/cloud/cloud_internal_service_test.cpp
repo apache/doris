@@ -30,7 +30,9 @@
 #include "gen_cpp/Status_types.h"
 #include "load/channel/load_stream_mgr.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/async_io.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -63,6 +65,10 @@ protected:
     static constexpr int64_t kUncachedTabletId = 90003;
 
     void SetUp() override {
+        // PInternalService owns these process-global keys. Preserve the test runner's keys while
+        // constructing short-lived service instances in this fixture.
+        _saved_btls_key = btls_key;
+        _saved_btls_io_ctx_key = AsyncIO::btls_io_ctx_key;
         _exec_env._load_stream_mgr = std::make_unique<LoadStreamMgr>(1);
 
         auto sp = SyncPoint::get_instance();
@@ -94,6 +100,9 @@ protected:
         auto sp = SyncPoint::get_instance();
         sp->disable_processing();
         sp->clear_all_call_backs();
+
+        btls_key = _saved_btls_key;
+        AsyncIO::btls_io_ctx_key = _saved_btls_io_ctx_key;
     }
 
     TabletMetaSharedPtr create_tablet_meta(int64_t tablet_id, std::string compaction_policy) {
@@ -119,6 +128,8 @@ protected:
     ExecEnv _exec_env;
     CloudStorageEngine _engine;
     std::unordered_map<int64_t, int> _tablet_meta_call_count;
+    bthread_key_t _saved_btls_key;
+    bthread_key_t _saved_btls_io_ctx_key;
 };
 
 TEST_F(CloudInternalServiceTest, TestSyncTabletMetaCountsSyncedSkippedAndFailedTablets) {
