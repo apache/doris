@@ -68,6 +68,7 @@ public class CacheSpecTest {
     public void testFromPropertiesWithEngineEntryKeys() {
         Map<String, String> properties = Maps.newHashMap();
         properties.put("meta.cache.hive.schema.ttl-second", "0");
+        properties.put("meta.cache.hive.schema.max-weight", "4KB");
 
         CacheSpec defaultSpec = CacheSpec.fromProperties(
                 Maps.newHashMap(),
@@ -79,6 +80,47 @@ public class CacheSpecTest {
         Assert.assertTrue(spec.isEnable());
         Assert.assertEquals(0, spec.getTtlSecond());
         Assert.assertEquals(100, spec.getCapacity());
+        Assert.assertTrue(spec.isWeightBounded());
+        Assert.assertEquals(4096L, spec.getMaxWeight().getAsLong());
+    }
+
+    @Test
+    public void testFromPropertiesRejectsInvalidMaximumWeight() {
+        String key = "meta.cache.test.schema.max-weight";
+        CacheSpec defaultSpec = CacheSpec.of(true, 60L, 100L);
+        Map<String, String> properties = Maps.newHashMap();
+
+        for (String invalidValue : new String[] {
+                "abc", "-1MB", "1.5GB", "1XB", "9223372036854775808", "9223372036854775807KB"}) {
+            properties.put(key, invalidValue);
+            IllegalArgumentException exception = Assert.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> CacheSpec.fromProperties(properties, "test", "schema", defaultSpec));
+            Assert.assertEquals(
+                    "The parameter " + key + " is wrong, value is " + invalidValue,
+                    exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testFromPropertiesParsesMaximumWeightUnitsAndZero() {
+        String key = "meta.cache.test.schema.max-weight";
+        CacheSpec defaultSpec = CacheSpec.of(true, 60L, 100L);
+        Map<String, String> properties = Maps.newHashMap();
+
+        properties.put(key, "4096");
+        CacheSpec byteSpec = CacheSpec.fromProperties(properties, "test", "schema", defaultSpec);
+        Assert.assertEquals(4096L, byteSpec.getMaxWeight().getAsLong());
+
+        properties.put(key, "512MB");
+        CacheSpec megabyteSpec = CacheSpec.fromProperties(properties, "test", "schema", defaultSpec);
+        Assert.assertEquals(512L * 1024 * 1024, megabyteSpec.getMaxWeight().getAsLong());
+        Assert.assertTrue(megabyteSpec.isCacheEnabled());
+
+        properties.put(key, "0GB");
+        CacheSpec disabledSpec = CacheSpec.fromProperties(properties, "test", "schema", defaultSpec);
+        Assert.assertEquals(0L, disabledSpec.getMaxWeight().getAsLong());
+        Assert.assertFalse(disabledSpec.isCacheEnabled());
     }
 
     @Test
@@ -118,6 +160,11 @@ public class CacheSpecTest {
         Assert.assertFalse(disabled.isEnable());
         Assert.assertEquals(60, disabled.getTtlSecond());
         Assert.assertEquals(100, disabled.getCapacity());
+
+        CacheSpec weighted = CacheSpec.ofWeight(true, 60, 100, 1024);
+        Assert.assertTrue(weighted.isWeightBounded());
+        Assert.assertEquals(1024L, weighted.getMaxWeight().getAsLong());
+        Assert.assertTrue(weighted.isCacheEnabled());
     }
 
     @Test
@@ -147,6 +194,8 @@ public class CacheSpecTest {
         Assert.assertFalse(CacheSpec.isCacheEnabled(false, CacheSpec.CACHE_NO_TTL, 1));
         Assert.assertFalse(CacheSpec.isCacheEnabled(true, 0, 1));
         Assert.assertFalse(CacheSpec.isCacheEnabled(true, CacheSpec.CACHE_NO_TTL, 0));
+        Assert.assertTrue(CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 0, 1).isCacheEnabled());
+        Assert.assertFalse(CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 1, 0).isCacheEnabled());
     }
 
     @Test
