@@ -32,8 +32,8 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
@@ -408,12 +408,12 @@ public class MTMVTaskTest {
                     });
             mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.executeCommand(
                     Mockito.eq(mtmvCtx), Mockito.eq(command), Mockito.any(StatementContext.class),
-                    Mockito.anyString(), Mockito.any(Consumer.class))).thenAnswer(new Answer<StmtExecutor>() {
+                    Mockito.anyString(), Mockito.any(Consumer.class))).thenAnswer(new Answer<Void>() {
                         @Override
-                        public StmtExecutor answer(InvocationOnMock invocation) {
+                        public Void answer(InvocationOnMock invocation) {
                             StatementContext statementContext = invocation.getArgument(2);
                             Assert.assertEquals(excludedTriggerTables, statementContext.getExcludedTriggerTables());
-                            return executor;
+                            return null;
                         }
                     });
 

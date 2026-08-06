@@ -67,7 +67,6 @@ import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshResult;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
-import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
@@ -102,6 +101,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
@@ -835,9 +836,11 @@ public class MTMVTask extends AbstractTask {
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
         setupComputeGroup(mtmvCtx);
+        AtomicReference<IvmPlanSignature> signatureRef = new AtomicReference<>();
         try {
             MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
-                    getRefreshAuditStmt(refreshMode, refreshPartitionNames), this::registerExecutor);
+                    getRefreshAuditStmt(refreshMode, refreshPartitionNames),
+                    createRefreshConsumer(signatureRef));
         } finally {
             recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
         }
@@ -847,11 +850,28 @@ public class MTMVTask extends AbstractTask {
         if (!rewriteContext.isPresent()) {
             return null;
         }
-        IvmRewriteResult rewriteResult = ((NereidsPlanner) executor.planner()).getCascadesContext()
-                .getIvmRewriteResult().orElseThrow(() -> new IllegalStateException(
-                        "IVM COMPLETE refresh did not produce an IVM rewrite result"));
-        return Objects.requireNonNull(rewriteResult.getPlanSignature(),
+        return Objects.requireNonNull(signatureRef.get(),
                 "IVM COMPLETE refresh did not produce a plan signature");
+    }
+
+    /**
+     * Builds the executor consumer for a COMPLETE refresh: registers the executing
+     * statement for cancellation, and when the command finishes (consumer invoked with
+     * {@code null}), captures the IVM plan signature into {@code signatureRef} from the
+     * still-registered executor before it is cleared.
+     */
+    private Consumer<StmtExecutor> createRefreshConsumer(AtomicReference<IvmPlanSignature> signatureRef) {
+        return executor -> {
+            // executor == null 且 this.executor 仍注册:executeCommand 的 finally 回调,
+            // 命令已执行完成,在 registerExecutor(null) 清空字段前先摘取 IVM 签名。
+            if (executor == null && this.executor != null) {
+                ((NereidsPlanner) this.executor.planner())
+                        .getCascadesContext()
+                        .getIvmRewriteResult()
+                        .ifPresent(r -> signatureRef.set(r.getPlanSignature()));
+            }
+            registerExecutor(executor);
+        };
     }
 
     private void setupComputeGroup(ConnectContext ctx) {

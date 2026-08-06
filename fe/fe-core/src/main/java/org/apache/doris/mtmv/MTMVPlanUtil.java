@@ -156,12 +156,12 @@ public class MTMVPlanUtil {
      * finishes (with {@code null}), so callers can expose the currently executing
      * statement to cancellation paths.
      */
-    public static StmtExecutor executeCommand(MTMV mtmv, Command command,
+    public static void executeCommand(MTMV mtmv, Command command,
             StatementContext stmtCtx, @Nullable String auditStmt,
             @Nullable Consumer<StmtExecutor> executorConsumer) throws Exception {
         ConnectContext ctx = createMTMVContext(mtmv, DISABLE_RULES_WHEN_RUN_MTMV_TASK);
         stmtCtx.setConnectContext(ctx);
-        return executeCommand(ctx, command, stmtCtx, auditStmt, executorConsumer);
+        executeCommand(ctx, command, stmtCtx, auditStmt, executorConsumer);
     }
 
     /**
@@ -170,7 +170,7 @@ public class MTMVPlanUtil {
      * runs and clearing it (with {@code null}) after the command finishes, so task
      * cancellation can interrupt the running statement.
      */
-    public static StmtExecutor executeCommand(ConnectContext ctx, Command command,
+    public static void executeCommand(ConnectContext ctx, Command command,
             StatementContext stmtCtx, @Nullable String auditStmt,
             @Nullable Consumer<StmtExecutor> executorConsumer) throws Exception {
         ctx.setStatementContext(stmtCtx);
@@ -197,7 +197,6 @@ public class MTMVPlanUtil {
                         executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
             }
         }
-        return executor;
     }
 
     public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext,
