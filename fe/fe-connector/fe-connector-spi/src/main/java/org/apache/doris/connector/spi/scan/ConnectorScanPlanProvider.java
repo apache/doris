@@ -467,6 +467,15 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Whether unannotated Parquet INT96 values use the Hive writer timezone configured on the catalog.
+     * The default is false because table formats such as Iceberg and Paimon define their own timestamp
+     * semantics even when they are discovered through an HMS-backed catalog.
+     */
+    default boolean usesHiveParquetInt96TimeZone() {
+        return false;
+    }
+
+    /**
      * Appends connector-specific EXPLAIN output.
      * Called after the generic TABLE/QUERY/PREDICATES lines.
      *

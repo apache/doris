@@ -86,7 +86,8 @@ suite("test_hdfs_parquet_group0", "p0,external") {
             order_qt_test_8 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet",
+                        "hive.parquet.time-zone" = "Asia/Shanghai") limit 10; """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/delta_encoding_optional_column.parquet"
@@ -212,7 +213,8 @@ suite("test_hdfs_parquet_group0", "p0,external") {
             order_qt_test_26 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet",
+                        "hive.parquet.time-zone" = "Asia/Shanghai") limit 10; """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/dict-page-offset-zero.parquet"
@@ -361,14 +363,16 @@ suite("test_hdfs_parquet_group0", "p0,external") {
             order_qt_test_47 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet",
+                        "hive.parquet.time-zone" = "Asia/Shanghai") limit 10; """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/alltypes_tiny_pages_plain.parquet"
             order_qt_test_48 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet",
+                        "hive.parquet.time-zone" = "Asia/Shanghai") limit 10; """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/single_nan.parquet"
@@ -417,7 +421,8 @@ suite("test_hdfs_parquet_group0", "p0,external") {
             order_qt_test_55 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet",
+                        "hive.parquet.time-zone" = "Asia/Shanghai") limit 10; """
         } finally {
         }
     }

@@ -236,8 +236,12 @@ Status read_decoded_field(const ParquetColumnSchema& column_schema, DecodedColum
     view.decimal_precision = column_schema.type_descriptor.decimal_precision;
     view.decimal_scale = column_schema.type_descriptor.decimal_scale;
     view.fixed_length = column_schema.type_descriptor.fixed_length;
-    view.timestamp_is_adjusted_to_utc = column_schema.type_descriptor.timestamp_is_adjusted_to_utc;
-    view.timezone = timezone;
+    view.timestamp_is_adjusted_to_utc = column_schema.timestamp_is_adjusted_to_utc.value_or(
+            column_schema.type_descriptor.timestamp_is_adjusted_to_utc);
+    view.timezone = column_schema.timestamp_is_adjusted_to_utc.has_value() &&
+                                    !*column_schema.timestamp_is_adjusted_to_utc
+                            ? nullptr
+                            : timezone;
     // Statistics are pruning proofs, not row materialization. A malformed non-NULL bound must
     // disable pruning instead of being converted to NULL under permissive scan semantics.
     view.enable_strict_mode = true;
@@ -771,8 +775,9 @@ ParquetRowGroupPruneReason native_dictionary_prune_reason(
         const auto status = NativeColumnReader::create(
                 *column_schema, projection, file_context->native_file,
                 file_context->native_metadata, row_group_idx, ranges, offset_indexes, timezone,
-                file_context->native_io_ctx, nullptr, file_context->native_page_cache_enabled,
-                file_context->native_page_cache_file_key, true, column_reader_profile, &reader);
+                std::nullopt, file_context->native_io_ctx, nullptr,
+                file_context->native_page_cache_enabled, file_context->native_page_cache_file_key,
+                true, column_reader_profile, &reader);
         if (!status.ok() || reader == nullptr) {
             continue;
         }

@@ -128,6 +128,7 @@ struct ColumnMapping {
     // schema, not table child order. TableReader uses this to map table-output children back to the
     // file-local block layout when projection, predicate-only children, and schema evolution mix.
     std::vector<ColumnDefinition> projected_file_children;
+    std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
     // Split/file-local constant entry when this mapping is produced from partition/default/virtual
     // expression instead of physical file data.
     std::optional<ConstantIndex> constant_index;

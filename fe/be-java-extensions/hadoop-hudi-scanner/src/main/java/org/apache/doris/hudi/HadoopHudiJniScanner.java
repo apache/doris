@@ -137,6 +137,7 @@ public class HadoopHudiJniScanner extends JniScanner {
         } else {
             zoneId = ZoneId.of(params.get("time_zone"));
         }
+        // Hudi keeps one session zone for every timestamp encoding to preserve its JNI contract.
         this.columnValue = new HadoopHudiColumnValue(zoneId);
         this.fetchSize = fetchSize;
         this.classLoader = this.getClass().getClassLoader();

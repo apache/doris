@@ -545,6 +545,9 @@ Status build_file_child_projection_from_schema(const std::vector<ColumnDefinitio
         return Status::OK();
     }
     *projection = LocalColumnIndex::local(child->file_local_id());
+    // Filter-only paths may have no ColumnMapping, so their schema projection must carry the
+    // table-format timestamp semantic itself.
+    projection->timestamp_is_adjusted_to_utc = child->timestamp_is_adjusted_to_utc;
     projection->project_all_children = selectors.size() == 1;
     projection->children.clear();
     if (selectors.size() == 1) {

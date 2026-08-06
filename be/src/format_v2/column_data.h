@@ -274,6 +274,9 @@ struct ColumnDefinition {
     // metadata. Iceberg uses an explicit false value to reject old files that are missing a
     // required field without an initial default.
     std::optional<bool> is_optional = std::nullopt;
+    // Logical timestamp semantic supplied by a table format when the physical encoding cannot
+    // carry it (for example, Paimon TIMESTAMP versus TIMESTAMP_LTZ stored as INT96).
+    std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
     // Partition columns are constants from split metadata and should not be matched against file
     // schema unless table-format logic explicitly asks for it.
     bool is_partition_key = false;
@@ -355,6 +358,7 @@ struct LocalColumnIndex {
     int32_t index = -1;
     bool project_all_children = true;
     std::vector<LocalColumnIndex> children {};
+    std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
 
     static LocalColumnIndex top_level(LocalColumnId column_id) {
         return {.index = column_id.value()};
@@ -402,6 +406,13 @@ inline bool is_child_projected(const LocalColumnIndex* projection, int32_t local
 inline Status merge_local_column_index(LocalColumnIndex* target, const LocalColumnIndex& source) {
     DORIS_CHECK(target != nullptr);
     DORIS_CHECK(target->index == source.index);
+    if (!target->timestamp_is_adjusted_to_utc.has_value()) {
+        target->timestamp_is_adjusted_to_utc = source.timestamp_is_adjusted_to_utc;
+    } else if (source.timestamp_is_adjusted_to_utc.has_value() &&
+               target->timestamp_is_adjusted_to_utc != source.timestamp_is_adjusted_to_utc) {
+        return Status::InvalidArgument("Conflicting timestamp semantics for file-local column {}",
+                                       target->index);
+    }
     if (target->project_all_children) {
         return Status::OK();
     }

@@ -301,6 +301,11 @@ public class HiveScanBatchModeTest {
                 provider.adjustFileCompressType(TFileCompressType.PLAIN));
     }
 
+    @Test
+    public void usesHiveParquetInt96TimeZone() {
+        Assertions.assertTrue(provider(null, new CountingLister()).usesHiveParquetInt96TimeZone());
+    }
+
     private static HiveScanPlanProvider provider(HmsClient hmsClient, CountingLister lister) {
         return new HiveScanPlanProvider(hmsClient, Collections.emptyMap(), new FakeConnectorContext(),
                 new HiveReadTransactionManager(), new HiveFileListingCache(Collections.emptyMap(), lister));

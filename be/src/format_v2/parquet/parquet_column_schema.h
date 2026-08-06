@@ -16,6 +16,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -45,6 +46,8 @@ struct ParquetColumnSchema {
     std::string name;
 
     DataTypePtr type = nullptr;
+
+    std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
 
     int leaf_column_id = -1;
 

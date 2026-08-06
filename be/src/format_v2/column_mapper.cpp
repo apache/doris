@@ -388,6 +388,10 @@ std::string ColumnDefinition::debug_string() const {
         << ", name_mapping="
         << join_debug_strings(name_mapping, [](const std::string& name) { return name; })
         << ", has_name_mapping=" << has_name_mapping << ", local_id=" << local_id
+        << ", timestamp_is_adjusted_to_utc="
+        << (timestamp_is_adjusted_to_utc.has_value()
+                    ? (*timestamp_is_adjusted_to_utc ? "true" : "false")
+                    : "unset")
         << ", type=" << data_type_debug_string(type) << ", children="
         << join_debug_strings(children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
@@ -408,6 +412,10 @@ std::string ColumnDefinition::debug_string() const {
 std::string LocalColumnIndex::debug_string() const {
     std::ostringstream out;
     out << "LocalColumnIndex{index=" << index << ", project_all_children=" << project_all_children
+        << ", timestamp_is_adjusted_to_utc="
+        << (timestamp_is_adjusted_to_utc.has_value()
+                    ? (*timestamp_is_adjusted_to_utc ? "true" : "false")
+                    : "unset")
         << ", children="
         << join_debug_strings(children,
                               [](const LocalColumnIndex& child) { return child.debug_string(); })
@@ -430,7 +438,10 @@ std::string ColumnMapping::debug_string() const {
     } else {
         out << "null";
     }
-    out << ", file_column_name=" << file_column_name
+    out << ", file_column_name=" << file_column_name << ", timestamp_is_adjusted_to_utc="
+        << (timestamp_is_adjusted_to_utc.has_value()
+                    ? (*timestamp_is_adjusted_to_utc ? "true" : "false")
+                    : "unset")
         << ", original_file_type=" << data_type_debug_string(original_file_type)
         << ", original_file_children="
         << join_debug_strings(original_file_children,
@@ -1700,6 +1711,7 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     }
     DORIS_CHECK(mapping.file_local_id.has_value());
     *projection = LocalColumnIndex::local(*mapping.file_local_id);
+    projection->timestamp_is_adjusted_to_utc = mapping.timestamp_is_adjusted_to_utc;
     projection->project_all_children = mapping.child_mappings.empty();
     projection->children.clear();
     const auto present_children = present_child_mappings_in_file_order(mapping.child_mappings);
@@ -1720,6 +1732,32 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
                                     mapping.file_column_name);
     }
     return Status::OK();
+}
+
+static bool has_timestamp_semantics(const ColumnMapping& mapping) {
+    return mapping.timestamp_is_adjusted_to_utc.has_value() ||
+           std::ranges::any_of(mapping.child_mappings, has_timestamp_semantics);
+}
+
+static void attach_timestamp_semantics(const ColumnMapping& mapping, LocalColumnIndex* projection) {
+    DORIS_CHECK(projection != nullptr);
+    projection->timestamp_is_adjusted_to_utc = mapping.timestamp_is_adjusted_to_utc;
+    for (const auto& child_mapping : mapping.child_mappings) {
+        // A full projection represents ordinary children implicitly; materialize only paths that
+        // carry an override so existing readers still observe an empty children list.
+        if (!child_mapping.file_local_id.has_value() || !has_timestamp_semantics(child_mapping)) {
+            continue;
+        }
+        auto child_it =
+                std::ranges::find_if(projection->children, [&](const LocalColumnIndex& child) {
+                    return child.local_id() == *child_mapping.file_local_id;
+                });
+        if (child_it == projection->children.end()) {
+            projection->children.push_back(LocalColumnIndex::local(*child_mapping.file_local_id));
+            child_it = std::prev(projection->children.end());
+        }
+        attach_timestamp_semantics(child_mapping, &*child_it);
+    }
 }
 
 using FilterProjectionMap = std::map<LocalColumnId, LocalColumnIndex>;
@@ -1778,6 +1816,7 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
                               const FilterProjectionMap* filter_projections = nullptr) {
     const auto file_column_id = LocalColumnId(mapping->file_local_id.value());
     LocalColumnIndex projection = LocalColumnIndex::top_level(file_column_id);
+    projection.timestamp_is_adjusted_to_utc = mapping->timestamp_is_adjusted_to_utc;
     // Columnar readers can turn a complex mapping into a nested file projection, but
     // row-oriented readers must scan the full top-level complex field because all children are
     // encoded in the same text cell.
@@ -1792,6 +1831,7 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
         // merge_filter_projection() adds `s -> b`, so the predicate column reads both children.
         RETURN_IF_ERROR(merge_filter_projection(filter_projections, &projection));
     }
+    attach_timestamp_semantics(*mapping, &projection);
     FileScanRequestBuilder builder(file_request);
     if (is_predicate_column) {
         return builder.add_predicate_column(std::move(projection));
@@ -2418,6 +2458,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->original_file_type = file_field.type;
     mapping->original_file_children = file_field.children;
     mapping->projected_file_children = file_field.children;
+    mapping->timestamp_is_adjusted_to_utc = file_field.timestamp_is_adjusted_to_utc;
     mapping->file_type = file_field.type;
     mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
     mapping->filter_conversion = direct_filter_conversion(*mapping);

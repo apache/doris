@@ -113,6 +113,10 @@ public abstract class TableValuedFunctionIf {
 
     public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv);
 
+    public String getHiveParquetTimeZone() {
+        return "";
+    }
+
     public void checkAuth(ConnectContext ctx) {
 
     }
