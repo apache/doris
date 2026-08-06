@@ -216,5 +216,27 @@ public interface SourceOffsetProvider {
         return "";
     }
 
+    /**
+     * Reset all cached offset and split state so the provider behaves as if the job
+     * were freshly created with offset='initial'. Called from {@code alterJob()} when
+     * the operator explicitly sets offset to 'initial' or 'snapshot' to force a fresh
+     * snapshot start.
+     *
+     * <p>Without this reset, the provider's in-memory state (binlog position, finished
+     * splits, split progress) would survive the ALTER. On the next scheduler tick,
+     * {@link #replayIfNeed} would restore the old binlog position, {@link #noMoreSplits()}
+     * would return true (believing the snapshot phase is already complete), and the job
+     * would dispatch a task with the stale offset instead of starting a fresh snapshot.</p>
+     *
+     * <p><b>Distinction from {@code clearSnapshotState()}:</b> that method is called during
+     * the normal snapshot-to-binlog transition and deliberately preserves fields like
+     * {@code currentOffset} and {@code binlogOffsetPersist} that the ongoing binlog phase
+     * depends on. This method clears <em>everything</em>, including those fields, because
+     * it is preparing a genuine fresh start — not a phase transition within an active job.</p>
+     *
+     * <p>Default: no-op. Only JDBC providers carry split/binlog state that needs clearing.</p>
+     */
+    default void resetToInitialState() {}
+
 }
 

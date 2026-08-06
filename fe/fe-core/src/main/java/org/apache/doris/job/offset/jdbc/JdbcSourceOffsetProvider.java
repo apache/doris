@@ -285,6 +285,64 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         }
     }
 
+    /**
+     * Reset ALL offset/split state so the provider re-enters the "freshly created, offset=initial"
+     * code path on the next {@link #replayIfNeed} call.
+     *
+     * <p><b>When this is called:</b> the operator runs PAUSE JOB → ALTER JOB ... offset='initial'
+     * → RESUME JOB to force a fresh snapshot. Without clearing the cached state, the provider would
+     * still hold the old binlog position and {@code noMoreSplits()} would return true, causing the
+     * job to dispatch tasks from the stale offset instead of starting a fresh snapshot.</p>
+     *
+     * <p><b>Relationship to {@link #clearSnapshotState()}:</b> that method is invoked during the
+     * <em>normal</em> snapshot-to-binlog transition inside {@link #updateOffset}. It deliberately
+     * preserves {@code currentOffset}, {@code binlogOffsetPersist}, and {@code endBinlogOffset}
+     * because the binlog phase that follows depends on them. This method is a strict superset: it
+     * calls {@code clearSnapshotState()} for the split/progress subset, then also clears the
+     * binlog-phase fields, because the intent is a complete fresh start — not a phase transition.</p>
+     *
+     * <p>Thread safety: acquires {@code splitsLock} for fields it guards. The caller must ensure
+     * no concurrent streaming task is running (the job must be PAUSED).</p>
+     *
+     * <p><b>Field-by-field clearing (exhaustive):</b></p>
+     * <ul>
+     *   <li>{@code remainingSplits} — cleared via clearSnapshotState()</li>
+     *   <li>{@code finishedSplits} — cleared via clearSnapshotState()</li>
+     *   <li>{@code chunkHighWatermarkMap} — cleared via clearSnapshotState()</li>
+     *   <li>{@code committedSplitProgress} — cleared via clearSnapshotState()</li>
+     *   <li>{@code cdcSplitProgress} — cleared via clearSnapshotState()</li>
+     *   <li>{@code currentOffset} — set to null (prevents getNextOffset from returning stale binlog)</li>
+     *   <li>{@code binlogOffsetPersist} — set to null (prevents replayIfNeed from restoring old offset)</li>
+     *   <li>{@code endBinlogOffset} — set to null (stale end offset from previous binlog phase)</li>
+     *   <li>{@code tableSchemas} — set to null (schema may change; will be re-fetched)</li>
+     *   <li>{@code hasMoreData} — set to true (fresh start should assume data exists)</li>
+     *   <li>{@code boundBackendId} — set to 0 (old pinning was for the binlog reader)</li>
+     * </ul>
+     * <p>Fields intentionally preserved:</p>
+     * <ul>
+     *   <li>{@code jobId}, {@code sourceType}, {@code sourceProperties}, {@code snapshotParallelism}
+     *       — identity/configuration, not state</li>
+     *   <li>{@code cloudCluster} — routing config, set externally</li>
+     *   <li>{@code cachedSyncTables} — will be re-set by replayIfNeed from the job's syncTables</li>
+     * </ul>
+     */
+    @Override
+    public void resetToInitialState() {
+        synchronized (splitsLock) {
+            clearSnapshotState();
+            this.hasMoreData = true;
+        }
+        // Fields outside splitsLock: these are only read/written under the job's write lock
+        // or from the single scheduler thread — safe to clear here because the job is PAUSED.
+        this.currentOffset = null;
+        this.binlogOffsetPersist = null;
+        this.endBinlogOffset = null;
+        this.tableSchemas = null;
+        this.boundBackendId = 0;
+        log.info("Reset offset provider to initial state (job {}): cleared all split/binlog state",
+                getJobId());
+    }
+
     public boolean shouldPersistOffset(long lastPersistTimeMs, long currentTimeMs) {
         synchronized (splitsLock) {
             if (currentOffset == null || !currentOffset.snapshotSplit()) {

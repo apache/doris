@@ -541,6 +541,24 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             mergedSourceProperties.putAll(alterJobCommand.getSourceProperties());
             Map<String, String> newConvertedSourceProperties =
                     buildConvertedSourceProperties(mergedSourceProperties);
+
+            // If the ALTER explicitly sets offset to a splitting mode (initial/snapshot),
+            // the offset provider's cached binlog/split state must be cleared. Without this,
+            // replayIfNeed() would restore the old binlog position from offsetProviderPersist,
+            // noMoreSplits() would return true (believing the snapshot phase is already done),
+            // and the job would be wedged — dispatching tasks from the stale offset instead
+            // of starting a fresh snapshot. The reset makes the provider behave as if the job
+            // were freshly created, so the next handlePendingState() starts from scratch.
+            String newOffset = alterJobCommand.getSourceProperties().get(DataSourceConfigKeys.OFFSET);
+            if (newOffset != null
+                    && (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(newOffset)
+                        || DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(newOffset))) {
+                offsetProvider.resetToInitialState();
+                this.offsetProviderPersist = null;
+                log.info("Alter job {}: offset set to '{}'; reset offset provider for fresh snapshot",
+                        getJobId(), newOffset);
+            }
+
             this.sourceProperties = mergedSourceProperties;
             this.convertedSourceProperties = newConvertedSourceProperties;
             logParts.add("source properties: " + alterJobCommand.getSourceProperties());
