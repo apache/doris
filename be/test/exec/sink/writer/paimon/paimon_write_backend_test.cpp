@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 
 #include <gtest/gtest.h>
+
+#include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
 
 namespace doris {
 
