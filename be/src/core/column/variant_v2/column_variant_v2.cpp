@@ -22,9 +22,11 @@
 #include <bit>
 #include <cstdint>
 #include <limits>
+#include <mutex>
 #include <string_view>
 #include <typeinfo>
 #include <utility>
+#include <vector>
 
 #include "common/check.h"
 #include "common/exception.h"
@@ -313,6 +315,307 @@ ValidatedTypedInput validate_typed_input(ColumnPtr column, DataTypePtr scalar_ty
                     "ColumnVariantV2::{} is intentionally unsupported for Variant values", method);
 }
 
+class CompositeVariantShreddedState final : public VariantShreddedState {
+public:
+    explicit CompositeVariantShreddedState(
+            std::vector<std::shared_ptr<VariantShreddedState>> segments)
+            : _segments(std::move(segments)) {
+        DORIS_CHECK(std::ranges::all_of(_segments, [](const auto& segment) {
+            return segment != nullptr;
+        })) << "composite Variant shredded segments must not be null";
+        for (const auto& segment : _segments) {
+            const size_t segment_rows = segment->size();
+            DORIS_CHECK_LE(segment_rows, std::numeric_limits<size_t>::max() - _rows)
+                    << "composite Variant shredded row count overflows size_t";
+            _rows += segment_rows;
+        }
+    }
+
+    size_t size() const override { return _rows; }
+
+    size_t recompute_size() const {
+        size_t rows = 0;
+        for (const auto& segment : _segments) {
+            const size_t segment_rows = segment->size();
+            DORIS_CHECK_LE(segment_rows, std::numeric_limits<size_t>::max() - rows)
+                    << "composite Variant shredded row count overflows size_t";
+            rows += segment_rows;
+        }
+        return rows;
+    }
+
+    size_t byte_size() const override {
+        size_t bytes = 0;
+        for (const auto& segment : _segments) {
+            bytes += segment->byte_size();
+        }
+        std::lock_guard lock(_materialization_lock);
+        return bytes + (_materialized ? _materialized->byte_size() : 0) +
+               (_serialized ? _serialized->byte_size() : 0);
+    }
+
+    size_t allocated_bytes() const override {
+        size_t bytes = 0;
+        for (const auto& segment : _segments) {
+            bytes += segment->allocated_bytes();
+        }
+        std::lock_guard lock(_materialization_lock);
+        return bytes + (_materialized ? _materialized->allocated_bytes() : 0) +
+               (_serialized ? _serialized->allocated_bytes() : 0);
+    }
+
+    void sanity_check() const override {
+        // Row count is read in per-row expression loops, so cache it and reserve the full segment
+        // walk for invariant checks instead of making extraction quadratic in segment count.
+        DORIS_CHECK_EQ(recompute_size(), _rows)
+                << "cached composite Variant shredded row count is stale";
+        for (const auto& segment : _segments) {
+            segment->sanity_check();
+        }
+    }
+
+    void for_each_subcolumn(IColumn::ColumnCallback callback) const override {
+        for (const auto& segment : _segments) {
+            segment->for_each_subcolumn(callback);
+        }
+    }
+
+    std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter& filter,
+                                                 ssize_t /*result_size_hint*/) const override {
+        DORIS_CHECK_EQ(filter.size(), size())
+                << "composite Variant shredded filter size does not match row count";
+        std::vector<std::shared_ptr<VariantShreddedState>> selected;
+        selected.reserve(_segments.size());
+        size_t offset = 0;
+        for (const auto& segment : _segments) {
+            IColumn::Filter segment_filter;
+            segment_filter.insert(filter.begin() + offset,
+                                  filter.begin() + offset + segment->size());
+            auto filtered = segment->filter(segment_filter, -1);
+            if (filtered->size() != 0) {
+                selected.push_back(std::move(filtered));
+            }
+            offset += segment->size();
+        }
+        return pack(std::move(selected));
+    }
+
+    std::shared_ptr<VariantShreddedState> select_range(size_t start, size_t length) const override {
+        DORIS_CHECK_LE(start, size()) << "composite Variant range starts past source size";
+        DORIS_CHECK_LE(length, size() - start) << "composite Variant range exceeds source size";
+        std::vector<std::shared_ptr<VariantShreddedState>> selected;
+        if (length == 0) {
+            return pack(std::move(selected));
+        }
+        const size_t end = start + length;
+        size_t offset = 0;
+        for (const auto& segment : _segments) {
+            const size_t segment_end = offset + segment->size();
+            const size_t overlap_begin = std::max(start, offset);
+            const size_t overlap_end = std::min(end, segment_end);
+            if (overlap_begin < overlap_end) {
+                selected.push_back(
+                        segment->select_range(overlap_begin - offset, overlap_end - overlap_begin));
+            }
+            offset = segment_end;
+            if (offset >= end) {
+                break;
+            }
+        }
+        return pack(std::move(selected));
+    }
+
+    std::shared_ptr<VariantShreddedState> select_indices(
+            const uint32_t* indices_begin, const uint32_t* indices_end) const override {
+        if (indices_begin == indices_end) {
+            return pack({});
+        }
+        DORIS_CHECK(indices_begin != nullptr && indices_end != nullptr &&
+                    indices_begin < indices_end)
+                << "composite Variant indices are invalid";
+
+        std::vector<size_t> segment_ends;
+        segment_ends.reserve(_segments.size());
+        size_t rows = 0;
+        for (const auto& segment : _segments) {
+            rows += segment->size();
+            segment_ends.push_back(rows);
+        }
+
+        std::vector<std::shared_ptr<VariantShreddedState>> selected;
+        const uint32_t* cursor = indices_begin;
+        while (cursor != indices_end) {
+            DORIS_CHECK_LT(*cursor, rows) << "composite Variant source index is out of range";
+            const size_t segment_index =
+                    std::upper_bound(segment_ends.begin(), segment_ends.end(), *cursor) -
+                    segment_ends.begin();
+            const size_t segment_begin = segment_index == 0 ? 0 : segment_ends[segment_index - 1];
+            DorisVector<uint32_t> local_indices;
+            while (cursor != indices_end && *cursor >= segment_begin &&
+                   *cursor < segment_ends[segment_index]) {
+                local_indices.push_back(static_cast<uint32_t>(*cursor - segment_begin));
+                ++cursor;
+            }
+            selected.push_back(_segments[segment_index]->select_indices(
+                    local_indices.data(), local_indices.data() + local_indices.size()));
+        }
+        return pack(std::move(selected));
+    }
+
+    bool can_materialize() const override {
+        return std::ranges::all_of(_segments,
+                                   [](const auto& segment) { return segment->can_materialize(); });
+    }
+
+    bool try_append(const VariantShreddedState& source) override {
+        const size_t source_rows = source.size();
+        DORIS_CHECK_LE(source_rows, std::numeric_limits<size_t>::max() - _rows)
+                << "composite Variant shredded row count overflows size_t";
+        if (const auto* composite = dynamic_cast<const CompositeVariantShreddedState*>(&source)) {
+            for (const auto& segment : composite->_segments) {
+                append(segment);
+            }
+        } else {
+            append(source.select_range(0, source.size()));
+        }
+        std::lock_guard lock(_materialization_lock);
+        _materialized.reset();
+        _serialized.reset();
+        _rows += source_rows;
+        return true;
+    }
+
+    std::optional<VariantShreddedTypedValue> find_typed_value(
+            std::span<const VariantShreddedPathSegment> path) const override {
+        if (_segments.empty()) {
+            return std::nullopt;
+        }
+        std::vector<VariantShreddedTypedValue> matches;
+        matches.reserve(_segments.size());
+        bool all_direct = true;
+        for (const auto& segment : _segments) {
+            auto match = segment->find_typed_value(path);
+            if (!match.has_value()) {
+                all_direct = false;
+                break;
+            }
+            matches.push_back(std::move(*match));
+        }
+
+        const bool homogeneous = all_direct && matches.front().column && matches.front().type &&
+                                 std::ranges::all_of(matches, [&](const auto& match) {
+                                     return match.column && match.type && !match.normalized &&
+                                            exact_typed_identity(matches.front().type, match.type);
+                                 });
+        if (homogeneous) {
+            MutableColumnPtr combined = matches.front().column->clone_empty();
+            for (const auto& match : matches) {
+                combined->insert_range_from(*match.column, 0, match.column->size());
+            }
+            return VariantShreddedTypedValue {.column = std::move(combined),
+                                              .type = matches.front().type,
+                                              .normalized = nullptr};
+        }
+
+        auto normalized = find_normalized_value(path);
+        if (!normalized.has_value()) {
+            return std::nullopt;
+        }
+        return VariantShreddedTypedValue {
+                .column = nullptr, .type = nullptr, .normalized = std::move(*normalized)};
+    }
+
+    std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment> path) const override {
+        auto values = ColumnVariantV2::create();
+        auto nulls = ColumnUInt8::create();
+        nulls->reserve(size());
+        for (const auto& segment : _segments) {
+            auto normalized = segment->find_normalized_value(path);
+            if (!normalized.has_value()) {
+                return std::nullopt;
+            }
+            const auto& nullable = assert_cast<const ColumnNullable&>(**normalized);
+            const auto& variants =
+                    assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+            values->insert_range_from(variants, 0, variants.size());
+            nulls->insert_range_from(nullable.get_null_map_column(), 0, nullable.size());
+        }
+        return ColumnNullable::create(std::move(values), std::move(nulls));
+    }
+
+    const ColumnVariantV2& materialized_column() const override {
+        std::lock_guard lock(_materialization_lock);
+        if (!_materialized) {
+            auto materialized = ColumnVariantV2::create();
+            for (const auto& segment : _segments) {
+                const ColumnVariantV2& source = segment->materialized_column();
+                materialized->insert_range_from(source, 0, source.size());
+            }
+            _materialized = std::move(materialized);
+        }
+        return *_materialized;
+    }
+
+    const ColumnVariantV2& serialized_column() const override {
+        std::lock_guard lock(_materialization_lock);
+        if (!_serialized) {
+            auto serialized = ColumnVariantV2::create();
+            for (const auto& segment : _segments) {
+                const ColumnVariantV2& source = segment->serialized_column();
+                serialized->insert_range_from(source, 0, source.size());
+            }
+            _serialized = std::move(serialized);
+        }
+        return *_serialized;
+    }
+
+private:
+    static std::shared_ptr<VariantShreddedState> pack(
+            std::vector<std::shared_ptr<VariantShreddedState>> segments) {
+        if (segments.size() == 1) {
+            return std::move(segments.front());
+        }
+        return std::make_shared<CompositeVariantShreddedState>(std::move(segments));
+    }
+
+    void append(std::shared_ptr<VariantShreddedState> source) {
+        if (source->size() == 0) {
+            return;
+        }
+        if (const auto* composite =
+                    dynamic_cast<const CompositeVariantShreddedState*>(source.get())) {
+            _segments.insert(_segments.end(), composite->_segments.begin(),
+                             composite->_segments.end());
+            return;
+        }
+        if (!_segments.empty()) {
+            auto& tail = _segments.back();
+            if (tail.use_count() != 1) {
+                tail = tail->select_range(0, tail->size());
+            }
+            if (tail->try_append(*source)) {
+                return;
+            }
+        }
+        _segments.push_back(std::move(source));
+    }
+
+    std::vector<std::shared_ptr<VariantShreddedState>> _segments;
+    size_t _rows = 0;
+    mutable std::mutex _materialization_lock;
+    mutable ColumnVariantV2::MutablePtr _materialized;
+    mutable ColumnVariantV2::MutablePtr _serialized;
+};
+
+std::shared_ptr<VariantShreddedState> combine_shredded_states(
+        std::shared_ptr<VariantShreddedState> left, std::shared_ptr<VariantShreddedState> right) {
+    auto combined = std::make_shared<CompositeVariantShreddedState>(
+            std::vector<std::shared_ptr<VariantShreddedState>> {std::move(left)});
+    combined->try_append(*right);
+    return combined;
+}
+
 } // namespace
 
 #ifdef BE_TEST
@@ -381,21 +684,21 @@ std::optional<VariantShreddedTypedValue> ColumnVariantV2::find_shredded_typed_va
     return _shredded->find_typed_value(path);
 }
 
+const ColumnVariantV2& ColumnVariantV2::serialization_column() const {
+    if (!_shredded) {
+        return *this;
+    }
+    const ColumnVariantV2& serialized = _shredded->serialized_column();
+    DORIS_CHECK(!serialized.is_shredded())
+            << "shredded Variant wire materializer returned another shredded column";
+    DORIS_CHECK_EQ(serialized.size(), size())
+            << "shredded Variant wire materializer changed the row count";
+    return serialized;
+}
+
 void ColumnVariantV2::ensure_encoded() {
     if (_shredded) {
-        const ColumnVariantV2& materialized = _shredded->materialized_column();
-        DORIS_CHECK(!materialized.is_shredded())
-                << "shredded state materializer returned another shredded column";
-        // The shredded state may cache and share its canonical materialization across readers.
-        // Detach every mutable buffer before dropping that owner so later COW mutations stay legal.
-        _metadatas = materialized._metadatas->clone_resized(materialized._metadatas->size());
-        _meta_ids = materialized._meta_ids->clone_resized(materialized._meta_ids->size());
-        _values = materialized._values->clone_resized(materialized._values->size());
-        _typed = materialized._typed == nullptr
-                         ? nullptr
-                         : materialized._typed->clone_resized(materialized._typed->size());
-        _typed_type = materialized._typed_type;
-        _shredded.reset();
+        _replace_shredded_state_with(_shredded->materialized_column());
     }
     if (!_typed) {
         DCHECK(_typed_type == nullptr);
@@ -418,6 +721,12 @@ void ColumnVariantV2::ensure_encoded() {
     static_cast<IColumn::Ptr&>(_typed).reset();
     _typed_type.reset();
     _check_invariants();
+}
+
+void ColumnVariantV2::_ensure_serialized() {
+    if (_shredded) {
+        _replace_shredded_state_with(_shredded->serialized_column());
+    }
 }
 
 std::string ColumnVariantV2::get_name() const {
@@ -874,12 +1183,22 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
             _check_invariants();
             return;
         }
+        if (!_shredded->can_materialize() || !selected_source->can_materialize()) {
+            // A projected segment cannot reconstruct omitted root fields. Preserve it beside any
+            // complete or projected neighbor so later path extraction can choose per-segment
+            // direct or canonical evaluation without forcing the incomplete state to materialize.
+            _shredded = combine_shredded_states(std::move(_shredded), std::move(selected_source));
+            _check_invariants();
+            return;
+        }
     }
     if (_shredded) {
-        ensure_encoded();
+        // A merging exchange can combine a local projected state with its remotely serialized
+        // peer. Use the wire representation so omitted roots are never requested from either side.
+        _ensure_serialized();
     }
     if (source._shredded) {
-        insert_range_from(source._shredded->materialized_column(), start, length);
+        insert_range_from(source.serialization_column(), start, length);
         return;
     }
 
@@ -967,9 +1286,6 @@ void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
         return;
     }
 
-    if (_shredded) {
-        ensure_encoded();
-    }
     if (!_typed && empty() && _metadatas->empty() && source._shredded) {
         // Gather into the native shredded representation for the same reason as range selection:
         // row selection does not require, and may not have, a complete logical Variant value.
@@ -977,8 +1293,29 @@ void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
         _check_invariants();
         return;
     }
+    if (_shredded && source._shredded) {
+        auto selected_source = source._shredded->select_indices(indices_begin, indices_end);
+        if (_shredded.use_count() != 1) {
+            _shredded = _shredded->select_range(0, size());
+        }
+        if (_shredded->try_append(*selected_source)) {
+            _check_invariants();
+            return;
+        }
+        if (!_shredded->can_materialize() || !selected_source->can_materialize()) {
+            // Exchange gathers may mix complete files with projected files. Keep their boundaries
+            // because only complete segments are allowed to reconstruct the full logical root.
+            _shredded = combine_shredded_states(std::move(_shredded), std::move(selected_source));
+            _check_invariants();
+            return;
+        }
+    }
+    if (_shredded) {
+        // Indexed gathers have the same local/remote representation boundary as range gathers.
+        _ensure_serialized();
+    }
     if (source._shredded) {
-        insert_indices_from(source._shredded->materialized_column(), indices_begin, indices_end);
+        insert_indices_from(source.serialization_column(), indices_begin, indices_end);
         return;
     }
 
@@ -1425,7 +1762,16 @@ MutableColumnPtr ColumnVariantV2::permute(const Permutation& permutation, size_t
     }
 
     if (_shredded) {
-        return _shredded->materialized_column().permute(permutation, limit);
+        DorisVector<uint32_t> selected_indices(result_size);
+        for (size_t row = 0; row < result_size; ++row) {
+            DORIS_CHECK_LE(permutation[row], std::numeric_limits<uint32_t>::max())
+                    << "shredded Variant permutation index exceeds uint32 domain";
+            selected_indices[row] = static_cast<uint32_t>(permutation[row]);
+        }
+        // Local TopN selection may run before exchange and projected states cannot reconstruct
+        // omitted root fields, so preserve the native shredded representation while gathering.
+        return ColumnVariantV2::create_shredded(_shredded->select_indices(
+                selected_indices.data(), selected_indices.data() + selected_indices.size()));
     }
 
     if (_typed) {
@@ -1465,6 +1811,11 @@ MutableColumnPtr ColumnVariantV2::clone_resized(size_t new_size) const {
             result->_shredded = _shredded;
             result->_check_invariants();
             return result;
+        }
+        if (new_size < size()) {
+            // LIMIT truncation is a row selection and must not require complete Variant roots from
+            // a projected scanner state.
+            return ColumnVariantV2::create_shredded(_shredded->select_range(0, new_size));
         }
         return _shredded->materialized_column().clone_resized(new_size);
     }
@@ -1507,7 +1858,18 @@ MutableColumnPtr ColumnVariantV2::clone_resized(size_t new_size) const {
 
 void ColumnVariantV2::resize(size_t new_size) {
     const size_t old_size = size();
-    if (_shredded && new_size != old_size) {
+    if (_shredded && new_size < old_size) {
+        // LIMIT truncation only selects existing rows, so keep it physical: projected states may
+        // omit roots that cannot be reconstructed merely to reduce the row count.
+        if (new_size == 0) {
+            _shredded.reset();
+        } else {
+            _shredded = _shredded->select_range(0, new_size);
+        }
+        _check_invariants();
+        return;
+    }
+    if (_shredded && new_size > old_size) {
         ensure_encoded();
     }
     if (_typed) {
@@ -1562,6 +1924,25 @@ uint32_t ColumnVariantV2::_find_or_insert_metadata(StringRef metadata) {
     const auto id = static_cast<uint32_t>(metadatas.size());
     metadatas.insert_data(metadata.data, metadata.size);
     return id;
+}
+
+void ColumnVariantV2::_replace_shredded_state_with(const ColumnVariantV2& replacement) {
+    DORIS_CHECK(_shredded != nullptr) << "replacing shredded state requires a shredded destination";
+    DORIS_CHECK(!replacement.is_shredded())
+            << "shredded state replacement must be a non-shredded column";
+    DORIS_CHECK_EQ(replacement.size(), size())
+            << "shredded state replacement changed the row count";
+    // Format states cache and share materialized columns. Detach every mutable buffer before
+    // dropping the state owner so later COW mutations cannot modify a cached representation.
+    _metadatas = replacement._metadatas->clone_resized(replacement._metadatas->size());
+    _meta_ids = replacement._meta_ids->clone_resized(replacement._meta_ids->size());
+    _values = replacement._values->clone_resized(replacement._values->size());
+    _typed = replacement._typed == nullptr
+                     ? nullptr
+                     : replacement._typed->clone_resized(replacement._typed->size());
+    _typed_type = replacement._typed_type;
+    _shredded.reset();
+    _check_invariants();
 }
 
 void ColumnVariantV2::_adopt_state_from(ColumnVariantV2& replacement) {

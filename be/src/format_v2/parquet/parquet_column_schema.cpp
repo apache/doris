@@ -178,6 +178,41 @@ void propagate_native_max_levels(ParquetColumnSchema* schema) {
     }
 }
 
+void rebuild_logical_complex_type(ParquetColumnSchema* schema) {
+    DORIS_CHECK(schema != nullptr);
+    schema->contains_variant = schema->kind == ParquetColumnSchemaKind::VARIANT;
+    for (const auto& child : schema->children) {
+        schema->contains_variant |= child->contains_variant;
+    }
+    if (schema->kind == ParquetColumnSchemaKind::VARIANT || !schema->contains_variant) {
+        return;
+    }
+
+    DataTypePtr logical_type;
+    if (schema->kind == ParquetColumnSchemaKind::LIST) {
+        DORIS_CHECK(schema->children.size() == 1);
+        logical_type = std::make_shared<DataTypeArray>(schema->children[0]->type);
+    } else if (schema->kind == ParquetColumnSchemaKind::MAP) {
+        DORIS_CHECK(schema->children.size() == 2);
+        logical_type = std::make_shared<DataTypeMap>(make_nullable(schema->children[0]->type),
+                                                     make_nullable(schema->children[1]->type));
+    } else {
+        DORIS_CHECK(schema->kind == ParquetColumnSchemaKind::STRUCT);
+        DataTypes child_types;
+        Strings child_names;
+        child_types.reserve(schema->children.size());
+        child_names.reserve(schema->children.size());
+        for (const auto& child : schema->children) {
+            child_types.push_back(child->type);
+            child_names.push_back(child->name);
+        }
+        logical_type =
+                std::make_shared<DataTypeStruct>(std::move(child_types), std::move(child_names));
+    }
+    schema->type = schema->type->is_nullable() ? make_nullable(std::move(logical_type))
+                                               : std::move(logical_type);
+}
+
 std::unique_ptr<ParquetColumnSchema> build_native_node_schema(const NativeFieldSchema& field,
                                                               int32_t local_id) {
     auto result = std::make_unique<ParquetColumnSchema>();
@@ -228,32 +263,49 @@ std::unique_ptr<ParquetColumnSchema> build_native_node_schema(const NativeFieldS
     }
     // A nested Variant changes its public child type from the physical STRUCT carrier. Rebuild
     // every enclosing complex type so file-block columns keep the same logical shape as readers.
-    if (result->kind != ParquetColumnSchemaKind::VARIANT && result->contains_variant) {
-        DataTypePtr logical_type;
-        if (result->kind == ParquetColumnSchemaKind::LIST) {
-            DORIS_CHECK(result->children.size() == 1);
-            logical_type = std::make_shared<DataTypeArray>(result->children[0]->type);
-        } else if (result->kind == ParquetColumnSchemaKind::MAP) {
-            DORIS_CHECK(result->children.size() == 2);
-            logical_type = std::make_shared<DataTypeMap>(make_nullable(result->children[0]->type),
-                                                         make_nullable(result->children[1]->type));
-        } else {
-            DataTypes child_types;
-            Strings child_names;
-            child_types.reserve(result->children.size());
-            child_names.reserve(result->children.size());
-            for (const auto& child : result->children) {
-                child_types.push_back(child->type);
-                child_names.push_back(child->name);
-            }
-            logical_type = std::make_shared<DataTypeStruct>(std::move(child_types),
-                                                            std::move(child_names));
-        }
-        result->type = result->type->is_nullable() ? make_nullable(std::move(logical_type))
-                                                   : std::move(logical_type);
-    }
+    rebuild_logical_complex_type(result.get());
     propagate_native_max_levels(result.get());
     return result;
+}
+
+Status apply_variant_schema_override(const NativeFieldSchema& native_schema,
+                                     const format::LocalColumnIndex& override,
+                                     ParquetColumnSchema* field) {
+    DORIS_CHECK(field != nullptr);
+    if (field->local_id != override.local_id()) {
+        return Status::InvalidArgument("Variant schema override local id {} does not match {}",
+                                       override.local_id(), field->local_id);
+    }
+    if (override.project_all_children) {
+        if (field->kind == ParquetColumnSchemaKind::VARIANT) {
+            return Status::OK();
+        }
+        if (field->kind != ParquetColumnSchemaKind::STRUCT) {
+            return Status::Corruption("Parquet Variant {} must use a group carrier",
+                                      native_schema.name);
+        }
+        RETURN_IF_ERROR(validate_variant_layout(native_schema, std::nullopt, true));
+        field->variant_physical_type = field->type;
+        DataTypePtr variant_type = std::make_shared<DataTypeVariantV2>();
+        field->type = field->type->is_nullable() ? make_nullable(std::move(variant_type))
+                                                 : std::move(variant_type);
+        field->kind = ParquetColumnSchemaKind::VARIANT;
+        field->contains_variant = true;
+        return Status::OK();
+    }
+    for (const auto& child_override : override.children) {
+        const auto child_idx = child_override.local_id();
+        if (child_idx < 0 || child_idx >= static_cast<int32_t>(field->children.size()) ||
+            child_idx >= static_cast<int32_t>(native_schema.children.size())) {
+            return Status::InvalidArgument("Invalid nested Variant schema override {} under {}",
+                                           child_idx, field->name);
+        }
+        RETURN_IF_ERROR(apply_variant_schema_override(native_schema.children[child_idx],
+                                                      child_override,
+                                                      field->children[child_idx].get()));
+    }
+    rebuild_logical_complex_type(field);
+    return Status::OK();
 }
 
 } // namespace
@@ -273,6 +325,26 @@ Status build_parquet_column_schema(const NativeFieldDescriptor& schema,
         // Arrow changes legacy LIST/STRUCT boundaries and makes valid nested values look absent.
         fields->push_back(
                 build_native_node_schema(native_fields[field_idx], cast_set<int32_t>(field_idx)));
+    }
+    return Status::OK();
+}
+
+Status apply_variant_schema_overrides(
+        const NativeFieldDescriptor& native_schema,
+        const std::vector<format::LocalColumnIndex>& variant_schema_overrides,
+        std::vector<std::unique_ptr<ParquetColumnSchema>>* fields) {
+    if (fields == nullptr) {
+        return Status::InvalidArgument("fields is null");
+    }
+    const auto& native_fields = native_schema.get_fields_schema();
+    for (const auto& override : variant_schema_overrides) {
+        const auto local_id = override.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(fields->size()) ||
+            local_id >= static_cast<int32_t>(native_fields.size())) {
+            return Status::InvalidArgument("Invalid Variant schema override root {}", local_id);
+        }
+        RETURN_IF_ERROR(apply_variant_schema_override(native_fields[local_id], override,
+                                                      (*fields)[local_id].get()));
     }
     return Status::OK();
 }

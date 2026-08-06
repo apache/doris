@@ -482,17 +482,6 @@ public class AppendVariantEqualityDelete {
         }
         return sum
     }
-    def profileInfoValues = { String profile, String infoName ->
-        Pattern pattern = Pattern.compile(
-                Pattern.quote(infoName) + ":\\s*\\[([^\\]]*)\\]")
-        Matcher matcher = pattern.matcher(profile)
-        if (!matcher.find()) {
-            return []
-        }
-        return matcher.group(1).split(",").collect { String value -> value.trim() }
-                .findAll { String value -> !value.isEmpty() }
-                .collect { String value -> Long.parseLong(value.replace(",", "")) }
-    }
     def getProfileByToken = { String token, List<String> positiveCounters = [] ->
         String lastProfile = profileAction.getProfileBySql(token, positiveCounters)
         if (positiveCounters.every { String counter -> counterSum(lastProfile, counter) > 0 }) {
@@ -649,6 +638,9 @@ public class AppendVariantEqualityDelete {
     sql "set parallel_pipeline_task_num=4"
     sql "set max_file_scanners_concurrency=8"
     sql "set min_file_scanners_concurrency=4"
+    // Scanner tasks pull file ranges dynamically, so minimum concurrency does not guarantee that
+    // every scheduled scanner consumes rows. Validate parallel correctness without pinning the
+    // scheduler's nondeterministic range assignment.
     order_qt_variant_multi_file_parallel """
         SELECT id,
                CAST(v['shared'] AS INT),
@@ -660,35 +652,56 @@ public class AppendVariantEqualityDelete {
         WHERE v['shared'] >= 20
         ORDER BY id
     """
-    String parallelScanToken =
-            "iceberg_variant_parallel_scan_" + UUID.randomUUID().toString()
-    List<List<Object>> parallelScanRows = sql """
-        SELECT '${parallelScanToken}', id,
-               CAST(v['shared'] AS INT),
-               CAST(v['a'] AS INT),
-               CAST(v['b'] AS INT),
-               CAST(v['new_field']['k'] AS INT),
-               CAST(v AS STRING)
-        FROM variant_multi_file
-        WHERE v['shared'] >= 20
+    // The stable snapshot contributes a genuinely shredded file, while the appended file uses
+    // the unshredded fallback. More than four rows qualify, forcing local TopN overshoot to be
+    // truncated after the merge exchange while the mapper-eligible projected path crosses the wire.
+    explain {
+        sql """
+            SELECT id, CAST(projected['n'] AS INT)
+            FROM (
+                SELECT id, v AS projected
+                FROM variant_page_pruning FOR VERSION AS OF ${mixedBeforeDeleteSnapshot}
+                WHERE CAST(v['n'] AS INT) > 3000
+                ORDER BY id DESC
+                LIMIT 4
+            ) gathered
+        """
+        contains "VMERGING-EXCHANGE"
+        contains "inputSplitNum=2"
+        contains "all access paths: [v(2).n]"
+    }
+    String projectedGatherToken =
+            "iceberg_variant_projected_remote_gather_" + UUID.randomUUID().toString()
+    List<List<Object>> projectedGatherRows = sql """
+        SELECT '${projectedGatherToken}', id, CAST(projected['n'] AS INT)
+        FROM (
+            SELECT id, v AS projected
+            FROM variant_page_pruning FOR VERSION AS OF ${mixedBeforeDeleteSnapshot}
+            WHERE CAST(v['n'] AS INT) > 3000
+            ORDER BY id DESC
+            LIMIT 4
+        ) gathered
         ORDER BY id
     """
-    assertEquals(4, parallelScanRows.size(),
-            "The parallel Variant query must read rows from multiple data files")
-    String parallelScanProfile = profileAction.getProfileBySql(
-            parallelScanToken, ["PerScannerRowsRead"])
-    if (profileInfoValues(parallelScanProfile, "PerScannerRowsRead")
-            .count { long rows -> rows > 0 } <= 1) {
-        parallelScanProfile = profileAction.waitProfile({
-            String profile = profileAction.getProfileBySql(
-                    parallelScanToken, ["PerScannerRowsRead"])
-            return profileInfoValues(profile, "PerScannerRowsRead")
-                    .count { long rows -> rows > 0 } > 1 ? profile : ""
-        }, [], "Completed parallel Variant profile with multiple non-empty scanners")
-    }
-    assertTrue(profileInfoValues(parallelScanProfile, "PerScannerRowsRead")
-                    .count { long rows -> rows > 0 } > 1,
-            "The parallel Variant query did not use multiple non-empty scanners")
+    assertEquals(4, projectedGatherRows.size())
+    String projectedGatherProfile = getProfileByToken(projectedGatherToken,
+            ["VariantLeafProjections", "VariantDirectLeafPathMisses"]).toString()
+    assertTrue(counterSum(projectedGatherProfile, "VariantLeafProjections") > 0,
+            "The projected TopN did not read a physical shredded Variant leaf")
+    assertTrue(counterSum(projectedGatherProfile, "VariantDirectLeafPathMisses") > 0,
+            "The projected TopN did not combine the unshredded fallback file")
+    order_qt_variant_projected_remote_gather """
+        SELECT id,
+               CAST(projected['n'] AS INT)
+        FROM (
+            SELECT id, v AS projected
+            FROM variant_page_pruning FOR VERSION AS OF ${mixedBeforeDeleteSnapshot}
+            WHERE CAST(v['n'] AS INT) > 3000
+            ORDER BY id DESC
+            LIMIT 4
+        ) gathered
+        ORDER BY id
+    """
     sql "set min_file_scanners_concurrency=1"
 
     order_qt_variant_type_matrix """

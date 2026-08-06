@@ -22,6 +22,19 @@
 
 namespace doris::format::parquet {
 
+namespace {
+
+std::shared_ptr<RuntimeProfile::Counter> add_persistent_counter(RuntimeProfile* profile,
+                                                                const std::string& name,
+                                                                TUnit::type type,
+                                                                const std::string& parent) {
+    // A shredded Variant may be materialized after its scanner profile is destroyed. Keep the
+    // counter storage alive with the column state instead of retaining a dangling profile pointer.
+    return profile->add_shared_counter(name, type, parent, 1);
+}
+
+} // namespace
+
 void ParquetProfile::init(RuntimeProfile* profile) {
     if (profile == nullptr) {
         return;
@@ -90,18 +103,18 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "LevelOnlySkipTime", parquet_profile, 1);
     materialization_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "MaterializationTime", parquet_profile, 1);
-    variant_reconstruction_time =
-            ADD_CHILD_TIMER_WITH_LEVEL(profile, "VariantReconstructionTime", parquet_profile, 1);
-    variant_reconstructed_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "VariantReconstructedRows",
-                                                              TUnit::UNIT, parquet_profile, 1);
-    variant_direct_leaf_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "VariantDirectLeafRows",
-                                                            TUnit::UNIT, parquet_profile, 1);
-    variant_direct_leaf_path_misses = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "VariantDirectLeafPathMisses", TUnit::UNIT, parquet_profile, 1);
-    variant_direct_leaf_residual_fallbacks = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "VariantDirectLeafResidualFallbacks", TUnit::UNIT, parquet_profile, 1);
-    variant_direct_leaf_unsupported_fallbacks = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "VariantDirectLeafUnsupportedFallbacks", TUnit::UNIT, parquet_profile, 1);
+    variant_reconstruction_time = add_persistent_counter(profile, "VariantReconstructionTime",
+                                                         TUnit::TIME_NS, parquet_profile);
+    variant_reconstructed_rows = add_persistent_counter(profile, "VariantReconstructedRows",
+                                                        TUnit::UNIT, parquet_profile);
+    variant_direct_leaf_rows =
+            add_persistent_counter(profile, "VariantDirectLeafRows", TUnit::UNIT, parquet_profile);
+    variant_direct_leaf_path_misses = add_persistent_counter(profile, "VariantDirectLeafPathMisses",
+                                                             TUnit::UNIT, parquet_profile);
+    variant_direct_leaf_residual_fallbacks = add_persistent_counter(
+            profile, "VariantDirectLeafResidualFallbacks", TUnit::UNIT, parquet_profile);
+    variant_direct_leaf_unsupported_fallbacks = add_persistent_counter(
+            profile, "VariantDirectLeafUnsupportedFallbacks", TUnit::UNIT, parquet_profile);
     hybrid_selection_batches = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "HybridSelectionBatches",
                                                             TUnit::UNIT, parquet_profile, 1);
     hybrid_selection_ranges = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "HybridSelectionRanges",
