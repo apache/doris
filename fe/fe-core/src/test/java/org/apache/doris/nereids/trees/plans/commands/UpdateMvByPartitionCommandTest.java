@@ -46,6 +46,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -60,6 +61,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 class UpdateMvByPartitionCommandTest extends TestWithFeService {
     @Override
@@ -192,8 +194,10 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
-        org.apache.doris.qe.StmtExecutor executor = MTMVPlanUtil.executeCommand(
-                mtmv, command, statementContext, "refresh materialized view test.ivm_mv", null);
+        AtomicReference<StmtExecutor> executorRef = new AtomicReference<>();
+        MTMVPlanUtil.executeCommand(
+                mtmv, command, statementContext, "refresh materialized view test.ivm_mv", executorRef::set);
+        StmtExecutor executor = executorRef.get();
 
         Assertions.assertNotNull(executor);
         Assertions.assertFalse(executor.getContext().getSessionVariable().isEnableMaterializedViewRewrite());
@@ -211,8 +215,10 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand.from(
                 mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
-        org.apache.doris.qe.StmtExecutor executor = MTMVPlanUtil.executeCommand(
-                mtmv, command, statementContext, "refresh materialized view test.ivm_mv", null);
+        AtomicReference<StmtExecutor> executorRef = new AtomicReference<>();
+        MTMVPlanUtil.executeCommand(
+                mtmv, command, statementContext, "refresh materialized view test.ivm_mv", executorRef::set);
+        StmtExecutor executor = executorRef.get();
 
         Assertions.assertSame(executor.getContext(), statementContext.getConnectContext());
         Assertions.assertSame(statementContext, executor.getContext().getStatementContext());
