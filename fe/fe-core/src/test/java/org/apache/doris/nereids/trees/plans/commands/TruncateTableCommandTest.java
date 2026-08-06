@@ -27,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -45,6 +46,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class TruncateTableCommandTest extends TestWithFeService {
     @Override
@@ -271,6 +278,88 @@ public class TruncateTableCommandTest extends TestWithFeService {
             }
         } finally {
             DebugPointUtil.removeDebugPoint("InternalCatalog.truncateTable.metaChanged");
+        }
+    }
+
+    @Test
+    public void testConcurrentTruncateTable() throws Exception {
+        String tableName = "concurrent_truncate_table";
+        createTable("CREATE TABLE internal.testcommand." + tableName + " (k1 INT) "
+                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1')");
+
+        InternalCatalog internalCatalog = Mockito.spy(Env.getCurrentInternalCatalog());
+        CountDownLatch firstTruncateReady = new CountDownLatch(1);
+        CountDownLatch resumeFirstTruncate = new CountDownLatch(1);
+        AtomicInteger beforeCreateCalls = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            if (beforeCreateCalls.incrementAndGet() == 1) {
+                firstTruncateReady.countDown();
+                if (!resumeFirstTruncate.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Timed out waiting to resume the first truncate");
+                }
+            }
+            return null;
+        }).when(internalCatalog).beforeCreatePartitions(
+                Mockito.anyLong(), Mockito.anyLong(), Mockito.anyList(), Mockito.anyList(), Mockito.eq(true));
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<Throwable> firstTruncate = executor.submit(() -> {
+            try {
+                internalCatalog.truncateTable("testcommand", tableName, null, false, "TRUNCATE TABLE");
+                return null;
+            } catch (Throwable t) {
+                return t;
+            }
+        });
+
+        Throwable testFailure = null;
+        try {
+            Assertions.assertTrue(firstTruncateReady.await(10, TimeUnit.SECONDS));
+            internalCatalog.truncateTable("testcommand", tableName, null, false, "TRUNCATE TABLE");
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("testcommand");
+            OlapTable table = db.getOlapTableOrDdlException(tableName);
+            long partitionIdAfterSuccessfulTruncate = table.getPartitions().iterator().next().getId();
+            Map<Long, Set<Long>> tabletsAfterSuccessfulTruncate = Maps.newHashMap();
+            for (long backendId : Env.getCurrentSystemInfo().getAllBackendIds()) {
+                tabletsAfterSuccessfulTruncate.put(backendId,
+                        Sets.newHashSet(Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId)));
+            }
+
+            resumeFirstTruncate.countDown();
+            Throwable firstTruncateFailure = firstTruncate.get(10, TimeUnit.SECONDS);
+            Assertions.assertInstanceOf(DdlException.class, firstTruncateFailure);
+            Assertions.assertEquals("Partition [" + tableName
+                    + "] is changed during truncating table, please retry", firstTruncateFailure.getMessage());
+            Assertions.assertEquals(partitionIdAfterSuccessfulTruncate,
+                    table.getPartitions().iterator().next().getId());
+            for (long backendId : Env.getCurrentSystemInfo().getAllBackendIds()) {
+                Assertions.assertEquals(tabletsAfterSuccessfulTruncate.get(backendId),
+                        Sets.newHashSet(Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId)));
+            }
+        } catch (Exception | AssertionError e) {
+            testFailure = e;
+            throw e;
+        } finally {
+            resumeFirstTruncate.countDown();
+            executor.shutdownNow();
+            try {
+                if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
+                    AssertionError terminationFailure =
+                            new AssertionError("Concurrent truncate executor did not terminate");
+                    if (testFailure == null) {
+                        throw terminationFailure;
+                    }
+                    testFailure.addSuppressed(terminationFailure);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                if (testFailure == null) {
+                    throw e;
+                }
+                testFailure.addSuppressed(e);
+            }
         }
     }
 

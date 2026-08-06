@@ -3590,17 +3590,18 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // which is the right behavior.
                 long oldPartitionId = entry.getValue();
                 long newPartitionId = oldToNewPartitionId.get(oldPartitionId);
+                DataProperty dataProperty = copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId);
                 Partition newPartition = createPartitionWithIndices(db.getId(), copiedTbl,
                         newPartitionId, entry.getKey(),
                         copiedTbl.getIndexIdToMeta(), partitionsDistributionInfo.get(oldPartitionId),
-                        copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId),
+                        dataProperty,
                         copiedTbl.getPartitionInfo().getReplicaAllocation(oldPartitionId), null /* version info */,
                         copiedTbl.getCopiedBfColumns(), tabletIdSet,
                         copiedTbl.isInMemory(),
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId),
-                        olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
+                        dataProperty.getStoragePolicy(),
                         idGeneratorBuffer, binlogConfig,
-                        copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).isStorageMediumSpecified());
+                        dataProperty.isStorageMediumSpecified());
                 newPartitions.add(newPartition);
             }
 
