@@ -1652,6 +1652,95 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     verify_test_results(block, read_rows);
 }
 
+TEST_F(IcebergReaderTest, parquet_init_fails_loudly_when_schema_mapping_misses_projected_column) {
+    // #61225 pattern B, reader level: the schema info from FE (history_schema_info) does not
+    // contain the projected columns, so the table-side schema tree has no key for them.
+    // init_reader must fail with InternalError instead of letting children_column_exists's bare
+    // map::at throw std::out_of_range, which kills the whole BE process.
+    auto local_fs = io::global_local_filesystem();
+    io::FileReaderSPtr file_reader;
+    std::string test_file =
+            "./be/test/exec/test_data/complex_user_profiles_iceberg_parquet/data/"
+            "00000-0-a0022aad-d3b6-4e73-b181-f0a09aac7034-0-00001.parquet";
+    auto st = local_fs->open_file(test_file, &file_reader);
+    if (!st.ok()) {
+        GTEST_SKIP() << "Test file not found: " << test_file;
+        return;
+    }
+
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+
+    TFileScanRangeParams scan_params;
+    scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
+    // The FE schema info only knows "id"; the projected "name"/"profile" below are absent —
+    // an FE/BE contract violation.
+    {
+        TColumnType bigint_type;
+        bigint_type.__set_type(TPrimitiveType::BIGINT);
+        auto id_field = std::make_shared<schema::external::TField>();
+        id_field->__set_name("id");
+        id_field->__set_id(1);
+        id_field->__set_is_optional(false);
+        id_field->__set_type(bigint_type);
+        schema::external::TFieldPtr id_field_ptr;
+        id_field_ptr.__set_field_ptr(std::move(id_field));
+        schema::external::TStructField root_field;
+        root_field.__set_fields({std::move(id_field_ptr)});
+        schema::external::TSchema fe_schema;
+        fe_schema.__set_schema_id(-1);
+        fe_schema.__set_root_field(root_field);
+        scan_params.__set_history_schema_info({std::move(fe_schema)});
+    }
+
+    TFileRangeDesc scan_range;
+    scan_range.start_offset = 0;
+    scan_range.size = file_reader->size();
+    scan_range.path = test_file;
+
+    RuntimeProfile profile("test_profile");
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+
+    auto iceberg_reader = std::make_unique<IcebergParquetReader>(
+            nullptr /* kv_cache */, &profile, scan_params, scan_range, 1024, &ctz,
+            nullptr /* io_ctx */, &runtime_state, cache.get());
+    iceberg_reader->set_file_reader(file_reader);
+
+    DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
+    DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
+    DataTypePtr profile_struct_type, name_type;
+    create_complex_struct_types(coordinates_struct_type, address_struct_type, phone_struct_type,
+                                contact_struct_type, hobby_element_struct_type, hobbies_array_type,
+                                profile_struct_type, name_type);
+
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"profile", 1}};
+    std::vector<ColumnDescriptor> column_descs;
+    for (const auto& name : {"name", "profile"}) {
+        ColumnDescriptor desc;
+        desc.name = name;
+        column_descs.push_back(desc);
+    }
+
+    ParquetInitContext pq_ctx;
+    pq_ctx.column_descs = &column_descs;
+    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    pq_ctx.tuple_descriptor = tuple_descriptor;
+    pq_ctx.params = &scan_params;
+    pq_ctx.range = &scan_range;
+    st = iceberg_reader->init_reader(&pq_ctx);
+    ASSERT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("schema mapping is missing projected column 'name'"),
+              std::string::npos)
+            << st;
+}
+
 TEST_F(IcebergReaderTest, v1_deletion_vector_read_error_releases_cache_entry) {
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     TFileScanRangeParams scan_params;
