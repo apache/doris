@@ -196,6 +196,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Setter
     private transient volatile boolean needRebuildReader = true;
 
+    // Set to true when MetaService returns STREAMING_JOB_PROGRESS_NOT_FOUND during replay.
+    // Prevents repeated RPC calls on subsequent scheduler ticks for the same job.
+    // The job will proceed using its configured offset instead of cloud-persisted progress.
+    // Intentionally transient: resets on FE restart so replay can re-attempt after MetaService recovery.
+    private transient volatile boolean cloudProgressMissing = false;
+
     // The sampling window starts at the beginning of the sampling window.
     // If the error rate exceeds `max_filter_ratio` within the window, the sampling fails.
     @Setter
@@ -1035,8 +1041,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         try {
             modifyPropertiesInternal(replayJob.getProperties());
-            // When the pause state is restarted, it also needs to be updated
-            if (Config.isCloudMode()) {
+            // When the pause state is restarted, it also needs to be updated.
+            // Skip if we already know progress is missing — avoid repeated pointless RPCs during replay.
+            if (Config.isCloudMode() && !cloudProgressMissing) {
                 replayOnCloudMode();
             }
         } catch (Exception e) {
@@ -1387,6 +1394,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         StreamingTaskTxnCommitAttachment attachment =
                 (StreamingTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
         updateJobStatisticAndOffset(attachment, false);
+        // Progress now exists in MetaService; clear the missing flag so future replays can recover.
+        cloudProgressMissing = false;
     }
 
     @Override
@@ -1411,7 +1420,21 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return dbId;
     }
 
-    public void replayOnCloudMode() throws JobException {
+    /**
+     * Recover job statistics and offset from MetaService (cloud mode).
+     *
+     * @return true if cloud progress was successfully recovered; false if progress was not found
+     *         in MetaService (STREAMING_JOB_PROGRESS_NOT_FOUND). When false, the job should
+     *         proceed using its configured offset property rather than cloud-persisted progress.
+     * @throws JobException on transient MetaService errors (network, unknown codes) that warrant retry
+     */
+    public boolean replayOnCloudMode() throws JobException {
+        // Once we know progress is missing, skip further RPC attempts — the answer won't change
+        // within the same FE lifetime unless the job successfully commits a new task.
+        if (cloudProgressMissing) {
+            return false;
+        }
+
         Cloud.GetStreamingTaskCommitAttachRequest.Builder builder =
                 Cloud.GetStreamingTaskCommitAttachRequest.newBuilder()
                         .setRequestIp(FrontendOptions.getLocalHostAddressCached());
@@ -1423,22 +1446,26 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             response = MetaServiceProxy.getInstance().getStreamingTaskCommitAttach(builder.build());
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                log.warn("failed to get streaming task commit attach, response: {}", response);
                 if (response.getStatus().getCode() == Cloud.MetaServiceCode.STREAMING_JOB_PROGRESS_NOT_FOUND) {
-                    log.warn("not found streaming job progress, response: {}", response);
-                    return;
+                    cloudProgressMissing = true;
+                    log.warn("Cloud progress not found for streaming job {} (db_id={}). "
+                            + "Job will start from configured offset instead of cloud-persisted progress. "
+                            + "MetaService response: {}", getJobId(), getDbId(), response.getStatus().getMsg());
+                    return false;
                 } else {
+                    log.warn("failed to get streaming task commit attach, response: {}", response);
                     throw new JobException(response.getStatus().getMsg());
                 }
             }
         } catch (RpcException e) {
-            log.info("failed to get streaming task commit attach {}", response, e);
+            log.warn("RPC failed when getting streaming task commit attach for job {}", getJobId(), e);
             throw new JobException(e.getMessage());
         }
 
         StreamingTaskTxnCommitAttachment commitAttach =
                 new StreamingTaskTxnCommitAttachment(response.getCommitAttach());
         updateCloudJobStatisticAndOffset(commitAttach, true);
+        return true;
     }
 
     @Override

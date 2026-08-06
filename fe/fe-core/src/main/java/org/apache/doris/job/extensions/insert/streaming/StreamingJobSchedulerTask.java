@@ -57,7 +57,11 @@ public class StreamingJobSchedulerTask extends AbstractTask {
     private void handlePendingState() throws JobException {
         if (Config.isCloudMode()) {
             try {
-                streamingInsertJob.replayOnCloudMode();
+                boolean progressRecovered = streamingInsertJob.replayOnCloudMode();
+                if (!progressRecovered) {
+                    log.info("Cloud progress missing for job {}; proceeding with configured offset",
+                            streamingInsertJob.getJobId());
+                }
             } catch (JobException e) {
                 streamingInsertJob.setFailureReason(
                     new FailureReason(InternalErrorCode.INTERNAL_ERR, e.getMessage()));
