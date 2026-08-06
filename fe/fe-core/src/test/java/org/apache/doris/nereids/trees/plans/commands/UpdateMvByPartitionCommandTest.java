@@ -196,7 +196,12 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         AtomicReference<StmtExecutor> executorRef = new AtomicReference<>();
         MTMVPlanUtil.executeCommand(
-                mtmv, command, statementContext, "refresh materialized view test.ivm_mv", executorRef::set);
+                mtmv, command, statementContext, "refresh materialized view test.ivm_mv",
+                executor -> {
+                    if (executor != null) {
+                        executorRef.set(executor);
+                    }
+                });
         StmtExecutor executor = executorRef.get();
 
         Assertions.assertNotNull(executor);
@@ -217,7 +222,12 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
         AtomicReference<StmtExecutor> executorRef = new AtomicReference<>();
         MTMVPlanUtil.executeCommand(
-                mtmv, command, statementContext, "refresh materialized view test.ivm_mv", executorRef::set);
+                mtmv, command, statementContext, "refresh materialized view test.ivm_mv",
+                executor -> {
+                    if (executor != null) {
+                        executorRef.set(executor);
+                    }
+                });
         StmtExecutor executor = executorRef.get();
 
         Assertions.assertSame(executor.getContext(), statementContext.getConnectContext());
