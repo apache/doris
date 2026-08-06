@@ -417,6 +417,43 @@ if (
     fail "the legacy Paimon marker survived a semantic fingerprint change"
 fi
 
+prebuilt_archive_root="${tmpdir}/prebuilt-archive-root"
+prebuilt_archive="${tmpdir}/prebuilt.tar.xz"
+mkdir -p "${prebuilt_archive_root}/installed"
+cp -a "${prebuilt}/." "${prebuilt_archive_root}/installed/"
+tar -C "${prebuilt_archive_root}" -cJf "${prebuilt_archive}" installed
+
+external_thirdparty="${tmpdir}/external-thirdparty"
+mkdir -p "${external_thirdparty}/installed"
+touch "${external_thirdparty}/installed/old-image-artifact"
+ensure_arrow_paimon_prebuilt_from_url "${external_thirdparty}" \
+    "file://${prebuilt_archive}" >/dev/null 2>&1 ||
+    fail "BE UT could not refresh an outdated build-image prebuilt"
+arrow_paimon_prebuilt_valid "${external_thirdparty}/installed" ||
+    fail "BE UT installed an invalid build-image prebuilt"
+[[ ! -e "${external_thirdparty}/installed/old-image-artifact" ]] ||
+    fail "BE UT kept files from the outdated build-image prebuilt"
+ensure_arrow_paimon_prebuilt_from_url "${external_thirdparty}" \
+    "file://${tmpdir}/missing-prebuilt.tar.xz" >/dev/null 2>&1 ||
+    fail "BE UT tried to download over a valid build-image prebuilt"
+
+invalid_archive_root="${tmpdir}/invalid-prebuilt-archive-root"
+invalid_archive="${tmpdir}/invalid-prebuilt.tar.xz"
+mkdir -p "${invalid_archive_root}/installed"
+cp -a "${prebuilt}/." "${invalid_archive_root}/installed/"
+rm "${invalid_archive_root}/installed/lib64/libarrow_compute.a"
+tar -C "${invalid_archive_root}" -cJf "${invalid_archive}" installed
+
+invalid_external_thirdparty="${tmpdir}/invalid-external-thirdparty"
+mkdir -p "${invalid_external_thirdparty}/installed"
+touch "${invalid_external_thirdparty}/installed/preserved-after-invalid-download"
+if ensure_arrow_paimon_prebuilt_from_url "${invalid_external_thirdparty}" \
+    "file://${invalid_archive}" >/dev/null 2>&1; then
+    fail "BE UT accepted a downloaded prebuilt without Arrow Compute"
+fi
+[[ -e "${invalid_external_thirdparty}/installed/preserved-after-invalid-download" ]] ||
+    fail "BE UT replaced the build-image prebuilt before validating its download"
+
 publish_arrow_prebuilt_marker "${prebuilt}"
 publish_paimon_prebuilt_marker "${prebuilt}"
 rm "${prebuilt}/lib64/libarrow_compute.a"

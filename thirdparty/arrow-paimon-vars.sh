@@ -45,6 +45,8 @@ PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
 PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
 PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
 
+ARROW_PAIMON_SHARED_PREBUILT_LINUX_X86_64_URL="${ARROW_PAIMON_SHARED_PREBUILT_LINUX_X86_64_URL:-https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz}"
+
 # Bump the corresponding schema version whenever output-affecting build options or
 # helper behavior in build_arrow() or build_paimon_cpp() changes. The fingerprints
 # below intentionally describe only this component stack so master and release
@@ -308,6 +310,69 @@ paimon_prebuilt_valid() {
 arrow_paimon_prebuilt_valid() {
     local install_dir="$1"
     arrow_prebuilt_valid "${install_dir}" && paimon_prebuilt_valid "${install_dir}"
+}
+
+# Validate an extracted candidate before replacing the selected thirdparty
+# installation. This keeps an older build image usable when a download is
+# incomplete or contains an incompatible Arrow/Paimon closure.
+install_arrow_paimon_prebuilt_archive() {
+    local archive="$1"
+    local thirdparty_root="$2"
+    local staging_dir
+    local had_previous_installed=false
+
+    staging_dir="$(mktemp -d "${thirdparty_root}/.arrow-paimon-install.XXXXXX")"
+    mkdir -p "${staging_dir}/candidate"
+    if ! tar -xf "${archive}" -C "${staging_dir}/candidate"; then
+        rm -rf "${staging_dir}"
+        return 1
+    fi
+    if ! arrow_paimon_prebuilt_valid "${staging_dir}/candidate/installed"; then
+        rm -rf "${staging_dir}"
+        return 1
+    fi
+
+    if [[ -e "${thirdparty_root}/installed" || -L "${thirdparty_root}/installed" ]]; then
+        if ! mv "${thirdparty_root}/installed" "${staging_dir}/previous-installed"; then
+            rm -rf "${staging_dir}"
+            return 1
+        fi
+        had_previous_installed=true
+    fi
+    if ! mv "${staging_dir}/candidate/installed" "${thirdparty_root}/installed"; then
+        if [[ "${had_previous_installed}" == "true" ]]; then
+            mv "${staging_dir}/previous-installed" "${thirdparty_root}/installed"
+        fi
+        rm -rf "${staging_dir}"
+        return 1
+    fi
+    rm -rf "${staging_dir}"
+}
+
+ensure_arrow_paimon_prebuilt_from_url() {
+    local thirdparty_root="$1"
+    local prebuilt_url="$2"
+    local download_dir
+    local archive
+
+    if arrow_paimon_prebuilt_valid "${thirdparty_root}/installed"; then
+        return 0
+    fi
+
+    echo "Refreshing Arrow/Paimon thirdparty libraries from ${prebuilt_url}"
+    download_dir="$(mktemp -d "${thirdparty_root}/.arrow-paimon-download.XXXXXX")"
+    archive="${download_dir}/doris-thirdparty-prebuilt.tar.xz"
+    if ! curl --fail --location --retry 3 --show-error \
+        --output "${archive}" "${prebuilt_url}"; then
+        rm -rf "${download_dir}"
+        return 1
+    fi
+    if ! install_arrow_paimon_prebuilt_archive "${archive}" "${thirdparty_root}"; then
+        rm -rf "${download_dir}"
+        return 1
+    fi
+    rm -rf "${download_dir}"
+    arrow_paimon_prebuilt_valid "${thirdparty_root}/installed"
 }
 
 invalidate_arrow_prebuilt_marker() {
