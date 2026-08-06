@@ -119,6 +119,7 @@ static bool use_remote_only_on_cache_miss(const IOContext* io_ctx) {
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
         : _is_doris_table(opts.is_doris_table),
+          _enable_reader_local_cache(opts.enable_reader_local_cache && !opts.is_doris_table),
           _tablet_id(opts.tablet_id),
           _storage_resource_id(opts.storage_resource_id),
           _remote_file_reader(std::move(remote_file_reader)) {
@@ -773,7 +774,8 @@ bool CachedRemoteFileReader::_try_read_from_cached_files_directly(
         } else {
             SCOPED_RAW_TIMER(&stats.local_read_timer);
             if (!_read_local_block(iter->second, file_offset, current_offset,
-                                   Slice(result.data + (current_offset - offset), reserve_bytes))
+                                   Slice(result.data + (current_offset - offset), reserve_bytes),
+                                   stats)
                          .ok()) { // TODO: maybe read failed because block evict, should handle error
                 break;
             }
@@ -800,7 +802,11 @@ bool CachedRemoteFileReader::_try_read_from_cached_files_directly(
     return false;
 }
 
-bool CachedRemoteFileReader::_read_from_memory_block_cache(size_t offset, Slice result) {
+bool CachedRemoteFileReader::_read_from_memory_block_cache(size_t offset, Slice result,
+                                                           ReadStatistics* stats) {
+    if (!_enable_reader_local_cache) {
+        return false;
+    }
     std::lock_guard lock(_memory_block_cache_mutex);
     auto it = _memory_block_cache.upper_bound(offset);
     if (it == _memory_block_cache.begin()) {
@@ -808,55 +814,123 @@ bool CachedRemoteFileReader::_read_from_memory_block_cache(size_t offset, Slice 
     }
     --it;
     const size_t relative_offset = offset - it->first;
-    if (relative_offset > it->second->size() ||
-        result.size > it->second->size() - relative_offset) {
+    const auto& entry = it->second;
+    if (entry->loading || !entry->load_status.ok() || entry->data == nullptr ||
+        relative_offset > entry->data->size() ||
+        result.size > entry->data->size() - relative_offset) {
         return false;
     }
-    memcpy(result.data, it->second->data() + relative_offset, result.size);
+    if (entry->in_lru) {
+        _memory_block_cache_lru.splice(_memory_block_cache_lru.begin(), _memory_block_cache_lru,
+                                       entry->lru_position);
+    }
+    memcpy(result.data, entry->data->data() + relative_offset, result.size);
+    if (stats != nullptr) {
+        stats->num_reader_local_cache_total++;
+        stats->num_reader_local_cache_hit++;
+        stats->bytes_reader_local_cache_request += cast_set<int64_t>(result.size);
+        stats->bytes_read_from_reader_local_cache += cast_set<int64_t>(result.size);
+    }
     return true;
 }
 
 Status CachedRemoteFileReader::_read_local_block(const FileBlockSPtr& block, size_t file_offset,
-                                                 size_t absolute_offset, Slice result) {
-    if (_read_from_memory_block_cache(absolute_offset, result)) {
-        return Status::OK();
-    }
-    if (_is_doris_table) {
+                                                 size_t absolute_offset, Slice result,
+                                                 ReadStatistics& stats) {
+    if (!_enable_reader_local_cache) {
         return block->read(result, file_offset);
     }
 
-    bool promote = false;
-    {
-        std::lock_guard lock(_memory_block_cache_mutex);
-        auto& accesses = _memory_block_access_counts[block->offset()];
-        accesses = std::min<uint8_t>(accesses + 1, MEMORY_BLOCK_PROMOTION_ACCESSES);
-        promote = accesses == MEMORY_BLOCK_PROMOTION_ACCESSES;
-        if (_memory_block_access_counts.size() > 128) {
-            _memory_block_access_counts.erase(_memory_block_access_counts.begin());
-        }
-    }
-    if (!promote || block->range().size() > MAX_MEMORY_BLOCK_CACHE_BYTES) {
-        return block->read(result, file_offset);
-    }
+    size_t current_offset = absolute_offset;
+    const size_t request_end = absolute_offset + result.size;
+    while (current_offset < request_end) {
+        const size_t aligned_offset =
+                current_offset / READER_LOCAL_CACHE_BLOCK_BYTES * READER_LOCAL_CACHE_BLOCK_BYTES;
+        const size_t buffer_offset = std::max(aligned_offset, block->range().left);
+        const size_t buffer_end = std::min({aligned_offset + READER_LOCAL_CACHE_BLOCK_BYTES,
+                                            block->range().right + 1, size()});
+        const size_t copy_end = std::min(request_end, buffer_end);
+        const size_t copy_size = copy_end - current_offset;
+        const size_t result_offset = current_offset - absolute_offset;
 
-    auto block_data = std::make_shared<std::vector<char>>(block->range().size());
-    RETURN_IF_ERROR(block->read(Slice(block_data->data(), block_data->size()), 0));
-    memcpy(result.data, block_data->data() + file_offset, result.size);
-    {
-        std::lock_guard lock(_memory_block_cache_mutex);
-        auto [it, inserted] = _memory_block_cache.emplace(block->offset(), block_data);
-        if (!inserted) {
-            _memory_block_cache_bytes -= it->second->size();
-            it->second = std::move(block_data);
+        stats.num_reader_local_cache_total++;
+        stats.bytes_reader_local_cache_request += cast_set<int64_t>(copy_size);
+
+        std::shared_ptr<ReaderLocalCacheEntry> entry;
+        std::shared_ptr<std::vector<char>> data;
+        bool load = false;
+        {
+            std::unique_lock lock(_memory_block_cache_mutex);
+            auto it = _memory_block_cache.find(buffer_offset);
+            if (it == _memory_block_cache.end()) {
+                // Publish the loading entry before IO so concurrent page readers share one fill.
+                entry = std::make_shared<ReaderLocalCacheEntry>();
+                _memory_block_cache.emplace(buffer_offset, entry);
+                stats.num_reader_local_cache_miss++;
+                load = true;
+            } else {
+                entry = it->second;
+                if (entry->loading) {
+                    stats.num_reader_local_cache_wait++;
+                    TEST_SYNC_POINT("CachedRemoteFileReader::reader_local_cache_before_wait");
+                    MonotonicStopWatch wait_watch;
+                    wait_watch.start();
+                    entry->ready.wait(lock, [&entry]() { return !entry->loading; });
+                    stats.reader_local_cache_wait_timer += wait_watch.elapsed_time();
+                }
+                RETURN_IF_ERROR(entry->load_status);
+                data = entry->data;
+                stats.num_reader_local_cache_hit++;
+                stats.bytes_read_from_reader_local_cache += cast_set<int64_t>(copy_size);
+                if (entry->in_lru) {
+                    _memory_block_cache_lru.splice(_memory_block_cache_lru.begin(),
+                                                   _memory_block_cache_lru, entry->lru_position);
+                }
+            }
         }
-        _memory_block_cache_bytes += block->range().size();
-        while (_memory_block_cache_bytes > MAX_MEMORY_BLOCK_CACHE_BYTES &&
-               !_memory_block_cache.empty()) {
-            auto oldest = _memory_block_cache.begin();
-            _memory_block_cache_bytes -= oldest->second->size();
-            _memory_block_access_counts.erase(oldest->first);
-            _memory_block_cache.erase(oldest);
+
+        if (load) {
+            const size_t buffer_size = buffer_end - buffer_offset;
+            data = std::make_shared<std::vector<char>>(buffer_size);
+            MonotonicStopWatch fill_watch;
+            fill_watch.start();
+            TEST_SYNC_POINT("CachedRemoteFileReader::reader_local_cache_before_fill");
+            Status load_status = block->read(Slice(data->data(), data->size()),
+                                             buffer_offset - block->range().left);
+            stats.reader_local_cache_fill_timer += fill_watch.elapsed_time();
+            {
+                std::lock_guard lock(_memory_block_cache_mutex);
+                entry->load_status = load_status;
+                entry->loading = false;
+                if (load_status.ok()) {
+                    entry->data = data;
+                    _memory_block_cache_lru.push_front(buffer_offset);
+                    entry->lru_position = _memory_block_cache_lru.begin();
+                    entry->in_lru = true;
+                    _memory_block_cache_bytes += buffer_size;
+                    stats.num_reader_local_cache_fill++;
+                    stats.bytes_read_into_reader_local_cache += cast_set<int64_t>(buffer_size);
+                    while (_memory_block_cache_bytes > MAX_MEMORY_BLOCK_CACHE_BYTES &&
+                           !_memory_block_cache_lru.empty()) {
+                        const size_t victim_offset = _memory_block_cache_lru.back();
+                        auto victim = _memory_block_cache.find(victim_offset);
+                        DORIS_CHECK(victim != _memory_block_cache.end());
+                        _memory_block_cache_bytes -= victim->second->data->size();
+                        _memory_block_cache_lru.pop_back();
+                        _memory_block_cache.erase(victim);
+                        stats.num_reader_local_cache_evict++;
+                    }
+                } else {
+                    _memory_block_cache.erase(buffer_offset);
+                }
+                entry->ready.notify_all();
+            }
+            RETURN_IF_ERROR(load_status);
         }
+
+        memcpy(result.data + result_offset, data->data() + current_offset - buffer_offset,
+               copy_size);
+        current_offset = copy_end;
     }
     return Status::OK();
 }
@@ -1066,7 +1140,8 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
                 SCOPED_CONCURRENCY_COUNT(
                         ConcurrencyStatsManager::instance().cached_remote_reader_local_read);
                 st = _read_local_block(block, file_offset, current_offset,
-                                       Slice(result.data + (current_offset - offset), read_size));
+                                       Slice(result.data + (current_offset - offset), read_size),
+                                       stats);
                 indirect_read_bytes += read_size;
                 if (st.ok()) {
                     source_read_breakdown.local_bytes += read_size;
@@ -1143,10 +1218,10 @@ Status CachedRemoteFileReader::read_at_from_cache(size_t offset, Slice result, s
         *cache_hit = true;
         return Status::OK();
     }
-    if (_read_from_memory_block_cache(offset, Slice(result.data, bytes_req))) {
+    ReadStatistics stats;
+    if (_read_from_memory_block_cache(offset, Slice(result.data, bytes_req), &stats)) {
         *bytes_read = bytes_req;
         *cache_hit = true;
-        ReadStatistics stats;
         stats.bytes_read = cast_set<int64_t>(bytes_req);
         SourceReadBreakdown source_read_breakdown;
         source_read_breakdown.local_bytes = cast_set<int64_t>(bytes_req);
@@ -1154,7 +1229,6 @@ Status CachedRemoteFileReader::read_at_from_cache(size_t offset, Slice result, s
         return Status::OK();
     }
 
-    ReadStatistics stats;
     SourceReadBreakdown source_read_breakdown;
     stats.bytes_read = cast_set<int64_t>(bytes_req);
     const size_t block_size = cast_set<size_t>(config::file_cache_each_block_size);
@@ -1184,8 +1258,9 @@ Status CachedRemoteFileReader::read_at_from_cache(size_t offset, Slice result, s
         }
         const size_t read_size = read_end - read_start;
         SCOPED_RAW_TIMER(&stats.local_read_timer);
-        const Status st = _read_local_block(block, read_start - block->range().left, read_start,
-                                            Slice(result.data + read_start - offset, read_size));
+        const Status st =
+                _read_local_block(block, read_start - block->range().left, read_start,
+                                  Slice(result.data + read_start - offset, read_size), stats);
         if (!st.ok()) {
             // A cache file can be evicted between the state check and the read. Preserve the
             // cache-only contract and let the normal path self-heal through remote storage.
@@ -1513,6 +1588,17 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     statis->lock_wait_timer += read_stats.lock_wait_timer;
     statis->get_timer += read_stats.get_timer;
     statis->set_timer += read_stats.set_timer;
+    statis->num_reader_local_cache_total += read_stats.num_reader_local_cache_total;
+    statis->num_reader_local_cache_hit += read_stats.num_reader_local_cache_hit;
+    statis->num_reader_local_cache_miss += read_stats.num_reader_local_cache_miss;
+    statis->num_reader_local_cache_fill += read_stats.num_reader_local_cache_fill;
+    statis->num_reader_local_cache_evict += read_stats.num_reader_local_cache_evict;
+    statis->num_reader_local_cache_wait += read_stats.num_reader_local_cache_wait;
+    statis->bytes_reader_local_cache_request += read_stats.bytes_reader_local_cache_request;
+    statis->bytes_read_from_reader_local_cache += read_stats.bytes_read_from_reader_local_cache;
+    statis->bytes_read_into_reader_local_cache += read_stats.bytes_read_into_reader_local_cache;
+    statis->reader_local_cache_fill_timer += read_stats.reader_local_cache_fill_timer;
+    statis->reader_local_cache_wait_timer += read_stats.reader_local_cache_wait_timer;
 
     auto update_index_stats = [&](int64_t& num_local_io_total, int64_t& num_remote_io_total,
                                   int64_t& num_peer_io_total, int64_t& bytes_read_from_local,

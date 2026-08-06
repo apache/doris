@@ -87,6 +87,17 @@ struct ReadStatistics {
     int64_t lock_wait_timer = 0;
     int64_t get_timer = 0;
     int64_t set_timer = 0;
+    int64_t num_reader_local_cache_total = 0;
+    int64_t num_reader_local_cache_hit = 0;
+    int64_t num_reader_local_cache_miss = 0;
+    int64_t num_reader_local_cache_fill = 0;
+    int64_t num_reader_local_cache_evict = 0;
+    int64_t num_reader_local_cache_wait = 0;
+    int64_t bytes_reader_local_cache_request = 0;
+    int64_t bytes_read_from_reader_local_cache = 0;
+    int64_t bytes_read_into_reader_local_cache = 0;
+    int64_t reader_local_cache_fill_timer = 0;
+    int64_t reader_local_cache_wait_timer = 0;
 };
 
 class BlockFileCache;

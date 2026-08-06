@@ -54,6 +54,17 @@ io::FileCacheStatistics make_file_cache_stats(int64_t multiplier) {
     stats.inverted_index_io_timer = multiplier * 28;
     stats.remote_only_on_miss_triggered = multiplier * 29;
     stats.remote_only_on_miss_threshold_bytes = multiplier * 30;
+    stats.num_reader_local_cache_total = multiplier * 31;
+    stats.num_reader_local_cache_hit = multiplier * 32;
+    stats.num_reader_local_cache_miss = multiplier * 33;
+    stats.num_reader_local_cache_fill = multiplier * 34;
+    stats.num_reader_local_cache_evict = multiplier * 35;
+    stats.num_reader_local_cache_wait = multiplier * 36;
+    stats.bytes_reader_local_cache_request = multiplier * 37;
+    stats.bytes_read_from_reader_local_cache = multiplier * 38;
+    stats.bytes_read_into_reader_local_cache = multiplier * 39;
+    stats.reader_local_cache_fill_timer = multiplier * 40;
+    stats.reader_local_cache_wait_timer = multiplier * 41;
     return stats;
 }
 
@@ -94,6 +105,19 @@ void expect_file_cache_stats_eq(const io::FileCacheStatistics& actual,
     EXPECT_EQ(actual.remote_only_on_miss_triggered, expected.remote_only_on_miss_triggered);
     EXPECT_EQ(actual.remote_only_on_miss_threshold_bytes,
               expected.remote_only_on_miss_threshold_bytes);
+    EXPECT_EQ(actual.num_reader_local_cache_total, expected.num_reader_local_cache_total);
+    EXPECT_EQ(actual.num_reader_local_cache_hit, expected.num_reader_local_cache_hit);
+    EXPECT_EQ(actual.num_reader_local_cache_miss, expected.num_reader_local_cache_miss);
+    EXPECT_EQ(actual.num_reader_local_cache_fill, expected.num_reader_local_cache_fill);
+    EXPECT_EQ(actual.num_reader_local_cache_evict, expected.num_reader_local_cache_evict);
+    EXPECT_EQ(actual.num_reader_local_cache_wait, expected.num_reader_local_cache_wait);
+    EXPECT_EQ(actual.bytes_reader_local_cache_request, expected.bytes_reader_local_cache_request);
+    EXPECT_EQ(actual.bytes_read_from_reader_local_cache,
+              expected.bytes_read_from_reader_local_cache);
+    EXPECT_EQ(actual.bytes_read_into_reader_local_cache,
+              expected.bytes_read_into_reader_local_cache);
+    EXPECT_EQ(actual.reader_local_cache_fill_timer, expected.reader_local_cache_fill_timer);
+    EXPECT_EQ(actual.reader_local_cache_wait_timer, expected.reader_local_cache_wait_timer);
 }
 
 } // namespace
@@ -139,6 +163,12 @@ TEST(FileCacheProfileReporterTest, ReporterAggregatesDeltaReportsToExactFinalTot
     EXPECT_EQ(profile->get_counter("CacheGetOrSetTimer")->value(),
               after_second_report.cache_get_or_set_timer);
     EXPECT_EQ(profile->get_counter("LockWaitTimer")->value(), after_second_report.lock_wait_timer);
+    EXPECT_EQ(profile->get_counter("ReaderLocalCacheRequests")->value(),
+              after_second_report.num_reader_local_cache_total);
+    EXPECT_EQ(profile->get_counter("ReaderLocalCacheHitBytes")->value(),
+              after_second_report.bytes_read_from_reader_local_cache);
+    EXPECT_EQ(profile->get_counter("ReaderLocalCacheFillBytes")->value(),
+              after_second_report.bytes_read_into_reader_local_cache);
 }
 
 } // namespace doris

@@ -92,6 +92,17 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* set_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* remote_only_on_miss_triggered = nullptr;
     RuntimeProfile::HighWaterMarkCounter* remote_only_on_miss_threshold_bytes = nullptr;
+    RuntimeProfile::Counter* num_reader_local_cache_total = nullptr;
+    RuntimeProfile::Counter* num_reader_local_cache_hit = nullptr;
+    RuntimeProfile::Counter* num_reader_local_cache_miss = nullptr;
+    RuntimeProfile::Counter* num_reader_local_cache_fill = nullptr;
+    RuntimeProfile::Counter* num_reader_local_cache_evict = nullptr;
+    RuntimeProfile::Counter* num_reader_local_cache_wait = nullptr;
+    RuntimeProfile::Counter* bytes_reader_local_cache_request = nullptr;
+    RuntimeProfile::Counter* bytes_read_from_reader_local_cache = nullptr;
+    RuntimeProfile::Counter* bytes_read_into_reader_local_cache = nullptr;
+    RuntimeProfile::Counter* reader_local_cache_fill_timer = nullptr;
+    RuntimeProfile::Counter* reader_local_cache_wait_timer = nullptr;
 
     RuntimeProfile::Counter* inverted_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* inverted_index_num_remote_io_total = nullptr;
