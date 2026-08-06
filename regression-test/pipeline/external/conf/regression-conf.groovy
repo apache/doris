@@ -70,23 +70,16 @@ excludeGroups = "p1,p2"
 
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "test_dump_image," +
-    "test_index_failure_injection," +
     "test_information_schema_external," +
-    "test_profile," +
     "test_paimon_gcs," +
-    "test_refresh_mtmv," +
     "test_spark_load," +
     "test_paimon_gcs," +
-    "test_stream_stub_fault_injection," +
     "test_iceberg_overwrite_with_wrong_partition," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this directories will not be executed
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
-    "cloud," +
     "cloud_p0," +
-    "nereids_rules_p0/subquery," +
-    "workload_manager_p1," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
