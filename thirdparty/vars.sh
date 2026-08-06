@@ -619,6 +619,7 @@ export TP_ARCHIVES=(
     'CYRUS_SASL'
     'LIBRDKAFKA'
     'FLATBUFFERS'
+    'ARROW_17'
     'ARROW'
     'ARROW_ADBC'
     'BROTLI'
@@ -651,6 +652,7 @@ export TP_ARCHIVES=(
     'PDQSORT'
     'TIMSORT'
     'BENCHMARK'
+    'XSIMD_17'
     'XSIMD'
     'SIMDJSON'
     'NLOHMANN_JSON'
@@ -674,6 +676,7 @@ export TP_ARCHIVES=(
     'JINDOFS'
     'JUICEFS'
     'PUGIXML'
+    'PAIMON_CPP_17'
     'PAIMON_CPP'
     'LANCE_C'
 )
