@@ -69,6 +69,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
@@ -159,6 +160,21 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        // Statement-scoped reuse: within one statement the identical scan (same table, same
+        // instant/incremental pin, same partition set) plans once and every duplicated relation
+        // shares the result. The scope is NONE for offline planning and tests, in which case the
+        // loader runs on every call. Session variables are constant within a statement and
+        // deliberately absent from the key.
+        if (session == null) {
+            return doPlanScan(session, request);
+        }
+        return session.getStatementScope().computeIfAbsent(
+                hudiScanReuseKey(session.getCatalogId(), session.getQueryId(),
+                        (HudiTableHandle) request.getTableHandle()),
+                () -> Collections.unmodifiableList(doPlanScan(session, request)));
+    }
+
+    private List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request) {
         HudiTableHandle hudiHandle = (HudiTableHandle) request.getTableHandle();
         String basePath = hudiHandle.getBasePath();
 
@@ -1008,5 +1024,99 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
     private ConnectorStorageContext storage() {
         return context.getStorageContext();
+    }
+
+    /** Package-private for offline unit tests of key construction. */
+    static HudiScanReuseKey hudiScanReuseKey(long catalogId, String queryId, HudiTableHandle handle) {
+        return new HudiScanReuseKey(catalogId, queryId, handle);
+    }
+
+    /**
+     * Statement-scoped cache key for one Hudi scan.
+     *
+     * <p>Includes every input that changes the planned split list: table identity, the snapshot
+     * instant, the incremental window (begin/end instant + incremental options), the pruned
+     * partition set, the partition keys, and the JNI metadata carriers (input format / serde).
+     * Session variables are statement-constant and deliberately absent.
+     */
+    static final class HudiScanReuseKey {
+        private final long catalogId;
+        private final String queryId;
+        private final String dbName;
+        private final String tableName;
+        private final String basePath;
+        private final String queryInstant;
+        private final String beginInstant;
+        private final String endInstant;
+        private final Map<String, String> incrementalParams;
+        private final List<String> prunedPartitionPaths;
+        private final List<String> partitionKeyNames;
+        private final String inputFormat;
+        private final String serdeLib;
+
+        // Hudi scan-planning identity is fully captured by the handle and its query/incremental
+        // parameters; request-level filter, columns, and countPushdown do not affect split planning
+        // and are deliberately excluded from the key.
+        private HudiScanReuseKey(long catalogId, String queryId, HudiTableHandle handle) {
+            // The catalog id and query id isolate same-named tables across a cross-catalog
+            // statement and executions of a reused prepared statement (see
+            // ConnectorStatementScopes.resolveInStatement).
+            this.catalogId = catalogId;
+            this.queryId = queryId;
+            this.dbName = handle.getDbName();
+            this.tableName = handle.getTableName();
+            this.basePath = handle.getBasePath();
+            this.queryInstant = handle.getQueryInstant();
+            this.beginInstant = handle.getBeginInstant();
+            this.endInstant = handle.getEndInstant();
+            this.incrementalParams = handle.getIncrementalParams() == null
+                    ? Collections.emptyMap()
+                    : Collections.unmodifiableMap(new HashMap<>(handle.getIncrementalParams()));
+            this.prunedPartitionPaths = handle.getPrunedPartitionPaths() == null
+                    ? Collections.emptyList()
+                    : Collections.unmodifiableList(new ArrayList<>(handle.getPrunedPartitionPaths()));
+            this.partitionKeyNames = handle.getPartitionKeyNames() == null
+                    ? Collections.emptyList()
+                    : Collections.unmodifiableList(new ArrayList<>(handle.getPartitionKeyNames()));
+            this.inputFormat = handle.getInputFormat();
+            this.serdeLib = handle.getSerdeLib();
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof HudiScanReuseKey)) {
+                return false;
+            }
+            HudiScanReuseKey that = (HudiScanReuseKey) object;
+            return catalogId == that.catalogId
+                    && Objects.equals(queryId, that.queryId)
+                    && Objects.equals(dbName, that.dbName)
+                    && Objects.equals(tableName, that.tableName)
+                    && Objects.equals(basePath, that.basePath)
+                    && Objects.equals(queryInstant, that.queryInstant)
+                    && Objects.equals(beginInstant, that.beginInstant)
+                    && Objects.equals(endInstant, that.endInstant)
+                    && Objects.equals(incrementalParams, that.incrementalParams)
+                    && Objects.equals(prunedPartitionPaths, that.prunedPartitionPaths)
+                    && Objects.equals(partitionKeyNames, that.partitionKeyNames)
+                    && Objects.equals(inputFormat, that.inputFormat)
+                    && Objects.equals(serdeLib, that.serdeLib);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(catalogId, queryId, dbName, tableName, basePath,
+                    queryInstant, beginInstant, endInstant, incrementalParams,
+                    prunedPartitionPaths, partitionKeyNames, inputFormat, serdeLib);
+        }
+
+        @Override
+        public String toString() {
+            return "HudiScanReuseKey{catalog=" + catalogId + ", query=" + queryId
+                    + ", table=" + dbName + "." + tableName + "}";
+        }
     }
 }
