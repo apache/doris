@@ -1002,7 +1002,7 @@ suite("bilateral_eager_agg") {
       SET fe_debug = true;
      """
 
-      qt_union_2_same_agg_func """
+      order_qt_union_2_same_agg_func """
      SELECT
       u.k,
       SUM(u.x) AS sum_x,
