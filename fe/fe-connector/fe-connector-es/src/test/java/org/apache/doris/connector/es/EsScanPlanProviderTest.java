@@ -141,11 +141,11 @@ class EsScanPlanProviderTest {
     /** A live per-statement scope: a plain CHM-backed arena, like the engine's real scope. */
     private static ConnectorStatementScope liveScope() {
         return new ConnectorStatementScope() {
-            private final Map<String, Object> arena = new ConcurrentHashMap<>();
+            private final Map<Object, Object> arena = new ConcurrentHashMap<>();
 
             @Override
             @SuppressWarnings("unchecked")
-            public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+            public <T> T computeIfAbsent(Object key, Supplier<T> loader) {
                 return (T) arena.computeIfAbsent(key, k -> loader.get());
             }
         };
