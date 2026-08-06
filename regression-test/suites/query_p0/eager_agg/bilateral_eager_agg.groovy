@@ -950,4 +950,78 @@ suite("bilateral_eager_agg") {
          WHERE l.filter_date = '2018-01-08'
          GROUP BY group_flag;
      """
+
+     multi_sql """
+      DROP TABLE IF EXISTS src_a;
+      DROP TABLE IF EXISTS src_b;
+      DROP TABLE IF EXISTS src_c;
+     
+      CREATE TABLE src_a (
+              k BIGINT NOT NULL,
+                      v BIGINT NOT NULL
+      )
+      DUPLICATE KEY(k)
+      DISTRIBUTED BY HASH(k) BUCKETS 1
+      PROPERTIES (
+              "replication_num" = "1"
+      );
+     
+      CREATE TABLE src_b (
+              k       BIGINT NOT NULL,
+                      join_id BIGINT NOT NULL
+      )
+      DUPLICATE KEY(k, join_id)
+      DISTRIBUTED BY HASH(k) BUCKETS 1
+      PROPERTIES (
+              "replication_num" = "1"
+      );
+     
+      CREATE TABLE src_c (
+              join_id BIGINT NOT NULL
+      )
+      DUPLICATE KEY(join_id)
+      DISTRIBUTED BY HASH(join_id) BUCKETS 1
+      PROPERTIES (
+              "replication_num" = "1"
+      );
+     
+      INSERT INTO src_a VALUES
+      (1, 10),
+      (2, 20);
+     
+      INSERT INTO src_b VALUES
+      (1, 101),
+      (2, 102);
+     
+      INSERT INTO src_c VALUES
+      (101),
+      (102);
+     
+      SET disable_join_reorder = true;
+      SET eager_aggregation_mode = 1;
+      SET fe_debug = true;
+     """
+
+      qt_union_2_same_agg_func """
+     SELECT
+      u.k,
+      SUM(u.x) AS sum_x,
+              SUM(u.y) AS sum_y
+      FROM (
+              SELECT
+              a.k,
+              a.v AS x,
+              a.v AS y
+                      FROM src_a a
+                      UNION ALL
+                      SELECT
+                      b.k,
+                      CAST(0 AS BIGINT) AS x,
+                      CAST(0 AS BIGINT) AS y
+                      FROM src_b b
+                      INNER JOIN src_c c
+                      ON b.join_id = c.join_id
+      ) u
+      GROUP BY u.k;
+     """
 }

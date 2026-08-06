@@ -197,7 +197,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private boolean isPassThroughHeavyJoin(Plan joinChild, PushDownAggContext context) {
-        if (context.isPassThroughHeavyJoin() || SessionVariable.getEagerAggregationMode() > 0) {
+        if (context.isPassThroughHeavyJoin()) {
             return true;
         } else {
             Statistics stats = joinChild.getStats();
@@ -1304,9 +1304,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         if (mode > 0) {
-            // when mode=1, any join is regarded as big join in order to
-            // push down aggregation through at least one join
-            return context.isPassThroughHeavyJoin();
+            return true;
         }
 
         if (!context.isPassThroughHeavyJoin() && !context.hasDecomposedAggIf) {
