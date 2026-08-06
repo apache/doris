@@ -251,13 +251,19 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             }
         }
 
-        // When signing-name is glue or s3tables: require signing-region and sigv4-enabled
+        // SigV4-backed REST catalogs require a signing region and SigV4 to be enabled.
         rules.requireIf(icebergRestSigningName, "glue",
                 new String[] {icebergRestSigningRegion, icebergRestSigV4Enabled},
                 "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is glue");
         rules.requireIf(icebergRestSigningName, "s3tables",
                 new String[] {icebergRestSigningRegion, icebergRestSigV4Enabled},
                 "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is s3tables");
+        rules.requireIf(icebergRestSigningName, "osstables",
+                new String[] {icebergRestSigningRegion, icebergRestSigV4Enabled},
+                "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is osstables");
+        rules.check(() -> shouldUseS3PropertiesForRestCredentials()
+                        && !"true".equalsIgnoreCase(icebergRestSigV4Enabled),
+                "Rest Catalog requires sigv4-enabled set to true when signing-name is " + icebergRestSigningName);
 
         rejectUnsupportedAwsAssumeRoleProperty(ICEBERG_REST_ROLE_ARN);
         rejectUnsupportedAwsAssumeRoleProperty(ICEBERG_REST_EXTERNAL_ID);
@@ -362,7 +368,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private boolean shouldUseS3PropertiesForRestCredentials() {
         return "glue".equals(icebergRestSigningName)
-                || "s3tables".equals(icebergRestSigningName);
+                || "s3tables".equals(icebergRestSigningName)
+                || "osstables".equals(icebergRestSigningName);
     }
 
     public Map<String, String> getIcebergRestCatalogProperties() {
