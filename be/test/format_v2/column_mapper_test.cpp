@@ -2572,13 +2572,17 @@ TEST(ColumnMapperScanRequestTest, FilterOnlyNestedTimestampRetainsTableFormatSem
     auto projected_table_struct = struct_col("s", 10, {table_payload});
     auto table_ltz = field_id_col("ltz", 2, ltz_type);
     auto full_table_struct = struct_col("s", 10, {table_payload, table_ltz});
+    // Parquet keeps the FE-provided predicate subtree independent from deferred output projection.
+    projected_table_struct.type = full_table_struct.type;
+    projected_table_struct.has_predicate_access_paths = true;
+    projected_table_struct.predicate_children = {table_ltz};
 
     auto file_payload = field_id_col("payload", 1, int_type, 0);
     auto file_ltz = field_id_col("ltz", 2, ltz_type, 1);
     file_ltz.timestamp_is_adjusted_to_utc = true;
     auto file_struct = struct_col("s", 10, {file_payload, file_ltz}, 5);
 
-    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(mapper.create_mapping({projected_table_struct}, {}, {file_struct}).ok());
 
     auto filter_expr = null_predicate(
@@ -2591,11 +2595,13 @@ TEST(ColumnMapperScanRequestTest, FilterOnlyNestedTimestampRetainsTableFormatSem
 
     ASSERT_EQ(request.predicate_columns.size(), 1);
     const auto& root_projection = request.predicate_columns[0];
-    ASSERT_EQ(projection_ids(root_projection.children), std::vector<int32_t>({0, 1}));
+    ASSERT_EQ(projection_ids(root_projection.children), std::vector<int32_t>({1}));
     const auto* ltz_projection = find_child_projection(&root_projection, 1);
     ASSERT_NE(ltz_projection, nullptr);
     ASSERT_TRUE(ltz_projection->timestamp_is_adjusted_to_utc.has_value());
     EXPECT_TRUE(*ltz_projection->timestamp_is_adjusted_to_utc);
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(projection_ids(request.non_predicate_columns[0].children), std::vector<int32_t>({0}));
 }
 
 // Scenario: a filter references a top-level column that is not projected by the query; the mapper
