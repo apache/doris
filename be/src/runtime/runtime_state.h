@@ -76,6 +76,9 @@ class RuntimeFilterConsumer;
 class RuntimeFilterProducer;
 class TaskExecutionContext;
 
+// Keep RuntimeState self-contained without importing the full frontend Thrift service header.
+class TReportExecStatusParams;
+
 class ExternalFileReportState {
     friend class RuntimeState;
 
