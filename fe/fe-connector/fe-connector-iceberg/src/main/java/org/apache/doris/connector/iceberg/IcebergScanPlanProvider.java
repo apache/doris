@@ -437,7 +437,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        if (iceHandle.isSystemTable() || !sessionBool(session, ENABLE_EXTERNAL_TABLE_BATCH_MODE, true)) {
+        if (iceHandle.isResolvedEmptySnapshot() || iceHandle.isSystemTable()
+                || !sessionBool(session, ENABLE_EXTERNAL_TABLE_BATCH_MODE, true)) {
             return -1;
         }
         Table table = resolveTable(session, iceHandle);
@@ -475,13 +476,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * a FIXED size ({@code file_split_size} if set, else {@code max_split_size} — NOT the per-table
      * {@link #determineTargetFileSplitSize} heuristic, which would force materializing every task), so
      * {@code planFiles()} streams without holding the full task list — the OOM protection. Bypasses the manifest
-     * cache (its planning materializes; legacy's lazy batch path only ran with the manifest cache off). Only
-     * called after {@link #streamingSplitEstimate} returned &ge; 0, so the snapshot/non-sys/v&lt;3 gates already hold.
+     * cache (its planning materializes; legacy's lazy batch path only ran with the manifest cache off). Usually
+     * called after {@link #streamingSplitEstimate} returned &ge; 0; because MVCC pinning happens afterward, this
+     * method must independently preserve an explicitly empty pinned snapshot.
      */
     @Override
     public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter, long limit) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isResolvedEmptySnapshot()) {
+            // The batch decision is made before the engine pins MVCC; once pinned empty, streaming must
+            // preserve that boundary instead of interpreting Iceberg's sentinel as the latest snapshot.
+            return emptySplitSource();
+        }
         Table table = resolveTable(session, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
         int formatVersion = getFormatVersion(table);
@@ -497,6 +504,24 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(scan, session, table, filter, sliceSize);
         return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
                 orderedPartitionKeys, zone, uriNormalizer, sliceSize, iceHandle.getRewriteFileScope());
+    }
+
+    private static ConnectorSplitSource emptySplitSource() {
+        return new ConnectorSplitSource() {
+            @Override
+            public boolean hasNext() {
+                return false;
+            }
+
+            @Override
+            public ConnectorScanRange next() {
+                throw new NoSuchElementException();
+            }
+
+            @Override
+            public void close() {
+            }
+        };
     }
 
     /**
@@ -613,6 +638,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isResolvedEmptySnapshot() && !isSnapshotIndependentSystemTable(iceHandle)) {
+            // Iceberg has no snapshot id that can represent "before the first commit". Returning no ranges is
+            // the read-side MVCC fence; otherwise a refreshed Table would turn -1 into "latest" and expose a
+            // concurrent first append to MERGE after its anti-join had already decided the row was absent. Static
+            // metadata-history tables are exempt because their creation rows exist without a data snapshot.
+            return Collections.emptyList();
+        }
         if (iceHandle.isSystemTable()) {
             // System tables take a metadata-table path, never the data-file path below (no count pushdown, no
             // data-file ranges) — mirrors legacy IcebergScanNode branching on isSystemTable. $position_deletes
@@ -1141,6 +1173,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 && type != MetadataTableType.ALL_FILES
                 && type != MetadataTableType.ALL_MANIFESTS
                 && type != MetadataTableType.ALL_ENTRIES;
+    }
+
+    /** Metadata tables whose rows exist independently of a data snapshot. */
+    private static boolean isSnapshotIndependentSystemTable(IcebergTableHandle handle) {
+        if (!handle.isSystemTable()) {
+            return false;
+        }
+        MetadataTableType type = MetadataTableType.from(handle.getSysTableName());
+        // Only metadata_log_entries has a creation row before the first data snapshot; every other metadata
+        // table must preserve the resolved-empty fence or a concurrent first append becomes visible.
+        return type == MetadataTableType.METADATA_LOG_ENTRIES;
     }
 
     /**

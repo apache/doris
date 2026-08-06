@@ -1418,6 +1418,97 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void planScanResolvedEmptySnapshotIgnoresConcurrentFirstAppend() {
+        // MERGE may resolve its read snapshot while the target has no snapshots, then race with the first append.
+        // The -1 marker is a real MVCC boundary: treating it as "latest" lets MERGE miss the new row and insert a
+        // duplicate, so both the ordinary scan and COUNT pushdown must remain empty after the concurrent commit.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergTableHandle emptyRead = new IcebergTableHandle("db1", "t1")
+                .withSnapshot(-1L, null, table.schema().schemaId());
+
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/concurrent.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> rows = provider.planScan(null,
+                ConnectorScanRequest.builder(emptyRead, Collections.emptyList()).build());
+        List<ConnectorScanRange> count = provider.planScan(null,
+                ConnectorScanRequest.builder(emptyRead, Collections.emptyList())
+                        .requiredPartitions(Collections.emptyList()).countPushdown(true).build());
+
+        Assertions.assertTrue(rows.isEmpty(), "an explicitly empty read must not see the first concurrent append");
+        Assertions.assertTrue(count.isEmpty(), "COUNT over an explicitly empty read must remain zero");
+    }
+
+    @Test
+    public void streamSplitsResolvedEmptySnapshotIgnoresConcurrentFirstAppend() throws IOException {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergTableHandle emptyRead = new IcebergTableHandle("db1", "t1")
+                .withSnapshot(-1L, null, table.schema().schemaId());
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/concurrent.parquet", 1024, null, null)).commit();
+
+        Assertions.assertEquals(1, provider.streamingSplitEstimate(batchSession(1, true),
+                new IcebergTableHandle("db1", "t1"), Optional.empty(), false),
+                "the pre-pin batch decision must observe the concurrent first append");
+        List<ConnectorScanRange> ranges = drain(provider.streamSplits(emptySession(),
+                emptyRead, Collections.emptyList(), Optional.empty(), -1L));
+        Assertions.assertTrue(ranges.isEmpty(),
+                "the post-pin streaming path must preserve the explicitly empty read boundary");
+    }
+
+    @Test
+    public void resolvedEmptyMetadataLogEntriesStillReturnsCreationEntry() throws Exception {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        IcebergTableHandle handle = IcebergTableHandle.forSystemTable(
+                "db1", "t1", "metadata_log_entries", -1L, null, table.schema().schemaId(), true);
+
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
+
+        Assertions.assertEquals(1L, countSerializedSplitRows(ranges),
+                "metadata history exists before the first data snapshot and must not be hidden by the data fence");
+    }
+
+    @Test
+    public void resolvedEmptySnapshotDerivedMetadataTablesIgnoreConcurrentFirstAppend() {
+        for (String systemTable : Arrays.asList("snapshots", "history", "refs")) {
+            Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+            IcebergTableHandle emptyRead = IcebergTableHandle.forSystemTable(
+                    "db1", "t1", systemTable, -1L, null, table.schema().schemaId(), true);
+            table.newAppend().appendFile(
+                    dataFile(table.spec(), "s3://b/db/t1/concurrent.parquet", 1024, null, null)).commit();
+            IcebergScanPlanProvider provider =
+                    new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+            Assertions.assertTrue(provider.planScan(null,
+                    ConnectorScanRequest.builder(emptyRead, Collections.emptyList()).build()).isEmpty(),
+                    systemTable + " must preserve the resolved-empty boundary across the first append");
+        }
+    }
+
+    @Test
+    public void resolvedEmptyAllFilesDoesNotExposeConcurrentFirstAppend() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergTableHandle emptyAllFiles = IcebergTableHandle.forSystemTable(
+                "db1", "t1", "all_files", -1L, null, table.schema().schemaId(), true);
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/concurrent.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        Assertions.assertTrue(provider.planScan(null,
+                ConnectorScanRequest.builder(emptyAllFiles, Collections.emptyList()).build()).isEmpty(),
+                "snapshot-derived history must preserve the empty boundary across a concurrent first append");
+    }
+
+    @Test
     public void planScanPinnedToTagReadsViaUseRefNotSnapshotId() {
         // The handle carries BOTH a ref (tag1 -> S1) AND the LATEST snapshot id (s2). The scan must pin by REF
         // (useRef), so it reads only f1. MUTATION: pinning by snapshotId (useSnapshot(s2)) -> reads both -> red.

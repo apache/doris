@@ -601,6 +601,9 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertEquals("INT", cols.get(0).getType().getTypeName());
         Assertions.assertEquals("name", cols.get(1).getName());
         Assertions.assertEquals("STRING", cols.get(1).getType().getTypeName());
+        Assertions.assertEquals(IcebergWritePlanProvider.writeMetadataIdentity(ops.table),
+                schema.getWriteMetadataIdentity(),
+                "the bind-time schema and write fence must be derived from the exact same table load");
 
         // WHY: legacy IcebergUtils.parseSchema builds EVERY column with isAllowNull=true regardless of
         // the Iceberg field's required/optional flag (rows can still read NULL under schema-evolution

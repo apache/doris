@@ -335,16 +335,17 @@ public class IcebergConnectorMetadataMvccTest {
     }
 
     @Test
-    public void applySnapshotLatestPinLeavesHandleUnchanged() {
+    public void applySnapshotRecordsExplicitlyEmptyPinWithoutScanPin() {
         Fixture f = fixture();
         IcebergConnectorMetadata md = metadataFor(f.table, new RecordingIcebergCatalogOps());
         ConnectorTableHandle bare = handle();
-        // null snapshot and an empty-table (-1, no ref) pin must both read latest (handle unchanged) — a
-        // useSnapshot(-1) would be a non-existent snapshot.
+        // A null snapshot leaves the handle untouched. An empty-table pin must remain unpinned for scanning
+        // because useSnapshot(-1) is invalid, while retaining that resolution for write conflict validation.
         Assertions.assertSame(bare, md.applySnapshot(null, bare, null));
         IcebergTableHandle afterMinusOne = (IcebergTableHandle) md.applySnapshot(null, bare,
                 ConnectorMvccSnapshot.builder().snapshotId(-1L).build());
         Assertions.assertFalse(afterMinusOne.hasSnapshotPin());
+        Assertions.assertTrue(afterMinusOne.isSnapshotResolved());
     }
 
     // ---------------------------------------------------------------------
