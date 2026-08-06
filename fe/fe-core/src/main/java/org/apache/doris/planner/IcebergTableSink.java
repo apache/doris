@@ -25,6 +25,7 @@ import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
@@ -38,7 +39,10 @@ import org.apache.doris.thrift.TIcebergWriteType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.NullOrder;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
@@ -49,6 +53,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.types.Types.NestedField;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -62,6 +67,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
     private List<Expr> outputExprs;
     private final IcebergExternalTable targetTable;
     private final Table icebergTable;
+    private final Optional<IcebergWriteSchemaContext> writeSchemaContext;
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
             add(TFileFormatType.FORMAT_ORC);
             add(TFileFormatType.FORMAT_PARQUET);
@@ -72,20 +78,22 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
     public IcebergTableSink(IcebergExternalTable targetTable) {
-        super();
-        if (targetTable.isView()) {
-            throw new UnsupportedOperationException("Write data to iceberg view is not supported");
-        }
-        this.targetTable = targetTable;
-        this.icebergTable = targetTable.getIcebergTable();
-        IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
-        storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
-                catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
-                icebergTable);
+        this(targetTable, targetTable.getIcebergTable(), Optional.empty());
+    }
+
+    /** Constructor with the schema pinned by the Nereids write plan. */
+    public IcebergTableSink(IcebergExternalTable targetTable,
+            Optional<IcebergWriteSchemaContext> writeSchemaContext) {
+        this(targetTable, targetTable.getIcebergTable(), writeSchemaContext);
     }
 
     public IcebergTableSink(IcebergExternalTable targetTable, Table icebergTable) {
+        this(targetTable, icebergTable, Optional.empty());
+    }
+
+    /** Constructor with both metadata generations pinned by analysis. */
+    public IcebergTableSink(IcebergExternalTable targetTable, Table icebergTable,
+            Optional<IcebergWriteSchemaContext> writeSchemaContext) {
         super();
         if (targetTable.isView()) {
             throw new UnsupportedOperationException("Write data to iceberg view is not supported");
@@ -93,6 +101,8 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         this.targetTable = targetTable;
         // Keep credentials and every writer option on the metadata generation pinned during analysis.
         this.icebergTable = Objects.requireNonNull(icebergTable, "icebergTable is not null");
+        this.writeSchemaContext = Objects.requireNonNull(
+                writeSchemaContext, "writeSchemaContext should not be null");
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 catalog.getCatalogProperty().getMetastoreProperties(),
@@ -135,32 +145,60 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         tSink.setTbName(targetTable.getName());
 
         boolean isRewriting = false;
+        Optional<IcebergWriteSchemaContext> executorWriteSchemaContext = Optional.empty();
         if (insertCtx.isPresent() && insertCtx.get() instanceof IcebergInsertCommandContext) {
             IcebergInsertCommandContext context = (IcebergInsertCommandContext) insertCtx.get();
             isRewriting = context.isRewriting();
+            executorWriteSchemaContext = context.getWriteSchemaContext();
             if (isRewriting) {
                 tSink.setWriteType(TIcebergWriteType.REWRITE);
             }
         }
+        if (!executorWriteSchemaContext.equals(writeSchemaContext)) {
+            throw new AnalysisException("Iceberg write schema context differs between plan and executor");
+        }
 
-        Schema schema = icebergTable.schema();
+        Schema schema = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getSchema)
+                .orElseGet(icebergTable::schema);
         if (isRewriting
                 && IcebergUtils.getFormatVersion(icebergTable) >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
             // iceberg v3 format requires additional row lineage fields when rewrite data files.
             schema = IcebergUtils.appendRowLineageFieldsForV3(schema);
         }
-        tSink.setSchemaJson(SchemaParser.toJson(schema));
-        tSink.setCollectColumnStats(IcebergUtils.shouldCollectColumnStats(icebergTable, schema));
+        String writerSchemaJson = isRewriting
+                ? SchemaParser.toJson(schema)
+                : writeSchemaContext.map(IcebergWriteSchemaContext::getSchemaJson)
+                        .orElse(SchemaParser.toJson(schema));
+        PartitionSpec partitionSpec = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getPartitionSpec)
+                .orElseGet(icebergTable::spec);
+        SortOrder sortOrder = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getSortOrder)
+                .orElseGet(icebergTable::sortOrder);
+        FileFormat fileFormat = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getFileFormat)
+                .orElseGet(() -> IcebergUtils.getFileFormat(icebergTable));
+        MetricsConfig metricsConfig = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getMetricsConfig)
+                .orElseGet(() -> MetricsConfig.forTable(icebergTable));
+        tSink.setSchemaJson(writerSchemaJson);
+        tSink.setCollectColumnStats(
+                IcebergUtils.shouldCollectColumnStats(schema, metricsConfig, fileFormat));
 
         // partition spec
-        if (icebergTable.spec().isPartitioned()) {
-            tSink.setPartitionSpecsJson(Maps.transformValues(icebergTable.specs(), PartitionSpecParser::toJson));
-            tSink.setPartitionSpecId(icebergTable.spec().specId());
+        if (partitionSpec.isPartitioned()) {
+            Map<Integer, String> partitionSpecsJson = writeSchemaContext
+                    .map(context -> Collections.singletonMap(
+                            partitionSpec.specId(), context.getPartitionSpecJson()))
+                    .orElseGet(() -> Maps.transformValues(
+                            icebergTable.specs(), PartitionSpecParser::toJson));
+            tSink.setPartitionSpecsJson(partitionSpecsJson);
+            tSink.setPartitionSpecId(partitionSpec.specId());
         }
 
         // sort order
-        if (icebergTable.sortOrder().isSorted()) {
-            SortOrder sortOrder = icebergTable.sortOrder();
+        if (sortOrder.isSorted()) {
             ArrayList<Expr> orderingExprs = Lists.newArrayList();
             ArrayList<Boolean> isAscOrder = Lists.newArrayList();
             ArrayList<Boolean> isNullsFirst = Lists.newArrayList();
@@ -168,8 +206,8 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
                 if (!sortField.transform().isIdentity()) {
                     continue;
                 }
-                for (int i = 0; i < icebergTable.schema().columns().size(); ++i) {
-                    NestedField column  = icebergTable.schema().columns().get(i);
+                for (int i = 0; i < schema.columns().size(); ++i) {
+                    NestedField column  = schema.columns().get(i);
                     if (column.fieldId() == sortField.sourceId()) {
                         orderingExprs.add(outputExprs.get(i));
                         isAscOrder.add(sortField.direction().equals(SortDirection.ASC));
@@ -183,8 +221,11 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         }
 
         // file info
-        tSink.setFileFormat(getTFileFormatType(IcebergUtils.getFileFormat(icebergTable).name()));
-        tSink.setCompressionType(getTFileCompressType(IcebergUtils.getFileCompress(icebergTable)));
+        tSink.setFileFormat(getTFileFormatType(fileFormat.name()));
+        String fileCompression = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getFileCompression)
+                .orElseGet(() -> IcebergUtils.getFileCompress(icebergTable));
+        tSink.setCompressionType(getTFileCompressType(fileCompression));
 
         // hadoop config
         Map<String, String> props = new HashMap<>();
@@ -194,7 +235,9 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         tSink.setHadoopConfig(props);
 
         // location
-        String originalLocation = IcebergUtils.dataLocation(icebergTable);
+        String originalLocation = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getDataLocation)
+                .orElseGet(() -> IcebergUtils.dataLocation(icebergTable));
         LocationPath locationPath = LocationPath.of(originalLocation, storagePropertiesMap);
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
         tSink.setOriginalOutputPath(originalLocation);

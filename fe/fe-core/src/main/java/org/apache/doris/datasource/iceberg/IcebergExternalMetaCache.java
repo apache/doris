@@ -108,6 +108,16 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         return tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getIcebergTable();
     }
 
+    public Table loadFreshIcebergTable(ExternalTable dorisTable) {
+        IcebergMetadataOps ops = resolveMetadataOps(dorisTable.getCatalog());
+        try {
+            return ((ExternalCatalog) dorisTable.getCatalog()).getExecutionAuthenticator()
+                    .execute(() -> ops.loadTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName()));
+        } catch (Exception e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+    }
+
     public IcebergSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         return tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getLatestSnapshotCacheValue();

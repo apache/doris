@@ -349,16 +349,18 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             StmtExecutor stmtExecutor, TableIf targetTableIf) throws Throwable {
         targetTableIf.readLock();
         try {
+            LogicalPlan planForAnalysis = InsertUtils.pinIcebergWriteSchema(
+                    originLogicalQuery, targetTableIf, branchName, ctx.getStatementContext());
             Optional<CascadesContext> analyzeContext = Optional.of(
-                    CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
+                    CascadesContext.initContext(ctx.getStatementContext(), planForAnalysis, PhysicalProperties.ANY)
             );
             if (!(this instanceof InsertIntoDictionaryCommand)) {
                 // process inline table (default values, empty values)
                 if (needNormalizePlan) {
-                    this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(originLogicalQuery,
+                    this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(planForAnalysis,
                             targetTableIf, analyzeContext, insertCtx));
                 } else {
-                    this.logicalQuery = Optional.of(originLogicalQuery);
+                    this.logicalQuery = Optional.of(planForAnalysis);
                 }
             }
             if (cte.isPresent()) {
@@ -479,6 +481,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         .map(insertCommandContext -> (IcebergInsertCommandContext) insertCommandContext)
                         .orElseGet(IcebergInsertCommandContext::new);
                 branchName.ifPresent(notUsed -> icebergInsertCtx.setBranchName(branchName));
+                icebergInsertCtx.setWriteSchemaContext(
+                        ((PhysicalIcebergTableSink<?>) physicalSink).getWriteSchemaContext());
                 return ExecutorFactory.from(
                         planner,
                         dataSink,
@@ -706,10 +710,14 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        TableIf targetTable = InsertUtils.getTargetTable(originLogicalQuery, ctx);
+        LogicalPlan planForAnalysis = InsertUtils.pinIcebergWriteSchema(
+                originLogicalQuery, targetTable, branchName, ctx.getStatementContext());
         Optional<CascadesContext> analyzeContext = Optional.of(
-                CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
+                CascadesContext.initContext(ctx.getStatementContext(), planForAnalysis, PhysicalProperties.ANY)
         );
-        Plan plan = InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery());
+        Plan plan = InsertUtils.normalizePlan(
+                planForAnalysis, targetTable, analyzeContext, insertCtx);
         if (cte.isPresent()) {
             plan = cte.get().withChildren(plan);
         }

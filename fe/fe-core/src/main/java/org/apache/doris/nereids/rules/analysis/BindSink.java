@@ -39,6 +39,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
@@ -117,6 +118,7 @@ import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -389,20 +391,40 @@ public class BindSink implements AnalysisRuleFactory {
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child) {
         return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
-                boundSink, child, boundSink.getTargetTable().getFullSchema());
+                boundSink, child, boundSink.getTargetTable().getFullSchema(), Optional.empty());
     }
 
     private static Map<String, NamedExpression> getColumnToOutput(
             MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema) {
+        return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
+                boundSink, child, targetSchema, Optional.empty());
+    }
+
+    private static Map<String, NamedExpression> getColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
+            TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
+            LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema,
+            Optional<IcebergWriteSchemaContext> icebergWriteSchemaContext) {
+        return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
+                boundSink, child, targetSchema, icebergWriteSchemaContext, ImmutableMap.of());
+    }
+
+    private static Map<String, NamedExpression> getColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
+            TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
+            LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema,
+            Optional<IcebergWriteSchemaContext> icebergWriteSchemaContext,
+            Map<Column, Expression> providedColumnExpressions) {
         // we need to insert all the columns of the target table
         // although some columns are not mentions.
         // so we add a projects to supply the default value.
-        Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
+        Map<Column, Expression> columnToChildOutput = Maps.newHashMap();
         for (int i = 0; i < child.getOutput().size(); ++i) {
             columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
         }
+        columnToChildOutput.putAll(providedColumnExpressions);
         Map<String, NamedExpression> columnToOutput = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<String, NamedExpression> columnToReplaced = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
@@ -479,6 +501,13 @@ public class BindSink implements AnalysisRuleFactory {
                     } else {
                         continue;
                     }
+                } else if (icebergWriteSchemaContext.isPresent()) {
+                    Expression defaultExpression = icebergWriteSchemaContext.get().resolveWriteDefault(column);
+                    Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
+                            defaultExpression, DataType.fromCatalogType(column.getType())), column.getName());
+                    columnToOutput.put(column.getName(), output);
+                    columnToReplaced.put(column.getName(), output.toSlot());
+                    replaceMap.put(output.toSlot(), output.child());
                 } else if (column.getDefaultValue() == null) {
                     // throw exception if explicitly use Default value but no default value present
                     // insert into table t values(DEFAULT)
@@ -519,7 +548,7 @@ public class BindSink implements AnalysisRuleFactory {
         // It's the same reason for moving the processing of materialized columns down.
         for (Column column : generatedColumns) {
             if (isDeletePartialUpdate) {
-                NamedExpression childOutput = columnToChildOutput.get(column);
+                Expression childOutput = columnToChildOutput.get(column);
                 if (childOutput == null) {
                     continue;
                 }
@@ -750,13 +779,16 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> targetSchema = table.getFullSchema(targetSnapshot);
         // Validate the same pinned generation used to bind the sink. A self-insert can pin an
         // older source snapshot in StatementContext before the latest write target is loaded.
-        IcebergUtils.validateWriteSchema(targetSchema);
+        Optional<IcebergWriteSchemaContext> writeSchemaContext = sink.getWriteSchemaContext();
+        List<Column> pinnedColumns = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getColumns)
+                .orElse(targetSchema);
+        IcebergUtils.validateWriteSchema(pinnedColumns);
 
         // Get static partition columns if present
-        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
-        Set<String> staticPartitionColNames = staticPartitions != null
-                ? staticPartitions.keySet()
-                : Sets.newHashSet();
+        Map<String, Expression> staticPartitions = Optional.ofNullable(
+                sink.getStaticPartitionKeyValues()).orElseGet(ImmutableMap::of);
+        Set<String> staticPartitionColNames = staticPartitions.keySet();
 
         // Validate static partition if present
         if (sink.hasStaticPartition()) {
@@ -776,21 +808,26 @@ public class BindSink implements AnalysisRuleFactory {
                         .filter(col -> col.isVisible() || IcebergUtils.isIcebergRowLineageColumn(col))
                         .collect(ImmutableList.toImmutableList());
             } else {
-                bindColumns = targetSchema.stream()
+                bindColumns = pinnedColumns.stream()
                         .filter(col -> !staticPartitionColNames.contains(col.getName()))
                         .filter(Column::isVisible)
                         .collect(ImmutableList.toImmutableList());
             }
         } else {
             bindColumns = sink.getColNames().stream().map(cn -> {
-                Column column = findColumn(targetSchema, cn);
+                if (writeSchemaContext.isPresent()
+                        && writeSchemaContext.get().getFormatVersion()
+                                >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION
+                        && IcebergUtils.isIcebergRowLineageColumn(cn)) {
+                    throw new AnalysisException(String.format(
+                            "Cannot specify row lineage column '%s' in INSERT statement", cn));
+                }
+                Column column = pinnedColumns.stream()
+                        .filter(candidate -> candidate.nameEquals(cn, false))
+                        .findFirst().orElse(null);
                 if (column == null) {
                     throw new AnalysisException(String.format("column %s is not found in table %s",
                             cn, table.getName()));
-                }
-                if (IcebergUtils.isIcebergRowLineageColumn(column)) {
-                    throw new AnalysisException(String.format(
-                            "Cannot specify row lineage column '%s' in INSERT statement", cn));
                 }
                 return column;
             }).collect(ImmutableList.toImmutableList());
@@ -807,6 +844,7 @@ public class BindSink implements AnalysisRuleFactory {
                 sink.getDMLCommandType(),
                 Optional.empty(),
                 Optional.empty(),
+                writeSchemaContext,
                 child);
 
         // Check column count: SELECT columns should match bindColumns (excluding static
@@ -816,33 +854,22 @@ public class BindSink implements AnalysisRuleFactory {
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
 
+        List<Column> insertSchema = sink.isRewrite()
+                ? targetSchema
+                : writeSchemaContext.map(IcebergWriteSchemaContext::getColumns)
+                        .orElseGet(() -> targetSchema.stream()
+                                .filter(Column::isVisible).collect(Collectors.toList()));
+        Map<Column, Expression> staticPartitionOutputs = Maps.newHashMap();
+        for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+            Column column = insertSchema.stream()
+                    .filter(candidate -> candidate.nameEquals(entry.getKey(), false))
+                    .findFirst()
+                    .orElseThrow(() -> new AnalysisException(
+                            "Static partition column is absent from the insert schema: " + entry.getKey()));
+            staticPartitionOutputs.put(column, entry.getValue());
+        }
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
-                boundSink, child, targetSchema);
-
-        // For static partition columns, add constant expressions from PARTITION clause
-        // This ensures partition column values are written to the data file
-        if (!staticPartitionColNames.isEmpty()) {
-            for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
-                String colName = entry.getKey();
-                Expression valueExpr = entry.getValue();
-                Column column = findColumn(targetSchema, colName);
-                if (column != null) {
-                    // Cast the literal to the correct column type
-                    Expression castExpr = TypeCoercionUtils.castIfNotSameType(
-                            valueExpr, DataType.fromCatalogType(column.getType()));
-                    columnToOutput.put(colName, new Alias(castExpr, colName));
-                }
-            }
-        }
-
-        // Iceberg branches share the current table schema, while their rows stay pinned to the
-        // branch head; target coercion must therefore use latest metadata as well.
-        List<Column> insertSchema = targetSchema;
-        if (!sink.isRewrite()) {
-            insertSchema = insertSchema.stream()
-                    .filter(Column::isVisible)
-                    .collect(Collectors.toList());
-        }
+                boundSink, child, insertSchema, writeSchemaContext, staticPartitionOutputs);
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(insertSchema, child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }

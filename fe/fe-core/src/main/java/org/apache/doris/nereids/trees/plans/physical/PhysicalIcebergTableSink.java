@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -32,7 +33,10 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Preconditions;
 import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.types.Types;
 
@@ -46,6 +50,7 @@ import java.util.stream.Collectors;
 /** physical iceberg sink */
 public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
     private final Table targetIcebergTable;
+    private final Optional<IcebergWriteSchemaContext> writeSchemaContext;
 
     /**
      * constructor
@@ -59,7 +64,7 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
         this(database, targetTable, targetIcebergTable, cols, outputExprs, groupExpression, logicalProperties,
-                PhysicalProperties.GATHER, null, child);
+                PhysicalProperties.GATHER, null, Optional.empty(), child);
     }
 
     /**
@@ -75,10 +80,28 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     PhysicalProperties physicalProperties,
                                     Statistics statistics,
                                     CHILD_TYPE child) {
+        this(database, targetTable, targetIcebergTable, cols, outputExprs, groupExpression, logicalProperties,
+                physicalProperties, statistics, Optional.empty(), child);
+    }
+
+    /** Constructor with a statement-pinned Iceberg write schema. */
+    public PhysicalIcebergTableSink(IcebergExternalDatabase database,
+                                    IcebergExternalTable targetTable,
+                                    Table targetIcebergTable,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    PhysicalProperties physicalProperties,
+                                    Statistics statistics,
+                                    Optional<IcebergWriteSchemaContext> writeSchemaContext,
+                                    CHILD_TYPE child) {
         super(PlanType.PHYSICAL_ICEBERG_TABLE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
         this.targetIcebergTable = Objects.requireNonNull(
                 targetIcebergTable, "targetIcebergTable != null in PhysicalIcebergTableSink");
+        this.writeSchemaContext = Objects.requireNonNull(
+                writeSchemaContext, "writeSchemaContext should not be null");
     }
 
     @Override
@@ -86,7 +109,7 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
                 targetIcebergTable, cols, outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                getLogicalProperties(), physicalProperties, statistics, writeSchemaContext, children.get(0));
     }
 
     @Override
@@ -98,7 +121,9 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
-                targetIcebergTable, cols, outputExprs, groupExpression, getLogicalProperties(), child());
+                targetIcebergTable, cols, outputExprs,
+                groupExpression, getLogicalProperties(), PhysicalProperties.GATHER, null,
+                writeSchemaContext, child());
     }
 
     @Override
@@ -106,19 +131,26 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
-                targetIcebergTable, cols, outputExprs, groupExpression, logicalProperties.get(), children.get(0));
+                targetIcebergTable, cols, outputExprs,
+                groupExpression, logicalProperties.get(), PhysicalProperties.GATHER, null,
+                writeSchemaContext, children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
-                targetIcebergTable, cols, outputExprs, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, child());
+                targetIcebergTable, cols, outputExprs,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics,
+                writeSchemaContext, child());
     }
 
     public Table getTargetIcebergTable() {
         return targetIcebergTable;
+    }
+
+    public Optional<IcebergWriteSchemaContext> getWriteSchemaContext() {
+        return writeSchemaContext;
     }
 
     /**
@@ -135,19 +167,28 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
             return PhysicalProperties.GATHER;
         }
 
+        PartitionSpec partitionSpec = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getPartitionSpec)
+                .orElse(targetIcebergTable.spec());
+        Schema schema = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getSchema)
+                .orElse(targetIcebergTable.schema());
         Set<String> partitionNames = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        for (PartitionField field : targetIcebergTable.spec().fields()) {
-            Types.NestedField sourceField = targetIcebergTable.schema().findField(field.sourceId());
-            if (sourceField != null) {
-                partitionNames.add(sourceField.name());
-            }
+        for (PartitionField field : partitionSpec.fields()) {
+            Types.NestedField sourceField = schema.findField(field.sourceId());
+            Preconditions.checkState(sourceField != null,
+                    "Iceberg partition source field %s is absent from the pinned write schema",
+                    field.sourceId());
+            partitionNames.add(sourceField.name());
         }
         if (!partitionNames.isEmpty()) {
             List<Integer> columnIdx = new ArrayList<>();
-            // Sink columns are bound from targetIcebergTable; using refreshable table metadata
-            // here could shuffle rows with a different partition spec than the writer serializes.
-            for (int i = 0; i < child().getOutput().size(); i++) {
-                if (partitionNames.contains(child().getOutput().get(i).getName())) {
+            List<Column> fullSchema = writeSchemaContext
+                    .map(IcebergWriteSchemaContext::getColumns)
+                    .orElse(cols);
+            for (int i = 0; i < fullSchema.size(); i++) {
+                Column column = fullSchema.get(i);
+                if (partitionNames.contains(column.getName())) {
                     columnIdx.add(i);
                 }
             }
@@ -155,6 +196,9 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> child().getOutput().get(idx).getExprId())
                     .collect(Collectors.toList());
+            Preconditions.checkState(exprIds.size() == partitionNames.size(),
+                    "Iceberg partition columns %s are not present in the pinned sink schema",
+                    partitionNames);
             DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
                     = new DistributionSpecHiveTableSinkHashPartitioned();
             shuffleInfo.setOutputColExprIds(exprIds);

@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
+
 import com.google.common.collect.Maps;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -31,6 +34,7 @@ public class IcebergInsertCommandContext extends BaseExternalTableInsertCommandC
     // (col='val', ...)
     private Map<String, String> staticPartitionValues = Maps.newHashMap();
     private boolean rewriting = false;
+    private Optional<IcebergWriteSchemaContext> writeSchemaContext = Optional.empty();
 
     public Optional<String> getBranchName() {
         return branchName;
@@ -63,5 +67,14 @@ public class IcebergInsertCommandContext extends BaseExternalTableInsertCommandC
 
     public void setRewriting(boolean rewriting) {
         this.rewriting = rewriting;
+    }
+
+    public Optional<IcebergWriteSchemaContext> getWriteSchemaContext() {
+        return writeSchemaContext;
+    }
+
+    public void setWriteSchemaContext(Optional<IcebergWriteSchemaContext> writeSchemaContext) {
+        this.writeSchemaContext = Objects.requireNonNull(
+                writeSchemaContext, "writeSchemaContext should not be null");
     }
 }

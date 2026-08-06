@@ -28,6 +28,7 @@ import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -43,7 +44,9 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergMergeExecutor;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -118,6 +121,10 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
 
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
         IcebergDmlCommandUtils.checkUpdateMode(icebergTable);
+        IcebergWriteSchemaContext writeSchemaContext = IcebergWriteSchemaContext.create(
+                icebergTable, Optional.empty());
+        Optional<IcebergWriteSchemaContext> previousWriteSchemaContext =
+                IcebergDmlCommandUtils.installWriteSchemaContext(ctx, writeSchemaContext);
 
         // Verify table format version (must be v2+ for update support)
         // org.apache.iceberg.Table icebergTableObj = icebergTable.getIcebergTable();
@@ -132,16 +139,19 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
         ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
         try {
             // UPDATE is implemented as a single merge plan (delete + insert in one scan)
-            LogicalPlan mergePlan = buildMergePlan(ctx, logicalQuery, assignments, icebergTable);
-            executeMergePlan(ctx, executor, icebergTable, mergePlan);
+            LogicalPlan mergePlan = buildMergePlan(
+                    ctx, logicalQuery, assignments, icebergTable, writeSchemaContext);
+            executeMergePlan(ctx, executor, icebergTable, mergePlan, writeSchemaContext);
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            IcebergDmlCommandUtils.restoreWriteSchemaContext(ctx, previousWriteSchemaContext);
         }
     }
 
     private boolean executeMergePlan(ConnectContext ctx, StmtExecutor executor,
                                      IcebergExternalTable icebergTable,
-                                     LogicalPlan logicalPlan) throws Exception {
+                                     LogicalPlan logicalPlan,
+                                     IcebergWriteSchemaContext writeSchemaContext) throws Exception {
         return executeWithExternalTableBatchModeDisabled(ctx, () -> {
             LogicalPlanAdapter logicalPlanAdapter =
                     new LogicalPlanAdapter(logicalPlan, ctx.getStatementContext());
@@ -159,10 +169,13 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
             boolean emptyInsert = childIsEmptyRelation(physicalSink);
             String label = String.format("iceberg_update_merge_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
 
-            IcebergMergeExecutor insertExecutor =
-                    new IcebergMergeExecutor(ctx, icebergTable,
-                            ((PhysicalIcebergMergeSink<?>) physicalSink).getTargetIcebergTable(),
-                            label, planner, emptyInsert, -1L);
+            IcebergInsertCommandContext icebergInsertContext = new IcebergInsertCommandContext();
+            icebergInsertContext.setWriteSchemaContext(Optional.of(writeSchemaContext));
+            Optional<InsertCommandContext> insertContext = Optional.of(icebergInsertContext);
+            IcebergMergeExecutor insertExecutor = new IcebergMergeExecutor(
+                    ctx, icebergTable,
+                    ((PhysicalIcebergMergeSink<?>) physicalSink).getTargetIcebergTable(),
+                    label, planner, insertContext, emptyInsert, -1L);
             insertExecutor.setConflictDetectionFilter(conflictFilter);
 
             if (insertExecutor.isEmptyInsert()) {
@@ -222,20 +235,26 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
     }
 
     private LogicalPlan buildMergePlan(ConnectContext ctx, LogicalPlan logicalQuery,
-                                       List<EqualTo> assignments, IcebergExternalTable icebergTable) {
+                                       List<EqualTo> assignments, IcebergExternalTable icebergTable,
+                                       IcebergWriteSchemaContext writeSchemaContext) {
         Optional<MvccSnapshot> targetSnapshot = ctx.getStatementContext()
                 .loadSnapshots(icebergTable, Optional.empty(), Optional.empty());
         Table targetIcebergTable = ((IcebergMvccSnapshot) targetSnapshot.orElseThrow(
                 () -> new AnalysisException("Iceberg update target snapshot is not available")))
                 .getSnapshotCacheValue().getIcebergTable().orElseThrow(
                         () -> new AnalysisException("Iceberg update target metadata is not available"));
-        // Use one retained schema for assignment binding, sink output, distribution, and commit.
-        List<Column> targetSchema = icebergTable.getBaseSchema(targetSnapshot, true);
         String tableName = tableAlias != null
                 ? tableAlias
                 : Util.getTempTableDisplayName(icebergTable.getName());
-        LogicalPlan queryPlan = buildMergeProjectPlan(ctx, logicalQuery, assignments,
-                targetSchema, tableName);
+        List<EqualTo> resolvedAssignments = assignments.stream()
+                .map(assignment -> (EqualTo) assignment.withChildren(ImmutableList.of(
+                        assignment.left(),
+                        IcebergDmlCommandUtils.resolveDefaultReferences(
+                                assignment.right(), writeSchemaContext,
+                                ctx, nameParts, tableAlias))))
+                .collect(Collectors.toList());
+        LogicalPlan queryPlan = buildMergeProjectPlan(ctx, logicalQuery, resolvedAssignments,
+                writeSchemaContext.getMergeColumns(), tableName);
 
         List<NamedExpression> outputExprs;
         if (!IcebergNereidsUtils.hasUnboundPlan(queryPlan)) {
@@ -252,13 +271,14 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
                 (IcebergExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
                 targetIcebergTable,
-                targetSchema,
+                writeSchemaContext.getMergeColumns(),
                 outputExprs,
                 deleteCtx,
                 true,
                 false,
                 Optional.empty(),
                 Optional.empty(),
+                Optional.of(writeSchemaContext),
                 queryPlan);
     }
 
@@ -324,12 +344,17 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
         }
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
         IcebergDmlCommandUtils.checkUpdateMode(icebergTable);
+        IcebergWriteSchemaContext writeSchemaContext = IcebergWriteSchemaContext.create(
+                icebergTable, Optional.empty());
+        Optional<IcebergWriteSchemaContext> previousWriteSchemaContext =
+                IcebergDmlCommandUtils.installWriteSchemaContext(ctx, writeSchemaContext);
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         ctx.setIcebergRowIdTargetTableId(table.getId());
         try {
-            return buildMergePlan(ctx, logicalQuery, assignments, icebergTable);
+            return buildMergePlan(ctx, logicalQuery, assignments, icebergTable, writeSchemaContext);
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            IcebergDmlCommandUtils.restoreWriteSchemaContext(ctx, previousWriteSchemaContext);
         }
     }
 
