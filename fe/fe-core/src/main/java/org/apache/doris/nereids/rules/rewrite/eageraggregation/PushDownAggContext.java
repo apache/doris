@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.IdentityHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -55,7 +55,7 @@ public class PushDownAggContext {
     public final boolean containsNullToNonNull;
     private final List<AggregateFunction> aggFunctions;
     private final List<SlotReference> groupKeys;
-    private final IdentityHashMap<AggregateFunction, Alias> aliasMap;
+    private final HashMap<AggregateFunction, Alias> aliasMap;
     private final Set<Slot> aggFunctionsInputSlots;
 
     // cascadesContext is used for normalizeAgg
@@ -89,7 +89,7 @@ public class PushDownAggContext {
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
         this.cascadesContext = cascadesContext;
 
-        IdentityHashMap<AggregateFunction, Alias> builtAliasMap = new IdentityHashMap<>();
+        HashMap<AggregateFunction, Alias> builtAliasMap = new HashMap<>();
         if (aliasMap == null) {
             for (AggregateFunction aggFunction : this.aggFunctions) {
                 builtAliasMap.put(aggFunction, new Alias(aggFunction, aggFunction.getName()));
@@ -144,7 +144,7 @@ public class PushDownAggContext {
         return expressions.stream().anyMatch(Expression::containsVolatileExpression);
     }
 
-    public IdentityHashMap<AggregateFunction, Alias> getAliasMap() {
+    public HashMap<AggregateFunction, Alias> getAliasMap() {
         return aliasMap;
     }
 
