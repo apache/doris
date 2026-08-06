@@ -20,6 +20,11 @@
 #include <aws/core/utils/memory/stl/AWSStreamFwd.h>
 #include <aws/core/utils/stream/PreallocatedStreamBuf.h>
 
+#include <algorithm>
+#include <cstring>
+#include <streambuf>
+#include <vector>
+
 namespace doris {
 
 // A non-copying iostream.
@@ -34,12 +39,132 @@ public:
               std::iostream(this) {}
 };
 
+// The AWS SDK writes the body of every response into the stream built by the response
+// stream factory of the request, whatever the status of that response is. Reading an
+// object range straight into the buffer of the caller therefore breaks as soon as the
+// server answers with an error: the XML body of a `429 SlowDown` is a few hundred bytes
+// and does not fit into the buffer of a small range read. `PreallocatedStreamBuf` does not
+// implement `overflow()`, so the stream turns bad, curl aborts the transfer with
+// `CURLE_WRITE_ERROR`, and the SDK reports an `INTERNAL_FAILURE` named "Failed to flush
+// response stream" while never recording the status code of the response. Both the retry
+// strategy of the SDK and the retry of `S3FileReader` key on that status code, so an error
+// the server asked us to retry ends up cancelling the query instead.
+//
+// This stream buffer writes into the buffer of the caller as long as the body fits, which
+// is the case for every successful ranged read, and spills the rest into a buffer of its
+// own. The stream never turns bad, so the SDK reports the real status code and can parse
+// the error out of the body.
+class ResponseStreamBuf final : public std::streambuf {
+public:
+    // Bodies beyond this size are truncated. Only error documents are expected to overflow
+    // and their leading bytes already carry the error code and the message.
+    static constexpr size_t MAX_SPILL_SIZE = 1024 * 1024;
+
+    ResponseStreamBuf(void* buf, size_t nbytes) : _buf(static_cast<char*>(buf)) {
+        setp(_buf, _buf + nbytes);
+        setg(_buf, _buf, _buf);
+    }
+
+protected:
+    std::streamsize xsputn(const char* s, std::streamsize n) override {
+        if (!_spilled) {
+            if (n <= epptr() - pptr()) {
+                std::memcpy(pptr(), s, n);
+                pbump(static_cast<int>(n));
+                return n;
+            }
+            _spill_over();
+        }
+        auto writable = std::min(static_cast<size_t>(n), MAX_SPILL_SIZE - _spill.size());
+        _spill.insert(_spill.end(), s, s + writable);
+        // Always report the whole write as consumed. A short write is what makes curl
+        // abort the transfer and lose the status code of the response.
+        return n;
+    }
+
+    int_type overflow(int_type ch) override {
+        if (traits_type::eq_int_type(ch, traits_type::eof())) {
+            return traits_type::not_eof(ch);
+        }
+        auto c = traits_type::to_char_type(ch);
+        xsputn(&c, 1);
+        return ch;
+    }
+
+    int_type underflow() override {
+        _reset_get_area(_read_pos());
+        if (gptr() == egptr()) {
+            return traits_type::eof();
+        }
+        return traits_type::to_int_type(*gptr());
+    }
+
+    pos_type seekoff(off_type off, std::ios_base::seekdir dir,
+                     std::ios_base::openmode which) override {
+        auto size = static_cast<off_type>(_written());
+        if (which & std::ios_base::out) {
+            // The SDK only asks for the write position, to tell an empty body apart from a
+            // body it has to parse. Moving the write pointer is not supported.
+            return dir == std::ios_base::cur && off == 0 ? pos_type(size) : pos_type(off_type(-1));
+        }
+        off_type pos = off;
+        if (dir == std::ios_base::cur) {
+            pos += static_cast<off_type>(_read_pos());
+        } else if (dir == std::ios_base::end) {
+            pos += size;
+        }
+        if (pos < 0 || pos > size) {
+            return pos_type(off_type(-1));
+        }
+        _reset_get_area(static_cast<size_t>(pos));
+        return pos_type(pos);
+    }
+
+    pos_type seekpos(pos_type pos, std::ios_base::openmode which) override {
+        return seekoff(pos, std::ios_base::beg, which);
+    }
+
+private:
+    // Moves what has been written so far into the spill buffer, so that the body stays
+    // contiguous and the SDK can parse the error out of it.
+    void _spill_over() {
+        _spill.assign(_buf, pptr());
+        setp(nullptr, nullptr);
+        _spilled = true;
+    }
+
+    // Bytes of the body held by this buffer, truncation excluded.
+    size_t _written() const { return _spilled ? _spill.size() : pptr() - _buf; }
+
+    // Both areas start at the same logical offset, so the read position survives a spill.
+    size_t _read_pos() const { return gptr() - eback(); }
+
+    void _reset_get_area(size_t pos) {
+        char* begin = _spilled ? _spill.data() : _buf;
+        auto size = _written();
+        pos = std::min(pos, size);
+        setg(begin, begin + pos, begin + size);
+    }
+
+    char* _buf;
+    std::vector<char> _spill;
+    bool _spilled = false;
+};
+
+class ResponseStream final : public std::iostream {
+public:
+    ResponseStream(void* buf, size_t nbytes) : std::iostream(&_buf), _buf(buf, nbytes) {}
+
+private:
+    ResponseStreamBuf _buf;
+};
+
 // By default, the AWS SDK reads object data into an auto-growing StringStream.
 // To avoid copies, read directly into our preallocated buffer instead.
 // See https://github.com/aws/aws-sdk-cpp/issues/64 for an alternative but
 // functionally similar recipe.
 inline Aws::IOStreamFactory AwsWriteableStreamFactory(void* buf, int64_t nbytes) {
-    return [=]() { return Aws::New<StringViewStream>("", buf, nbytes); };
+    return [=]() { return Aws::New<ResponseStream>("", buf, static_cast<size_t>(nbytes)); };
 }
 
 } // namespace doris

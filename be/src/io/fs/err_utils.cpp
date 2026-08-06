@@ -124,19 +124,22 @@ Status localfs_error(int posix_errno, std::string_view msg) {
 
 Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
     using namespace Aws::Http;
+    // A failure raised by the client itself carries no request id. Printing nothing leaves a
+    // dangling `request_id=` that has been read as a request id of the object storage.
+    std::string request_id = err.GetRequestId().empty() ? "<empty>" : err.GetRequestId().c_str();
     switch (err.GetResponseCode()) {
     case HttpResponseCode::NOT_FOUND:
         return Status::Error<NOT_FOUND, false>("{}: {} {} code=NOT_FOUND, type={}, request_id={}",
                                                msg, err.GetExceptionName(), err.GetMessage(),
-                                               err.GetErrorType(), err.GetRequestId());
+                                               err.GetErrorType(), request_id);
     case HttpResponseCode::FORBIDDEN:
         return Status::Error<PERMISSION_DENIED, false>(
                 "{}: {} {} code=FORBIDDEN, type={}, request_id={}", msg, err.GetExceptionName(),
-                err.GetMessage(), err.GetErrorType(), err.GetRequestId());
+                err.GetMessage(), err.GetErrorType(), request_id);
     default:
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                 "{}: {} {} code={} type={}, request_id={}", msg, err.GetExceptionName(),
-                err.GetMessage(), err.GetResponseCode(), err.GetErrorType(), err.GetRequestId());
+                err.GetMessage(), err.GetResponseCode(), err.GetErrorType(), request_id);
     }
 }
 

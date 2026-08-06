@@ -183,9 +183,10 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
                 total_sleep_time += wait_time;
                 continue;
             } else {
-                // Handle other errors
-                return std::move(Status(resp.status.code, std::move(resp.status.msg))
-                                         .append("failed to read"));
+                // Handle other errors. The message already tells what failed to be read,
+                // appending to it only leaves a trailing token behind the request id of the
+                // object storage, which has been read as a request id more than once.
+                return {resp.status.code, std::move(resp.status.msg)};
             }
         }
         if (*bytes_read != bytes_req) {
