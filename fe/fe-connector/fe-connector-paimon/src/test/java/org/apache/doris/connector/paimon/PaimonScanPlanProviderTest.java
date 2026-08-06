@@ -2367,7 +2367,7 @@ public class PaimonScanPlanProviderTest {
     @Test
     public void doesNotUseHiveParquetInt96TimeZone() {
         Assertions.assertFalse(
-                new PaimonScanPlanProvider(Collections.emptyMap(), null)
+                new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), null)
                         .usesHiveParquetInt96TimeZone());
     }
 
