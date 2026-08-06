@@ -21,6 +21,7 @@
 
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/client_cache.h"
