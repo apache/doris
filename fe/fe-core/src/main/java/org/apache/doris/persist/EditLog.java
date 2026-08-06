@@ -1490,6 +1490,9 @@ public class EditLog {
                     // This log is only used to keep FE/MS cut point in journal timeline.
                     break;
                 }
+                case OperationType.OP_TABLE_META_CHANGE: {
+                    break;
+                }
                 case OperationType.OP_TSO_TIMESTAMP_WINDOW_END: {
                     env.getTSOService().replayWindowEndTSO((TSOTimestamp) journal.getData());
                     break;

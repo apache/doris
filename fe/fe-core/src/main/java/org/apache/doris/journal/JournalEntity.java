@@ -1034,6 +1034,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_TABLE_META_CHANGE: {
+                Text.readString(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_TSO_TIMESTAMP_WINDOW_END: {
                 data = TSOTimestamp.read(in);
                 isRead = true;
