@@ -1004,23 +1004,23 @@ suite("bilateral_eager_agg") {
 
       order_qt_union_2_same_agg_func """
      SELECT
-      u.k,
-      SUM(u.x) AS sum_x,
-              SUM(u.y) AS sum_y
+        u.k,
+        SUM(u.x) AS sum_x,
+        SUM(u.y) AS sum_y
       FROM (
-              SELECT
-              a.k,
-              a.v AS x,
-              a.v AS y
-                      FROM src_a a
-                      UNION ALL
-                      SELECT
-                      b.k,
-                      CAST(0 AS BIGINT) AS x,
-                      CAST(0 AS BIGINT) AS y
-                      FROM src_b b
-                      INNER JOIN src_c c
-                      ON b.join_id = c.join_id
+            SELECT
+            a.k,
+            a.v AS x,
+            a.v AS y
+            FROM src_a a
+            UNION ALL
+            SELECT
+            b.k,
+            CAST(0 AS BIGINT) AS x,
+            CAST(0 AS BIGINT) AS y
+            FROM src_b b
+            INNER JOIN src_c c
+            ON b.join_id = c.join_id
       ) u
       GROUP BY u.k;
      """
