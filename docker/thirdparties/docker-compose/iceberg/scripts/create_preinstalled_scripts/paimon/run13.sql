@@ -63,8 +63,10 @@ tblproperties (
 
 insert into variant_mixed_su values
     (1, date '2026-06-01', parse_json('{"name":"alice","age":18,"layout":"shredded"}'));
-alter table variant_mixed_su set tblproperties (
-    'parquet.variant.shreddingSchema' = ''
+-- Paimon 1.4.2 parses every present shredding schema as JSON, so remove the property
+-- before writing unshredded files.
+alter table variant_mixed_su unset tblproperties (
+    'parquet.variant.shreddingSchema'
 );
 insert into variant_mixed_su values
     (2, date '2026-07-01', parse_json('{"name":"bob","age":30,"layout":"unshredded"}'));
