@@ -45,6 +45,7 @@ import org.mockito.Mockito;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.AbstractList;
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -108,7 +109,7 @@ public class CloudTabletRebalancerTest {
         @Override
         protected Set<Long> newGlobalTabletSet(int initialCapacity) {
             globalTabletSetInitialCapacities.add(initialCapacity);
-            return super.newGlobalTabletSet(initialCapacity);
+            return ConcurrentHashMap.newKeySet();
         }
 
         @Override
@@ -229,8 +230,7 @@ public class CloudTabletRebalancerTest {
     }
 
     @Test
-    public void testInfightTabletHashCodePreservesExistingResult() throws Exception {
-        TestRebalancer rebalancer = new TestRebalancer();
+    public void testInfightTabletIsStaticAndPreservesHashCode() throws Exception {
         long tabletId = 50_001L;
         String clusterId = "cluster-a";
         Class<?> infightTabletClass = null;
@@ -241,10 +241,10 @@ public class CloudTabletRebalancerTest {
             }
         }
         Assertions.assertNotNull(infightTabletClass);
-        Constructor<?> constructor = infightTabletClass.getDeclaredConstructor(
-                CloudTabletRebalancer.class, long.class, String.class);
+        Assertions.assertTrue(Modifier.isStatic(infightTabletClass.getModifiers()));
+        Constructor<?> constructor = infightTabletClass.getDeclaredConstructor(long.class, String.class);
         constructor.setAccessible(true);
-        Object infightTablet = constructor.newInstance(rebalancer, tabletId, clusterId);
+        Object infightTablet = constructor.newInstance(tabletId, clusterId);
 
         int expectedHashCode = 31 * (31 + Long.hashCode(tabletId)) + clusterId.hashCode();
         Assertions.assertEquals(expectedHashCode, infightTablet.hashCode());
@@ -675,7 +675,7 @@ public class CloudTabletRebalancerTest {
             rebalancer.statRouteInfo();
         }
 
-        Assertions.assertEquals(List.of(1_048_576, 1_048_576),
+        Assertions.assertEquals(List.of(65_536, 65_536),
                 rebalancer.globalTabletSetInitialCapacities);
         ConcurrentHashMap<Long, Set<Long>> current = getField(rebalancer, "beToTabletsGlobal");
         ConcurrentHashMap<Long, Set<Long>> future = getField(rebalancer, "futureBeToTabletsGlobal");
