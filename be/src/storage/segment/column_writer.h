@@ -217,6 +217,7 @@ private:
     bool _is_nullable;
     ColumnMetaPB* _column_meta;
     std::vector<uint8_t> _null_bitmap;
+    std::vector<uint8_t> _implicit_not_null_map;
 };
 
 class FlushPageCallback {

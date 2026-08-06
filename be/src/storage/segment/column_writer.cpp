@@ -455,9 +455,12 @@ Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num
     const auto* ptr = (const uint8_t*)data;
     if (nullmap) {
         return append_nullable(nullmap, &ptr, num_rows);
-    } else {
-        return append_data(&ptr, num_rows);
     }
+    if (is_nullable()) {
+        _implicit_not_null_map.assign(num_rows, 0);
+        return append_nullable(_implicit_not_null_map.data(), &ptr, num_rows);
+    }
+    return append_data(&ptr, num_rows);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
