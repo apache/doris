@@ -65,6 +65,10 @@ public class PaimonColumnValue implements ColumnValue {
     private ColumnType dorisType;
     private DataType dataType;
     private ZoneId timeZone;
+    // have variant sub path project
+    private PaimonVariantProjection variantProjection;
+    // rebuild subpath variant to doris
+    private Variant materializedVariant;
     // Keep these caches lazy so scalar columns do not pay for complex-type reuse bookkeeping.
     private List<PaimonColumnValue> arrayValues;
     private List<PaimonColumnValue> mapKeys;
@@ -88,13 +92,24 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     public void setIdx(int idx, ColumnType dorisType, DataType dataType) {
+        setIdx(idx, dorisType, dataType, null);
+    }
+
+    public void setIdx(
+            int idx,
+            ColumnType dorisType,
+            DataType dataType,
+            PaimonVariantProjection variantProjection) {
         this.idx = idx;
         this.dorisType = dorisType;
         this.dataType = dataType;
+        this.variantProjection = variantProjection;
+        this.materializedVariant = null;
     }
 
     public void setOffsetRow(InternalRow record) {
         this.record = record;
+        this.materializedVariant = null;
     }
 
     public void setTimeZone(String timeZone) {
@@ -210,7 +225,16 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     private Variant getVariant() {
-        return record.getVariant(idx);
+        // full variant object
+        if (variantProjection == null) {
+            return record.getVariant(idx);
+        }
+        // sub variant
+        if (materializedVariant == null) {
+            materializedVariant = variantProjection.materialize(record, idx);
+        }
+        // create another variant with return to doris, only subpath name in payload: element_at(payload, 'name')
+        return materializedVariant;
     }
 
     @Override
@@ -292,6 +316,8 @@ public class PaimonColumnValue implements ColumnValue {
         this.dorisType = dorisType;
         this.dataType = dataType;
         this.timeZone = timeZone;
+        this.variantProjection = null;
+        this.materializedVariant = null;
     }
 
     private static ZoneId resolveTimeZone(String timeZone) {

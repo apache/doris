@@ -286,7 +286,7 @@ private:
 
 Status validate_variant_layout(const NativeFieldSchema& group_field,
                                std::optional<int8_t> specification_version,
-                               bool allow_optional_shredded_metadata) {
+                               bool allow_optional_shredded_fields) {
     if (specification_version.has_value() && *specification_version != 1) {
         return Status::NotSupported("Parquet Variant specification version {} is not supported",
                                     *specification_version);
@@ -332,7 +332,7 @@ Status validate_variant_layout(const NativeFieldSchema& group_field,
     // unannotated overrides; row materialization still rejects null metadata for a non-null value.
     const bool valid_metadata_repetition =
             metadata_repetition == tparquet::FieldRepetitionType::REQUIRED ||
-            (allow_optional_shredded_metadata && typed_value != nullptr &&
+            (allow_optional_shredded_fields && typed_value != nullptr &&
              metadata_repetition == tparquet::FieldRepetitionType::OPTIONAL);
     if (!metadata->children.empty() || metadata->physical_type != tparquet::Type::BYTE_ARRAY ||
         !valid_metadata_repetition) {
@@ -360,8 +360,17 @@ Status validate_variant_layout(const NativeFieldSchema& group_field,
     std::function<Status(const NativeFieldSchema&)> validate_typed_value;
     std::function<Status(const NativeFieldSchema&, WrapperContext)> validate_wrapper;
     validate_wrapper = [&](const NativeFieldSchema& wrapper, WrapperContext context) -> Status {
-        if (!wrapper.parquet_schema.__isset.repetition_type ||
-            wrapper.parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED) {
+        const bool valid_wrapper_repetition = wrapper.parquet_schema.__isset.repetition_type &&
+                                              (wrapper.parquet_schema.repetition_type ==
+                                                       tparquet::FieldRepetitionType::REQUIRED ||
+                                               (allow_optional_shredded_fields &&
+                                                wrapper.parquet_schema.repetition_type ==
+                                                        tparquet::FieldRepetitionType::OPTIONAL));
+        // The Parquet Variant specification requires wrapper groups. Paimon's unannotated
+        // physical carrier makes them optional, so accept that representation only through the
+        // table-format override. Materialization still rejects an actually null array element;
+        // an absent object wrapper represents a missing key.
+        if (!valid_wrapper_repetition) {
             return Status::Corruption("Parquet Variant shredded wrapper {} must be required",
                                       wrapper.name);
         }

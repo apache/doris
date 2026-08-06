@@ -99,6 +99,23 @@ public class LogicalFileScanTest {
     }
 
     @Test
+    public void testPaimonSupportsNestedColumnPruning() {
+        PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("paimon_tbl");
+        TableScanParams scanParams = new TableScanParams(
+                TableScanParams.OPTIONS,
+                Collections.singletonMap("scan.snapshot-id", "1"),
+                Collections.emptyList());
+        Mockito.when(table.getFullSchema(scanParams)).thenReturn(Collections.emptyList());
+
+        LogicalFileScan scan = new LogicalFileScan(new RelationId(2), table,
+                Collections.singletonList("db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.of(scanParams), Optional.empty());
+
+        Assertions.assertTrue(scan.supportPruneNestedColumn());
+    }
+
+    @Test
     public void testCapturingRelationSchemaDoesNotAllocateOutputExprIds() throws Exception {
         StatementScopeIdGenerator.clear();
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);

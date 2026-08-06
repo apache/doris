@@ -40,6 +40,13 @@ payload	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable
 1	alice-updated
 2	bob
 
+-- !jni_shredded_projection --
+2	bob	30
+
+-- !jni_mixed_us_projection --
+1	alice	unshredded
+2	bob	shredded
+
 -- !native_full_variant --
 1	{"active":true,"age":18,"missing":null,"name":"alice","profile":{"city":"beijing","zip":100000},"score":98.5,"tags":["flink","paimon"]}
 2	{"active":false,"age":30,"extra":{"levels":[1,2,3]},"name":"bob","profile":{"city":"shanghai"},"tags":["doris"]}

@@ -44,6 +44,12 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             contains "paimonNativeReadSplits=0/1"
         }
 
+        explain {
+            sql "select id, cast(payload['name'] as string) from variant_shredded order by id"
+            contains "paimonNativeReadSplits=0/1"
+            contains "all access paths: [payload.name]"
+        }
+
         order_qt_desc """desc variant_smoke"""
 
         order_qt_full_variant """
@@ -113,6 +119,27 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             order by id
         """
 
+        // Exercise Paimon's metadata-marked read type against a physically shredded file. The
+        // unshredded and primary-key cases above cover Paimon's raw-value and merge fallbacks.
+        order_qt_jni_shredded_projection """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['age'] as int)
+            from variant_shredded
+            where cast(payload['age'] as int) >= 20
+            order by id
+        """
+
+        // A table can contain files written before and after shredding was enabled. Paimon must
+        // apply physical projection per file while returning one consistent partial Variant.
+        order_qt_jni_mixed_us_projection """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['layout'] as string)
+            from variant_mixed_us
+            order by id
+        """
+
         // Native reader cases. Reset every relevant switch explicitly so the JNI cases above do
         // not leak their session state into this block.
         sql """set enable_variant_v2 = true"""
@@ -124,6 +151,17 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             check { explainString ->
                 def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
                 // Paimon can change the physical split count; every planned split must stay native.
+                return nativeSplits.find()
+                        && nativeSplits.group(1).toInteger() > 0
+                        && nativeSplits.group(1) == nativeSplits.group(2)
+            }
+        }
+
+        explain {
+            sql "select id, cast(payload['name'] as string) from variant_shredded order by id"
+            contains "all access paths: [payload.name]"
+            check { explainString ->
+                def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
                 return nativeSplits.find()
                         && nativeSplits.group(1).toInteger() > 0
                         && nativeSplits.group(1) == nativeSplits.group(2)
