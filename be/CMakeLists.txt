@@ -653,7 +653,7 @@ endif()
 set(PAIMON_FACTORY_REGISTRY_LIBS)
 if (ENABLE_PAIMON_CPP)
     # Plan B: Doris Arrow is now built with COMPUTE/DATASET/ACERO/FILESYSTEM,
-    # so arrow, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
+    # so arrow, arrow_compute, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
     # thirdparty.cmake.  paimon-cpp reuses the same Arrow (no paimon_deps).
     # No dual-stack selection needed — single Arrow for everything.
 
