@@ -118,6 +118,16 @@ public class CloudTabletRebalancerTest {
         }
     }
 
+    private static class SnapshotCapacityTrackingRebalancer extends TestRebalancer {
+        private final List<Integer> snapshotTabletSetInitialCapacities = new ArrayList<>();
+
+        @Override
+        protected Set<Long> newSnapshotTabletSet(int expectedSize) {
+            snapshotTabletSetInitialCapacities.add(expectedSize);
+            return super.newSnapshotTabletSet(expectedSize);
+        }
+    }
+
     private static class CountingConcurrentHashMap<K, V> extends ConcurrentHashMap<K, V> {
         private int computeIfAbsentCalls;
         private int getCalls;
@@ -381,6 +391,43 @@ public class CloudTabletRebalancerTest {
             Assertions.assertTrue(completed);
             Assertions.assertEquals(List.of(0, 0), rebalancer.routeInfoListInitialCapacities);
         }
+    }
+
+    @Test
+    public void testSnapshotTabletSetsUseOnePresizedResultPerRequest() throws Exception {
+        SnapshotCapacityTrackingRebalancer rebalancer = new SnapshotCapacityTrackingRebalancer();
+        Long beId = 60_001L;
+        ConcurrentHashMap<Long, Set<Long>> primary = new ConcurrentHashMap<>();
+        primary.put(beId, Set.of(50_001L, 50_002L));
+        ConcurrentHashMap<Long, Set<Long>> colocate = new ConcurrentHashMap<>();
+        colocate.put(beId, Set.of(50_002L, 50_003L));
+        ConcurrentHashMap<Long, Set<Long>> secondary = new ConcurrentHashMap<>();
+        secondary.put(beId, Set.of(50_003L, 50_004L));
+        setField(rebalancer, "beToTabletsGlobal", primary);
+        setField(rebalancer, "beToColocateTabletsGlobal", colocate);
+        setField(rebalancer, "beToTabletsGlobalInSecondary", secondary);
+
+        Assertions.assertEquals(Set.of(50_001L, 50_002L, 50_003L),
+                rebalancer.getSnapshotTabletsInPrimaryByBeId(beId));
+        Assertions.assertEquals(Set.of(50_003L, 50_004L),
+                rebalancer.getSnapshotTabletsInSecondaryByBeId(beId));
+        Assertions.assertEquals(Set.of(50_001L, 50_002L, 50_003L, 50_004L),
+                rebalancer.getSnapshotTabletsInPrimaryAndSecondaryByBeId(beId));
+
+        Assertions.assertEquals(List.of(4, 2, 6),
+                rebalancer.snapshotTabletSetInitialCapacities);
+    }
+
+    @Test
+    public void testSnapshotTabletSetsRemainEmptyForUnknownBackend() {
+        SnapshotCapacityTrackingRebalancer rebalancer = new SnapshotCapacityTrackingRebalancer();
+        Long unknownBeId = 60_001L;
+
+        Assertions.assertTrue(rebalancer.getSnapshotTabletsInPrimaryByBeId(unknownBeId).isEmpty());
+        Assertions.assertTrue(rebalancer.getSnapshotTabletsInSecondaryByBeId(unknownBeId).isEmpty());
+        Assertions.assertTrue(rebalancer.getSnapshotTabletsInPrimaryAndSecondaryByBeId(unknownBeId).isEmpty());
+        Assertions.assertEquals(List.of(0, 0, 0),
+                rebalancer.snapshotTabletSetInitialCapacities);
     }
 
     @Test

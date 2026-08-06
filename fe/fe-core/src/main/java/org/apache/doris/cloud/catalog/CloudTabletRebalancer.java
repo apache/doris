@@ -443,37 +443,48 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     public Set<Long> getSnapshotTabletsInPrimaryByBeId(Long beId) {
-        Set<Long> tabletIds = Sets.newHashSet();
         Set<Long> tablets = beToTabletsGlobal.get(beId);
-        if (tablets != null) {
-            //  Create a copy
-            tabletIds.addAll(new HashSet<>(tablets));
-        }
-
         Set<Long> colocateTablets = beToColocateTabletsGlobal.get(beId);
-        if (colocateTablets != null) {
-            //  Create a copy
-            tabletIds.addAll(new HashSet<>(colocateTablets));
-        }
+        Set<Long> tabletIds = newSnapshotTabletSet(tabletSetSize(tablets) + tabletSetSize(colocateTablets));
+        addSnapshotTablets(tabletIds, tablets);
+        addSnapshotTablets(tabletIds, colocateTablets);
 
         return tabletIds;
     }
 
     public Set<Long> getSnapshotTabletsInSecondaryByBeId(Long beId) {
-        Set<Long> tabletIds = Sets.newHashSet();
         Set<Long> tablets = beToTabletsGlobalInSecondary.get(beId);
-        if (tablets != null) {
-            //  Create a copy
-            tabletIds.addAll(new HashSet<>(tablets));
-        }
+        Set<Long> tabletIds = newSnapshotTabletSet(tabletSetSize(tablets));
+        addSnapshotTablets(tabletIds, tablets);
         return tabletIds;
     }
 
     public Set<Long> getSnapshotTabletsInPrimaryAndSecondaryByBeId(Long beId) {
-        Set<Long> tabletIds = Sets.newHashSet();
-        tabletIds.addAll(getSnapshotTabletsInPrimaryByBeId(beId));
-        tabletIds.addAll(getSnapshotTabletsInSecondaryByBeId(beId));
+        Set<Long> primaryTablets = beToTabletsGlobal.get(beId);
+        Set<Long> colocateTablets = beToColocateTabletsGlobal.get(beId);
+        Set<Long> secondaryTablets = beToTabletsGlobalInSecondary.get(beId);
+        int expectedSize = tabletSetSize(primaryTablets)
+                + tabletSetSize(colocateTablets) + tabletSetSize(secondaryTablets);
+        Set<Long> tabletIds = newSnapshotTabletSet(expectedSize);
+        addSnapshotTablets(tabletIds, primaryTablets);
+        addSnapshotTablets(tabletIds, colocateTablets);
+        addSnapshotTablets(tabletIds, secondaryTablets);
         return tabletIds;
+    }
+
+    private static int tabletSetSize(Set<Long> tablets) {
+        return tablets == null ? 0 : tablets.size();
+    }
+
+    private static void addSnapshotTablets(Set<Long> snapshot, Set<Long> tablets) {
+        if (tablets != null) {
+            snapshot.addAll(tablets);
+        }
+    }
+
+    @VisibleForTesting
+    protected Set<Long> newSnapshotTabletSet(int expectedSize) {
+        return Sets.newHashSetWithExpectedSize(expectedSize);
     }
 
     public int getTabletNumByBackendId(long beId) {
