@@ -16,6 +16,7 @@
 // under the License.
 
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
+#include <aws/core/auth/GeneralHTTPCredentialsProvider.h>
 #include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
@@ -23,9 +24,12 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -37,6 +41,11 @@
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/fs/s3_file_system.h"
+#include "service/http/ev_http_server.h"
+#include "service/http/http_channel.h"
+#include "service/http/http_handler.h"
+#include "service/http/http_headers.h"
+#include "service/http/http_request.h"
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
@@ -687,6 +696,141 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV1PartialCredentialsUseDefault
     }
 
     config::aws_credentials_provider_version = "v2";
+}
+
+namespace {
+
+// A mock server which simulates the EKS Pod Identity agent.
+// It records the Authorization header of every request and always returns
+// credentials that are already expired, so each GetAWSCredentials() call forces
+// a fresh fetch.
+class CredentialsHandler : public HttpHandler {
+public:
+    void handle(HttpRequest* req) override {
+        {
+            // handle() runs on the server's own threads; the lock is what lets the
+            // test thread read auth_headers() safely once its requests have returned.
+            std::lock_guard<std::mutex> lock(_mutex);
+            _auth_headers.push_back(req->header(HttpHeaders::AUTHORIZATION));
+        }
+
+        req->add_output_header(HttpHeaders::CONTENT_TYPE, "application/json");
+        // Expiration in the past keeps ExpiresSoon() true, so the provider
+        // re-reads the token file on the next call instead of serving its cache.
+        HttpChannel::send_reply(req,
+                                R"({"AccessKeyId":"AKIDTEST","SecretAccessKey":"SECRETTEST",)"
+                                R"("Token":"SESSIONTEST","Expiration":"1970-01-01T00:00:00Z"})");
+    }
+
+    std::vector<std::string> auth_headers() {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _auth_headers;
+    }
+
+private:
+    std::mutex _mutex;
+    std::vector<std::string> _auth_headers;
+};
+
+void write_file(const std::string& path, const std::string& contents) {
+    std::ofstream out(path, std::ios::trunc);
+    out << contents;
+}
+
+// The provider is looked up inside the chain rather than constructed directly,
+// because what is under test is how CustomAwsCredentialsProviderChain wires the
+// environment.
+Aws::Auth::GeneralHTTPCredentialsProvider* find_http_provider(
+        const CustomAwsCredentialsProviderChain& chain) {
+    for (const auto& provider : chain.GetProviders()) {
+        auto* http_provider =
+                dynamic_cast<Aws::Auth::GeneralHTTPCredentialsProvider*>(provider.get());
+        if (http_provider != nullptr) {
+            return http_provider;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
+
+// EKS Pod Identity supplies the credential-endpoint token as a file that the
+// kubelet rotates in place, and never as a plain environment variable. The chain
+// must therefore hand the provider the token path, so that every refresh picks
+// up the current contents. Passing the value read at construction time works
+// until the first rotation and then fails with AccessDenied.
+TEST_F(S3ClientFactoryTest, CustomChainReadsRotatedTokenFileForPodIdentity) {
+    (void)S3ClientFactory::instance();
+
+    auto save = [](const char* name) -> std::optional<std::string> {
+        const char* value = std::getenv(name);
+        return value == nullptr ? std::nullopt : std::optional<std::string>(value);
+    };
+    auto restore = [](const char* name, const std::optional<std::string>& saved) {
+        if (saved.has_value()) {
+            setenv(name, saved->c_str(), 1);
+        } else {
+            unsetenv(name);
+        }
+    };
+    const auto saved_relative_uri = save("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI");
+    const auto saved_full_uri = save("AWS_CONTAINER_CREDENTIALS_FULL_URI");
+    const auto saved_token = save("AWS_CONTAINER_AUTHORIZATION_TOKEN");
+    const auto saved_token_file = save("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE");
+
+    const std::string token_path = "/tmp/doris_pod_identity_token_test";
+    write_file(token_path, "token-one");
+
+    // The host has to stay 127.0.0.1. For a plain http:// URI the SDK only talks to
+    // an allow-listed host - loopback, or the ECS/EKS link-local addresses - and
+    // refuses anything else with "not within loop back CIDR".
+    EvHttpServer server(0);
+    CredentialsHandler handler;
+    ASSERT_TRUE(server.register_handler(GET, "/creds", &handler));
+    server.start();
+    ASSERT_NE(server.get_real_port(), 0);
+    const std::string creds_url =
+            "http://127.0.0.1:" + std::to_string(server.get_real_port()) + "/creds";
+
+    // No AWS_CONTAINER_AUTHORIZATION_TOKEN: the token exists only as a file,
+    // exactly as EKS Pod Identity presents it.
+    unsetenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI");
+    unsetenv("AWS_CONTAINER_AUTHORIZATION_TOKEN");
+    setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", creds_url.c_str(), 1);
+    setenv("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", token_path.c_str(), 1);
+
+    CustomAwsCredentialsProviderChain chain;
+    auto* provider = find_http_provider(chain);
+    Aws::Auth::AWSCredentials first_credentials;
+    std::vector<std::string> auth_headers;
+    if (provider != nullptr) {
+        // Each GetAWSCredentials() drives one HTTP GET to the URL above: the provider
+        // re-reads the token file, sends it as the Authorization header, and parses the
+        // credentials from the reply. The handler records the header it saw, so
+        // auth_headers() reports what actually went over the wire.
+        first_credentials = provider->GetAWSCredentials();
+
+        // Rotate the file the way the kubelet does. The second call refetches rather
+        // than serving its cache only because the handler reports an already-expired
+        // Expiration.
+        write_file(token_path, "token-two");
+        provider->GetAWSCredentials();
+        auth_headers = handler.auth_headers();
+    }
+
+    restore("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", saved_relative_uri);
+    restore("AWS_CONTAINER_CREDENTIALS_FULL_URI", saved_full_uri);
+    restore("AWS_CONTAINER_AUTHORIZATION_TOKEN", saved_token);
+    restore("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", saved_token_file);
+    std::remove(token_path.c_str());
+
+    ASSERT_NE(provider, nullptr) << "no GeneralHTTPCredentialsProvider was added to the chain";
+    EXPECT_EQ(first_credentials.GetAWSAccessKeyId(), "AKIDTEST");
+    EXPECT_EQ(first_credentials.GetSessionToken(), "SESSIONTEST");
+
+    ASSERT_EQ(auth_headers.size(), 2u);
+    EXPECT_EQ(auth_headers[0], "token-one");
+    EXPECT_EQ(auth_headers[1], "token-two");
 }
 
 } // namespace doris
