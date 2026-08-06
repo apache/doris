@@ -100,12 +100,19 @@ enum KeySetType {
     MULTI_VERSION_META_ROWSET = 21;
 }
 
+enum InstanceRecycleState {
+    INSTANCE_RECYCLE_STATE_CLEANUP_PENDING = 0;
+    INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED = 1;
+    INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED = 2;
+}
+
 message InstanceInfoPB {
     enum Status {
         NORMAL = 0;
         DELETED = 1;
         OVERDUE = 2;
     }
+
     optional string user_id = 1;
     optional string instance_id = 2;
     optional string name = 3;
@@ -152,6 +159,10 @@ message InstanceInfoPB {
     // It is not always same as source_instance_id, because the source instance may inherit from another
     // instance during rollback, and the predecessor instance is the real instance which to execute the rollback.
     optional string predecessor_instance_id = 124;
+
+    optional InstanceRecycleState recycled_state = 125 [default = INSTANCE_RECYCLE_STATE_CLEANUP_PENDING];
+    // Last time when recycled_state was updated by a recycle step.
+    optional int64 recycled_state_update_time_ms = 126;
 }
 
 message StagePB {

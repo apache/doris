@@ -2562,6 +2562,9 @@ static std::pair<MetaServiceCode, std::string> drop_single_instance(const std::s
 
     instance->set_status(InstanceInfoPB::DELETED);
     instance->set_mtime(duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+    instance->set_recycled_state(INSTANCE_RECYCLE_STATE_CLEANUP_PENDING);
+    instance->set_recycled_state_update_time_ms(
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
 
     std::string serialized = instance->SerializeAsString();
     if (serialized.empty()) {
@@ -2658,6 +2661,55 @@ static std::pair<MetaServiceCode, std::string> drop_instance_chain(
     return {MetaServiceCode::OK, std::move(serialized)};
 }
 
+std::pair<MetaServiceCode, std::string> MetaServiceImpl::check_instance_recycle_completed(
+        const std::string& instance_id, bool& finished, std::string& reason) {
+    reason.clear();
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg = fmt::format("failed to create txn, err={}", err);
+        LOG(WARNING) << msg << " instance_id=" << instance_id;
+        return {MetaServiceCode::KV_TXN_CREATE_ERR, std::move(msg)};
+    }
+
+    std::string key = instance_key({instance_id});
+    std::string value;
+    err = txn->get(key, &value);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // The recycler only removes keys after cleanup is complete, so do not treat this as an
+        // incomplete or unknown state.
+        finished = true;
+        reason = fmt::format(
+                "instance recycling is considered completed because the instance key does not "
+                "exist, instance_id={}",
+                instance_id);
+        return {MetaServiceCode::OK, "OK"};
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg =
+                fmt::format("failed to get instance, instance_id={}, err={}", instance_id, err);
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::KV_TXN_GET_ERR, std::move(msg)};
+    }
+
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(value)) {
+        std::string msg = fmt::format("malformed instance info, key={}", hex(key));
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::PROTOBUF_PARSE_ERR, std::move(msg)};
+    }
+
+    finished = instance.recycled_state() ==
+               InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED;
+    if (!finished) {
+        reason = fmt::format(
+                "instance has not completed recycling, instance_id={}, recycled_state={}",
+                instance_id, InstanceRecycleState_Name(instance.recycled_state()));
+        return {MetaServiceCode::OK, "OK"};
+    }
+    return {MetaServiceCode::OK, "OK"};
+}
+
 void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller,
                                      const AlterInstanceRequest* request,
                                      AlterInstanceResponse* response,
@@ -2686,6 +2738,12 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     switch (request->op()) {
     case AlterInstanceRequest::DROP: {
         ret = alter_instance(request, [&instance_id](Transaction* txn, InstanceInfoPB* instance) {
+            if (instance->status() == InstanceInfoPB::DELETED) {
+                std::string msg = "failed to drop instance, instance has already been recycled";
+                LOG(WARNING) << msg << " instance_id=" << instance_id;
+                return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, std::move(msg));
+            }
+
             // check instance doesn't have any cluster.
             if (instance->clusters_size() != 0) {
                 std::string msg = "failed to drop instance, instance has clusters";
