@@ -42,7 +42,7 @@ public interface ConnectorStatementScope {
      * caching it for the rest of the statement. Within one statement the same key returns the same
      * instance to every caller; under {@link #NONE} the loader runs on every call.
      */
-    <T> T computeIfAbsent(String key, Supplier<T> loader);
+    <T> T computeIfAbsent(Object key, Supplier<T> loader);
 
     /**
      * Typed convenience over {@link #computeIfAbsent} for the ONE {@link ConnectorMetadata} a statement uses per
@@ -52,7 +52,7 @@ public interface ConnectorStatementScope {
      * the single memoized instance and the factory runs at most once per statement. Under {@link #NONE} the
      * factory runs on every call (byte-identical to building metadata every time).
      */
-    default ConnectorMetadata getOrCreateMetadata(String key, Supplier<ConnectorMetadata> factory) {
+    default ConnectorMetadata getOrCreateMetadata(Object key, Supplier<ConnectorMetadata> factory) {
         return computeIfAbsent(key, factory);
     }
 
@@ -69,7 +69,7 @@ public interface ConnectorStatementScope {
     /** The no-op scope: never caches; each call invokes the loader (offline / no-context / tests). */
     ConnectorStatementScope NONE = new ConnectorStatementScope() {
         @Override
-        public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+        public <T> T computeIfAbsent(Object key, Supplier<T> loader) {
             return loader.get();
         }
     };
