@@ -254,6 +254,10 @@ void FlussUnionLakeReader::_init_union_profile() {
             _scanner_profile, "FlussUnionTailKeysRetained", TUnit::UNIT, table_profile, 1);
     _tail_cache_hit_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
             _scanner_profile, "FlussUnionTailCacheHitCount", TUnit::UNIT, table_profile, 1);
+    _tail_read_timer = ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "FlussUnionTailReadTime",
+                                                  table_profile, 1);
+    _suppress_timer = ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "FlussUnionSuppressTime",
+                                                 table_profile, 1);
 }
 
 Status FlussUnionLakeReader::prepare_split(const format::SplitReadOptions& options) {
@@ -395,6 +399,9 @@ Status FlussUnionLakeReader::_accumulate_tail_keys(const Tail& tail, const NextB
 
 Status FlussUnionLakeReader::_read_tail_keys(const Tail& tail, SuppressionKeys* keys) {
     DORIS_CHECK(keys != nullptr);
+    // Only the reads reach here; a bucket whose keys the scan's cache already holds does not, which
+    // is what makes this timer the answer to "how much did the tails themselves cost".
+    SCOPED_TIMER(_tail_read_timer);
 #ifdef BE_TEST
     if (_test_tail_reader) {
         // Stands in for the network read alone. Everything built on it - the accumulation, the
@@ -420,6 +427,11 @@ Status FlussUnionLakeReader::_read_tail_keys(const Tail& tail, SuppressionKeys* 
     // just as surely as one it updated, and what the tail ended up saying is contributed by its own
     // range, not by this read.
     FlussJniReader reader;
+    // On the scan's own profile, deliberately: this read therefore also lands in the FlussJniScanner
+    // node beside the log-side ranges, so the Java-side breakdown there - how much of it was fluss's
+    // own scan against how much was moving the rows across JNI - covers the tail read as well. The
+    // consequence to read the profile by: FlussJniScanner's total exceeds FlussLogReadTime by
+    // roughly the tail reads, which FlussUnionTailReadTime states on its own.
     RETURN_IF_ERROR(reader.init({
             .projected_columns = _key_columns,
             .conjuncts = {},
@@ -499,6 +511,9 @@ Status FlussUnionLakeReader::_suppress(Block* block) {
         return Status::OK();
     }
     SCOPED_TIMER(_profile.finalize_timer);
+    // Nested inside the established finalize timer rather than taken out of it: this is a detail of
+    // what finalizing a block of this table costs, so FinalizeBlockTime keeps meaning what it did.
+    SCOPED_TIMER(_suppress_timer);
     int result_column_id = -1;
     RETURN_IF_ERROR(_suppression->root()->execute(_suppression.get(), block, &result_column_id));
     DORIS_CHECK(result_column_id >= 0 && result_column_id < cast_set<int>(block->columns()));
