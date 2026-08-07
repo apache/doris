@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SessionVariable;
@@ -494,6 +495,15 @@ public class OlapAnalysisTaskTest {
         Mockito.doReturn(Pair.of(Lists.newArrayList(1L, 2L), 10L)).when(task).getSampleTablets();
         info = task.getSampleCollectInfo(10000);
         Assertions.assertEquals(AnalyzeSampleAlgorithm.FULL, info.algorithm);
+
+        // Debug point useDUJ1Template forces DUJ1 even when the row count would normally
+        // fall back to a full table scan, so tests are not affected by BE row count timing.
+        try (MockedStatic<DebugPointUtil> mocked = Mockito.mockStatic(DebugPointUtil.class)) {
+            mocked.when(() -> DebugPointUtil.isEnable("OlapAnalysisTask.useDUJ1Template")).thenReturn(true);
+            Mockito.doReturn(Pair.of(Lists.newArrayList(1L, 2L), 10L)).when(task).getSampleTablets();
+            info = task.getSampleCollectInfo(10000);
+            Assertions.assertEquals(AnalyzeSampleAlgorithm.DUJ1, info.algorithm);
+        }
     }
 
     @Test
