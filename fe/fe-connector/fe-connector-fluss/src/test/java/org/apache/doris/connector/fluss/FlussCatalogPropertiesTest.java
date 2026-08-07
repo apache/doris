@@ -151,12 +151,52 @@ public class FlussCatalogPropertiesTest {
                 bound(FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "").getMaxTailRows());
     }
 
+    /**
+     * The scan-wide companion of the per-bucket ceiling. It exists because the per-bucket one cannot see
+     * the case that actually costs the memory: BE keeps the keys of every tail it has touched until the
+     * scan ends, so many buckets each well inside their own ceiling still add up. A value below the
+     * per-bucket ceiling describes a scan no read could satisfy, and is rejected rather than silently
+     * making every union read impossible.
+     */
+    @Test
+    public void theScanWideTailCeilingDefaultsToTenTailsAndCannotSitBelowThePerBucketOne() {
+        Assertions.assertEquals(20_000_000L, bound().getMaxTotalTailRows());
+        // Both, because lowering the scan-wide ceiling under the per-bucket default is itself the
+        // contradiction this rule refuses -- see the cross-check below.
+        Assertions.assertEquals(500L,
+                bound(FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "100",
+                        FlussCatalogProperties.UNION_READ_MAX_TOTAL_TAIL_ROWS, " 500 ")
+                        .getMaxTotalTailRows());
+
+        for (String bad : new String[] {"0", "-1", "lots"}) {
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> bound(FlussCatalogProperties.UNION_READ_MAX_TOTAL_TAIL_ROWS, bad),
+                    "accepted '" + bad + "' as a scan-wide row ceiling");
+            Assertions.assertTrue(
+                    e.getMessage().contains(FlussCatalogProperties.UNION_READ_MAX_TOTAL_TAIL_ROWS),
+                    e.getMessage());
+        }
+
+        IllegalArgumentException below = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> bound(FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "100",
+                        FlussCatalogProperties.UNION_READ_MAX_TOTAL_TAIL_ROWS, "99"));
+        Assertions.assertTrue(below.getMessage().contains("no union read could satisfy both"),
+                below.getMessage());
+
+        // Equal is the legitimate edge: "one maximal tail, and no more".
+        Assertions.assertEquals(100L,
+                bound(FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "100",
+                        FlussCatalogProperties.UNION_READ_MAX_TOTAL_TAIL_ROWS, "100")
+                        .getMaxTotalTailRows());
+    }
+
     @Test
     public void clientConfigIsThePrefixedPropertiesMinusTheDorisOnlyOnes() {
         FlussCatalogProperties p = bound(
                 "fluss.client.security.protocol", "sasl",
                 FlussCatalogProperties.UNION_READ_MODE, "required",
                 FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "10",
+                FlussCatalogProperties.UNION_READ_MAX_TOTAL_TAIL_ROWS, "20",
                 FlussCatalogProperties.ENABLE_MAPPING_VARBINARY, "true",
                 FlussCatalogProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "true",
                 "type", "fluss",

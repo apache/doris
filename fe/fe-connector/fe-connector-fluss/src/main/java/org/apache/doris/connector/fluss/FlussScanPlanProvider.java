@@ -187,6 +187,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     /** {@link #degradedReason} when the log no longer holds the tail the lake snapshot stops before. */
     private static final String DEGRADED_TAIL_TRUNCATED = "tail-truncated";
 
+    /** {@link #degradedReason} when the tails this scan would have to hold are over their ceiling. */
+    private static final String DEGRADED_TAIL_TOO_LARGE = "tail-too-large";
+
     /** {@link #degradedReason} when a key column's values cannot be compared exactly across the halves. */
     private static final String DEGRADED_KEY_TYPE = "key-type";
 
@@ -310,6 +313,25 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             return pkRangesFromFlussAlone(states, buckets);
         }
 
+        // The offsets fluss just reported say exactly how many log records each tail holds, so a read too
+        // large to hold in memory can be answered by a plan that does not need to hold it -- reading the
+        // table from fluss alone returns every row without caching a single tail. Doing it here rather
+        // than at read time also means the ceilings are reported once, from the numbers that tripped them,
+        // instead of by whichever bucket happened to reach its limit first on some BE.
+        String tooLarge = firstTailOverBudget(states, buckets);
+        if (tooLarge != null) {
+            if (catalogProperties.getUnionReadMode()
+                    == FlussCatalogProperties.UnionReadMode.REQUIRED) {
+                throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
+                        + handle.getTableName() + "' cannot be read as its lake plus its log: " + tooLarge
+                        + ". Set '" + FlussCatalogProperties.UNION_READ_MODE + "' to auto or disabled to"
+                        + " read the table from fluss alone, wait for tiering to move the tail into the"
+                        + " lake, or raise the ceiling.");
+            }
+            degradeToFlussOnly(DEGRADED_TAIL_TOO_LARGE);
+            return pkRangesFromFlussAlone(states, buckets);
+        }
+
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (ConnectorScanRange lakeSplit : planLakeRanges(session, union, request)) {
             ranges.add(bindTailToLakeSplit(handle, lakeSplit, states));
@@ -421,6 +443,47 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                             + ", but the log now starts at " + bucketState.earliest + ")";
                 }
             }
+        }
+        return null;
+    }
+
+    /**
+     * The first ceiling a tail of this scan would breach, described for a message, or null when the scan
+     * fits under both.
+     *
+     * <p>Two ceilings, because they answer two different questions. The per-bucket one is what the readers
+     * enforce while they replay a tail, and reaching it means tiering has stalled for that bucket. The
+     * scan-wide one has no per-reader equivalent: BE holds the keys of every tail it has touched until the
+     * scan ends, so a table with many partitions and many buckets can hold far more than any one of them
+     * would ever report. Summed over the whole scan rather than per BE because planning does not decide
+     * which BE gets which split, and over-counting a scan that fits is the safe direction.
+     */
+    private String firstTailOverBudget(List<PartitionState> states, List<Integer> buckets) {
+        long maxTailRows = catalogProperties.getMaxTailRows();
+        long total = 0;
+        for (PartitionState state : states) {
+            for (int bucket : buckets) {
+                BucketState bucketState = state.buckets.get(bucket);
+                if (bucketState.lakeEnd == null || bucketState.lakeEnd >= bucketState.stop) {
+                    continue;
+                }
+                // Offsets of a bucket's log are consecutive per record, so this IS the record count, and
+                // it is the same yardstick the readers apply while replaying the range.
+                long rows = bucketState.stop - bucketState.lakeEnd;
+                String where = (state.partition.isPartitioned()
+                        ? "partition '" + state.partition.getName() + "', " : "") + "bucket " + bucket;
+                if (rows > maxTailRows) {
+                    return where + " has a log tail of " + rows + " records, over the "
+                            + maxTailRows + " allowed by '"
+                            + FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS + "'";
+                }
+                total += rows;
+            }
+        }
+        long maxTotal = catalogProperties.getMaxTotalTailRows();
+        if (total > maxTotal) {
+            return "its log tails hold " + total + " records in total, over the " + maxTotal
+                    + " allowed by '" + FlussCatalogProperties.UNION_READ_MAX_TOTAL_TAIL_ROWS + "'";
         }
         return null;
     }
