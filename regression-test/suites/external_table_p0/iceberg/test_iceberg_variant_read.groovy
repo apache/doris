@@ -482,17 +482,6 @@ public class AppendVariantEqualityDelete {
         }
         return sum
     }
-    def profileInfoValues = { String profile, String infoName ->
-        Pattern pattern = Pattern.compile(
-                Pattern.quote(infoName) + ":\\s*\\[([^\\]]*)\\]")
-        Matcher matcher = pattern.matcher(profile)
-        if (!matcher.find()) {
-            return []
-        }
-        return matcher.group(1).split(",").collect { String value -> value.trim() }
-                .findAll { String value -> !value.isEmpty() }
-                .collect { String value -> Long.parseLong(value.replace(",", "")) }
-    }
     def getProfileByToken = { String token, List<String> positiveCounters = [] ->
         String lastProfile = profileAction.getProfileBySql(token, positiveCounters)
         if (positiveCounters.every { String counter -> counterSum(lastProfile, counter) > 0 }) {
@@ -649,6 +638,9 @@ public class AppendVariantEqualityDelete {
     sql "set parallel_pipeline_task_num=4"
     sql "set max_file_scanners_concurrency=8"
     sql "set min_file_scanners_concurrency=4"
+    // Scanner tasks pull file ranges dynamically, so minimum concurrency does not guarantee that
+    // every scheduled scanner consumes rows. Validate parallel correctness without pinning the
+    // scheduler's nondeterministic range assignment.
     order_qt_variant_multi_file_parallel """
         SELECT id,
                CAST(v['shared'] AS INT),
