@@ -74,8 +74,8 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     params["columns_types"] = join(column_types, "#");
     // V1 and V2 must publish the same safe schema protocol because session routing can select
     // either producer for the same Paimon scanner.
-    params["required_fields_base64"] = JniDataBridge::encode_schema_values(column_names);
-    params["columns_types_base64"] = JniDataBridge::encode_schema_values(encoded_column_types);
+    params["required_fields_base64"] = JniDataBridge::encode_string_list(column_names);
+    params["columns_types_base64"] = JniDataBridge::encode_string_list(encoded_column_types);
     params["time_zone"] = _state->timezone();
     if (range_params->__isset.serialized_table) {
         params["serialized_table"] = range_params->serialized_table;

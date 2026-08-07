@@ -521,7 +521,7 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
     }
 }
 
-std::string JniDataBridge::encode_schema_values(const std::vector<std::string>& values) {
+std::string JniDataBridge::encode_string_list(const std::vector<std::string>& values) {
     std::vector<std::string> encoded_values;
     encoded_values.reserve(values.size());
     for (const auto& value : values) {

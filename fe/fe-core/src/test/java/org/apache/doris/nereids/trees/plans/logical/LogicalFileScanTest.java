@@ -34,6 +34,12 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -96,6 +102,29 @@ public class LogicalFileScanTest {
         Assertions.assertEquals(Arrays.asList("id", "old_name"),
                 scan.computeOutput().stream().map(slot -> slot.getName()).collect(Collectors.toList()));
         Mockito.verify(table, Mockito.never()).initSelectedPartitions(Mockito.any());
+    }
+
+    @Test
+    public void testPaimonSupportsOnlyVariantNestedColumnPruning() {
+        PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("paimon_tbl");
+        TableScanParams scanParams = new TableScanParams(
+                TableScanParams.OPTIONS,
+                Collections.singletonMap("scan.snapshot-id", "1"),
+                Collections.emptyList());
+        Mockito.when(table.getFullSchema(scanParams)).thenReturn(Collections.emptyList());
+
+        LogicalFileScan scan = new LogicalFileScan(new RelationId(2), table,
+                Collections.singletonList("db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.of(scanParams), Optional.empty());
+
+        Assertions.assertTrue(scan.supportPruneNestedColumn());
+        Assertions.assertTrue(scan.supportPruneNestedColumn(VariantType.INSTANCE));
+        Assertions.assertFalse(scan.supportPruneNestedColumn(ArrayType.of(IntegerType.INSTANCE)));
+        Assertions.assertFalse(scan.supportPruneNestedColumn(
+                MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE)));
+        Assertions.assertFalse(scan.supportPruneNestedColumn(new StructType(Collections.singletonList(
+                new StructField("field", IntegerType.INSTANCE, true, "")))));
     }
 
     @Test

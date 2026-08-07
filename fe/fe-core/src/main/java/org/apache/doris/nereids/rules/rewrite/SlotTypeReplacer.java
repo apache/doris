@@ -723,14 +723,18 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
     }
 
     private void tryRecordReplaceSlots(Plan plan, Object checkObj, Set<Integer> shouldReplaceSlots) {
-        if (checkObj instanceof SupportPruneNestedColumn
-                && ((SupportPruneNestedColumn) checkObj).supportPruneNestedColumn()) {
+        if (checkObj instanceof SupportPruneNestedColumn) {
+            SupportPruneNestedColumn supportPruneNestedColumn = (SupportPruneNestedColumn) checkObj;
+            if (!supportPruneNestedColumn.supportPruneNestedColumn()) {
+                return;
+            }
             List<Slot> output = plan.getOutput();
             boolean shouldPrune = false;
             for (Slot slot : output) {
                 int slotId = slot.getExprId().asInt();
                 if ((slot.getDataType() instanceof NestedColumnPrunable
                         || slot.getDataType().isVariantType())
+                        && supportPruneNestedColumn.supportPruneNestedColumn(slot.getDataType())
                         && replacedDataTypes.containsKey(slotId)) {
                     shouldReplaceSlots.add(slotId);
                     shouldPrune = true;

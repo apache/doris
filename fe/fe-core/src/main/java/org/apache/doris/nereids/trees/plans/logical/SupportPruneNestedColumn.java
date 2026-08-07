@@ -17,8 +17,15 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.types.DataType;
+
 /** SupportPruneNestedColumn */
 public interface SupportPruneNestedColumn {
     // return false will not prune the nested column
     boolean supportPruneNestedColumn();
+
+    // Allows a scan implementation to restrict pruning to selected root types.
+    default boolean supportPruneNestedColumn(DataType dataType) {
+        return supportPruneNestedColumn();
+    }
 }

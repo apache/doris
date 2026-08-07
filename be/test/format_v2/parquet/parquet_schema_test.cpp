@@ -247,19 +247,31 @@ TEST(ParquetSchemaTest, AppliesTableFormatVariantOverrideToUnannotatedGroup) {
     EXPECT_NE(fields[0]->variant_physical_type, nullptr);
 }
 
-TEST(ParquetSchemaTest, AppliesPaimonShreddedVariantOverrideWithOptionalMetadata) {
-    auto schema = shredded_object_variant_schema();
-    schema[1].__isset.logicalType = false;
-    schema[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
-    NativeFieldDescriptor descriptor;
-    ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+TEST(ParquetSchemaTest, AppliesPaimonShreddedVariantOverrideWithOptionalFields) {
+    const auto apply_override = [](std::vector<tparquet::SchemaElement> schema) {
+        NativeFieldDescriptor descriptor;
+        ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
 
-    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
-    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
-    const std::vector overrides {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
-    const auto status = apply_variant_schema_overrides(descriptor, overrides, &fields);
-    ASSERT_TRUE(status.ok()) << status;
-    EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::VARIANT);
+        std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+        ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+        const std::vector overrides {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+        const auto status = apply_variant_schema_overrides(descriptor, overrides, &fields);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(fields.size(), 1);
+        EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::VARIANT);
+    };
+
+    auto object_schema = shredded_object_variant_schema();
+    object_schema[1].__isset.logicalType = false;
+    object_schema[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    object_schema[5].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    apply_override(std::move(object_schema));
+
+    auto array_schema = shredded_array_variant_schema(true, true);
+    array_schema[1].__isset.logicalType = false;
+    array_schema[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    array_schema[6].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    apply_override(std::move(array_schema));
 }
 
 TEST(ParquetSchemaTest, RejectsMalformedUnannotatedVariantOverride) {
