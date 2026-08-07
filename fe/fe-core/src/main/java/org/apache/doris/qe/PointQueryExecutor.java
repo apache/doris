@@ -217,6 +217,16 @@ public class PointQueryExecutor implements CoordInterface {
         TSerializer serializer = new TSerializer();
         for (Column column : shortCircuitQueryContext.scanNode.getOlapTable().getBaseSchemaKeyColumns()) {
             Expr literalExpr = columnExpr.get(column.getName());
+            if (literalExpr == null) {
+                // A key column with no matching literal conjunct should fail loudly with a
+                // diagnostic message instead of falling through to ExprToThriftVisitor and
+                // throwing a NullPointerException on expr.getType(). This surfaces a column
+                // name mismatch (e.g. a nereids slot columnName vs the base schema column
+                // name) as the root cause.
+                throw new TException("Point query key column " + column.getName()
+                        + " has no matching literal conjunct on the scan node; "
+                        + "available conjunct columns: " + columnExpr.keySet());
+            }
             // Ensure the literal type matches the column type for proper TExprNode
             // deserialization on BE side. Prepared statement parameters may have
             // mismatched types (e.g., setBigDecimal for INT column produces a
