@@ -30,6 +30,9 @@
 #include "bvar/bvar.h"
 #include "common/config.h"
 #include "core/column/column.h"
+#include "exec/sort/hybrid_sorter.h"
+#include "exec/sort/sort_block.h"
+#include "exec/sort/sort_description.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "load/delta_writer/delta_writer_context.h"
@@ -390,44 +393,97 @@ Status MemTable::_put_into_output(Block& in_block) {
                                           row_pos_vec.data() + in_block.rows());
 }
 
-void MemTable::_sort_one_column(DorisVector<RowInBlock>& row_in_blocks, Tie& tie,
-                                std::function<int(const RowInBlock&, const RowInBlock&)> cmp) {
-    auto iter = tie.iter();
-    while (iter.next()) {
-        pdqsort(std::next(row_in_blocks.begin(), static_cast<int>(iter.left())),
-                std::next(row_in_blocks.begin(), static_cast<int>(iter.right())),
-                [&cmp](const RowInBlock& lhs, const RowInBlock& rhs) -> bool {
-                    return cmp(lhs, rhs) < 0;
-                });
-        tie[iter.left()] = 0;
-        for (auto i = iter.left() + 1; i < iter.right(); i++) {
-            tie[i] = (cmp(row_in_blocks[i - 1], row_in_blocks[i]) == 0);
-        }
+// ColumnSorter keeps an inline copy of the key next to the row id, so a
+// comparison no longer chases a row pointer nor pays a virtual
+// IColumn::compare_at, which is what dominated the previous kernel.
+size_t MemTable::_sort_permutation_by_key_columns(MutableBlock& block,
+                                                  const std::vector<int>& key_col_idx,
+                                                  IColumn::Permutation& perm,
+                                                  bool descending_row_pos) {
+    const size_t num_rows = perm.size();
+    if (num_rows == 0) {
+        return 0;
     }
+    EqualFlags flags(num_rows, 1);
+    EqualRange range {0, static_cast<int>(num_rows)};
+    HybridSorter hybrid_sorter;
+    for (int idx : key_col_idx) {
+        ColumnWithSortDescription col {block.get_column_by_position(idx).get(),
+                                       SortColumnDescription(idx, 1 /*asc*/, -1 /*nulls first*/)};
+        ColumnSorter sorter(col, hybrid_sorter, 0 /*no limit*/);
+        // last_column is deliberately never true: the equal ranges are still
+        // needed below for the row position tie-break.
+        sorter(flags, perm, range, false);
+    }
+
+    // Sort an extra round by row position to make the sort stable. perm elements
+    // are row positions, so sorting them directly is enough.
+    size_t same_keys_num = 0;
+    EqualRangeIterator iter(flags, range.first, range.second);
+    while (iter.next()) {
+        if (descending_row_pos) {
+            pdqsort(perm.begin() + iter.range_begin, perm.begin() + iter.range_end,
+                    std::greater<>());
+        } else {
+            pdqsort(perm.begin() + iter.range_begin, perm.begin() + iter.range_end);
+        }
+        same_keys_num += static_cast<size_t>(iter.range_end - iter.range_begin);
+    }
+    return same_keys_num;
 }
 
 size_t MemTable::_sort() {
     SCOPED_RAW_TIMER(&_stat.sort_ns);
     _stat.sort_times++;
     size_t same_keys_num = 0;
+    const bool is_dup = (_keys_type == KeysType::DUP_KEYS);
     // sort new rows
-    Tie tie = Tie(_last_sorted_pos, _row_in_blocks->size());
-    for (size_t i = 0; i < _tablet_schema->num_key_columns(); i++) {
-        auto cmp = [&](const RowInBlock& lhs, const RowInBlock& rhs) -> int {
-            return _input_mutable_block.compare_one_column(lhs._row_pos, rhs._row_pos, i, -1);
-        };
-        _sort_one_column(*_row_in_blocks, tie, cmp);
-    }
-    bool is_dup = (_keys_type == KeysType::DUP_KEYS);
-    // sort extra round by _row_pos to make the sort stable
-    auto iter = tie.iter();
-    while (iter.next()) {
-        pdqsort(std::next(_row_in_blocks->begin(), iter.left()),
-                std::next(_row_in_blocks->begin(), iter.right()),
-                [&is_dup](const RowInBlock& lhs, const RowInBlock& rhs) -> bool {
-                    return is_dup ? lhs._row_pos > rhs._row_pos : lhs._row_pos < rhs._row_pos;
-                });
-        same_keys_num += iter.right() - iter.left();
+    const size_t num_new_rows = _row_in_blocks->size() - _last_sorted_pos;
+    if (num_new_rows > 0) {
+        // Rows appended since the last sort occupy a contiguous, increasing range
+        // of positions in _input_mutable_block (see insert()), so a sorted row
+        // position maps back to its RowInBlock by subtracting the base.
+        const size_t base = (*_row_in_blocks)[_last_sorted_pos]._row_pos;
+        DCHECK_EQ((*_row_in_blocks)[_row_in_blocks->size() - 1]._row_pos, base + num_new_rows - 1);
+
+        IColumn::Permutation perm(num_new_rows);
+        for (size_t i = 0; i < num_new_rows; i++) {
+            perm[i] = base + i;
+        }
+        std::vector<int> key_col_idx(_tablet_schema->num_key_columns());
+        for (size_t i = 0; i < key_col_idx.size(); i++) {
+            key_col_idx[i] = static_cast<int>(i);
+        }
+        same_keys_num =
+                _sort_permutation_by_key_columns(_input_mutable_block, key_col_idx, perm, is_dup);
+
+        // Rebase perm onto the appended range so it indexes _row_in_blocks
+        // directly. Subtracting a constant keeps the order the sort produced.
+        for (size_t i = 0; i < num_new_rows; i++) {
+            perm[i] -= base;
+        }
+        // Apply the permutation by following its cycles. That is one move per
+        // row -- half of what a sorted copy costs -- and, more importantly, it
+        // needs no second N-element array of shared_ptr next to the live
+        // _row_in_blocks. perm is dead afterwards, so it doubles as the marker
+        // for rows already moved into place.
+        RowInBlock* rows = _row_in_blocks->data() + _last_sorted_pos;
+        for (size_t i = 0; i < num_new_rows; i++) {
+            size_t src = perm[i];
+            if (src == i) {
+                continue;
+            }
+            RowInBlock held = rows[i];
+            size_t hole = i;
+            while (src != i) {
+                rows[hole] = rows[src];
+                perm[hole] = hole;
+                hole = src;
+                src = perm[src];
+            }
+            rows[hole] = held;
+            perm[hole] = hole;
+        }
     }
     // merge new rows and old rows
     _vec_row_comparator->set_block(&_input_mutable_block);
@@ -456,50 +512,43 @@ Status MemTable::_sort_by_cluster_keys() {
     MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(in_block));
     _output_mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
 
-    DorisVector<RowInBlock> row_in_blocks;
-    row_in_blocks.reserve(mutable_block.rows());
+    // The LSN sidecar is indexed by row position, so the permutation below can
+    // reorder it directly; there is no need to materialise a row object per row.
+    DorisVector<int64_t> input_row_binlog_lsns;
     if (_need_row_binlog_lsn) {
         DCHECK_EQ(_output_row_binlog_lsns.size(), mutable_block.rows());
-    }
-    for (size_t i = 0; i < mutable_block.rows(); i++) {
-        row_in_blocks.emplace_back(i, _need_row_binlog_lsn ? _output_row_binlog_lsns[i] : 0);
-    }
-    if (_need_row_binlog_lsn) {
-        _output_row_binlog_lsns.clear();
+        input_row_binlog_lsns.swap(_output_row_binlog_lsns);
         _output_row_binlog_lsns.reserve(mutable_block.rows());
     }
-    Tie tie = Tie(0, mutable_block.rows());
-
+    std::vector<int> key_col_idx;
+    key_col_idx.reserve(_tablet_schema->cluster_key_uids().size());
     for (auto cid : _tablet_schema->cluster_key_uids()) {
         auto index = _tablet_schema->field_index(cid);
         if (index == -1) {
             return Status::InternalError("could not find cluster key column with unique_id=" +
                                          std::to_string(cid) + " in tablet schema");
         }
-        auto cmp = [&](const RowInBlock& lhs, const RowInBlock& rhs) -> int {
-            return mutable_block.compare_one_column(lhs._row_pos, rhs._row_pos, index, -1);
-        };
-        _sort_one_column(row_in_blocks, tie, cmp);
+        key_col_idx.push_back(index);
     }
-
-    // sort extra round by _row_pos to make the sort stable
-    auto iter = tie.iter();
-    while (iter.next()) {
-        pdqsort(std::next(row_in_blocks.begin(), iter.left()),
-                std::next(row_in_blocks.begin(), iter.right()),
-                [](const RowInBlock& lhs, const RowInBlock& rhs) -> bool {
-                    return lhs._row_pos < rhs._row_pos;
-                });
+    // Cluster keys only exist on MOW tables, whose order is always stabilised on
+    // ascending row position.
+    IColumn::Permutation perm(mutable_block.rows());
+    for (size_t i = 0; i < perm.size(); i++) {
+        perm[i] = i;
     }
+    static_cast<void>(_sort_permutation_by_key_columns(mutable_block, key_col_idx, perm,
+                                                       false /*descending_row_pos*/));
 
     in_block = mutable_block.to_block();
     SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
     DorisVector<uint32_t> row_pos_vec;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_pos_vec.reserve(in_block.rows());
-    for (const auto& row : row_in_blocks) {
-        row_pos_vec.emplace_back(row._row_pos);
-        _append_output_row_binlog_lsn(row);
+    for (size_t i = 0; i < perm.size(); i++) {
+        row_pos_vec.emplace_back(static_cast<uint32_t>(perm[i]));
+        if (_need_row_binlog_lsn) {
+            _output_row_binlog_lsns.emplace_back(input_row_binlog_lsns[perm[i]]);
+        }
     }
     std::vector<int> column_offset;
     for (int i = 0; i < _column_offset.size(); ++i) {

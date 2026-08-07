@@ -212,63 +212,6 @@ protected:
     static int32_t v_of(const Block& b, size_t row) { return int_of(b, 2, row); }
 };
 
-TEST_F(MemTableSortTest, Tie) {
-    auto t0 = Tie {0, 0};
-    EXPECT_FALSE(t0.iter().next());
-
-    auto tie = Tie {0, 1};
-    EXPECT_FALSE(tie.iter().next());
-
-    auto t = Tie {10, 30};
-    for (int i = 10; i < 30; i++) {
-        EXPECT_EQ(t[i], 1);
-    }
-
-    auto it1 = t.iter();
-    EXPECT_TRUE(it1.next());
-    EXPECT_EQ(it1.left(), 10);
-    EXPECT_EQ(it1.right(), 30);
-
-    EXPECT_FALSE(it1.next());
-
-    t[13] = t[14] = t[22] = t[29] = 0;
-    auto it2 = t.iter();
-
-    EXPECT_TRUE(it2.next());
-    EXPECT_EQ(it2.left(), 10);
-    EXPECT_EQ(it2.right(), 13);
-
-    EXPECT_TRUE(it2.next());
-    EXPECT_EQ(it2.left(), 14);
-    EXPECT_EQ(it2.right(), 22);
-
-    EXPECT_TRUE(it2.next());
-    EXPECT_EQ(it2.left(), 22);
-    EXPECT_EQ(it2.right(), 29);
-
-    EXPECT_FALSE(it2.next());
-    EXPECT_FALSE(it2.next());
-
-    // 100000000...
-    for (int i = 11; i < 30; i++) {
-        t[i] = 0;
-    }
-    EXPECT_FALSE(t.iter().next());
-
-    // 000000000...
-    t[10] = 0;
-    EXPECT_FALSE(t.iter().next());
-
-    // 000000000...001
-    t[29] = 1;
-    auto it3 = t.iter();
-    EXPECT_TRUE(it3.next());
-    EXPECT_EQ(it3.left(), 28);
-    EXPECT_EQ(it3.right(), 30);
-
-    EXPECT_FALSE(it3.next());
-}
-
 // Keys are ordered by (k1, k2); the second key column must only be used to
 // refine rows that tie on the first one.
 TEST_F(MemTableSortTest, DupKeysOrdersByAllKeyColumns) {
@@ -284,6 +227,21 @@ TEST_F(MemTableSortTest, DupKeysOrdersByAllKeyColumns) {
     EXPECT_EQ("a", k2_of(*out, 2));
     EXPECT_EQ(2, k1_of(*out, 3));
     EXPECT_EQ("b", k2_of(*out, 3));
+}
+
+// The permutation is applied to _row_in_blocks in place by following its
+// cycles, so cover a permutation that is one long cycle rather than the short
+// swaps the other cases happen to produce. Keys [5,1,2,3,4] sort to sources
+// [1,2,3,4,0], i.e. a single 5-cycle.
+TEST_F(MemTableSortTest, SingleCyclePermutation) {
+    std::vector<Row> rows = {{5, "a", 50}, {1, "a", 10}, {2, "a", 20}, {3, "a", 30}, {4, "a", 40}};
+    std::unique_ptr<Block> out;
+    ASSERT_NO_FATAL_FAILURE(run(KeysType::DUP_KEYS, rows, 1, &out));
+    ASSERT_EQ(5, out->rows());
+    for (size_t i = 0; i < 5; ++i) {
+        EXPECT_EQ(static_cast<int32_t>(i + 1), k1_of(*out, i)) << "row " << i;
+        EXPECT_EQ(static_cast<int32_t>((i + 1) * 10), v_of(*out, i)) << "row " << i;
+    }
 }
 
 // Rows sharing the whole key are stabilised on descending row position for
