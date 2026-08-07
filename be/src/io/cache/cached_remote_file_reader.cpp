@@ -118,53 +118,43 @@ FileScannerV2ReaderLocalCache::FileScannerV2ReaderLocalCache(
           _memory_tracker(std::make_shared<doris::MemTracker>("FileScannerV2ReaderLocalCache")) {}
 
 FileScannerV2ReaderLocalCache::~FileScannerV2ReaderLocalCache() {
-    std::unique_ptr<SwitchThreadMemTrackerLimiter> switch_query_tracker;
-    if (_query_mem_tracker != nullptr) {
-        switch_query_tracker = std::make_unique<SwitchThreadMemTrackerLimiter>(_query_mem_tracker);
+    std::lock_guard lock(_budget_mutex);
+    DORIS_CHECK(_memory_bytes == 0);
+    DORIS_CHECK(_reserved_bytes == 0);
+}
+
+FileScannerV2ReaderLocalCache::FileKey FileScannerV2ReaderLocalCache::_make_file_key(
+        const UInt128Wrapper& file_key) {
+    return {.file_key_high = file_key.high(), .file_key_low = file_key.low()};
+}
+
+std::shared_ptr<FileScannerV2ReaderLocalFileCache>
+FileScannerV2ReaderLocalCache::get_or_create_file_cache(const UInt128Wrapper& file_key) {
+    std::lock_guard lock(_registry_mutex);
+    const FileKey key = _make_file_key(file_key);
+    if (const auto it = _files.find(key); it != _files.end()) {
+        if (auto file_cache = it->second.lock(); file_cache != nullptr) {
+            return file_cache;
+        }
+        _files.erase(it);
     }
-    std::lock_guard lock(_mutex);
-    _memory_tracker->release(cast_set<int64_t>(_memory_bytes));
-    _entries.clear();
-    _lru.clear();
-    _memory_bytes = 0;
-}
-
-FileScannerV2ReaderLocalCache::Key FileScannerV2ReaderLocalCache::_make_key(
-        const UInt128Wrapper& file_key, size_t block_offset) {
-    return {.file_key_high = file_key.high(),
-            .file_key_low = file_key.low(),
-            .block_offset = block_offset};
-}
-
-void FileScannerV2ReaderLocalCache::_touch_locked(const std::shared_ptr<Entry>& entry) {
-    if (entry->in_lru) {
-        _lru.splice(_lru.begin(), _lru, entry->lru_position);
+    std::shared_ptr<FileScannerV2ReaderLocalFileCache> file_cache;
+    try {
+        file_cache = std::shared_ptr<FileScannerV2ReaderLocalFileCache>(
+                new FileScannerV2ReaderLocalFileCache(shared_from_this()));
+        _files.emplace(key, file_cache);
+    } catch (const doris::Exception&) {
+        return nullptr;
+    } catch (const std::bad_alloc&) {
+        return nullptr;
     }
+    return file_cache;
 }
 
-bool FileScannerV2ReaderLocalCache::_reserve_locked(size_t bytes, size_t* evicted) {
+bool FileScannerV2ReaderLocalCache::_try_reserve(size_t bytes) {
+    std::lock_guard lock(_budget_mutex);
     if (bytes > _capacity) {
         return false;
-    }
-    size_t candidates = _lru.size();
-    while (_memory_bytes + _reserved_bytes + bytes > _capacity && candidates-- > 0 &&
-           !_lru.empty()) {
-        const Key victim_key = _lru.back();
-        const auto victim = _entries.find(victim_key);
-        DORIS_CHECK(victim != _entries.end());
-        DORIS_CHECK(!victim->second->loading);
-        if (victim->second->data.use_count() > 1) {
-            // A reader still pins this block outside the cache lock. Keep its map entry so another
-            // reader cannot start a duplicate fill before the first copy finishes.
-            _lru.splice(_lru.begin(), _lru, victim->second->lru_position);
-            continue;
-        }
-        const size_t victim_size = victim->second->data->size();
-        _memory_bytes -= victim_size;
-        _memory_tracker->release(cast_set<int64_t>(victim_size));
-        _lru.pop_back();
-        _entries.erase(victim);
-        ++*evicted;
     }
     if (_memory_bytes + _reserved_bytes + bytes > _capacity) {
         return false;
@@ -182,15 +172,168 @@ bool FileScannerV2ReaderLocalCache::_reserve_locked(size_t bytes, size_t* evicte
     return true;
 }
 
-bool FileScannerV2ReaderLocalCache::read_if_present(const UInt128Wrapper& file_key,
-                                                    size_t block_offset, size_t read_offset,
-                                                    Slice result, LookupResult* lookup) {
+bool FileScannerV2ReaderLocalCache::_reserve(size_t bytes,
+                                             FileScannerV2ReaderLocalFileCache* requester,
+                                             size_t* evicted) {
+    if (_try_reserve(bytes)) {
+        return true;
+    }
+    auto files = _file_caches();
+    // Reservation is a cold-path operation. Cross-file eviction keeps one query budget without
+    // putting a query-global mutex on every cache hit.
+    for (int pass = 0; pass < 2; ++pass) {
+        for (const auto& file : files) {
+            if ((pass == 0) != (file.get() == requester)) {
+                continue;
+            }
+            while (file->_evict_one()) {
+                ++*evicted;
+                if (_try_reserve(bytes)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+void FileScannerV2ReaderLocalCache::_commit(size_t bytes) {
+    {
+        std::lock_guard lock(_budget_mutex);
+        DORIS_CHECK(_reserved_bytes >= bytes);
+        _reserved_bytes -= bytes;
+        _memory_bytes += bytes;
+    }
+    _memory_tracker->consume(cast_set<int64_t>(bytes));
+}
+
+void FileScannerV2ReaderLocalCache::_cancel_reservation(size_t bytes) {
+    std::lock_guard lock(_budget_mutex);
+    DORIS_CHECK(_reserved_bytes >= bytes);
+    _reserved_bytes -= bytes;
+}
+
+void FileScannerV2ReaderLocalCache::_release(size_t bytes) {
+    {
+        std::lock_guard lock(_budget_mutex);
+        DORIS_CHECK(_memory_bytes >= bytes);
+        _memory_bytes -= bytes;
+    }
+    _memory_tracker->release(cast_set<int64_t>(bytes));
+}
+
+std::vector<std::shared_ptr<FileScannerV2ReaderLocalFileCache>>
+FileScannerV2ReaderLocalCache::_file_caches() const {
+    std::vector<std::shared_ptr<FileScannerV2ReaderLocalFileCache>> files;
+    std::lock_guard lock(_registry_mutex);
+    for (auto it = _files.begin(); it != _files.end();) {
+        if (auto file = it->second.lock(); file != nullptr) {
+            files.push_back(std::move(file));
+            ++it;
+        } else {
+            it = _files.erase(it);
+        }
+    }
+    return files;
+}
+
+size_t FileScannerV2ReaderLocalCache::entry_count() const {
+    size_t count = 0;
+    for (const auto& file : _file_caches()) {
+        count += file->entry_count();
+    }
+    return count;
+}
+
+size_t FileScannerV2ReaderLocalCache::memory_usage() const {
+    std::lock_guard lock(_budget_mutex);
+    return _memory_bytes;
+}
+
+int64_t FileScannerV2ReaderLocalCache::tracked_memory() const {
+    return _memory_tracker->consumption();
+}
+
+FileScannerV2ReaderLocalFileCache::FileScannerV2ReaderLocalFileCache(
+        std::shared_ptr<FileScannerV2ReaderLocalCache> owner)
+        : _owner(std::move(owner)) {}
+
+FileScannerV2ReaderLocalFileCache::~FileScannerV2ReaderLocalFileCache() {
+    std::unique_ptr<SwitchThreadMemTrackerLimiter> switch_query_tracker;
+    if (_owner->_query_mem_tracker != nullptr) {
+        switch_query_tracker =
+                std::make_unique<SwitchThreadMemTrackerLimiter>(_owner->_query_mem_tracker);
+    }
+    size_t memory_bytes = 0;
+    size_t reserved_bytes = 0;
+    {
+        std::lock_guard lock(_mutex);
+        for (const auto& [_, entry] : _entries) {
+            if (entry->data != nullptr) {
+                memory_bytes += entry->data->size();
+            }
+            reserved_bytes += entry->reserved_bytes;
+        }
+        _entries.clear();
+        _lru.clear();
+    }
+    if (memory_bytes > 0) {
+        _owner->_release(memory_bytes);
+    }
+    if (reserved_bytes > 0) {
+        _owner->_cancel_reservation(reserved_bytes);
+    }
+}
+
+void FileScannerV2ReaderLocalFileCache::_touch_locked(const std::shared_ptr<Entry>& entry) {
+    if (entry->in_lru) {
+        _lru.splice(_lru.begin(), _lru, entry->lru_position);
+    }
+}
+
+bool FileScannerV2ReaderLocalFileCache::_evict_one() {
+    std::shared_ptr<std::vector<char>> data;
+    {
+        std::lock_guard lock(_mutex);
+        size_t candidates = _lru.size();
+        while (candidates-- > 0 && !_lru.empty()) {
+            const size_t victim_offset = _lru.back();
+            const auto victim = _entries.find(victim_offset);
+            DORIS_CHECK(victim != _entries.end());
+            DORIS_CHECK(!victim->second->loading);
+            if (victim->second->data.use_count() > 1) {
+                // Keep pinned blocks discoverable so another reader cannot start a duplicate fill.
+                _lru.splice(_lru.begin(), _lru, victim->second->lru_position);
+                continue;
+            }
+            data = std::move(victim->second->data);
+            _lru.pop_back();
+            _entries.erase(victim);
+            break;
+        }
+    }
+    if (data == nullptr) {
+        return false;
+    }
+    const size_t bytes = data->size();
+    std::unique_ptr<SwitchThreadMemTrackerLimiter> switch_query_tracker;
+    if (_owner->_query_mem_tracker != nullptr) {
+        switch_query_tracker =
+                std::make_unique<SwitchThreadMemTrackerLimiter>(_owner->_query_mem_tracker);
+    }
+    data.reset();
+    _owner->_release(bytes);
+    return true;
+}
+
+bool FileScannerV2ReaderLocalFileCache::read_if_present(size_t block_offset, size_t read_offset,
+                                                        Slice result, LookupResult* lookup) {
     DORIS_CHECK(lookup != nullptr);
     *lookup = {};
     std::shared_ptr<std::vector<char>> data;
     {
         std::lock_guard lock(_mutex);
-        const auto it = _entries.find(_make_key(file_key, block_offset));
+        const auto it = _entries.find(block_offset);
         if (it == _entries.end() || it->second->loading || !it->second->load_status.ok() ||
             it->second->data == nullptr || read_offset < block_offset ||
             read_offset - block_offset > it->second->data->size() ||
@@ -206,18 +349,17 @@ bool FileScannerV2ReaderLocalCache::read_if_present(const UInt128Wrapper& file_k
     return true;
 }
 
-Status FileScannerV2ReaderLocalCache::get_or_load(const UInt128Wrapper& file_key,
-                                                  size_t block_offset, size_t block_size,
-                                                  const FileBlockSPtr& file_block,
-                                                  size_t file_block_offset, LookupResult* lookup) {
+Status FileScannerV2ReaderLocalFileCache::get_or_load(size_t block_offset, size_t block_size,
+                                                      const FileBlockSPtr& file_block,
+                                                      size_t file_block_offset,
+                                                      LookupResult* lookup) {
     DORIS_CHECK(lookup != nullptr);
     *lookup = {};
-    const Key key = _make_key(file_key, block_offset);
     std::shared_ptr<Entry> entry;
     bool load = false;
     {
         std::unique_lock lock(_mutex);
-        const auto it = _entries.find(key);
+        const auto it = _entries.find(block_offset);
         if (it == _entries.end()) {
             try {
                 entry = std::make_shared<Entry>();
@@ -226,20 +368,13 @@ Status FileScannerV2ReaderLocalCache::get_or_load(const UInt128Wrapper& file_key
             } catch (const std::bad_alloc&) {
                 return Status::OK();
             }
-            if (!_reserve_locked(block_size, &lookup->evicted)) {
-                return Status::OK();
-            }
-            entry->reserved_bytes = block_size;
             try {
-                _entries.emplace(key, entry);
+                _entries.emplace(block_offset, entry);
             } catch (const doris::Exception&) {
-                _reserved_bytes -= block_size;
                 return Status::OK();
             } catch (const std::bad_alloc&) {
-                _reserved_bytes -= block_size;
                 return Status::OK();
             }
-            lookup->admitted = true;
             load = true;
         } else {
             entry = it->second;
@@ -269,9 +404,20 @@ Status FileScannerV2ReaderLocalCache::get_or_load(const UInt128Wrapper& file_key
         return Status::OK();
     }
 
+    if (!_owner->_reserve(block_size, this, &lookup->evicted)) {
+        std::lock_guard lock(_mutex);
+        entry->loading = false;
+        _entries.erase(block_offset);
+        entry->ready.notify_all();
+        return Status::OK();
+    }
+    entry->reserved_bytes = block_size;
+    lookup->admitted = true;
+
     std::unique_ptr<SwitchThreadMemTrackerLimiter> switch_query_tracker;
-    if (_query_mem_tracker != nullptr) {
-        switch_query_tracker = std::make_unique<SwitchThreadMemTrackerLimiter>(_query_mem_tracker);
+    if (_owner->_query_mem_tracker != nullptr) {
+        switch_query_tracker =
+                std::make_unique<SwitchThreadMemTrackerLimiter>(_owner->_query_mem_tracker);
     }
     std::shared_ptr<std::vector<char>> data;
     try {
@@ -283,10 +429,10 @@ Status FileScannerV2ReaderLocalCache::get_or_load(const UInt128Wrapper& file_key
         // An optional cache fill must not strand waiters or fail the scan when its allocation loses
         // a race with the query/process memory limit; callers fall back to an exact FileCache read.
         std::lock_guard lock(_mutex);
-        _reserved_bytes -= entry->reserved_bytes;
+        _owner->_cancel_reservation(entry->reserved_bytes);
         entry->reserved_bytes = 0;
         entry->loading = false;
-        _entries.erase(key);
+        _entries.erase(block_offset);
         entry->ready.notify_all();
         lookup->admitted = false;
         return Status::OK();
@@ -299,50 +445,45 @@ Status FileScannerV2ReaderLocalCache::get_or_load(const UInt128Wrapper& file_key
     lookup->fill_time = fill_watch.elapsed_time();
     {
         std::lock_guard lock(_mutex);
-        _reserved_bytes -= entry->reserved_bytes;
-        entry->reserved_bytes = 0;
         entry->load_status = load_status;
         entry->loading = false;
         if (load_status.ok()) {
             entry->data = data;
             try {
-                _lru.push_front(key);
+                _lru.push_front(block_offset);
             } catch (const doris::Exception&) {
-                _entries.erase(key);
+                _owner->_cancel_reservation(entry->reserved_bytes);
+                entry->reserved_bytes = 0;
+                _entries.erase(block_offset);
                 entry->ready.notify_all();
                 lookup->data = std::move(data);
                 return Status::OK();
             } catch (const std::bad_alloc&) {
-                _entries.erase(key);
+                _owner->_cancel_reservation(entry->reserved_bytes);
+                entry->reserved_bytes = 0;
+                _entries.erase(block_offset);
                 entry->ready.notify_all();
                 lookup->data = std::move(data);
                 return Status::OK();
             }
             entry->lru_position = _lru.begin();
             entry->in_lru = true;
-            _memory_bytes += block_size;
-            _memory_tracker->consume(cast_set<int64_t>(block_size));
+            _owner->_commit(entry->reserved_bytes);
+            entry->reserved_bytes = 0;
             lookup->data = std::move(data);
         } else {
-            _entries.erase(key);
+            _owner->_cancel_reservation(entry->reserved_bytes);
+            entry->reserved_bytes = 0;
+            _entries.erase(block_offset);
         }
         entry->ready.notify_all();
     }
     return load_status;
 }
 
-size_t FileScannerV2ReaderLocalCache::entry_count() const {
+size_t FileScannerV2ReaderLocalFileCache::entry_count() const {
     std::lock_guard lock(_mutex);
     return _entries.size();
-}
-
-size_t FileScannerV2ReaderLocalCache::memory_usage() const {
-    std::lock_guard lock(_mutex);
-    return _memory_bytes;
-}
-
-int64_t FileScannerV2ReaderLocalCache::tracked_memory() const {
-    return _memory_tracker->consumption();
 }
 
 static bool use_remote_only_on_cache_miss(const IOContext* io_ctx) {
@@ -367,6 +508,11 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         _init_doris_table_cache();
     } else {
         _init_external_table_cache(opts);
+    }
+    if (_enable_reader_local_cache) {
+        // Bind once per immutable file identity so hot reads never visit the query-wide registry.
+        _reader_local_file_cache = _reader_local_cache->get_or_create_file_cache(_cache_hash);
+        _enable_reader_local_cache = _reader_local_file_cache != nullptr;
     }
 }
 
@@ -1043,18 +1189,30 @@ bool CachedRemoteFileReader::_try_read_from_cached_files_directly(
 
 bool CachedRemoteFileReader::_read_from_memory_block_cache(size_t offset, Slice result,
                                                            ReadStatistics* stats) {
-    if (!_enable_reader_local_cache || _reader_local_cache == nullptr) {
+    if (!_enable_reader_local_cache || _reader_local_file_cache == nullptr) {
         return false;
     }
-    const size_t block_offset =
-            offset / READER_LOCAL_CACHE_BLOCK_BYTES * READER_LOCAL_CACHE_BLOCK_BYTES;
-    FileScannerV2ReaderLocalCache::LookupResult lookup;
-    if (!_reader_local_cache->read_if_present(_cache_hash, block_offset, offset, result, &lookup)) {
-        return false;
+    size_t current_offset = offset;
+    const size_t request_end = offset + result.size;
+    int64_t hit_blocks = 0;
+    while (current_offset < request_end) {
+        const size_t block_offset =
+                current_offset / READER_LOCAL_CACHE_BLOCK_BYTES * READER_LOCAL_CACHE_BLOCK_BYTES;
+        const size_t read_end =
+                std::min(request_end, block_offset + READER_LOCAL_CACHE_BLOCK_BYTES);
+        const size_t read_size = read_end - current_offset;
+        FileScannerV2ReaderLocalFileCache::LookupResult lookup;
+        if (!_reader_local_file_cache->read_if_present(
+                    block_offset, current_offset,
+                    Slice(result.data + current_offset - offset, read_size), &lookup)) {
+            return false;
+        }
+        ++hit_blocks;
+        current_offset = read_end;
     }
     if (stats != nullptr) {
-        stats->num_reader_local_cache_total++;
-        stats->num_reader_local_cache_hit++;
+        stats->num_reader_local_cache_total += hit_blocks;
+        stats->num_reader_local_cache_hit += hit_blocks;
         stats->bytes_reader_local_cache_request += cast_set<int64_t>(result.size);
         stats->bytes_read_from_reader_local_cache += cast_set<int64_t>(result.size);
     }
@@ -1065,7 +1223,7 @@ Status CachedRemoteFileReader::_read_local_block(const FileBlockSPtr& block, siz
                                                  size_t absolute_offset, Slice result,
                                                  ReadStatistics& stats,
                                                  bool bypass_reader_local_cache) {
-    if (!_enable_reader_local_cache || _reader_local_cache == nullptr ||
+    if (!_enable_reader_local_cache || _reader_local_file_cache == nullptr ||
         bypass_reader_local_cache) {
         return block->read(result, file_offset);
     }
@@ -1086,10 +1244,9 @@ Status CachedRemoteFileReader::_read_local_block(const FileBlockSPtr& block, siz
         stats.bytes_reader_local_cache_request += cast_set<int64_t>(copy_size);
 
         const size_t buffer_size = buffer_end - buffer_offset;
-        FileScannerV2ReaderLocalCache::LookupResult lookup;
-        RETURN_IF_ERROR(_reader_local_cache->get_or_load(_cache_hash, buffer_offset, buffer_size,
-                                                         block, buffer_offset - block->range().left,
-                                                         &lookup));
+        FileScannerV2ReaderLocalFileCache::LookupResult lookup;
+        RETURN_IF_ERROR(_reader_local_file_cache->get_or_load(
+                buffer_offset, buffer_size, block, buffer_offset - block->range().left, &lookup));
         stats.num_reader_local_cache_evict += cast_set<int64_t>(lookup.evicted);
         stats.reader_local_cache_fill_timer += lookup.fill_time;
         if (lookup.waited) {
@@ -1662,6 +1819,16 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             }
         }
     }};
+
+    const bool bypass_reader_local_cache = io_ctx->bypass_reader_local_cache;
+    if (!is_dryrun && !bypass_reader_local_cache &&
+        _read_from_memory_block_cache(offset, Slice(result.data, bytes_req), &stats)) {
+        // A resident file-local block is authoritative for this immutable file identity; avoid
+        // taking FileCache metadata locks again on the hot path.
+        *bytes_read = bytes_req;
+        source_read_breakdown.local_bytes += cast_set<int64_t>(bytes_req);
+        return Status::OK();
+    }
 
     if (use_remote_only_on_cache_miss(io_ctx)) {
         read_st = _read_remote_only_on_cache_miss(offset, result, bytes_req, is_dryrun, bytes_read,

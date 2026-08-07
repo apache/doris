@@ -10634,6 +10634,39 @@ TEST_F(BlockFileCacheTest, external_reader_buffers_cache_block_on_first_partial_
                         .ok());
     EXPECT_TRUE(cache_hit);
     EXPECT_EQ(reused, "cdef");
+
+    FileCacheStatistics hot_read_stats;
+    IOContext hot_read_ctx;
+    hot_read_ctx.file_cache_stats = &hot_read_stats;
+    std::string hot_read(2, '#');
+    ASSERT_TRUE(
+            reader.read_at(2, Slice(hot_read.data(), hot_read.size()), &bytes_read, &hot_read_ctx)
+                    .ok());
+    EXPECT_EQ(hot_read, "cd");
+    EXPECT_EQ(hot_read_stats.num_reader_local_cache_hit, 1);
+    EXPECT_EQ(hot_read_stats.cache_get_or_set_timer, 0);
+}
+
+TEST_F(BlockFileCacheTest, reader_local_cache_uses_one_cache_object_per_file) {
+    auto cache = std::make_shared<FileScannerV2ReaderLocalCache>(1_mb);
+    auto first = cache->get_or_create_file_cache(BlockFileCache::hash("reader-local-file-a"));
+    auto first_again = cache->get_or_create_file_cache(BlockFileCache::hash("reader-local-file-a"));
+    auto second = cache->get_or_create_file_cache(BlockFileCache::hash("reader-local-file-b"));
+
+    ASSERT_NE(first, nullptr);
+    EXPECT_EQ(first, first_again);
+    EXPECT_NE(first, second);
+
+    std::unique_lock first_file_lock(first->_mutex);
+    auto second_lookup = std::async(std::launch::async, [&]() {
+        std::string result(1, '#');
+        FileScannerV2ReaderLocalFileCache::LookupResult lookup;
+        return second->read_if_present(0, 0, Slice(result.data(), result.size()), &lookup);
+    });
+    const auto second_lookup_status = second_lookup.wait_for(std::chrono::seconds(1));
+    first_file_lock.unlock();
+    EXPECT_EQ(second_lookup_status, std::future_status::ready);
+    EXPECT_FALSE(second_lookup.get());
 }
 
 TEST_F(BlockFileCacheTest, reader_local_cache_is_opt_in_and_excludes_doris_tables) {
@@ -10758,6 +10791,24 @@ TEST_F(BlockFileCacheTest, reader_local_cache_uses_256_kib_sub_blocks) {
     EXPECT_EQ(hit_stats.num_reader_local_cache_hit, 1);
     EXPECT_EQ(hit_stats.bytes_read_from_reader_local_cache, buffer.size());
     EXPECT_EQ(hit_stats.bytes_read_into_reader_local_cache, 0);
+
+    cache_hit = false;
+    ASSERT_TRUE(reader.read_at_from_cache(300_kb, Slice(buffer.data(), buffer.size()), &bytes_read,
+                                          &cache_hit)
+                        .ok());
+    ASSERT_TRUE(cache_hit);
+
+    FileCacheStatistics cross_block_stats;
+    IOContext cross_block_ctx;
+    cross_block_ctx.file_cache_stats = &cross_block_stats;
+    std::string cross_block_buffer(8, '#');
+    ASSERT_TRUE(reader.read_at(reader_block_size - 4,
+                               Slice(cross_block_buffer.data(), cross_block_buffer.size()),
+                               &bytes_read, &cross_block_ctx)
+                        .ok());
+    EXPECT_EQ(cross_block_buffer, std::string(8, 'x'));
+    EXPECT_EQ(cross_block_stats.num_reader_local_cache_hit, 2);
+    EXPECT_EQ(cross_block_stats.cache_get_or_set_timer, 0);
 }
 
 TEST_F(BlockFileCacheTest, concurrent_reader_local_cache_fill_is_single_flight) {
@@ -10925,11 +10976,14 @@ TEST_F(BlockFileCacheTest, reader_local_cache_is_shared_across_v2_readers) {
 TEST_F(BlockFileCacheTest, reader_local_cache_capacity_is_shared_by_all_v2_readers) {
     constexpr size_t reader_block_size = 256_kb;
     const std::string content(600_kb, 'x');
-    const fs::path file_path =
-            create_cached_remote_reader_test_file("bounded_shared_reader_local_cache", content);
+    const fs::path first_file_path =
+            create_cached_remote_reader_test_file("bounded_shared_reader_local_cache_a", content);
+    const fs::path second_file_path =
+            create_cached_remote_reader_test_file("bounded_shared_reader_local_cache_b", content);
     Defer cleanup_file {[&]() {
         std::error_code ignore;
-        fs::remove(file_path, ignore);
+        fs::remove(first_file_path, ignore);
+        fs::remove(second_file_path, ignore);
     }};
 
     const fs::path cache_path = caches_dir / "bounded_shared_reader_local_cache_blocks";
@@ -10941,8 +10995,14 @@ TEST_F(BlockFileCacheTest, reader_local_cache_capacity_is_shared_by_all_v2_reade
     }};
     create_cached_remote_reader_test_cache(cache_path, 1_mb);
 
-    FileReaderSPtr local_reader;
-    ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
+    FileReaderSPtr first_local_reader;
+    FileReaderSPtr second_local_reader;
+    ASSERT_TRUE(global_local_filesystem()
+                        ->open_file(first_file_path.string(), &first_local_reader)
+                        .ok());
+    ASSERT_TRUE(global_local_filesystem()
+                        ->open_file(second_file_path.string(), &second_local_reader)
+                        .ok());
     auto shared_cache = std::make_shared<FileScannerV2ReaderLocalCache>(reader_block_size);
     io::FileReaderOptions opts;
     opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
@@ -10951,8 +11011,8 @@ TEST_F(BlockFileCacheTest, reader_local_cache_capacity_is_shared_by_all_v2_reade
     opts.reader_local_cache = shared_cache;
     opts.cache_base_path = cache_path.string();
     opts.mtime = 1;
-    CachedRemoteFileReader first_reader(local_reader, opts);
-    CachedRemoteFileReader second_reader(local_reader, opts);
+    CachedRemoteFileReader first_reader(first_local_reader, opts);
+    CachedRemoteFileReader second_reader(second_local_reader, opts);
 
     std::string warmup(8, '#');
     size_t bytes_read = 0;
@@ -10965,6 +11025,9 @@ TEST_F(BlockFileCacheTest, reader_local_cache_capacity_is_shared_by_all_v2_reade
                                             &bytes_read, &cache_hit)
                         .ok());
     ASSERT_TRUE(cache_hit);
+
+    ASSERT_TRUE(
+            second_reader.read_at(384_kb, Slice(warmup.data(), warmup.size()), &bytes_read).ok());
 
     FileCacheStatistics second_stats;
     IOContext second_ctx;
