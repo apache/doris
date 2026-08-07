@@ -24,6 +24,22 @@ payload	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable
 -- !subpath_predicate --
 2	bob
 
+-- !primary_key_full_variant --
+1	{"active":true,"name":"alice-updated","profile":{"city":"hangzhou"},"version":2}
+2	{"name":"bob","tags":["new","primary-key"],"version":2}
+3	[10,"original"]
+4	{"active":true,"name":"carol","version":1}
+
+-- !primary_key_deduplicate --
+1	alice-updated	2	true
+2	bob	2	\N
+3	\N	\N	\N
+4	carol	1	true
+
+-- !primary_key_subpath_predicate --
+1	alice-updated
+2	bob
+
 -- !native_full_variant --
 1	{"active":true,"age":18,"missing":null,"name":"alice","profile":{"city":"beijing","zip":100000},"score":98.5,"tags":["flink","paimon"]}
 2	{"active":false,"age":30,"extra":{"levels":[1,2,3]},"name":"bob","profile":{"city":"shanghai"},"tags":["doris"]}

@@ -411,7 +411,9 @@ protected:
         DORIS_CHECK(file_schema != nullptr);
         return Status::OK();
     }
-    virtual Status validate_file_mapping(const TableColumnMapper&) const { return Status::OK(); }
+    static Status validate_variant_file_mappings(FileFormat format,
+                                                 const std::vector<ColumnMapping>& mappings);
+    virtual Status validate_file_mapping(const TableColumnMapper& mapper) const;
 
     // Open the concrete reader for the current split/task and build the file-local scan request.
     virtual Status open_reader() {

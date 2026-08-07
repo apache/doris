@@ -34,7 +34,9 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
                 "s3.path.style.access" = "true"
             );"""
         sql """use `${catalogName}`.`test_paimon_spark`"""
+        // JNI reader cases.
         sql """set enable_variant_v2 = true"""
+        sql """set enable_file_scanner_v2 = true"""
         sql """set force_jni_scanner = true"""
 
         explain {
@@ -87,6 +89,34 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             order by id
         """
 
+        // variant_smoke is append-only. This table has duplicate primary-key writes, so the scan
+        // must preserve Paimon's deduplicate semantics while materializing Variant values.
+        order_qt_primary_key_full_variant """
+            select id, payload
+            from variant_primary_key_smoke
+            order by id
+        """
+
+        order_qt_primary_key_deduplicate """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['version'] as int),
+                   cast(payload['active'] as boolean)
+            from variant_primary_key_smoke
+            order by id
+        """
+
+        order_qt_primary_key_subpath_predicate """
+            select id, cast(payload['name'] as string)
+            from variant_primary_key_smoke
+            where cast(payload['version'] as int) = 2
+            order by id
+        """
+
+        // Native reader cases. Reset every relevant switch explicitly so the JNI cases above do
+        // not leak their session state into this block.
+        sql """set enable_variant_v2 = true"""
+        sql """set enable_file_scanner_v2 = true"""
         sql """set force_jni_scanner = false"""
 
         explain {
@@ -219,6 +249,36 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             order_qt_native_mixed_us_mtmv """select * from ${mvName} order by name"""
         } finally {
             sql """drop materialized view if exists ${mvName}"""
+        }
+
+        // FileScannerV2 is required by both the native and JNI scan paths for external VARIANT.
+        sql """set enable_variant_v2 = true"""
+        sql """set enable_file_scanner_v2 = false"""
+        sql """set force_jni_scanner = false"""
+        test {
+            sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+            exception "External VARIANT columns require FileScannerV2"
+        }
+
+        sql """set force_jni_scanner = true"""
+        test {
+            sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+            exception "External VARIANT columns require FileScannerV2"
+        }
+
+        // The Paimon VARIANT feature switch is checked for both JNI and native planning.
+        sql """set enable_file_scanner_v2 = true"""
+        sql """set enable_variant_v2 = false"""
+        sql """set force_jni_scanner = true"""
+        test {
+            sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+            exception "Paimon VARIANT columns require enable_variant_v2=true"
+        }
+
+        sql """set force_jni_scanner = false"""
+        test {
+            sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+            exception "Paimon VARIANT columns require enable_variant_v2=true"
         }
     }
 }

@@ -198,6 +198,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
+        checkVariantV2Enabled(desc, sessionVariable.isEnableVariantV2());
         Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
         if (desc.getTable() instanceof PaimonExternalTable
                 || desc.getTable() instanceof PaimonSysExternalTable) {
@@ -249,6 +250,17 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
         if (getSummaryProfile() != null) {
             getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
+        }
+    }
+
+    @VisibleForTesting
+    static void checkVariantV2Enabled(TupleDescriptor tuple, boolean enabled) throws UserException {
+        // Enforce the session switch here instead of during Paimon schema conversion. The cached
+        // external schema is shared by sessions, while this tuple contains only the slots projected
+        // by the current query and therefore does not reject scans of unrelated non-VARIANT columns.
+        if (!enabled && tuple.getSlots().stream().anyMatch(slot -> PaimonUtil.containsVariant(slot.getType()))) {
+            throw new UserException(
+                    "Paimon VARIANT columns require enable_variant_v2=true");
         }
     }
 
