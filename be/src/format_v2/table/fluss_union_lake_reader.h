@@ -33,12 +33,16 @@
 namespace doris::format::fluss {
 
 /**
- * A lake split of a tiered primary-key fluss table, minus the rows its log tail has superseded.
+ * The lake half of a fluss scan: the sibling's lake splits, minus the rows a log tail has
+ * superseded.
  *
- * <p>A primary-key table whose rows are being tiered into a lake is read as two halves: the lake, as
- * the paimon sibling's own splits, and the change log written after the lake snapshot. The halves
- * overlap by key rather than by row - a row the lake still holds may since have been updated or
- * deleted in the log - so returning both copies would duplicate rows in a way no row count reveals.
+ * <p>A fluss table whose rows are being tiered into a lake is read as two halves: the lake, as the
+ * paimon sibling's own splits, and the log written after the lake snapshot. A log table's halves
+ * meet at an offset and its lake splits arrive plain (`fluss.range_type=LAKE`), read here purely by
+ * delegation. A primary-key table's halves overlap by KEY rather than by row - a row the lake still
+ * holds may since have been updated or deleted in the log - so returning both copies would
+ * duplicate rows in a way no row count reveals; its lake splits arrive with the tail that
+ * supersedes part of them (`fluss.range_type=LAKE_SUPPRESS`).
  *
  * <p>The split of labour: this reader only SUPPRESSES. It reads the keys of one bucket's log tail,
  * once per bucket per BE, and drops the lake rows those keys name. What the tail ended up saying
@@ -49,8 +53,7 @@ namespace doris::format::fluss {
  * <p><b>The lake half is read entirely by the sibling's reader stack.</b> This class owns a
  * PaimonHybridReader and forwards every split to it untouched: native ORC/Parquet, serialized JNI
  * splits, deletion vectors, schema evolution and split scheduling are all its answer. The wrapping
- * range (`fluss_union`) carries the sibling's own payload beside the tail descriptor for exactly
- * that reason.
+ * range carries the sibling's own payload beside the fluss descriptor for exactly that reason.
  *
  * <p><b>Where the filter sits.</b> On the block the child returns, in table-schema terms, not inside
  * the child's file scan request. FE keeps the primary-key columns in the scan's tuple whenever it
@@ -137,6 +140,10 @@ private:
     /** The tail the current predicate was built from; a split of the same bucket reuses it. */
     std::string _suppression_tail_spec;
     VExprContextSPtr _suppression;
+    // Whether the split being read is a LAKE_SUPPRESS one. A plain LAKE split passes through with
+    // no suppression at all, and must not be filtered by a predicate a neighbouring bucket's split
+    // left behind - the predicate itself is kept, so a later split of that bucket can reuse it.
+    bool _current_split_suppressed = false;
 
     RuntimeProfile::Counter* _suppressed_rows_counter = nullptr;
     RuntimeProfile::Counter* _tail_keys_read_counter = nullptr;

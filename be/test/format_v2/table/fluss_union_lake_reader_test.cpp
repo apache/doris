@@ -110,9 +110,20 @@ TFileScanRangeParams union_scan_params(const std::string& pk_names = "id,name",
 
 TFileRangeDesc wrapped_lake_split(const std::string& tail) {
     TTableFormatFileDesc table_format_params;
-    table_format_params.__set_table_format_type("fluss_union");
+    table_format_params.__set_table_format_type("fluss");
     table_format_params.__set_fluss_params(
             {{"fluss.range_type", "LAKE_SUPPRESS"}, {"fluss.union.tail", tail}});
+    TFileRangeDesc range;
+    range.__set_table_format_params(std::move(table_format_params));
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    return range;
+}
+
+// A lake split of a bucket nothing supersedes: no tail, nothing to suppress, pure delegation.
+TFileRangeDesc plain_lake_split() {
+    TTableFormatFileDesc table_format_params;
+    table_format_params.__set_table_format_type("fluss");
+    table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
     TFileRangeDesc range;
     range.__set_table_format_params(std::move(table_format_params));
     range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
@@ -305,10 +316,6 @@ TEST(FlussUnionLakeReaderTest, RefusesAScanWithoutTheUnionProperties) {
     FlussUnionLakeReader without_properties;
     EXPECT_FALSE(init_reader(&without_properties, &no_properties).ok());
 
-    auto no_names = make_scan_params({{"fluss.db_name", "db"}});
-    FlussUnionLakeReader without_names;
-    EXPECT_FALSE(init_reader(&without_names, &no_names).ok());
-
     auto no_limit = make_scan_params({{"fluss.union.pk_names", "id"}});
     FlussUnionLakeReader without_limit;
     EXPECT_FALSE(init_reader(&without_limit, &no_limit).ok());
@@ -320,6 +327,41 @@ TEST(FlussUnionLakeReaderTest, RefusesAScanWithoutTheUnionProperties) {
     auto negative_limit = union_scan_params("id", "-1");
     FlussUnionLakeReader with_negative_limit;
     EXPECT_FALSE(init_reader(&with_negative_limit, &negative_limit).ok());
+}
+
+// FE states the union properties only when it plans a primary-key union. A log-table union has no
+// keys and nothing to suppress, and its plain LAKE splits are read by this same reader - so their
+// absence is a legitimate scan, not a protocol error.
+TEST(FlussUnionLakeReaderTest, ScanWithoutKeysReadsPlainLakeSplitsByDelegationAlone) {
+    auto scan_params = make_scan_params({{"fluss.db_name", "db"}});
+    FlussUnionLakeReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+    auto* lake = install_lake_reader(&reader);
+
+    format::SplitReadOptions options;
+    options.current_range = plain_lake_split();
+    ASSERT_TRUE(reader.prepare_split(options).ok());
+    lake->blocks.push_back(make_block({1, 2}, {"a", "b"}, {10, 20}));
+
+    Block block = make_block({}, {}, {});
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(ids_of(block), (std::vector<int32_t> {1, 2}));
+}
+
+// The keys were never stated, so a split claiming a tail supersedes part of it cannot be read: the
+// superseded rows cannot be identified, and reading on would return every one of them twice.
+TEST(FlussUnionLakeReaderTest, RefusesASuppressingSplitWhenTheScanStatedNoKeys) {
+    auto scan_params = make_scan_params({{"fluss.db_name", "db"}});
+    FlussUnionLakeReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+    install_lake_reader(&reader);
+
+    format::SplitReadOptions options;
+    options.current_range = wrapped_lake_split(":0:10:20");
+    const auto status = reader.prepare_split(options);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("fluss.union.pk_names"), std::string::npos);
 }
 
 // A COUNT answered from paimon's file metadata would count the rows this reader exists to remove,
@@ -369,6 +411,13 @@ struct SuppressionFixture {
         options.current_range = wrapped_lake_split(tail);
         return options;
     }
+
+    format::SplitReadOptions plain_split() {
+        format::SplitReadOptions options;
+        options.cache = &cache;
+        options.current_range = plain_lake_split();
+        return options;
+    }
 };
 
 // The whole point, stated once: a lake row whose key the tail touched is gone, and every other lake
@@ -414,6 +463,41 @@ TEST(FlussUnionLakeReaderTest, LeavesASplitWhoseKeysTheTailNeverTouchedAlone) {
     bool eos = false;
     ASSERT_TRUE(fixture.reader.get_block(&block, &eos).ok());
     EXPECT_EQ(ids_of(block), (std::vector<int32_t> {1, 2}));
+}
+
+// The scanner deals a scanner's splits in whatever order it likes, so a plain LAKE split can arrive
+// right after a suppressed one. The predicate the suppressed split built stays cached for its
+// bucket's later splits - but it must not touch a split whose bucket nothing supersedes.
+TEST(FlussUnionLakeReaderTest, PlainLakeSplitIsNotFilteredByANeighbourBucketsSuppression) {
+    SuppressionFixture fixture;
+    ASSERT_TRUE(fixture.open(make_key_block({2}, {"b"})).ok());
+    ASSERT_TRUE(fixture.reader.prepare_split(fixture.split(":0:10:20")).ok());
+
+    ASSERT_TRUE(fixture.reader.prepare_split(fixture.plain_split()).ok());
+    // The very rows the previous split's tail names, in the untouched bucket's split.
+    fixture.lake->blocks.push_back(make_block({1, 2}, {"a", "b"}, {10, 20}));
+
+    Block block = make_block({}, {}, {});
+    bool eos = false;
+    ASSERT_TRUE(fixture.reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(ids_of(block), (std::vector<int32_t> {1, 2}));
+}
+
+TEST(FlussUnionLakeReaderTest, SuppressionResumesOnTheNextSuppressedSplit) {
+    SuppressionFixture fixture;
+    ASSERT_TRUE(fixture.open(make_key_block({2}, {"b"})).ok());
+    ASSERT_TRUE(fixture.reader.prepare_split(fixture.split(":0:10:20")).ok());
+    ASSERT_TRUE(fixture.reader.prepare_split(fixture.plain_split()).ok());
+
+    // Same bucket again: its predicate was kept through the plain split, so the tail is not reread.
+    ASSERT_TRUE(fixture.reader.prepare_split(fixture.split(":0:10:20")).ok());
+    EXPECT_EQ(fixture.tails_read, (std::vector<std::string> {":0:10:20"}));
+    fixture.lake->blocks.push_back(make_block({1, 2}, {"a", "b"}, {10, 20}));
+
+    Block block = make_block({}, {}, {});
+    bool eos = false;
+    ASSERT_TRUE(fixture.reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(ids_of(block), (std::vector<int32_t> {1}));
 }
 
 // One bucket's tail is one read, however many of its splits this BE was given. The read is a network
@@ -592,35 +676,40 @@ TEST(FlussUnionLakeReaderTest, RefusesALakeSplitWithNoTailBoundToIt) {
     EXPECT_FALSE(prepare(no_params).ok());
 
     TTableFormatFileDesc empty_fluss_params;
-    empty_fluss_params.__set_table_format_type("fluss_union");
+    empty_fluss_params.__set_table_format_type("fluss");
     empty_fluss_params.__set_fluss_params({});
     TFileRangeDesc without_tail;
     without_tail.__set_table_format_params(empty_fluss_params);
     EXPECT_FALSE(prepare(without_tail).ok());
 
+    // A range of fluss's own log can only reach this reader through a dispatch bug, and reading it
+    // as a lake split - suppressed or plain - would be silently wrong either way.
     TTableFormatFileDesc wrong_type;
-    wrong_type.__set_table_format_type("fluss_union");
+    wrong_type.__set_table_format_type("fluss");
     wrong_type.__set_fluss_params({{"fluss.range_type", "LOG"}, {"fluss.union.tail", ":0:10:20"}});
     TFileRangeDesc not_a_suppression;
     not_a_suppression.__set_table_format_params(wrong_type);
     EXPECT_FALSE(prepare(not_a_suppression).ok());
 
     TTableFormatFileDesc no_tail_key;
-    no_tail_key.__set_table_format_type("fluss_union");
+    no_tail_key.__set_table_format_type("fluss");
     no_tail_key.__set_fluss_params({{"fluss.range_type", "LAKE_SUPPRESS"}});
     TFileRangeDesc suppression_without_tail;
     suppression_without_tail.__set_table_format_params(no_tail_key);
     EXPECT_FALSE(prepare(suppression_without_tail).ok());
 }
 
-// Reading a block with no suppression built would return the superseded rows. This is the state that
-// a future refactor could reach by accident, so it fails rather than passing the block through.
+// Reading a suppressed split's block with no suppression built would return the superseded rows.
+// This is the state that a future refactor could reach by accident, so it fails rather than passing
+// the block through.
 TEST(FlussUnionLakeReaderTest, RefusesToReturnABlockWithNoSuppressionBuilt) {
     FlussUnionLakeReader reader;
     auto scan_params = union_scan_params();
     ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
     auto* lake = install_lake_reader(&reader);
     lake->blocks.push_back(make_block({1}, {"a"}, {10}));
+    // The state itself, not a path that reaches it: the split claims suppression, none was built.
+    reader._current_split_suppressed = true;
 
     Block block = make_block({}, {}, {});
     bool eos = false;
