@@ -233,15 +233,14 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(subqueryConjuncts.get(i), context);
                         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo;
-                        if (join.getJoinType().isOuterJoin() || join.getJoinType().isAsofJoin()
-                                || join.getJoinType().isNullAwareLeftAntiJoin()) {
-                            // can't simplify for outer join, asof join or naaj
-                            markSlotsInfo = Maps.newHashMap();
-                        } else {
+                        if (join.getJoinType().isInnerOrCrossJoin() || join.getJoinType().isSemiJoin()) {
                             Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyResult =
                                     simplifyConjunctWithMarkJoinSlot(conjunct, join, ctx.cascadesContext);
                             conjunct = simplifyResult.first;
                             markSlotsInfo = simplifyResult.second;
+                        } else {
+                            // can't simplify for outer join, asof join or anti join
+                            markSlotsInfo = Maps.newHashMap();
                         }
                         Pair<LogicalPlan, Optional<Expression>> result = subqueryToApply(
                                 subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
