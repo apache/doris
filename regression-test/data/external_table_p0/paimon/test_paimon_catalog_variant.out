@@ -77,7 +77,11 @@ payload	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable
 2	bob
 
 -- !native_shredded_projection --
-2	bob	30	\N
+2	bob	30	\N	shanghai	200000
+
+-- !native_shredded_deep_object_projection --
+1	100000	1
+2	200000	2
 
 -- !native_mixed_us_partitions --
 1	2026-06-01	alice	18	unshredded

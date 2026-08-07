@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external_docker_doris") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -252,11 +254,51 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             select id,
                    cast(payload['name'] as string),
                    cast(payload['age'] as int),
-                   cast(payload['extra'] as string)
+                   cast(payload['extra'] as string),
+                   cast(payload['profile']['address']['city'] as string),
+                   cast(payload['profile']['address']['zip'] as int)
             from variant_shredded
             where cast(payload['age'] as int) >= 20
             order by id
         """
+
+        order_qt_native_shredded_deep_object_projection """
+            select id,
+                   cast(payload['profile']['address']['zip'] as int),
+                   cast(payload['profile']['address']['rank'] as int)
+            from variant_shredded
+            order by id
+        """
+
+        sql """set enable_profile = true"""
+        sql """set profile_level = 2"""
+        String deepProjectionToken =
+                "paimon_variant_deep_object_projection_" + UUID.randomUUID().toString()
+        List<List<Object>> deepProjectionRows = sql """
+            select '${deepProjectionToken}', id,
+                   cast(payload['profile']['address']['zip'] as int),
+                   cast(payload['profile']['address']['rank'] as int)
+            from variant_shredded
+            order by id
+        """
+        assertEquals(2, deepProjectionRows.size())
+        String deepProjectionProfile = new ProfileAction(context).getProfileBySql(
+                deepProjectionToken, ["VariantLeafProjections"], 30000L, 500L)
+        def leafProjectionValues = deepProjectionProfile =~
+                /(?m)^\s*(?:-\s*)?VariantLeafProjections:\s+([^\n]+)/
+        long leafProjectionCount = 0L
+        while (leafProjectionValues.find()) {
+            def exactValue = leafProjectionValues.group(1).toString() =~ /\(([0-9,]+)\)/
+            def displayedValue = leafProjectionValues.group(1).toString() =~ /([0-9,]+)/
+            if (exactValue.find()) {
+                leafProjectionCount += Long.parseLong(exactValue.group(1).replace(",", ""))
+            } else if (displayedValue.find()) {
+                leafProjectionCount += Long.parseLong(displayedValue.group(1).replace(",", ""))
+            }
+        }
+        assertTrue(leafProjectionCount > 0,
+                "Paimon Native did not project the deeply shredded Variant object leaves")
+        sql """set enable_profile = false"""
 
         order_qt_native_mixed_us_partitions """
             select id,

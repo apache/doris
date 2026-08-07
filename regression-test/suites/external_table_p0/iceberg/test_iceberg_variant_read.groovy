@@ -133,6 +133,17 @@ suite("test_iceberg_variant_read",
             (10, parse_json('{"name":"dave","n":50,"ratio":5.5,"ok":false,"arr":[7,8],"nested":{"city":"sz"}}')),
             (11, parse_json('{"name":null,"n":60,"ratio":6.5,"ok":true,"arr":[9,10],"nested":{"city":null}}'));
 
+        DROP TABLE IF EXISTS demo.${dbName}.variant_deep_object;
+        CREATE TABLE demo.${dbName}.variant_deep_object (id INT, v VARIANT) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='false'
+        );
+        INSERT INTO demo.${dbName}.variant_deep_object VALUES
+            (1, parse_json('{"profile":{"address":{"country":{"code":"CN","rank":1}}}}')),
+            (2, parse_json('{"profile":{"address":{"country":{"code":"US","rank":2}}}}'));
+
         DROP TABLE IF EXISTS demo.${dbName}.variant_root_arrays;
         CREATE TABLE demo.${dbName}.variant_root_arrays (id INT, v VARIANT) USING iceberg
         TBLPROPERTIES (
@@ -603,6 +614,14 @@ public class AppendVariantEqualityDelete {
                CAST(v['nested']['city'] AS STRING)
         FROM variant_values
         WHERE id IN (1, 2, 9, 10, 11)
+        ORDER BY id
+    """
+
+    order_qt_variant_deep_object_fallback """
+        SELECT id,
+               CAST(v['profile']['address']['country']['code'] AS STRING),
+               CAST(v['profile']['address']['country']['rank'] AS INT)
+        FROM variant_deep_object
         ORDER BY id
     """
 

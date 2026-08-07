@@ -45,7 +45,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.TreeMultimap;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -131,8 +130,14 @@ public class NestedColumnPruning implements CustomRewriter {
         Map<Slot, DataTypeAccessTree> slotIdToPredicateAccessTree = new LinkedHashMap<>();
         Map<Slot, DataType> variantSlots = new LinkedHashMap<>();
 
-        Comparator<Pair<TAccessPathType, List<String>>> pathComparator = Comparator.comparing(
-                l -> StringUtils.join(l.second, "."));
+        // Segment-wise comparison preserves the distinction between the key "a.b" and path a/b.
+        Comparator<Pair<TAccessPathType, List<String>>> pathComparator = (left, right) -> {
+            int comparison = comparePathSegments(left.second, right.second);
+            if (comparison != 0) {
+                return comparison;
+            }
+            return left.first.compareTo(right.first);
+        };
 
         Multimap<Integer, Pair<TAccessPathType, List<String>>> allAccessPaths = TreeMultimap.create(
                 Comparator.naturalOrder(), pathComparator);
@@ -261,6 +266,17 @@ public class NestedColumnPruning implements CustomRewriter {
             return ImmutableList.of(accessPath);
         }
         return paths;
+    }
+
+    private static int comparePathSegments(List<String> left, List<String> right) {
+        int commonLength = Math.min(left.size(), right.size());
+        for (int index = 0; index < commonLength; index++) {
+            int comparison = left.get(index).compareTo(right.get(index));
+            if (comparison != 0) {
+                return comparison;
+            }
+        }
+        return Integer.compare(left.size(), right.size());
     }
 
     /** DataTypeAccessTree */
