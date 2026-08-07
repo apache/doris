@@ -53,6 +53,7 @@ import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -1042,7 +1043,71 @@ public class StmtExecutor {
         // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
         // for the profile before unregisterQuery().
         updateProfile(true);
+
+        // After the query finishes on FE, the BE may still hold the QueryContext alive via
+        // _query_ctx_map_delay_delete (inserted when runtime filter merge controllers are non-empty).
+        // Profile reporting (_report_query_profile) is bound to QueryContext destructor, so the
+        // final BE profile RPC may not have arrived yet. We wait here so that the Coordinator stays
+        // registered long enough for the incoming profile RPC to be processed via reportExecStatus().
+        waitForProfileComplete();
+
         QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+    }
+
+    /**
+     * Wait for BE to report the final execution profile data before the Coordinator is
+     * unregistered. The wait is bounded by {@link Config#profile_async_collect_expire_time_secs}.
+     *
+     * <p>Without this wait, a short query that involves runtime filter merging can lose its
+     * fragment-level profile data: FE unregisters the Coordinator immediately after the query
+     * finishes, but the BE still holds the QueryContext alive, so the profile RPC arrives after
+     * the Coordinator is already gone and is silently dropped.
+     */
+    private void waitForProfileComplete() {
+        int timeoutSecs = Config.profile_async_collect_expire_time_secs;
+        if (timeoutSecs <= 0 || profile == null) {
+            return;
+        }
+        if (!context.getSessionVariable().enableProfile()) {
+            return;
+        }
+        long timeoutMs = timeoutSecs * 1000L;
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        long pollIntervalMs = Math.max(50, Math.min(500, timeoutMs / 10));
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Waiting up to {}ms for BE profile of query {} before unregister",
+                    timeoutMs, DebugUtil.printId(context.queryId()));
+        }
+
+        do {
+            boolean allComplete = true;
+            for (ExecutionProfile execProfile : profile.getExecutionProfiles()) {
+                if (!execProfile.isCompleted()) {
+                    allComplete = false;
+                    break;
+                }
+            }
+            if (allComplete) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("BE profile for query {} completed after {}ms wait",
+                            DebugUtil.printId(context.queryId()),
+                            timeoutMs - (deadline - System.currentTimeMillis()));
+                }
+                return;
+            }
+            try {
+                Thread.sleep(pollIntervalMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        } while (System.currentTimeMillis() < deadline);
+
+        // Timeout reached: the profile may be incomplete, but we must unregister
+        // to avoid leaking the Coordinator entry indefinitely.
+        LOG.warn("Timeout after {}ms waiting for BE profile of query {} before unregister",
+                timeoutMs, DebugUtil.printId(context.queryId()));
     }
 
     public boolean isDeferredForArrowFlight() {
