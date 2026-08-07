@@ -326,8 +326,8 @@ public class IcebergScanPlanProviderTest {
                 .withSnapshot(-1L, null, -1L);
         table.newAppend().appendFile(
                 dataFile(table.spec(), "s3://b/db/t1/concurrent.parquet", 1024, null, null)).commit();
-        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
-                Collections.emptyMap(), opsReturning(table));
+        // Keep construction behind the shared helper so catalog-property API migrations do not break this test.
+        IcebergScanPlanProvider provider = providerOver(table);
 
         List<ConnectorScanRange> ranges = provider.planScan(null,
                 ConnectorScanRequest.builder(emptyPin, Collections.emptyList()).build());
