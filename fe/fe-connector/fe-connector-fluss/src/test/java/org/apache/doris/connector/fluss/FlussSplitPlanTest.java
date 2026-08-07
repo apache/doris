@@ -1189,6 +1189,49 @@ public class FlussSplitPlanTest {
         Assertions.assertEquals(expected, params.getFlussProperties());
     }
 
+    /**
+     * BE picks between its two scanner implementations from the SCAN-level format, before it fetches a
+     * single range, and every reader this connector needs exists in FileScannerV2 alone. Without this
+     * stamp a session that turned {@code enable_file_scanner_v2} off — a supported setting, and one the
+     * regression harness sets at random because the variable is fuzzy — would land in the legacy scanner,
+     * whose JNI dispatch has no fluss branch, and fail the query at read time.
+     */
+    @Test
+    public void scanLevelParamsStampTheFormatThatForcesScannerV2() {
+        registerLogTable(LOG_TABLE, 1);
+        Map<String, String> catalog = catalog();
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog),
+                this::lakeSibling).populateScanLevelParams(params, nodeProperties(LOG_TABLE, catalog));
+
+        Assertions.assertTrue(params.isSetTableFormatParams());
+        Assertions.assertEquals("fluss", params.getTableFormatParams().getTableFormatType());
+    }
+
+    /**
+     * A union read hands the same params to the lake half, and the fluss marker has to survive that: it
+     * decides the scanner for the WHOLE node, and the node also carries fluss ranges the sibling knows
+     * nothing about.
+     */
+    @Test
+    public void theLakeHalfCannotTakeAwayTheScannerV2Marker() {
+        registerLakeTable(1);
+        lakeSnapshotAt(7L, offsets(0L));
+        sibling();
+        sibling.lakeNodeProperties = Collections.singletonMap("paimon.serialized_table", "encoded");
+        Map<String, String> catalog = catalog();
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog),
+                this::lakeSibling);
+        Map<String, String> props = provider.getScanNodeProperties(
+                session, handle(LOG_TABLE), Collections.emptyList(), Optional.empty());
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+
+        Assertions.assertEquals("fluss", params.getTableFormatParams().getTableFormatType());
+    }
+
     /** The engine's own keys are not the scanner's; forwarding them wholesale would be noise at best. */
     @Test
     public void scanLevelParamsDropTheEngineOnlyKeys() {
