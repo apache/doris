@@ -458,6 +458,24 @@ TEST(DataTypeSerDeArrowTest, DataTypeCollectionSerDeTest) {
     serialize_and_deserialize_arrow_test(cols, 7, false);
 }
 
+TEST(DataTypeSerDeArrowTest, ConvertDatetimeToArrowTypeWithTimezone) {
+    const std::string timezone = "Asia/Shanghai";
+    DataTypePtr datetime_type = std::make_shared<DataTypeDateTimeV2>(6);
+
+    std::shared_ptr<arrow::DataType> arrow_type;
+    ASSERT_TRUE(convert_to_arrow_type(datetime_type, &arrow_type, timezone).ok());
+    ASSERT_EQ(arrow::Type::TIMESTAMP, arrow_type->id());
+    EXPECT_TRUE(assert_cast<const arrow::TimestampType&>(*arrow_type).timezone().empty());
+
+    DataTypePtr struct_type = std::make_shared<DataTypeStruct>(DataTypes {datetime_type});
+    ASSERT_TRUE(convert_to_arrow_type(struct_type, &arrow_type, timezone, true).ok());
+    ASSERT_EQ(arrow::Type::STRUCT, arrow_type->id());
+    const auto& arrow_struct_type = assert_cast<const arrow::StructType&>(*arrow_type);
+    const auto& nested_timestamp_type =
+            assert_cast<const arrow::TimestampType&>(*arrow_struct_type.field(0)->type());
+    EXPECT_EQ(timezone, nested_timestamp_type.timezone());
+}
+
 TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     std::string col_name = "map_null_key";
     auto block = std::make_shared<Block>();
