@@ -55,6 +55,17 @@ public:
     uint64_t get_digest(uint64_t seed) const override { return 0; }
     const std::string& expr_name() const override { return _expr_name; }
 
+    /**
+     * The distinct rows of a key block, by the same equality this predicate matches with.
+     *
+     * <p>Which is why it lives here rather than beside its caller: a caller that decided for itself when
+     * two keys are the same could call two of them equal where this class would not, and the row it then
+     * dropped would be a suppression the predicate no longer performs. Building a predicate from the
+     * result answers exactly what building it from the input would -- a delete set is a set -- while the
+     * hash map it carries, and any cache holding the block, shrink by whatever the duplicates were.
+     */
+    static Block distinct_rows(const Block& keys);
+
 private:
     static std::vector<uint64_t> _build_hashes(const Block& block);
     ColumnPtr _evaluate_key_block(const Block& data_key_block) const;

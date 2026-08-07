@@ -182,6 +182,16 @@ std::vector<int32_t> ids_of(const Block& block) {
     return ids;
 }
 
+// The second key column, for the cases where the first one alone cannot tell two keys apart.
+std::vector<std::string> names_of(const Block& block) {
+    std::vector<std::string> names;
+    const auto& column = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+    for (size_t row = 0; row < column.size(); ++row) {
+        names.emplace_back(column.get_data_at(row).to_string());
+    }
+    return names;
+}
+
 // ------------------------------------------------------------------ the tail descriptor
 
 // The four fields are how a split says which slice of which bucket's log may contradict it. A tail
@@ -481,7 +491,7 @@ TEST(FlussUnionLakeReaderTest, AccumulatesATailThatArrivesInSeveralBatches) {
     std::vector<Block> batches {make_key_block({1}, {"a"}), make_key_block({}, {}),
                                 make_key_block({3}, {"c"})};
     size_t delivered = 0;
-    Block keys;
+    FlussUnionLakeReader::SuppressionKeys keys;
     ASSERT_TRUE(reader._accumulate_tail_keys(
                               tail,
                               [&](Block* batch, bool* eos) {
@@ -493,8 +503,73 @@ TEST(FlussUnionLakeReaderTest, AccumulatesATailThatArrivesInSeveralBatches) {
                               },
                               &keys)
                         .ok());
-    EXPECT_EQ(keys.rows(), 2);
-    EXPECT_EQ(ids_of(keys), (std::vector<int32_t> {1, 3}));
+    EXPECT_EQ(keys.keys.rows(), 2);
+    EXPECT_EQ(keys.records, 2);
+    EXPECT_EQ(ids_of(keys.keys), (std::vector<int32_t> {1, 3}));
+}
+
+// A tail names a key once per record it wrote about it -- an update alone writes two -- and what the
+// scan then holds for its whole life, once per bucket per partition, is that block. Suppression asks
+// only whether a key is in the set, so the repeats are retained for nothing. The record count is kept
+// beside them because it, not the retained size, is what the limit counts.
+TEST(FlussUnionLakeReaderTest, RetainsEachTailKeyOnceHoweverOftenTheTailNamesIt) {
+    FlussUnionLakeReader reader;
+    auto scan_params = union_scan_params();
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+    Tail tail;
+    ASSERT_TRUE(FlussUnionLakeReader::parse_tail(":0:10:20", &tail).ok());
+
+    // Key 1 updated twice (four change-log records), key 3 written once.
+    std::vector<Block> batches {make_key_block({1, 1}, {"a", "a"}),
+                                make_key_block({1, 1, 3}, {"a", "a", "c"})};
+    size_t delivered = 0;
+    FlussUnionLakeReader::SuppressionKeys keys;
+    ASSERT_TRUE(reader._accumulate_tail_keys(
+                              tail,
+                              [&](Block* batch, bool* eos) {
+                                  if (delivered < batches.size()) {
+                                      *batch = batches[delivered++];
+                                  }
+                                  *eos = delivered >= batches.size();
+                                  return Status::OK();
+                              },
+                              &keys)
+                        .ok());
+
+    EXPECT_EQ(keys.records, 5);
+    EXPECT_EQ(keys.keys.rows(), 2);
+    EXPECT_EQ(ids_of(keys.keys), (std::vector<int32_t> {1, 3}));
+}
+
+// Only whole key rows are duplicates. A dedup that compared the first key column alone would collapse
+// two different composite keys into one, and every lake row carrying the one it dropped would survive
+// a suppression that was supposed to remove it.
+TEST(FlussUnionLakeReaderTest, KeysThatShareOnlyPartOfACompositeKeyAreBothRetained) {
+    FlussUnionLakeReader reader;
+    auto scan_params = union_scan_params();
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+    Tail tail;
+    ASSERT_TRUE(FlussUnionLakeReader::parse_tail(":0:10:20", &tail).ok());
+
+    std::vector<Block> batches {make_key_block({1, 1, 1}, {"a", "b", "a"})};
+    size_t delivered = 0;
+    FlussUnionLakeReader::SuppressionKeys keys;
+    ASSERT_TRUE(reader._accumulate_tail_keys(
+                              tail,
+                              [&](Block* batch, bool* eos) {
+                                  if (delivered < batches.size()) {
+                                      *batch = batches[delivered++];
+                                  }
+                                  *eos = delivered >= batches.size();
+                                  return Status::OK();
+                              },
+                              &keys)
+                        .ok());
+
+    EXPECT_EQ(keys.records, 3);
+    EXPECT_EQ(keys.keys.rows(), 2);
+    EXPECT_EQ(ids_of(keys.keys), (std::vector<int32_t> {1, 1}));
+    EXPECT_EQ(names_of(keys.keys), (std::vector<std::string> {"a", "b"}));
 }
 
 // A split that says nothing about which tail supersedes it cannot be read: reading it as-is returns
