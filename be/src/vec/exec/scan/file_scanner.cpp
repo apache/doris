@@ -210,8 +210,7 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
 bool FileScanner::_check_partition_prune_expr(const VExprSPtr& expr) {
     if (expr->is_slot_ref()) {
         auto* slot_ref = static_cast<VSlotRef*>(expr.get());
-        return _partition_slot_index_map.find(slot_ref->slot_id()) !=
-               _partition_slot_index_map.end();
+        return _partition_slot_ids.contains(slot_ref->slot_id());
     }
     if (expr->is_literal()) {
         return true;
@@ -245,12 +244,6 @@ void FileScanner::_init_runtime_filter_partition_prune_block() {
 Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_all) {
     SCOPED_TIMER(_runtime_filter_partition_prune_timer);
     if (_runtime_filter_partition_prune_ctxs.empty() || _partition_col_descs.empty()) {
-        return Status::OK();
-    }
-    if (_partition_col_descs.size() != _partition_slot_descs.size()) {
-        // This range only carries values for a subset of the partition slots (e.g. a file
-        // written under an older Iceberg partition spec). The prune conjuncts may reference
-        // unbound slots whose block columns would stay empty, so skip pruning this range.
         return Status::OK();
     }
     size_t partition_value_column_size = 1;
@@ -367,8 +360,7 @@ Status FileScanner::_open_impl(RuntimeState* state) {
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
         if (_state->query_options().enable_runtime_filter_partition_prune &&
-            !_partition_slot_index_map.empty()) {
-            _init_runtime_filter_partition_prune_ctxs();
+            (!_is_load || !_partition_slot_index_map.empty())) {
             _init_runtime_filter_partition_prune_block();
         }
     } else {
@@ -603,11 +595,11 @@ Status FileScanner::_cast_to_input_block(Block* block) {
 }
 
 Status FileScanner::_fill_columns_from_path(size_t rows) {
-    if (!_fill_partition_from_path) {
+    if (_partition_col_descs_to_fill.empty()) {
         return Status::OK();
     }
     DataTypeSerDe::FormatOptions _text_formatOptions;
-    for (auto& kv : _partition_col_descs) {
+    for (auto& kv : _partition_col_descs_to_fill) {
         auto doris_column =
                 _src_block_ptr->get_by_position(_src_block_name_to_idx[kv.first]).column;
         // _src_block_ptr points to a mutable block created by this class itself, so const_cast can be used here.
@@ -901,26 +893,20 @@ Status FileScanner::_get_next_reader() {
         const TFileRangeDesc& range = _current_range;
         _current_range_path = range.path;
 
-        if (!_partition_slot_descs.empty()) {
-            // we need get partition columns first for runtime filter partition pruning
-            RETURN_IF_ERROR(_generate_partition_columns());
+        // Partition keys may vary between ranges when a table's partition spec evolves.
+        RETURN_IF_ERROR(_generate_partition_columns());
 
-            if (_state->query_options().enable_runtime_filter_partition_prune) {
-                // if enable_runtime_filter_partition_prune is true, we need to check whether this range can be filtered out
-                // by runtime filter partition prune
-                if (_push_down_conjuncts.size() < _conjuncts.size()) {
-                    // there are new runtime filters, need to re-init runtime filter partition pruning ctxs
-                    _init_runtime_filter_partition_prune_ctxs();
-                }
+        if (_state->query_options().enable_runtime_filter_partition_prune &&
+            !_partition_slot_ids.empty()) {
+            // Rebuild the contexts because only columns provided by this range can be used
+            // for partition pruning.
+            _init_runtime_filter_partition_prune_ctxs();
 
-                bool can_filter_all = false;
-                RETURN_IF_ERROR(_process_runtime_filters_partition_prune(can_filter_all));
-                if (can_filter_all) {
-                    // this range can be filtered out by runtime filter partition pruning
-                    // so we need to skip this range
-                    COUNTER_UPDATE(_runtime_filter_partition_pruned_range_counter, 1);
-                    continue;
-                }
+            bool can_filter_all = false;
+            RETURN_IF_ERROR(_process_runtime_filters_partition_prune(can_filter_all));
+            if (can_filter_all) {
+                COUNTER_UPDATE(_runtime_filter_partition_pruned_range_counter, 1);
+                continue;
             }
         }
 
@@ -1370,6 +1356,7 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
 Status FileScanner::_set_fill_or_truncate_columns(bool need_to_get_parsed_schema) {
     _missing_cols.clear();
     _slot_lower_name_to_col_type.clear();
+    _partition_col_descs_to_fill.clear();
     std::unordered_map<std::string, DataTypePtr> name_to_col_type;
     RETURN_IF_ERROR(_cur_reader->get_columns(&name_to_col_type, &_missing_cols));
     for (const auto& [col_name, col_type] : name_to_col_type) {
@@ -1390,23 +1377,28 @@ Status FileScanner::_set_fill_or_truncate_columns(bool need_to_get_parsed_schema
         _slot_lower_name_to_col_type.emplace(col_name_lower, col_type);
     }
 
-    if (!_fill_partition_from_path && config::enable_iceberg_partition_column_fallback) {
-        // check if the cols of _partition_col_descs are in _missing_cols
-        // if so, set _fill_partition_from_path to true and remove the col from _missing_cols
-        for (const auto& [col_name, col_type] : _partition_col_descs) {
-            if (_missing_cols.contains(col_name)) {
-                _fill_partition_from_path = true;
+    if (_is_load) {
+        if (_load_fill_partition_from_path) {
+            _partition_col_descs_to_fill = _partition_col_descs;
+        }
+    } else {
+        for (const auto& [col_name, partition_col_desc] : _partition_col_descs) {
+            const auto* slot_desc = std::get<1>(partition_col_desc);
+            if (!_is_file_slot.contains(slot_desc->id())) {
+                _partition_col_descs_to_fill.emplace(col_name, partition_col_desc);
+            } else if (config::enable_iceberg_partition_column_fallback &&
+                       _missing_cols.contains(col_name)) {
+                _partition_col_descs_to_fill.emplace(col_name, partition_col_desc);
                 _missing_cols.erase(col_name);
             }
         }
     }
 
     RETURN_IF_ERROR(_generate_missing_columns());
-    if (_fill_partition_from_path) {
-        RETURN_IF_ERROR(_cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs,
-                                                      _partition_value_is_null));
+    if (!_partition_col_descs_to_fill.empty()) {
+        RETURN_IF_ERROR(_cur_reader->set_fill_columns(
+                _partition_col_descs_to_fill, _missing_col_descs, _partition_value_is_null));
     } else {
-        // If the partition columns are not from path, we only fill the missing columns.
         RETURN_IF_ERROR(_cur_reader->set_fill_columns({}, _missing_col_descs));
     }
     if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
@@ -1540,68 +1532,76 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
 Status FileScanner::_generate_partition_columns() {
     _partition_col_descs.clear();
     _partition_value_is_null.clear();
+    _partition_slot_ids.clear();
     const TFileRangeDesc& range = _current_range;
-    if (!range.__isset.columns_from_path || _partition_slot_descs.empty()) {
+    if (!range.__isset.columns_from_path) {
         return Status::OK();
     }
-    if (range.__isset.columns_from_path_is_null) {
-        DORIS_CHECK(range.columns_from_path_is_null.size() == range.columns_from_path.size());
+    if (range.__isset.columns_from_path_is_null &&
+        range.columns_from_path_is_null.size() != range.columns_from_path.size()) {
+        return Status::InternalError("Partition null marker count {} does not match value count {}",
+                                     range.columns_from_path_is_null.size(),
+                                     range.columns_from_path.size());
     }
-    if (!_is_load && range.__isset.columns_from_path_keys) {
-        // Ranges of one scanner may carry different columns_from_path_keys. E.g. after
-        // Iceberg partition evolution, a file written under an older partition spec only
-        // carries the identity partition values of that spec (possibly none), while
-        // _partition_slot_descs was built from the first range's keys. So bind values by
-        // this range's own key list. A partition slot absent from this range's keys is
-        // read from the data file instead (for such tables all partition columns are
-        // also file slots, see IcebergScanNode.getPathPartitionKeys).
-        if (range.columns_from_path.size() != range.columns_from_path_keys.size()) {
-            return Status::InternalError(
-                    "columns_from_path size {} does not match columns_from_path_keys size {}",
-                    range.columns_from_path.size(), range.columns_from_path_keys.size());
-        }
-        std::unordered_map<std::string, size_t> name_to_value_index;
-        for (size_t i = 0; i < range.columns_from_path_keys.size(); ++i) {
-            name_to_value_index.emplace(range.columns_from_path_keys[i], i);
-        }
+
+    if (_is_load) {
         for (const auto& slot_desc : _partition_slot_descs) {
-            if (!slot_desc) {
-                continue;
-            }
-            auto it = name_to_value_index.find(slot_desc->col_name());
-            if (it == name_to_value_index.end()) {
-                continue;
-            }
-            _partition_col_descs.emplace(
-                    slot_desc->col_name(),
-                    std::make_tuple(range.columns_from_path[it->second], slot_desc));
-            if (range.__isset.columns_from_path_is_null) {
-                _partition_value_is_null.emplace(slot_desc->col_name(),
-                                                 range.columns_from_path_is_null[it->second]);
+            if (slot_desc) {
+                auto it = _partition_slot_index_map.find(slot_desc->id());
+                if (it == std::end(_partition_slot_index_map)) {
+                    return Status::InternalError("Unknown source slot descriptor, slot_id={}",
+                                                 slot_desc->id());
+                }
+                if (it->second < 0 ||
+                    static_cast<size_t>(it->second) >= range.columns_from_path.size()) {
+                    return Status::InternalError(
+                            "Invalid partition value index {}, value count {} for column {}",
+                            it->second, range.columns_from_path.size(), slot_desc->col_name());
+                }
+                const std::string& column_from_path = range.columns_from_path[it->second];
+                _partition_col_descs.emplace(slot_desc->col_name(),
+                                             std::make_tuple(column_from_path, slot_desc));
+                _partition_slot_ids.emplace(slot_desc->id());
+                if (range.__isset.columns_from_path_is_null) {
+                    _partition_value_is_null.emplace(slot_desc->col_name(),
+                                                     range.columns_from_path_is_null[it->second]);
+                }
             }
         }
         return Status::OK();
     }
-    for (const auto& slot_desc : _partition_slot_descs) {
-        if (slot_desc) {
-            auto it = _partition_slot_index_map.find(slot_desc->id());
-            if (it == std::end(_partition_slot_index_map)) {
-                return Status::InternalError("Unknown source slot descriptor, slot_id={}",
-                                             slot_desc->id());
-            }
-            if (it->second < 0 ||
-                static_cast<size_t>(it->second) >= range.columns_from_path.size()) {
-                return Status::InternalError(
-                        "Invalid partition value index {}, value count {} for column {}",
-                        it->second, range.columns_from_path.size(), slot_desc->col_name());
-            }
-            const std::string& column_from_path = range.columns_from_path[it->second];
-            _partition_col_descs.emplace(slot_desc->col_name(),
-                                         std::make_tuple(column_from_path, slot_desc));
-            if (range.__isset.columns_from_path_is_null) {
-                _partition_value_is_null.emplace(slot_desc->col_name(),
-                                                 range.columns_from_path_is_null[it->second]);
-            }
+
+    if (!range.__isset.columns_from_path_keys) {
+        return Status::OK();
+    }
+    if (range.columns_from_path_keys.size() != range.columns_from_path.size()) {
+        return Status::InternalError("Partition key count {} does not match value count {}",
+                                     range.columns_from_path_keys.size(),
+                                     range.columns_from_path.size());
+    }
+
+    std::unordered_map<std::string, size_t> partition_name_to_index;
+    for (size_t i = 0; i < range.columns_from_path_keys.size(); ++i) {
+        partition_name_to_index.emplace(range.columns_from_path_keys[i], i);
+    }
+    for (const auto& slot_info : _params->required_slots) {
+        auto* slot_desc = _state->desc_tbl().get_slot_descriptor(slot_info.slot_id);
+        if (slot_desc == nullptr) {
+            return Status::InternalError("Unknown source slot descriptor, slot_id={}",
+                                         slot_info.slot_id);
+        }
+        auto index_it = partition_name_to_index.find(slot_desc->col_name());
+        if (index_it == partition_name_to_index.end()) {
+            continue;
+        }
+        size_t value_index = index_it->second;
+        _partition_col_descs.emplace(
+                slot_desc->col_name(),
+                std::make_tuple(range.columns_from_path[value_index], slot_desc));
+        _partition_slot_ids.emplace(slot_desc->id());
+        if (range.__isset.columns_from_path_is_null) {
+            _partition_value_is_null.emplace(slot_desc->col_name(),
+                                             range.columns_from_path_is_null[value_index]);
         }
     }
     return Status::OK();
@@ -1636,13 +1636,8 @@ Status FileScanner::_init_expr_ctxes() {
         full_src_index_map.emplace(slot_desc->id(), index++);
     }
 
-    // For external table query, find the index of column in path.
-    // Because query doesn't always search for all columns in a table
-    // and the order of selected columns is random.
-    // All ranges in _ranges vector should have identical columns_from_path_keys
-    // because they are all file splits for the same external table.
-    // So here use the first element of _ranges to fill the partition_name_to_key_index_map
-    if (_current_range.__isset.columns_from_path_keys) {
+    // Load tasks do not always read all source columns, and the selected column order may vary.
+    if (_is_load && _current_range.__isset.columns_from_path_keys) {
         std::vector<std::string> key_map = _current_range.columns_from_path_keys;
         if (!key_map.empty()) {
             for (size_t i = 0; i < key_map.size(); i++) {
@@ -1675,9 +1670,8 @@ Status FileScanner::_init_expr_ctxes() {
             if (slot_info.is_file_slot) {
                 // If there is slot which is both a partition column and a file column,
                 // we should not fill the partition column from path.
-                _fill_partition_from_path = false;
-            } else if (!_fill_partition_from_path) {
-                // This should not happen
+                _load_fill_partition_from_path = false;
+            } else if (!_load_fill_partition_from_path) {
                 return Status::InternalError(
                         "Partition column {} is not a file column, but there is already a column "
                         "which is both a partition column and a file column.",

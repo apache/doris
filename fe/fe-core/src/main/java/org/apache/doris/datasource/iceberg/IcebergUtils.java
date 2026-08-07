@@ -131,10 +131,8 @@ import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -638,35 +636,8 @@ public class IcebergUtils {
         }
     }
 
-    /**
-     * Get identity partition columns that exist in all partition specs.
-     * The file scanner uses partition columns in the first scan range for all ranges,
-     * so only common identity partition columns can be used for partition pruning.
-     */
-    public static List<String> getCommonIdentityPartitionColumns(Table table) {
-        LinkedHashSet<Integer> commonSourceIds = new LinkedHashSet<>();
-        for (PartitionField field : table.spec().fields()) {
-            NestedField sourceField = table.schema().findField(field.sourceId());
-            if (field.transform().isIdentity() && sourceField != null
-                    && isSupportedPartitionValueType(sourceField.type().typeId())) {
-                commonSourceIds.add(field.sourceId());
-            }
-        }
-        for (PartitionSpec spec : table.specs().values()) {
-            Set<Integer> specIdentitySourceIds = spec.fields().stream()
-                    .filter(field -> field.transform().isIdentity())
-                    .map(PartitionField::sourceId)
-                    .collect(Collectors.toSet());
-            commonSourceIds.retainAll(specIdentitySourceIds);
-        }
-        return commonSourceIds.stream()
-                .map(table.schema()::findColumnName)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-    }
-
     public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
-            PartitionSpec partitionSpec, Table table, String timeZone) {
+            PartitionSpec partitionSpec, Schema querySchema, String timeZone) {
         Map<String, String> partitionInfoMap = Maps.newLinkedHashMap();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
         List<PartitionField> partitionFields = partitionSpec.fields();
@@ -682,7 +653,7 @@ public class IcebergUtils {
             if (!isSupportedPartitionValueType(field.type().typeId())) {
                 continue;
             }
-            String columnName = table.schema().findColumnName(partitionField.sourceId());
+            String columnName = querySchema.findColumnName(partitionField.sourceId());
             if (columnName == null) {
                 continue;
             }
@@ -751,7 +722,8 @@ public class IcebergUtils {
                 long timestampMicros = (Long) value;
                 TimestampType timestampType = (TimestampType) type;
                 LocalDateTime timestamp = LocalDateTime.ofEpochSecond(
-                        timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000,
+                        Math.floorDiv(timestampMicros, 1_000_000L),
+                        (int) Math.floorMod(timestampMicros, 1_000_000L) * 1000,
                         ZoneOffset.UTC);
                 // type is timestamptz if timestampType.shouldAdjustToUTC() is true
                 if (timestampType.shouldAdjustToUTC()) {

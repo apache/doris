@@ -131,10 +131,12 @@ protected:
     // col names from _file_slot_descs
     std::vector<std::string> _file_col_names;
 
-    // Partition source slot descriptors
+    // Partition source slot descriptors used by load tasks.
     std::vector<SlotDescriptor*> _partition_slot_descs;
-    // Partition slot id to index in _partition_slot_descs
+    // Partition slot id to value index used by load tasks.
     std::unordered_map<SlotId, int> _partition_slot_index_map;
+    // Partition slot ids provided by the current query range.
+    std::unordered_set<SlotId> _partition_slot_ids;
     // created from param.expr_of_dest_slot
     // For query, it saves default value expr of all dest columns, or nullptr for NULL.
     // For load, it saves conversion expr/default value of all dest columns.
@@ -189,10 +191,13 @@ protected:
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::unique_ptr<io::IOContext> _io_ctx;
 
-    // Whether to fill partition columns from path, default is true.
-    bool _fill_partition_from_path = true;
+    // Whether load tasks should fill partition columns from the path.
+    bool _load_fill_partition_from_path = true;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
+    // Partition columns that should be filled for the current reader.
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            _partition_col_descs_to_fill;
     std::unordered_map<std::string, bool> _partition_value_is_null;
     std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 

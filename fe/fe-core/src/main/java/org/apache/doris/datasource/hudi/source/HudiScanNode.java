@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -355,7 +356,7 @@ public class HudiScanNode extends HiveScanNode {
                         String path = basePath + "/" + key;
                         hivePartitions.add(new HivePartition(
                                 nameMapping, false, inputFormat, path,
-                                ((ListPartitionItem) value).getItems().get(0).getPartitionValuesAsStringList(),
+                                getPartitionValues((ListPartitionItem) value),
                                 Maps.newHashMap()));
                     }
             );
@@ -370,6 +371,13 @@ public class HudiScanNode extends HiveScanNode {
         this.totalPartitionNum = 1;
         this.selectedPartitionNum = 1;
         return Lists.newArrayList(dummyPartition);
+    }
+
+    static List<String> getPartitionValues(ListPartitionItem partitionItem) {
+        PartitionKey partitionKey = partitionItem.getItems().get(0);
+        return partitionKey.getKeys().stream()
+                .map(key -> key.isNullLiteral() ? null : key.getStringValue())
+                .collect(Collectors.toList());
     }
 
     private List<Split> getIncrementalSplits() {

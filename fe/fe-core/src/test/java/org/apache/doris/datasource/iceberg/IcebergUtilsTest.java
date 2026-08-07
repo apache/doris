@@ -138,35 +138,6 @@ public class IcebergUtilsTest {
     }
 
     @Test
-    public void testGetCommonIdentityPartitionColumnsUsesSafeIntersection() {
-        Schema schema = new Schema(
-                Types.NestedField.required(1, "id", Types.IntegerType.get()),
-                Types.NestedField.required(2, "Dt", Types.StringType.get()),
-                Types.NestedField.required(3, "ts", Types.TimestampType.withoutZone()));
-        PartitionSpec oldSpec = PartitionSpec.builderFor(schema)
-                .withSpecId(1)
-                .identity("id")
-                .identity("Dt")
-                .build();
-        PartitionSpec currentSpec = PartitionSpec.builderFor(schema)
-                .withSpecId(2)
-                .identity("Dt")
-                .day("ts")
-                .build();
-        Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
-        specs.put(oldSpec.specId(), oldSpec);
-        specs.put(currentSpec.specId(), currentSpec);
-
-        Table table = Mockito.mock(Table.class);
-        Mockito.when(table.schema()).thenReturn(schema);
-        Mockito.when(table.spec()).thenReturn(currentSpec);
-        Mockito.when(table.specs()).thenReturn(specs);
-
-        Assert.assertEquals(Arrays.asList("Dt"),
-                IcebergUtils.getCommonIdentityPartitionColumns(table));
-    }
-
-    @Test
     public void testGetIdentityPartitionInfoMapReturnsIdentityColumnsOnly() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "Dt", Types.StringType.get()),
@@ -179,11 +150,8 @@ public class IcebergUtilsTest {
         partitionData.set(0, "2025-01-01");
         partitionData.set(1, 20000);
 
-        Table table = Mockito.mock(Table.class);
-        Mockito.when(table.schema()).thenReturn(schema);
-
         Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
-                partitionData, partitionSpec, table, "UTC");
+                partitionData, partitionSpec, schema, "UTC");
         Assert.assertEquals(Collections.singletonMap("Dt", "2025-01-01"), partitionInfoMap);
     }
 
@@ -202,11 +170,8 @@ public class IcebergUtilsTest {
         partitionData.set(0, floatValue);
         partitionData.set(1, doubleValue);
 
-        Table table = Mockito.mock(Table.class);
-        Mockito.when(table.schema()).thenReturn(schema);
-
         Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
-                partitionData, partitionSpec, table, "UTC");
+                partitionData, partitionSpec, schema, "UTC");
 
         String serializedFloat = partitionInfoMap.get("float_partition");
         String serializedDouble = partitionInfoMap.get("double_partition");
@@ -216,6 +181,42 @@ public class IcebergUtilsTest {
                 Float.floatToIntBits(Float.parseFloat(serializedFloat)));
         Assert.assertEquals(Double.doubleToLongBits(doubleValue),
                 Double.doubleToLongBits(Double.parseDouble(serializedDouble)));
+    }
+
+    @Test
+    public void testGetIdentityPartitionInfoMapUsesQuerySchemaName() {
+        Schema specSchema = new Schema(
+                Types.NestedField.required(1, "old_name", Types.StringType.get()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(specSchema)
+                .identity("old_name")
+                .build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, "value");
+
+        Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
+                partitionData, partitionSpec, specSchema, "UTC");
+
+        Assert.assertEquals(Collections.singletonMap("old_name", "value"), partitionInfoMap);
+    }
+
+    @Test
+    public void testGetIdentityPartitionInfoMapSupportsNegativeTimestampMicros() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "local_ts", Types.TimestampType.withoutZone()),
+                Types.NestedField.required(2, "utc_ts", Types.TimestampType.withZone()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
+                .identity("local_ts")
+                .identity("utc_ts")
+                .build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, -1L);
+        partitionData.set(1, -1L);
+
+        Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
+                partitionData, partitionSpec, schema, "Asia/Shanghai");
+
+        Assert.assertEquals("1969-12-31T23:59:59.999999", partitionInfoMap.get("local_ts"));
+        Assert.assertEquals("1970-01-01T07:59:59.999999", partitionInfoMap.get("utc_ts"));
     }
 
     @Test

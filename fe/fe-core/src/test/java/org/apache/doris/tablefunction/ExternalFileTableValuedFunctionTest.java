@@ -34,6 +34,14 @@ import java.util.Map;
 
 public class ExternalFileTableValuedFunctionTest {
     @Test
+    public void testPathPartitionColumnIsNullable() {
+        Column column = ExternalFileTableValuedFunction.createPathPartitionColumn("part");
+
+        Assert.assertTrue(column.isAllowNull());
+        Assert.assertEquals(PrimitiveType.VARCHAR, column.getType().getPrimitiveType());
+    }
+
+    @Test
     public void testCsvSchemaParse() {
         Config.enable_date_conversion = true;
         Map<String, String> properties = Maps.newHashMap();

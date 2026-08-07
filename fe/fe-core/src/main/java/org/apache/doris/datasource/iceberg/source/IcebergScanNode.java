@@ -79,6 +79,7 @@ import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -121,6 +122,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private IcebergSource source;
     private Table icebergTable;
+    private Schema querySchema;
     private List<String> pushdownIcebergPredicates = Lists.newArrayList();
     // If tableLevelPushDownCount is true, means we can do count push down opt at table level.
     // which means all splits have no position/equality delete files,
@@ -135,7 +137,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     // Used to avoid repeatedly calculating partition info map for the same
     // partition data and spec.
     private Map<Pair<Integer, PartitionData>, Map<String, String>> partitionMapInfos;
-    private boolean isPartitionedTable;
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
     private TableScan icebergTableScan;
@@ -203,8 +204,12 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     protected void doInitialize() throws UserException {
         icebergTable = source.getIcebergTable();
+        IcebergTableQueryInfo queryInfo = getSpecifiedSnapshot();
+        querySchema = queryInfo == null ? icebergTable.schema()
+                : Preconditions.checkNotNull(icebergTable.schemas().get(queryInfo.getSchemaId()),
+                        "Schema with schemaId %s not found for table %s",
+                        queryInfo.getSchemaId(), icebergTable.name());
         partitionMapInfos = new HashMap<>();
-        isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
         preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
@@ -305,36 +310,25 @@ public class IcebergScanNode extends FileQueryScanNode {
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
-    private List<String> getOrderedPathPartitionKeys() {
-        if (icebergTable == null) {
-            return Collections.emptyList();
-        }
-        return IcebergUtils.getCommonIdentityPartitionColumns(icebergTable);
-    }
-
     @VisibleForTesting
     void setPartitionValues(TFileRangeDesc rangeDesc, Map<String, String> partitionValues) {
         rangeDesc.unsetColumnsFromPathKeys();
         rangeDesc.unsetColumnsFromPath();
         rangeDesc.unsetColumnsFromPathIsNull();
 
-        List<String> orderedPartitionKeys = getOrderedPathPartitionKeys();
-        if (orderedPartitionKeys.isEmpty()) {
+        if (partitionValues == null || partitionValues.isEmpty()) {
             return;
         }
-        Preconditions.checkState(partitionValues != null,
-                "Missing partition values for Iceberg identity-partitioned table");
 
-        List<String> fromPathValues = new ArrayList<>(orderedPartitionKeys.size());
-        List<Boolean> fromPathIsNull = new ArrayList<>(orderedPartitionKeys.size());
-        for (String partitionKey : orderedPartitionKeys) {
-            Preconditions.checkState(partitionValues.containsKey(partitionKey),
-                    "Missing partition value for Iceberg partition key: %s", partitionKey);
-            String partitionValue = partitionValues.get(partitionKey);
+        List<String> fromPathKeys = new ArrayList<>(partitionValues.size());
+        List<String> fromPathValues = new ArrayList<>(partitionValues.size());
+        List<Boolean> fromPathIsNull = new ArrayList<>(partitionValues.size());
+        partitionValues.forEach((partitionKey, partitionValue) -> {
+            fromPathKeys.add(partitionKey);
             fromPathValues.add(partitionValue == null ? "" : partitionValue);
             fromPathIsNull.add(partitionValue == null);
-        }
-        rangeDesc.setColumnsFromPathKeys(orderedPartitionKeys);
+        });
+        rangeDesc.setColumnsFromPathKeys(fromPathKeys);
         rangeDesc.setColumnsFromPath(fromPathValues);
         rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
     }
@@ -792,15 +786,15 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         split.setTableFormatType(TableFormatType.ICEBERG);
         split.setTargetSplitSize(targetSplitSize);
-        if (isPartitionedTable) {
+        int specId = fileScanTask.file().specId();
+        PartitionSpec partitionSpec = icebergTable.specs().get(specId);
+        Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
+                specId, icebergTable.name());
+        if (partitionSpec.isPartitioned()) {
             PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
-            int specId = fileScanTask.file().specId();
-            PartitionSpec partitionSpec = icebergTable.specs().get(specId);
-            Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
-                    specId, icebergTable.name());
             Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
                     Pair.of(specId, partitionData), k -> IcebergUtils.getIdentityPartitionInfoMap(
-                            partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone()));
+                            partitionData, partitionSpec, querySchema, sessionVariable.getTimeZone()));
             if (!partitionInfoMap.isEmpty()) {
                 split.setIcebergPartitionValues(partitionInfoMap);
             }
