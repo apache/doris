@@ -271,7 +271,7 @@ public class EditLog {
 
         txId += batch.size();
         // update statistics, etc. (optional, can be added as needed)
-        if (txId >= Config.edit_log_roll_num || exceedCloudEditLogRollInterval()) {
+        if (txId >= Config.edit_log_roll_num || exceedEditLogRollInterval()) {
             LOG.info("edit log roll condition met. txId: {}, edit log roll num: {}, "
                             + "cloud edit log roll interval: {} seconds",
                     txId, Config.edit_log_roll_num, Config.cloud_edit_log_roll_interval_second);
@@ -1686,7 +1686,7 @@ public class EditLog {
         // get a new transactionId
         txId++;
 
-        if (txId >= Config.edit_log_roll_num || exceedCloudEditLogRollInterval()) {
+        if (txId >= Config.edit_log_roll_num || exceedEditLogRollInterval()) {
             LOG.info("edit log roll condition met. txId: {}, edit log roll num: {}, "
                             + "cloud edit log roll interval: {} seconds",
                     txId, Config.edit_log_roll_num, Config.cloud_edit_log_roll_interval_second);
@@ -1697,7 +1697,7 @@ public class EditLog {
         return logId;
     }
 
-    private boolean exceedCloudEditLogRollInterval() {
+    private boolean exceedEditLogRollInterval() {
         return Config.isCloudMode() && Config.cloud_edit_log_roll_interval_second > 0
                 && System.currentTimeMillis() - lastEditLogRollTimeMs
                         >= TimeUnit.SECONDS.toMillis(Config.cloud_edit_log_roll_interval_second);
