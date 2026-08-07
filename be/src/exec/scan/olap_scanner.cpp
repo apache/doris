@@ -77,8 +77,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
           _key_ranges(std::move(params.key_ranges)),
           _tablet_reader_params({.tablet = std::move(params.tablet),
                                  .tablet_schema {},
-                                 .reader_type = params.read_row_binlog ? ReaderType::READER_BINLOG
-                                                                       : ReaderType::READER_QUERY,
+                                 .reader_type = ReaderType::READER_QUERY,
+                                 .read_row_binlog = params.read_row_binlog,
                                  .aggregation = params.aggregation,
                                  .version = {0, params.version},
                                  .start_key {},
@@ -214,10 +214,7 @@ Status OlapScanner::_prepare_impl() {
     _tablet_reader->set_preferred_block_size_bytes(_state->preferred_block_size_bytes());
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
-        TabletSchemaSPtr source_tablet_schema =
-                _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                        ? tablet->row_binlog_tablet_schema()
-                        : tablet->tablet_schema();
+        TabletSchemaSPtr source_tablet_schema = tablet->tablet_schema();
 
         tablet_schema = std::make_shared<TabletSchema>();
         tablet_schema->copy_from(*source_tablet_schema);
@@ -253,8 +250,6 @@ Status OlapScanner::_prepare_impl() {
                             .skip_missing_versions = _state->skip_missing_version(),
                             .enable_fetch_rowsets_from_peers =
                                     config::enable_fetch_rowsets_from_peer_replicas,
-                            .capture_row_binlog =
-                                    _tablet_reader_params.reader_type == ReaderType::READER_BINLOG,
                             .enable_prefer_cached_rowset =
                                     config::is_cloud_mode() ? _state->enable_prefer_cached_rowset()
                                                             : false,
@@ -339,12 +334,10 @@ Status OlapScanner::_init_tso_pushdown() {
     }
 
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
-    int32_t tso_index = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                                ? tablet_schema->binlog_tso_col_idx()
-                                : tablet_schema->commit_tso_col_idx();
-    const std::string& column_name = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                                             ? BINLOG_TSO_COL
-                                             : COMMIT_TSO_COL;
+    int32_t tso_index = _tablet_reader_params.read_row_binlog ? tablet_schema->binlog_tso_col_idx()
+                                                              : tablet_schema->commit_tso_col_idx();
+    const std::string& column_name =
+            _tablet_reader_params.read_row_binlog ? BINLOG_TSO_COL : COMMIT_TSO_COL;
     if (tso_index < 0) {
         return Status::InternalError("Column {} not found in tablet schema after append",
                                      column_name);
@@ -476,13 +469,14 @@ Status OlapScanner::_init_tablet_reader_params(
         }
     };
 
-    // For row-binlog scans that emit BEFORE/AFTER pairs (MIN_DELTA / DETAIL), we must read
-    // every key column, every requested value column, the binlog meta columns (tso / op)
-    // and their __BEFORE__ mirrors, so the BlockReader can reconstruct change rows.
-    const bool need_before_columns =
+    // MIN_DELTA / DETAIL row-binlog scans reconstruct change rows in BlockReader through a
+    // key-ordered merge. They must read every key column, every requested value column, the
+    // binlog meta columns (tso / op) and their __BEFORE__ mirrors. APPEND_ONLY streams rows
+    // as-is and stays on the plain projection paths below.
+    const bool is_binlog_merge_scan =
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL;
-    if (need_before_columns) {
+    if (is_binlog_merge_scan) {
         for (size_t i = 0; i < tablet_schema->num_key_columns(); ++i) {
             add_return_column_if_absent(static_cast<uint32_t>(i));
         }
@@ -565,16 +559,26 @@ Status OlapScanner::_init_tablet_reader_params(
 
     RETURN_IF_ERROR(_init_tso_pushdown());
 
-    // For any row-binlog scan, force the storage layer to deliver rows strictly in primary-key
-    // order so the BlockReader can group consecutive same-key changes (MIN_DELTA) or emit
-    // BEFORE/AFTER pairs in deterministic order (DETAIL). Disable ORDER BY / TopN pushdowns
-    // and reset their related params, since they would otherwise re-order the stream.
+    // Row-binlog scans must not be re-ordered or truncated by ORDER BY / TopN pushdowns,
+    // so reset every reorder-related param for all binlog scan types.
+    //
+    // Only MIN_DELTA / DETAIL additionally force the storage layer to deliver rows strictly
+    // in primary-key order, so the BlockReader can group consecutive same-key changes
+    // (MIN_DELTA) or emit BEFORE/AFTER pairs in deterministic order (DETAIL). Their storage
+    // projection is widened above with the full key prefix, which the key-ordered merge
+    // comparator relies on: with read_orderby_key_num_prefix_columns == 0 the comparator
+    // falls back to comparing the first num_key_columns block positions.
+    //
+    // APPEND_ONLY does no key grouping and keeps the raw SQL projection, which may omit
+    // some or even all key columns. Forcing a key-ordered merge would make the fallback
+    // comparator read key positions that do not exist in the projected blocks and crash
+    // the BE (issue #66390), so it reads unordered like a plain scan.
     if (_tablet_reader_params.binlog_scan_type != TBinlogScanType::NONE) {
-        _tablet_reader_params.read_orderby_key = true;
+        _tablet_reader_params.read_orderby_key = is_binlog_merge_scan;
+        _tablet_reader_params.force_key_ordered_read = is_binlog_merge_scan;
         _tablet_reader_params.read_orderby_key_reverse = false;
         _tablet_reader_params.read_orderby_key_num_prefix_columns = 0;
         _tablet_reader_params.read_orderby_key_limit = 0;
-        _tablet_reader_params.force_key_ordered_read = true;
         _tablet_reader_params.topn_filter_source_node_ids.clear();
     }
 

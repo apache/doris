@@ -52,6 +52,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.connector.converter.ExprToConnectorExpressionConverter;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -251,6 +252,22 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             resolvedScanProvider = cached;
         }
         return cached.provider;
+    }
+
+    @Override
+    protected String getHiveParquetTimeZone() throws UserException {
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider == null || !onPluginClassLoader(
+                scanProvider, scanProvider::usesHiveParquetInt96TimeZone)) {
+            return "";
+        }
+        TableIf table = getTargetTable();
+        if (!(table instanceof ExternalTable)) {
+            return "";
+        }
+        // The provider capability owns the file semantics; a plugin catalog type is intentionally
+        // not required to masquerade as a built-in HMS or Hudi catalog to consume this setting.
+        return ((ExternalTable) table).getConfiguredHiveParquetTimeZone();
     }
 
     /**

@@ -75,7 +75,7 @@ public final class AdbcDialectRegistry {
     public static AdbcDialect require(String name) {
         AdbcDialect dialect = DIALECTS.get(name);
         if (dialect == null) {
-            throw new DorisConnectorException("Unknown '" + AdbcConnectorProperties.SQL_DIALECT + "' value '"
+            throw new DorisConnectorException("Unknown '" + AdbcCatalogProperties.SQL_DIALECT + "' value '"
                     + name + "' for an adbc catalog. Registered dialects: " + registeredNames());
         }
         return dialect;

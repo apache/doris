@@ -371,8 +371,7 @@ bool Segment::is_tso_placeholder_col(int cid, const Schema& schema,
     if (read_options.version.first != read_options.version.second) {
         return false;
     }
-    if (read_options.io_ctx.reader_type != ReaderType::READER_BINLOG &&
-        read_options.io_ctx.reader_type != ReaderType::READER_BINLOG_COMPACTION) {
+    if (!read_options.read_row_binlog) {
         return false;
     }
     // tso_col_idx() is -1 for non-binlog schemas, so this returns false there.

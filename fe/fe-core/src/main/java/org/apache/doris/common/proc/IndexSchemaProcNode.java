@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -89,7 +90,8 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             String extraStr = StringUtils.join(extras, ",");
 
             List<String> rowList = Lists.newArrayList(column.getDisplayName(),
-                    column.getOriginType().hideVersionForVersionColumn(true, showNestedComment),
+                    column.getOriginType().hideVersionForVersionColumn(
+                            true, showNestedComment, SqlModeHelper.hasNoBackSlashEscapes()),
                     column.isAllowNull() ? "Yes" : "No",
                     ((Boolean) column.isKey()).toString(),
                     column.getDefaultValue() == null

@@ -72,9 +72,9 @@ public class PaimonLiveConnectivityTest {
         String catalogType = System.getenv("PAIMON_CATALOG_TYPE");
 
         Map<String, String> props = new HashMap<>();
-        props.put(PaimonConnectorProperties.WAREHOUSE, warehouse);
+        props.put("warehouse", warehouse);
         if (catalogType != null && !catalogType.isEmpty()) {
-            props.put(PaimonConnectorProperties.PAIMON_CATALOG_TYPE, catalogType);
+            props.put(PaimonCatalogProperties.PAIMON_CATALOG_TYPE, catalogType);
         }
 
         // Exercise the full production path: PaimonConnector lazily builds a real Catalog and

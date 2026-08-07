@@ -1254,6 +1254,18 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testResolvedEmptyUnpartitionedViewSkipsLiveListFallback() {
+        Fixture f = Fixture.rangeView(ConnectorMvccPartitionView.unpartitioned());
+        Mockito.when(f.metadata.beginQuerySnapshot(f.session, f.handle))
+                .thenReturn(Optional.of(ConnectorMvccSnapshot.builder().snapshotId(-1L).build()));
+
+        Assertions.assertTrue(f.table.getNameToPartitionItems(Optional.empty()).isEmpty(),
+                "a query-begin empty pin must not mix in partitions from a later LIST read");
+        Mockito.verify(f.metadata, Mockito.never())
+                .listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
     public void testAbsentRangeViewKeepsLegacyListPath() throws AnalysisException {
         // Paimon-parity guard: a connector WITHOUT a range view (getMvccPartitionView empty) keeps the legacy
         // listPartitions/LIST/timestamp path byte-unchanged. MUTATION: defaulting to a RANGE/empty view when the

@@ -1050,6 +1050,15 @@ under the License.
                         <groupId>org.checkerframework</groupId>
                         <artifactId>checker</artifactId>
                     </exclusion>
+                    <!-- BDB JE only references javax.resource in its optional JCA resource
+                         adapter (com.sleepycat.je.jca.ra), which embedded FE never uses.
+                         javax.resource:connector:1.0 has no jar in Maven Central (only a pom)
+                         and its historical host (repo.grails.org) is unreliable, so pulling it
+                         breaks the build in many environments. Exclude it. -->
+                    <exclusion>
+                        <groupId>javax.resource</groupId>
+                        <artifactId>connector</artifactId>
+                    </exclusion>
                 </exclusions>
             </dependency>
 

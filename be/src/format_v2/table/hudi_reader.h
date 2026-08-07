@@ -36,13 +36,16 @@ public:
 #ifdef BE_TEST
     void TEST_set_scan_params(TFileScanRangeParams* params) { _scan_params = params; }
     format::TableColumnMappingMode TEST_mapping_mode() const { return mapping_mode(); }
+    std::string TEST_parquet_int96_time_zone() const { return parquet_int96_time_zone(); }
     Status TEST_annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) {
         return annotate_file_schema(file_schema);
     }
 #endif
 
 protected:
+    Status create_file_reader(std::unique_ptr<format::FileReader>* reader) override;
     format::TableColumnMappingMode mapping_mode() const override;
+    std::string parquet_int96_time_zone() const;
     Status annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) override;
 
 private:

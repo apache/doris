@@ -49,6 +49,8 @@
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -875,15 +877,24 @@ void write_sparse_filter_nested_parquet_file(const std::string& file_path) {
 
     ::parquet::WriterProperties::Builder builder;
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
-    // V2 and page-index writers preserve record boundaries, so use V1 here to produce the
-    // continuation pages that the reader must still handle correctly.
+    // Arrow 24 enables page indexes by default. V2 and page-index writers preserve record
+    // boundaries, so use V1 without a page index to produce the continuation pages that the
+    // reader must still handle correctly.
     builder.data_page_version(::parquet::ParquetDataPageVersion::V1);
+    builder.disable_write_page_index();
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     builder.disable_dictionary();
     builder.write_batch_size(8);
-    builder.data_pagesize(64);
+    // Arrow 24 checks repeated-column page limits only at record or WriteBatch boundaries.
+    // A one-byte target deterministically flushes at every eligible boundary, including the
+    // deliberately split wide record below.
+    builder.data_pagesize(1);
     auto writer = ::parquet::ParquetFileWriter::Open(out, schema, builder.build());
     auto* row_group = writer->AppendRowGroup();
+
+    // Split each wide record across WriteBatch calls. The first half flushes at the one-byte page
+    // limit, so the second call deterministically creates a page whose first repetition level is 1.
+    constexpr int64_t SPANNING_BATCH_VALUES = SPANNING_NESTED_VALUES / 2;
 
     auto* id_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
     const int32_t ids[] = {1, 2, 3, 4, 5, 6};
@@ -913,16 +924,32 @@ void write_sparse_filter_nested_parquet_file(const std::string& file_path) {
     map_keys.push_back(6000);
 
     auto* map_key_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
-    EXPECT_EQ(map_key_writer->WriteBatch(static_cast<int64_t>(map_repetition_levels.size()),
-                                         map_key_definition_levels.data(),
+    constexpr int64_t MAP_PREFIX_LEVELS = 4;
+    constexpr int64_t MAP_KEY_PREFIX_VALUES = 2;
+    constexpr int64_t MAP_SPLIT_LEVELS = MAP_PREFIX_LEVELS + SPANNING_BATCH_VALUES;
+    constexpr int64_t MAP_KEY_SPLIT_VALUES = MAP_KEY_PREFIX_VALUES + SPANNING_BATCH_VALUES;
+    EXPECT_EQ(map_key_writer->WriteBatch(MAP_SPLIT_LEVELS, map_key_definition_levels.data(),
                                          map_repetition_levels.data(), map_keys.data()),
-              static_cast<int64_t>(map_keys.size()));
+              MAP_KEY_SPLIT_VALUES);
+    EXPECT_EQ(map_key_writer->WriteBatch(
+                      static_cast<int64_t>(map_repetition_levels.size()) - MAP_SPLIT_LEVELS,
+                      map_key_definition_levels.data() + MAP_SPLIT_LEVELS,
+                      map_repetition_levels.data() + MAP_SPLIT_LEVELS,
+                      map_keys.data() + MAP_KEY_SPLIT_VALUES),
+              static_cast<int64_t>(map_keys.size()) - MAP_KEY_SPLIT_VALUES);
     map_key_writer->Close();
     auto* map_value_writer = static_cast<::parquet::ByteArrayWriter*>(row_group->NextColumn());
-    EXPECT_EQ(map_value_writer->WriteBatch(static_cast<int64_t>(map_repetition_levels.size()),
-                                           map_value_definition_levels.data(),
+    constexpr int64_t MAP_VALUE_PREFIX_VALUES = 1;
+    constexpr int64_t MAP_VALUE_SPLIT_VALUES = MAP_VALUE_PREFIX_VALUES + SPANNING_BATCH_VALUES;
+    EXPECT_EQ(map_value_writer->WriteBatch(MAP_SPLIT_LEVELS, map_value_definition_levels.data(),
                                            map_repetition_levels.data(), map_values.data()),
-              static_cast<int64_t>(map_values.size()));
+              MAP_VALUE_SPLIT_VALUES);
+    EXPECT_EQ(map_value_writer->WriteBatch(
+                      static_cast<int64_t>(map_repetition_levels.size()) - MAP_SPLIT_LEVELS,
+                      map_value_definition_levels.data() + MAP_SPLIT_LEVELS,
+                      map_repetition_levels.data() + MAP_SPLIT_LEVELS,
+                      map_values.data() + MAP_VALUE_SPLIT_VALUES),
+              static_cast<int64_t>(map_values.size()) - MAP_VALUE_SPLIT_VALUES);
     map_value_writer->Close();
 
     std::vector<int16_t> element_repetition_levels {0, 0, 0, 1, 0};
@@ -940,10 +967,19 @@ void write_sparse_filter_nested_parquet_file(const std::string& file_path) {
     element_definition_levels.push_back(3);
 
     auto* element_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
-    EXPECT_EQ(element_writer->WriteBatch(static_cast<int64_t>(element_repetition_levels.size()),
-                                         element_definition_levels.data(),
+    constexpr int64_t ELEMENT_PREFIX_LEVELS = 5;
+    constexpr int64_t ELEMENT_PREFIX_VALUES = 2;
+    constexpr int64_t ELEMENT_SPLIT_LEVELS = ELEMENT_PREFIX_LEVELS + SPANNING_BATCH_VALUES;
+    constexpr int64_t ELEMENT_SPLIT_VALUES = ELEMENT_PREFIX_VALUES + SPANNING_BATCH_VALUES;
+    EXPECT_EQ(element_writer->WriteBatch(ELEMENT_SPLIT_LEVELS, element_definition_levels.data(),
                                          element_repetition_levels.data(), element_values.data()),
-              static_cast<int64_t>(element_values.size()));
+              ELEMENT_SPLIT_VALUES);
+    EXPECT_EQ(element_writer->WriteBatch(
+                      static_cast<int64_t>(element_repetition_levels.size()) - ELEMENT_SPLIT_LEVELS,
+                      element_definition_levels.data() + ELEMENT_SPLIT_LEVELS,
+                      element_repetition_levels.data() + ELEMENT_SPLIT_LEVELS,
+                      element_values.data() + ELEMENT_SPLIT_VALUES),
+              static_cast<int64_t>(element_values.size()) - ELEMENT_SPLIT_VALUES);
     element_writer->Close();
     auto* marker_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
     const int16_t marker_definition_levels[] = {1, 0, 1, 1, 1, 1};
@@ -1085,6 +1121,37 @@ void write_int96_timestamp_parquet_file(const std::string& file_path) {
     ASSERT_TRUE(file_result.ok()) << file_result.status();
     std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
 
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    ::parquet::ArrowWriterProperties::Builder arrow_builder;
+    arrow_builder.enable_force_write_int96_timestamps();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ROW_COUNT, writer_builder.build(),
+                                                      arrow_builder.build()));
+}
+
+void write_nested_int96_timestamp_parquet_file(const std::string& file_path) {
+    auto timestamp_type = arrow::timestamp(arrow::TimeUnit::MICRO);
+    auto value_builder =
+            std::make_shared<arrow::TimestampBuilder>(timestamp_type, arrow::default_memory_pool());
+    arrow::ListBuilder list_builder(arrow::default_memory_pool(), value_builder,
+                                    arrow::list(arrow::field("element", timestamp_type, true)));
+
+    ASSERT_TRUE(list_builder.Append().ok());
+    ASSERT_TRUE(value_builder->Append(1735660800000000LL).ok());
+    ASSERT_TRUE(value_builder->Append(1735660800123456LL).ok());
+    ASSERT_TRUE(list_builder.Append().ok());
+    ASSERT_TRUE(value_builder->Append(1735689600000000LL).ok());
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(list_builder.Finish(&array).ok());
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("timestamps", array->type(), true)}), {array});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
     ::parquet::WriterProperties::Builder writer_builder;
     writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
     writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
@@ -1496,7 +1563,8 @@ protected:
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
             bool is_immutable = false, bool enable_mapping_varbinary = false,
-            std::string fs_name = {}, int64_t mtime = 0) const {
+            std::string fs_name = {}, int64_t mtime = 0,
+            std::string hive_parquet_time_zone = {}) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1509,7 +1577,8 @@ protected:
         file_description->mtime = mtime;
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
-                global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
+                global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
+                std::move(hive_parquet_time_zone));
     }
 
     std::filesystem::path _test_dir;
@@ -2103,6 +2172,147 @@ TEST_F(NewParquetReaderTest, GetSchemaMapsInt96ToTimestampTzWhenTimestampTzMappi
     ASSERT_TRUE(schema[0].type->is_nullable());
     EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
     EXPECT_EQ(remove_nullable(schema[0].type)->get_scale(), 6);
+}
+
+TEST_F(NewParquetReaderTest, Int96TimezoneUsesCatalogPropertyInsteadOfSessionTimezone) {
+    TimezoneUtils::load_timezones_to_cache();
+    write_int96_timestamp_parquet_file(_file_path);
+
+    auto read_first_value = [&](const std::string& hive_parquet_time_zone,
+                                bool enable_mapping_timestamp_tz = false) {
+        auto reader = create_reader(0, -1, nullptr, enable_mapping_timestamp_tz, nullptr,
+                                    std::nullopt, false, false, {}, 0, hive_parquet_time_zone);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        // A session timezone must never implicitly opt an INT96 column into legacy conversion.
+        state.set_timezone("America/Los_Angeles");
+        auto status = reader->init(&state);
+        if (!status.ok()) {
+            ADD_FAILURE() << status;
+            return std::string {};
+        }
+        std::vector<format::ColumnDefinition> schema;
+        status = reader->get_schema(&schema);
+        if (!status.ok()) {
+            ADD_FAILURE() << status;
+            return std::string {};
+        }
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {field_projection(0)};
+        status = reader->open(request);
+        if (!status.ok()) {
+            ADD_FAILURE() << status;
+            return std::string {};
+        }
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        bool eof = false;
+        status = reader->get_block(&block, &rows, &eof);
+        if (!status.ok()) {
+            ADD_FAILURE() << status;
+            return std::string {};
+        }
+        if (rows != 3) {
+            ADD_FAILURE() << "Expected 3 rows, got " << rows;
+            return std::string {};
+        }
+        return block.get_by_position(0).type->to_string(*block.get_by_position(0).column, 0);
+    };
+
+    // A Trino/UTC-style file stores the wall clock 2024-12-31 16:00 directly. With the property
+    // absent, Doris preserves it even though the SQL session is America/Los_Angeles.
+    EXPECT_EQ(read_first_value(""), "2024-12-31 16:00:00.000000");
+    // A legacy Hive writer configured for Asia/Shanghai can normalize local 2025-01-01 00:00 to
+    // raw INT96 2024-12-31 16:00. The matching catalog property reverses that normalization.
+    EXPECT_EQ(read_first_value("Asia/Shanghai"), "2025-01-01 00:00:00.000000");
+    // TIMESTAMPTZ preserves the instant even when the INT96 compatibility timezone is configured.
+    EXPECT_EQ(read_first_value("Asia/Shanghai", true), "2024-12-31 16:00:00.000000+00:00");
+}
+
+TEST_F(NewParquetReaderTest, Int96UsesPerColumnPaimonTimestampSemantics) {
+    write_int96_timestamp_parquet_file(_file_path);
+
+    auto read_first_value = [&](bool adjusted_to_utc) {
+        auto reader = create_reader();
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        state.set_timezone("Asia/Shanghai");
+        auto status = reader->init(&state);
+        if (!status.ok()) {
+            ADD_FAILURE() << status;
+            return std::string {};
+        }
+        std::vector<format::ColumnDefinition> schema;
+        status = reader->get_schema(&schema);
+        if (!status.ok() || schema.size() != 1) {
+            ADD_FAILURE() << status;
+            return std::string {};
+        }
+        auto projection = field_projection(0);
+        projection.timestamp_is_adjusted_to_utc = adjusted_to_utc;
+        schema[0].type = DataTypeFactory::instance().create_data_type(
+                adjusted_to_utc ? TYPE_TIMESTAMPTZ : TYPE_DATETIMEV2, true, 0, 6);
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {projection};
+        status = reader->open(request);
+        if (!status.ok()) {
+            ADD_FAILURE() << status;
+            return std::string {};
+        }
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        bool eof = false;
+        status = reader->get_block(&block, &rows, &eof);
+        if (!status.ok() || rows != 3) {
+            ADD_FAILURE() << status << ", rows=" << rows;
+            return std::string {};
+        }
+        return block.get_by_position(0).type->to_string(*block.get_by_position(0).column, 0);
+    };
+
+    EXPECT_EQ(read_first_value(false), "2024-12-31 16:00:00.000000");
+    EXPECT_EQ(read_first_value(true), "2024-12-31 16:00:00.000000+00:00");
+}
+
+TEST_F(NewParquetReaderTest, NestedInt96UsesHiveParquetTimezone) {
+    TimezoneUtils::load_timezones_to_cache();
+    write_nested_int96_timestamp_parquet_file(_file_path);
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {}, 0,
+                                "Asia/Shanghai");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/Los_Angeles");
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    const auto& arrays = nullable_nested_column<ColumnArray>(block, 0);
+    ASSERT_EQ(arrays.get_offsets(), ColumnArray::Offsets64({2, 3}));
+    const auto& nullable_elements = assert_cast<const ColumnNullable&>(arrays.get_data());
+    const auto& timestamps =
+            assert_cast<const ColumnDateTimeV2&>(nullable_elements.get_nested_column());
+    const auto* array_type =
+            assert_cast<const DataTypeArray*>(remove_nullable(schema[0].type).get());
+    const auto element_type = remove_nullable(array_type->get_nested_type());
+    EXPECT_EQ(element_type->to_string(timestamps, 0), "2025-01-01 00:00:00.000000");
+    EXPECT_EQ(element_type->to_string(timestamps, 1), "2025-01-01 00:00:00.123456");
+    EXPECT_EQ(element_type->to_string(timestamps, 2), "2025-01-01 08:00:00.000000");
+}
+
+TEST_F(NewParquetReaderTest, RejectsInvalidHiveParquetTimezone) {
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {}, 0,
+                                "Not/A_Timezone");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto status = reader->init(&state);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Invalid hive.parquet.time-zone"), std::string::npos);
 }
 
 TEST_F(NewParquetReaderTest, ReadSingleRowGroupThenEof) {

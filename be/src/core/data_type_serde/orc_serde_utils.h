@@ -19,10 +19,49 @@
 
 #include <cstring>
 #include <orc/Vector.hh>
+#include <vector>
 
 #include "core/arena.h"
+#include "core/column/column_array.h"
+#include "core/data_type_serde/data_type_serde.h"
 
 namespace doris {
+namespace orc_serde_utils {
+
+size_t orc_decode_row_count(size_t rows, const std::vector<size_t>* selected_rows);
+size_t orc_source_row_at(size_t row, const std::vector<size_t>* selected_rows);
+bool orc_row_is_null(const ::orc::ColumnVectorBatch& batch, size_t row);
+
+struct RoundedOrcTimestamp {
+    int64_t seconds;
+    uint64_t microseconds;
+    bool carry;
+};
+
+Status round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds,
+                                           RoundedOrcTimestamp* result);
+
+DecodedColumnView make_orc_decoded_view(const OrcDecodedColumnView& orc_view,
+                                        DecodedValueKind value_kind);
+
+Status read_decoded_values(const DataTypeSerDe& serde, IColumn& column, DecodedColumnView* view);
+
+void fill_orc_decoded_null_map(const ::orc::ColumnVectorBatch& batch, size_t rows,
+                               const std::vector<size_t>* selected_rows, NullMap* null_map);
+
+Status append_orc_offsets(ColumnArray::Offsets64& doris_offsets,
+                          const ::orc::DataBuffer<int64_t>& orc_offsets, size_t rows,
+                          size_t* element_size, const std::vector<size_t>* selected_rows,
+                          std::vector<size_t>* element_selection);
+
+OrcDecodedColumnView make_child_orc_view(const OrcDecodedColumnView& parent_view,
+                                         const ::orc::Type* file_type,
+                                         const ::orc::Type* selected_type,
+                                         const ::orc::ColumnVectorBatch* batch, size_t rows,
+                                         const std::vector<size_t>* selected_rows);
+
+Status read_orc_child_column(const DataTypeSerDeSPtr& child_serde, MutableColumnPtr& child_column,
+                             const OrcDecodedColumnView& child_view);
 
 inline void copy_orc_string_data_to_arena(orc::ColumnVectorBatch* batch, Arena& arena) {
     if (auto* strings = dynamic_cast<orc::StringVectorBatch*>(batch)) {
@@ -84,4 +123,5 @@ inline void copy_orc_string_data_to_arena(orc::ColumnVectorBatch* batch, Arena& 
     }
 }
 
+} // namespace orc_serde_utils
 } // namespace doris

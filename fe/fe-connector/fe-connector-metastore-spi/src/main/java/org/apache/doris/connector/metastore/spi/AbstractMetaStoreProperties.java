@@ -53,6 +53,17 @@ public abstract class AbstractMetaStoreProperties implements MetaStoreProperties
         return MetaStoreParseUtils.matchedProperties(this, raw);
     }
 
+    /**
+     * The warehouse root, alias-resolved and trimmed. Public here (not only on
+     * {@code FileSystemMetaStoreProperties}) because {@code warehouse} is declared once for ALL flavors
+     * on this base, so a connector assembling its catalog options must be able to read it back from
+     * whichever backend it bound — re-reading the raw map instead would recreate the second reader this
+     * field exists to avoid.
+     */
+    public String getWarehouse() {
+        return warehouse;
+    }
+
     /** Shared fail-fast: {@code warehouse} is required by every paimon flavor (legacy parity). */
     protected void requireWarehouse() {
         if (StringUtils.isBlank(warehouse)) {

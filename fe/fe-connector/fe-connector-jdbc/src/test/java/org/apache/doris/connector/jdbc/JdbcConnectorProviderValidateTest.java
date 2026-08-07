@@ -227,7 +227,10 @@ public class JdbcConnectorProviderValidateTest {
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
-        Assertions.assertTrue(ex.getMessage().contains("valid integer"));
+        // The binder converts the field now, so the wording comes from it; what still has to hold is
+        // that the error names the key at fault.
+        Assertions.assertTrue(ex.getMessage().contains("connection_pool_min_size"),
+                "got: " + ex.getMessage());
     }
 
     @Test

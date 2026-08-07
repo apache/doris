@@ -46,7 +46,7 @@ import java.util.Optional;
 public class HiveConnectorMetadataColumnStatsTest {
 
     private HiveConnectorMetadata metadata(FakeHmsClient client) {
-        return new HiveConnectorMetadata(client, Collections.emptyMap(), new FakeConnectorContext());
+        return new HiveConnectorMetadata(client, HiveTestProperties.minimal(), new FakeConnectorContext());
     }
 
     private HiveTableHandle hiveHandle(Map<String, String> params) {

@@ -555,7 +555,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TIcebergDeleteSink dialect. No output-expr / materialized-name loop is needed: the row id reaches
         // BE as the __DORIS_ICEBERG_ROWID_COL__ block column (a real hidden column), and viceberg_delete_sink
         // resolves it by block-name, not by output-expr name.
-        rootFragment.setSink(buildPluginRowLevelDmlSink(deleteSink, WriteOperation.DELETE, false));
+        rootFragment.setSink(buildPluginRowLevelDmlSink(deleteSink, WriteOperation.DELETE, false,
+                deleteSink.getBoundWriteMetadataIdentity()));
         return rootFragment;
     }
 
@@ -592,7 +593,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // SQL MERGE INTO carries the cardinality requirement onto the write handle; UPDATE shares this
         // sink dialect but has no such rule, so it threads false (see PhysicalExternalRowLevelMergeSink).
         rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, WriteOperation.MERGE,
-                mergeSink.isRequireMergeCardinalityCheck()));
+                mergeSink.isRequireMergeCardinalityCheck(), mergeSink.getBoundWriteMetadataIdentity()));
         return rootFragment;
     }
 
@@ -609,7 +610,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     private PluginDrivenTableSink buildPluginRowLevelDmlSink(
             PhysicalBaseExternalTableSink<? extends Plan> sink, WriteOperation writeOperation,
-            boolean requireMergeCardinalityCheck) {
+            boolean requireMergeCardinalityCheck, String boundWriteMetadataIdentity) {
         PluginDrivenExternalTable targetTable = (PluginDrivenExternalTable) sink.getTargetTable();
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) targetTable.getCatalog();
 
@@ -621,9 +622,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // __DORIS_ICEBERG_ROWID_COL__ STRUCT, and the target may hold ARRAY/MAP/STRUCT data columns.
         // Naming only the tag would drop the children and yield a childless (invalid) complex type.
         List<ConnectorColumn> connectorColumns = sink.getCols().stream()
-                .map(col -> new ConnectorColumn(col.getName(),
-                        ConnectorColumnConverter.toConnectorType(col.getType()),
-                        null, col.isAllowNull(), null))
+                .map(PhysicalPlanTranslator::toWriteConnectorColumn)
                 .collect(java.util.stream.Collectors.toList());
 
         // Resolve the table handle first so BOTH the write-admission gate and the write provider are chosen
@@ -648,11 +647,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
                 metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
-
         // writeSortInfo == null: a row-level DML has no engine-resolved write sort (MERGE's sort lives in the
         // connector's TIcebergMergeSink.sort_fields, DELETE is unsorted).
         return new PluginDrivenTableSink(targetTable, writePlanProvider, connSession,
-                providerTableHandle, connectorColumns, null, writeOperation, requireMergeCardinalityCheck);
+                providerTableHandle, connectorColumns, connectorColumns, null, writeOperation,
+                requireMergeCardinalityCheck, boundWriteMetadataIdentity);
     }
 
     @Override
@@ -676,10 +675,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // converted (see the row-level DML arm): a bare primitive tag drops an ARRAY/MAP/STRUCT
         // column's children and yields a childless, invalid complex type.
         List<ConnectorColumn> connectorColumns = connectorTableSink.getCols().stream()
-                .map(col -> new ConnectorColumn(col.getName(),
-                        ConnectorColumnConverter.toConnectorType(col.getType()),
-                        null, col.isAllowNull(), null))
+                .map(PhysicalPlanTranslator::toWriteConnectorColumn)
                 .collect(java.util.stream.Collectors.toList());
+        List<ConnectorColumn> boundTargetColumns = connectorTableSink.getBoundTargetSchema().stream()
+                .map(PhysicalPlanTranslator::toWriteConnectorColumn)
+                .collect(java.util.stream.Collectors.toList());
+        // Sort ordinals are consumed against the sink output. BindSink puts positional writes in physical
+        // bound-schema order, while name-mapped writes keep user order. Preserve that coordinate space so
+        // partial/static INSERTs cannot sort another slot.
+        List<ConnectorColumn> boundOutputColumns = targetTable.requiresFullSchemaWriteOrder()
+                ? connectorTableSink.getBoundTargetSchema().stream()
+                        .map(PhysicalPlanTranslator::toWriteConnectorColumn)
+                        .collect(java.util.stream.Collectors.toList())
+                : connectorColumns;
 
         // Every write-capable connector builds its own opaque TDataSink via its write-plan
         // provider (jdbc / maxcompute / iceberg). A connector whose declared write operations do
@@ -712,12 +720,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
                 metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
 
+        // Preserve the generation captured from the exact remote table load that supplied the bound schema.
+        // A live lookup here would silently move the fence after a concurrent drop/recreate.
+        String boundWriteMetadataIdentity = connectorTableSink.getBoundWriteMetadataIdentity();
+
         // The connector declares its write-sort columns (e.g. an iceberg WRITE ORDERED BY) as positions
         // into the sink's full-schema output; the engine resolves them to bound slots and builds the
         // TSortInfo here (the connector's planWrite has no bound exprs). Empty for connectors with no
         // write sort (jdbc/maxcompute) -> null, byte-identical unsorted sink.
         TSortInfo writeSortInfo = buildConnectorWriteSortInfo(
-                writePlanProvider.getWriteSortColumns(connSession, providerTableHandle),
+                writePlanProvider.getWriteSortColumns(connSession, providerTableHandle, boundOutputColumns),
                 connectorTableSink, context);
 
         // A distributed rewrite_data_files INSERT-SELECT threads WriteOperation.REWRITE so the connector's
@@ -726,11 +738,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // an instanceof Iceberg. Ordinary connector INSERTs keep WriteOperation.INSERT (byte-identical).
         WriteOperation writeOperation = connectorTableSink.isRewrite()
                 ? WriteOperation.REWRITE : WriteOperation.INSERT;
+        // The write list can omit explicit/static-partition columns, but schema-drift validation must
+        // retain the complete generation captured by BindSink instead of comparing that subset.
         PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
-                writePlanProvider, connSession, providerTableHandle, connectorColumns, writeSortInfo,
-                writeOperation);
+                writePlanProvider, connSession, providerTableHandle, connectorColumns,
+                boundTargetColumns, writeSortInfo, writeOperation, false,
+                boundWriteMetadataIdentity);
         rootFragment.setSink(providerSink);
         return rootFragment;
+    }
+
+    private static ConnectorColumn toWriteConnectorColumn(Column column) {
+        // Use the shared recursive conversion so write validation receives nested field identities as well
+        // as the root id; rebuilding only the root silently accepted drop-and-recreate nested fields.
+        return ConnectorColumnConverter.toConnectorColumn(column);
     }
 
     private TSortInfo buildConnectorWriteSortInfo(List<ConnectorWriteSortColumn> sortColumns,

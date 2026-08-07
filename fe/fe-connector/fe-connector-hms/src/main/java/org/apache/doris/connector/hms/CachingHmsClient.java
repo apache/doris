@@ -426,6 +426,22 @@ public class CachingHmsClient implements HmsClient {
     }
 
     @Override
+    public long acquireExclusiveTableLock(String queryId, String user, String dbName,
+            String tableName, long timeoutMs) {
+        return delegate.acquireExclusiveTableLock(queryId, user, dbName, tableName, timeoutMs);
+    }
+
+    @Override
+    public void releaseLock(long lockId) {
+        delegate.releaseLock(lockId);
+    }
+
+    @Override
+    public void heartbeatLock(long lockId) {
+        delegate.heartbeatLock(lockId);
+    }
+
+    @Override
     public long getCurrentNotificationEventId() {
         return delegate.getCurrentNotificationEventId();
     }

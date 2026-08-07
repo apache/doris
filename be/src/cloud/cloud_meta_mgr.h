@@ -87,10 +87,13 @@ public:
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
     Status commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
-                         std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
+                         std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr,
+                         RowsetMeta* attach_row_binlog = nullptr,
+                         std::shared_ptr<RowsetMeta>* existed_attach_row_binlog = nullptr);
     void cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time);
 
-    Status update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id);
+    Status update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id,
+                             const RowsetMeta* attach_row_binlog = nullptr);
 
     Status update_packed_file_info(const std::string& packed_file_path,
                                    const cloud::PackedFileInfoPB& packed_file_info,
@@ -217,6 +220,11 @@ private:
     void check_table_size_correctness(RowsetMeta& rs_meta);
     int64_t get_segment_file_size(RowsetMeta& rs_meta);
     int64_t get_inverted_index_file_size(RowsetMeta& rs_meta);
+
+    Status do_commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
+                            std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
+
+    Status do_update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id);
 
     HostLevelMSRpcRateLimiters* host_level_ms_rpc_rate_limiters_ {nullptr};
     MSBackpressureHandler* ms_backpressure_handler_ {nullptr};

@@ -20,10 +20,14 @@
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_const.h"
+#include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
+#include "runtime/thread_context.h"
 #include "testutil/column_helper.h"
 
 namespace doris {
@@ -146,5 +150,27 @@ TEST(ColumnSelfCheckTest, boolean_check) {
                 {0, 1, 2, 1, 1}, {0, 0, 1, 0, 0});
         EXPECT_EQ(column_nullable_bool->column_boolean_check(), true);
     }
+}
+
+TEST(ColumnSelfCheckTest, nullable_complex_without_nulls_does_not_copy_payload) {
+    constexpr size_t payload_size = 4 * 1024 * 1024;
+    const std::string payload(payload_size, 'x');
+
+    auto keys = ColumnString::create();
+    keys->insert_data(payload.data(), payload.size());
+    auto values = ColumnString::create();
+    values->insert_data(payload.data(), payload.size());
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(1);
+    auto nullable_map = ColumnNullable::create(
+            ColumnMap::create(std::move(keys), std::move(values), std::move(offsets)),
+            ColumnUInt8::create(1, 0));
+
+    int64_t peak_memory = 0;
+    {
+        SCOPED_PEAK_MEM(&peak_memory);
+        EXPECT_TRUE(nullable_map->column_boolean_check());
+    }
+    EXPECT_LT(peak_memory, payload_size);
 }
 } // namespace doris
