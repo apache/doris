@@ -53,20 +53,6 @@ public final class MetaStoreParseUtils {
     private MetaStoreParseUtils() {
     }
 
-    /**
-     * Returns the first non-blank value among the given keys, or {@code null} if none is set.
-     * Mirrors the alias-priority semantics of {@code @ConnectorProperty(names=...)}.
-     */
-    public static String firstNonBlank(Map<String, String> props, String... keys) {
-        for (String key : keys) {
-            String value = props.get(key);
-            if (StringUtils.isNotBlank(value)) {
-                return value;
-            }
-        }
-        return null;
-    }
-
     /** Emits {@code (key, props.get(key))} to {@code setter} when the value is present and non-blank. */
     public static void copyIfPresent(Map<String, String> props, String key, BiConsumer<String, String> setter) {
         String value = props.get(key);

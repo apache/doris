@@ -307,7 +307,7 @@ public class PaimonTableHandleScanOptionsTest {
         handle.setPaimonTable(table);
 
         ConnectorTableSchema schema = new PaimonConnectorMetadata(
-                ops, Collections.emptyMap(), new RecordingConnectorContext())
+                ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext())
                 .getTableSchema(null, handle);
         Map<String, String> props = schema.getProperties();
 

@@ -219,11 +219,19 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                     Table loaded = IcebergStatementScope.sharedWritableTable(session, db, tableName,
                             () -> catalogOps.loadTable(db, tableName));
                     this.table = loaded;
+                    validateBoundWriteGeneration(ctx, loaded);
                     if (writeSchemaContext != null) {
                         writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
                     }
                     applyBeginGuards(ctx, tableName);
-                    this.transaction = openTransaction(loaded, ctx.isOverwrite());
+                    Transaction opened = openTransaction(loaded, ctx.isOverwrite());
+                    // BaseTable.newTransaction refreshes metadata. Fence that second load too, closing the
+                    // drop/recreate race between the initial generation check and transaction construction.
+                    validateBoundWriteGeneration(ctx, loaded);
+                    if (writeSchemaContext != null) {
+                        writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
+                    }
+                    this.transaction = opened;
                     return null;
                 });
             } catch (Exception e) {
@@ -233,6 +241,17 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             // Only flip after a fully successful begin, so a failed load can be retried (writeStarted stays
             // false) rather than wedging the transaction in a half-begun state.
             writeStarted = true;
+        }
+    }
+
+    private static void validateBoundWriteGeneration(IcebergWriteContext ctx, Table loaded) {
+        String boundIdentity = ctx.getBoundWriteMetadataIdentity();
+        // Reject a same-name replacement before opening its SDK transaction; the replacement must never
+        // become the conflict baseline for a plan whose rows and defaults were bound against the old UUID.
+        if (boundIdentity != null
+                && !boundIdentity.equals(IcebergWritePlanProvider.writeMetadataIdentity(loaded))) {
+            throw new IllegalArgumentException(
+                    "Iceberg write metadata changed after the write was bound; retry the statement");
         }
     }
 
@@ -394,13 +413,14 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             // scan used, S_read), threaded onto the write handle and carried on the ctx. The commit-time
             // removeDeletes (option D) re-derives from baseSnapshotId, and BE unions the scan-time (S_read)
             // old deletes into the new DV — anchoring both at S_read keeps supply and remove on one snapshot
-            // (no resurrection under a concurrent commit in the read->begin-write window). A -1 readSnapshotId
-            // (no pin: a caller without the threaded handle) falls back to the begin-time current snapshot.
+            // (no resurrection under a concurrent commit in the read->begin-write window).
             long pinnedReadSnapshot = ctx.getReadSnapshotId();
-            // Keep both ternary arms boxed (Long): getSnapshotIdIfPresent returns null for an empty table
-            // (no snapshot), and a primitive arm would force-unbox that null into an NPE.
-            this.baseSnapshotId = pinnedReadSnapshot >= 0
-                    ? Long.valueOf(pinnedReadSnapshot) : getSnapshotIdIfPresent(table);
+            if (ctx.isReadSnapshotResolved()) {
+                // An explicitly empty read stays null so validation covers a concurrent first append.
+                this.baseSnapshotId = pinnedReadSnapshot >= 0 ? Long.valueOf(pinnedReadSnapshot) : null;
+            } else {
+                this.baseSnapshotId = getSnapshotIdIfPresent(table);
+            }
             if (table instanceof HasTableOperations) {
                 int formatVersion = ((HasTableOperations) table).operations().current().formatVersion();
                 if (formatVersion < 2) {
@@ -749,9 +769,11 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         }
 
         List<Expression> predicates = new ArrayList<>();
+        Set<String> unmatchedFields = new HashSet<>(staticPartitions.keySet());
         for (PartitionField field : spec.fields()) {
             String partitionColName = field.name();
             if (staticPartitions.containsKey(partitionColName)) {
+                unmatchedFields.remove(partitionColName);
                 String partitionValueStr = staticPartitions.get(partitionColName);
                 Types.NestedField sourceField = schema.findField(field.sourceId());
                 if (sourceField == null) {
@@ -768,8 +790,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             }
         }
 
-        if (predicates.isEmpty()) {
-            return Expressions.alwaysTrue();
+        // A stale nonempty static spec must never widen into an always-true full-table overwrite.
+        if (!unmatchedFields.isEmpty()) {
+            throw new DorisConnectorException("Static partition field does not match the current Iceberg spec: "
+                    + unmatchedFields);
         }
         Expression result = predicates.get(0);
         for (int i = 1; i < predicates.size(); i++) {

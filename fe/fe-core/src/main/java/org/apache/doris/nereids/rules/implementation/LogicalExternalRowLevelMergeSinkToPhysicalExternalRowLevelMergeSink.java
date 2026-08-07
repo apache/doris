@@ -37,6 +37,7 @@ public class LogicalExternalRowLevelMergeSinkToPhysicalExternalRowLevelMergeSink
             return new PhysicalExternalRowLevelMergeSink<>(
                     sink.getDatabase(),
                     sink.getTargetTable(),
+                    sink.getBoundWriteMetadataIdentity(),
                     sink.getCols(),
                     sink.getOutputExprs(),
                     sink.isRequireMergeCardinalityCheck(),

@@ -70,6 +70,16 @@ final class AwsCredentialsProviderModes {
     }
 
     /**
+     * Same, for a mode value that has ALREADY been resolved from the properties — the rest flavor binds
+     * {@code iceberg.rest.credentials_provider_type} into its metastore holder, so re-scanning the raw map
+     * for it would be a second reader of the same key. Blank/unknown still means the SDK default chain.
+     */
+    static String classNameForMode(String mode) {
+        Class<?> clazz = classFor(normalizeMode(mode));
+        return clazz == null ? null : clazz.getName();
+    }
+
+    /**
      * The AWS SDK v2 provider instance for the first non-blank mode key in {@code props};
      * {@link DefaultCredentialsProvider} for DEFAULT / blank / unknown.
      */
@@ -120,9 +130,17 @@ final class AwsCredentialsProviderModes {
         for (String key : modeKeys) {
             String value = props.get(key);
             if (value != null && !value.trim().isEmpty()) {
-                return value.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+                return normalizeMode(value);
             }
         }
         return "DEFAULT";
+    }
+
+    /** Legacy AwsCredentialsProviderMode.fromString normalization; blank is DEFAULT. */
+    private static String normalizeMode(String mode) {
+        if (mode == null || mode.trim().isEmpty()) {
+            return "DEFAULT";
+        }
+        return mode.trim().toUpperCase(Locale.ROOT).replace('-', '_');
     }
 }

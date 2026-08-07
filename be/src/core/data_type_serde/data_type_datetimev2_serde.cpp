@@ -31,6 +31,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/parquet_timestamp.h"
 #include "core/types.h"
@@ -50,6 +51,52 @@ namespace doris {
 static const int64_t micro_to_nano_second = 1000;
 
 namespace {
+
+Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColumnView& orc_view,
+                                   const cctz::time_zone& timezone) {
+    const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC timestamp batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto& data = assert_cast<ColumnDateTimeV2&>(nested_column).get_data();
+    const size_t old_data_size = data.size();
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    data.resize(old_data_size + output_rows);
+    for (size_t row = 0; row < output_rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
+        if (orc_serde_utils::orc_row_is_null(*orc_view.batch, source_row)) {
+            data[old_data_size + row] = DateV2Value<DateTimeV2ValueType> {};
+            continue;
+        }
+        auto& value =
+                reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
+        orc_serde_utils::RoundedOrcTimestamp timestamp;
+        auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
+        value.from_unixtime(orc_batch->data[source_row], timezone);
+        if (!value.is_valid_date()) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC timestamp is outside the target timezone range");
+        }
+        value.set_microsecond(timestamp.microseconds);
+        // Plain ORC TIMESTAMP is a civil value. Carry after timezone conversion so a fractional
+        // round does not jump backward or skip an hour at a daylight-saving transition.
+        if (timestamp.carry &&
+            !value.date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, 1, false})) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC timestamp is outside the target timezone range");
+        }
+    }
+    return Status::OK();
+}
 
 Status append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
                                            int64_t timestamp_micros) {
@@ -926,4 +973,18 @@ template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataType
         const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
+
+Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
+                                                     const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    const auto kind = view.file_type->getKind();
+    DORIS_CHECK(kind == ::orc::TypeKind::TIMESTAMP || kind == ::orc::TypeKind::TIMESTAMP_INSTANT);
+    DORIS_CHECK(view.timezone != nullptr);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_timestamp_orc_values(column, view, *view.timezone);
+}
+
 } // namespace doris

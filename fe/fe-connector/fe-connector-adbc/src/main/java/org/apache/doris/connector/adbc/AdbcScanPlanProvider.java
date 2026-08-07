@@ -61,16 +61,16 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
     /** Names the reader on BE. Kept next to {@link AdbcScanRange#getFileFormat()}, which must agree. */
     private static final String FILE_FORMAT = "arrow";
 
-    private final Map<String, String> properties;
+    private final AdbcCatalogProperties props;
     private final Path driverPath;
     private final AdbcDialectSelector dialectSelector;
     private final Supplier<AdbcClient> clientSupplier;
     private final AdbcPartitionedReadSupport partitionedRead;
 
-    public AdbcScanPlanProvider(Map<String, String> properties, Path driverPath,
+    public AdbcScanPlanProvider(AdbcCatalogProperties props, Path driverPath,
             AdbcDialectSelector dialectSelector, Supplier<AdbcClient> clientSupplier,
             AdbcPartitionedReadSupport partitionedRead) {
-        this.properties = properties;
+        this.props = props;
         this.driverPath = driverPath;
         this.dialectSelector = dialectSelector;
         this.clientSupplier = clientSupplier;
@@ -90,9 +90,8 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
         // describe a query because the driver cannot partition would help nobody. The statement is what a
         // partitioned scan splits, so what EXPLAIN shows still describes the real scan; only the range
         // count differs, and a range count for a query that was never run means nothing anyway.
-        AdbcConnectorProperties.PartitionedReadMode mode =
-                AdbcConnectorProperties.partitionedReadMode(properties);
-        if (!request.isExplainOnly() && mode != AdbcConnectorProperties.PartitionedReadMode.DISABLED) {
+        AdbcCatalogProperties.PartitionedReadMode mode = props.getPartitionedReadMode();
+        if (!request.isExplainOnly() && mode != AdbcCatalogProperties.PartitionedReadMode.DISABLED) {
             if (partitionedRead.isKnownUnsupported()) {
                 // Already asked once, on this catalog, and the driver said no.
                 refuseIfRequired(mode, partitionedRead.getRefusal());
@@ -114,13 +113,13 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
      * fallback -- the failure and the pass look identical -- and a deployment sized for the parallelism
      * would simply be slow.
      */
-    private static void refuseIfRequired(AdbcConnectorProperties.PartitionedReadMode mode,
+    private static void refuseIfRequired(AdbcCatalogProperties.PartitionedReadMode mode,
             String driverAnswer) {
-        if (mode != AdbcConnectorProperties.PartitionedReadMode.REQUIRED) {
+        if (mode != AdbcCatalogProperties.PartitionedReadMode.REQUIRED) {
             return;
         }
         throw new DorisConnectorException("This catalog sets '"
-                + AdbcConnectorProperties.PARTITIONED_READ + "'='required', but its ADBC driver does not"
+                + AdbcCatalogProperties.PARTITIONED_READ + "'='required', but its ADBC driver does not"
                 + " implement partitioned execution, so the scan cannot be split across backends."
                 + " The driver answered: " + (driverAnswer == null || driverAnswer.isEmpty()
                         ? "(no message)" : driverAnswer)
@@ -137,7 +136,7 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
      * hide a real failure behind a slower query -- and would run the statement remotely a second time.
      */
     private List<ConnectorScanRange> planPartitions(String sql,
-            AdbcConnectorProperties.PartitionedReadMode mode) {
+            AdbcCatalogProperties.PartitionedReadMode mode) {
         // Set by the NOT_IMPLEMENTED branch so the downgrade can be logged with what the driver
         // actually said. Without it the log says only that SOMETHING answered NOT_IMPLEMENTED, and
         // the layer that did -- driver, driver manager, or JNI bridge -- has to be found by hand.
@@ -155,7 +154,7 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
                         throw AdbcClient.translate(e,
                                 "Failed to plan a partitioned ADBC scan of [" + sql + "], generated in the '"
                                         + dialectSelector.select(clientSupplier).name() + "' dialect (set '"
-                                        + AdbcConnectorProperties.SQL_DIALECT + "' on this catalog if the"
+                                        + AdbcCatalogProperties.SQL_DIALECT + "' on this catalog if the"
                                         + " source expects different SQL)");
                     }
                     refusal[0] = e;
@@ -169,7 +168,7 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
                 LOG.info("The ADBC driver does not implement partitioned execution, so scans of this"
                         + " catalog run as one range on one backend. Set '{}'='disabled' to stop asking,"
                         + " or 'required' to fail instead. The driver answered: {}",
-                        AdbcConnectorProperties.PARTITIONED_READ,
+                        AdbcCatalogProperties.PARTITIONED_READ,
                         answer.isEmpty() ? "(no exception)" : answer);
             }
             refuseIfRequired(mode, answer);
@@ -183,19 +182,19 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
             throw new DorisConnectorException("The ADBC driver reported no partitions for ["
                     + sql + "]. Doris cannot tell that apart from a lost result set, so the query fails"
                     + " rather than returning no rows. Set '"
-                    + AdbcConnectorProperties.PARTITIONED_READ
+                    + AdbcCatalogProperties.PARTITIONED_READ
                     + "'='disabled' on this catalog to read it through a single statement instead.");
         }
-        int limit = AdbcConnectorProperties.maxPartitions(properties);
+        int limit = props.getMaxPartitions();
         if (descriptors.size() > limit) {
             // Deliberately not a fallback to the single-range path: the source has already executed the
             // statement to produce these descriptors, so re-planning it as a statement would execute it a
             // second time while this result set sits unread until the source times it out.
             throw new DorisConnectorException("The ADBC driver split [" + sql + "] into "
                     + descriptors.size() + " partitions, over the '"
-                    + AdbcConnectorProperties.MAX_PARTITIONS + "' limit of " + limit
+                    + AdbcCatalogProperties.MAX_PARTITIONS + "' limit of " + limit
                     + ". Raise that property, narrow the query, or set '"
-                    + AdbcConnectorProperties.PARTITIONED_READ + "'='disabled' on this catalog.");
+                    + AdbcCatalogProperties.PARTITIONED_READ + "'='disabled' on this catalog.");
         }
         List<ConnectorScanRange> ranges = new ArrayList<>(descriptors.size());
         for (PartitionDescriptor descriptor : descriptors) {
@@ -253,11 +252,11 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
     private AdbcScanRange.Builder rangeBuilder() {
         return new AdbcScanRange.Builder()
                 .driverPath(driverPath.toString())
-                .driverEntrypoint(properties.get(AdbcConnectorProperties.DRIVER_ENTRYPOINT))
-                .uri(AdbcConnectorProperties.require(properties, AdbcConnectorProperties.URI))
-                .username(properties.get(AdbcConnectorProperties.USER))
-                .password(properties.get(AdbcConnectorProperties.PASSWORD))
-                .driverOptions(AdbcConnectorProperties.driverOptions(properties));
+                .driverEntrypoint(props.getDriverEntrypoint())
+                .uri(props.getUri())
+                .username(props.getUser())
+                .password(props.getPassword())
+                .driverOptions(props.getDriverOptions());
     }
 
     private static AdbcTableHandle adbcHandle(ConnectorTableHandle handle) {

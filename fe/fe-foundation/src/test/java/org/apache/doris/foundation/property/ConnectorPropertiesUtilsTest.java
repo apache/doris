@@ -61,6 +61,76 @@ public class ConnectorPropertiesUtilsTest {
         Assertions.assertEquals("matched-by-alias", config.getAliasValue());
     }
 
+    // ------------------------------------------------------------------
+    // Alias-resolution semantics.
+    //
+    // WHY these are pinned: connectors that assemble an SDK/BE payload used to resolve the same
+    // aliases with a hand-written "first non-blank of these keys" helper, reading the raw map a
+    // SECOND time next to the annotation binding. Folding that assembly onto the bound values only
+    // preserves behaviour because the binder resolves aliases the same way. If any of the three
+    // rules below changes, those connectors do not fail to compile — they silently resolve a
+    // different value than the one they validated.
+    // ------------------------------------------------------------------
+
+    /**
+     * A blank value counts as ABSENT, so a later alias wins over an earlier blank one. This is
+     * "first non-blank", not "first present": a map that carries {@code alias1=""} must still bind
+     * {@code alias2}.
+     */
+    @Test
+    void testAliasSkipsBlankAndPicksFirstNonBlank() {
+        Map<String, String> props = new HashMap<>();
+        props.put("alias1", "   ");
+        props.put("alias2", "matched-by-second-alias");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        Assertions.assertEquals("matched-by-second-alias", config.getAliasValue());
+    }
+
+    /** Declaration order in {@code names()} IS the priority order when several aliases are set. */
+    @Test
+    void testAliasDeclarationOrderIsPriorityOrder() {
+        Map<String, String> props = new HashMap<>();
+        props.put("alias1", "from-first");
+        props.put("alias2", "from-second");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        Assertions.assertEquals("from-first", config.getAliasValue());
+    }
+
+    /** All aliases blank leaves the field at its initial value; the binder never writes a blank. */
+    @Test
+    void testAllBlankAliasesLeaveFieldAtInitialValue() {
+        Map<String, String> props = new HashMap<>();
+        props.put("alias1", "");
+        props.put("alias2", "  ");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        Assertions.assertNull(config.getAliasValue());
+    }
+
+    /**
+     * The bound value is TRIMMED. This is the one place the binder differs from the hand-written
+     * helpers it replaces (which returned the value verbatim), so a padded property reaches the
+     * downstream SDK/payload trimmed once assembly is folded onto the bound value.
+     */
+    @Test
+    void testBoundValueIsTrimmed() {
+        Map<String, String> props = new HashMap<>();
+        props.put("string.key", "  hello  ");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        Assertions.assertEquals("hello", config.getStringValue());
+    }
+
     @Test
     void testUnsupportedFieldNotSet() {
         Map<String, String> props = new HashMap<>();

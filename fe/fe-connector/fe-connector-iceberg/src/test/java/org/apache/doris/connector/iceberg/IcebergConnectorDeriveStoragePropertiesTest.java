@@ -37,10 +37,10 @@ public class IcebergConnectorDeriveStoragePropertiesTest {
     private static Map<String, String> props(String catalogType, String warehouse) {
         Map<String, String> m = new HashMap<>();
         if (catalogType != null) {
-            m.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, catalogType);
+            m.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, catalogType);
         }
         if (warehouse != null) {
-            m.put(IcebergConnectorProperties.WAREHOUSE, warehouse);
+            m.put("warehouse", warehouse);
         }
         return m;
     }

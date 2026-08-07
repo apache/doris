@@ -167,6 +167,20 @@ public class PhysicalExternalRowLevelMergeSinkTest {
     }
 
     @Test
+    public void reconstructRejectsSameNameWithReplacementFieldId() {
+        ExprId oldIdExpr = exprId("id");
+        List<MergePartitionField> out = new ArrayList<>();
+
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(out,
+                spec(8, field("identity", null, "id", "id", 2)), map("id", oldIdExpr),
+                java.util.Collections.singletonMap(1, oldIdExpr));
+
+        // The live field reused the name but not the bound identity; name fallback would route wrong values.
+        Assertions.assertFalse(result.success);
+        Assertions.assertTrue(out.isEmpty());
+    }
+
+    @Test
     public void reconstructNonIdentityPrePassSeesFieldsAfterHardFail() {
         // PARITY-2 independence: the build loop short-circuits on field 0 (null name), but the
         // hasNonIdentity pre-pass over ALL fields must still see the bucket[16] at field 1. A mutation

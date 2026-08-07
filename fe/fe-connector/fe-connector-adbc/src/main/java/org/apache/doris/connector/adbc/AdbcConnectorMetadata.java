@@ -38,6 +38,7 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -64,7 +65,6 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
 
     private final AdbcClient client;
     private final AdbcSchemaStrategy schemaStrategy;
-    private final Map<String, String> properties;
     private final Supplier<AdbcDialect> dialect;
     private final AdbcMetadataCache cache;
 
@@ -74,10 +74,9 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
      * @param cache   the catalog's, shared with every other statement
      */
     public AdbcConnectorMetadata(AdbcClient client, AdbcSchemaStrategy schemaStrategy,
-            Map<String, String> properties, Supplier<AdbcDialect> dialect, AdbcMetadataCache cache) {
+            Supplier<AdbcDialect> dialect, AdbcMetadataCache cache) {
         this.client = client;
         this.schemaStrategy = schemaStrategy;
-        this.properties = properties;
         this.dialect = dialect;
         this.cache = cache;
     }
@@ -142,7 +141,14 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
                     AdbcTypeMapper.toDorisType(field.getName(), field),
                     null, field.isNullable(), null, true));
         }
-        return new ConnectorTableSchema(adbcHandle.getRemoteTable(), columns, "ADBC", properties);
+        // No table properties. The catalog's own map is what used to be handed over here, and it holds
+        // the password: SHOW CREATE TABLE renders table properties unmasked (Env.getDdlStmt), and the
+        // only thing keeping that rendering away from an adbc table is the SUPPORTS_SHOW_CREATE_DDL
+        // capability this connector does not declare -- a single gate between a credential and a
+        // user-visible string. Nothing reads these entries for an adbc table, so there is nothing to
+        // send.
+        return new ConnectorTableSchema(adbcHandle.getRemoteTable(), columns, "ADBC",
+                Collections.emptyMap());
     }
 
     @Override

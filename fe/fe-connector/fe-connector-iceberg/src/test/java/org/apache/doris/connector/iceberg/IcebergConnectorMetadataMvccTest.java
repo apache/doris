@@ -104,7 +104,7 @@ public class IcebergConnectorMetadataMvccTest {
 
     private static IcebergConnectorMetadata metadataFor(Table table, RecordingIcebergCatalogOps ops) {
         ops.table = table;
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     private static ConnectorTableHandle handle() {
@@ -156,7 +156,7 @@ public class IcebergConnectorMetadataMvccTest {
         // An ENABLED cache (TTL 100s) injected via the 4-arg ctor — the production wiring (IcebergConnector
         // injects its per-catalog cache here). T08.
         IcebergConnectorMetadata md = new IcebergConnectorMetadata(
-                ops, Collections.emptyMap(), new RecordingConnectorContext(),
+                ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(),
                 new IcebergLatestSnapshotCache(100, 1000));
         Optional<ConnectorMvccSnapshot> first = md.beginQuerySnapshot(null, handle());
         Optional<ConnectorMvccSnapshot> second = md.beginQuerySnapshot(null, handle());
@@ -335,16 +335,17 @@ public class IcebergConnectorMetadataMvccTest {
     }
 
     @Test
-    public void applySnapshotLatestPinLeavesHandleUnchanged() {
+    public void applySnapshotRecordsExplicitlyEmptyPinWithoutScanPin() {
         Fixture f = fixture();
         IcebergConnectorMetadata md = metadataFor(f.table, new RecordingIcebergCatalogOps());
         ConnectorTableHandle bare = handle();
-        // null snapshot and an empty-table (-1, no ref) pin must both read latest (handle unchanged) — a
-        // useSnapshot(-1) would be a non-existent snapshot.
+        // A null snapshot leaves the handle untouched. An empty-table pin must remain unpinned for scanning
+        // because useSnapshot(-1) is invalid, while retaining that resolution for write conflict validation.
         Assertions.assertSame(bare, md.applySnapshot(null, bare, null));
         IcebergTableHandle afterMinusOne = (IcebergTableHandle) md.applySnapshot(null, bare,
                 ConnectorMvccSnapshot.builder().snapshotId(-1L).build());
         Assertions.assertFalse(afterMinusOne.hasSnapshotPin());
+        Assertions.assertTrue(afterMinusOne.isSnapshotResolved());
     }
 
     // ---------------------------------------------------------------------
@@ -488,7 +489,7 @@ public class IcebergConnectorMetadataMvccTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.throwNoSuchTableOnLoadTable = true;
         IcebergConnectorMetadata md =
-                new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+                new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
         Assertions.assertThrows(RuntimeException.class, () -> md.getMvccPartitionView(null, handle()));
     }
 
@@ -500,7 +501,7 @@ public class IcebergConnectorMetadataMvccTest {
         ops.table = dayPartitionedTable();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
-        IcebergConnectorMetadata md = new IcebergConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), ctx);
         Assertions.assertThrows(RuntimeException.class, () -> md.getMvccPartitionView(null, handle()));
         Assertions.assertEquals(1, ctx.authCount);
         Assertions.assertFalse(ops.log.contains("loadTable:db1.t1"), "loadTable must sit inside executeAuthenticated");
@@ -519,7 +520,7 @@ public class IcebergConnectorMetadataMvccTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.throwNoSuchTableOnLoadTable = true;
         List<String> names =
-                new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext())
+                new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext())
                         .listPartitionNames(null, handle());
         Assertions.assertTrue(names.isEmpty());
     }
@@ -530,7 +531,7 @@ public class IcebergConnectorMetadataMvccTest {
         ops.table = dayPartitionedTable();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
-        IcebergConnectorMetadata md = new IcebergConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), ctx);
         Assertions.assertThrows(RuntimeException.class, () -> md.listPartitionNames(null, handle()));
         Assertions.assertEquals(1, ctx.authCount);
         Assertions.assertFalse(ops.log.contains("loadTable:db1.t1"), "loadTable must sit inside executeAuthenticated");

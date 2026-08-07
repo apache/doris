@@ -178,6 +178,11 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 metadata.getMvccPartitionView(session, pinnedHandle);
         if (viewOpt.isPresent()) {
             ConnectorMvccPartitionView view = viewOpt.get();
+            if (connectorSnapshot.getSnapshotId() < 0) {
+                // A negative query-begin pin is the connector's resolved-empty generation. Falling through to
+                // a live LIST read would mix partitions committed after the data scan's empty boundary.
+                return buildFromRangeView(connectorSnapshot, view);
+            }
             // A non-RANGE (UNPARTITIONED) view is the connector's "not RANGE / not MTMV-range-eligible" verdict
             // (iceberg's range view only covers single time-transform specs). If the table nonetheless declares
             // partition columns (e.g. iceberg identity / bucket / truncate partitions), enumerate them via the

@@ -84,7 +84,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     // for the HMS-only-props gate in createDatabase. This is the same data as
     // session.getCatalogProperties() (the FE injects both from one source), but using the
     // directly-injected map avoids depending on the session being populated and is simpler.
-    private final Map<String, String> catalogProperties;
+    private final PaimonCatalogProperties catalogProperties;
 
     // FIX-B-MC2: time-travel schema-at-snapshot memo. Injected by PaimonConnector (the per-catalog,
     // long-lived owner) so the at-snapshot resolve hits across queries. The public 3-arg ctor gives each
@@ -108,18 +108,18 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     // listPartitions for its LIST/timestamp partition view.
     private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache;
 
-    public PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
+    public PaimonConnectorMetadata(PaimonCatalogOps catalogOps, PaimonCatalogProperties properties,
             ConnectorContext context) {
         this(catalogOps, properties, context, new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE));
     }
 
-    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
+    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, PaimonCatalogProperties properties,
             ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo) {
         this(catalogOps, properties, context, schemaAtMemo, new PaimonLatestSnapshotCache(0L, 1));
     }
 
     /** Convenience ctor without the PERF-06 derived partition-view cache (null -> listPartitions always live). */
-    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
+    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, PaimonCatalogProperties properties,
             ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo,
             PaimonLatestSnapshotCache latestSnapshotCache) {
         this(catalogOps, properties, context, schemaAtMemo, latestSnapshotCache, null);
@@ -131,7 +131,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * {@code List<ConnectorPartitionInfo>}, keyed by {@code (db, table, snapshotId, schemaId)}. {@code null}
      * for the convenience/test ctors (no cross-query derived layer -&gt; compute directly every call).
      */
-    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
+    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, PaimonCatalogProperties properties,
             ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo,
             PaimonLatestSnapshotCache latestSnapshotCache,
             ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache) {
@@ -1075,8 +1075,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     @Override
     public void createDatabase(ConnectorSession session, String dbName,
             Map<String, String> properties) {
-        String flavor = PaimonCatalogFactory.resolveFlavor(catalogProperties);
-        if (!properties.isEmpty() && !PaimonConnectorProperties.HMS.equals(flavor)) {
+        String flavor = catalogProperties.getFlavor();
+        if (!properties.isEmpty() && !PaimonCatalogProperties.HMS.equals(flavor)) {
             throw new DorisConnectorException(
                     "Not supported: create database with properties for paimon catalog type: " + flavor);
         }
@@ -1611,15 +1611,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         return columns;
     }
 
-    private static PaimonTypeMapping.Options buildTypeMappingOptions(Map<String, String> props) {
-        boolean binaryAsVarbinary = Boolean.parseBoolean(
-                props.getOrDefault(
-                        PaimonConnectorProperties.ENABLE_MAPPING_VARBINARY,
-                        "false"));
-        boolean timestampTz = Boolean.parseBoolean(
-                props.getOrDefault(
-                        PaimonConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ,
-                        "false"));
-        return new PaimonTypeMapping.Options(binaryAsVarbinary, timestampTz);
+    private static PaimonTypeMapping.Options buildTypeMappingOptions(PaimonCatalogProperties props) {
+        return new PaimonTypeMapping.Options(
+                props.isEnableMappingVarbinary(), props.isEnableMappingTimestampTz());
     }
 }
