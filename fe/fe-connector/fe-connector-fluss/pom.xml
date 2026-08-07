@@ -45,13 +45,6 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- connector-api provides the SPI interfaces this connector implements -->
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-api</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
         <!--
           The fluss java client. Version comes from fe/pom.xml's single ${fluss.version} property, which
           pins every fluss consumer at once (see the INVARIANT comment there).
