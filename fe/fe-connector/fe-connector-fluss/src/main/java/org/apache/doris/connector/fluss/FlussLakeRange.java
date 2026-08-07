@@ -28,16 +28,22 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * A lake split of a primary-key table, with the log tail that supersedes part of it.
+ * A lake split of a fluss table, wrapped so that BE reads it as part of the fluss scan it belongs to.
  *
- * <p>A tiered primary-key table is read as its lake plus the change log written since the lake snapshot.
- * The two halves overlap by key, not by row: a row the lake holds may since have been updated or deleted
- * in the log, and returning both copies is wrong in a way no row count reveals. This range is the lake
- * half of that arrangement — the sibling connector's own split, unchanged in every respect that decides
- * how it is read and scheduled — carrying the one extra fact BE needs: which slice of which bucket's log
- * may contradict it. BE reads that slice's keys once per bucket and drops the lake rows they name; the
- * surviving state of the tail is contributed separately, by a {@link FlussScanRange.RangeType#PK_TAIL}
- * range, so each row is produced exactly once.
+ * <p>A tiered fluss table is read as its lake plus the log written since the lake snapshot. The lake
+ * half is the sibling connector's own splits, and every one of them is wrapped here so that every range
+ * of the scan carries the one table format {@code "fluss"} — BE builds one fluss reader per scanner and
+ * dispatches each range by {@code fluss.range_type}, so a split that kept the sibling's own format name
+ * would be handed to a reader the scan does not have.
+ *
+ * <p>A log table's two halves meet at an offset, so its lake splits are wrapped plain ({@code LAKE}):
+ * nothing to add, pure delegation. A primary-key table's halves overlap by KEY, not by row — a row the
+ * lake holds may since have been updated or deleted in the log, and returning both copies is wrong in a
+ * way no row count reveals — so a lake split of a bucket whose log has moved on is wrapped with the one
+ * extra fact BE needs ({@code LAKE_SUPPRESS}): which slice of which bucket's log may contradict it. BE
+ * reads that slice's keys once per bucket and drops the lake rows they name; the surviving state of the
+ * tail is contributed separately, by a {@link FlussScanRange.RangeType#PK_TAIL} range, so each row is
+ * produced exactly once.
  *
  * <p><b>Delegation is the whole design.</b> Everything except the format name and the extra payload is
  * the sibling's answer, because everything else is what makes the lake half worth having: its file path
@@ -46,29 +52,36 @@ import java.util.Optional;
  * sibling's own read. That is also why this class must not grow a "smarter" version of any delegated
  * method — the one thing it knows better than the sibling is the tail.
  */
-public class FlussSuppressedLakeRange implements ConnectorScanRange {
+public class FlussLakeRange implements ConnectorScanRange {
 
     private static final long serialVersionUID = 1L;
 
-    /**
-     * The {@code table_format_type} BE dispatches on. It is neither {@code fluss} nor {@code paimon}: the
-     * range is read by the sibling's reader stack WRAPPED in the suppression, and BE picks that composite
-     * reader by this name. Both plain names would land on a reader that ignores half the payload.
-     */
-    public static final String TABLE_FORMAT_TYPE = "fluss_union";
+    /** {@code fluss.range_type} of a lake split nothing supersedes: read by pure delegation. */
+    public static final String RANGE_TYPE_LAKE = "LAKE";
 
-    /** {@code fluss.range_type} of a wrapped lake split; read by BE's C++ side, never by the scanner. */
+    /** {@code fluss.range_type} of a lake split part of which a log tail supersedes. */
     public static final String RANGE_TYPE_LAKE_SUPPRESS = "LAKE_SUPPRESS";
 
     /** The log slice whose keys suppress rows of this split, as {@code partitionId:bucket:start:stop}. */
     public static final String PROP_TAIL = "fluss.union.tail";
 
     private final ConnectorScanRange inner;
+    /** Null on a plain lake split; see {@link #RANGE_TYPE_LAKE}. */
     private final Tail tail;
 
-    public FlussSuppressedLakeRange(ConnectorScanRange inner, Tail tail) {
+    private FlussLakeRange(ConnectorScanRange inner, Tail tail) {
         this.inner = Objects.requireNonNull(inner, "inner");
-        this.tail = Objects.requireNonNull(tail, "tail");
+        this.tail = tail;
+    }
+
+    /** A lake split nothing supersedes, wrapped for the format name alone. */
+    public static FlussLakeRange plain(ConnectorScanRange inner) {
+        return new FlussLakeRange(inner, null);
+    }
+
+    /** A lake split with the log tail that supersedes part of it. */
+    public static FlussLakeRange suppressed(ConnectorScanRange inner, Tail tail) {
+        return new FlussLakeRange(inner, Objects.requireNonNull(tail, "tail"));
     }
 
     /** The wrapped sibling range, for a caller that has to look at what the lake half actually is. */
@@ -76,6 +89,7 @@ public class FlussSuppressedLakeRange implements ConnectorScanRange {
         return inner;
     }
 
+    /** The suppressing tail, or null on a plain lake split. */
     public Tail getTail() {
         return tail;
     }
@@ -135,21 +149,25 @@ public class FlussSuppressedLakeRange implements ConnectorScanRange {
 
     @Override
     public String getTableFormatType() {
-        return TABLE_FORMAT_TYPE;
+        return FlussScanRange.TABLE_FORMAT;
     }
 
     /**
      * The sibling fills its own payload first — serialized split or schema id and deletion files, file
-     * format, columns from path — and the tail is appended beside it. The two ride in different fields of
-     * the same descriptor ({@code paimon_params} and {@code fluss_params}), so neither has to know about
-     * the other.
+     * format, columns from path — and the fluss descriptor is appended beside it. The two ride in
+     * different fields of the same descriptor ({@code paimon_params} and {@code fluss_params}), so
+     * neither has to know about the other.
      */
     @Override
     public void populateRangeParams(TTableFormatFileDesc formatDesc, TFileRangeDesc rangeDesc) {
         inner.populateRangeParams(formatDesc, rangeDesc);
         Map<String, String> params = new LinkedHashMap<>();
-        params.put(FlussScanRange.PROP_RANGE_TYPE, RANGE_TYPE_LAKE_SUPPRESS);
-        params.put(PROP_TAIL, tail.encode());
+        if (tail == null) {
+            params.put(FlussScanRange.PROP_RANGE_TYPE, RANGE_TYPE_LAKE);
+        } else {
+            params.put(FlussScanRange.PROP_RANGE_TYPE, RANGE_TYPE_LAKE_SUPPRESS);
+            params.put(PROP_TAIL, tail.encode());
+        }
         formatDesc.setFlussParams(params);
     }
 
@@ -227,6 +245,6 @@ public class FlussSuppressedLakeRange implements ConnectorScanRange {
 
     @Override
     public String toString() {
-        return "FlussSuppressedLakeRange{" + tail + ", " + inner + "}";
+        return "FlussLakeRange{" + (tail == null ? "plain" : tail.toString()) + ", " + inner + "}";
     }
 }
