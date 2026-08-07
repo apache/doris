@@ -203,7 +203,7 @@ public class PaimonJniScanner extends JniScanner {
         int[] projected = getProjected();
         List<DataField> readFields = new ArrayList<>(projected.length);
         variantProjections = new ArrayList<>(projected.length);
-        boolean hasVariantProjection = false;
+        boolean hasReadTypeProjection = false;
         for (int outputIndex = 0; outputIndex < projected.length; outputIndex++) {
             DataField tableField = table.rowType().getFields().get(projected[outputIndex]);
             PaimonVariantProjection projection = tableField.type() instanceof VariantType
@@ -212,17 +212,22 @@ public class PaimonJniScanner extends JniScanner {
                     : null;
             variantProjections.add(projection);
             if (projection == null) {
-                readFields.add(tableField);
+                DataType projectedType = PaimonReadTypeProjection.project(
+                        tableField.type(), types[outputIndex]);
+                if (!projectedType.equals(tableField.type())) {
+                    hasReadTypeProjection = true;
+                }
+                readFields.add(tableField.newType(projectedType));
             } else {
-                hasVariantProjection = true;
+                hasReadTypeProjection = true;
                 readFields.add(tableField.newType(
                         projection.readType().copy(tableField.type().isNullable())));
             }
         }
-        if (hasVariantProjection) {
-            // Paimon recognizes a metadata-marked RowType as a list of Variant extraction fields.
-            // It prunes matching shredded Parquet fields per file and reads the raw Variant value
-            // as a correctness fallback for unshredded or non-matching files.
+        if (hasReadTypeProjection) {
+            // For static complex types, the recursively pruned read type tells Paimon which nested
+            // ROW/ARRAY/MAP fields to read. For Variant, Paimon recognizes a metadata-marked RowType
+            // as a list of extraction fields and falls back to the raw value when needed.
             RowType requestedReadType = new RowType(readFields);
             readBuilder.withReadType(requestedReadType);
         } else {
