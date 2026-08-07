@@ -393,5 +393,9 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
                 "the connector columns must be derived from the sink's getCols()");
         Assertions.assertEquals("data", connectorColumns.get(0).getName(),
                 "the connector column name must carry the sink column name");
+        // This is the exact translator output consumed by the provider. Parameterless Doris scalars expose
+        // internal 0/0 defaults, but the connector schema contract uses the canonical -1/-1 representation.
+        Assertions.assertEquals(-1, connectorColumns.get(0).getType().getPrecision());
+        Assertions.assertEquals(-1, connectorColumns.get(0).getType().getScale());
     }
 }

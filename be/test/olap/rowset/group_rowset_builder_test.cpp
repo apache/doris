@@ -98,8 +98,17 @@ TEST_F(GroupRowsetBuilderTest, buildWithRowBinlogMeta) {
 
     TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(request.tablet_id);
     ASSERT_TRUE(tablet != nullptr);
-    auto st = io::global_local_filesystem()->create_directory(tablet->row_binlog_path());
-    ASSERT_TRUE(st.ok()) << st;
+
+    auto row_binlog_request = request;
+    row_binlog_request.tablet_id = 10011;
+    auto row_binlog_tablet_schema = testutil::create_row_binlog_tablet_schema(
+            request.tablet_schema, request.tablet_schema.schema_hash + 1);
+    row_binlog_request.tablet_schema = row_binlog_tablet_schema;
+    res = engine_ref->create_tablet(row_binlog_request, profile.get());
+    ASSERT_TRUE(res.ok());
+    TabletSharedPtr row_binlog_tablet =
+            engine_ref->tablet_manager()->get_tablet(row_binlog_request.tablet_id);
+    ASSERT_TRUE(row_binlog_tablet != nullptr);
 
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -111,8 +120,8 @@ TEST_F(GroupRowsetBuilderTest, buildWithRowBinlogMeta) {
             testutil::create_descriptor_table({{TYPE_INT, "k1", false}, {TYPE_INT, "v1", false}});
     auto param = testutil::create_table_schema_param(
             tdesc_tbl, index_id, request.tablet_schema.schema_hash, request.tablet_schema.columns,
-            row_binlog_index_id, request.row_binlog_schema.schema_hash,
-            &request.row_binlog_schema.columns);
+            row_binlog_index_id, row_binlog_tablet_schema.schema_hash,
+            &row_binlog_tablet_schema.columns);
     ASSERT_NE(param, nullptr);
 
     WriteRequest data_req;
@@ -126,8 +135,9 @@ TEST_F(GroupRowsetBuilderTest, buildWithRowBinlogMeta) {
     data_req.write_req_type = WriteRequestType::DATA;
 
     WriteRequest row_binlog_req = data_req;
+    row_binlog_req.tablet_id = row_binlog_request.tablet_id;
     row_binlog_req.index_id = row_binlog_index_id;
-    row_binlog_req.schema_hash = request.row_binlog_schema.schema_hash;
+    row_binlog_req.schema_hash = row_binlog_tablet_schema.schema_hash;
     row_binlog_req.write_req_type = WriteRequestType::ROW_BINLOG;
 
     WriteRequest group_req = data_req;
@@ -142,7 +152,7 @@ TEST_F(GroupRowsetBuilderTest, buildWithRowBinlogMeta) {
     auto data_meta = builder.txn_rowset_builder()->rowset()->rowset_meta();
     ASSERT_TRUE(row_binlog_meta->is_row_binlog());
     ASSERT_FALSE(data_meta->is_row_binlog());
-    ASSERT_EQ(request.row_binlog_schema.schema_hash, row_binlog_meta->tablet_schema_hash());
+    ASSERT_EQ(row_binlog_tablet_schema.schema_hash, row_binlog_meta->tablet_schema_hash());
     ASSERT_EQ(request.tablet_schema.schema_hash, data_meta->tablet_schema_hash());
     ASSERT_EQ(row_binlog_index_id, row_binlog_meta->index_id());
     ASSERT_EQ(index_id, data_meta->index_id());
@@ -151,6 +161,9 @@ TEST_F(GroupRowsetBuilderTest, buildWithRowBinlogMeta) {
     ASSERT_GE(row_binlog_meta->tablet_schema()->binlog_lsn_col_idx(), 0);
 
     res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
+    ASSERT_TRUE(res.ok());
+    res = engine_ref->tablet_manager()->drop_tablet(row_binlog_request.tablet_id,
+                                                    row_binlog_request.replica_id, false);
     ASSERT_TRUE(res.ok());
 }
 

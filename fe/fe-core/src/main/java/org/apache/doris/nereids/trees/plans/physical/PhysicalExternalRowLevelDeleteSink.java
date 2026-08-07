@@ -37,6 +37,7 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -45,6 +46,7 @@ import java.util.Optional;
  */
 public class PhysicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan>
         extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
+    private final String boundWriteMetadataIdentity;
 
     /**
      * Constructor
@@ -56,8 +58,21 @@ public class PhysicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan>
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
-        this(database, targetTable, cols, outputExprs, groupExpression, logicalProperties,
+        this(database, targetTable, null, cols, outputExprs, groupExpression, logicalProperties,
                 PhysicalProperties.GATHER, null, child);
+    }
+
+    /** Builds a row-level sink with the write generation captured during logical planning. */
+    public PhysicalExternalRowLevelDeleteSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
+                                    String boundWriteMetadataIdentity,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    CHILD_TYPE child) {
+        this(database, targetTable, boundWriteMetadataIdentity, cols, outputExprs, groupExpression,
+                logicalProperties, PhysicalProperties.GATHER, null, child);
     }
 
     /**
@@ -72,15 +87,35 @@ public class PhysicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan>
                                     PhysicalProperties physicalProperties,
                                     Statistics statistics,
                                     CHILD_TYPE child) {
+        this(database, targetTable, null, cols, outputExprs, groupExpression, logicalProperties,
+                physicalProperties, statistics, child);
+    }
+
+    /** Builds a row-level sink with the write generation captured during logical planning. */
+    public PhysicalExternalRowLevelDeleteSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
+                                    String boundWriteMetadataIdentity,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    PhysicalProperties physicalProperties,
+                                    Statistics statistics,
+                                    CHILD_TYPE child) {
         super(PlanType.PHYSICAL_EXTERNAL_ROW_LEVEL_DELETE_SINK, database, targetTable, cols, outputExprs,
                 groupExpression, logicalProperties, physicalProperties, statistics, child);
+        this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
+    }
+
+    public String getBoundWriteMetadataIdentity() {
+        return boundWriteMetadataIdentity;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new PhysicalExternalRowLevelDeleteSink<>(
                 database, targetTable,
-                cols, outputExprs, groupExpression,
+                boundWriteMetadataIdentity, cols, outputExprs, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
@@ -92,7 +127,7 @@ public class PhysicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan>
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalExternalRowLevelDeleteSink<>(
-                database, targetTable, cols, outputExprs,
+                database, targetTable, boundWriteMetadataIdentity, cols, outputExprs,
                 groupExpression, getLogicalProperties(), child());
     }
 
@@ -100,14 +135,14 @@ public class PhysicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan>
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalExternalRowLevelDeleteSink<>(
-                database, targetTable, cols, outputExprs,
+                database, targetTable, boundWriteMetadataIdentity, cols, outputExprs,
                 groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalExternalRowLevelDeleteSink<>(
-                database, targetTable, cols, outputExprs,
+                database, targetTable, boundWriteMetadataIdentity, cols, outputExprs,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
 
@@ -119,12 +154,16 @@ public class PhysicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan>
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        return super.equals(o);
+        if (!super.equals(o)) {
+            return false;
+        }
+        PhysicalExternalRowLevelDeleteSink<?> that = (PhysicalExternalRowLevelDeleteSink<?>) o;
+        return Objects.equals(boundWriteMetadataIdentity, that.boundWriteMetadataIdentity);
     }
 
     @Override
     public int hashCode() {
-        return super.hashCode();
+        return Objects.hash(super.hashCode(), boundWriteMetadataIdentity);
     }
 
     /**

@@ -183,7 +183,7 @@ public class HudiTimeTravelTest {
 
     /** resolveTimeTravel/applySnapshot never touch hmsClient or the executor → null collaborators are safe. */
     private static HudiConnectorMetadata metadata() {
-        return new HudiConnectorMetadata(null, Collections.emptyMap(), null);
+        return new HudiConnectorMetadata(null, HudiTestProperties.minimal(), null);
     }
 
     private static HudiTableHandle partitioned() {

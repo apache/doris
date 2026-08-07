@@ -25,7 +25,6 @@ import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -54,13 +53,14 @@ public class OdpsClassloaderIsolationTest {
     private static final String FACTORY =
             "org.apache.doris.connector.maxcompute.MCConnectorClientFactory";
 
+    private static final String PROPERTIES =
+            "org.apache.doris.connector.maxcompute.MCCatalogProperties";
+
     @Test
     public void odpsClientConstructsUnderIsolatedChildFirstLoaderWithoutLeak() throws Exception {
         URL[] classpath = classpathUrls();
         // AK/SK auth builds the client fully offline (new AliyunAccount + new Odps; no network).
-        Map<String, String> props = new HashMap<>();
-        props.put(MCConnectorProperties.ACCESS_KEY, "test-ak");
-        props.put(MCConnectorProperties.SECRET_KEY, "test-sk");
+        Map<String, String> props = MCTestProperties.minimalMap();
 
         try (IsolatedChildFirstClassLoader loaderA = new IsolatedChildFirstClassLoader(classpath);
                 IsolatedChildFirstClassLoader loaderB = new IsolatedChildFirstClassLoader(classpath)) {
@@ -89,8 +89,12 @@ public class OdpsClassloaderIsolationTest {
         Class<?> factory = loader.loadClass(FACTORY);
         Assertions.assertSame(loader, factory.getClassLoader(),
                 "sanity: the connector factory must be defined by the isolated loader");
-        Method createClient = factory.getMethod("createClient", Map.class);
-        Object odps = createClient.invoke(null, props);
+        // The properties holder is bound inside the plugin loader too: @ConnectorProperty reflection only
+        // works when the annotation and the object it reads come from the same loader (DESIGN D6).
+        Class<?> propertiesClass = loader.loadClass(PROPERTIES);
+        Object catalogProperties = propertiesClass.getMethod("of", Map.class).invoke(null, props);
+        Method createClient = factory.getMethod("createClient", propertiesClass);
+        Object odps = createClient.invoke(null, catalogProperties);
         Assertions.assertNotNull(odps, "createClient must return a non-null ODPS client");
         return odps;
     }

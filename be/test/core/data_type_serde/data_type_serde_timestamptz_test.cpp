@@ -359,4 +359,40 @@ TEST_F(DataTypeTimeStampTzSerDeTest, ReadArrowIgnoresValuesUnderNulls) {
     ASSERT_EQ(2, dest_column->size());
     EXPECT_EQ(source_value, dest_column->get_element(0));
 }
+
+TEST_F(DataTypeTimeStampTzSerDeTest, ArrowTimestampToTimestampTz) {
+    const auto read_timestamp = [](arrow::TimeUnit::type unit, int64_t value,
+                                   const std::string& arrow_timezone,
+                                   const std::string& expected_utc,
+                                   const std::string& expected_session_time) {
+        auto type = arrow::timestamp(unit, arrow_timezone);
+        arrow::TimestampBuilder builder(type, arrow::default_memory_pool());
+        ASSERT_TRUE(builder.Append(value).ok());
+        ASSERT_TRUE(builder.AppendNull().ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+
+        auto column = ColumnTimeStampTz::create();
+        DataTypeTimeStampTzSerDe serde(6);
+        cctz::time_zone session_timezone;
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", session_timezone));
+        const auto status = serde.read_column_from_arrow(*column, array.get(), 0, array->length(),
+                                                         session_timezone);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_EQ(2, column->size());
+
+        const auto utc = cctz::utc_time_zone();
+        EXPECT_EQ(expected_utc, column->get_data()[0].to_string(utc, 6));
+        EXPECT_EQ(expected_session_time, column->get_data()[0].to_string(session_timezone, 6));
+    };
+
+    read_timestamp(arrow::TimeUnit::SECOND, 0, "UTC", "1970-01-01 00:00:00.000000+00:00",
+                   "1970-01-01 08:00:00.000000+08:00");
+    read_timestamp(arrow::TimeUnit::MILLI, 123, "Asia/Shanghai", "1970-01-01 00:00:00.123000+00:00",
+                   "1970-01-01 08:00:00.123000+08:00");
+    read_timestamp(arrow::TimeUnit::MICRO, -876544, "UTC", "1969-12-31 23:59:59.123456+00:00",
+                   "1970-01-01 07:59:59.123456+08:00");
+    read_timestamp(arrow::TimeUnit::NANO, -876543211, "Asia/Shanghai",
+                   "1969-12-31 23:59:59.123456+00:00", "1970-01-01 07:59:59.123456+08:00");
+}
 } // namespace doris

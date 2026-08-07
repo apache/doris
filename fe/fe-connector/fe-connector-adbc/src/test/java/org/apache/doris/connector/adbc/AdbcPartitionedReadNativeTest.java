@@ -78,10 +78,12 @@ class AdbcPartitionedReadNativeTest {
             seed(client);
             AdbcPartitionedReadSupport support = new AdbcPartitionedReadSupport();
             AdbcScanPlanProvider planner = new AdbcScanPlanProvider(
-                    Map.of(AdbcConnectorProperties.URI, "file:" + tempDir.resolve("partition.db")),
+                    AdbcCatalogProperties.of(Map.of(
+                            AdbcCatalogProperties.URI, "file:" + tempDir.resolve("partition.db"),
+                            AdbcCatalogProperties.DRIVER_URL,
+                            AdbcNativeTestSupport.sqliteDriver().toString())),
                     AdbcNativeTestSupport.sqliteDriver(),
-                    new AdbcDialectSelector(
-                            Map.of(AdbcConnectorProperties.SQL_DIALECT, AnsiDialect.NAME)),
+                    new AdbcDialectSelector(AnsiDialect.NAME),
                     () -> client, support);
             List<ConnectorColumnHandle> columns = List.of(new NamedColumnHandle("id"));
 

@@ -82,6 +82,7 @@
 #include "information_schema/schema_table_streams_scanner.h"
 #include "information_schema/schema_tables_scanner.h"
 #include "information_schema/schema_tablets_scanner.h"
+#include "information_schema/schema_tso_status_scanner.h"
 #include "information_schema/schema_user_privileges_scanner.h"
 #include "information_schema/schema_user_scanner.h"
 #include "information_schema/schema_variables_scanner.h"
@@ -299,6 +300,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaCompactionTasksScanner::create_unique();
     case TSchemaTableType::SCH_BACKEND_MS_RPC_TABLE_THROTTLERS:
         return SchemaBackendMsRpcTableThrottlersScanner::create_unique();
+    case TSchemaTableType::SCH_TSO_STATUS:
+        return SchemaTsoStatusScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

@@ -17,6 +17,13 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.metastore.MetaStoreProperties;
+import org.apache.doris.connector.metastore.paimon.hms.PaimonHmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
+import org.apache.doris.connector.metastore.paimon.rest.PaimonRestMetaStoreProperties;
+import org.apache.doris.connector.metastore.spi.AbstractMetaStoreProperties;
+import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -27,6 +34,7 @@ import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 
 import java.io.File;
+import java.util.Collections;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -58,7 +66,6 @@ import java.util.function.BiConsumer;
 public final class PaimonCatalogFactory {
 
     private static final String USER_PROPERTY_PREFIX = "paimon.";
-    private static final String PAIMON_REST_PROPERTY_PREFIX = "paimon.rest.";
     private static final String JDBC_PREFIX = "jdbc.";
 
     /**
@@ -76,47 +83,37 @@ public final class PaimonCatalogFactory {
     private PaimonCatalogFactory() {
     }
 
-    /** Resolves the lower-cased flavor, defaulting to {@code filesystem}. */
-    public static String resolveFlavor(Map<String, String> props) {
-        return props.getOrDefault(
-                PaimonConnectorProperties.PAIMON_CATALOG_TYPE,
-                PaimonConnectorProperties.DEFAULT_CATALOG_TYPE).toLowerCase(Locale.ROOT);
-    }
-
-    /**
-     * Returns the first non-blank value among the given keys, or {@code null} if none is set.
-     * Mirrors the alias-priority semantics of the legacy {@code @ConnectorProperty(names=...)}.
-     */
-    public static String firstNonBlank(Map<String, String> props, String... keys) {
-        for (String key : keys) {
-            String value = props.get(key);
-            if (StringUtils.isNotBlank(value)) {
-                return value;
-            }
-        }
-        return null;
-    }
-
     /**
      * Builds the Paimon catalog {@link Options} for the resolved flavor. PURE: depends only on
-     * {@code props}. Ports {@code AbstractPaimonProperties.appendCatalogOptions()} (common) plus
-     * each flavor's {@code appendCustomCatalogOptions()}.
+     * {@code catalogProperties}. Ports {@code AbstractPaimonProperties.appendCatalogOptions()} (common)
+     * plus each flavor's {@code appendCustomCatalogOptions()}.
      */
-    public static Options buildCatalogOptions(Map<String, String> props) {
+    public static Options buildCatalogOptions(PaimonCatalogProperties catalogProperties) {
         Options options = new Options();
-        String flavor = resolveFlavor(props);
+        Map<String, String> props = catalogProperties.getRaw();
+        String flavor = catalogProperties.getFlavor();
+        // Resolve the metastore identifier BEFORE binding: an unknown flavor must keep failing with
+        // this factory's own "Unknown paimon.catalog.type value" message rather than the metastore
+        // dispatcher's "no provider supports these properties".
+        String metastore = metastoreIdentifier(flavor);
+        // Bind the flavor's typed facts and assemble from THOSE. The alias-resolved values were
+        // already being computed here for validation; re-scanning the raw map for assembly is what let
+        // a catalog validate one value and connect with another. Storage plays no part in the option
+        // keys, so an empty storage map is enough (the connector binds its own storage-carrying
+        // instance for the HiveConf).
+        MetaStoreProperties bound = MetaStoreProviders.bind(props, Collections.emptyMap());
 
-        appendCommonOptions(props, options, flavor);
+        appendCommonOptions(props, options, metastore, ((AbstractMetaStoreProperties) bound).getWarehouse());
 
         switch (flavor) {
-            case PaimonConnectorProperties.HMS:
-                appendHmsOptions(props, options);
+            case PaimonCatalogProperties.HMS:
+                ((PaimonHmsMetaStoreProperties) bound).toCatalogOptions().forEach(options::set);
                 break;
-            case PaimonConnectorProperties.REST:
-                appendRestOptions(props, options);
+            case PaimonCatalogProperties.REST:
+                ((PaimonRestMetaStoreProperties) bound).toRestOptions().forEach(options::set);
                 break;
-            case PaimonConnectorProperties.JDBC:
-                appendJdbcOptions(props, options);
+            case PaimonCatalogProperties.JDBC:
+                appendJdbcOptions(props, options, (PaimonJdbcMetaStoreProperties) bound);
                 break;
             default:
                 // filesystem: nothing custom.
@@ -125,12 +122,12 @@ public final class PaimonCatalogFactory {
         return options;
     }
 
-    private static void appendCommonOptions(Map<String, String> props, Options options, String flavor) {
-        String warehouse = props.get(PaimonConnectorProperties.WAREHOUSE);
+    private static void appendCommonOptions(Map<String, String> props, Options options, String metastore,
+            String warehouse) {
         if (StringUtils.isNotBlank(warehouse)) {
             options.set(CatalogOptions.WAREHOUSE.key(), warehouse);
         }
-        options.set(CatalogOptions.METASTORE.key(), metastoreIdentifier(flavor));
+        options.set(CatalogOptions.METASTORE.key(), metastore);
 
         // FIXME(cmy): Rethink these custom properties (ported from AbstractPaimonProperties).
         // Re-key generic paimon.* props by stripping the prefix, excluding storage prefixes which
@@ -153,13 +150,13 @@ public final class PaimonCatalogFactory {
 
     private static String metastoreIdentifier(String flavor) {
         switch (flavor) {
-            case PaimonConnectorProperties.FILESYSTEM:
+            case PaimonCatalogProperties.FILESYSTEM:
                 return FileSystemCatalogFactory.IDENTIFIER;
-            case PaimonConnectorProperties.JDBC:
+            case PaimonCatalogProperties.JDBC:
                 return JdbcCatalogFactory.IDENTIFIER;
-            case PaimonConnectorProperties.REST:
+            case PaimonCatalogProperties.REST:
                 return "rest";
-            case PaimonConnectorProperties.HMS:
+            case PaimonCatalogProperties.HMS:
                 // = org.apache.paimon.hive.HiveCatalogOptions.IDENTIFIER; kept as a literal to
                 // mirror the existing rest/jdbc style (this is a pure option string, not a type ref).
                 return "hive";
@@ -177,38 +174,12 @@ public final class PaimonCatalogFactory {
         return false;
     }
 
-    private static void appendHmsOptions(Map<String, String> props, Options options) {
-        String pool = props.getOrDefault(
-                PaimonConnectorProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS,
-                PaimonConnectorProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS_DEFAULT);
-        String location = props.getOrDefault(
-                PaimonConnectorProperties.LOCATION_IN_PROPERTIES,
-                PaimonConnectorProperties.LOCATION_IN_PROPERTIES_DEFAULT);
-        options.set(PaimonConnectorProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS, pool);
-        options.set(PaimonConnectorProperties.LOCATION_IN_PROPERTIES, location);
-        options.set("uri", firstNonBlank(props, PaimonConnectorProperties.HMS_URI));
-    }
-
-    private static void appendRestOptions(Map<String, String> props, Options options) {
-        options.set("uri", firstNonBlank(props, PaimonConnectorProperties.REST_URI));
-        props.forEach((k, v) -> {
-            if (k.startsWith(PAIMON_REST_PROPERTY_PREFIX)) {
-                options.set(k.substring(PAIMON_REST_PROPERTY_PREFIX.length()), v);
-            }
-        });
-    }
-
-    private static void appendJdbcOptions(Map<String, String> props, Options options) {
-        options.set(CatalogOptions.URI.key(), firstNonBlank(props, PaimonConnectorProperties.JDBC_URI));
-        String user = firstNonBlank(props, PaimonConnectorProperties.JDBC_USER);
-        if (StringUtils.isNotBlank(user)) {
-            options.set("jdbc.user", user);
-        }
-        String password = firstNonBlank(props, PaimonConnectorProperties.JDBC_PASSWORD);
-        if (StringUtils.isNotBlank(password)) {
-            options.set("jdbc.password", password);
-        }
-        // Pass through any raw jdbc.* key not already set (legacy appendRawJdbcCatalogOptions).
+    private static void appendJdbcOptions(Map<String, String> props, Options options,
+            PaimonJdbcMetaStoreProperties jdbc) {
+        jdbc.toCatalogOptions().forEach(options::set);
+        // Pass through any raw jdbc.* key not already set (legacy appendRawJdbcCatalogOptions). This is a
+        // wildcard forward of keys the holder does not model, so it stays a raw read -- and it runs after
+        // the bound keys so an alias-resolved user/password still wins.
         props.forEach((k, v) -> {
             if (k != null && k.startsWith(JDBC_PREFIX) && !options.keySet().contains(k)) {
                 options.set(k, v);

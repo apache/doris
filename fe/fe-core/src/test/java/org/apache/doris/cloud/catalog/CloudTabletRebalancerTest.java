@@ -409,6 +409,8 @@ public class CloudTabletRebalancerTest {
         Mockito.when(partition.getId()).thenReturn(partitionId);
         Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE))
                 .thenReturn(Collections.singletonList(index));
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
+                .thenReturn(Collections.singletonList(index));
         Mockito.when(index.getId()).thenReturn(indexId);
         Mockito.when(index.getTablets()).thenReturn(Collections.singletonList(tablet));
         Mockito.when(tablet.getId()).thenReturn(tabletId);

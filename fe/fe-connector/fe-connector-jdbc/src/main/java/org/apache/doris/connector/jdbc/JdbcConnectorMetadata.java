@@ -60,23 +60,22 @@ public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassth
     static final String COLUMNS_NAMESPACE = "jdbc.columns";
 
     private final JdbcConnectorClient client;
-    private final Map<String, String> properties;
+    private final JdbcCatalogProperties props;
 
-    public JdbcConnectorMetadata(JdbcConnectorClient client, Map<String, String> properties) {
+    public JdbcConnectorMetadata(JdbcConnectorClient client, JdbcCatalogProperties props) {
         this.client = client;
-        this.properties = properties;
+        this.props = props;
     }
 
     private JdbcIdentifierMapper getIdentifierMapper(ConnectorSession session) {
-        boolean isLowerCaseMetaNames = Boolean.parseBoolean(
-                properties.getOrDefault(
-                        JdbcConnectorProperties.LOWER_CASE_META_NAMES, "false"));
-        String metaNamesMapping = properties.getOrDefault(
-                JdbcConnectorProperties.META_NAMES_MAPPING, "");
+        boolean isLowerCaseMetaNames = props.isLowerCaseMetaNames();
+        String metaNamesMapping = props.getMetaNamesMapping();
         int lowerCaseTableNames = 0;
         if (session != null) {
             String val = session.getSessionProperties().get(
-                    JdbcConnectorProperties.LOWER_CASE_TABLE_NAMES);
+                    // The catalog property of this name is rejected; this is the session variable
+                    // that happens to share it.
+                    JdbcCatalogProperties.LOWER_CASE_TABLE_NAMES);
             if (val != null) {
                 try {
                     lowerCaseTableNames = Integer.parseInt(val);
@@ -120,7 +119,7 @@ public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassth
             ConnectorSession session, ConnectorTableHandle handle) {
         if (handle instanceof PassthroughQueryTableHandle) {
             return new ConnectorTableSchema("__passthrough_query__",
-                    Collections.emptyList(), "JDBC", properties);
+                    Collections.emptyList(), "JDBC", props.getRaw());
         }
         JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
         String dbName = jdbcHandle.getRemoteDbName();
@@ -143,7 +142,7 @@ public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassth
                     null,
                     true));
         }
-        return new ConnectorTableSchema(tableName, columns, "JDBC", properties);
+        return new ConnectorTableSchema(tableName, columns, "JDBC", props.getRaw());
     }
 
     @Override
@@ -190,29 +189,19 @@ public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassth
             String remoteName, int numCols, long catalogId) {
         org.apache.doris.thrift.TJdbcTable tJdbcTable = new org.apache.doris.thrift.TJdbcTable();
         tJdbcTable.setCatalogId(catalogId);
-        tJdbcTable.setJdbcUrl(properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, ""));
-        tJdbcTable.setJdbcUser(properties.getOrDefault(JdbcConnectorProperties.USER, ""));
-        tJdbcTable.setJdbcPassword(properties.getOrDefault(JdbcConnectorProperties.PASSWORD, ""));
+        tJdbcTable.setJdbcUrl(props.getJdbcUrl());
+        tJdbcTable.setJdbcUser(props.getUser());
+        tJdbcTable.setJdbcPassword(props.getPassword());
         tJdbcTable.setJdbcTableName(remoteName);
-        tJdbcTable.setJdbcDriverClass(properties.getOrDefault(JdbcConnectorProperties.DRIVER_CLASS, ""));
-        tJdbcTable.setJdbcDriverUrl(properties.getOrDefault(JdbcConnectorProperties.DRIVER_URL, ""));
+        tJdbcTable.setJdbcDriverClass(props.getDriverClass());
+        tJdbcTable.setJdbcDriverUrl(props.getDriverUrl());
         tJdbcTable.setJdbcResourceName("");
-        tJdbcTable.setJdbcDriverChecksum(properties.getOrDefault(JdbcConnectorProperties.DRIVER_CHECKSUM, ""));
-        tJdbcTable.setConnectionPoolMinSize(JdbcConnectorProperties.getInt(properties,
-                JdbcConnectorProperties.CONNECTION_POOL_MIN_SIZE,
-                JdbcConnectorProperties.DEFAULT_POOL_MIN_SIZE));
-        tJdbcTable.setConnectionPoolMaxSize(JdbcConnectorProperties.getInt(properties,
-                JdbcConnectorProperties.CONNECTION_POOL_MAX_SIZE,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_SIZE));
-        tJdbcTable.setConnectionPoolMaxWaitTime(JdbcConnectorProperties.getInt(properties,
-                JdbcConnectorProperties.CONNECTION_POOL_MAX_WAIT_TIME,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_WAIT_TIME));
-        tJdbcTable.setConnectionPoolMaxLifeTime(JdbcConnectorProperties.getInt(properties,
-                JdbcConnectorProperties.CONNECTION_POOL_MAX_LIFE_TIME,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_LIFE_TIME));
-        tJdbcTable.setConnectionPoolKeepAlive(Boolean.parseBoolean(properties.getOrDefault(
-                JdbcConnectorProperties.CONNECTION_POOL_KEEP_ALIVE,
-                String.valueOf(JdbcConnectorProperties.DEFAULT_POOL_KEEP_ALIVE))));
+        tJdbcTable.setJdbcDriverChecksum(props.getDriverChecksum());
+        tJdbcTable.setConnectionPoolMinSize(props.getConnectionPoolMinSize());
+        tJdbcTable.setConnectionPoolMaxSize(props.getConnectionPoolMaxSize());
+        tJdbcTable.setConnectionPoolMaxWaitTime(props.getConnectionPoolMaxWaitTime());
+        tJdbcTable.setConnectionPoolMaxLifeTime(props.getConnectionPoolMaxLifeTime());
+        tJdbcTable.setConnectionPoolKeepAlive(props.isConnectionPoolKeepAlive());
 
         org.apache.doris.thrift.TTableDescriptor desc = new org.apache.doris.thrift.TTableDescriptor(
                 tableId, org.apache.doris.thrift.TTableType.JDBC_TABLE,
@@ -275,7 +264,7 @@ public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassth
                     null,
                     true));
         }
-        return new ConnectorTableSchema("query_result", columns, "JDBC", properties);
+        return new ConnectorTableSchema("query_result", columns, "JDBC", props.getRaw());
     }
 
     // ========= ConnectorWriteOps =========

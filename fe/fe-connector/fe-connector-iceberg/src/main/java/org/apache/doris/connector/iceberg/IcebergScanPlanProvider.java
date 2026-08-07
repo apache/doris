@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
@@ -213,13 +214,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // (splitFiles). When enabled, planScan re-plans at the manifest level so the per-manifest data/delete-file
     // reads hit the connector-owned IcebergManifestCache. The .ttl-second/.capacity properties feed ONLY this
     // enable formula (legacy quirk); the cache itself is fixed no-TTL / capacity 100000.
-    private static final String MANIFEST_CACHE_ENABLE = "meta.cache.iceberg.manifest.enable";
-    private static final String MANIFEST_CACHE_TTL_SECOND = "meta.cache.iceberg.manifest.ttl-second";
-    private static final String MANIFEST_CACHE_CAPACITY = "meta.cache.iceberg.manifest.capacity";
     private static final boolean DEFAULT_MANIFEST_CACHE_ENABLE = false;
     private static final long DEFAULT_MANIFEST_CACHE_TTL_SECOND = 48L * 60 * 60;
     private static final long DEFAULT_MANIFEST_CACHE_CAPACITY = 1024L;
 
+    private final IcebergCatalogProperties catalogProps;
     private final Map<String, String> properties;
     // Per-request catalog-ops resolver: applied with the current ConnectorSession to obtain the IcebergCatalogOps
     // for that request. For a iceberg.rest.session=user catalog the connector passes this::newCatalogBackedOps so
@@ -257,31 +256,31 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     @VisibleForTesting
     int perFileInvariantComputeCount;
 
-    public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps) {
-        this(properties, catalogOps, null, null);
+    public IcebergScanPlanProvider(IcebergCatalogProperties catalogProps, IcebergCatalogOps catalogOps) {
+        this(catalogProps, catalogOps, null, null);
     }
 
-    public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
+    public IcebergScanPlanProvider(IcebergCatalogProperties catalogProps, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
-        this(properties, catalogOps, context, null);
+        this(catalogProps, catalogOps, context, null);
     }
 
-    public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
+    public IcebergScanPlanProvider(IcebergCatalogProperties catalogProps, IcebergCatalogOps catalogOps,
             ConnectorContext context, IcebergManifestCache manifestCache) {
         // Constant resolver: these ctors (offline tests + the pre-session connector paths) bind a single ops that
         // ignores the session, so existing behaviour/tests are byte-identical. No cross-query cache (tableCache
         // null) — the per-statement scope still dedups within a statement.
-        this(properties, session -> catalogOps, context, manifestCache, null);
+        this(catalogProps, session -> catalogOps, context, manifestCache, null);
     }
 
     /**
      * Session-aware convenience ctor without a cross-query table cache (tableCache null); used by the offline
      * session-routing tests. The per-statement scope still dedups within a statement.
      */
-    public IcebergScanPlanProvider(Map<String, String> properties,
+    public IcebergScanPlanProvider(IcebergCatalogProperties catalogProps,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
             ConnectorContext context, IcebergManifestCache manifestCache) {
-        this(properties, catalogOpsResolver, context, manifestCache, null);
+        this(catalogProps, catalogOpsResolver, context, manifestCache, null);
     }
 
     /**
@@ -290,10 +289,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * resolves the querying user's per-request delegated catalog (the connector passes
      * {@code this::newCatalogBackedOps}); every other catalog resolves the single shared ops.
      */
-    public IcebergScanPlanProvider(Map<String, String> properties,
+    public IcebergScanPlanProvider(IcebergCatalogProperties catalogProps,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
             ConnectorContext context, IcebergManifestCache manifestCache, IcebergTableCache tableCache) {
-        this(properties, catalogOpsResolver, context, manifestCache, tableCache, null);
+        this(catalogProps, catalogOpsResolver, context, manifestCache, tableCache, null);
     }
 
     /**
@@ -301,11 +300,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * inferred-file-format cache ({@code formatCache}). The 5-arg ctor delegates here with a null format cache
      * (offline tests + pre-cache paths resolve {@code file_format_type} live).
      */
-    public IcebergScanPlanProvider(Map<String, String> properties,
+    public IcebergScanPlanProvider(IcebergCatalogProperties catalogProps,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
             ConnectorContext context, IcebergManifestCache manifestCache, IcebergTableCache tableCache,
             IcebergFormatCache formatCache) {
-        this.properties = properties;
+        this.catalogProps = catalogProps;
+        this.properties = catalogProps.getRaw();
         this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
         this.manifestCache = manifestCache;
@@ -437,7 +437,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        if (iceHandle.isSystemTable() || !sessionBool(session, ENABLE_EXTERNAL_TABLE_BATCH_MODE, true)) {
+        if (iceHandle.isResolvedEmptySnapshot() || iceHandle.isSystemTable()
+                || !sessionBool(session, ENABLE_EXTERNAL_TABLE_BATCH_MODE, true)) {
             return -1;
         }
         Table table = resolveTable(session, iceHandle);
@@ -475,13 +476,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * a FIXED size ({@code file_split_size} if set, else {@code max_split_size} — NOT the per-table
      * {@link #determineTargetFileSplitSize} heuristic, which would force materializing every task), so
      * {@code planFiles()} streams without holding the full task list — the OOM protection. Bypasses the manifest
-     * cache (its planning materializes; legacy's lazy batch path only ran with the manifest cache off). Only
-     * called after {@link #streamingSplitEstimate} returned &ge; 0, so the snapshot/non-sys/v&lt;3 gates already hold.
+     * cache (its planning materializes; legacy's lazy batch path only ran with the manifest cache off). Usually
+     * called after {@link #streamingSplitEstimate} returned &ge; 0; because MVCC pinning happens afterward, this
+     * method must independently preserve an explicitly empty pinned snapshot.
      */
     @Override
     public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter, long limit) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isResolvedEmptySnapshot()) {
+            // The batch decision is made before the engine pins MVCC; once pinned empty, streaming must
+            // preserve that boundary instead of interpreting Iceberg's sentinel as the latest snapshot.
+            return emptySplitSource();
+        }
         Table table = resolveTable(session, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
         int formatVersion = getFormatVersion(table);
@@ -497,6 +504,24 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(scan, session, table, filter, sliceSize);
         return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
                 orderedPartitionKeys, zone, uriNormalizer, sliceSize, iceHandle.getRewriteFileScope());
+    }
+
+    private static ConnectorSplitSource emptySplitSource() {
+        return new ConnectorSplitSource() {
+            @Override
+            public boolean hasNext() {
+                return false;
+            }
+
+            @Override
+            public ConnectorScanRange next() {
+                throw new NoSuchElementException();
+            }
+
+            @Override
+            public void close() {
+            }
+        };
     }
 
     /**
@@ -613,6 +638,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isResolvedEmptySnapshot() && !isSnapshotIndependentSystemTable(iceHandle)) {
+            // Iceberg has no snapshot id that can represent "before the first commit". Returning no ranges is
+            // the read-side MVCC fence; otherwise a refreshed Table would turn -1 into "latest" and expose a
+            // concurrent first append to MERGE after its anti-join had already decided the row was absent. Static
+            // metadata-history tables are exempt because their creation rows exist without a data snapshot.
+            return Collections.emptyList();
+        }
         if (iceHandle.isSystemTable()) {
             // System tables take a metadata-table path, never the data-file path below (no count pushdown, no
             // data-file ranges) — mirrors legacy IcebergScanNode branching on isSystemTable. $position_deletes
@@ -944,8 +976,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         boolean partitionRequested = isPositionDeletesPartitionColumnRequested(columns);
         List<NestedField> outputPartitionFields = partitionRequested
                 ? getPositionDeletesOutputPartitionFields(metadataTable) : Collections.emptyList();
-        boolean enableMappingVarbinary = Boolean.parseBoolean(
-                properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
+        boolean enableMappingVarbinary = catalogProps.isEnableMappingVarbinary();
         ZoneId zone = resolveSessionZone(session);
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(metadataTable, restVendedCredentialsEnabled()) : Collections.emptyMap();
@@ -1141,6 +1172,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 && type != MetadataTableType.ALL_FILES
                 && type != MetadataTableType.ALL_MANIFESTS
                 && type != MetadataTableType.ALL_ENTRIES;
+    }
+
+    /** Metadata tables whose rows exist independently of a data snapshot. */
+    private static boolean isSnapshotIndependentSystemTable(IcebergTableHandle handle) {
+        if (!handle.isSystemTable()) {
+            return false;
+        }
+        MetadataTableType type = MetadataTableType.from(handle.getSysTableName());
+        // Only metadata_log_entries has a creation row before the first data snapshot; every other metadata
+        // table must preserve the resolved-empty fence or a concurrent first append becomes visible.
+        return type == MetadataTableType.METADATA_LOG_ENTRIES;
     }
 
     /**
@@ -1495,8 +1537,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * vended-credentials gate to its hadoop config / output path). Pure function of the catalog properties.
      */
     static boolean restVendedCredentialsEnabled(Map<String, String> properties) {
-        return IcebergConnectorProperties.TYPE_REST.equals(IcebergCatalogFactory.resolveFlavor(properties))
-                && Boolean.parseBoolean(properties.get(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED));
+        // Bound rather than read raw so the flag has ONE reader: the same holder the catalog assembly uses to
+        // decide whether to send the delegation header. The bind is behind the flavor check, so it happens only
+        // for a REST catalog, and only on the per-table paths below (never per split).
+        return IcebergCatalogProperties.TYPE_REST.equals(IcebergCatalogProperties.of(properties).getFlavor())
+                && IcebergRestMetaStoreProperties.of(properties).isVendedCredentialsEnabled();
     }
 
     /**
@@ -1645,10 +1690,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // FileQueryScanNode.classifyColumn categorizes it PARTITION_KEY, i.e. a NON-file slot filled from
         // columns_from_path. BE resolves through this dict only the slots it decodes FROM the file, so such a
         // column is never looked up in it whether or not the query projects it.
-        boolean enableVarbinary = Boolean.parseBoolean(
-                properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
-        boolean enableTimestampTz = Boolean.parseBoolean(
-                properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
+        boolean enableVarbinary = catalogProps.isEnableMappingVarbinary();
+        boolean enableTimestampTz = catalogProps.isEnableMappingTimestampTz();
         if (!systemTable) {
             String dict;
             boolean appendRowLineage = getFormatVersion(table) >= 3;
@@ -2634,9 +2677,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return false;
         }
         CacheSpec spec = CacheSpec.fromProperties(properties,
-                MANIFEST_CACHE_ENABLE, DEFAULT_MANIFEST_CACHE_ENABLE,
-                MANIFEST_CACHE_TTL_SECOND, DEFAULT_MANIFEST_CACHE_TTL_SECOND,
-                MANIFEST_CACHE_CAPACITY, DEFAULT_MANIFEST_CACHE_CAPACITY);
+                IcebergConnector.MANIFEST_CACHE_ENABLE, DEFAULT_MANIFEST_CACHE_ENABLE,
+                IcebergConnector.MANIFEST_CACHE_TTL_SECOND, DEFAULT_MANIFEST_CACHE_TTL_SECOND,
+                IcebergConnector.MANIFEST_CACHE_CAPACITY, DEFAULT_MANIFEST_CACHE_CAPACITY);
         return CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity());
     }
 

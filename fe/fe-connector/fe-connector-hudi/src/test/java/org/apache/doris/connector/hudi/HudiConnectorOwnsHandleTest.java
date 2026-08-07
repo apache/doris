@@ -23,7 +23,6 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 
 /**
  * Pins {@link HudiConnector#ownsHandle} for the hms 3-way sibling routing: a flipped hms gateway embeds this
@@ -37,7 +36,7 @@ import java.util.Collections;
 public class HudiConnectorOwnsHandleTest {
 
     private static HudiConnector connector() {
-        return new HudiConnector(Collections.emptyMap(), new ConnectorContext() {
+        return new HudiConnector(HudiTestProperties.minimalMap(), new ConnectorContext() {
             @Override
             public String getCatalogName() {
                 return "test_catalog";

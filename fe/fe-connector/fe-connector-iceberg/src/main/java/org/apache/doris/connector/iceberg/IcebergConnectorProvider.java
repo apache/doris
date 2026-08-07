@@ -17,8 +17,6 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
@@ -57,47 +55,15 @@ public class IcebergConnectorProvider implements ConnectorProvider {
     }
 
     /**
-     * Validates catalog properties at CREATE CATALOG time via the shared metastore parsers (P6-T10): the
-     * flavor is resolved from {@code iceberg.catalog.type} ({@link IcebergCatalogFactory#resolveFlavor}) and
-     * {@link MetaStoreProviders#bindForType} selects the iceberg backend, whose {@code validate()} enforces
-     * the per-flavor fail-fast rules — REST (security/creds enums, OAuth2, signing, AK/SK), Glue
-     * (AK/SK-together, endpoint https, at-least-one-credential), JDBC (uri/catalog_name/warehouse), and the
-     * shared HMS/DLF connection checks; hadoop/s3tables are no-op (their storage is validated upstream at
-     * fe-filesystem bind). Storage is not needed for validation, so an empty storage map is passed. A blank
-     * or unknown {@code iceberg.catalog.type} makes {@code bindForType} throw (no provider supports it).
-     * Throws {@link IllegalArgumentException}, which {@code PluginDrivenExternalCatalog.checkProperties}
-     * wraps into a DdlException.
-     *
-     * <p>The meta-cache knobs are validated first (restoring the legacy
-     * {@code IcebergExternalCatalog.checkProperties} fail-fast that was dropped at the SPI cutover), so a
-     * bad {@code meta.cache.iceberg.*} value is rejected at CREATE/ALTER instead of being silently
-     * coerced to a cache-disabling default.
+     * Validates catalog properties at CREATE CATALOG time. Everything this used to spell out lives on
+     * {@link IcebergCatalogProperties} now: the meta-cache knobs and the per-flavor backend rules alike are
+     * CREATE-time-only, so they belong next to the binding rather than beside it, and keeping them out of
+     * {@code of(Map)} is what lets a catalog created before a rule existed still come back after an FE
+     * restart. Throws {@link IllegalArgumentException}, which {@code PluginDrivenExternalCatalog
+     * .checkProperties} wraps into a DdlException.
      */
     @Override
     public void validateProperties(Map<String, String> properties) {
-        checkMetaCacheProperties(properties);
-        String flavor = IcebergCatalogFactory.resolveFlavor(properties);
-        MetaStoreProviders.bindForType(flavor, properties, Collections.emptyMap()).validate();
-    }
-
-    /**
-     * Byte-for-byte parity with the legacy {@code IcebergExternalCatalog.checkProperties}: table/manifest
-     * {@code enable} must be boolean, {@code ttl-second} must be a long &ge; -1 (the "no expiration"
-     * sentinel), {@code capacity} must be a long &ge; 0. Absent keys are skipped.
-     */
-    private static void checkMetaCacheProperties(Map<String, String> properties) {
-        CacheSpec.checkBooleanProperty(properties.get(IcebergConnectorProperties.TABLE_CACHE_ENABLE),
-                IcebergConnectorProperties.TABLE_CACHE_ENABLE);
-        CacheSpec.checkLongProperty(properties.get(IcebergConnectorProperties.TABLE_CACHE_TTL),
-                -1L, IcebergConnectorProperties.TABLE_CACHE_TTL);
-        CacheSpec.checkLongProperty(properties.get(IcebergConnectorProperties.TABLE_CACHE_CAPACITY),
-                0L, IcebergConnectorProperties.TABLE_CACHE_CAPACITY);
-
-        CacheSpec.checkBooleanProperty(properties.get(IcebergConnectorProperties.MANIFEST_CACHE_ENABLE),
-                IcebergConnectorProperties.MANIFEST_CACHE_ENABLE);
-        CacheSpec.checkLongProperty(properties.get(IcebergConnectorProperties.MANIFEST_CACHE_TTL),
-                -1L, IcebergConnectorProperties.MANIFEST_CACHE_TTL);
-        CacheSpec.checkLongProperty(properties.get(IcebergConnectorProperties.MANIFEST_CACHE_CAPACITY),
-                0L, IcebergConnectorProperties.MANIFEST_CACHE_CAPACITY);
+        IcebergCatalogProperties.of(properties).checkCreateTimeOnlyRules();
     }
 }

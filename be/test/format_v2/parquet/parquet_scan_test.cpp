@@ -931,7 +931,7 @@ PreparedTopNConjunct create_topn_conjunct(RuntimeState* state, int column_id,
 
     TExprNode topn_node;
     topn_node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
-    topn_node.__set_is_nullable(false);
+    topn_node.__set_is_nullable(data_type->is_nullable());
     auto topn = VTopNPred::create_shared(topn_node, 10, nullptr);
     topn->add_child(VSlotRef::create_shared(column_id, column_id, -1, data_type, "topn_column"));
     auto conjunct = VExprContext::create_shared(std::move(topn));

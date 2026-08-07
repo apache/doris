@@ -25,6 +25,7 @@ import org.apache.doris.foundation.property.ConnectorProperty;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -107,5 +108,26 @@ public final class PaimonJdbcMetaStoreProperties extends AbstractMetaStoreProper
     @Override
     public String getDriverClass() {
         return driverClass;
+    }
+
+    /**
+     * The jdbc-flavor catalog options, as neutral keys the connector turns into paimon {@code Options}
+     * (this module stays free of the paimon SDK). Mirrors the legacy {@code appendJdbcOptions}: the uri
+     * unconditionally, user and password only when set.
+     *
+     * <p>The connector applies these BEFORE its raw {@code jdbc.*} passthrough, which only fills keys
+     * not already present -- so an alias-resolved user still wins over a bare {@code jdbc.user} that
+     * would otherwise be copied verbatim.
+     */
+    public Map<String, String> toCatalogOptions() {
+        Map<String, String> options = new LinkedHashMap<>();
+        options.put("uri", uri);
+        if (StringUtils.isNotBlank(user)) {
+            options.put("jdbc.user", user);
+        }
+        if (StringUtils.isNotBlank(password)) {
+            options.put("jdbc.password", password);
+        }
+        return options;
     }
 }

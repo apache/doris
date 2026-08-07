@@ -47,6 +47,11 @@ import java.util.function.Supplier;
  */
 class JdbcConnectorMetadataTest {
 
+    private static JdbcCatalogProperties minimalCatalogProps() {
+        return JdbcCatalogProperties.of(
+                Collections.singletonMap(JdbcCatalogProperties.JDBC_URL, "jdbc:mysql://h:3306/d"));
+    }
+
     private ConnectorSession sessionWithProps(Map<String, String> props) {
         return sessionWithScope(props, ConnectorStatementScope.NONE);
     }
@@ -185,14 +190,14 @@ class JdbcConnectorMetadataTest {
 
     @Test
     void testSupportsCastPredicatePushdown_defaultTrue() {
-        JdbcConnectorMetadata metadata = new JdbcConnectorMetadata(null, Collections.emptyMap());
+        JdbcConnectorMetadata metadata = new JdbcConnectorMetadata(null, minimalCatalogProps());
         ConnectorSession session = sessionWithProps(Collections.emptyMap());
         Assertions.assertTrue(metadata.supportsCastPredicatePushdown(session));
     }
 
     @Test
     void testSupportsCastPredicatePushdown_explicitTrue() {
-        JdbcConnectorMetadata metadata = new JdbcConnectorMetadata(null, Collections.emptyMap());
+        JdbcConnectorMetadata metadata = new JdbcConnectorMetadata(null, minimalCatalogProps());
         Map<String, String> props = new HashMap<>();
         props.put("enable_jdbc_cast_predicate_push_down", "true");
         ConnectorSession session = sessionWithProps(props);
@@ -201,7 +206,7 @@ class JdbcConnectorMetadataTest {
 
     @Test
     void testSupportsCastPredicatePushdown_explicitFalse() {
-        JdbcConnectorMetadata metadata = new JdbcConnectorMetadata(null, Collections.emptyMap());
+        JdbcConnectorMetadata metadata = new JdbcConnectorMetadata(null, minimalCatalogProps());
         Map<String, String> props = new HashMap<>();
         props.put("enable_jdbc_cast_predicate_push_down", "false");
         ConnectorSession session = sessionWithProps(props);
@@ -223,7 +228,7 @@ class JdbcConnectorMetadataTest {
         // (JdbcConnectorMetadata.COLUMNS_NAMESPACE, keyed by (catalogId, db, table, queryId)) collapses them to
         // ONE remote fetch. MUTATION: fetching directly on each call (pre-fix) -> counter 3 -> red.
         CountingJdbcClient client = new CountingJdbcClient(Arrays.asList(field("id"), field("name")));
-        JdbcConnectorMetadata md = new JdbcConnectorMetadata(client, Collections.emptyMap());
+        JdbcConnectorMetadata md = new JdbcConnectorMetadata(client, minimalCatalogProps());
         ConnectorSession session = sessionWithScope(Collections.emptyMap(), liveScope());
         JdbcTableHandle handle = new JdbcTableHandle("db", "t");
 
@@ -244,7 +249,7 @@ class JdbcConnectorMetadataTest {
         // the memo runs the loader on every call, byte-identical to the pre-fix always-fetch behavior.
         // MUTATION: memoizing under NONE -> counter 1 -> red.
         CountingJdbcClient client = new CountingJdbcClient(Collections.singletonList(field("id")));
-        JdbcConnectorMetadata md = new JdbcConnectorMetadata(client, Collections.emptyMap());
+        JdbcConnectorMetadata md = new JdbcConnectorMetadata(client, minimalCatalogProps());
         ConnectorSession session = sessionWithProps(Collections.emptyMap()); // default scope = NONE
 
         JdbcTableHandle handle = new JdbcTableHandle("db", "t");
@@ -264,7 +269,7 @@ class JdbcConnectorMetadataTest {
         // reads only names) yield byte-identical columns and reflect allowNull=true for the mutated column "d".
         // MUTATION: a non-idempotent field mutation, or getColumnHandles depending on the flag -> schemas diverge.
         MutatingJdbcClient client = new MutatingJdbcClient(Arrays.asList(field("d"), field("id")));
-        JdbcConnectorMetadata md = new JdbcConnectorMetadata(client, Collections.emptyMap());
+        JdbcConnectorMetadata md = new JdbcConnectorMetadata(client, minimalCatalogProps());
         ConnectorSession session = sessionWithScope(Collections.emptyMap(), liveScope());
         JdbcTableHandle handle = new JdbcTableHandle("db", "t");
 

@@ -46,6 +46,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -116,6 +117,8 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTasksMetadataParams;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.thrift.TUserIdentity;
+import org.apache.doris.tso.TSOService;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
@@ -174,6 +177,8 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> TABLE_STREAMS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> TSO_STATUS_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -291,6 +296,13 @@ public class MetadataGenerator {
             tableStreamConsumptionBuilder.put(tableStreamConsumptionBuilderColList.get(i).getName().toLowerCase(), i);
         }
         TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX = tableStreamConsumptionBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> tsoStatusBuilder = new ImmutableMap.Builder();
+        List<Column> tsoStatusColList = SchemaTable.TABLE_MAP.get("tso_status").getFullSchema();
+        for (int i = 0; i < tsoStatusColList.size(); i++) {
+            tsoStatusBuilder.put(tsoStatusColList.get(i).getName().toLowerCase(), i);
+        }
+        TSO_STATUS_COLUMN_TO_INDEX = tsoStatusBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -421,6 +433,10 @@ public class MetadataGenerator {
             case TABLE_STREAM_CONSUMPTION:
                 result = streamConsumptionMetadataResult(schemaTableParams);
                 columnIndex = TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
+                break;
+            case TSO_STATUS:
+                result = tsoStatusMetadataResult();
+                columnIndex = TSO_STATUS_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -2166,6 +2182,29 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         Env.getCurrentEnv().getTableStreamManager().fillStreamConsumptionValuesMetadataResult(dataBatch);
         result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult tsoStatusMetadataResult() {
+        if (!Config.enable_feature_binlog) {
+            return errorResult("TSO feature is disabled, please check enable_feature_binlog");
+        }
+
+        TSOService.TSOStatusSnapshot statusSnapshot = Env.getCurrentEnv().getTSOService().getStatusSnapshot();
+        if (!statusSnapshot.isInitialized()) {
+            return errorResult("TSO timestamp is not calibrated, please check");
+        }
+
+        long currentTso = statusSnapshot.getCurrentTso();
+        TRow row = new TRow();
+        row.addToColumnValue(new TCell().setLongVal(statusSnapshot.getWindowEndPhysicalTime()));
+        row.addToColumnValue(new TCell().setLongVal(currentTso));
+        row.addToColumnValue(new TCell().setLongVal(TSOTimestamp.extractPhysicalTime(currentTso)));
+        row.addToColumnValue(new TCell().setLongVal(TSOTimestamp.extractLogicalCounter(currentTso)));
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        result.setDataBatch(Lists.newArrayList(row));
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }

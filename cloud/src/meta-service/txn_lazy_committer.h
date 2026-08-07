@@ -54,7 +54,7 @@ private:
             int64_t db_id, int64_t partition_id,
             const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowset_metas,
             bool is_versioned_write, bool is_versioned_read,
-            bool defer_deleting_pending_delete_bitmaps);
+            bool defer_deleting_pending_delete_bitmaps, int64_t commit_tso);
 
     std::string instance_id_;
     int64_t txn_id_;

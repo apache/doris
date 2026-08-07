@@ -176,7 +176,6 @@ public:
 
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits = nullptr;
-    IntGauge* binlog_compaction_used_permits = nullptr;
     // permits required by the compaction task which is waiting for permits
     IntGauge* compaction_waitting_permits = nullptr;
 

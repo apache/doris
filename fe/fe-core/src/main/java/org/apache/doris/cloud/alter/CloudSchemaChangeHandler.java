@@ -443,7 +443,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 throw new DdlException(
                         "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
             }
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                 for (Tablet tablet : index.getTablets()) {
                     tabletIds.add(tablet.getId());
                 }

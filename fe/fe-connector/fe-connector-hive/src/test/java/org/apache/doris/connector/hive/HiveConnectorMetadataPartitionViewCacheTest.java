@@ -67,7 +67,7 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
 
     private static HiveConnectorMetadata metadataWithCache(CountingHmsClient client,
             ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache) {
-        return new HiveConnectorMetadata(client, Collections.emptyMap(), new FakeConnectorContext(),
+        return new HiveConnectorMetadata(client, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 () -> {
                     throw new UnsupportedOperationException();
                 },
@@ -77,7 +77,7 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
                 handle -> {
                     throw new UnsupportedOperationException();
                 },
-                new HiveFileListingCache(Collections.emptyMap()), cache);
+                new HiveFileListingCache(HiveTestProperties.minimal()), cache);
     }
 
     private static ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache() {

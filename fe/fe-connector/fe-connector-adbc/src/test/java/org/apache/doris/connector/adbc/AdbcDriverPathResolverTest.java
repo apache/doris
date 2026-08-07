@@ -248,7 +248,7 @@ class AdbcDriverPathResolverTest {
         String message = e.getMessage();
         Assertions.assertTrue(message.contains(ABC_MD5), message);
         Assertions.assertTrue(message.contains(driver.toString()), message);
-        Assertions.assertTrue(message.contains(AdbcConnectorProperties.DRIVER_CHECKSUM), message);
+        Assertions.assertTrue(message.contains(AdbcCatalogProperties.DRIVER_CHECKSUM), message);
     }
 
     @Test

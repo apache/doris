@@ -76,7 +76,7 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         _merge = false;
     }
 
-    if (_reader->_reader_type == ReaderType::READER_BINLOG) {
+    if (_reader->_reader_context.read_row_binlog) {
         _merge = false;
     }
 
