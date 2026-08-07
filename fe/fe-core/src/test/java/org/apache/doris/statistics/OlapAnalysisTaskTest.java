@@ -38,9 +38,11 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.BaseAnalysisTask.AnalyzeSampleAlgorithm;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -134,7 +136,13 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            void getSampleParams(Map<String, String> params, long tableRowCount) {}
+            void getSampleParams(Map<String, String> params, long tableRowCount, SampleCollectInfo info) {}
+
+            @Mock
+            SampleCollectInfo getSampleCollectInfo(long tableRowCount) {
+                return new SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L));
+            }
 
             @Mock
             boolean useLinearAnalyzeTemplate() {
@@ -192,8 +200,9 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            boolean useLinearAnalyzeTemplate() {
-                return false;
+            SampleCollectInfo getSampleCollectInfo(long tableRowCount) {
+                return new SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L));
             }
         };
         olapAnalysisTask.doSample();
@@ -318,11 +327,6 @@ public class OlapAnalysisTaskTest {
         Assertions.assertTrue(task.useLinearAnalyzeTemplate());
 
         task.setPartitionColumnSampleTooManyRows(false);
-        task.setScanFullTable(true);
-        Assertions.assertTrue(task.useLinearAnalyzeTemplate());
-
-        task.setScanFullTable(false);
-        task.setPartitionColumnSampleTooManyRows(false);
         new MockUp<OlapAnalysisTask>() {
             @Mock
             protected boolean isSingleUniqueKey() {
@@ -359,6 +363,11 @@ public class OlapAnalysisTaskTest {
             protected boolean useLinearAnalyzeTemplate() {
                 return false;
             }
+
+            @Mock
+            protected boolean isSingleUniqueKey() {
+                return false;
+            }
         };
 
         new MockUp<OlapTable>() {
@@ -369,17 +378,39 @@ public class OlapAnalysisTaskTest {
         };
         task.col = new Column("testColumn", Type.INT, true, null, null, "");
         task.setTable(new OlapTable());
-        task.getSampleParams(params, 10);
-        Assertions.assertTrue(task.scanFullTable());
+        // FULL algorithm: scan the full table and fill LINEAR-style params (raw column reference).
+        task.getSampleParams(params, 10,
+                new SampleCollectInfo(AnalyzeSampleAlgorithm.FULL, null));
         Assertions.assertEquals("1", params.get("scaleFactor"));
         Assertions.assertEquals("", params.get("sampleHints"));
+        Assertions.assertEquals("(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)",
+                params.get("rowCount2"));
         Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
         Assertions.assertNull(params.get("preAggHint"));
         Assertions.assertEquals("COUNT(1)", params.get("rowCount"));
         params.clear();
 
-        task.getSampleParams(params, 10000);
-        Assertions.assertEquals("10000", params.get("rowCount"));
+        // LINEAR algorithm with sample tablets.
+        task.getSampleParams(params, 10000,
+                new SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
+        Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
+        Assertions.assertEquals("(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)",
+                params.get("rowCount2"));
+        Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
+        params.clear();
+
+        // DUJ1 algorithm with sample tablets: rowCount2 and ndvFunction must reference the cte1
+        // output columns (col_value/count), not the raw column name, otherwise the DUJ1 SQL
+        // fails with "Unknown column".
+        task.getSampleParams(params, 10000,
+                new SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
+        Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
+        Assertions.assertEquals("(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)",
+                params.get("rowCount2"));
+        Assertions.assertTrue(params.get("ndvFunction").contains("`t1`.`col_value`"),
+                "DUJ1 ndvFunction must reference cte1 output, got: " + params.get("ndvFunction"));
         params.clear();
 
         new MockUp<OlapTable>() {
@@ -391,7 +422,9 @@ public class OlapAnalysisTaskTest {
         task = new OlapAnalysisTask();
         task.col = new Column("testColumn", Type.INT, false, null, null, "");
         task.setTable(new OlapTable());
-        task.getSampleParams(params, 1000);
+        task.getSampleParams(params, 1000,
+                new SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("10.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(`t1`.`col_value`) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) + SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) * SUM(`t1`.`count`) / 1000)", params.get("ndvFunction"));
@@ -414,7 +447,9 @@ public class OlapAnalysisTaskTest {
         task = new OlapAnalysisTask();
         task.col = new Column("testColumn", Type.INT, false, null, null, "");
         task.setTable(new OlapTable());
-        task.getSampleParams(params, 1000);
+        task.getSampleParams(params, 1000,
+                new SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("/*+PREAGGOPEN*/", params.get("preAggHint"));
         params.clear();
 
@@ -427,7 +462,9 @@ public class OlapAnalysisTaskTest {
         task = new OlapAnalysisTask();
         task.col = new Column("testColumn", Type.INT, false, null, null, "");
         task.setTable(new OlapTable());
-        task.getSampleParams(params, 1000);
+        task.getSampleParams(params, 1000,
+                new SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertNull(params.get("preAggHint"));
         params.clear();
 
@@ -446,7 +483,9 @@ public class OlapAnalysisTaskTest {
         task = new OlapAnalysisTask();
         task.col = new Column("test", PrimitiveType.INT);
         task.setTable(new OlapTable());
-        task.getSampleParams(params, 1000);
+        task.getSampleParams(params, 1000,
+                new SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("10.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
@@ -461,7 +500,9 @@ public class OlapAnalysisTaskTest {
         task = new OlapAnalysisTask();
         task.col = new Column("test", PrimitiveType.INT);
         task.setTable(new OlapTable());
-        task.getSampleParams(params, 1000);
+        task.getSampleParams(params, 1000,
+                new SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("10.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("1000", params.get("ndvFunction"));
@@ -481,7 +522,9 @@ public class OlapAnalysisTaskTest {
         task = new OlapAnalysisTask();
         task.col = new Column("test", PrimitiveType.INT);
         task.setTable(new OlapTable());
-        task.getSampleParams(params, 1000);
+        task.getSampleParams(params, 1000,
+                new SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("20.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("1000", params.get("ndvFunction"));
@@ -493,11 +536,51 @@ public class OlapAnalysisTaskTest {
             true, null, null, null);
         task.setKeyColumnSampleTooManyRows(true);
         task.setTable(new OlapTable());
-        task.getSampleParams(params, 2000000000);
+        task.getSampleParams(params, 2000000000,
+                new SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("2.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("2000000000", params.get("ndvFunction"));
         Assertions.assertEquals("limit 1000000000", params.get("limit"));
+    }
+
+    @Test
+    public void testGetSampleCollectInfo() {
+        final long[] sampleRows = {100L};
+        final Pair<List<Long>, Long>[] sampleTablets = new Pair[] {Pair.of(Lists.newArrayList(1L, 2L), 100L)};
+        final boolean[] linearTemplate = {false};
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            protected long getSampleRows() {
+                return sampleRows[0];
+            }
+
+            @Mock
+            protected Pair<List<Long>, Long> getSampleTablets() {
+                return sampleTablets[0];
+            }
+
+            @Mock
+            protected boolean useLinearAnalyzeTemplate() {
+                return linearTemplate[0];
+            }
+        };
+
+        OlapAnalysisTask task = new OlapAnalysisTask();
+        // tableRowCount <= sample rows -> full table scan.
+        SampleCollectInfo info = task.getSampleCollectInfo(10);
+        Assertions.assertEquals(AnalyzeSampleAlgorithm.FULL, info.algorithm);
+
+        // tableRowCount > sample rows -> sample tablets, and useLinearAnalyzeTemplate decides.
+        linearTemplate[0] = true;
+        info = task.getSampleCollectInfo(10000);
+        Assertions.assertEquals(AnalyzeSampleAlgorithm.LINEAR, info.algorithm);
+
+        // sample tablets contain too few rows -> fall back to full table scan.
+        sampleTablets[0] = Pair.of(Lists.newArrayList(1L, 2L), 10L);
+        info = task.getSampleCollectInfo(10000);
+        Assertions.assertEquals(AnalyzeSampleAlgorithm.FULL, info.algorithm);
     }
 
     @Test
