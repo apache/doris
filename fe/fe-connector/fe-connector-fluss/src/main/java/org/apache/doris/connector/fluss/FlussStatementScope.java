@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.fluss;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScopes;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScopes;
 
 import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;

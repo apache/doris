@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.fluss;
 
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.apache.fluss.metadata.DataLakeFormat;
 import org.apache.fluss.metadata.TableInfo;

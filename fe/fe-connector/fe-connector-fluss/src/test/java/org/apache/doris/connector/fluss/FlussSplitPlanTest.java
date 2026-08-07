@@ -17,15 +17,15 @@
 
 package org.apache.doris.connector.fluss;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRequest;
-import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.apache.fluss.client.metadata.KvSnapshots;

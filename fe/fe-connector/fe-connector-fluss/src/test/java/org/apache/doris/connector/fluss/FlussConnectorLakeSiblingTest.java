@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.fluss;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
