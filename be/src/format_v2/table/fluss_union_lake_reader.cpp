@@ -46,9 +46,11 @@ namespace {
 constexpr const char* PROP_PK_NAMES = "fluss.union.pk_names";
 constexpr const char* PROP_MAX_TAIL_ROWS = "fluss.union.max_tail_rows";
 
-// The per-range payload of a wrapped lake split.
+// The per-range payload of a wrapped lake split: a plain one carries only its kind, a suppressed
+// one also names the log tail that supersedes part of it.
 constexpr const char* PROP_RANGE_TYPE = "fluss.range_type";
 constexpr const char* PROP_TAIL = "fluss.union.tail";
+constexpr const char* RANGE_TYPE_LAKE = "LAKE";
 constexpr const char* RANGE_TYPE_LAKE_SUPPRESS = "LAKE_SUPPRESS";
 
 // The range this reader synthesizes to read the tail. A plain bounded log read, which is what the
@@ -201,11 +203,11 @@ Status FlussUnionLakeReader::_resolve_union_properties() {
     const auto& properties = _scan_params->fluss_properties;
     const auto names_it = properties.find(PROP_PK_NAMES);
     if (names_it == properties.end() || names_it->second.empty()) {
-        return Status::InternalError(
-                "missing '{}' for a fluss union read: without the key columns the lake rows the "
-                "log "
-                "tail supersedes cannot be identified",
-                PROP_PK_NAMES);
+        // FE states the union properties only when it plans a primary-key union, and this reader
+        // also serves the plain LAKE splits of a log-table union, which have no keys and nothing to
+        // suppress. Their absence is therefore not an error here; a LAKE_SUPPRESS split arriving
+        // anyway fails loud in _prepare_suppression.
+        return Status::OK();
     }
     for (const auto name : split_on(names_it->second, ',')) {
         const auto column = std::ranges::find_if(
@@ -256,6 +258,9 @@ void FlussUnionLakeReader::_init_union_profile() {
 
 Status FlussUnionLakeReader::prepare_split(const format::SplitReadOptions& options) {
     DORIS_CHECK(_lake_reader != nullptr);
+    // Reset before anything can fail or return early, so a split can never be filtered by what the
+    // previous one prepared.
+    _current_split_suppressed = false;
     RETURN_IF_ERROR(_lake_reader->prepare_split(options));
     if (_lake_reader->current_split_pruned()) {
         // A pruned split returns no rows, so there is nothing to suppress and no reason to spend a
@@ -275,11 +280,24 @@ Status FlussUnionLakeReader::_prepare_suppression(const format::SplitReadOptions
     }
     const auto& params = range.table_format_params.fluss_params;
     const auto type_it = params.find(PROP_RANGE_TYPE);
-    if (type_it == params.end() || type_it->second != RANGE_TYPE_LAKE_SUPPRESS) {
+    if (type_it == params.end() ||
+        (type_it->second != RANGE_TYPE_LAKE && type_it->second != RANGE_TYPE_LAKE_SUPPRESS)) {
         return Status::InternalError(
-                "a fluss union lake split must carry '{}={}', but carries '{}'", PROP_RANGE_TYPE,
-                RANGE_TYPE_LAKE_SUPPRESS,
+                "a fluss lake split must carry '{}={}' or '{}={}', but carries '{}'",
+                PROP_RANGE_TYPE, RANGE_TYPE_LAKE, PROP_RANGE_TYPE, RANGE_TYPE_LAKE_SUPPRESS,
                 type_it == params.end() ? std::string("nothing") : type_it->second);
+    }
+    if (type_it->second == RANGE_TYPE_LAKE) {
+        // Nothing in this split's bucket supersedes it: read exactly as the sibling planned it.
+        return Status::OK();
+    }
+    if (_key_columns.empty()) {
+        // The scan never stated its key columns, so this split's superseded rows cannot be
+        // identified. Reading it anyway would return every one of them a second time.
+        return Status::InternalError(
+                "missing '{}' for a fluss union read: a lake split carries the log tail '{}' but "
+                "the scan does not say which key columns to suppress by",
+                PROP_PK_NAMES, params.count(PROP_TAIL) ? params.at(PROP_TAIL) : std::string());
     }
     const auto tail_it = params.find(PROP_TAIL);
     if (tail_it == params.end()) {
@@ -287,12 +305,14 @@ Status FlussUnionLakeReader::_prepare_suppression(const format::SplitReadOptions
     }
     if (_suppression != nullptr && _suppression_tail_spec == tail_it->second) {
         // Consecutive splits of one bucket are common; their suppression is the same one.
+        _current_split_suppressed = true;
         return Status::OK();
     }
     Tail tail;
     RETURN_IF_ERROR(parse_tail(tail_it->second, &tail));
     RETURN_IF_ERROR(_load_suppression_keys(options, tail));
     _suppression_tail_spec = tail_it->second;
+    _current_split_suppressed = true;
     return Status::OK();
 }
 
@@ -463,8 +483,13 @@ Status FlussUnionLakeReader::get_block(Block* block, bool* eos) {
 
 Status FlussUnionLakeReader::_suppress(Block* block) {
     DORIS_CHECK(block != nullptr);
+    if (!_current_split_suppressed) {
+        // A plain LAKE split: nothing supersedes it, so nothing may filter it - least of all a
+        // predicate a neighbouring bucket's suppressed split left cached.
+        return Status::OK();
+    }
     if (_suppression == nullptr) {
-        // Every wrapped lake split names the tail that supersedes part of it. Reading one without
+        // A suppressing lake split names the tail that supersedes part of it. Reading one without
         // having built that suppression would return the superseded rows a second time.
         return Status::InternalError(
                 "fluss union read: a lake split was read with no log tail bound to it");
