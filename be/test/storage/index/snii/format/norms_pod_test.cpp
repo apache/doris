@@ -199,6 +199,7 @@ TEST(SniiNormsPodDeathTest, OutOfRangeDocidAsserts) {
     auto buf = BuildPod(norms);
     NormsPodReader reader;
     ASSERT_TRUE(NormsPodReader::open(Slice(buf), &reader).ok());
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH({ (void)reader.encoded_norm(3); }, "");
 }
 #endif

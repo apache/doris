@@ -437,6 +437,7 @@ TEST(SniiSpimiTermBufferTest, PhysicalCommonGramsRemainPhysicalOnFinalDrain) {
 }
 
 TEST(SniiSpimiTermBufferTest, PairKeyModeRejectsGenericStringTokenEntryPoint) {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH(
             {
                 SpimiTermBuffer buffer(/*has_positions=*/true);

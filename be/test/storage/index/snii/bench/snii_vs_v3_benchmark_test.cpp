@@ -236,7 +236,9 @@ TEST(DISABLED_SniiBenchmarkPercentile, SelectsNearestRankForOddAndEvenSamples) {
 
 TEST(DISABLED_SniiBenchmarkPercentile, RejectsInvalidPercentiles) {
     const std::vector<double> samples {1.0};
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH({ static_cast<void>(nearest_rank_percentile(samples, 0)); }, "");
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH({ static_cast<void>(nearest_rank_percentile(samples, 101)); }, "");
 }
 
@@ -245,13 +247,18 @@ TEST(DISABLED_SniiBenchmarkConfig, ParsesPositiveQueryIterations) {
 }
 
 TEST(DISABLED_SniiBenchmarkConfig, RejectsInvalidQueryIterations) {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH({ static_cast<void>(parse_query_iterations("0")); }, "");
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH({ static_cast<void>(parse_query_iterations("-1")); }, "");
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH({ static_cast<void>(parse_query_iterations("30junk")); }, "");
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH({ static_cast<void>(parse_query_iterations("abc")); }, "");
 
     const std::string overflow =
             std::to_string(static_cast<int64_t>(std::numeric_limits<int>::max()) + 1);
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH({ static_cast<void>(parse_query_iterations(overflow)); }, "");
 }
 
