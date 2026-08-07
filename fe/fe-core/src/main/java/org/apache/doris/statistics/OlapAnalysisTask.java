@@ -272,6 +272,12 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * according to the algorithm used to pick the template.
      */
     protected SampleCollectInfo getSampleCollectInfo(long tableRowCount) {
+        // Debug point used by tests to force the DUJ1 algorithm. Check it before the
+        // row-count based FULL decision so tests are not affected by BE row count report
+        // timing (e.g. a small table whose row count is not fully reported yet).
+        if (DebugPointUtil.isEnable("OlapAnalysisTask.useDUJ1Template")) {
+            return new SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1, getSampleTablets());
+        }
         long targetSampleRows = getSampleRows();
         // If table row count is less than the target sample row count, simple scan the full table.
         if (tableRowCount <= targetSampleRows) {

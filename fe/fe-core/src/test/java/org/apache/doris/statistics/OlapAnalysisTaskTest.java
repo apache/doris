@@ -582,7 +582,6 @@ public class OlapAnalysisTaskTest {
         sampleTablets[0] = Pair.of(Lists.newArrayList(1L, 2L), 10L);
         info = task.getSampleCollectInfo(10000);
         Assertions.assertEquals(AnalyzeSampleAlgorithm.FULL, info.algorithm);
-
         // Debug point useDUJ1Template forces DUJ1 even when the row count would normally
         // fall back to a full table scan, so tests are not affected by BE row count timing.
         new MockUp<DebugPointUtil>() {
@@ -594,6 +593,7 @@ public class OlapAnalysisTaskTest {
         sampleTablets[0] = Pair.of(Lists.newArrayList(1L, 2L), 10L);
         info = task.getSampleCollectInfo(10000);
         Assertions.assertEquals(AnalyzeSampleAlgorithm.DUJ1, info.algorithm);
+    }
     }
 
     @Test
