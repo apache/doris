@@ -435,7 +435,7 @@ TEST(OrcSerdeUtilsTest, CopiesOnlyBorrowedStringData) {
     batch.length[1] = borrowed.size();
     const size_t used_before_copy = arena.used_size();
 
-    copy_orc_string_data_to_arena(&batch, arena);
+    orc_serde_utils::copy_orc_string_data_to_arena(&batch, arena);
 
     EXPECT_EQ(arena_owned, batch.data[0]);
     EXPECT_NE(borrowed.data(), batch.data[1]);
@@ -450,7 +450,7 @@ TEST(OrcSerdeUtilsTest, PreservesEmptyStringAsPresentValue) {
     batch.data[0] = const_cast<char*>("");
     batch.length[0] = 0;
 
-    copy_orc_string_data_to_arena(&batch, arena);
+    orc_serde_utils::copy_orc_string_data_to_arena(&batch, arena);
 
     EXPECT_NE(batch.data[0], nullptr);
     EXPECT_EQ(batch.length[0], 0);
@@ -471,12 +471,33 @@ TEST(OrcSerdeUtilsTest, IgnoresBorrowedPayloadForNullString) {
     batch.length[1] = 0;
     const size_t used_before_copy = arena.used_size();
 
-    copy_orc_string_data_to_arena(&batch, arena);
+    orc_serde_utils::copy_orc_string_data_to_arena(&batch, arena);
 
     EXPECT_EQ(used_before_copy, arena.used_size());
     EXPECT_EQ(nullptr, batch.data[0]);
     EXPECT_EQ(0, batch.length[0]);
     EXPECT_NE(nullptr, batch.data[1]);
+}
+
+TEST(OrcSerdeUtilsTest, AppliesSelectedRowsWhenBuildingNullMap) {
+    const std::vector<size_t> selected_rows {3, 1};
+    EXPECT_EQ(2, orc_serde_utils::orc_decode_row_count(4, &selected_rows));
+    EXPECT_EQ(3, orc_serde_utils::orc_source_row_at(0, &selected_rows));
+    EXPECT_EQ(1, orc_serde_utils::orc_source_row_at(1, &selected_rows));
+
+    orc::LongVectorBatch batch(4, *orc::getDefaultPool());
+    batch.numElements = 4;
+    batch.hasNulls = true;
+    batch.notNull[0] = 1;
+    batch.notNull[1] = 0;
+    batch.notNull[2] = 1;
+    batch.notNull[3] = 1;
+
+    NullMap null_map;
+    orc_serde_utils::fill_orc_decoded_null_map(batch, 4, &selected_rows, &null_map);
+    ASSERT_EQ(2, null_map.size());
+    EXPECT_EQ(0, null_map[0]);
+    EXPECT_EQ(1, null_map[1]);
 }
 
 TEST_F(VOrcTransformerTest, PreservesNullableArrayStructChildPositions) {

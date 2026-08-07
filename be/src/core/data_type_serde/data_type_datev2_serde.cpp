@@ -22,6 +22,7 @@
 #include <fmt/core.h>
 
 #include <cstdint>
+#include <vector>
 
 #include "common/config.h"
 #include "core/column/column_const.h"
@@ -30,11 +31,13 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
+#include "storage/olap_common.h"
 
 namespace doris {
 
@@ -42,6 +45,35 @@ namespace doris {
 static constexpr int32_t date_threshold = 719528;
 
 namespace {
+
+constexpr int32_t DORIS_DATE_EPOCH_DAYNR = 719528;
+
+Status decode_date_orc_values(const DataTypeSerDe& serde, IColumn& column,
+                              const OrcDecodedColumnView& orc_view) {
+    const auto* orc_batch = dynamic_cast<const ::orc::LongVectorBatch*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC date batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto view = orc_serde_utils::make_orc_decoded_view(orc_view, DecodedValueKind::INT32);
+    NullMap null_map;
+    orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                               orc_view.selected_rows, &null_map);
+    view.null_map = null_map.empty() ? nullptr : null_map.data();
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    std::vector<int32_t> date_values;
+    date_values.resize(output_rows);
+    auto& date_dict = date_day_offset_dict::get();
+    for (size_t row = 0; row < output_rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
+        const auto date = date_dict[cast_set<int>(orc_batch->data[source_row])];
+        date_values[row] = cast_set<int32_t>(date.daynr() - DORIS_DATE_EPOCH_DAYNR);
+    }
+    view.values = reinterpret_cast<const uint8_t*>(date_values.data());
+    RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+    return Status::OK();
+}
 
 Status decode_parquet_date(int32_t encoded_date, DateV2Value<DateV2ValueType>* value) {
     DORIS_CHECK(value != nullptr);
@@ -695,5 +727,16 @@ template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDeci
         const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
 template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
+
+Status DataTypeDateV2SerDe::read_column_from_orc(IColumn& column,
+                                                 const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::DATE);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_date_orc_values(*this, column, view);
+}
 
 } // namespace doris

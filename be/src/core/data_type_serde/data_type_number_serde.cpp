@@ -23,7 +23,9 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <type_traits>
+#include <vector>
 
 #include "common/config.h"
 #include "common/exception.h"
@@ -35,6 +37,7 @@
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/packed_int128.h"
 #include "core/types.h"
@@ -53,6 +56,95 @@
 
 namespace doris {
 namespace {
+
+template <typename SourceType>
+void fill_selected_values(const SourceType* source_values, size_t rows,
+                          const std::vector<size_t>* selected_rows,
+                          std::vector<SourceType>* selected_values) {
+    DORIS_CHECK(source_values != nullptr);
+    DORIS_CHECK(selected_values != nullptr);
+    const auto output_rows = orc_serde_utils::orc_decode_row_count(rows, selected_rows);
+    selected_values->resize(output_rows);
+    for (size_t row = 0; row < output_rows; ++row) {
+        (*selected_values)[row] =
+                source_values[orc_serde_utils::orc_source_row_at(row, selected_rows)];
+    }
+}
+
+template <typename OrcBatchType, typename SourceType>
+Status decode_fixed_orc_values(const DataTypeSerDe& serde, IColumn& column,
+                               const OrcDecodedColumnView& orc_view, DecodedValueKind value_kind) {
+    const auto* orc_batch = dynamic_cast<const OrcBatchType*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC scalar batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto view = orc_serde_utils::make_orc_decoded_view(orc_view, value_kind);
+    NullMap null_map;
+    orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                               orc_view.selected_rows, &null_map);
+    view.null_map = null_map.empty() ? nullptr : null_map.data();
+    std::vector<SourceType> selected_values;
+    if (orc_view.selected_rows == nullptr) {
+        view.values = reinterpret_cast<const uint8_t*>(orc_batch->data.data());
+    } else {
+        fill_selected_values(orc_batch->data.data(), orc_view.rows, orc_view.selected_rows,
+                             &selected_values);
+        view.values = reinterpret_cast<const uint8_t*>(selected_values.data());
+    }
+    RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+    return Status::OK();
+}
+
+Status decode_float_orc_values(const DataTypeSerDe& serde, IColumn& column,
+                               const OrcDecodedColumnView& orc_view) {
+    const auto* orc_batch = dynamic_cast<const ::orc::DoubleVectorBatch*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC float batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto view = orc_serde_utils::make_orc_decoded_view(orc_view, DecodedValueKind::FLOAT);
+    NullMap null_map;
+    orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                               orc_view.selected_rows, &null_map);
+    view.null_map = null_map.empty() ? nullptr : null_map.data();
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    std::vector<float> float_values;
+    float_values.resize(output_rows);
+    for (size_t row = 0; row < output_rows; ++row) {
+        float_values[row] = static_cast<float>(
+                orc_batch->data[orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows)]);
+    }
+    view.values = reinterpret_cast<const uint8_t*>(float_values.data());
+    RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+    return Status::OK();
+}
+
+Status decode_boolean_orc_values(const DataTypeSerDe& serde, IColumn& column,
+                                 const OrcDecodedColumnView& orc_view) {
+    const auto* orc_batch = dynamic_cast<const ::orc::LongVectorBatch*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC boolean batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto view = orc_serde_utils::make_orc_decoded_view(orc_view, DecodedValueKind::BOOL);
+    NullMap null_map;
+    orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                               orc_view.selected_rows, &null_map);
+    view.null_map = null_map.empty() ? nullptr : null_map.data();
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    std::unique_ptr<bool[]> bool_values = std::make_unique<bool[]>(output_rows);
+    for (size_t row = 0; row < output_rows; ++row) {
+        bool_values[row] =
+                orc_batch->data[orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows)] !=
+                0;
+    }
+    view.values = reinterpret_cast<const uint8_t*>(bool_values.get());
+    RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+    return Status::OK();
+}
 
 float parquet_half_to_float(uint16_t half) {
     const uint32_t sign = (half & 0x8000U) << 16;
@@ -1745,6 +1837,42 @@ void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString
         value_to_string<T>(data[i], bw, scale, options);
         bw.commit();
     }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_column_from_orc(IColumn& column,
+                                                    const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+
+    if constexpr (T == TYPE_BOOLEAN) {
+        DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::BOOLEAN);
+        return decode_boolean_orc_values(*this, column, view);
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                         T == TYPE_BIGINT) {
+        if constexpr (T == TYPE_TINYINT) {
+            DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::BYTE);
+        } else if constexpr (T == TYPE_SMALLINT) {
+            DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::SHORT);
+        } else if constexpr (T == TYPE_INT) {
+            DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::INT);
+        } else {
+            DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::LONG);
+        }
+        return decode_fixed_orc_values<::orc::LongVectorBatch, int64_t>(*this, column, view,
+                                                                        DecodedValueKind::INT64);
+    } else if constexpr (T == TYPE_FLOAT) {
+        DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::FLOAT);
+        return decode_float_orc_values(*this, column, view);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::DOUBLE);
+        return decode_fixed_orc_values<::orc::DoubleVectorBatch, double>(*this, column, view,
+                                                                         DecodedValueKind::DOUBLE);
+    }
+    return DataTypeSerDe::read_column_from_orc(column, view);
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.
