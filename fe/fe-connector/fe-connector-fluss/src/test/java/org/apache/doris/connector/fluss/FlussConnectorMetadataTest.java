@@ -454,7 +454,7 @@ public class FlussConnectorMetadataTest {
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
                 () -> asVarbinary.listPartitions(null, handle, Optional.empty()));
         Assertions.assertTrue(
-                failure.getMessage().contains(FlussConnectorProperties.ENABLE_MAPPING_VARBINARY),
+                failure.getMessage().contains(FlussCatalogProperties.ENABLE_MAPPING_VARBINARY),
                 "the fix is a property, so name it: " + failure.getMessage());
     }
 

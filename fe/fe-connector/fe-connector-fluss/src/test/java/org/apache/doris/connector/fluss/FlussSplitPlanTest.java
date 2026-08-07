@@ -383,7 +383,7 @@ public class FlussSplitPlanTest {
 
         List<Map<String, String>> auto = rangeProperties(plan(PK_TABLE, catalog()));
         List<Map<String, String>> disabled = rangeProperties(
-                plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "disabled")));
+                plan(PK_TABLE, catalog(FlussCatalogProperties.UNION_READ_MODE, "disabled")));
 
         Assertions.assertEquals(auto, disabled);
     }
@@ -398,7 +398,7 @@ public class FlussSplitPlanTest {
         registerTieredPkTable(2);
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "required")));
+                () -> plan(PK_TABLE, catalog(FlussCatalogProperties.UNION_READ_MODE, "required")));
         Assertions.assertTrue(e.getMessage().contains("no readable lake snapshot yet"), e.getMessage());
     }
 
@@ -411,7 +411,8 @@ public class FlussSplitPlanTest {
         registerTieredPkTable(1);
         kvSnapshots(null, new long[] {4L}, new long[] {10L});
         latestOffsets(null, 12L);
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()),
+                this::lakeSibling);
         provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
 
         StringBuilder output = new StringBuilder();
@@ -522,7 +523,7 @@ public class FlussSplitPlanTest {
         lakeSnapshotAt(7L, offsets(0L));
         latestOffsets(null, 5L);
 
-        new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling).planScan(session,
+        new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()), this::lakeSibling).planScan(session,
                 ConnectorScanRequest.builder(handle(LOG_TABLE),
                         Collections.singletonList(new FlussColumnHandle("id", 0))).build());
 
@@ -539,7 +540,8 @@ public class FlussSplitPlanTest {
         lakeSnapshotAt(7L, offsets(0L));
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling).planScan(session,
+                () -> new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()),
+                        this::lakeSibling).planScan(session,
                         ConnectorScanRequest.builder(handle(LOG_TABLE),
                                 Collections.singletonList(new FlussColumnHandle("gone", 1))).build()));
         Assertions.assertTrue(e.getMessage().contains("does not exist in its lake table"), e.getMessage());
@@ -570,7 +572,8 @@ public class FlussSplitPlanTest {
         sibling();
         sibling.lakeNodeProperties = Collections.singletonMap("paimon.serialized_table", "encoded");
         Map<String, String> catalog = catalog();
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog, this::lakeSibling);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog),
+                this::lakeSibling);
         Map<String, String> props = provider.getScanNodeProperties(
                 session, handle(LOG_TABLE), Collections.emptyList(), Optional.empty());
 
@@ -627,7 +630,8 @@ public class FlussSplitPlanTest {
         lakeSnapshotAt(7L, offsets(1L, 9L));
         latestOffsets(null, 5L, 9L);
         lakeRanges(3);
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()),
+                this::lakeSibling);
         provider.planScan(session, request(handle(LOG_TABLE), Collections.emptyList()));
 
         StringBuilder output = new StringBuilder();
@@ -654,7 +658,7 @@ public class FlussSplitPlanTest {
         registerLakeTable(2);
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> plan(LOG_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "required")));
+                () -> plan(LOG_TABLE, catalog(FlussCatalogProperties.UNION_READ_MODE, "required")));
         Assertions.assertTrue(e.getMessage().contains("no readable lake snapshot"), e.getMessage());
     }
 
@@ -665,7 +669,7 @@ public class FlussSplitPlanTest {
         latestOffsets(null, 4L, 4L);
 
         List<ConnectorScanRange> ranges =
-                plan(LOG_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "disabled"));
+                plan(LOG_TABLE, catalog(FlussCatalogProperties.UNION_READ_MODE, "disabled"));
 
         Assertions.assertEquals(2, ranges.size());
         Assertions.assertTrue(adminOps.calls.stream().noneMatch(c -> c.startsWith("getReadableLakeSnapshot")),
@@ -876,7 +880,8 @@ public class FlussSplitPlanTest {
         kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
         latestOffsets(null, 105L, 205L);
         earliestOffsets(null, 0L, 201L);
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()),
+                this::lakeSibling);
 
         List<ConnectorScanRange> ranges =
                 provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
@@ -920,7 +925,7 @@ public class FlussSplitPlanTest {
 
         List<Map<String, String>> degraded = rangeProperties(plan(PK_TABLE, catalog()));
         List<Map<String, String>> disabled = rangeProperties(
-                plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "disabled")));
+                plan(PK_TABLE, catalog(FlussCatalogProperties.UNION_READ_MODE, "disabled")));
 
         Assertions.assertEquals(disabled, degraded);
     }
@@ -935,7 +940,7 @@ public class FlussSplitPlanTest {
         earliestOffsets(null, 101L);
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "required")));
+                () -> plan(PK_TABLE, catalog(FlussCatalogProperties.UNION_READ_MODE, "required")));
         Assertions.assertTrue(e.getMessage().contains("the log now starts at 101"), e.getMessage());
     }
 
@@ -949,7 +954,8 @@ public class FlussSplitPlanTest {
         registerPkLakeTableKeyedBy(DataTypes.DOUBLE());
         kvSnapshots(null, new long[] {4L}, new long[] {10L});
         latestOffsets(null, 105L);
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()),
+                this::lakeSibling);
 
         List<ConnectorScanRange> ranges =
                 provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
@@ -969,7 +975,7 @@ public class FlussSplitPlanTest {
         registerPkLakeTableKeyedBy(DataTypes.DOUBLE());
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "required")));
+                () -> plan(PK_TABLE, catalog(FlussCatalogProperties.UNION_READ_MODE, "required")));
         Assertions.assertTrue(e.getMessage().contains("primary-key column 'id'"), e.getMessage());
         Assertions.assertTrue(e.getMessage().contains("floating-point"), e.getMessage());
     }
@@ -985,7 +991,8 @@ public class FlussSplitPlanTest {
         registerPartitionedPkLakeTable(1, DataTypes.INT(), "20260101");
         kvSnapshots("20260101", new long[] {1L}, new long[] {10L});
         latestOffsets("20260101", 105L);
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()),
+                this::lakeSibling);
 
         List<ConnectorScanRange> ranges =
                 provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
@@ -1001,7 +1008,7 @@ public class FlussSplitPlanTest {
         registerPartitionedPkLakeTable(1, DataTypes.INT(), "20260101");
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> plan(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "required")));
+                () -> plan(PK_TABLE, catalog(FlussCatalogProperties.UNION_READ_MODE, "required")));
         Assertions.assertTrue(e.getMessage().contains("partition column 'dt'"), e.getMessage());
     }
 
@@ -1039,7 +1046,8 @@ public class FlussSplitPlanTest {
         lakeSplits(RecordingLakeSibling.LakeRange.inBucket(0),
                 RecordingLakeSibling.LakeRange.inBucket(0),
                 RecordingLakeSibling.LakeRange.inBucket(1));
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()),
+                this::lakeSibling);
         provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
 
         StringBuilder output = new StringBuilder();
@@ -1091,7 +1099,7 @@ public class FlussSplitPlanTest {
         registerPkLakeTable(1);
         lakeSnapshotAt(9L, offsets(100L));
         Assertions.assertEquals(Collections.emptySet(),
-                mustReadColumns(PK_TABLE, catalog(FlussConnectorProperties.UNION_READ_MODE, "disabled")));
+                mustReadColumns(PK_TABLE, catalog(FlussCatalogProperties.UNION_READ_MODE, "disabled")));
 
         registerPkLakeTableKeyedBy(DataTypes.DOUBLE());
         Assertions.assertEquals(Collections.emptySet(), mustReadColumns(PK_TABLE, catalog()));
@@ -1110,7 +1118,8 @@ public class FlussSplitPlanTest {
         kvSnapshots(null, new long[] {4L}, new long[] {10L});
         latestOffsets(null, 105L);
         earliestOffsets(null, 0L);
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()),
+                this::lakeSibling);
 
         provider.getMustReadColumns(session, handle(PK_TABLE));
         provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
@@ -1144,7 +1153,7 @@ public class FlussSplitPlanTest {
         lakeSnapshotAt(9L, offsets(100L));
 
         Map<String, String> props = nodeProperties(PK_TABLE,
-                catalog(FlussConnectorProperties.UNION_READ_MAX_TAIL_ROWS, "500"));
+                catalog(FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "500"));
 
         Assertions.assertEquals("500", props.get("fluss.union.max_tail_rows"));
     }
@@ -1168,7 +1177,8 @@ public class FlussSplitPlanTest {
         catalog.put("fluss.client.writer.batch-size", "2mb");
 
         TFileScanRangeParams params = new TFileScanRangeParams();
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog, this::lakeSibling);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog),
+                this::lakeSibling);
         provider.populateScanLevelParams(params, nodeProperties(LOG_TABLE, catalog));
 
         Map<String, String> expected = new LinkedHashMap<>();
@@ -1187,7 +1197,8 @@ public class FlussSplitPlanTest {
         nodeProps.put(ScanNodePropertyKeys.SYNTHETIC_TOTAL_READ_SPLITS, "3");
 
         TFileScanRangeParams params = new TFileScanRangeParams();
-        new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling).populateScanLevelParams(params, nodeProps);
+        new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()),
+                this::lakeSibling).populateScanLevelParams(params, nodeProps);
 
         Assertions.assertFalse(params.getFlussProperties()
                 .containsKey(ScanNodePropertyKeys.PATH_PARTITION_KEYS));
@@ -1203,7 +1214,8 @@ public class FlussSplitPlanTest {
     public void explainReportsHowTheScanWasActuallyPlanned() {
         registerLogTable(LOG_TABLE, 3);
         latestOffsets(null, 1L, 0L, 5L);
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()),
+                this::lakeSibling);
         provider.planScan(session, request(handle(LOG_TABLE), Collections.emptyList()));
 
         StringBuilder output = new StringBuilder();
@@ -1224,7 +1236,8 @@ public class FlussSplitPlanTest {
         registerPkTable(PK_TABLE, 3);
         kvSnapshots(null, new long[] {1L, NO_SNAPSHOT, NO_SNAPSHOT}, new long[] {10L, 0L, 0L});
         latestOffsets(null, 12L, 4L, 0L);
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog(), this::lakeSibling);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()),
+                this::lakeSibling);
         provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
 
         StringBuilder output = new StringBuilder();
@@ -1239,8 +1252,9 @@ public class FlussSplitPlanTest {
     public void explainReportsTheConfiguredMode() {
         registerLogTable(LOG_TABLE, 1);
         latestOffsets(null, 1L);
-        Map<String, String> catalog = catalog(FlussConnectorProperties.UNION_READ_MODE, "disabled");
-        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, catalog, this::lakeSibling);
+        Map<String, String> catalog = catalog(FlussCatalogProperties.UNION_READ_MODE, "disabled");
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog),
+                this::lakeSibling);
         provider.planScan(session, request(handle(LOG_TABLE), Collections.emptyList()));
 
         StringBuilder output = new StringBuilder();
@@ -1253,7 +1267,7 @@ public class FlussSplitPlanTest {
 
     private Map<String, String> catalog() {
         Map<String, String> properties = new HashMap<>();
-        properties.put(FlussConnectorProperties.BOOTSTRAP_SERVERS, "localhost:9123");
+        properties.put(FlussCatalogProperties.BOOTSTRAP_SERVERS, "localhost:9123");
         return properties;
     }
 
@@ -1281,17 +1295,18 @@ public class FlussSplitPlanTest {
 
     private List<ConnectorScanRange> plan(TablePath tablePath, Map<String, String> catalogProperties,
             List<String> requiredPartitions) {
-        return new FlussScanPlanProvider(adminOps, catalogProperties, this::lakeSibling)
+        return new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalogProperties), this::lakeSibling)
                 .planScan(session, request(handle(tablePath), requiredPartitions));
     }
 
     private Map<String, String> nodeProperties(TablePath tablePath, Map<String, String> catalogProperties) {
-        return new FlussScanPlanProvider(adminOps, catalogProperties, this::lakeSibling).getScanNodeProperties(
+        return new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalogProperties),
+                this::lakeSibling).getScanNodeProperties(
                 session, handle(tablePath), Collections.emptyList(), Optional.empty());
     }
 
     private Set<String> mustReadColumns(TablePath tablePath, Map<String, String> catalogProperties) {
-        return new FlussScanPlanProvider(adminOps, catalogProperties, this::lakeSibling)
+        return new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalogProperties), this::lakeSibling)
                 .getMustReadColumns(session, handle(tablePath));
     }
 

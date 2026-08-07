@@ -97,7 +97,7 @@ public class FlussMetadataClusterTest {
         admin = connection.getAdmin();
 
         Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(FlussConnectorProperties.BOOTSTRAP_SERVERS,
+        catalogProperties.put(FlussCatalogProperties.BOOTSTRAP_SERVERS,
                 FLUSS_CLUSTER.getBootstrapServers());
         connector = new FlussConnectorProvider().create(catalogProperties, new ConnectorContext() {
             @Override
