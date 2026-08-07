@@ -187,6 +187,22 @@ suite("test_fluss_lake_pk_merge", "p0,external") {
     order_qt_cold_rows """select id, name from lake_pk_cold"""
     compareModes("select id, name from lake_pk_cold order by id")
 
+    // --- the scanner the session asked for ------------------------------------
+    // A merge plans BOTH range kinds onto one scan node -- the wrapped lake split
+    // and the PK_TAIL that replays what it suppressed -- and neither is dispatched
+    // anywhere but FileScannerV2. enable_file_scanner_v2 is a supported session
+    // variable, so the merge has to survive a session that turned it off; the pin
+    // at the top of this suite is there for the fuzzy mode, not to hide this. Kept
+    // as a comparison rather than a recorded block for the same reason as
+    // compareModes: what is asserted is the agreement between two settings.
+    sql """set enable_file_scanner_v2 = false"""
+    def mergedWithoutV2 = rowsOf("select id, name from lake_pk_multi order by id")
+    sql """set enable_file_scanner_v2 = true"""
+    def mergedWithV2 = rowsOf("select id, name from lake_pk_multi order by id")
+    assertEquals(mergedWithV2, mergedWithoutV2,
+            "enable_file_scanner_v2 changed the answer of a merge"
+                    + "\non=${mergedWithV2}\noff=${mergedWithoutV2}")
+
     // Deletion vectors are not covered here and the reason is in init.sql: fluss
     // does create the paimon table with them on, but its tiering service writes
     // no deletion vector index, and paimon then reads such a table as empty. A
