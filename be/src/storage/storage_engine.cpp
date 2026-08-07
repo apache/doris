@@ -19,6 +19,7 @@
 
 // IWYU pragma: no_include <bthread/errno.h>
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/Types_types.h>
@@ -28,6 +29,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
@@ -51,11 +53,13 @@
 #include "agent/task_worker_pool.h"
 #include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "load/memtable/memtable_flush_executor.h"
 #include "load/stream_load/stream_load_recorder.h"
@@ -63,6 +67,7 @@
 #include "runtime/exec_env.h"
 #include "storage/binlog.h"
 #include "storage/data_dir.h"
+#include "storage/data_dir_sweep_worker.h"
 #include "storage/id_manager.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -94,6 +99,29 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+
+bvar::Status<int64_t> g_garbage_sweep_epoch("garbage_sweep_epoch", 0);
+bvar::Status<int64_t> g_garbage_sweep_path_phase_ms("garbage_sweep_path_phase_ms", 0);
+bvar::Status<int64_t> g_garbage_sweep_shutdown_phase_ms("garbage_sweep_shutdown_phase_ms", 0);
+bvar::Status<int64_t> g_garbage_sweep_global_metadata_phase_ms(
+        "garbage_sweep_global_metadata_phase_ms", 0);
+bvar::Status<int64_t> g_garbage_sweep_remote_gc_phase_ms("garbage_sweep_remote_gc_phase_ms", 0);
+bvar::Status<int64_t> g_garbage_sweep_capacity_phase_ms("garbage_sweep_capacity_phase_ms", 0);
+bvar::Status<int64_t> g_garbage_sweep_total_ms("garbage_sweep_total_ms", 0);
+bvar::Status<int64_t> g_garbage_sweep_running_workers("garbage_sweep_running_workers", 0);
+bvar::Adder<int64_t> g_garbage_sweep_worker_unavailable_total(
+        "garbage_sweep_worker_unavailable_total");
+bvar::Adder<int64_t> g_garbage_sweep_force_total("garbage_sweep_force_total");
+
+void update_first_error(Status* result, const Status& status) {
+    if (result->ok() && !status.ok()) {
+        *result = status;
+    }
+}
+
+} // namespace
 extern void get_round_robin_stores(int64_t curr_index, const std::vector<DirInfo>& dir_infos,
                                    std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
@@ -740,6 +768,19 @@ void StorageEngine::stop() {
     }
 
     _stop_background_threads_latch.count_down();
+
+    // The garbage sweep coordinator must consume all in-flight DataDir job results before it
+    // exits. Only then can the workers stop accepting jobs, drain their queues, and terminate.
+    if (_garbage_sweeper_thread) {
+        _garbage_sweeper_thread->join();
+    }
+    {
+        // start_trash_sweep() is also called by non-coordinator entry points. Wait for any such
+        // epoch to finish before stopping workers, and keep the lock until every worker joins.
+        std::lock_guard sweep_lock(_trash_sweep_lock);
+        _stop_data_dir_sweep_workers();
+    }
+
 #define THREAD_JOIN(thread) \
     if (thread) {           \
         thread->join();     \
@@ -748,7 +789,6 @@ void StorageEngine::stop() {
     THREAD_JOIN(_compaction_tasks_producer_thread);
     THREAD_JOIN(_binlog_compaction_tasks_producer_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
-    THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
     THREAD_JOIN(_cache_clean_thread);
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
@@ -839,8 +879,230 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
 }
 
+Status StorageEngine::_start_data_dir_sweep_workers() {
+    if (!config::enable_data_dir_sweep_worker) {
+        return Status::OK();
+    }
+    DORIS_CHECK(_data_dir_sweep_workers.empty());
+
+    std::unordered_map<uint64_t, std::vector<std::string>> paths_by_device;
+    for (auto* data_dir : get_stores()) {
+        struct stat path_stat {};
+        if (::stat(data_dir->path().c_str(), &path_stat) == 0) {
+            paths_by_device[static_cast<uint64_t>(path_stat.st_dev)].push_back(data_dir->path());
+        } else {
+            LOG(WARNING) << "failed to inspect DataDir device for sweep worker. path="
+                         << data_dir->path() << ", error=" << Errno::str();
+        }
+
+        auto worker = std::make_unique<DataDirSweepWorker>(*this, data_dir);
+        auto status = worker->start();
+        if (!status.ok()) {
+            for (auto& [_, started_worker] : _data_dir_sweep_workers) {
+                started_worker->stop_accepting_jobs();
+                started_worker->drain_and_stop();
+            }
+            for (auto& [_, started_worker] : _data_dir_sweep_workers) {
+                started_worker->join();
+            }
+            _data_dir_sweep_workers.clear();
+            return status;
+        }
+        _data_dir_sweep_workers.emplace(data_dir, std::move(worker));
+    }
+
+    for (const auto& [device, paths] : paths_by_device) {
+        if (paths.size() > 1) {
+            LOG(WARNING) << "multiple DataDirs share one physical device; dedicated sweep workers "
+                            "may contend for the same device. device="
+                         << device << ", paths=" << fmt::format("{}", fmt::join(paths, ","));
+        }
+    }
+    g_garbage_sweep_running_workers.set_value(static_cast<int64_t>(_data_dir_sweep_workers.size()));
+    return Status::OK();
+}
+
+void StorageEngine::_stop_data_dir_sweep_workers() {
+    for (auto& [_, worker] : _data_dir_sweep_workers) {
+        worker->stop_accepting_jobs();
+    }
+    for (auto& [_, worker] : _data_dir_sweep_workers) {
+        worker->drain_and_stop();
+    }
+    for (auto& [_, worker] : _data_dir_sweep_workers) {
+        worker->join();
+    }
+    _data_dir_sweep_workers.clear();
+    g_garbage_sweep_running_workers.set_value(0);
+}
+
+DataDirSweepJobResult StorageEngine::_execute_data_dir_sweep_job(DataDirSweepJob& job) {
+    DORIS_CHECK(job.data_dir != nullptr);
+    TEST_SYNC_POINT_CALLBACK("StorageEngine::_execute_data_dir_sweep_job", &job);
+
+    DataDirSweepJobResult result;
+    result.sweep_epoch = job.sweep_epoch;
+    result.type = job.type;
+    result.data_dir = job.data_dir;
+    job.data_dir->_record_sweep_job_start(job.type);
+    MonotonicStopWatch watch(true);
+    auto fail_shutdown_tablets = [&job, &result](Status status, size_t first_failed_index) {
+        result.status = std::move(status);
+        if (auto* payload = std::get_if<ShutdownTabletMovePayload>(&job.payload);
+            payload != nullptr) {
+            result.failed_tablets.insert(result.failed_tablets.end(),
+                                         payload->tablets.begin() + first_failed_index,
+                                         payload->tablets.end());
+            result.shutdown_failed +=
+                    static_cast<int64_t>(payload->tablets.size() - first_failed_index);
+        }
+    };
+
+    try {
+        switch (job.type) {
+        case DataDirSweepJobType::SNAPSHOT_SWEEP: {
+            const auto& payload = std::get<SnapshotSweepPayload>(job.payload);
+            result.status = _do_sweep(fmt::format("{}/{}", job.data_dir->path(), SNAPSHOT_PREFIX),
+                                      payload.local_now, payload.expire_seconds);
+            break;
+        }
+        case DataDirSweepJobType::TRASH_SWEEP: {
+            const auto& payload = std::get<TrashSweepPayload>(job.payload);
+            result.status = _do_sweep(fmt::format("{}/{}", job.data_dir->path(), TRASH_PREFIX),
+                                      payload.local_now, payload.expire_seconds);
+            break;
+        }
+        case DataDirSweepJobType::SHUTDOWN_TABLET_MOVE: {
+            auto& payload = std::get<ShutdownTabletMovePayload>(job.payload);
+            for (size_t index = 0; index < payload.tablets.size(); ++index) {
+                try {
+                    if (payload.move_tablet(payload.tablets[index])) {
+                        ++result.shutdown_resolved;
+                    } else {
+                        result.failed_tablets.push_back(payload.tablets[index]);
+                        ++result.shutdown_failed;
+                    }
+                } catch (const Exception& e) {
+                    fail_shutdown_tablets(e.to_status(), index);
+                    break;
+                } catch (const std::exception& e) {
+                    fail_shutdown_tablets(
+                            Status::InternalError(
+                                    "shutdown tablet move raised an exception. path={}, error={}",
+                                    job.data_dir->path(), e.what()),
+                            index);
+                    break;
+                } catch (...) {
+                    fail_shutdown_tablets(
+                            Status::InternalError(
+                                    "shutdown tablet move raised an unknown exception. path={}",
+                                    job.data_dir->path()),
+                            index);
+                    break;
+                }
+            }
+            break;
+        }
+        case DataDirSweepJobType::REMOTE_GC: {
+            static_cast<void>(std::get<RemoteGcPayload>(job.payload));
+            RemoteGcStats rowset_stats;
+            RemoteGcStats tablet_stats;
+            auto rowset_status = job.data_dir->perform_remote_rowset_gc(&rowset_stats);
+            auto tablet_status = job.data_dir->perform_remote_tablet_gc(&tablet_stats);
+            update_first_error(&result.status, rowset_status);
+            update_first_error(&result.status, tablet_status);
+            result.remote_rowset_gc_scanned = rowset_stats.scanned;
+            result.remote_rowset_gc_backlog = rowset_stats.backlog;
+            result.remote_tablet_gc_scanned = tablet_stats.scanned;
+            result.remote_tablet_gc_backlog = tablet_stats.backlog;
+            break;
+        }
+        case DataDirSweepJobType::TRASH_CAPACITY_REFRESH:
+            static_cast<void>(std::get<TrashCapacityRefreshPayload>(job.payload));
+            result.status = job.data_dir->update_trash_capacity();
+            break;
+        }
+    } catch (const Exception& e) {
+        fail_shutdown_tablets(e.to_status(), 0);
+    } catch (const std::exception& e) {
+        fail_shutdown_tablets(
+                Status::InternalError(
+                        "DataDir sweep job raised an exception. path={}, job_type={}, error={}",
+                        job.data_dir->path(), data_dir_sweep_job_type_name(job.type), e.what()),
+                0);
+    } catch (...) {
+        fail_shutdown_tablets(
+                Status::InternalError(
+                        "DataDir sweep job raised an unknown exception. path={}, job_type={}",
+                        job.data_dir->path(), data_dir_sweep_job_type_name(job.type)),
+                0);
+    }
+
+    result.elapsed_ms = watch.elapsed_time_milliseconds();
+    job.data_dir->_record_sweep_job_result(result, true);
+    int64_t tablet_count = 0;
+    if (const auto* payload = std::get_if<ShutdownTabletMovePayload>(&job.payload);
+        payload != nullptr) {
+        tablet_count = static_cast<int64_t>(payload->tablets.size());
+    }
+    LOG(INFO) << "finished DataDir sweep job. sweep_epoch=" << result.sweep_epoch
+              << ", path=" << job.data_dir->path()
+              << ", job_type=" << data_dir_sweep_job_type_name(result.type)
+              << ", tablet_count=" << tablet_count
+              << ", shutdown_resolved=" << result.shutdown_resolved
+              << ", shutdown_failed=" << result.shutdown_failed
+              << ", remote_rowset_gc_scanned=" << result.remote_rowset_gc_scanned
+              << ", remote_rowset_gc_backlog=" << result.remote_rowset_gc_backlog.value_or(-1)
+              << ", remote_tablet_gc_scanned=" << result.remote_tablet_gc_scanned
+              << ", remote_tablet_gc_backlog=" << result.remote_tablet_gc_backlog.value_or(-1)
+              << ", elapsed_ms=" << result.elapsed_ms << ", status=" << result.status;
+    return result;
+}
+
+std::vector<DataDirSweepJobResult> StorageEngine::_dispatch_data_dir_sweep_jobs(
+        uint64_t sweep_epoch, std::vector<DataDirSweepJob> jobs) {
+    auto context = std::make_shared<DataDirSweepPhaseContext>(sweep_epoch, jobs.size());
+    for (size_t index = 0; index < jobs.size(); ++index) {
+        auto& job = jobs[index];
+        DORIS_CHECK_EQ(job.sweep_epoch, sweep_epoch);
+        DORIS_CHECK(job.data_dir != nullptr);
+        job.context = context;
+        job.result_index = index;
+
+        if (!config::enable_data_dir_sweep_worker) {
+            CountDownOnScopeExit completion(&context->completion_latch);
+            context->results[index] = _execute_data_dir_sweep_job(job);
+            continue;
+        }
+
+        auto worker_it = _data_dir_sweep_workers.find(job.data_dir);
+        DORIS_CHECK(worker_it != _data_dir_sweep_workers.end());
+        auto submit_status = worker_it->second->submit(job);
+        if (!submit_status.ok()) {
+            g_garbage_sweep_worker_unavailable_total << 1;
+            DataDirSweepJobResult result;
+            result.sweep_epoch = sweep_epoch;
+            result.type = job.type;
+            result.data_dir = job.data_dir;
+            result.status = submit_status;
+            if (auto* payload = std::get_if<ShutdownTabletMovePayload>(&job.payload);
+                payload != nullptr) {
+                result.shutdown_failed = static_cast<int64_t>(payload->tablets.size());
+                result.failed_tablets = std::move(payload->tablets);
+            }
+            job.data_dir->_record_sweep_job_result(result, false);
+            context->results[index] = std::move(result);
+            context->completion_latch.count_down();
+        }
+    }
+    context->completion_latch.wait();
+    return std::move(context->results);
+}
+
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
-    Status res = Status::OK();
+    if (_stop_background_threads_latch.count() == 0) {
+        return Status::Cancelled("Storage engine is stopping; skip starting a garbage sweep epoch");
+    }
 
     std::unique_lock<std::mutex> l(_trash_sweep_lock, std::defer_lock);
     if (!l.try_lock()) {
@@ -848,10 +1110,20 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         if (ignore_guard) {
             _need_clean_trash.store(true, std::memory_order_relaxed);
         }
-        return res;
+        return Status::OK();
+    }
+    if (_stop_background_threads_latch.count() == 0) {
+        return Status::Cancelled("Storage engine is stopping; skip starting a garbage sweep epoch");
     }
 
-    LOG(INFO) << "start trash and snapshot sweep. is_clean=" << ignore_guard;
+    MonotonicStopWatch total_watch(true);
+    const uint64_t sweep_epoch = _next_sweep_epoch.fetch_add(1, std::memory_order_relaxed) + 1;
+    g_garbage_sweep_epoch.set_value(static_cast<int64_t>(sweep_epoch));
+    if (ignore_guard) {
+        g_garbage_sweep_force_total << 1;
+    }
+    LOG(INFO) << "start trash and snapshot sweep. sweep_epoch=" << sweep_epoch
+              << ", is_clean=" << ignore_guard;
 
     const int32_t snapshot_expire = config::snapshot_expire_time_sec;
     const int32_t trash_expire = config::trash_file_expire_time_sec;
@@ -874,41 +1146,99 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     const time_t local_now = mktime(&local_tm_now); //得到当地日历时间
 
     double tmp_usage = 0.0;
+    std::vector<DataDir*> active_data_dirs;
+    std::vector<DataDirSweepJob> path_jobs;
+    active_data_dirs.reserve(data_dir_infos.size());
+    path_jobs.reserve(data_dir_infos.size() * 2);
     for (DataDirInfo& info : data_dir_infos) {
-        LOG(INFO) << "Start to sweep path " << info.path;
         if (!info.is_used) {
             continue;
         }
+        auto* data_dir = get_store(info.path);
+        DORIS_CHECK(data_dir != nullptr);
+        active_data_dirs.push_back(data_dir);
 
         double curr_usage =
                 (double)(info.disk_capacity - info.available) / (double)info.disk_capacity;
         tmp_usage = std::max(tmp_usage, curr_usage);
 
-        Status curr_res = Status::OK();
-        auto snapshot_path = fmt::format("{}/{}", info.path, SNAPSHOT_PREFIX);
-        curr_res = _do_sweep(snapshot_path, local_now, snapshot_expire);
-        if (!curr_res.ok()) {
-            LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path
-                         << ", err_code=" << curr_res;
-            res = curr_res;
-        }
+        DataDirSweepJob snapshot_job;
+        snapshot_job.sweep_epoch = sweep_epoch;
+        snapshot_job.type = DataDirSweepJobType::SNAPSHOT_SWEEP;
+        snapshot_job.data_dir = data_dir;
+        snapshot_job.payload =
+                SnapshotSweepPayload {.local_now = local_now, .expire_seconds = snapshot_expire};
+        path_jobs.push_back(std::move(snapshot_job));
 
-        auto trash_path = fmt::format("{}/{}", info.path, TRASH_PREFIX);
-        curr_res = _do_sweep(trash_path, local_now, curr_usage > guard_space ? 0 : trash_expire);
-        if (!curr_res.ok()) {
-            LOG(WARNING) << "failed to sweep trash. path=" << trash_path
-                         << ", err_code=" << curr_res;
-            res = curr_res;
-        }
+        DataDirSweepJob trash_job;
+        trash_job.sweep_epoch = sweep_epoch;
+        trash_job.type = DataDirSweepJobType::TRASH_SWEEP;
+        trash_job.data_dir = data_dir;
+        trash_job.payload =
+                TrashSweepPayload {.local_now = local_now,
+                                   .expire_seconds = curr_usage > guard_space ? 0 : trash_expire};
+        path_jobs.push_back(std::move(trash_job));
     }
 
     if (usage != nullptr) {
         *usage = tmp_usage; // update usage
     }
 
-    // clear expire incremental rowset, move deleted tablet to trash
-    RETURN_IF_ERROR(_tablet_manager->start_trash_sweep());
+    Status result;
+    MonotonicStopWatch phase_watch(true);
+    for (const auto& job_result :
+         _dispatch_data_dir_sweep_jobs(sweep_epoch, std::move(path_jobs))) {
+        update_first_error(&result, job_result.status);
+    }
+    g_garbage_sweep_path_phase_ms.set_value(phase_watch.elapsed_time_milliseconds());
 
+    // Clear expired incremental rowsets, then move shutdown tablets in per-DataDir waves.
+    TabletManager::ShutdownTabletMoveExecutor move_executor =
+            [this](uint64_t epoch, TabletManager::ShutdownTabletBatches&& batches,
+                   const TabletManager::MoveTabletCallback& move_tablet,
+                   std::vector<TabletManager::ShutdownTabletMoveResult>* move_results) {
+                DORIS_CHECK(move_results != nullptr);
+                std::vector<DataDirSweepJob> jobs;
+                jobs.reserve(batches.size());
+                for (auto& [data_dir, tablets] : batches) {
+                    DORIS_CHECK(data_dir != nullptr);
+                    DataDirSweepJob job;
+                    job.sweep_epoch = epoch;
+                    job.type = DataDirSweepJobType::SHUTDOWN_TABLET_MOVE;
+                    job.data_dir = data_dir;
+                    job.payload = ShutdownTabletMovePayload {.tablets = std::move(tablets),
+                                                             .move_tablet = move_tablet};
+                    jobs.push_back(std::move(job));
+                }
+
+                Status execute_status;
+                auto job_results = _dispatch_data_dir_sweep_jobs(epoch, std::move(jobs));
+                move_results->clear();
+                move_results->reserve(job_results.size());
+                for (auto& job_result : job_results) {
+                    TabletManager::ShutdownTabletMoveResult move_result;
+                    move_result.data_dir = job_result.data_dir;
+                    move_result.status = job_result.status;
+                    move_result.resolved_count = job_result.shutdown_resolved;
+                    move_result.failed_count = job_result.shutdown_failed;
+                    move_result.failed_tablets = std::move(job_result.failed_tablets);
+                    update_first_error(&execute_status, move_result.status);
+                    move_results->push_back(std::move(move_result));
+                }
+                return execute_status;
+            };
+    auto wait_next_round = [this](int interval_ms) {
+        static_cast<void>(
+                _stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval_ms)));
+    };
+    TabletManager::TrashSweepStats trash_sweep_stats;
+    update_first_error(
+            &result, _tablet_manager->start_trash_sweep(sweep_epoch, move_executor, wait_next_round,
+                                                        &trash_sweep_stats));
+    g_garbage_sweep_shutdown_phase_ms.set_value(trash_sweep_stats.shutdown_tablet_elapsed_ms);
+
+    phase_watch.reset();
+    phase_watch.start();
     // clean rubbish transactions
     _clean_unused_txns();
 
@@ -926,15 +1256,49 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     // clean unused partial update info for finished txns
     _clean_unused_partial_update_info();
+    g_garbage_sweep_global_metadata_phase_ms.set_value(phase_watch.elapsed_time_milliseconds());
 
-    // clean unused rowsets in remote storage backends
-    for (auto data_dir : get_stores()) {
-        data_dir->perform_remote_rowset_gc();
-        data_dir->perform_remote_tablet_gc();
-        data_dir->update_trash_capacity();
+    phase_watch.reset();
+    phase_watch.start();
+    std::vector<DataDirSweepJob> remote_gc_jobs;
+    remote_gc_jobs.reserve(active_data_dirs.size());
+    for (auto* data_dir : active_data_dirs) {
+        DataDirSweepJob job;
+        job.sweep_epoch = sweep_epoch;
+        job.type = DataDirSweepJobType::REMOTE_GC;
+        job.data_dir = data_dir;
+        job.payload = RemoteGcPayload {};
+        remote_gc_jobs.push_back(std::move(job));
     }
+    for (const auto& job_result :
+         _dispatch_data_dir_sweep_jobs(sweep_epoch, std::move(remote_gc_jobs))) {
+        update_first_error(&result, job_result.status);
+    }
+    g_garbage_sweep_remote_gc_phase_ms.set_value(phase_watch.elapsed_time_milliseconds());
 
-    return res;
+    phase_watch.reset();
+    phase_watch.start();
+    std::vector<DataDirSweepJob> capacity_jobs;
+    capacity_jobs.reserve(active_data_dirs.size());
+    for (auto* data_dir : active_data_dirs) {
+        DataDirSweepJob job;
+        job.sweep_epoch = sweep_epoch;
+        job.type = DataDirSweepJobType::TRASH_CAPACITY_REFRESH;
+        job.data_dir = data_dir;
+        job.payload = TrashCapacityRefreshPayload {};
+        capacity_jobs.push_back(std::move(job));
+    }
+    for (const auto& job_result :
+         _dispatch_data_dir_sweep_jobs(sweep_epoch, std::move(capacity_jobs))) {
+        update_first_error(&result, job_result.status);
+    }
+    g_garbage_sweep_capacity_phase_ms.set_value(phase_watch.elapsed_time_milliseconds());
+
+    const int64_t total_elapsed_ms = total_watch.elapsed_time_milliseconds();
+    g_garbage_sweep_total_ms.set_value(total_elapsed_ms);
+    LOG(INFO) << "finished trash and snapshot sweep. sweep_epoch=" << sweep_epoch
+              << ", elapsed_ms=" << total_elapsed_ms << ", status=" << result;
+    return result;
 }
 
 void StorageEngine::_clean_unused_rowset_metas() {

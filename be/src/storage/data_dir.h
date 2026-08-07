@@ -25,9 +25,11 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/metrics/metrics.h"
@@ -42,6 +44,14 @@ class TxnManager;
 class OlapMeta;
 class RowsetIdGenerator;
 class StorageEngine;
+class DataDirSweepWorker;
+enum class DataDirSweepJobType : uint8_t;
+struct DataDirSweepJobResult;
+
+struct RemoteGcStats {
+    int64_t scanned = 0;
+    std::optional<int64_t> backlog;
+};
 
 const char* const kTestFilePath = ".testfile";
 
@@ -69,7 +79,7 @@ public:
         info.path_hash = _path_hash;
         info.disk_capacity = _disk_capacity_bytes;
         info.available = _available_bytes;
-        info.trash_used_capacity = _trash_used_bytes;
+        info.trash_used_capacity = _trash_used_bytes.load(std::memory_order_relaxed);
         info.is_used = _is_used;
         info.storage_medium = _storage_medium;
         return info;
@@ -108,9 +118,9 @@ public:
 
     void perform_path_gc();
 
-    void perform_remote_rowset_gc();
+    Status perform_remote_rowset_gc(RemoteGcStats* stats = nullptr);
 
-    void perform_remote_tablet_gc();
+    Status perform_remote_tablet_gc(RemoteGcStats* stats = nullptr);
 
     // check if the capacity reach the limit after adding the incoming data
     // return true if limit reached, otherwise, return false.
@@ -122,7 +132,7 @@ public:
 
     Status update_capacity();
 
-    void update_trash_capacity();
+    Status update_trash_capacity();
 
     void update_local_data_size(int64_t size);
 
@@ -147,6 +157,9 @@ public:
     static Status delete_tablet_parent_path_if_empty(const std::string& tablet_path);
 
 private:
+    friend class DataDirSweepWorker;
+    friend class StorageEngine;
+
     Status _init_cluster_id();
     Status _init_capacity_and_create_shards();
     Status _init_meta();
@@ -164,6 +177,13 @@ private:
 
     void _perform_rowset_gc(const std::string& tablet_schema_hash_path);
 
+    Status _count_remote_gc_backlog(std::string_view prefix, int64_t* backlog);
+
+    void _set_sweep_worker_running(bool running);
+    void _set_sweep_worker_queue_depth(int64_t queue_depth);
+    void _record_sweep_job_start(DataDirSweepJobType type);
+    void _record_sweep_job_result(const DataDirSweepJobResult& result, bool job_started);
+
 private:
     std::atomic<bool> _stop_bg_worker = false;
 
@@ -175,7 +195,7 @@ private:
     size_t _available_bytes;
     // the actual capacity of the disk of this data dir
     size_t _disk_capacity_bytes;
-    size_t _trash_used_bytes;
+    std::atomic<int64_t> _trash_used_bytes {0};
     TStorageMedium::type _storage_medium;
     bool _is_used;
 
@@ -201,6 +221,22 @@ private:
     IntGauge* disks_state = nullptr;
     IntGauge* disks_compaction_score = nullptr;
     IntGauge* disks_compaction_num = nullptr;
+    IntGauge* disks_sweep_worker_running = nullptr;
+    IntGauge* disks_sweep_worker_queue_depth = nullptr;
+    IntGauge* disks_sweep_worker_current_job = nullptr;
+    IntCounter* disks_sweep_worker_completed_jobs = nullptr;
+    IntCounter* disks_sweep_worker_failed_jobs = nullptr;
+    IntGauge* disks_snapshot_sweep_last_duration_ms = nullptr;
+    IntGauge* disks_trash_sweep_last_duration_ms = nullptr;
+    IntGauge* disks_shutdown_tablet_sweep_last_duration_ms = nullptr;
+    IntGauge* disks_remote_gc_last_duration_ms = nullptr;
+    IntCounter* disks_remote_rowset_gc_scanned_total = nullptr;
+    IntGauge* disks_remote_rowset_gc_backlog = nullptr;
+    IntCounter* disks_remote_tablet_gc_scanned_total = nullptr;
+    IntGauge* disks_remote_tablet_gc_backlog = nullptr;
+    IntGauge* disks_trash_capacity_refresh_last_duration_ms = nullptr;
+    IntGauge* disks_trash_capacity_refresh_last_success_time = nullptr;
+    IntCounter* disks_trash_capacity_refresh_failed_total = nullptr;
 };
 
 } // namespace doris

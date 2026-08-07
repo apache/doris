@@ -248,7 +248,12 @@ TEST_F(RemoteRowsetGcTest, normal) {
 
     st = k_engine->tablet_manager()->drop_tablet(10005, 0, true);
     ASSERT_EQ(Status::OK(), st);
-    tablet->data_dir()->perform_remote_tablet_gc();
+    RemoteGcStats remote_gc_stats;
+    st = tablet->data_dir()->perform_remote_tablet_gc(&remote_gc_stats);
+    ASSERT_EQ(Status::OK(), st);
+    EXPECT_GE(remote_gc_stats.scanned, 1);
+    ASSERT_TRUE(remote_gc_stats.backlog.has_value());
+    EXPECT_EQ(*remote_gc_stats.backlog, 0);
     st = fs->exists(seg_path, &exists);
     ASSERT_EQ(Status::OK(), st);
     ASSERT_FALSE(exists);

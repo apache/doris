@@ -28,6 +28,7 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <cstddef>
+#include <ctime>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -49,6 +50,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "service/backend_options.h"
+#include "storage/data_dir_sweep_worker.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -106,6 +108,12 @@ Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id) {
     return Status::OK();
 }
 
+void update_first_error(Status* result, const Status& status) {
+    if (result->ok() && !status.ok()) {
+        *result = status;
+    }
+}
+
 } // namespace
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_total_capacity, MetricUnit::BYTES);
@@ -116,6 +124,26 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_trash_used_capacity, MetricUnit::BYTES)
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_sweep_worker_running, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_sweep_worker_queue_depth, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_sweep_worker_current_job, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(disks_sweep_worker_completed_jobs, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(disks_sweep_worker_failed_jobs, MetricUnit::OPERATIONS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_snapshot_sweep_last_duration_ms, MetricUnit::MILLISECONDS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_trash_sweep_last_duration_ms, MetricUnit::MILLISECONDS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_shutdown_tablet_sweep_last_duration_ms,
+                                   MetricUnit::MILLISECONDS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_remote_gc_last_duration_ms, MetricUnit::MILLISECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(disks_remote_rowset_gc_scanned_total, MetricUnit::OPERATIONS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_remote_rowset_gc_backlog, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(disks_remote_tablet_gc_scanned_total, MetricUnit::OPERATIONS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_remote_tablet_gc_backlog, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_trash_capacity_refresh_last_duration_ms,
+                                   MetricUnit::MILLISECONDS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_trash_capacity_refresh_last_success_time,
+                                   MetricUnit::SECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(disks_trash_capacity_refresh_failed_total,
+                                     MetricUnit::OPERATIONS);
 
 DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacity_bytes,
                  TStorageMedium::type storage_medium)
@@ -123,7 +151,6 @@ DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacit
           _path(path),
           _available_bytes(0),
           _disk_capacity_bytes(0),
-          _trash_used_bytes(0),
           _storage_medium(storage_medium),
           _is_used(false),
           _cluster_id(-1),
@@ -138,6 +165,26 @@ DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacit
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_num);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_sweep_worker_running);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_sweep_worker_queue_depth);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_sweep_worker_current_job);
+    INT_COUNTER_METRIC_REGISTER(_data_dir_metric_entity, disks_sweep_worker_completed_jobs);
+    INT_COUNTER_METRIC_REGISTER(_data_dir_metric_entity, disks_sweep_worker_failed_jobs);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_snapshot_sweep_last_duration_ms);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_trash_sweep_last_duration_ms);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity,
+                              disks_shutdown_tablet_sweep_last_duration_ms);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_remote_gc_last_duration_ms);
+    INT_COUNTER_METRIC_REGISTER(_data_dir_metric_entity, disks_remote_rowset_gc_scanned_total);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_remote_rowset_gc_backlog);
+    INT_COUNTER_METRIC_REGISTER(_data_dir_metric_entity, disks_remote_tablet_gc_scanned_total);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_remote_tablet_gc_backlog);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity,
+                              disks_trash_capacity_refresh_last_duration_ms);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity,
+                              disks_trash_capacity_refresh_last_success_time);
+    INT_COUNTER_METRIC_REGISTER(_data_dir_metric_entity, disks_trash_capacity_refresh_failed_total);
+    disks_sweep_worker_current_job->set_value(-1);
 }
 
 DataDir::~DataDir() {
@@ -167,6 +214,59 @@ Status DataDir::init(bool init_meta) {
 
 void DataDir::stop_bg_worker() {
     _stop_bg_worker = true;
+}
+
+void DataDir::_set_sweep_worker_running(bool running) {
+    disks_sweep_worker_running->set_value(running ? 1 : 0);
+}
+
+void DataDir::_set_sweep_worker_queue_depth(int64_t queue_depth) {
+    disks_sweep_worker_queue_depth->set_value(queue_depth);
+}
+
+void DataDir::_record_sweep_job_start(DataDirSweepJobType type) {
+    disks_sweep_worker_current_job->set_value(static_cast<int64_t>(type));
+}
+
+void DataDir::_record_sweep_job_result(const DataDirSweepJobResult& result, bool job_started) {
+    if (job_started) {
+        disks_sweep_worker_current_job->set_value(-1);
+    }
+    disks_sweep_worker_completed_jobs->increment(1);
+    if (!result.status.ok()) {
+        disks_sweep_worker_failed_jobs->increment(1);
+    }
+
+    switch (result.type) {
+    case DataDirSweepJobType::SNAPSHOT_SWEEP:
+        disks_snapshot_sweep_last_duration_ms->set_value(result.elapsed_ms);
+        break;
+    case DataDirSweepJobType::TRASH_SWEEP:
+        disks_trash_sweep_last_duration_ms->set_value(result.elapsed_ms);
+        break;
+    case DataDirSweepJobType::SHUTDOWN_TABLET_MOVE:
+        disks_shutdown_tablet_sweep_last_duration_ms->set_value(result.elapsed_ms);
+        break;
+    case DataDirSweepJobType::REMOTE_GC:
+        disks_remote_gc_last_duration_ms->set_value(result.elapsed_ms);
+        disks_remote_rowset_gc_scanned_total->increment(result.remote_rowset_gc_scanned);
+        if (result.remote_rowset_gc_backlog.has_value()) {
+            disks_remote_rowset_gc_backlog->set_value(*result.remote_rowset_gc_backlog);
+        }
+        disks_remote_tablet_gc_scanned_total->increment(result.remote_tablet_gc_scanned);
+        if (result.remote_tablet_gc_backlog.has_value()) {
+            disks_remote_tablet_gc_backlog->set_value(*result.remote_tablet_gc_backlog);
+        }
+        break;
+    case DataDirSweepJobType::TRASH_CAPACITY_REFRESH:
+        disks_trash_capacity_refresh_last_duration_ms->set_value(result.elapsed_ms);
+        if (result.status.ok()) {
+            disks_trash_capacity_refresh_last_success_time->set_value(std::time(nullptr));
+        } else {
+            disks_trash_capacity_refresh_failed_total->increment(1);
+        }
+        break;
+    }
 }
 
 Status DataDir::_init_cluster_id() {
@@ -1016,16 +1116,19 @@ Status DataDir::update_capacity() {
     return Status::OK();
 }
 
-void DataDir::update_trash_capacity() {
+Status DataDir::update_trash_capacity() {
     auto trash_path = fmt::format("{}/{}", _path, TRASH_PREFIX);
+    int64_t trash_used_bytes = 0;
     try {
-        _trash_used_bytes = _engine.get_file_or_directory_size(trash_path);
+        trash_used_bytes = _engine.get_file_or_directory_size(trash_path);
     } catch (const std::filesystem::filesystem_error& e) {
         LOG(WARNING) << "update trash capacity failed, path: " << _path << ", err: " << e.what();
-        return;
+        return Status::IOError("update trash capacity failed. path={}, error={}", _path, e.what());
     }
-    disks_trash_used_capacity->set_value(_trash_used_bytes);
-    LOG(INFO) << "path: " << _path << " trash capacity: " << _trash_used_bytes;
+    _trash_used_bytes.store(trash_used_bytes, std::memory_order_relaxed);
+    disks_trash_used_capacity->set_value(trash_used_bytes);
+    LOG(INFO) << "path: " << _path << " trash capacity: " << trash_used_bytes;
+    return Status::OK();
 }
 
 void DataDir::update_local_data_size(int64_t size) {
@@ -1124,15 +1227,33 @@ Status DataDir::delete_tablet_parent_path_if_empty(const std::string& tablet_pat
     return Status::OK();
 }
 
-void DataDir::perform_remote_rowset_gc() {
+Status DataDir::_count_remote_gc_backlog(std::string_view prefix, int64_t* backlog) {
+    DORIS_CHECK(backlog != nullptr);
+    *backlog = 0;
+    return _meta->iterate(META_COLUMN_FAMILY_INDEX, prefix,
+                          [backlog](std::string_view, std::string_view) {
+                              ++*backlog;
+                              return true;
+                          });
+}
+
+Status DataDir::perform_remote_rowset_gc(RemoteGcStats* stats) {
+    RemoteGcStats local_stats;
+    if (stats == nullptr) {
+        stats = &local_stats;
+    }
+    *stats = RemoteGcStats {};
+
     std::vector<std::pair<std::string, std::string>> gc_kvs;
     auto traverse_remote_rowset_func = [&gc_kvs](std::string_view key,
                                                  std::string_view value) -> bool {
         gc_kvs.emplace_back(key, value);
         return true;
     };
-    static_cast<void>(_meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_ROWSET_GC_PREFIX,
-                                     traverse_remote_rowset_func));
+    Status result = _meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_ROWSET_GC_PREFIX,
+                                   traverse_remote_rowset_func);
+    stats->scanned = static_cast<int64_t>(gc_kvs.size());
+
     std::vector<std::string> deleted_keys;
     for (auto& [key, val] : gc_kvs) {
         auto rowset_id = key.substr(REMOTE_ROWSET_GC_PREFIX.size());
@@ -1140,12 +1261,17 @@ void DataDir::perform_remote_rowset_gc() {
         if (!gc_pb.ParseFromString(val)) {
             LOG(WARNING) << "malformed RemoteRowsetGcPB. rowset_id=" << rowset_id;
             deleted_keys.push_back(std::move(key));
+            update_first_error(
+                    &result,
+                    Status::InternalError("malformed RemoteRowsetGcPB. rowset_id={}", rowset_id));
             continue;
         }
 
         auto storage_resource = get_storage_resource(gc_pb.resource_id());
         if (!storage_resource) {
-            LOG(WARNING) << "Cannot get file system: " << gc_pb.resource_id();
+            LOG(WARNING) << "Cannot get remote file system; retain rowset GC marker for retry. "
+                            "resource_id="
+                         << gc_pb.resource_id() << ", rowset_id=" << rowset_id;
             continue;
         }
 
@@ -1165,22 +1291,39 @@ void DataDir::perform_remote_rowset_gc() {
             unused_remote_rowset_num << -1;
         } else {
             LOG(WARNING) << "failed to delete remote rowset. err=" << st;
+            update_first_error(&result, st);
         }
     }
     for (const auto& key : deleted_keys) {
-        static_cast<void>(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
+        update_first_error(&result, _meta->remove(META_COLUMN_FAMILY_INDEX, key));
     }
+
+    int64_t backlog = 0;
+    auto backlog_status = _count_remote_gc_backlog(REMOTE_ROWSET_GC_PREFIX, &backlog);
+    if (backlog_status.ok()) {
+        stats->backlog = backlog;
+    }
+    update_first_error(&result, backlog_status);
+    return result;
 }
 
-void DataDir::perform_remote_tablet_gc() {
+Status DataDir::perform_remote_tablet_gc(RemoteGcStats* stats) {
+    RemoteGcStats local_stats;
+    if (stats == nullptr) {
+        stats = &local_stats;
+    }
+    *stats = RemoteGcStats {};
+
     std::vector<std::pair<std::string, std::string>> tablet_gc_kvs;
     auto traverse_remote_tablet_func = [&tablet_gc_kvs](std::string_view key,
                                                         std::string_view value) -> bool {
         tablet_gc_kvs.emplace_back(key, value);
         return true;
     };
-    static_cast<void>(_meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_TABLET_GC_PREFIX,
-                                     traverse_remote_tablet_func));
+    Status result = _meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_TABLET_GC_PREFIX,
+                                   traverse_remote_tablet_func);
+    stats->scanned = static_cast<int64_t>(tablet_gc_kvs.size());
+
     std::vector<std::string> deleted_keys;
     for (auto& [key, val] : tablet_gc_kvs) {
         auto tablet_id = key.substr(REMOTE_TABLET_GC_PREFIX.size());
@@ -1188,13 +1331,18 @@ void DataDir::perform_remote_tablet_gc() {
         if (!gc_pb.ParseFromString(val)) {
             LOG(WARNING) << "malformed RemoteTabletGcPB. tablet_id=" << tablet_id;
             deleted_keys.push_back(std::move(key));
+            update_first_error(
+                    &result,
+                    Status::InternalError("malformed RemoteTabletGcPB. tablet_id={}", tablet_id));
             continue;
         }
         bool success = true;
         for (auto& resource_id : gc_pb.resource_ids()) {
             auto fs = get_filesystem(resource_id);
             if (!fs) {
-                LOG(WARNING) << "could not get file system. resource_id=" << resource_id;
+                LOG(WARNING) << "Cannot get remote file system; retain tablet GC marker for retry. "
+                                "resource_id="
+                             << resource_id << ", tablet_id=" << tablet_id;
                 success = false;
                 continue;
             }
@@ -1203,6 +1351,7 @@ void DataDir::perform_remote_tablet_gc() {
             auto st = fs->delete_directory(DATA_PREFIX + '/' + tablet_id);
             if (!st.ok()) {
                 LOG(WARNING) << "failed to delete all remote rowset in tablet. err=" << st;
+                update_first_error(&result, st);
                 success = false;
             }
         }
@@ -1211,7 +1360,15 @@ void DataDir::perform_remote_tablet_gc() {
         }
     }
     for (const auto& key : deleted_keys) {
-        static_cast<void>(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
+        update_first_error(&result, _meta->remove(META_COLUMN_FAMILY_INDEX, key));
     }
+
+    int64_t backlog = 0;
+    auto backlog_status = _count_remote_gc_backlog(REMOTE_TABLET_GC_PREFIX, &backlog);
+    if (backlog_status.ok()) {
+        stats->backlog = backlog;
+    }
+    update_first_error(&result, backlog_status);
+    return result;
 }
 } // namespace doris

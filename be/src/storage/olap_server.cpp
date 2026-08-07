@@ -230,11 +230,16 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
             &_evict_quering_rowset_thread));
     LOG(INFO) << "evict quering thread started";
 
-    // start thread for monitoring the snapshot and trash folder
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "garbage_sweeper_thread",
-            [this]() { this->_garbage_sweeper_thread_callback(); }, &_garbage_sweeper_thread));
-    LOG(INFO) << "garbage sweeper thread started";
+    // Workers must be available before the coordinator can dispatch its first sweep epoch.
+    RETURN_IF_ERROR(_start_data_dir_sweep_workers());
+    auto garbage_sweeper_status = Thread::create(
+            "StorageEngine", "garbage_sweep_coordinator",
+            [this]() { this->_garbage_sweeper_thread_callback(); }, &_garbage_sweeper_thread);
+    if (!garbage_sweeper_status.ok()) {
+        _stop_data_dir_sweep_workers();
+        return garbage_sweeper_status;
+    }
+    LOG(INFO) << "garbage sweep coordinator thread started";
 
     // start thread for monitoring the tablet with io error
     RETURN_IF_ERROR(Thread::create(
@@ -400,8 +405,12 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
 
         // start clean trash and update usage.
         Status res = start_trash_sweep(&usage);
-        if (res.ok() && _need_clean_trash.exchange(false, std::memory_order_relaxed)) {
-            res = start_trash_sweep(&usage, true);
+        if (_stop_background_threads_latch.count() != 0 &&
+            _need_clean_trash.exchange(false, std::memory_order_relaxed)) {
+            auto force_sweep_status = start_trash_sweep(&usage, true);
+            if (res.ok()) {
+                res = force_sweep_status;
+            }
         }
 
         if (!res.ok()) {
