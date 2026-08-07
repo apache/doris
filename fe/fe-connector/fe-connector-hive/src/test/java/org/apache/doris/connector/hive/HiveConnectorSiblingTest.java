@@ -73,7 +73,7 @@ public class HiveConnectorSiblingTest {
         // The iceberg connector holds per-catalog caches (latest-snapshot / manifest / scan->write delete stash)
         // shared across its tables; a per-op sibling would fragment them. There must be exactly one build.
         RecordingSiblingContext context = new RecordingSiblingContext(new FakeSibling());
-        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
 
         Connector first = connector.getOrCreateIcebergSibling();
         Connector second = connector.getOrCreateIcebergSibling();
@@ -87,7 +87,7 @@ public class HiveConnectorSiblingTest {
         // A missing iceberg provider surfaces as a null sibling from the seam; the gateway must fail loud with a
         // catalog-scoped message rather than NPE deep in a later delegation.
         RecordingSiblingContext context = new RecordingSiblingContext(null);
-        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 connector::getOrCreateIcebergSibling);
@@ -100,7 +100,7 @@ public class HiveConnectorSiblingTest {
         // The absence is not cached: a plugin that becomes available (or a transient factory failure that
         // clears) must be picked up on the next access, not permanently poison the gateway.
         RecordingSiblingContext context = new RecordingSiblingContext(null);
-        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
         Assertions.assertThrows(DorisConnectorException.class, connector::getOrCreateIcebergSibling);
 
         FakeSibling sibling = new FakeSibling();
@@ -116,7 +116,7 @@ public class HiveConnectorSiblingTest {
         // close must not double-close a released sibling.
         FakeSibling sibling = new FakeSibling();
         RecordingSiblingContext context = new RecordingSiblingContext(sibling);
-        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
         connector.getOrCreateIcebergSibling();
 
         connector.close();
@@ -129,7 +129,7 @@ public class HiveConnectorSiblingTest {
     public void closeIsNoOpWhenSiblingNeverBuilt() throws Exception {
         // Dormant path: a gateway that never delegated must not build a sibling just to close it.
         RecordingSiblingContext context = new RecordingSiblingContext(new FakeSibling());
-        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
 
         connector.close();
 
@@ -163,7 +163,7 @@ public class HiveConnectorSiblingTest {
     @Test
     public void memoizesSingleHudiSiblingPerGateway() {
         RecordingSiblingContext context = new RecordingSiblingContext(new FakeSibling());
-        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
 
         Connector first = connector.getOrCreateHudiSibling();
         Connector second = connector.getOrCreateHudiSibling();
@@ -175,7 +175,7 @@ public class HiveConnectorSiblingTest {
     @Test
     public void failsLoudWhenHudiPluginAbsent() {
         RecordingSiblingContext context = new RecordingSiblingContext(null);
-        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 connector::getOrCreateHudiSibling);
@@ -188,7 +188,7 @@ public class HiveConnectorSiblingTest {
     @Test
     public void hudiFailLoudIsNotMemoized() {
         RecordingSiblingContext context = new RecordingSiblingContext(null);
-        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
         Assertions.assertThrows(DorisConnectorException.class, connector::getOrCreateHudiSibling);
 
         FakeSibling sibling = new FakeSibling();
@@ -202,7 +202,7 @@ public class HiveConnectorSiblingTest {
     public void closeForwardsToHudiSiblingAndClearsIt() throws Exception {
         FakeSibling sibling = new FakeSibling();
         RecordingSiblingContext context = new RecordingSiblingContext(sibling);
-        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
         connector.getOrCreateHudiSibling();
 
         connector.close();
@@ -224,7 +224,7 @@ public class HiveConnectorSiblingTest {
                 return "hudi".equals(catalogType) ? hudiSibling : icebergSibling;
             }
         };
-        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
         connector.getOrCreateIcebergSibling();
         connector.getOrCreateHudiSibling();
 
@@ -268,7 +268,7 @@ public class HiveConnectorSiblingTest {
                 return "hudi".equals(catalogType) ? hudiSibling : icebergSibling;
             }
         };
-        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
         connector.getOrCreateIcebergSibling();
         connector.getOrCreateHudiSibling();
 
@@ -292,7 +292,7 @@ public class HiveConnectorSiblingTest {
         // has no cache to drop, and building one just to flush it would fail-loud spuriously whenever the
         // sibling plugin is not installed (REFRESH would start throwing on plain hive catalogs).
         RecordingSiblingContext context = new RecordingSiblingContext(new FakeSibling());
-        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
 
         connector.invalidateTable("db", "t");
         connector.invalidateDb("db");
@@ -308,7 +308,7 @@ public class HiveConnectorSiblingTest {
         // inert and the sibling is returned as-is.
         FakeSibling plainSibling = new FakeSibling();
         HiveConnector connector =
-                new HiveConnector(new HashMap<>(), new RecordingSiblingContext(plainSibling));
+                new HiveConnector(HiveTestProperties.minimalMap(), new RecordingSiblingContext(plainSibling));
 
         Assertions.assertSame(plainSibling, connector.getOrCreateIcebergSibling(),
                 "a sibling without SUPPORTS_USER_SESSION must be accepted");
@@ -324,7 +324,7 @@ public class HiveConnectorSiblingTest {
         FakeSibling userSessionSibling =
                 new FakeSibling(EnumSet.of(ConnectorCapability.SUPPORTS_USER_SESSION));
         HiveConnector connector =
-                new HiveConnector(new HashMap<>(), new RecordingSiblingContext(userSessionSibling));
+                new HiveConnector(HiveTestProperties.minimalMap(), new RecordingSiblingContext(userSessionSibling));
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 connector::getOrCreateIcebergSibling);

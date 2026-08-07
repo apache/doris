@@ -25,7 +25,6 @@ import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -50,9 +49,15 @@ public final class AdbcDialectSelector {
     private final String configuredName;
     private final AtomicReference<AdbcDialect> resolved = new AtomicReference<>();
 
-    public AdbcDialectSelector(Map<String, String> properties) {
-        String value = properties.get(AdbcConnectorProperties.SQL_DIALECT);
-        this.configuredName = value == null || value.trim().isEmpty() ? null : value.trim();
+    /**
+     * @param configuredSqlDialect the catalog's {@code sql_dialect}, empty when it set none. Taken as a
+     *                             value rather than read out of the property map, so that the map has
+     *                             exactly one reader ({@link AdbcCatalogProperties}) and the blank-means-
+     *                             unset rule cannot be spelled differently in two places.
+     */
+    public AdbcDialectSelector(String configuredSqlDialect) {
+        this.configuredName = configuredSqlDialect == null || configuredSqlDialect.trim().isEmpty()
+                ? null : configuredSqlDialect.trim();
     }
 
     /**

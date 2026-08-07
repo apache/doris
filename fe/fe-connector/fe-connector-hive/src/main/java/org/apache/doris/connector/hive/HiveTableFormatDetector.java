@@ -35,6 +35,12 @@ import java.util.Set;
  */
 public final class HiveTableFormatDetector {
 
+    /** Remote HMS table parameter iceberg stamps on its tables ({@code ICEBERG}). */
+    private static final String TABLE_TYPE_PARAM = "table_type";
+
+    /** Remote HMS table parameter the Flink hudi connector stamps on its tables ({@code hudi}). */
+    private static final String FLINK_CONNECTOR_PARAM = "flink.connector";
+
     private static final Set<String> SUPPORTED_HIVE_INPUT_FORMATS;
     private static final Set<String> SUPPORTED_HUDI_INPUT_FORMATS;
 
@@ -88,13 +94,13 @@ public final class HiveTableFormatDetector {
         Map<String, String> params = tableInfo.getParameters();
 
         // 1. Iceberg detection
-        if (params != null && "ICEBERG".equalsIgnoreCase(params.get("table_type"))) {
+        if (params != null && "ICEBERG".equalsIgnoreCase(params.get(TABLE_TYPE_PARAM))) {
             return HiveTableType.ICEBERG;
         }
 
         // 2. Hudi detection
         String inputFormat = tableInfo.getInputFormat();
-        if (params != null && "hudi".equalsIgnoreCase(params.get("flink.connector"))) {
+        if (params != null && "hudi".equalsIgnoreCase(params.get(FLINK_CONNECTOR_PARAM))) {
             return HiveTableType.HUDI;
         }
         if (inputFormat != null && SUPPORTED_HUDI_INPUT_FORMATS.contains(inputFormat)) {

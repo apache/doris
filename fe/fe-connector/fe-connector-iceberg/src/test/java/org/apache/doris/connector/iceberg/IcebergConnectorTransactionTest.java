@@ -825,7 +825,7 @@ public class IcebergConnectorTransactionTest {
                 props("format-version", "2", "write.format.default", "parquet"));
         RecordingIcebergCatalogOps ops = opsReturning(empty);
         RecordingConnectorContext context = new RecordingConnectorContext();
-        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops, Collections.emptyMap(), context);
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), context);
 
         CountDownLatch mergeReadResolved = new CountDownLatch(1);
         CountDownLatch concurrentInsertCommitted = new CountDownLatch(1);
@@ -857,7 +857,7 @@ public class IcebergConnectorTransactionTest {
         Assertions.assertNull(insertFailure.get(), "the concurrent INSERT must commit at the barrier");
 
         ops.table = catalog.loadTable(id);
-        IcebergScanPlanProvider scanProvider = new IcebergScanPlanProvider(Collections.emptyMap(), ops);
+        IcebergScanPlanProvider scanProvider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), ops);
         Assertions.assertTrue(scanProvider.planScan(null,
                 ConnectorScanRequest.builder(emptyRead, Collections.emptyList()).build()).isEmpty(),
                 "MERGE must keep reading the empty snapshot after the concurrent INSERT");

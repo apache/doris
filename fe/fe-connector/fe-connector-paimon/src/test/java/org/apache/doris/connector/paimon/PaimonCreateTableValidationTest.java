@@ -44,7 +44,7 @@ public class PaimonCreateTableValidationTest {
     private PaimonConnectorMetadata metadata() {
         // Non-null (empty) properties: the ctor derives type-mapping options from them; catalog/context stay null
         // (rejectDistribution touches only the request).
-        return new PaimonConnectorMetadata(null, Collections.emptyMap(), null);
+        return new PaimonConnectorMetadata(null, PaimonCatalogProperties.of(Collections.emptyMap()), null);
     }
 
     @Test

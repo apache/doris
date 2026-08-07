@@ -53,10 +53,12 @@ public class OdpsLiveConnectivityTest {
                 "skipped: set MC_ENDPOINT / MC_PROJECT / MC_ACCESS_KEY / MC_SECRET_KEY to run live");
 
         Map<String, String> props = new HashMap<>();
-        props.put(MCConnectorProperties.ACCESS_KEY, accessKey);
-        props.put(MCConnectorProperties.SECRET_KEY, secretKey);
+        props.put(MCCatalogProperties.PROJECT, project);
+        props.put(MCCatalogProperties.ENDPOINT, endpoint);
+        props.put(MCCatalogProperties.ACCESS_KEY, accessKey);
+        props.put(MCCatalogProperties.SECRET_KEY, secretKey);
 
-        Odps odps = MCConnectorClientFactory.createClient(props);
+        Odps odps = MCConnectorClientFactory.createClient(MCCatalogProperties.of(props));
         odps.setEndpoint(endpoint);
         odps.setDefaultProject(project);
 

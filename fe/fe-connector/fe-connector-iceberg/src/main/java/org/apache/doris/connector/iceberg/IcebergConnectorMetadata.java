@@ -144,6 +144,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private static final String TABLE_COMMENT_PROP = "comment";
 
     private final IcebergCatalogOps catalogOps;
+    private final IcebergCatalogProperties catalogProps;
     private final Map<String, String> properties;
     // Every remote metadata READ is wrapped in context.executeAuthenticated(...) so the FE-injected
     // Kerberos UGI applies — legacy IcebergMetadataOps wrapped each call in executionAuthenticator.execute,
@@ -175,36 +176,36 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private final ConnectorMetadataCache<ConnectorMvccPartitionView> mvccPartitionViewCache;
     private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> listPartitionsViewCache;
 
-    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
             ConnectorContext context) {
-        this(catalogOps, properties, context, new IcebergLatestSnapshotCache(0L, 1), null, null);
+        this(catalogOps, catalogProps, context, new IcebergLatestSnapshotCache(0L, 1), null, null);
     }
 
     /** Convenience ctor without a cross-query table cache (tableCache null); used by MVCC/statistics tests. */
-    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache) {
-        this(catalogOps, properties, context, latestSnapshotCache, null, null);
+        this(catalogOps, catalogProps, context, latestSnapshotCache, null, null);
     }
 
     /** Convenience ctor without a partition-view cache (partitionCache null). */
-    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
             IcebergTableCache tableCache) {
-        this(catalogOps, properties, context, latestSnapshotCache, tableCache, null);
+        this(catalogOps, catalogProps, context, latestSnapshotCache, tableCache, null);
     }
 
-    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
             IcebergTableCache tableCache, IcebergPartitionCache partitionCache) {
-        this(catalogOps, properties, context, latestSnapshotCache, tableCache, partitionCache, null);
+        this(catalogOps, catalogProps, context, latestSnapshotCache, tableCache, partitionCache, null);
     }
 
     /** Convenience ctor without the PERF-06 derived partition-view caches (both null). */
-    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
             IcebergTableCache tableCache, IcebergPartitionCache partitionCache,
             IcebergCommentCache commentCache) {
-        this(catalogOps, properties, context, latestSnapshotCache, tableCache, partitionCache, commentCache,
+        this(catalogOps, catalogProps, context, latestSnapshotCache, tableCache, partitionCache, commentCache,
                 null, null);
     }
 
@@ -215,14 +216,15 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * {@code (db, table, snapshotId, schemaId)}. Both {@code null} for a session=user catalog / the convenience
      * ctors (no cross-query derived layer -> compute directly every call).
      */
-    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
             IcebergTableCache tableCache, IcebergPartitionCache partitionCache,
             IcebergCommentCache commentCache,
             ConnectorMetadataCache<ConnectorMvccPartitionView> mvccPartitionViewCache,
             ConnectorMetadataCache<List<ConnectorPartitionInfo>> listPartitionsViewCache) {
         this.catalogOps = catalogOps;
-        this.properties = properties;
+        this.catalogProps = catalogProps;
+        this.properties = catalogProps.getRaw();
         this.context = context;
         this.latestSnapshotCache = latestSnapshotCache;
         this.tableCache = tableCache;
@@ -844,8 +846,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session,
             long tableId, String tableName, String dbName,
             String remoteName, int numCols, long catalogId) {
-        if (IcebergConnectorProperties.TYPE_HMS.equalsIgnoreCase(
-                properties.get(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE))) {
+        if (IcebergCatalogProperties.TYPE_HMS.equalsIgnoreCase(
+                properties.get(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE))) {
             THiveTable tHiveTable = new THiveTable(dbName, tableName, new HashMap<>());
             TTableDescriptor desc = new TTableDescriptor(
                     tableId, TTableType.HIVE_TABLE, numCols, 0, tableName, dbName);
@@ -1640,14 +1642,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         return "ARRAY".equals(name) || "MAP".equals(name) || "STRUCT".equals(name);
     }
 
-    /** The configured {@code iceberg.catalog.type}, or {@code null} when unset. */
+    /** The configured metastore backend, lower-cased, or {@code null} when the catalog names none. */
     private String catalogType() {
-        return properties.get(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE);
+        return catalogProps.getFlavor();
     }
 
-    /** Whether this is an HMS-backed iceberg catalog (case-insensitive, matching the read-path fork). */
+    /** Whether this is an HMS-backed iceberg catalog (matching the read-path fork). */
     private boolean isHmsCatalog() {
-        return IcebergConnectorProperties.TYPE_HMS.equalsIgnoreCase(catalogType());
+        return IcebergCatalogProperties.TYPE_HMS.equals(catalogType());
     }
 
     // ========== E7: System Tables (P6.5) ==========
@@ -2218,12 +2220,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private List<ConnectorColumn> parseSchema(Schema schema) {
         List<Types.NestedField> fields = schema.columns();
         List<ConnectorColumn> columns = new ArrayList<>(fields.size());
-        boolean enableVarbinary = Boolean.parseBoolean(
-                properties.getOrDefault(
-                        IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
-        boolean enableTimestampTz = Boolean.parseBoolean(
-                properties.getOrDefault(
-                        IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
+        boolean enableVarbinary = catalogProps.isEnableMappingVarbinary();
+        boolean enableTimestampTz = catalogProps.isEnableMappingTimestampTz();
 
         for (Types.NestedField field : fields) {
             // Legacy IcebergUtils.parseSchema parity (mirrors PaimonConnectorMetadata): the column name is

@@ -119,7 +119,7 @@ public class PaimonScanRangeBucketTest {
     private static PaimonScanPlanProvider providerFor(Table table) {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.table = table;
-        return new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+        return new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
     }
 
     private static PaimonTableHandle handleFor(String tableName) {

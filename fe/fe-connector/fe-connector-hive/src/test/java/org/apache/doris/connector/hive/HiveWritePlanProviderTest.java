@@ -106,7 +106,7 @@ public class HiveWritePlanProviderTest {
     }
 
     private HiveWritePlanProvider providerFor(RecordingHmsClient client, RecordingConnectorContext ctx) {
-        return new HiveWritePlanProvider(client, Collections.emptyMap(), ctx);
+        return new HiveWritePlanProvider(client, HiveTestProperties.minimal(), ctx);
     }
 
     private WriteSession sessionFor(RecordingHmsClient client, RecordingConnectorContext ctx,

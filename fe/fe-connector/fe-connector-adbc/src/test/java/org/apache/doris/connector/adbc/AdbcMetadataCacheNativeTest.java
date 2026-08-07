@@ -55,7 +55,7 @@ class AdbcMetadataCacheNativeTest {
 
     /** One statement's view of the catalog. Separate objects, one shared cache -- as in production. */
     private AdbcConnectorMetadata metadata(AdbcClient client) {
-        return new AdbcConnectorMetadata(client, new AdbcSchemaStrategy(), Map.of(),
+        return new AdbcConnectorMetadata(client, new AdbcSchemaStrategy(),
                 AdbcDialectRegistry::defaultDialect, cache);
     }
 

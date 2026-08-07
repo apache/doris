@@ -62,7 +62,7 @@ public class HudiStatementMemoTest {
         int instantLoads;
 
         RecordingMetadata() {
-            super(null, Collections.emptyMap(), null);
+            super(null, HudiTestProperties.minimal(), null);
         }
 
         @Override

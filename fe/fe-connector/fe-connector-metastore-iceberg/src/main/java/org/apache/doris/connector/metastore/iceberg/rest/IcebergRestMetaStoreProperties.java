@@ -52,12 +52,34 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
     private static final String ICEBERG_REST_EXTERNAL_ID = "iceberg.rest.external-id";
 
     // Per-user session (#63068 re-migration). Local literal copies (this metastore module does not depend on
-    // fe-connector-iceberg, so IcebergConnectorProperties' constants are not importable — same rationale as the
+    // fe-connector-iceberg, so IcebergCatalogProperties' constants are not importable — same rationale as the
     // "none"/"oauth2" security-type literals already inlined below).
     private static final String SESSION_NONE = "none";
     private static final String SESSION_USER = "user";
     private static final String TOKEN_MODE_ACCESS_TOKEN = "access_token";
     private static final String TOKEN_MODE_TOKEN_EXCHANGE = "token_exchange";
+
+    @ConnectorProperty(names = {"iceberg.rest.uri", "uri"}, required = false,
+            description = "The endpoint of the iceberg rest catalog service.")
+    private String uri = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.prefix"}, required = false,
+            description = "The resource path prefix the rest catalog service is served under.")
+    private String prefix = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.vended-credentials-enabled"}, required = false,
+            description = "Ask the rest catalog service to vend per-table storage credentials.")
+    private boolean vendedCredentialsEnabled;
+
+    // Kept as Strings, not ints: the values are handed to the iceberg SDK verbatim, and a catalog that was
+    // created with an unparseable one is live today -- binding them as numbers would make it unbuildable.
+    @ConnectorProperty(names = {"iceberg.rest.connection-timeout-ms"}, required = false,
+            description = "Connection timeout of the rest client, in milliseconds.")
+    private String connectionTimeoutMs = "10000";
+
+    @ConnectorProperty(names = {"iceberg.rest.socket-timeout-ms"}, required = false,
+            description = "Socket timeout of the rest client, in milliseconds.")
+    private String socketTimeoutMs = "60000";
 
     @ConnectorProperty(names = {"iceberg.rest.security.type"}, required = false,
             description = "The security type of the iceberg rest catalog service, optional: (none, oauth2).")
@@ -79,6 +101,17 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
             description = "The oauth2 scope for the iceberg rest catalog service.")
     private String oauth2Scope;
 
+    @ConnectorProperty(names = {"iceberg.rest.oauth2.server-uri"}, required = false,
+            description = "The oauth2 token endpoint, when it is not the rest catalog's own.")
+    private String oauth2ServerUri = "";
+
+    // Blank rather than "true": the emitted default is the iceberg SDK's own
+    // OAuth2Properties.TOKEN_REFRESH_ENABLED_DEFAULT, which only the connector (where the SDK is on the
+    // classpath) may name. This module stays SDK-free, so it reports "unset" and the connector defaults.
+    @ConnectorProperty(names = {"iceberg.rest.oauth2.token-refresh-enabled"}, required = false,
+            description = "Whether the rest client refreshes the oauth2 token before it expires.")
+    private String oauth2TokenRefreshEnabled = "";
+
     @ConnectorProperty(names = {"iceberg.rest.signing-name"}, required = false,
             description = "The signing name for the iceberg rest catalog service.")
     private String signingName = "";
@@ -98,6 +131,24 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
     @ConnectorProperty(names = {"iceberg.rest.secret-access-key"}, required = false, sensitive = true,
             description = "The secret access key for the iceberg rest catalog service.")
     private String secretAccessKey = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.session-token"}, required = false, sensitive = true,
+            description = "The session token accompanying the iceberg rest access key pair.")
+    private String sessionToken = "";
+
+    // Listing behavior of a REST catalog. Both are inert for every other flavor (IcebergCatalogOps gates them
+    // on restFlavor), which is why they can live here rather than on the connector-level properties.
+    @ConnectorProperty(names = {"iceberg.rest.nested-namespace-enabled"}, required = false,
+            description = "Recurse into nested namespaces when listing databases.")
+    private boolean nestedNamespaceEnabled;
+
+    @ConnectorProperty(names = {"iceberg.rest.view-enabled"}, required = false,
+            description = "Expose the rest catalog's views alongside its tables.")
+    private boolean viewEnabled = true;
+
+    @ConnectorProperty(names = {"iceberg.rest.session-timeout"}, required = false,
+            description = "Lifetime of an oauth2 AuthSession, in milliseconds.")
+    private String sessionTimeout = "";
 
     @ConnectorProperty(names = {"iceberg.rest.session"}, required = false,
             description = "Per-user session mode of the iceberg rest catalog, optional: (none, user). "
@@ -122,6 +173,106 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
     @Override
     public String providerName() {
         return "REST";
+    }
+
+    // ---------------------------------------------------------------------
+    // Assembly surface: the connector builds the catalog options from these, so the alias set declared above
+    // is the single place a REST key name lives. Before this existed the connector re-scanned the raw map
+    // with its own copy of the alias arrays, and the two could disagree about which alias wins.
+    // ---------------------------------------------------------------------
+
+    public String getUri() {
+        return uri;
+    }
+
+    public String getPrefix() {
+        return prefix;
+    }
+
+    public boolean isVendedCredentialsEnabled() {
+        return vendedCredentialsEnabled;
+    }
+
+    public String getConnectionTimeoutMs() {
+        return connectionTimeoutMs;
+    }
+
+    public String getSocketTimeoutMs() {
+        return socketTimeoutMs;
+    }
+
+    public String getSecurityType() {
+        return securityType;
+    }
+
+    public String getCredentialsProviderType() {
+        return credentialsProviderType;
+    }
+
+    public String getOauth2Token() {
+        return oauth2Token;
+    }
+
+    public String getOauth2Credential() {
+        return oauth2Credential;
+    }
+
+    public String getOauth2Scope() {
+        return oauth2Scope;
+    }
+
+    public String getOauth2ServerUri() {
+        return oauth2ServerUri;
+    }
+
+    /** Blank when the catalog does not set it — the connector then applies the iceberg SDK default. */
+    public String getOauth2TokenRefreshEnabled() {
+        return oauth2TokenRefreshEnabled;
+    }
+
+    public String getSigningName() {
+        return signingName;
+    }
+
+    public String getSigningRegion() {
+        return signingRegion;
+    }
+
+    public String getSigV4Enabled() {
+        return sigV4Enabled;
+    }
+
+    public String getAccessKeyId() {
+        return accessKeyId;
+    }
+
+    public String getSecretAccessKey() {
+        return secretAccessKey;
+    }
+
+    public String getSessionToken() {
+        return sessionToken;
+    }
+
+    public boolean isNestedNamespaceEnabled() {
+        return nestedNamespaceEnabled;
+    }
+
+    public boolean isViewEnabled() {
+        return viewEnabled;
+    }
+
+    public String getSessionTimeout() {
+        return sessionTimeout;
+    }
+
+    /** Whether this catalog projects the querying user's delegated credential ({@code session=user}). */
+    public boolean isUserSession() {
+        return SESSION_USER.equalsIgnoreCase(session);
+    }
+
+    public String getDelegatedTokenMode() {
+        return delegatedTokenMode;
     }
 
     @Override
@@ -217,10 +368,6 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
             throw new IllegalArgumentException(
                     "iceberg.rest.session=user requires iceberg.rest.security.type=oauth2");
         }
-    }
-
-    private boolean isUserSession() {
-        return SESSION_USER.equalsIgnoreCase(session);
     }
 
     private void rejectUnsupportedAwsAssumeRoleProperty(String propertyName) {

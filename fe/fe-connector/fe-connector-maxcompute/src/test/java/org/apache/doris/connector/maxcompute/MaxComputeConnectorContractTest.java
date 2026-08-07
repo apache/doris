@@ -43,11 +43,11 @@ public class MaxComputeConnectorContractTest {
 
     private static Map<String, String> validProps() {
         Map<String, String> props = new HashMap<>();
-        props.put(MCConnectorProperties.PROJECT, "mc_project");
-        props.put(MCConnectorProperties.ENDPOINT,
+        props.put(MCCatalogProperties.PROJECT, "mc_project");
+        props.put(MCCatalogProperties.ENDPOINT,
                 "http://service.cn-beijing.maxcompute.aliyun-inc.com/api");
-        props.put(MCConnectorProperties.ACCESS_KEY, "access_key");
-        props.put(MCConnectorProperties.SECRET_KEY, "secret_key");
+        props.put(MCCatalogProperties.ACCESS_KEY, "access_key");
+        props.put(MCCatalogProperties.SECRET_KEY, "secret_key");
         return props;
     }
 
