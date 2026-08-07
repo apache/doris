@@ -24,6 +24,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <string>
 #include <type_traits>
@@ -170,7 +171,12 @@ Status read_native_bloom_filter(const tparquet::ColumnMetaData& metadata,
                                   io_ctx));
     tparquet::BloomFilterHeader header;
     uint32_t header_size = cast_set<uint32_t>(bytes_read);
-    RETURN_IF_ERROR(deserialize_thrift_msg(header_buffer.data(), &header_size, true, &header));
+    const auto deserialize_status =
+            deserialize_thrift_msg(header_buffer.data(), &header_size, true, &header);
+    if (!deserialize_status.ok()) {
+        // Keep invalid on-disk metadata distinguishable from transient read failures in profiles.
+        return Status::Corruption("Malformed Parquet Bloom filter header");
+    }
     if (!header.algorithm.__isset.BLOCK || !header.compression.__isset.UNCOMPRESSED ||
         !header.hash.__isset.XXHASH || header.numBytes <= 0) {
         return Status::NotSupported("Unsupported Parquet Bloom filter encoding");
@@ -440,6 +446,55 @@ const ParquetColumnSchema* resolve_local_leaf_schema(
     const ParquetColumnSchema* column_schema = schema[file_column_id.value()].get();
     if (column_schema == nullptr || column_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
         column_schema->leaf_column_id < 0 || column_schema->max_repetition_level > 0) {
+        return nullptr;
+    }
+    return column_schema;
+}
+
+const ParquetColumnSchema* resolve_bloom_filter_leaf_schema(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+        const format::LocalColumnId file_column_id, const expr_zonemap::BloomFilterProbe& probe) {
+    if (probe.path.empty()) {
+        return resolve_local_leaf_schema(schema, file_column_id);
+    }
+    if (!file_column_id.is_valid() || file_column_id.value() >= static_cast<int>(schema.size())) {
+        return nullptr;
+    }
+    const ParquetColumnSchema* column_schema = schema[file_column_id.value()].get();
+    // A nested predicate must bind to its exact localized primitive path. Falling back to a
+    // sibling leaf's Bloom filter could turn absence in that sibling into an invalid row-group skip.
+    for (const auto& path_element : probe.path) {
+        if (column_schema == nullptr) {
+            return nullptr;
+        }
+        if (path_element.kind == expr_zonemap::BloomFilterPathKind::STRUCT_FIELD) {
+            if (column_schema->kind != ParquetColumnSchemaKind::STRUCT) {
+                return nullptr;
+            }
+            const ParquetColumnSchema* field_schema = nullptr;
+            if (!path_element.field_name.empty()) {
+                auto field = std::ranges::find_if(column_schema->children, [&](const auto& child) {
+                    return child != nullptr && child->name == path_element.field_name;
+                });
+                if (field != column_schema->children.end()) {
+                    field_schema = field->get();
+                }
+            } else if (path_element.field_ordinal >= 0 &&
+                       path_element.field_ordinal <
+                               static_cast<int32_t>(column_schema->children.size())) {
+                field_schema = column_schema->children[path_element.field_ordinal].get();
+            }
+            column_schema = field_schema;
+        } else {
+            if (column_schema->kind != ParquetColumnSchemaKind::LIST ||
+                column_schema->children.size() != 1) {
+                return nullptr;
+            }
+            column_schema = column_schema->children[0].get();
+        }
+    }
+    if (column_schema == nullptr || column_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
+        column_schema->leaf_column_id < 0) {
         return nullptr;
     }
     return column_schema;
@@ -774,9 +829,9 @@ bool variant_statistics_exclude(const VariantShreddedPredicate& predicate,
 bool has_expr_zonemap_filter(const format::FileScanRequest& request, const RuntimeState*) {
     // FileScannerV2 metadata pruning is a fixed part of its scan pipeline and must not inherit
     // the legacy scanner's expression ZoneMap session gate.
-    // TODO: Fence metadata pruning at the first unsafe/error-preserving conjunct so a later
-    // ZoneMap predicate cannot bypass its row-level evaluation.
-    for (const auto& conjunct : request.conjuncts) {
+    const size_t safe_count =
+            std::min(request.metadata_pruning_safe_conjunct_count, request.conjuncts.size());
+    for (const auto& conjunct : request.conjuncts | std::views::take(safe_count)) {
         if (conjunct != nullptr && conjunct->root() != nullptr &&
             conjunct->root()->can_evaluate_zonemap_filter()) {
             return true;
@@ -973,7 +1028,11 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
                              const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                              const format::FileScanRequest& request,
                              ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone) {
-    const auto slot_indexes = collect_expr_zonemap_slot_indexes(request.conjuncts);
+    const size_t safe_count =
+            std::min(request.metadata_pruning_safe_conjunct_count, request.conjuncts.size());
+    const VExprContextSPtrs safe_conjuncts(request.conjuncts.begin(),
+                                           request.conjuncts.begin() + safe_count);
+    const auto slot_indexes = collect_expr_zonemap_slot_indexes(safe_conjuncts);
     if (slot_indexes.empty()) {
         return false;
     }
@@ -1008,7 +1067,7 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
         }
         add_slot_zonemap(&ctx, slot_index, column_schema->type, std::move(zone_map));
     }
-    const auto result = VExprContext::evaluate_zonemap_filter(request.conjuncts, ctx);
+    const auto result = VExprContext::evaluate_zonemap_filter(safe_conjuncts, ctx);
     accumulate_zonemap_stats(ctx, pruning_stats);
     return result == ZoneMapFilterResult::kNoMatch;
 }
@@ -1118,8 +1177,12 @@ ParquetRowGroupPruneReason native_dictionary_prune_reason(
     if (file_context == nullptr || file_context->native_metadata == nullptr) {
         return ParquetRowGroupPruneReason::NONE;
     }
+    const size_t safe_count =
+            std::min(request.metadata_pruning_safe_conjunct_count, request.conjuncts.size());
+    const VExprContextSPtrs safe_conjuncts(request.conjuncts.begin(),
+                                           request.conjuncts.begin() + safe_count);
     const auto conjuncts_by_slot = collect_conjuncts_by_single_slot(
-            request.conjuncts, expr_zonemap::single_slot_dictionary_index);
+            safe_conjuncts, expr_zonemap::single_slot_dictionary_index);
     for (const auto& [slot_index, conjuncts] : conjuncts_by_slot) {
         const auto file_column_id = file_column_id_by_block_position(request, slot_index);
         if (!file_column_id.has_value()) {
@@ -1187,39 +1250,111 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
     if (file_context == nullptr || file_context->native_file == nullptr) {
         return ParquetRowGroupPruneReason::NONE;
     }
-    const auto conjuncts_by_slot = collect_conjuncts_by_single_slot(
-            request.conjuncts, expr_zonemap::single_slot_bloom_filter_index);
-    for (const auto& [slot_index, conjuncts] : conjuncts_by_slot) {
-        const auto file_column_id = file_column_id_by_block_position(request, slot_index);
+    struct BloomProbeGroup {
+        const ParquetColumnSchema* column_schema = nullptr;
+        int slot_index = -1;
+        VExprContextSPtrs conjuncts;
+    };
+    struct LeafBloomProbeGroup {
+        int leaf_column_id = -1;
+        std::vector<BloomProbeGroup> probes;
+    };
+    // The vector preserves first-probe order, while the map only deduplicates repeated leaves.
+    // This avoids reading a potentially large later payload before an earlier probe can prune.
+    std::vector<LeafBloomProbeGroup> probes_by_first_use;
+    std::map<int, size_t> group_index_by_leaf;
+    const auto add_probe = [&](const ParquetColumnSchema& column_schema, int slot_index,
+                               VExprContextSPtrs conjuncts) {
+        if (column_schema.type == nullptr ||
+            !native_metadata_predicate_is_type_safe(column_schema) ||
+            !bloom_filter_supported(column_schema) || column_schema.leaf_column_id < 0 ||
+            column_schema.leaf_column_id >= static_cast<int>(row_group.columns.size())) {
+            return;
+        }
+        const auto [group_it, inserted] = group_index_by_leaf.try_emplace(
+                column_schema.leaf_column_id, probes_by_first_use.size());
+        if (inserted) {
+            probes_by_first_use.push_back(
+                    {.leaf_column_id = column_schema.leaf_column_id, .probes = {}});
+        }
+        probes_by_first_use[group_it->second].probes.push_back({.column_schema = &column_schema,
+                                                                .slot_index = slot_index,
+                                                                .conjuncts = std::move(conjuncts)});
+    };
+
+    const size_t safe_count =
+            std::min(request.metadata_pruning_safe_conjunct_count, request.conjuncts.size());
+    const VExprContextSPtrs safe_conjuncts(request.conjuncts.begin(),
+                                           request.conjuncts.begin() + safe_count);
+    // Resolve direct and nested probes in one conjunct-order pass. Deduplication happens only
+    // after first use so a later Bloom payload cannot be read before an earlier pruning probe.
+    for (const auto& conjunct : safe_conjuncts) {
+        if (conjunct == nullptr || conjunct->root() == nullptr ||
+            !conjunct->root()->can_evaluate_bloom_filter()) {
+            continue;
+        }
+        auto probe = expr_zonemap::extract_bloom_filter_predicate_probe(conjunct->root());
+        if (!probe.has_value()) {
+            continue;
+        }
+        const auto file_column_id = file_column_id_by_block_position(request, probe->slot_index);
         if (!file_column_id.has_value()) {
             continue;
         }
-        const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
-        if (column_schema == nullptr || column_schema->type == nullptr ||
-            !native_metadata_predicate_is_type_safe(*column_schema) ||
-            !bloom_filter_supported(*column_schema) ||
-            column_schema->leaf_column_id >= static_cast<int>(row_group.columns.size())) {
+        const auto* column_schema =
+                probe->path.empty()
+                        ? resolve_local_leaf_schema(file_schema, *file_column_id)
+                        : resolve_bloom_filter_leaf_schema(file_schema, *file_column_id, *probe);
+        if (column_schema == nullptr ||
+            !expr_zonemap::data_types_compatible(column_schema->type, probe->value_type)) {
             continue;
         }
-        const auto& chunk = row_group.columns[column_schema->leaf_column_id];
+        add_probe(*column_schema, probe->slot_index, {conjunct});
+    }
+
+    for (const auto& leaf_group : probes_by_first_use) {
+        const int leaf_column_id = leaf_group.leaf_column_id;
+        if (pruning_stats != nullptr) {
+            ++pruning_stats->bloom_filter_probe_attempts;
+        }
+        const auto& chunk = row_group.columns[leaf_column_id];
         if (!chunk.__isset.meta_data) {
+            if (pruning_stats != nullptr) {
+                ++pruning_stats->bloom_filter_conservative_fallbacks;
+            }
             continue;
         }
         std::unique_ptr<native::BlockSplitBloomFilter> bloom_filter;
-        Status status;
+        Status bloom_status;
+        int64_t timer_sink = 0;
         {
-            int64_t timer_sink = 0;
             SCOPED_RAW_TIMER(pruning_stats == nullptr ? &timer_sink
                                                       : &pruning_stats->bloom_filter_read_time);
-            status = read_native_bloom_filter(chunk.meta_data, file_context->native_file,
-                                              file_context->native_io_ctx, &bloom_filter);
+            bloom_status = read_native_bloom_filter(row_group.columns[leaf_column_id].meta_data,
+                                                    file_context->native_file,
+                                                    file_context->native_io_ctx, &bloom_filter);
+            if (!bloom_status.ok()) {
+                bloom_filter.reset();
+            }
         }
-        if (!status.ok() || bloom_filter == nullptr) {
+        if (bloom_filter == nullptr) {
+            if (pruning_stats != nullptr) {
+                ++pruning_stats->bloom_filter_conservative_fallbacks;
+                if (bloom_status.is<ErrorCode::CORRUPTION>()) {
+                    ++pruning_stats->bloom_filter_corrupt_rejections;
+                }
+            }
             continue;
         }
-        if (ParquetStatisticsUtils::NativeBloomFilterExcludes(*column_schema, slot_index, conjuncts,
-                                                              *bloom_filter)) {
-            return ParquetRowGroupPruneReason::BLOOM_FILTER;
+        if (pruning_stats != nullptr) {
+            ++pruning_stats->bloom_filter_probe_successes;
+        }
+        // Keep at most one decoded payload live while reusing it for every predicate on this leaf.
+        for (const auto& probe : leaf_group.probes) {
+            if (ParquetStatisticsUtils::NativeBloomFilterExcludes(
+                        *probe.column_schema, probe.slot_index, probe.conjuncts, *bloom_filter)) {
+                return ParquetRowGroupPruneReason::BLOOM_FILTER;
+            }
         }
     }
     return ParquetRowGroupPruneReason::NONE;
@@ -1838,7 +1973,9 @@ Status select_row_group_ranges_by_native_page_index(
 
     std::map<int, VExprContextSPtrs> conjuncts_by_slot;
     VExprContextSPtrs multi_slot_conjuncts;
-    for (const auto& conjunct : request.conjuncts) {
+    const size_t safe_count =
+            std::min(request.metadata_pruning_safe_conjunct_count, request.conjuncts.size());
+    for (const auto& conjunct : request.conjuncts | std::views::take(safe_count)) {
         const auto slot_index = expr_zonemap::single_slot_zonemap_index(conjunct);
         if (slot_index >= 0) {
             conjuncts_by_slot[slot_index].push_back(conjunct);

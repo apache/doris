@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <set>
 #include <type_traits>
 #include <utility>
@@ -50,6 +51,33 @@ std::optional<std::pair<Field, DataTypePtr>> field_from_literal_expr(const VExpr
     return std::make_pair(std::move(field), literal->get_data_type());
 }
 
+std::optional<int32_t> struct_field_ordinal(const Field& field) {
+    int64_t ordinal = -1;
+    switch (field.get_type()) {
+    case TYPE_BOOLEAN:
+        ordinal = field.get<TYPE_BOOLEAN>();
+        break;
+    case TYPE_TINYINT:
+        ordinal = field.get<TYPE_TINYINT>();
+        break;
+    case TYPE_SMALLINT:
+        ordinal = field.get<TYPE_SMALLINT>();
+        break;
+    case TYPE_INT:
+        ordinal = field.get<TYPE_INT>();
+        break;
+    case TYPE_BIGINT:
+        ordinal = field.get<TYPE_BIGINT>();
+        break;
+    default:
+        return std::nullopt;
+    }
+    if (ordinal <= 0 || ordinal > std::numeric_limits<int32_t>::max()) {
+        return std::nullopt;
+    }
+    return static_cast<int32_t>(ordinal - 1);
+}
+
 bool value_in_range(const Field& value, const Field& min_value, const Field& max_value) {
     return value >= min_value && value <= max_value;
 }
@@ -77,6 +105,11 @@ bool floating_point_bloom_filter_may_contain(const segment_v2::BloomFilter& bloo
         return true;
     }
     return value == T {0} && test_value(-value);
+}
+
+bool bloom_filter_probes_equal(const BloomFilterProbe& lhs, const BloomFilterProbe& rhs) {
+    return lhs.slot_index == rhs.slot_index && lhs.path == rhs.path &&
+           data_types_compatible(lhs.value_type, rhs.value_type);
 }
 
 bool bloom_filter_may_contain(const BloomFilterEvalContext::SlotBloomFilter& slot_filter,
@@ -230,6 +263,126 @@ std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args) {
     }
 
     return std::nullopt;
+}
+
+std::optional<BloomFilterProbe> extract_bloom_filter_probe(const VExprSPtr& expr) {
+    if (expr == nullptr || expr->data_type() == nullptr) {
+        return std::nullopt;
+    }
+    if (auto slot = std::dynamic_pointer_cast<VSlotRef>(expr); slot) {
+        return BloomFilterProbe {
+                .slot_index = slot->column_id(), .value_type = slot->data_type(), .path = {}};
+    }
+    if ((expr->fn().name.function_name != "element_at" &&
+         expr->fn().name.function_name != "struct_element") ||
+        expr->get_num_children() != 2) {
+        return std::nullopt;
+    }
+
+    auto probe = extract_bloom_filter_probe(expr->get_child(0));
+    auto selector = field_from_literal_expr(expr->get_child(1));
+    if (!probe.has_value() || !selector.has_value() || selector->first.is_null()) {
+        return std::nullopt;
+    }
+    const auto parent_type = remove_nullable(expr->get_child(0)->data_type());
+    if (parent_type == nullptr) {
+        return std::nullopt;
+    }
+
+    BloomFilterPathElement path_element;
+    switch (parent_type->get_primitive_type()) {
+    case TYPE_STRUCT: {
+        path_element.kind = BloomFilterPathKind::STRUCT_FIELD;
+        const auto selector_type = remove_nullable(selector->second);
+        if (selector_type == nullptr) {
+            return std::nullopt;
+        }
+        if (is_string_type(selector_type->get_primitive_type())) {
+            path_element.field_name = selector->first.get<TYPE_STRING>();
+        } else {
+            auto ordinal = struct_field_ordinal(selector->first);
+            if (!ordinal.has_value()) {
+                return std::nullopt;
+            }
+            path_element.field_ordinal = *ordinal;
+        }
+        break;
+    }
+    case TYPE_ARRAY:
+        // Array element positions share one repeated Parquet leaf; membership in that leaf is a
+        // necessary condition for any element_at(array, constant) equality to match.
+        path_element.kind = BloomFilterPathKind::LIST_ELEMENT;
+        break;
+    default:
+        return std::nullopt;
+    }
+    probe->value_type = expr->data_type();
+    probe->path.push_back(std::move(path_element));
+    return probe;
+}
+
+bool collect_unique_bloom_filter_probe(const VExprSPtr& expr,
+                                       std::optional<BloomFilterProbe>* result) {
+    DORIS_CHECK(result != nullptr);
+    if (auto probe = extract_bloom_filter_probe(expr); probe.has_value()) {
+        if (result->has_value() && !bloom_filter_probes_equal(**result, *probe)) {
+            return false;
+        }
+        *result = std::move(probe);
+        return true;
+    }
+    if (expr == nullptr) {
+        return true;
+    }
+    for (uint16_t child_idx = 0; child_idx < expr->get_num_children(); ++child_idx) {
+        const auto& child = expr->get_child(child_idx);
+        if (child == nullptr || child->is_literal()) {
+            continue;
+        }
+        // Every Bloom-capable branch must bind to the same leaf; a conflicting subtree cannot be
+        // treated like a branch without a probe because the compound evaluator would use it.
+        if (!collect_unique_bloom_filter_probe(child, result)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::optional<BloomFilterProbe> extract_bloom_filter_predicate_probe(const VExprSPtr& expr) {
+    std::optional<BloomFilterProbe> result;
+    if (!collect_unique_bloom_filter_probe(expr, &result)) {
+        return std::nullopt;
+    }
+    return result;
+}
+
+std::optional<SlotLiteral> extract_bloom_filter_slot_and_literal(const VExprSPtrs& args) {
+    if (args.size() != 2) {
+        return std::nullopt;
+    }
+    for (size_t probe_idx = 0; probe_idx < args.size(); ++probe_idx) {
+        auto probe = extract_bloom_filter_probe(args[probe_idx]);
+        auto literal = field_from_literal_expr(args[1 - probe_idx]);
+        if (!probe.has_value() || !literal.has_value()) {
+            continue;
+        }
+        auto [literal_value, literal_type] = std::move(*literal);
+        return SlotLiteral {.slot_index = probe->slot_index,
+                            .slot_type = probe->value_type,
+                            .literal = std::move(literal_value),
+                            .literal_type = std::move(literal_type),
+                            .literal_on_left = probe_idx == 1};
+    }
+    return std::nullopt;
+}
+
+bool can_evaluate_bloom_filter_equality(const VExprSPtrs& args) {
+    auto slot_literal = extract_bloom_filter_slot_and_literal(args);
+    // Parquet Bloom hashes physical bytes, so it cannot disprove Doris NaN equality across
+    // different NaN payloads even when the probe targets a nested leaf.
+    return slot_literal.has_value() && !slot_literal->literal.is_null() &&
+           !slot_literal->literal.is_nan() &&
+           data_types_compatible(slot_literal->slot_type, slot_literal->literal_type);
 }
 
 bool range_stats_usable_for_zonemap(const segment_v2::ZoneMap& zone_map,
@@ -400,14 +553,14 @@ ZoneMapFilterResult eval_in_bloom_filter(const BloomFilterEvalContext& ctx,
     if (is_not_in) {
         return ZoneMapFilterResult::kUnsupported;
     }
-    auto slot = std::dynamic_pointer_cast<VSlotRef>(slot_expr);
-    DORIS_CHECK(slot != nullptr);
-    auto slot_filter = ctx.slot(slot->column_id());
+    auto probe = extract_bloom_filter_probe(slot_expr);
+    DORIS_CHECK(probe.has_value());
+    auto slot_filter = ctx.slot(probe->slot_index);
     if (slot_filter == nullptr || slot_filter->data_type == nullptr ||
         slot_filter->bloom_filter == nullptr) {
         return ZoneMapFilterResult::kUnsupported;
     }
-    DORIS_CHECK(data_types_compatible(slot_filter->data_type, slot->data_type()));
+    DORIS_CHECK(data_types_compatible(slot_filter->data_type, probe->value_type));
     if (values.empty()) {
         return ZoneMapFilterResult::kNoMatch;
     }
