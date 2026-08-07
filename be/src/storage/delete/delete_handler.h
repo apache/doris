@@ -28,6 +28,7 @@
 #include "core/arena.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/rowset/rowset_meta.h"
+#include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
@@ -100,19 +101,22 @@ public:
     DeleteHandler() = default;
     ~DeleteHandler();
 
-    // Initialize DeleteHandler, use the delete conditions of this tablet whose version less than or equal to
-    // 'version' to fill '_del_conds'.
+    // Initialize DeleteHandler, use the delete conditions whose version is less
+    // than or equal to 'version' to fill '_del_conds'.
+    //
+    // Delete-condition columns that are absent from `read_schema` are resolved
+    // against the schema stored in the corresponding delete-predicate rowset and
+    // appended to `read_schema` as storage-only columns.
     // NOTE: You should lock the tablet's header file before calling this function.
-    // input:
-    //     * schema: tablet's schema, the delete conditions and data rows are in this schema
+    // input/output:
+    //     * read_schema: its visible prefix is preserved and missing delete
+    //       columns are appended as a storage-only suffix
     //     * version: maximum version
-    //     * with_sub_pred_v2: whether to use delete sub predicate v2 (v2 is based on PB and use column uid to specify a column,
-    //         v1 is based on condition string, and relies on regex for parse)
     // return:
     //     * Status::Error<DELETE_INVALID_PARAMETERS>(): input parameters are not valid
     //     * Status::Error<MEM_ALLOC_FAILED>(): alloc memory failed
-    Status init(TabletSchemaSPtr tablet_schema,
-                const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version);
+    Status init(ReadSchemaSPtr& read_schema, const std::vector<RowsetMetaSharedPtr>& delete_preds,
+                int64_t version);
 
     [[nodiscard]] bool empty() const { return _del_conds.empty(); }
 
@@ -126,9 +130,14 @@ private:
         requires(std::is_same_v<SubPredType, DeleteSubPredicatePB> or
                  std::is_same_v<SubPredType, std::string>)
     Status _parse_column_pred(
-            TabletSchemaSPtr complete_schema, TabletSchemaSPtr delete_pred_related_schema,
+            ReadSchema& read_schema, const TabletSchemaSPtr& delete_pred_related_schema,
             const ::google::protobuf::RepeatedPtrField<SubPredType>& sub_pred_list,
             DeleteConditions* delete_conditions);
+
+    static Status _resolve_column(ReadSchema& read_schema, int32_t col_unique_id,
+                                  const std::string& column_name,
+                                  const TabletSchemaSPtr& delete_pred_related_schema,
+                                  ColumnId* column_id);
 
     bool _is_inited = false;
     // DeleteConditions in _del_conds are in 'OR' relationship

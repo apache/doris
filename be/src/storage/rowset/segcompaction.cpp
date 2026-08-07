@@ -84,9 +84,8 @@ void SegcompactionWorker::init_mem_tracker(const RowsetWriterContext& rowset_wri
 
 Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
-        std::shared_ptr<Schema> schema, OlapReaderStatistics* stat,
-        RowSourcesBuffer& row_sources_buf, bool is_key, std::vector<uint32_t>& return_columns,
-        std::vector<uint32_t>& key_group_cluster_key_idxes,
+        ReadSchemaSPtr read_schema, OlapReaderStatistics* stat, RowSourcesBuffer& row_sources_buf,
+        bool is_key, std::vector<uint32_t>& key_group_cluster_key_idxes,
         std::unique_ptr<VerticalBlockReader>* reader) {
     const auto& ctx = _writer->_context;
     bool record_rowids = need_convert_delete_bitmap() && is_key;
@@ -112,7 +111,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     std::map<uint32_t, uint32_t> segment_rows;
     for (auto& seg_ptr : *segments) {
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(schema, read_options, &iter);
+        auto s = seg_ptr->new_iterator(read_schema, read_options, &iter);
         if (!s.ok()) {
             return Status::Error<INIT_FAILED>("failed to create iterator[{}]: {}", seg_ptr->id(),
                                               s.to_string());
@@ -132,7 +131,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     // no reader_params.version shouldn't break segcompaction
     reader_params.tablet_schema = ctx.tablet_schema;
     reader_params.tablet = tablet;
-    reader_params.return_columns = return_columns;
+    reader_params.read_schema = std::move(read_schema);
     reader_params.is_key_column_group = is_key;
     reader_params.use_page_cache = false;
     reader_params.record_rowids = record_rowids;
@@ -304,12 +303,11 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
         writer->clear();
         RETURN_IF_ERROR(writer->init(column_ids, is_key));
-        auto schema = std::make_shared<Schema>(ctx.tablet_schema->columns(), column_ids);
+        auto schema = std::make_shared<ReadSchema>(ctx.tablet_schema->columns(), column_ids);
         OlapReaderStatistics reader_stats;
         std::unique_ptr<VerticalBlockReader> reader;
-        auto s =
-                _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
-                                          is_key, column_ids, key_group_cluster_key_idxes, &reader);
+        auto s = _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
+                                           is_key, key_group_cluster_key_idxes, &reader);
         if (UNLIKELY(reader == nullptr || !s.ok())) {
             return Status::Error<SEGCOMPACTION_INIT_READER>(
                     "failed to get segcompaction reader. err: {}", s.to_string());
@@ -317,9 +315,9 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
         Merger::Statistics merger_stats;
         RETURN_IF_ERROR(Merger::vertical_compact_one_group(
-                tablet->tablet_id(), ReaderType::READER_SEGMENT_COMPACTION, *ctx.tablet_schema,
-                is_key, column_ids, &row_sources_buf, *reader, *writer, &merger_stats, &index_size,
-                key_bounds, _rowid_conversion.get()));
+                tablet->tablet_id(), ReaderType::READER_SEGMENT_COMPACTION, *schema, is_key,
+                &row_sources_buf, *reader, *writer, &merger_stats, &index_size, key_bounds,
+                _rowid_conversion.get()));
         total_index_size += index_size;
         if (is_key) {
             RETURN_IF_ERROR(row_sources_buf.flush());

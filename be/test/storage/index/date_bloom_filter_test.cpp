@@ -130,7 +130,7 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     EXPECT_TRUE(res.has_value()) << res.error();
     const auto& rowset_writer = res.value();
 
-    Block block = _tablet_schema->create_block();
+    Block block = _tablet_schema->create_storage_block();
     auto columns = std::move(block).mutate_columns();
 
     auto date = timestamp_from_date("2024-11-08");
@@ -224,7 +224,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
     EXPECT_TRUE(res.has_value()) << res.error();
     const auto& rowset_writer = res.value();
 
-    Block block = _tablet_schema->create_block();
+    Block block = _tablet_schema->create_storage_block();
     auto columns = std::move(block).mutate_columns();
 
     // Insert test data

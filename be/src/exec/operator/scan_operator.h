@@ -355,7 +355,6 @@ protected:
     // Parsed from conjuncts
     phmap::flat_hash_map<int, ColumnValueRangeType> _slot_id_to_value_range;
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> _slot_id_to_predicates;
-    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> _or_predicates;
 
     std::vector<std::shared_ptr<Dependency>> _filter_dependencies;
 
@@ -395,8 +394,6 @@ public:
     const ParsedPartitionBoundaries* parsed_partition_boundaries() const override {
         return &_parsed_partition_boundaries;
     }
-
-    [[nodiscard]] virtual int get_column_id(const std::string& col_name) const { return -1; }
 
     [[nodiscard]] virtual bool can_push_down_column_predicate(const SlotDescriptor*) const {
         return true;

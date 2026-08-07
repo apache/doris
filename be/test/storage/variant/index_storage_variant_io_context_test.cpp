@@ -64,8 +64,7 @@ TEST_F(IndexStorageVariantIoContextTest,
     auto reader_schema = build_schema_with_variant_path_column(*tablet_schema(), kVariantUid, "hot",
                                                                FieldType::OLAP_FIELD_TYPE_INT);
     const ColumnId path_column_id = static_cast<ColumnId>(reader_schema->num_columns() - 1);
-    auto scan_schema = std::make_shared<Schema>(reader_schema->columns(),
-                                                std::vector<ColumnId> {path_column_id});
+    auto scan_schema = std::make_shared<ReadSchema>(reader_schema->columns(), {path_column_id});
 
     TUniqueId query_id;
     query_id.hi = 101;

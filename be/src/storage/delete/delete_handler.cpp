@@ -523,8 +523,8 @@ DeleteHandler::ConditionParseResult DeleteHandler::parse_condition(
 template <typename SubPredType>
     requires(std::is_same_v<SubPredType, DeleteSubPredicatePB> or
              std::is_same_v<SubPredType, std::string>)
-Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
-                                         TabletSchemaSPtr delete_pred_related_schema,
+Status DeleteHandler::_parse_column_pred(ReadSchema& read_schema,
+                                         const TabletSchemaSPtr& delete_pred_related_schema,
                                          const RepeatedPtrField<SubPredType>& sub_pred_list,
                                          DeleteConditions* delete_conditions) {
     for (const auto& sub_predicate : sub_pred_list) {
@@ -535,17 +535,14 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
                 col_unique_id = sub_predicate.column_unique_id();
             }
         }
-        if (col_unique_id < 0) {
-            const auto& column =
-                    *DORIS_TRY(delete_pred_related_schema->column(condition.column_name));
-            col_unique_id = column.unique_id();
-        }
-        condition.col_unique_id = col_unique_id;
-        const auto& column = complete_schema->column_by_uid(col_unique_id);
-        uint32_t index = complete_schema->field_index(col_unique_id);
+        ColumnId column_id;
+        RETURN_IF_ERROR(_resolve_column(read_schema, col_unique_id, condition.column_name,
+                                        delete_pred_related_schema, &column_id));
+        const auto& column = *read_schema.column(column_id);
+        condition.col_unique_id = column.unique_id();
         std::shared_ptr<ColumnPredicate> predicate;
-        RETURN_IF_ERROR(parse_to_predicate(index, column.name(), column.get_vec_type(), condition,
-                                           _predicate_arena, predicate));
+        RETURN_IF_ERROR(parse_to_predicate(column_id, column.name(), column.get_vec_type(),
+                                           condition, _predicate_arena, predicate));
         if (predicate != nullptr) {
             delete_conditions->column_predicate_vec.push_back(predicate);
         }
@@ -553,27 +550,65 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
     return Status::OK();
 }
 
-Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
+Status DeleteHandler::_resolve_column(ReadSchema& read_schema, int32_t col_unique_id,
+                                      const std::string& column_name,
+                                      const TabletSchemaSPtr& delete_pred_related_schema,
+                                      ColumnId* column_id) {
+    // A valid UID is the complete identity. A dropped column and a later
+    // same-name replacement must remain distinct.
+    if (col_unique_id >= 0) {
+        int32_t ordinal = read_schema.ordinal_by_uid(col_unique_id);
+        if (ordinal >= 0) {
+            *column_id = ordinal;
+            return Status::OK();
+        }
+    }
+
+    int32_t rowset_schema_ordinal = -1;
+    if (col_unique_id >= 0) {
+        rowset_schema_ordinal = delete_pred_related_schema->field_index(col_unique_id);
+    } else {
+        rowset_schema_ordinal = delete_pred_related_schema->field_index(column_name);
+    }
+    if (rowset_schema_ordinal < 0) {
+        return Status::Error<ErrorCode::DELETE_INVALID_CONDITION>(
+                "cannot find delete predicate column name={} unique_id={} in rowset schema",
+                column_name, col_unique_id);
+    }
+
+    const auto& historical_column = delete_pred_related_schema->columns()[rowset_schema_ordinal];
+    int32_t ordinal = read_schema.ordinal_by_column(*historical_column);
+    if (ordinal >= 0) {
+        *column_id = ordinal;
+        return Status::OK();
+    }
+
+    *column_id = read_schema.append_column(historical_column);
+    return Status::OK();
+}
+
+Status DeleteHandler::init(ReadSchemaSPtr& read_schema,
                            const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
+    ReadSchema extended_read_schema = *read_schema;
 
     for (const auto& delete_pred : delete_preds) {
         // Skip the delete condition with large version
         if (delete_pred->version().first > version) {
             continue;
         }
-        // Need the tablet schema at the delete condition to parse the accurate column
+        // Need the tablet schema at the delete condition to resolve the accurate column.
         const auto& delete_pred_related_schema = delete_pred->tablet_schema();
         const auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;
         if (!delete_condition.sub_predicates_v2().empty()) {
-            RETURN_IF_ERROR(_parse_column_pred(tablet_schema, delete_pred_related_schema,
+            RETURN_IF_ERROR(_parse_column_pred(extended_read_schema, delete_pred_related_schema,
                                                delete_condition.sub_predicates_v2(), &temp));
         } else {
             // make it compatible with the former versions
-            RETURN_IF_ERROR(_parse_column_pred(tablet_schema, delete_pred_related_schema,
+            RETURN_IF_ERROR(_parse_column_pred(extended_read_schema, delete_pred_related_schema,
                                                delete_condition.sub_predicates(), &temp));
         }
         for (const auto& in_predicate : delete_condition.in_predicates()) {
@@ -583,27 +618,21 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             int32_t col_unique_id = -1;
             if (in_predicate.has_column_unique_id()) {
                 col_unique_id = in_predicate.column_unique_id();
-            } else {
-                // if upgrade from version 2.0.x, column_unique_id maybe not set
-                const auto& pre_column =
-                        *DORIS_TRY(delete_pred_related_schema->column(condition.column_name));
-                col_unique_id = pre_column.unique_id();
             }
-            if (col_unique_id == -1) {
-                return Status::Error<ErrorCode::DELETE_INVALID_CONDITION>(
-                        "cannot get column_unique_id for column {}", condition.column_name);
-            }
-            condition.col_unique_id = col_unique_id;
 
             condition.condition_op =
                     in_predicate.is_not_in() ? PredicateType::NOT_IN_LIST : PredicateType::IN_LIST;
             for (const auto& value : in_predicate.values()) {
                 condition.value_str.push_back(value);
             }
-            const auto& column = tablet_schema->column_by_uid(col_unique_id);
-            uint32_t index = tablet_schema->field_index(col_unique_id);
+            ColumnId column_id;
+            RETURN_IF_ERROR(_resolve_column(extended_read_schema, col_unique_id,
+                                            condition.column_name, delete_pred_related_schema,
+                                            &column_id));
+            const auto& column = *extended_read_schema.column(column_id);
+            condition.col_unique_id = column.unique_id();
             std::shared_ptr<ColumnPredicate> predicate;
-            RETURN_IF_ERROR(parse_to_in_predicate(index, column.name(), column.get_vec_type(),
+            RETURN_IF_ERROR(parse_to_in_predicate(column_id, column.name(), column.get_vec_type(),
                                                   condition, _predicate_arena, predicate));
             temp.column_predicate_vec.push_back(predicate);
         }
@@ -611,6 +640,9 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         _del_conds.emplace_back(std::move(temp));
     }
 
+    if (extended_read_schema.num_read_columns() != read_schema->num_read_columns()) {
+        read_schema = std::make_shared<ReadSchema>(std::move(extended_read_schema));
+    }
     _is_inited = true;
 
     return Status::OK();

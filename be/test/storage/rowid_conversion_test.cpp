@@ -54,6 +54,7 @@
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/schema.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
@@ -191,7 +192,7 @@ protected:
 
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
                 int32_t c1 = std::get<0>(rowset_data[i][rid]);
@@ -363,15 +364,15 @@ protected:
         RowsetReaderContext reader_context;
         reader_context.tablet_schema = tablet_schema;
         reader_context.need_ordered_result = false;
-        std::vector<uint32_t> return_columns = {0, 1};
-        reader_context.return_columns = &return_columns;
+        auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), {0, 1});
+        reader_context.read_schema = read_schema;
         RowsetReaderSharedPtr output_rs_reader;
         create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
         // read output rowset data
         std::vector<std::tuple<int64_t, int64_t>> output_data;
         do {
-            Block output_block = tablet_schema->create_block();
+            Block output_block = read_schema->create_read_block();
             s = output_rs_reader->next_batch(&output_block);
             auto columns = output_block.get_columns_with_type_and_name();
             EXPECT_EQ(columns.size(), 2);

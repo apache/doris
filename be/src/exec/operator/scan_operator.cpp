@@ -582,8 +582,8 @@ Status ScanLocalStateBase::_normalize_function_filters(VExprContext* expr_ctx, S
         RETURN_IF_ERROR(_should_push_down_function_filter(assert_cast<VectorizedFnCall*>(fn_expr),
                                                           expr_ctx, &val, &fn_ctx, temp_pdt));
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
-            std::string col = slot->col_name();
-            _push_down_functions.emplace_back(opposite, col, fn_ctx, val);
+            int column_id = _parent->intermediate_row_desc().get_column_id(slot->id());
+            _push_down_functions.emplace_back(opposite, cast_set<uint32_t>(column_id), fn_ctx, val);
             *pdt = temp_pdt;
         }
     }
@@ -1289,8 +1289,7 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
                                                    .slot_ref.slot_id];
             DCHECK(s != nullptr);
             if (can_push_down_column_predicate(s)) {
-                auto col_name = s->col_name();
-                cid = get_column_id(col_name);
+                cid = this->intermediate_row_desc().get_column_id(s->id());
             }
         }
         RETURN_IF_ERROR(state->get_query_ctx()->get_runtime_predicate(id).init_target(

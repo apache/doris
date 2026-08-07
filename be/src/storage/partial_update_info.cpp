@@ -334,7 +334,7 @@ Status FixedReadPlan::read_columns_by_plan(
         if (block.get_position_by_name(DELETE_SIGN) == -1) {
             auto del_col_cid = tablet_schema.field_index(DELETE_SIGN);
             cids_to_read.emplace_back(del_col_cid);
-            block.swap(tablet_schema.create_block_by_cids(cids_to_read));
+            block.swap(tablet_schema.create_storage_block(cids_to_read));
         }
     }
     bool has_row_column = tablet_schema.has_row_store_for_all_columns();
@@ -427,7 +427,7 @@ Status FixedReadPlan::fill_missing_columns(
                            tablet_schema.sequence_col_idx()) != including_cids.cend());
     }
 
-    auto old_value_block = tablet_schema.create_block_by_cids(missing_cids);
+    auto old_value_block = tablet_schema.create_storage_block(missing_cids);
     CHECK_EQ(missing_cids.size(), old_value_block.columns());
 
     // segment pos to write -> rowid to read in old_value_block
@@ -601,7 +601,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
 
     // missing_cids are all non sort key columns' cids
     const auto& non_sort_key_cids = historical_context.partial_update_info->missing_cids;
-    auto old_value_block = tablet_schema.create_block_by_cids(non_sort_key_cids);
+    auto old_value_block = tablet_schema.create_storage_block(non_sort_key_cids);
     CHECK_EQ(non_sort_key_cids.size(), old_value_block.columns());
 
     if (!use_row_store) {
@@ -1008,7 +1008,7 @@ Status BlockAggregator::aggregate_rows(
 
 Status BlockAggregator::_generate_encoded_default_seq_value(std::string* encoded_value) {
     const auto& seq_column = _tablet_schema.column(_tablet_schema.sequence_col_idx());
-    auto block = _tablet_schema.create_block_by_cids(
+    auto block = _tablet_schema.create_storage_block(
             {cast_set<uint32_t>(_tablet_schema.sequence_col_idx())});
     if (seq_column.has_default_value()) {
         auto idx = _tablet_schema.sequence_col_idx() - _tablet_schema.num_key_columns();
@@ -1045,7 +1045,7 @@ Status BlockAggregator::aggregate_for_sequence_column(
                      ->get_data();
     const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
 
-    auto filtered_block = _tablet_schema.create_block();
+    auto filtered_block = _tablet_schema.create_storage_block();
     MutableBlock output_block = MutableBlock::build_mutable_block(std::move(filtered_block));
 
     int same_key_rows {0};
@@ -1082,8 +1082,8 @@ Status BlockAggregator::fill_sequence_column(Block* block, size_t num_rows,
     std::vector<uint32_t> cids {static_cast<uint32_t>(_tablet_schema.sequence_col_idx())};
     auto seq_col_unique_id = _tablet_schema.column(_tablet_schema.sequence_col_idx()).unique_id();
 
-    auto seq_col_block = _tablet_schema.create_block_by_cids(cids);
-    auto tmp_block = _tablet_schema.create_block_by_cids(cids);
+    auto seq_col_block = _tablet_schema.create_storage_block(cids);
+    auto tmp_block = _tablet_schema.create_storage_block(cids);
     std::map<uint32_t, uint32_t> read_index;
     RETURN_IF_ERROR(read_plan.read_columns_by_plan(_tablet_schema, cids, _fetcher.pinned_rowsets(),
                                                    seq_col_block, &read_index, false));

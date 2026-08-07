@@ -160,7 +160,7 @@ public:
         // The block version is incremental.
         std::stable_sort(row_refs.begin(), row_refs.end(), _cmp);
 
-        auto finalized_block = _tablet->tablet_schema()->create_block();
+        auto finalized_block = _tablet->tablet_schema()->create_storage_block();
         int columns = finalized_block.columns();
         *merged_rows += rows;
 
@@ -578,17 +578,11 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              RowsetWriter* rowset_writer, BaseTabletSPtr new_tablet,
                                              TabletSchemaSPtr base_tablet_schema,
                                              TabletSchemaSPtr new_tablet_schema) {
+    const auto& source_block_schema = rowset_reader->read_schema();
     bool eof = false;
     do {
-        auto new_block = Block::create_unique(new_tablet_schema->create_block());
-        // create_block() skips dropped columns (from light-weight schema change).
-        // Dropped columns are only needed for delete predicate evaluation, which
-        // SegmentIterator handles internally — it creates temporary columns for
-        // predicate columns not present in the block (via `i >= block->columns()`
-        // guard in _init_current_block). If dropped columns were included here,
-        // the block would have more columns than VMergeIterator's output_schema
-        // expects, causing DCHECK failures in copy_rows.
-        auto ref_block = Block::create_unique(base_tablet_schema->create_block());
+        auto new_block = Block::create_unique(new_tablet_schema->create_storage_block());
+        auto ref_block = Block::create_unique(source_block_schema.create_read_block());
 
         Status st = next_batch(rowset_reader, ref_block.get(), _row_same_bit);
         if (!st) {
@@ -625,6 +619,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
                                                     BaseTabletSPtr new_tablet,
                                                     TabletSchemaSPtr base_tablet_schema,
                                                     TabletSchemaSPtr new_tablet_schema) {
+    const auto& source_block_schema = rowset_reader->read_schema();
     // for internal sorting
     std::vector<std::unique_ptr<Block>> blocks;
 
@@ -653,18 +648,11 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         return Status::OK();
     };
 
-    auto new_block = Block::create_unique(new_tablet_schema->create_block());
+    auto new_block = Block::create_unique(new_tablet_schema->create_storage_block());
 
     bool eof = false;
     do {
-        // create_block() skips dropped columns (from light-weight schema change).
-        // Dropped columns are only needed for delete predicate evaluation, which
-        // SegmentIterator handles internally — it creates temporary columns for
-        // predicate columns not present in the block (via `i >= block->columns()`
-        // guard in _init_current_block). If dropped columns were included here,
-        // the block would have more columns than VMergeIterator's output_schema
-        // expects, causing DCHECK failures in copy_rows.
-        auto ref_block = Block::create_unique(base_tablet_schema->create_block());
+        auto ref_block = Block::create_unique(source_block_schema.create_read_block());
         Status st = next_batch(rowset_reader, ref_block.get(), _row_same_bit);
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
@@ -700,7 +688,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         _mem_tracker->consume(new_block->allocated_bytes());
 
         // move unique ptr
-        blocks.push_back(Block::create_unique(new_tablet_schema->create_block()));
+        blocks.push_back(Block::create_unique(new_tablet_schema->create_storage_block()));
         swap(blocks.back(), new_block);
     } while (!eof);
 
@@ -938,39 +926,17 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
     std::vector<RowSetSplits> rs_splits;
     // delete handlers for new tablet
     DeleteHandler delete_handler;
-    std::vector<ColumnId> return_columns;
 
-    // Use tablet schema directly from base tablet, they are the newest schema, not contain
-    // dropped column during light weight schema change.
-    // But the tablet schema in base tablet maybe not the latest from FE, so that if fe pass through
-    // a tablet schema, then use request schema.
-    //
-    // return_columns does NOT include dropped columns. It is computed here BEFORE
-    // merge_dropped_columns() appends dropped columns to _base_tablet_schema below.
-    // This means return_columns only covers the original (non-dropped) columns.
-    //
-    // This is important because:
-    // - BetaRowsetReader builds _output_schema from return_columns, which determines the
-    //   number of columns in ref_block (via create_block() which also skips dropped cols).
-    // - VMergeIterator's copy_rows iterates over _output_schema columns, so ref_block
-    //   must match _output_schema exactly.
-    // - Dropped columns are only needed for delete predicate evaluation, and SegmentIterator
-    //   handles them internally (creates temporary columns for predicate columns not present
-    //   in the block via `i >= block->columns()` guard in _init_current_block).
-    //
-    // Example: table has columns [k1, v1, v2], then DROP COLUMN v1, then
-    //   DELETE FROM t WHERE v1 = 'x' was issued before the drop.
-    //   - _base_tablet_schema after merge_dropped_columns: [k1, v2, v1(DROPPED)]
-    //   - return_columns (computed before merge): [0, 1] → [k1, v2]
-    //   - _output_schema / ref_block columns: [k1, v2] (2 columns)
-    //   - SegmentIterator reads v1 internally for delete predicate, but does not
-    //     output it to ref_block. copy_rows only iterates 2 columns — no OOB access.
+    // Use the visible schema from the base tablet. If FE supplies a schema in
+    // the request, prefer it because the tablet schema may not be the latest.
+    // Historical delete columns are appended by DeleteHandler after this
+    // schema-change output prefix and are not returned in Blocks.
     size_t num_cols =
             request.columns.empty() ? _base_tablet_schema->num_columns() : request.columns.size();
-    return_columns.resize(num_cols);
-    for (int i = 0; i < num_cols; ++i) {
-        return_columns[i] = i;
-    }
+    DORIS_CHECK_LE(num_cols, _base_tablet_schema->columns().size());
+    std::vector<TabletColumnPtr> read_columns(_base_tablet_schema->columns().begin(),
+                                              _base_tablet_schema->columns().begin() + num_cols);
+    ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(std::move(read_columns));
     std::vector<uint32_t> cluster_key_idxes;
 
     DBUG_EXECUTE_IF("SchemaChangeJob::_do_process_alter_tablet.block", DBUG_BLOCK);
@@ -1068,10 +1034,9 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
                 if (!rs_meta->has_delete_predicate() || rs_meta->start_version() > end_version) {
                     continue;
                 }
-                _base_tablet_schema->merge_dropped_columns(*rs_meta->tablet_schema());
                 del_preds.push_back(rs_meta);
             }
-            res = delete_handler.init(_base_tablet_schema, del_preds, end_version);
+            res = delete_handler.init(read_schema, del_preds, end_version);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
                              << _base_tablet->tablet_id() << ", end_version=" << end_version;
@@ -1082,19 +1047,18 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             reader_context.tablet_schema = _base_tablet_schema;
             reader_context.need_ordered_result = true;
             reader_context.delete_handler = &delete_handler;
-            reader_context.return_columns = &return_columns;
-            reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
+            reader_context.read_schema = read_schema;
             reader_context.is_unique = _base_tablet->keys_type() == UNIQUE_KEYS;
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
             reader_context.delete_bitmap = _base_tablet->tablet_meta()->delete_bitmap_ptr();
             reader_context.version = Version(0, end_version);
             if (!_base_tablet_schema->cluster_key_uids().empty()) {
                 for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
-                    cluster_key_idxes.emplace_back(_base_tablet_schema->field_index(uid));
+                    cluster_key_idxes.emplace_back(read_schema->ordinal_by_uid(uid));
                 }
                 reader_context.read_orderby_key_columns = &cluster_key_idxes;
                 reader_context.is_unique = false;
-                reader_context.sequence_id_idx = -1;
+                reader_context.use_sequence_column_for_merge_order = false;
             }
             for (auto& rs_split : rs_splits) {
                 res = rs_split.rs_reader->init(&reader_context);

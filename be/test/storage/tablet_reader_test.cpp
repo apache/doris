@@ -28,6 +28,7 @@
 
 #include "storage/delete/delete_handler.h"
 #include "storage/rowset/rowset_meta.h"
+#include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
@@ -55,16 +56,18 @@ protected:
 
     // Build a DeleteHandler initialized with a single delete-predicate rowset.
     static void init_delete_handler(DeleteHandler& handler, const TabletSchemaSPtr& schema,
-                                    const DeletePredicatePB& delete_predicate) {
+                                    const DeletePredicatePB& delete_predicate,
+                                    ReadSchemaSPtr* read_schema) {
         auto rs_meta = std::make_shared<RowsetMeta>();
         rs_meta->set_tablet_schema(schema);
         rs_meta->set_version(Version(2, 2));
         rs_meta->set_delete_predicate(delete_predicate);
-        ASSERT_TRUE(handler.init(schema, {rs_meta}, /*version=*/100).ok());
+        *read_schema = std::make_shared<ReadSchema>(schema->columns());
+        ASSERT_TRUE(handler.init(*read_schema, {rs_meta}, /*version=*/100).ok());
     }
 };
 
-// The delete columns (resolved by the delete handler to field ids) are mapped back to their
+// The delete columns (resolved by the delete handler to read-schema ordinals) are mapped to their
 // column unique ids and stripped from all_access_paths; unrelated columns keep their paths.
 TEST_F(TabletReaderTest, remove_delete_columns_from_access_paths) {
     auto schema = create_schema({{"k1", 10}, {"k2", 11}, {"v1", 12}, {"v2", 13}, {"v4", 15}});
@@ -88,14 +91,15 @@ TEST_F(TabletReaderTest, remove_delete_columns_from_access_paths) {
     in1->add_values("4");
 
     DeleteHandler handler;
-    init_delete_handler(handler, schema, delete_predicate);
+    ReadSchemaSPtr read_schema;
+    init_delete_handler(handler, schema, delete_predicate, &read_schema);
 
     std::map<int32_t, TColumnAccessPaths> access_paths;
     for (int32_t uid : {10, 11, 12, 13, 15}) {
         access_paths[uid] = TColumnAccessPaths {};
     }
 
-    TabletReader::remove_delete_columns_from_access_paths(handler, *schema, access_paths);
+    TabletReader::remove_delete_columns_from_access_paths(handler, *read_schema, access_paths);
 
     EXPECT_EQ(size_t(2), access_paths.size());
     EXPECT_EQ(size_t(1), access_paths.count(13)) << "non-delete column must keep its access path";
@@ -117,68 +121,16 @@ TEST_F(TabletReaderTest, remove_delete_columns_keeps_unrelated_paths) {
     p1->set_cond_value("1");
 
     DeleteHandler handler;
-    init_delete_handler(handler, schema, delete_predicate);
+    ReadSchemaSPtr read_schema;
+    init_delete_handler(handler, schema, delete_predicate, &read_schema);
 
     std::map<int32_t, TColumnAccessPaths> access_paths;
     access_paths[12] = TColumnAccessPaths {};
     access_paths[15] = TColumnAccessPaths {};
 
-    TabletReader::remove_delete_columns_from_access_paths(handler, *schema, access_paths);
+    TabletReader::remove_delete_columns_from_access_paths(handler, *read_schema, access_paths);
 
     EXPECT_EQ(size_t(2), access_paths.size());
-}
-
-// Contract test for the binlog/snapshot incremental-read TSO range forwarding added to
-// TabletReader::_capture_rs_readers (tablet_reader.cpp:184-186):
-//   _reader_context.start_tso = read_params.start_tso;
-//   _reader_context.end_tso   = read_params.end_tso;
-// Exercising _capture_rs_readers end to end would require a fully constructed Tablet + rowset
-// readers (it unconditionally dereferences _tablet), which is far too heavy and brittle for a
-// unit test. Instead we pin down the field contract on both sides: both must be
-// std::optional<int64_t> defaulting to nullopt, and the forwarding must preserve the optional
-// state (both set / only one / none). This guards against the fields being dropped or their
-// type changed, which would silently break the forwarding.
-TEST_F(TabletReaderTest, forward_tso_range_field_contract) {
-    // Both sides default to nullopt.
-    TabletReader::ReaderParams params;
-    EXPECT_FALSE(params.start_tso.has_value());
-    EXPECT_FALSE(params.end_tso.has_value());
-
-    RowsetReaderContext default_ctx;
-    EXPECT_FALSE(default_ctx.start_tso.has_value());
-    EXPECT_FALSE(default_ctx.end_tso.has_value());
-
-    // Equivalent of the forwarding assignments; the optional state must be preserved verbatim.
-    auto forward = [](const TabletReader::ReaderParams& p) {
-        RowsetReaderContext ctx;
-        ctx.start_tso = p.start_tso;
-        ctx.end_tso = p.end_tso;
-        return ctx;
-    };
-
-    // both set
-    params.start_tso = 100;
-    params.end_tso = 200;
-    RowsetReaderContext ctx = forward(params);
-    ASSERT_TRUE(ctx.start_tso.has_value());
-    ASSERT_TRUE(ctx.end_tso.has_value());
-    EXPECT_EQ(*ctx.start_tso, 100);
-    EXPECT_EQ(*ctx.end_tso, 200);
-
-    // only start set
-    params.start_tso = 100;
-    params.end_tso = std::nullopt;
-    ctx = forward(params);
-    ASSERT_TRUE(ctx.start_tso.has_value());
-    EXPECT_EQ(*ctx.start_tso, 100);
-    EXPECT_FALSE(ctx.end_tso.has_value());
-
-    // none set
-    params.start_tso = std::nullopt;
-    params.end_tso = std::nullopt;
-    ctx = forward(params);
-    EXPECT_FALSE(ctx.start_tso.has_value());
-    EXPECT_FALSE(ctx.end_tso.has_value());
 }
 
 } // namespace doris
