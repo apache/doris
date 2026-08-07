@@ -202,6 +202,8 @@ public:
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
     std::shared_ptr<const IDataType> get_vec_type() const;
+    // Returns schema metadata suitable for diagnostics. The default value itself is omitted.
+    std::string debug_string() const;
 
     Status check_valid() const {
         if (type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&

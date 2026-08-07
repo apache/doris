@@ -85,6 +85,7 @@
 #include "re2/re2.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
@@ -935,15 +936,22 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<ColumnReader> column_reader;
             OlapReaderStatistics stats;
+            StorageReadOptions read_options;
+            read_options.tablet_schema = rs->tablet_schema();
+            read_options.stats = &stats;
             RETURN_IF_ERROR(
-                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
+                    segment->_get_column_reader_for_read(*column, &column_reader, read_options));
             if (!column_reader) {
                 continue;
             }
 
-            CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
             auto* variant_column_reader =
-                    assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+                    dynamic_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+            if (variant_column_reader == nullptr) {
+                // The VARIANT root was added after this segment was written, so the read helper
+                // supplied a schema-default reader with no path statistics.
+                continue;
+            }
             // load external meta before getting stats
             RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
             const auto* source_stats = variant_column_reader->get_stats();
@@ -980,15 +988,22 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<ColumnReader> column_reader;
             OlapReaderStatistics stats;
+            StorageReadOptions read_options;
+            read_options.tablet_schema = rs->tablet_schema();
+            read_options.stats = &stats;
             RETURN_IF_ERROR(
-                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
+                    segment->_get_column_reader_for_read(*column, &column_reader, read_options));
             if (!column_reader) {
                 continue;
             }
 
-            CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
             auto* variant_column_reader =
-                    assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+                    dynamic_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+            if (variant_column_reader == nullptr) {
+                // The VARIANT root was added after this segment was written, so the read helper
+                // supplied a schema-default reader with no extended metadata.
+                continue;
+            }
             // load external meta before getting stats
             RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
             const auto* source_stats = variant_column_reader->get_stats();
@@ -1695,7 +1710,10 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
                 }
                 std::shared_ptr<ColumnReader> column_reader;
                 OlapReaderStatistics stats;
-                st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
+                StorageReadOptions read_options;
+                read_options.tablet_schema = tablet_schema;
+                read_options.stats = &stats;
+                st = segment->_get_column_reader_for_read(*column, &column_reader, read_options);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get column reader for column: " << column->name()
                                  << " error: " << st.to_string();
@@ -1705,9 +1723,13 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
                     continue;
                 }
 
-                CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
                 auto* variant_column_reader =
-                        assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+                        dynamic_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+                if (variant_column_reader == nullptr) {
+                    // The VARIANT root was added after this segment was written, so the read
+                    // helper supplied a schema-default reader with no subcolumn metadata.
+                    continue;
+                }
                 // load external meta before getting subcolumn meta info
                 st = variant_column_reader->load_external_meta_once();
                 if (!st.ok()) {

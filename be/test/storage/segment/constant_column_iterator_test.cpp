@@ -29,6 +29,7 @@
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/common.h"
+#include "storage/segment/segment.h"
 
 using namespace doris::segment_v2;
 
@@ -36,20 +37,15 @@ namespace doris {
 
 class ConstantColumnIteratorTest : public testing::Test {};
 
-TEST_F(ConstantColumnIteratorTest, ColumnReaderCreateWithConstValueReturnsConstantReader) {
+TEST_F(ConstantColumnIteratorTest, ConstantColumnReaderExposesConstantValue) {
     const int64_t kValue = 8888;
-    ColumnReaderOptions opts;
-    opts.const_value = Field::create_field<TYPE_BIGINT>(kValue);
-
-    std::shared_ptr<ColumnReader> reader;
-    auto st = ColumnReader::create(opts, ColumnMetaPB(), 3, io::FileReaderSPtr(), &reader);
-    ASSERT_TRUE(st.ok()) << st;
-    ASSERT_NE(nullptr, reader);
+        std::shared_ptr<ColumnReader> reader = std::make_shared<ConstantColumnReader>(
+            Field::create_field<TYPE_BIGINT>(kValue), FieldType::OLAP_FIELD_TYPE_BIGINT);
     EXPECT_TRUE(reader->has_zone_map());
     EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_BIGINT, reader->get_meta_type());
 
     segment_v2::ZoneMap zone_map;
-    st = reader->get_segment_zone_map(&zone_map);
+    auto st = reader->get_segment_zone_map(&zone_map);
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_EQ(kValue, zone_map.min_value.get<TYPE_BIGINT>());
     EXPECT_EQ(kValue, zone_map.max_value.get<TYPE_BIGINT>());
@@ -75,7 +71,8 @@ TEST_F(ConstantColumnIteratorTest, ColumnReaderCreateWithConstValueReturnsConsta
 
 TEST_F(ConstantColumnIteratorTest, MatchConditionUsesConstantZoneMap) {
     const int64_t kValue = 100;
-    ConstantColumnReader reader(Field::create_field<TYPE_BIGINT>(kValue));
+    ConstantColumnReader reader(Field::create_field<TYPE_BIGINT>(kValue),
+                                FieldType::OLAP_FIELD_TYPE_BIGINT);
     auto make_gt_predicate = [](int64_t value) {
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>(
@@ -153,6 +150,27 @@ TEST_F(ConstantColumnIteratorTest, SeekThenNextBatch) {
     }
 }
 
+TEST_F(ConstantColumnIteratorTest, LazyReadRecoversPredicatePlaceholder) {
+    constexpr int32_t kValue = 42;
+    ConstantColumnIterator iter(Field::create_field<TYPE_INT>(kValue));
+    iter.set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    iter.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+
+    MutableColumnPtr dst = ColumnVector<TYPE_INT>::create();
+    size_t n = 2;
+    bool has_null = false;
+    ASSERT_TRUE(iter.next_batch(&n, dst, &has_null).ok());
+    ASSERT_EQ(2, dst->size());
+    EXPECT_EQ(0, assert_cast<ColumnInt32*>(dst.get())->get_element(0));
+
+    iter.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    ASSERT_TRUE(iter.next_batch(&n, dst, &has_null).ok());
+    ASSERT_EQ(2, dst->size());
+    auto* col = assert_cast<ColumnInt32*>(dst.get());
+    EXPECT_EQ(kValue, col->get_element(0));
+    EXPECT_EQ(kValue, col->get_element(1));
+}
+
 // A predicate-column destination (used when the column has a pushed-down predicate,
 // e.g. __DORIS_COMMIT_TSO_COL__ <= t) is, for BIGINT, the canonical ColumnInt64 and is
 // already covered by NextBatchFillsConstant.
@@ -187,6 +205,59 @@ TEST_F(ConstantColumnIteratorTest, NullValueInsertsNull) {
     for (size_t i = 0; i < 3; i++) {
         ASSERT_TRUE(nullable->is_null_at(i));
     }
+}
+
+TEST_F(ConstantColumnIteratorTest, DefaultFieldUsesImplicitNullForNullableColumn) {
+    TabletColumn column;
+    column.set_name("nullable_int");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    column.set_is_nullable(true);
+
+    Field field;
+    ASSERT_TRUE(Segment::get_default_value_field(column, &field).ok());
+    ASSERT_TRUE(field.is_null());
+
+    ConstantColumnReader reader(std::move(field), column.type());
+    EXPECT_EQ(column.type(), reader.get_meta_type());
+}
+
+TEST_F(ConstantColumnIteratorTest, DefaultFieldRejectsMissingNonNullableDefault) {
+    TabletColumn column;
+    column.set_name("required_int");
+    column.set_unique_id(42);
+    column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    column.set_is_nullable(false);
+
+    Field field;
+    EXPECT_FALSE(Segment::get_default_value_field(column, &field).ok());
+}
+
+TEST_F(ConstantColumnIteratorTest, ConstantReaderRejectsMismatchedFieldType) {
+    EXPECT_THROW(
+            ConstantColumnReader(Field::create_field<TYPE_INT>(1),
+                                 FieldType::OLAP_FIELD_TYPE_BIGINT),
+            Exception);
+}
+
+TEST_F(ConstantColumnIteratorTest, DefaultFieldParsesScalarAndArrayDefaults) {
+    TabletColumn int_column;
+    int_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    int_column.set_default_value("123");
+
+    Field field;
+    ASSERT_TRUE(Segment::get_default_value_field(int_column, &field).ok());
+    EXPECT_EQ(123, field.get<TYPE_INT>());
+
+    TabletColumn array_column;
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_default_value("[]");
+    ASSERT_TRUE(Segment::get_default_value_field(array_column, &field).ok());
+    EXPECT_TRUE(field.get<TYPE_ARRAY>().empty());
+
+    TabletColumn map_column;
+    map_column.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
+    map_column.set_default_value("{}");
+    EXPECT_FALSE(Segment::get_default_value_field(map_column, &field).ok());
 }
 
 } // namespace doris

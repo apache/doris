@@ -256,10 +256,6 @@ bool ColumnReader::is_compaction_reader_type(ReaderType type) {
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                             std::shared_ptr<ColumnReader>* reader) {
-    if (opts.const_value.has_value()) {
-        *reader = std::make_shared<ConstantColumnReader>(*opts.const_value);
-        return Status::OK();
-    }
     if (is_scalar_type((FieldType)meta.type())) {
         std::shared_ptr<ColumnReader> reader_local(
                 new ColumnReader(opts, meta, num_rows, file_reader));
@@ -915,7 +911,7 @@ Status ColumnReader::new_struct_iterator(ColumnIteratorUPtr* iterator,
     for (size_t i = child_size; i < tablet_column_size; i++) {
         TabletColumn column = tablet_column->get_sub_column(i);
         ColumnIteratorUPtr it;
-        RETURN_IF_ERROR(Segment::new_default_iterator(column, &it));
+        RETURN_IF_ERROR(Segment::new_constant_iterator(column, &it));
         it->set_column_name(column.name());
         sub_column_iterators.emplace_back(std::move(it));
     }
@@ -2997,75 +2993,6 @@ void FileColumnIterator::collect_prefetchers(
         PrefetcherInitMethod init_method) {
     if (_prefetcher) {
         prefetchers[init_method].emplace_back(_prefetcher.get());
-    }
-}
-
-Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
-    _opts = opts;
-    // be consistent with segment v1
-    // if _has_default_value, we should create default column iterator for this column, and
-    // "NULL" is a special default value which means the default value is null.
-    if (_has_default_value) {
-        if (_default_value == "NULL") {
-            _default_value_field = Field::create_field<TYPE_NULL>(Null {});
-        } else {
-            if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-                if (_default_value != "[]") {
-                    return Status::NotSupported("Array default {} is unsupported", _default_value);
-                } else {
-                    _default_value_field = Field::create_field<TYPE_ARRAY>(Array {});
-                    return Status::OK();
-                }
-            } else if (_type == FieldType::OLAP_FIELD_TYPE_STRUCT) {
-                return Status::NotSupported("STRUCT default type is unsupported");
-            } else if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
-                return Status::NotSupported("MAP default type is unsupported");
-            }
-            const auto t = _type;
-            const auto serde = DataTypeFactory::instance()
-                                       .create_data_type(t, _precision, _scale, _len)
-                                       ->get_serde();
-            RETURN_IF_ERROR(serde->from_fe_string(_default_value, _default_value_field));
-        }
-    } else if (_is_nullable) {
-        _default_value_field = Field::create_field<TYPE_NULL>(Null {});
-    } else {
-        return Status::InternalError(
-                "invalid default value column for no default value and not nullable");
-    }
-    return Status::OK();
-}
-
-Status DefaultValueColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
-    if (!need_to_read()) {
-        _convert_to_place_holder_column(dst, *n);
-        return Status::OK();
-    }
-
-    _recovery_from_place_holder_column(dst);
-    *has_null = _default_value_field.is_null();
-    _insert_many_default(dst, *n);
-    return Status::OK();
-}
-
-Status DefaultValueColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                                  MutableColumnPtr& dst) {
-    if (!need_to_read()) {
-        _convert_to_place_holder_column(dst, count);
-        return Status::OK();
-    }
-
-    _recovery_from_place_holder_column(dst);
-    _insert_many_default(dst, count);
-    return Status::OK();
-}
-
-void DefaultValueColumnIterator::_insert_many_default(MutableColumnPtr& dst, size_t n) {
-    if (_default_value_field.is_null()) {
-        dst->insert_many_defaults(n);
-    } else {
-        dst = dst->convert_to_predicate_column_if_dictionary();
-        dst->insert_duplicate_fields(_default_value_field, n);
     }
 }
 

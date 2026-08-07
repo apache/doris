@@ -216,8 +216,6 @@ private:
     [[nodiscard]] Status _read_columns(const std::vector<ColumnId>& column_ids,
                                        MutableColumns& column_block, size_t nrows);
     [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint16_t& nrows_read);
-    void _replace_version_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
-    void _update_tso_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
@@ -254,7 +252,7 @@ private:
                 continue;
             }
             DataTypePtr storage_type = _segment->get_data_type_of(*_schema->column(cid), _opts);
-            if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
+            if (!storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 MutableColumnPtr tmp = storage_type->create_column();
                 RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
