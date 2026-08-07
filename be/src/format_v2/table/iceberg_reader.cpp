@@ -47,6 +47,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format/table/iceberg_default_value.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/equality_delete_predicate.h"
 #include "format_v2/orc/orc_reader.h"
@@ -357,6 +358,10 @@ static Status build_v2_json_scalar_default(const format::ColumnDefinition& field
         return Status::OK();
     }
     normalize_iceberg_json_timestamp(primitive_type, &serialized_value);
+    if (doris::iceberg::detail::parse_non_finite_default(primitive_type, serialized_value,
+                                                         result)) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(serialized_value, *result));
     return Status::OK();
 }
@@ -432,6 +437,10 @@ static Status build_v2_initial_default_field(const format::ColumnDefinition& fie
         return Status::OK();
     }
 
+    if (doris::iceberg::detail::parse_non_finite_default(primitive_type,
+                                                         *field.initial_default_value, result)) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(*field.initial_default_value, *result));
     return Status::OK();
 }
@@ -451,7 +460,7 @@ static Status build_initial_default_literal(const format::ColumnDefinition& tabl
     return Status::OK();
 }
 
-static Status build_initial_default_exprs(format::ColumnDefinition* column) {
+Status prepare_iceberg_initial_default_exprs(format::ColumnDefinition* column) {
     DORIS_CHECK(column != nullptr);
     if (column->initial_default_value.has_value()) {
         VExprSPtr literal;
@@ -459,7 +468,7 @@ static Status build_initial_default_exprs(format::ColumnDefinition* column) {
         column->default_expr = VExprContext::create_shared(std::move(literal));
     }
     for (auto& child : column->children) {
-        RETURN_IF_ERROR(build_initial_default_exprs(&child));
+        RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&child));
     }
     return Status::OK();
 }
@@ -771,7 +780,7 @@ Status IcebergTableReader::annotate_projected_column(const TFileScanSlotInfo& sl
     }
 
     auto& schema_column = *context->schema_column;
-    RETURN_IF_ERROR(build_initial_default_exprs(&schema_column));
+    RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&schema_column));
     column->initial_default_value = schema_column.initial_default_value;
     column->initial_default_value_is_base64 = schema_column.initial_default_value_is_base64;
     column->is_optional = schema_column.is_optional;
