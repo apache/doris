@@ -744,6 +744,32 @@ public class IcebergWritePlanProviderTest {
                 "the sink must not ship the fs.s3a.* hadoop form (BE cannot read it)");
     }
 
+    @Test
+    public void planWritePrefersOssBackendConfigOverGenericS3Fallback() {
+        Table table = partitionedSortedTable(freshCatalog());
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.backendFileType = TFileType.FILE_S3;
+        ctx.storageProperties = Arrays.asList(
+                new FakeS3CompatibleStorageProperties("OSS").backendProperties(ImmutableMap.of(
+                        "AWS_ENDPOINT", "https://oss-cn-beijing.aliyuncs.com",
+                        "AWS_REGION", "cn-beijing",
+                        "use_path_style", "false")),
+                new FakeS3CompatibleStorageProperties("S3").backendProperties(ImmutableMap.of(
+                        "AWS_ENDPOINT", "https://s3.cn-beijing.amazonaws.com",
+                        "AWS_REGION", "cn-beijing",
+                        "use_path_style", "true",
+                        "AWS_CREDENTIALS_PROVIDER_TYPE", "DEFAULT")));
+
+        TIcebergTableSink sink = planSink(table, ctx,
+                new WriteHandle(new IcebergTableHandle("db1", "t1")));
+
+        Assertions.assertEquals("https://oss-cn-beijing.aliyuncs.com",
+                sink.getHadoopConfig().get("AWS_ENDPOINT"));
+        Assertions.assertEquals("false", sink.getHadoopConfig().get("use_path_style"));
+        Assertions.assertNull(sink.getHadoopConfig().get("AWS_CREDENTIALS_PROVIDER_TYPE"),
+                "generic S3-only properties must not leak into an explicitly matched OSS write");
+    }
+
     // ───────────────────────────── broker backend (ofs:// / gfs:// -> FILE_BROKER) ─────────────────────────────
     //
     // WHY: SchemaTypeMapper maps ofs/gfs to FILE_BROKER; the sink must then carry the catalog's broker

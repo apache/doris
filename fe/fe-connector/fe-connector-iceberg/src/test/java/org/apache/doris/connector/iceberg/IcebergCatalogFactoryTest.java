@@ -326,6 +326,17 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
+    public void selectEffectiveStoragesDropsGenericS3WhenOssIsPresent() {
+        FakeS3CompatibleStorageProperties genericS3 = new FakeS3CompatibleStorageProperties("S3");
+        FakeS3CompatibleStorageProperties oss = new FakeS3CompatibleStorageProperties("OSS");
+
+        List<StorageProperties> selected = IcebergCatalogFactory.selectEffectiveStorages(
+                Arrays.asList(genericS3, oss));
+
+        Assertions.assertEquals(Collections.singletonList(oss), selected);
+    }
+
+    @Test
     public void chooseS3CompatibleEmptyWhenNoS3Storage() {
         // WHY: a credential-less / HDFS-only catalog has no S3-compatible storage, so no S3FileIO props
         // are emitted (empty Optional). MUTATION: returning a present value -> red.

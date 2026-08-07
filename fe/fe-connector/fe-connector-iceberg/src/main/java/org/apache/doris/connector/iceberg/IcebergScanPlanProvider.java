@@ -1654,7 +1654,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // overlay, just the vended one below.
         if (context != null) {
             Map<String, String> backendStorageProps = new HashMap<>();
-            for (StorageProperties sp : storage().getStorageProperties()) {
+            for (StorageProperties sp : IcebergCatalogFactory.selectEffectiveStorages(
+                    storage().getStorageProperties())) {
                 sp.toBackendProperties().ifPresent(b -> backendStorageProps.putAll(b.toMap()));
             }
             backendStorageProps.forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));

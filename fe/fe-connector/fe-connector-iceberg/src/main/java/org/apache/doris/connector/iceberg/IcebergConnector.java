@@ -1219,7 +1219,8 @@ public class IcebergConnector implements Connector {
      */
     private Map<String, String> buildStorageHadoopConfig() {
         Map<String, String> merged = new HashMap<>();
-        for (StorageProperties sp : storage().getStorageProperties()) {
+        for (StorageProperties sp : IcebergCatalogFactory.selectEffectiveStorages(
+                storage().getStorageProperties())) {
             sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap()));
         }
         return merged;

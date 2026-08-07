@@ -929,7 +929,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             // getBackendStorageProperties() second parse). The BE S3 sink (s3_util.cpp
             // convert_properties_to_s3_conf) reads ONLY AWS_*, so the fs.s3a.* hadoop form (correct for the FE
             // iceberg-catalog Configuration) would leave the BE writer with no creds.
-            for (StorageProperties sp : storage().getStorageProperties()) {
+            for (StorageProperties sp : IcebergCatalogFactory.selectEffectiveStorages(
+                    storage().getStorageProperties())) {
                 sp.toBackendProperties().ifPresent(b -> merged.putAll(b.toMap()));
             }
             // REST per-table vended overlay (colliding key takes the vended value — legacy/scan precedence): a

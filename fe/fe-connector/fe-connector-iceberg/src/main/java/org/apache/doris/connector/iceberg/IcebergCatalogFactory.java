@@ -38,6 +38,7 @@ import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -209,6 +210,25 @@ public final class IcebergCatalogFactory {
             }
         }
         return Optional.ofNullable(target != null ? target : fallback);
+    }
+
+    /**
+     * Selects the storage bindings Iceberg should consume together. All non-S3-compatible bindings are
+     * preserved, while the S3-compatible family is reduced to the same single binding selected for S3FileIO:
+     * a cloud-specific provider such as OSS/COS/OBS wins over the generic S3 fallback. Raw-property routing can
+     * legitimately bind both (for legacy parity), but merging both maps would let a later generic S3 binding
+     * overwrite the explicit provider's endpoint, credentials, and path-style setting.
+     */
+    public static List<StorageProperties> selectEffectiveStorages(
+            List<? extends StorageProperties> storages) {
+        S3CompatibleFileSystemProperties chosenS3 = chooseS3Compatible(storages).orElse(null);
+        List<StorageProperties> selected = new ArrayList<>();
+        for (StorageProperties storage : storages) {
+            if (!(storage instanceof S3CompatibleFileSystemProperties) || storage == chosenS3) {
+                selected.add(storage);
+            }
+        }
+        return selected;
     }
 
     /**
