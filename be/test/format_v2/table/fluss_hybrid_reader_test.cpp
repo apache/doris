@@ -25,8 +25,11 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris::format::fluss {
 namespace {
@@ -42,6 +45,11 @@ public:
 
     Status get_block(Block* block, bool* eos) override {
         ++blocks_served;
+        if (rows_per_block > 0) {
+            auto column = ColumnInt32::create();
+            column->insert_many_defaults(rows_per_block);
+            block->insert({std::move(column), std::make_shared<DataTypeInt32>(), "row"});
+        }
         *eos = true;
         return Status::OK();
     }
@@ -53,6 +61,8 @@ public:
 
     std::vector<TFileRangeDesc> prepared_ranges;
     int blocks_served = 0;
+    // Rows this child puts into every block it serves, so the wrapper has something to count.
+    size_t rows_per_block = 0;
     bool closed = false;
 };
 
@@ -74,7 +84,7 @@ struct HybridFixture {
     int log_children_built = 0;
     int lake_children_built = 0;
 
-    Status open() {
+    Status open(RuntimeProfile* scanner_profile = nullptr) {
         reader._test_log_reader_factory = [this]() {
             ++log_children_built;
             auto child = std::make_unique<RecordingChildReader>();
@@ -94,7 +104,7 @@ struct HybridFixture {
                 .scan_params = &scan_params,
                 .io_ctx = nullptr,
                 .runtime_state = nullptr,
-                .scanner_profile = nullptr,
+                .scanner_profile = scanner_profile,
         });
     }
 
@@ -177,6 +187,100 @@ TEST(FlussHybridReaderTest, LakeRangesAreToldApartByTheirRangeType) {
     EXPECT_FALSE(FlussHybridReader::is_lake_range(fluss_range("PK_FULL")));
     EXPECT_FALSE(FlussHybridReader::is_lake_range(fluss_range("PK_TAIL")));
     EXPECT_FALSE(FlussHybridReader::is_lake_range(TFileRangeDesc {}));
+}
+
+// ------------------------------------------------------------------ the profile
+
+// Which kinds of range a scan read, and how many of each. A kind that never arrived leaves no
+// counter at all: a pure log-table query's profile must not be padded with the lake and
+// primary-key lines the dispatch can prove it never took.
+TEST(FlussHybridReaderTest, CountsEachRangeKindItReadAndRegistersNoOthers) {
+    RuntimeProfile profile("fluss_hybrid_reader_range_counts");
+    HybridFixture fixture;
+    ASSERT_TRUE(fixture.open(&profile).ok());
+
+    ASSERT_TRUE(fixture.prepare("LOG").ok());
+    ASSERT_TRUE(fixture.prepare("LOG").ok());
+    ASSERT_TRUE(fixture.prepare("LAKE_SUPPRESS").ok());
+
+    ASSERT_NE(profile.get_counter("FlussLogRangeNum"), nullptr);
+    EXPECT_EQ(profile.get_counter("FlussLogRangeNum")->value(), 2);
+    ASSERT_NE(profile.get_counter("FlussLakeSuppressRangeNum"), nullptr);
+    EXPECT_EQ(profile.get_counter("FlussLakeSuppressRangeNum")->value(), 1);
+
+    for (const auto* absent :
+         {"FlussPkFullRangeNum", "FlussPkTailRangeNum", "FlussLakeRangeNum",
+          "FlussPkFullRangeReadTime", "FlussPkTailRangeReadTime", "FlussLakeRangeReadTime"}) {
+        EXPECT_EQ(profile.get_counter(absent), nullptr) << absent;
+    }
+}
+
+// A side's metrics appear when its child is first built, so the half of the reader a scan never
+// reached stays out of its profile entirely.
+TEST(FlussHybridReaderTest, LeavesTheLakeSideOutOfAPureLogScansProfile) {
+    RuntimeProfile profile("fluss_hybrid_reader_log_only");
+    HybridFixture fixture;
+    ASSERT_TRUE(fixture.open(&profile).ok());
+    ASSERT_TRUE(fixture.prepare("LOG").ok());
+
+    EXPECT_NE(profile.get_counter("FlussLogReadTime"), nullptr);
+    EXPECT_NE(profile.get_counter("FlussLogRowsReturned"), nullptr);
+    EXPECT_EQ(profile.get_counter("FlussLakeReadTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("FlussLakeRowsReturned"), nullptr);
+}
+
+// Time alone cannot tell "the lake half is slow" from "the lake half is where the rows are". The
+// lake side's count is what the sibling returned minus what the log tail superseded, which is what
+// the consumer downstream actually receives.
+TEST(FlussHybridReaderTest, CountsTheRowsEachSideReturned) {
+    RuntimeProfile profile("fluss_hybrid_reader_rows");
+    HybridFixture fixture;
+    ASSERT_TRUE(fixture.open(&profile).ok());
+
+    Block block;
+    bool eos = false;
+    ASSERT_TRUE(fixture.prepare("LOG").ok());
+    fixture.log_child->rows_per_block = 3;
+    ASSERT_TRUE(fixture.reader.get_block(&block, &eos).ok());
+
+    block.clear();
+    ASSERT_TRUE(fixture.prepare("LAKE").ok());
+    fixture.lake_child->rows_per_block = 5;
+    ASSERT_TRUE(fixture.reader.get_block(&block, &eos).ok());
+
+    ASSERT_NE(profile.get_counter("FlussLogRowsReturned"), nullptr);
+    EXPECT_EQ(profile.get_counter("FlussLogRowsReturned")->value(), 3);
+    ASSERT_NE(profile.get_counter("FlussLakeRowsReturned"), nullptr);
+    EXPECT_EQ(profile.get_counter("FlussLakeRowsReturned")->value(), 5);
+}
+
+// The two layers, and the invariant that makes their difference readable: a side's timer covers
+// everything the wrapper forwards to that child, standing it up and closing it included, while a
+// range kind's timer covers only the per-range work. Their difference is therefore the one-off cost
+// of the child itself - JNI class loading, the paimon stack's setup - which is a diagnosis of its
+// own. Attributing close() to whichever range happened to be last would destroy that reading.
+TEST(FlussHybridReaderTest, TimesEachSideMoreWidelyThanTheRangeKindsWithinIt) {
+    RuntimeProfile profile("fluss_hybrid_reader_timers");
+    HybridFixture fixture;
+    ASSERT_TRUE(fixture.open(&profile).ok());
+    ASSERT_TRUE(fixture.prepare("LOG").ok());
+    fixture.log_child->rows_per_block = 1;
+    Block block;
+    bool eos = false;
+    ASSERT_TRUE(fixture.reader.get_block(&block, &eos).ok());
+
+    auto* side = profile.get_counter("FlussLogReadTime");
+    auto* kind = profile.get_counter("FlussLogRangeReadTime");
+    ASSERT_NE(side, nullptr);
+    ASSERT_NE(kind, nullptr);
+    EXPECT_GT(kind->value(), 0);
+    EXPECT_GE(side->value(), kind->value());
+
+    const auto side_before_close = side->value();
+    const auto kind_before_close = kind->value();
+    ASSERT_TRUE(fixture.reader.close().ok());
+    EXPECT_GT(side->value(), side_before_close);
+    EXPECT_EQ(kind->value(), kind_before_close);
 }
 
 TEST(FlussHybridReaderTest, ClosesEveryChildItBuilt) {
