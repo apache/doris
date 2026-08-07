@@ -67,10 +67,8 @@ under the License.
             <groupId>org.apache.hadoop.thirdparty</groupId>
             <artifactId>hadoop-shaded-protobuf_3_25</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.huaweicloud</groupId>
-            <artifactId>hadoop-huaweicloud</artifactId>
-        </dependency>
+        <!-- Huawei OBS: hadoop-huaweicloud lives in the `obs` profile below;
+             disabled via -Ddisable.obs=true (build.sh exclude-obs-dependencies flag). -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-client</artifactId>
@@ -95,13 +93,32 @@ under the License.
         </dependency>
     </dependencies>
 
-    <repositories>
-        <!-- for huawei obs sdk -->
-        <repository>
-            <id>huawei-obs-sdk</id>
-            <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
-        </repository>
-    </repositories>
+    <!-- Huawei OBS support. Active by default; disabled by -Ddisable.obs=true
+         (build.sh exclude-obs-dependencies flag), which drops the hadoop-huaweicloud dependency
+         and the Huawei Maven repository so nothing from com.huaweicloud is resolved or bundled. -->
+    <profiles>
+        <profile>
+            <id>obs</id>
+            <activation>
+                <property>
+                    <name>!disable.obs</name>
+                </property>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.huaweicloud</groupId>
+                    <artifactId>hadoop-huaweicloud</artifactId>
+                </dependency>
+            </dependencies>
+            <repositories>
+                <!-- for huawei obs sdk -->
+                <repository>
+                    <id>huawei-obs-sdk</id>
+                    <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+                </repository>
+            </repositories>
+        </profile>
+    </profiles>
 
     <build>
         <plugins>

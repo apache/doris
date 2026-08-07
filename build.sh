@@ -68,6 +68,11 @@ Usage: $0 <options>
      --be-extension-ignore      build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
      --enable-dynamic-arch      enable dynamic CPU detection in OpenBLAS. Default ON.
      --disable-dynamic-arch     disable dynamic CPU detection in OpenBLAS.
+     --exclude-obs-dependencies exclude all Huawei Cloud OBS (com.huaweicloud) dependencies and the
+                                fe-filesystem-obs module; nothing from Huawei is resolved, compiled,
+                                or bundled. Use when repo.huaweicloud.com is unreachable or forbidden.
+     --exclude-cos-dependencies exclude all Tencent Cloud COS dependencies and the fe-filesystem-cos
+                                module; nothing from Tencent COS is resolved, compiled, or bundled.
      --clean                    clean and build target
      --compile-bench            BE compile-speed benchmark: cold, cache-free BE-only build
                                 (fresh dedicated build dir, ccache disabled) with a per-phase
@@ -802,6 +807,14 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-filesystem/fe-filesystem-api")
     modules+=("fe-filesystem/fe-filesystem-spi")
     for _fs_mod in s3-base s3 gcs minio ozone oss cos obs azure hdfs-base hdfs oss-hdfs jfs local broker http; do
+        # Skip the modules whose Maven profile is deactivated so the -pl list stays consistent with
+        # the reactor: obs is absent under -Ddisable.obs=true, cos under -Ddisable.cos=true.
+        if [[ "${_fs_mod}" == "obs" && "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
+        if [[ "${_fs_mod}" == "cos" && "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
         if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
             modules+=("fe-filesystem/fe-filesystem-${_fs_mod}")
         fi
@@ -1070,10 +1083,14 @@ function build_fe_modules() {
         extra_mvn_opts=(${MVN_OPT})
     fi
     if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
-        dependency_mvn_opts+=("-Dobs.dependency.scope=provided")
+        # Deactivates the `obs` Maven profile in fe-core, hadoop-deps and fe-filesystem, so no
+        # com.huaweicloud artifact is resolved and the Huawei OBS module is not built or bundled.
+        dependency_mvn_opts+=("-Ddisable.obs=true")
     fi
     if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
-        dependency_mvn_opts+=("-Dcos.dependency.scope=provided")
+        # Deactivates the `cos` Maven profile in fe-core and fe-filesystem, so no Tencent COS
+        # artifact is resolved and the fe-filesystem-cos module is not built or bundled.
+        dependency_mvn_opts+=("-Ddisable.cos=true")
     fi
     if [[ -n "${USER_SETTINGS_MVN_REPO}" && -f "${USER_SETTINGS_MVN_REPO}" ]]; then
         user_settings_opts=(-gs "${USER_SETTINGS_MVN_REPO}")
@@ -1189,6 +1206,14 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fs_plugin_target="${FS_PLUGIN_DIR}/${fs_module}"
         fs_module_dir="${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${fs_module}"
         if [ ! -d "${fs_module_dir}" ]; then
+            continue
+        fi
+        # These modules are not built when their Maven profile is deactivated, so their plugin zip
+        # does not exist; skip the unpack to keep packaging consistent with the reactor.
+        if [[ "${fs_module}" == "obs" && "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
+        if [[ "${fs_module}" == "cos" && "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
             continue
         fi
         mkdir -p "${fs_plugin_target}"
