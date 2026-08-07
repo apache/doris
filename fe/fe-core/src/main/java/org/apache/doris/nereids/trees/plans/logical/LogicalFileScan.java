@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -355,6 +356,17 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             }
         }
         return false;
+    }
+
+    @Override
+    public boolean supportPruneNestedColumn(DataType dataType) {
+        ExternalTable table = getTable();
+        if (table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable) {
+            // Paimon JNI currently supports nested projection only for Variant. Its static complex
+            // types still return the full value, which would misalign pruned ROW/ARRAY/MAP slots.
+            return dataType.isVariantType();
+        }
+        return supportPruneNestedColumn();
     }
 
     private boolean hasSameSnapshot(Optional<TableSnapshot> left, Optional<TableSnapshot> right) {

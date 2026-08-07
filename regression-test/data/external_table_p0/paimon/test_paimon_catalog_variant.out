@@ -43,6 +43,14 @@ payload	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable
 -- !jni_shredded_projection --
 2	bob	30
 
+-- !jni_nested_shredded_path --
+1	beijing
+2	shanghai
+
+-- !jni_unsupported_array_path_fallback --
+1	alice	flink
+2	bob	doris
+
 -- !jni_mixed_us_projection --
 1	alice	unshredded
 2	bob	shredded

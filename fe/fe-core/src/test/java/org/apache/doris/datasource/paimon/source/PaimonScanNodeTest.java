@@ -22,7 +22,12 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
@@ -108,10 +113,22 @@ public class PaimonScanNodeTest {
     private PaimonFileExternalCatalog paimonFileExternalCatalog;
 
     @Test
-    public void testVariantProjectionRequiresVariantV2() throws UserException {
+    public void testVariantProjectionRequiresVariantV2Recursively() throws UserException {
+        List<Type> variantTypes = Arrays.asList(
+                VariantType.COMPUTE_V2_INSTANCE,
+                new ArrayType(VariantType.COMPUTE_V2_INSTANCE),
+                new MapType(Type.STRING, VariantType.COMPUTE_V2_INSTANCE),
+                new StructType(new StructField("payload", VariantType.COMPUTE_V2_INSTANCE)));
+
+        for (Type variantType : variantTypes) {
+            assertVariantProjectionRequiresVariantV2(variantType);
+        }
+    }
+
+    private void assertVariantProjectionRequiresVariantV2(Type variantType) throws UserException {
         TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
         SlotDescriptor slot = new SlotDescriptor(new SlotId(0), desc);
-        slot.setColumn(new Column("payload", VariantType.COMPUTE_V2_INSTANCE));
+        slot.setColumn(new Column("payload", variantType));
         desc.addSlot(slot);
 
         ExceptionChecker.expectThrowsWithMsg(UserException.class,

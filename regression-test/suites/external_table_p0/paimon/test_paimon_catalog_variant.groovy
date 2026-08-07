@@ -130,6 +130,31 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             order by id
         """
 
+        // profile.city is physically shredded. This covers the complete FE -> BE -> JNI ->
+        // Paimon readType path for a nested object projection, beyond the Java projection UT.
+        explain {
+            sql "select id, cast(payload['profile']['city'] as string) from variant_shredded"
+            contains "paimonNativeReadSplits=0/1"
+            contains "all access paths: [payload.profile.city]"
+        }
+
+        order_qt_jni_nested_shredded_path """
+            select id, cast(payload['profile']['city'] as string)
+            from variant_shredded
+            order by id
+        """
+
+        // Doris Variant array indexes are one-based. The numeric path segment is intentionally
+        // unsupported by Paimon's metadata projection, so it must make the whole Variant column
+        // fall back even though payload.name alone is projectable.
+        order_qt_jni_unsupported_array_path_fallback """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['tags'][1] as string)
+            from variant_shredded
+            order by id
+        """
+
         // A table can contain files written before and after shredding was enabled. Paimon must
         // apply physical projection per file while returning one consistent partial Variant.
         order_qt_jni_mixed_us_projection """
