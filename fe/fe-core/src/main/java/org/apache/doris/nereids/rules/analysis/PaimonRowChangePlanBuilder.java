@@ -21,12 +21,14 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.paimon.PaimonRowChangeOperation;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -50,6 +52,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -66,12 +72,16 @@ import java.util.TreeSet;
 final class PaimonRowChangePlanBuilder {
     private static final String BRANCH_LABEL = "__DORIS_PAIMON_MERGE_BRANCH__";
     private static final String MATCH_COUNT = "__DORIS_PAIMON_MERGE_MATCH_COUNT__";
+    private static final String INSERT_COUNT = "__DORIS_PAIMON_MERGE_INSERT_COUNT__";
+    private static final String INSERT_MARKER = "__DORIS_PAIMON_MERGE_INSERT_MARKER__";
+    private static final String INSERT_KEY_PREFIX = "__DORIS_PAIMON_MERGE_INSERT_KEY_";
 
     private PaimonRowChangePlanBuilder() {
     }
 
     static LogicalProject<?> build(
-            PaimonWriteTarget target, PaimonRowChangeSpec spec, LogicalPlan child) {
+            PaimonWriteTarget target, PaimonRowChangeSpec spec, LogicalPlan child,
+            CascadesContext cascadesContext) {
         checkCapabilities(target, spec);
         LogicalProject<?> project;
         if (spec instanceof PaimonRowChangeSpec.Update) {
@@ -81,7 +91,7 @@ final class PaimonRowChangePlanBuilder {
             project = buildDelete(target, (PaimonRowChangeSpec.Delete) spec, child);
         } else if (spec instanceof PaimonRowChangeSpec.Merge) {
             project = buildMerge(target,
-                    (PaimonRowChangeSpec.Merge) spec, child);
+                    (PaimonRowChangeSpec.Merge) spec, child, cascadesContext);
         } else {
             throw new AnalysisException("Unsupported Paimon row-change specification: "
                     + spec.getClass().getSimpleName());
@@ -172,19 +182,28 @@ final class PaimonRowChangePlanBuilder {
     }
 
     private static LogicalProject<?> buildMerge(PaimonWriteTarget target,
-            PaimonRowChangeSpec.Merge merge, LogicalPlan child) {
+            PaimonRowChangeSpec.Merge merge, LogicalPlan child, CascadesContext cascadesContext) {
         LogicalPlan plan = child;
-        Expression targetPresent = targetPresence(target, merge.getTargetNameInPlan());
+        Expression targetPresent = targetPresence(plan, target, merge.getTargetNameInPlan());
         if (!merge.getMatchedClauses().isEmpty()) {
-            plan = addTargetMatchCount(plan, target, merge.getTargetNameInPlan());
+            Alias matchCount = generateTargetMatchCount(
+                    plan, target, merge.getTargetNameInPlan());
+            plan = new LogicalWindow<>(ImmutableList.of(matchCount), plan);
             targetPresent = new And(targetPresent, new AssertTrue(
-                    new LessThanEqual(new UnboundSlot(MATCH_COUNT), new BigIntLiteral(1)),
+                    new LessThanEqual(matchCount.toSlot(), new BigIntLiteral(1)),
                     new VarcharLiteral("Paimon MERGE matched one target row with multiple source rows")));
         }
-        plan = new LogicalProject<>(ImmutableList.of(
-                new UnboundStar(ImmutableList.of()), generateBranchLabel(merge, targetPresent)), plan);
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
+                plan, new Scope(plan.getOutput()), cascadesContext, true, false);
+        Alias unboundBranchLabel = generateBranchLabel(merge, targetPresent);
+        Alias branchLabel = new Alias(
+                analyzer.analyze(unboundBranchLabel.child()), BRANCH_LABEL);
+        Slot branchLabelSlot = branchLabel.toSlot();
+        List<NamedExpression> branchOutputs = new ArrayList<>(plan.getOutput());
+        branchOutputs.add(branchLabel);
+        plan = new LogicalProject<>(branchOutputs, plan);
         plan = new LogicalFilter<>(
-                ImmutableSet.of(new Not(new IsNull(new UnboundSlot(BRANCH_LABEL)))), plan);
+                ImmutableSet.of(new Not(new IsNull(branchLabelSlot))), plan);
 
         List<List<Expression>> branchProjections = new ArrayList<>();
         for (MergeMatchedClause clause : merge.getMatchedClauses()) {
@@ -198,24 +217,80 @@ final class PaimonRowChangePlanBuilder {
         if (branchProjections.isEmpty()) {
             throw new AnalysisException("Paimon MERGE requires at least one WHEN clause");
         }
+        for (List<Expression> branch : branchProjections) {
+            for (int i = 0; i < branch.size(); i++) {
+                branch.set(i, analyzer.analyze(branch.get(i)));
+            }
+        }
 
         List<String> outputNames = new ArrayList<>();
         outputNames.add(PaimonRowChangeOperation.OPERATION_COLUMN);
+        List<DataType> outputTypes = new ArrayList<>();
+        outputTypes.add(TinyIntType.INSTANCE);
         for (Column column : target.getSchema()) {
             outputNames.add(column.getName());
+            outputTypes.add(DataType.fromCatalogType(column.getType()));
         }
-        return new LogicalProject<>(generateFinalProjections(outputNames, branchProjections), plan);
+        if (!merge.getNotMatchedClauses().isEmpty()) {
+            plan = checkInsertPrimaryKeyUniqueness(
+                    target, plan, outputNames, outputTypes, branchProjections, branchLabelSlot);
+        }
+        return new LogicalProject<>(
+                generateFinalProjections(
+                        outputNames, outputTypes, branchProjections, branchLabelSlot), plan);
     }
 
-    private static Expression targetPresence(
+    private static LogicalPlan checkInsertPrimaryKeyUniqueness(
+            PaimonWriteTarget target, LogicalPlan plan, List<String> outputNames, List<DataType> outputTypes,
+            List<List<Expression>> branchProjections, Slot branchLabel) {
+        List<Expression> partitionKeys = new ArrayList<>();
+        List<NamedExpression> projects = new ArrayList<>(plan.getOutput());
+        for (String primaryKey : target.getTable().primaryKeys()) {
+            int column = -1;
+            for (int i = 1; i < outputNames.size(); i++) {
+                if (outputNames.get(i).equalsIgnoreCase(primaryKey)) {
+                    column = i;
+                    break;
+                }
+            }
+            if (column < 0) {
+                throw new AnalysisException(
+                        "Unable to resolve Paimon MERGE primary key column '" + primaryKey + "'");
+            }
+            DataType dataType = outputTypes.get(column);
+            Alias insertKey = new Alias(generateFinalExpression(
+                    column, branchProjections, branchLabel, dataType),
+                    INSERT_KEY_PREFIX + partitionKeys.size() + "__");
+            projects.add(insertKey);
+            partitionKeys.add(insertKey.toSlot());
+        }
+        Expression insertedRow = new If(
+                new EqualTo(generateFinalExpression(
+                                0, branchProjections, branchLabel, TinyIntType.INSTANCE),
+                        new TinyIntLiteral(PaimonRowChangeOperation.INSERT)),
+                new BigIntLiteral(1), new NullLiteral(BigIntType.INSTANCE));
+        Alias insertMarker = new Alias(insertedRow, INSERT_MARKER);
+        projects.add(insertMarker);
+        plan = new LogicalProject<>(projects, plan);
+        WindowExpression countInserts = new WindowExpression(
+                new Count(insertMarker.toSlot()), partitionKeys, ImmutableList.of());
+        Alias insertCount = new Alias(countInserts, INSERT_COUNT);
+        plan = new LogicalWindow<>(ImmutableList.of(insertCount), plan);
+        plan = new LogicalFilter<>(ImmutableSet.of(new AssertTrue(
+                new LessThanEqual(insertCount.toSlot(), new BigIntLiteral(1)),
+                new VarcharLiteral(
+                        "Paimon MERGE attempted to insert multiple rows with the same primary key"))),
+                plan);
+        return plan;
+    }
+
+    private static Expression targetPresence(LogicalPlan plan,
             PaimonWriteTarget target, List<String> targetNameInPlan) {
         String primaryKey = target.getTable().primaryKeys().get(0);
-        List<String> parts = Lists.newArrayList(targetNameInPlan);
-        parts.add(primaryKey);
-        return new Not(new IsNull(new UnboundSlot(parts)));
+        return new Not(new IsNull(findTargetSlot(plan, targetNameInPlan, primaryKey)));
     }
 
-    private static LogicalPlan addTargetMatchCount(LogicalPlan plan,
+    private static Alias generateTargetMatchCount(LogicalPlan plan,
             PaimonWriteTarget target, List<String> targetNameInPlan) {
         List<Expression> partitionKeys = new ArrayList<>();
         for (String primaryKey : target.getTable().primaryKeys()) {
@@ -224,8 +299,7 @@ final class PaimonRowChangePlanBuilder {
         WindowExpression countMatches = new WindowExpression(
                 new Count(partitionKeys.get(0)),
                 partitionKeys, ImmutableList.of());
-        return new LogicalWindow<>(ImmutableList.of(
-                new Alias(countMatches, MATCH_COUNT)), plan);
+        return new Alias(countMatches, MATCH_COUNT);
     }
 
     private static Slot findTargetSlot(
@@ -254,9 +328,9 @@ final class PaimonRowChangePlanBuilder {
         return true;
     }
 
-    private static NamedExpression generateBranchLabel(
+    private static Alias generateBranchLabel(
             PaimonRowChangeSpec.Merge merge, Expression targetPresent) {
-        Expression matchedLabel = new NullLiteral();
+        Expression matchedLabel = new NullLiteral(IntegerType.INSTANCE);
         for (int i = merge.getMatchedClauses().size() - 1; i >= 0; i--) {
             MergeMatchedClause clause = merge.getMatchedClauses().get(i);
             if (i != merge.getMatchedClauses().size() - 1
@@ -267,7 +341,7 @@ final class PaimonRowChangePlanBuilder {
             matchedLabel = clause.getCasePredicate().isPresent()
                     ? new If(clause.getCasePredicate().get(), result, matchedLabel) : result;
         }
-        Expression notMatchedLabel = new NullLiteral();
+        Expression notMatchedLabel = new NullLiteral(IntegerType.INSTANCE);
         for (int i = merge.getNotMatchedClauses().size() - 1; i >= 0; i--) {
             MergeNotMatchedClause clause = merge.getNotMatchedClauses().get(i);
             if (i != merge.getNotMatchedClauses().size() - 1
@@ -278,7 +352,7 @@ final class PaimonRowChangePlanBuilder {
             notMatchedLabel = clause.getCasePredicate().isPresent()
                     ? new If(clause.getCasePredicate().get(), result, notMatchedLabel) : result;
         }
-        return new UnboundAlias(new If(targetPresent, matchedLabel, notMatchedLabel), BRANCH_LABEL);
+        return new Alias(new If(targetPresent, matchedLabel, notMatchedLabel), BRANCH_LABEL);
     }
 
     private static List<Expression> buildDeleteProjection(
@@ -365,16 +439,26 @@ final class PaimonRowChangePlanBuilder {
     }
 
     private static List<NamedExpression> generateFinalProjections(
-            List<String> names, List<List<Expression>> branches) {
+            List<String> names, List<DataType> dataTypes,
+            List<List<Expression>> branches, Slot branchLabel) {
         List<NamedExpression> output = new ArrayList<>();
         for (int column = 0; column < branches.get(0).size(); column++) {
-            Expression value = new NullLiteral();
-            for (int branch = branches.size() - 1; branch >= 0; branch--) {
-                value = new If(new EqualTo(new UnboundSlot(BRANCH_LABEL),
-                        new IntegerLiteral(branch)), branches.get(branch).get(column), value);
-            }
-            output.add(new UnboundAlias(value, names.get(column)));
+            Expression value = generateFinalExpression(
+                    column, branches, branchLabel, dataTypes.get(column));
+            output.add(new Alias(value, names.get(column)));
         }
         return output;
+    }
+
+    private static Expression generateFinalExpression(
+            int column, List<List<Expression>> branches, Slot branchLabel, DataType dataType) {
+        Expression value = new NullLiteral(dataType);
+        for (int branch = branches.size() - 1; branch >= 0; branch--) {
+            Expression branchValue = branches.get(branch).get(column);
+            branchValue = new Cast(branchValue, dataType);
+            value = new If(new EqualTo(branchLabel,
+                    new IntegerLiteral(branch)), branchValue, value);
+        }
+        return value;
     }
 }

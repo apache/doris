@@ -98,6 +98,28 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
             'fields.score.aggregate-function' = 'sum',
             'aggregation.remove-record-on-delete' = 'true'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_sequence_ascending;
+        CREATE TABLE paimon.${dbName}.t_sequence_ascending (
+            id INT, seq1 INT, seq2 INT, name STRING
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'sequence.field' = 'seq1,seq2',
+            'sequence.field.sort-order' = 'ascending'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_sequence_descending;
+        CREATE TABLE paimon.${dbName}.t_sequence_descending (
+            id INT, seq INT, name STRING
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'sequence.field' = 'seq',
+            'sequence.field.sort-order' = 'descending'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -138,6 +160,21 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
             (3, 'Charlie', 30, 'active'),
             (4, 'Diana', 40, 'active')
         """
+        sql """INSERT INTO t_sequence_ascending VALUES (1, 10, 20, 'ascending')"""
+        sql """INSERT INTO t_sequence_descending VALUES (1, 10, 'descending')"""
+
+        test {
+            sql """UPDATE t_sequence_ascending SET seq2 = 30 WHERE id = 1"""
+            exception "Paimon UPDATE cannot modify sequence-field column 'seq2'"
+        }
+        test {
+            sql """
+                MERGE INTO t_sequence_descending t
+                USING internal.${dbName}.t_merge_source s ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET seq = s.score, name = s.name
+            """
+            exception "Paimon UPDATE cannot modify sequence-field column 'seq'"
+        }
 
         sql """
             UPDATE t_dml
@@ -197,6 +234,23 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
             exception "Paimon MERGE matched one target row with multiple source rows"
         }
         order_qt_paimon_merge_duplicate_unchanged """SELECT * FROM t_dml ORDER BY id"""
+
+        sql """TRUNCATE TABLE internal.${dbName}.t_merge_source"""
+        sql """INSERT INTO internal.${dbName}.t_merge_source VALUES
+            (100, 'duplicate_insert_1', 301, 'I'),
+            (101, 'duplicate_insert_2', 302, 'I')
+        """
+        test {
+            sql """
+                MERGE INTO t_dml t
+                USING internal.${dbName}.t_merge_source s
+                ON t.id = s.id
+                WHEN NOT MATCHED THEN INSERT (id, name, score, status)
+                    VALUES (1000, s.name, s.score, 'duplicate-insert')
+            """
+            exception "Paimon MERGE attempted to insert multiple rows with the same primary key"
+        }
+        order_qt_paimon_merge_duplicate_insert_unchanged """SELECT * FROM t_dml ORDER BY id"""
 
         test {
             sql """UPDATE t_append_only SET name = 'x' WHERE id = 1"""

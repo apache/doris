@@ -27,6 +27,12 @@
 5	Eve	50	inserted
 6	priority_insert	60	first-not-matched
 
+-- !paimon_merge_duplicate_insert_unchanged --
+1	priority_update	101	first-matched
+4	Diana	40	active
+5	Eve	50	inserted
+6	priority_insert	60	first-not-matched
+
 -- !paimon_ignore_delete_unchanged --
 10	keep
 

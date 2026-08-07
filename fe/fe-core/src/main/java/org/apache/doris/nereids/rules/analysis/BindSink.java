@@ -932,7 +932,7 @@ public class BindSink implements AnalysisRuleFactory {
         Optional<PaimonRowChangeSpec> rowChangeSpec = sink.getRowChangeSpec();
         if (rowChangeSpec.isPresent()) {
             LogicalProject<?> rowChange = PaimonRowChangePlanBuilder.build(
-                    writeTarget, rowChangeSpec.get(), child);
+                    writeTarget, rowChangeSpec.get(), child, ctx.cascadesContext);
             return new LogicalPaimonTableSink<>(database, writeTarget, writeTarget.getSchema(),
                     rowChange.getProjects(), sink.getDMLCommandType(),
                     Optional.empty(), Optional.empty(), rowChange);

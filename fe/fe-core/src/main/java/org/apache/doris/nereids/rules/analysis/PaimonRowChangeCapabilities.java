@@ -36,15 +36,22 @@ final class PaimonRowChangeCapabilities {
     static void checkUpdate(PaimonWriteTarget target, Collection<String> updatedColumns) {
         FileStoreTable table = target.getTable();
         requirePrimaryKey(table, "UPDATE");
+        CoreOptions options = CoreOptions.fromMap(table.options());
         Set<String> primaryKeys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         primaryKeys.addAll(table.primaryKeys());
+        Set<String> sequenceFields = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        sequenceFields.addAll(options.sequenceField());
         for (String column : updatedColumns) {
             if (primaryKeys.contains(column)) {
                 throw new AnalysisException("Paimon UPDATE cannot modify primary-key column '"
                         + column + "'");
             }
+            if (sequenceFields.contains(column)) {
+                throw new AnalysisException("Paimon UPDATE cannot modify sequence-field column '"
+                        + column + "'");
+            }
         }
-        CoreOptions.MergeEngine engine = CoreOptions.fromMap(table.options()).mergeEngine();
+        CoreOptions.MergeEngine engine = options.mergeEngine();
         if (engine != CoreOptions.MergeEngine.DEDUPLICATE) {
             throw new AnalysisException("Paimon UPDATE only supports merge-engine=deduplicate; "
                     + "merge-engine=" + engine + " cannot preserve SQL UPDATE semantics");
