@@ -906,6 +906,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _in_restore_mode = tablet_meta_pb.in_restore_mode();
     }
 
+    if (tablet_meta_pb.has_is_force_deleted()) {
+        _is_force_deleted = tablet_meta_pb.is_force_deleted();
+    }
+
     if (tablet_meta_pb.has_preferred_rowset_type()) {
         _preferred_rowset_type = tablet_meta_pb.preferred_rowset_type();
     }
@@ -1021,6 +1025,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
     }
 
     tablet_meta_pb->set_in_restore_mode(in_restore_mode());
+    tablet_meta_pb->set_is_force_deleted(is_force_deleted());
 
     // to avoid modify tablet meta to the greatest extend
     if (_preferred_rowset_type == BETA_ROWSET) {
