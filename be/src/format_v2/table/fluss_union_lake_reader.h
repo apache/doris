@@ -74,11 +74,19 @@ public:
     };
 
     /**
-     * The keys of one bucket's log tail, one row per change-log record and one column per key
-     * column. Held by the scan node's split cache so every split of that bucket shares one read.
+     * The DISTINCT keys of one bucket's log tail, one column per key column. Held by the scan node's
+     * split cache so every split of that bucket shares one read.
+     *
+     * <p>Distinct rather than one row per change-log record, which is what the tail is read as: a tail
+     * names each key it touched once for every record it wrote about it, an update alone writes two,
+     * and suppression asks only whether a key is in the set. What is retained for the life of the scan
+     * therefore has no reason to carry the repeats -- and the scan retains one of these per bucket per
+     * partition it reads, all of them at once.
      */
     struct SuppressionKeys {
         Block keys;
+        /** Change-log records those keys came from, for the profile: kept so the ratio is visible. */
+        int64_t records = 0;
     };
 
     ~FlussUnionLakeReader() override = default;
@@ -110,8 +118,9 @@ private:
     Status _resolve_union_properties();
     Status _prepare_suppression(const format::SplitReadOptions& options);
     Status _load_suppression_keys(const format::SplitReadOptions& options, const Tail& tail);
-    Status _accumulate_tail_keys(const Tail& tail, const NextBatch& next_batch, Block* keys);
-    Status _read_tail_keys(const Tail& tail, Block* keys);
+    Status _accumulate_tail_keys(const Tail& tail, const NextBatch& next_batch,
+                                 SuppressionKeys* keys);
+    Status _read_tail_keys(const Tail& tail, SuppressionKeys* keys);
     Status _build_suppression_predicate(const Block& keys);
     Status _suppress(Block* block);
     Block _empty_key_block() const;
@@ -131,6 +140,7 @@ private:
 
     RuntimeProfile::Counter* _suppressed_rows_counter = nullptr;
     RuntimeProfile::Counter* _tail_keys_read_counter = nullptr;
+    RuntimeProfile::Counter* _tail_keys_retained_counter = nullptr;
     RuntimeProfile::Counter* _tail_cache_hit_counter = nullptr;
 
 #ifdef BE_TEST
