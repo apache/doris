@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.fluss;
 
-import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import org.apache.fluss.types.ArrayType;
 import org.apache.fluss.types.BigIntType;
