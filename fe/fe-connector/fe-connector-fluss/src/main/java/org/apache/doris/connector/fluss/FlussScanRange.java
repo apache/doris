@@ -54,12 +54,19 @@ public class FlussScanRange implements ConnectorScanRange {
     private static final long serialVersionUID = 1L;
 
     /**
+     * The one {@code table_format_type} every range of a fluss scan carries — fluss's own ranges and
+     * the wrapped lake splits alike. BE builds one fluss reader per scanner from this name and
+     * dispatches each range by {@link #PROP_RANGE_TYPE}, so a second format name here would mean a
+     * range the scan's reader was never built for.
+     */
+    static final String TABLE_FORMAT = "fluss";
+
+    /**
      * How the scanner reads this range; the wire value is the enum name.
      *
-     * <p>These are the kinds the java scanner reads. A union read of a primary-key table puts one more
-     * value on the wire — the suppression descriptor that rides along with a LAKE split, see
-     * {@link FlussSuppressedLakeRange} — which never reaches the scanner: BE's C++ side reads it to
-     * build the key set that hides superseded lake rows.
+     * <p>These are the kinds the java scanner reads. The lake half of a union read puts two more
+     * values on the wire — see {@link FlussLakeRange} — which BE's C++ side reads whole: plain lake
+     * splits by delegation, suppressed ones minus the rows whose keys their log tail names.
      */
     public enum RangeType {
         /** Log-only read of one bucket over {@code [logStart, logStop)}. */
@@ -169,7 +176,7 @@ public class FlussScanRange implements ConnectorScanRange {
 
     @Override
     public String getTableFormatType() {
-        return "fluss";
+        return TABLE_FORMAT;
     }
 
     @Override

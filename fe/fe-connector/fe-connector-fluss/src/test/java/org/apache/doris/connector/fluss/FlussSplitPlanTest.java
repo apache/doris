@@ -699,8 +699,7 @@ public class FlussSplitPlanTest {
 
         Assertions.assertEquals(3, ranges.size());
         assertSuppressed(ranges.get(0), 0, 100L, 105L);
-        Assertions.assertTrue(ranges.get(1) instanceof RecordingLakeSibling.LakeRange,
-                "bucket 1 has no tail and must be passed through: " + ranges.get(1));
+        assertPlainLake(ranges.get(1));
         assertTailRange(ranges.get(2), 0, 100L, 105L);
     }
 
@@ -721,7 +720,7 @@ public class FlussSplitPlanTest {
 
         List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
 
-        FlussSuppressedLakeRange.Tail tail = ((FlussSuppressedLakeRange) ranges.get(0)).getTail();
+        FlussLakeRange.Tail tail = ((FlussLakeRange) ranges.get(0)).getTail();
         Map<String, String> tailRange = ranges.get(1).getProperties();
         Assertions.assertEquals(String.valueOf(tail.getStartOffset()),
                 tailRange.get("fluss.log_start_offset"));
@@ -745,8 +744,7 @@ public class FlussSplitPlanTest {
         List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
 
         Assertions.assertEquals(2, ranges.size());
-        Assertions.assertTrue(ranges.get(0) instanceof RecordingLakeSibling.LakeRange, "bucket 0 is tiered"
-                + " up to where its log ends and must be passed through: " + ranges.get(0));
+        assertPlainLake(ranges.get(0));
         assertPkRange(ranges.get(1), 1, 5L, 20L, 25L);
     }
 
@@ -810,7 +808,7 @@ public class FlussSplitPlanTest {
 
         List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
 
-        Assertions.assertTrue(ranges.get(0) instanceof RecordingLakeSibling.LakeRange, ranges.toString());
+        assertPlainLake(ranges.get(0));
         assertTailRange(ranges.get(1), 0, 100L, 105L);
     }
 
@@ -1734,12 +1732,24 @@ public class FlussSplitPlanTest {
 
     /** A lake split bound to the tail of {@code bucket} over {@code [start, stop)}. */
     private static void assertSuppressed(ConnectorScanRange range, int bucket, long start, long stop) {
-        Assertions.assertTrue(range instanceof FlussSuppressedLakeRange,
+        Assertions.assertTrue(range instanceof FlussLakeRange,
                 "expected a suppressed lake split but got " + range);
-        FlussSuppressedLakeRange.Tail tail = ((FlussSuppressedLakeRange) range).getTail();
+        FlussLakeRange.Tail tail = ((FlussLakeRange) range).getTail();
+        Assertions.assertNotNull(tail, "expected a suppressed lake split but got a plain one: " + range);
         Assertions.assertEquals(bucket, tail.getBucketId());
         Assertions.assertEquals(start, tail.getStartOffset());
         Assertions.assertEquals(stop, tail.getStopOffset());
+    }
+
+    /** A lake split nothing supersedes: wrapped for the format name alone, the sibling's own inside. */
+    private static void assertPlainLake(ConnectorScanRange range) {
+        Assertions.assertTrue(range instanceof FlussLakeRange,
+                "expected a plain lake split but got " + range);
+        FlussLakeRange lakeRange = (FlussLakeRange) range;
+        Assertions.assertNull(lakeRange.getTail(),
+                "expected a plain lake split but got a suppressed one: " + range);
+        Assertions.assertTrue(lakeRange.getInner() instanceof RecordingLakeSibling.LakeRange,
+                "expected the sibling's own split inside: " + lakeRange.getInner());
     }
 
     private static void assertTailRange(ConnectorScanRange range, int bucket, long start, long stop) {

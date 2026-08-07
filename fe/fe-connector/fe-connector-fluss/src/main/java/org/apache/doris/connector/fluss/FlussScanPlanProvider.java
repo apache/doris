@@ -74,17 +74,19 @@ import java.util.function.Function;
  * <p>A table that is tiered into a lake is read as the union of the two: the lake at the snapshot fluss
  * says is readable, plus each bucket's log from where that snapshot ended. The lake half is not planned
  * here — it is planned by the paimon sibling connector, pinned to that snapshot, and its ranges are mixed
- * into the same scan node (BE builds a reader per range, so the two kinds coexist). That keeps this plugin
- * free of any paimon dependency and gives the lake half paimon's native readers, deletion vectors and file
- * cache for free. Refusing to serve such a table at all is the alternative to avoid: a datalake table read
- * as fluss-only silently returns just the rows tiering has not moved yet, which looks like a working
- * query. {@code fluss.union_read.mode=disabled} is how a user asks for that fluss-only read on purpose.
+ * into the same scan node, each wrapped ({@link FlussLakeRange}) so that every range of the scan carries
+ * the one table format "fluss" and BE's fluss reader can dispatch it to the sibling's reader stack. That
+ * keeps this plugin free of any paimon dependency and gives the lake half paimon's native readers,
+ * deletion vectors and file cache for free. Refusing to serve such a table at all is the alternative to
+ * avoid: a datalake table read as fluss-only silently returns just the rows tiering has not moved yet,
+ * which looks like a working query. {@code fluss.union_read.mode=disabled} is how a user asks for that
+ * fluss-only read on purpose.
  *
  * <p>A tiered PRIMARY-KEY table is read as a union too, but its halves overlap by KEY rather than meeting
  * at an offset: the log tail carries updates and deletes of rows the lake already holds. It is split into
- * three parts, per bucket. The lake splits of a bucket whose log has moved on are wrapped
- * ({@link FlussSuppressedLakeRange}) with the offsets of that tail, and BE drops the lake rows whose keys
- * the tail names. The surviving state of the tail itself is contributed once, by a
+ * three parts, per bucket. The lake splits of a bucket whose log has moved on are wrapped with the
+ * offsets of that tail ({@code LAKE_SUPPRESS} rather than plain {@code LAKE}), and BE drops the lake rows
+ * whose keys the tail names. The surviving state of the tail itself is contributed once, by a
  * {@code PK_TAIL} range. A bucket the lake has never seen is read whole from fluss, as {@code PK_FULL},
  * exactly as it would be without a lake. Every row is therefore produced exactly once, and the read
  * matches what fluss alone would return — which is what makes the fluss-only read the reference the
@@ -147,7 +149,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * marker ({@link FlussScanRange#getTableFormatType}), and the mirror image of the {@code
      * transactional_hive} stamp, which uses this same channel to force the OPPOSITE choice.
      */
-    private static final String SCAN_LEVEL_TABLE_FORMAT = "fluss";
+    private static final String SCAN_LEVEL_TABLE_FORMAT = FlussScanRange.TABLE_FORMAT;
 
     private final FlussAdminOps adminOps;
     private final FlussCatalogProperties catalogProperties;
@@ -256,9 +258,12 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         List<ConnectorScanRange> ranges = new ArrayList<>();
         // The lake half first, so its ranges lead the list the way they lead the table's history. It is
         // planned once for the whole table: the sibling prunes partitions from the pushed-down filter, not
-        // from the engine's pruned partition list (which it does not consume).
+        // from the engine's pruned partition list (which it does not consume). No key overlaps the log
+        // half here - the two halves meet at an offset - so every lake split is wrapped plain.
         if (union != null) {
-            ranges.addAll(planLakeRanges(session, union, request));
+            for (ConnectorScanRange lakeSplit : planLakeRanges(session, union, request)) {
+                ranges.add(FlussLakeRange.plain(lakeSplit));
+            }
         }
 
         if (handle.isPartitioned()) {
@@ -533,8 +538,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         if (state == null) {
             // A partition of the lake that this scan does not read from fluss: either one fluss has since
             // dropped, or one the engine pruned away. Nothing of it can be superseded by a tail this plan
-            // does not read, so the split is passed through untouched.
-            return lakeSplit;
+            // does not read, so the split is wrapped plain.
+            return FlussLakeRange.plain(lakeSplit);
         }
         int bucket = lakeSplitBucket(handle, lakeSplit);
         BucketState bucketState = state.buckets.get(bucket);
@@ -554,9 +559,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         }
         if (bucketState.lakeEnd >= bucketState.stop) {
             // The lake holds this bucket up to where its log ends: nothing can supersede it.
-            return lakeSplit;
+            return FlussLakeRange.plain(lakeSplit);
         }
-        return new FlussSuppressedLakeRange(lakeSplit, new FlussSuppressedLakeRange.Tail(
+        return FlussLakeRange.suppressed(lakeSplit, new FlussLakeRange.Tail(
                 state.partition, bucket, bucketState.lakeEnd, bucketState.stop));
     }
 
@@ -963,11 +968,11 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         return found;
     }
 
-    /** Ranges the sibling planned, counted by exclusion: a wrapped one is still one of the lake's. */
+    /** Ranges the sibling planned; every one of them is wrapped, suppressed or plain. */
     private static int countLakeSplits(List<ConnectorScanRange> ranges) {
         int found = 0;
         for (ConnectorScanRange range : ranges) {
-            if (!(range instanceof FlussScanRange)) {
+            if (range instanceof FlussLakeRange) {
                 found++;
             }
         }
@@ -977,7 +982,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     private static int countSuppressedLakeSplits(List<ConnectorScanRange> ranges) {
         int found = 0;
         for (ConnectorScanRange range : ranges) {
-            if (range instanceof FlussSuppressedLakeRange) {
+            if (range instanceof FlussLakeRange && ((FlussLakeRange) range).getTail() != null) {
                 found++;
             }
         }

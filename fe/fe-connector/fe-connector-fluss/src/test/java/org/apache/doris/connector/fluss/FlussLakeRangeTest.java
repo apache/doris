@@ -33,14 +33,14 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * The wrapper that carries a log tail alongside a lake split.
+ * The wrapper that puts a lake split under the scan's own table format, with or without a log tail.
  *
  * <p>Everything it does NOT change is what makes the lake half worth having — its file extent, its split
  * weight, its deletion vectors — so the delegation is asserted method by method against a stand-in that
  * answers something distinctive for each. A silently swallowed answer (a zero weight, an empty path)
  * would not fail any assertion about rows; it would just make the lake half read or schedule badly.
  */
-public class FlussSuppressedLakeRangeTest {
+public class FlussLakeRangeTest {
 
     private static final FlussScanRange.Partition DT_20260101 =
             FlussScanRange.Partition.of(77L, "dt=20260101",
@@ -136,53 +136,55 @@ public class FlussSuppressedLakeRangeTest {
         }
     }
 
-    private static FlussSuppressedLakeRange wrap() {
-        return new FlussSuppressedLakeRange(new LakeSplit(),
-                new FlussSuppressedLakeRange.Tail(DT_20260101, 2, 100L, 105L));
+    private static FlussLakeRange suppressed() {
+        return FlussLakeRange.suppressed(new LakeSplit(),
+                new FlussLakeRange.Tail(DT_20260101, 2, 100L, 105L));
     }
 
     @Test
     public void everythingThatDecidesHowTheSplitIsReadStaysTheSiblingsAnswer() {
-        FlussSuppressedLakeRange wrapped = wrap();
         ConnectorScanRange inner = new LakeSplit();
-
-        Assertions.assertEquals(inner.getPath(), wrapped.getPath());
-        Assertions.assertEquals(inner.getStart(), wrapped.getStart());
-        Assertions.assertEquals(inner.getLength(), wrapped.getLength());
-        Assertions.assertEquals(inner.getFileSize(), wrapped.getFileSize());
-        Assertions.assertEquals(inner.getFileFormat(), wrapped.getFileFormat());
-        Assertions.assertEquals(inner.getModificationTime(), wrapped.getModificationTime());
-        Assertions.assertEquals(inner.getSelfSplitWeight(), wrapped.getSelfSplitWeight());
-        Assertions.assertEquals(inner.getTargetSplitSize(), wrapped.getTargetSplitSize());
-        Assertions.assertEquals(inner.getHosts(), wrapped.getHosts());
-        Assertions.assertEquals(inner.getProperties(), wrapped.getProperties());
-        Assertions.assertEquals(inner.getPartitionValues(), wrapped.getPartitionValues());
-        Assertions.assertEquals(inner.isPartitionBearing(), wrapped.isPartitionBearing());
-        Assertions.assertEquals(inner.getPushDownRowCount(), wrapped.getPushDownRowCount());
-        Assertions.assertEquals(inner.isNativeReadRange(), wrapped.isNativeReadRange());
+        for (FlussLakeRange wrapped : Arrays.asList(suppressed(),
+                FlussLakeRange.plain(new LakeSplit()))) {
+            Assertions.assertEquals(inner.getPath(), wrapped.getPath());
+            Assertions.assertEquals(inner.getStart(), wrapped.getStart());
+            Assertions.assertEquals(inner.getLength(), wrapped.getLength());
+            Assertions.assertEquals(inner.getFileSize(), wrapped.getFileSize());
+            Assertions.assertEquals(inner.getFileFormat(), wrapped.getFileFormat());
+            Assertions.assertEquals(inner.getModificationTime(), wrapped.getModificationTime());
+            Assertions.assertEquals(inner.getSelfSplitWeight(), wrapped.getSelfSplitWeight());
+            Assertions.assertEquals(inner.getTargetSplitSize(), wrapped.getTargetSplitSize());
+            Assertions.assertEquals(inner.getHosts(), wrapped.getHosts());
+            Assertions.assertEquals(inner.getProperties(), wrapped.getProperties());
+            Assertions.assertEquals(inner.getPartitionValues(), wrapped.getPartitionValues());
+            Assertions.assertEquals(inner.isPartitionBearing(), wrapped.isPartitionBearing());
+            Assertions.assertEquals(inner.getPushDownRowCount(), wrapped.getPushDownRowCount());
+            Assertions.assertEquals(inner.isNativeReadRange(), wrapped.isNativeReadRange());
+        }
     }
 
     /**
-     * The one answer that changes. BE picks the reader by this name, and both plain names would be wrong:
-     * {@code paimon} reads the split and ignores the tail (superseded rows come back), {@code fluss} reads
-     * the tail and cannot read the split at all.
+     * The one answer that changes. Every range of a fluss scan carries the scan's own format: BE builds
+     * one fluss reader from it and dispatches this split to the sibling's stack by its range type. The
+     * sibling's own name would land the split on a reader the scan does not have.
      */
     @Test
-    public void theFormatNameIsTheCompositeReadersOwn() {
-        Assertions.assertEquals("fluss_union", wrap().getTableFormatType());
+    public void theFormatNameIsTheScansOwn() {
+        Assertions.assertEquals("fluss", suppressed().getTableFormatType());
+        Assertions.assertEquals("fluss", FlussLakeRange.plain(new LakeSplit()).getTableFormatType());
     }
 
     /**
      * The payload is both halves, in their own thrift fields: whatever the sibling wrote, untouched, plus
-     * the tail. Asserted whole rather than by spot check — this is an untyped string map that nothing
-     * between here and BE type-checks.
+     * the fluss descriptor. Asserted whole rather than by spot check — this is an untyped string map that
+     * nothing between here and BE type-checks.
      */
     @Test
     public void theDescriptorCarriesTheSiblingsPayloadAndTheTail() {
         TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
 
-        wrap().populateRangeParams(formatDesc, rangeDesc);
+        suppressed().populateRangeParams(formatDesc, rangeDesc);
 
         Map<String, String> expected = new LinkedHashMap<>();
         expected.put("fluss.range_type", "LAKE_SUPPRESS");
@@ -194,6 +196,21 @@ public class FlussSuppressedLakeRangeTest {
     }
 
     /**
+     * A plain lake split says only what kind it is. Writing a tail key here — even an empty one — would
+     * make BE read a tail that does not exist; writing nothing at all would make BE unable to route it.
+     */
+    @Test
+    public void plainSplitsDescriptorSaysLakeAndNamesNoTail() {
+        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
+
+        FlussLakeRange.plain(new LakeSplit()).populateRangeParams(formatDesc, new TFileRangeDesc());
+
+        Assertions.assertEquals(Collections.singletonMap("fluss.range_type", "LAKE"),
+                formatDesc.getFlussParams());
+        Assertions.assertTrue(formatDesc.isSetPaimonParams());
+    }
+
+    /**
      * An unpartitioned table's tail leaves the partition segment empty rather than writing a sentinel id.
      * The string is also the cache key BE builds the suppression set under, so "no partition" and
      * "partition -1" must not be the same key.
@@ -201,8 +218,8 @@ public class FlussSuppressedLakeRangeTest {
     @Test
     public void anUnpartitionedTailLeavesThePartitionSegmentEmpty() {
         TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
-        new FlussSuppressedLakeRange(new LakeSplit(),
-                new FlussSuppressedLakeRange.Tail(FlussScanRange.Partition.NONE, 3, 0L, 9L))
+        FlussLakeRange.suppressed(new LakeSplit(),
+                new FlussLakeRange.Tail(FlussScanRange.Partition.NONE, 3, 0L, 9L))
                 .populateRangeParams(formatDesc, new TFileRangeDesc());
 
         Assertions.assertEquals(":3:0:9", formatDesc.getFlussParams().get("fluss.union.tail"));
@@ -212,6 +229,6 @@ public class FlussSuppressedLakeRangeTest {
     @Test
     public void anEmptyTailIsRejected() {
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> new FlussSuppressedLakeRange.Tail(DT_20260101, 0, 5L, 5L));
+                () -> new FlussLakeRange.Tail(DT_20260101, 0, 5L, 5L));
     }
 }
