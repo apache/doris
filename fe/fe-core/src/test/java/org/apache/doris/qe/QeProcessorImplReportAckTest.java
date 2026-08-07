@@ -29,12 +29,11 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.cache.Cache;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-
-import com.google.common.cache.Cache;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
