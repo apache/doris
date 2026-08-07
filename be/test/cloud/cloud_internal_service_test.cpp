@@ -25,15 +25,11 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
-#include "common/config.h"
 #include "cpp/sync_point.h"
 #include "gen_cpp/Status_types.h"
-#include "load/channel/load_stream_mgr.h"
-#include "runtime/exec_env.h"
-#include "runtime/thread_context.h"
 #include "storage/tablet/tablet_meta.h"
-#include "util/async_io.h"
 #include "util/uid_util.h"
+#include "util/work_thread_pool.hpp"
 
 namespace doris {
 
@@ -65,12 +61,6 @@ protected:
     static constexpr int64_t kUncachedTabletId = 90003;
 
     void SetUp() override {
-        // PInternalService owns these process-global keys. Preserve the test runner's keys while
-        // constructing short-lived service instances in this fixture.
-        _saved_btls_key = btls_key;
-        _saved_btls_io_ctx_key = AsyncIO::btls_io_ctx_key;
-        _exec_env._load_stream_mgr = std::make_unique<LoadStreamMgr>(1);
-
         auto sp = SyncPoint::get_instance();
         sp->clear_all_call_backs();
         sp->enable_processing();
@@ -100,9 +90,6 @@ protected:
         auto sp = SyncPoint::get_instance();
         sp->disable_processing();
         sp->clear_all_call_backs();
-
-        btls_key = _saved_btls_key;
-        AsyncIO::btls_io_ctx_key = _saved_btls_io_ctx_key;
     }
 
     TabletMetaSharedPtr create_tablet_meta(int64_t tablet_id, std::string compaction_policy) {
@@ -125,11 +112,8 @@ protected:
         return tablet_meta;
     }
 
-    ExecEnv _exec_env;
     CloudStorageEngine _engine;
     std::unordered_map<int64_t, int> _tablet_meta_call_count;
-    bthread_key_t _saved_btls_key;
-    bthread_key_t _saved_btls_io_ctx_key;
 };
 
 TEST_F(CloudInternalServiceTest, TestSyncTabletMetaCountsSyncedSkippedAndFailedTablets) {
@@ -143,7 +127,7 @@ TEST_F(CloudInternalServiceTest, TestSyncTabletMetaCountsSyncedSkippedAndFailedT
     ASSERT_EQ("size_based", cached_synced_tablet->tablet_meta()->compaction_policy());
     ASSERT_EQ("size_based", cached_failed_tablet->tablet_meta()->compaction_policy());
 
-    CloudInternalServiceImpl service(_engine, &_exec_env);
+    FifoThreadPool work_pool(1, 1, "sync_tablet_meta_test");
     PSyncTabletMetaRequest request;
     request.add_tablet_ids(kSyncedTabletId);
     request.add_tablet_ids(kUncachedTabletId);
@@ -159,7 +143,7 @@ TEST_F(CloudInternalServiceTest, TestSyncTabletMetaCountsSyncedSkippedAndFailedT
         cv.notify_all();
     });
 
-    service.sync_tablet_meta(nullptr, &request, &response, &closure);
+    test_submit_sync_tablet_meta(_engine, work_pool, &request, &response, &closure);
 
     std::unique_lock lock(mutex);
     ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&] { return done; }));
@@ -175,10 +159,7 @@ TEST_F(CloudInternalServiceTest, TestSyncTabletMetaCountsSyncedSkippedAndFailedT
 }
 
 TEST_F(CloudInternalServiceTest, TestSyncTabletMetaOfferFailure) {
-    const auto original_queue_size = config::brpc_light_work_pool_max_queue_size;
-    config::brpc_light_work_pool_max_queue_size = 0;
-
-    CloudInternalServiceImpl service(_engine, &_exec_env);
+    FifoThreadPool work_pool(1, 0, "sync_tablet_meta_offer_failure_test");
     PSyncTabletMetaRequest request;
     request.add_tablet_ids(kSyncedTabletId);
     PSyncTabletMetaResponse response;
@@ -186,8 +167,7 @@ TEST_F(CloudInternalServiceTest, TestSyncTabletMetaOfferFailure) {
     bool done = false;
     TestClosure closure([&]() { done = true; });
 
-    service.sync_tablet_meta(nullptr, &request, &response, &closure);
-    config::brpc_light_work_pool_max_queue_size = original_queue_size;
+    test_submit_sync_tablet_meta(_engine, work_pool, &request, &response, &closure);
 
     EXPECT_TRUE(done);
     ASSERT_TRUE(response.has_status());

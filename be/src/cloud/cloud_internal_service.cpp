@@ -108,23 +108,13 @@ bvar::Adder<int64_t> g_cloud_sync_tablet_meta_synced_total("cloud_sync_tablet_me
 bvar::Adder<int64_t> g_cloud_sync_tablet_meta_skipped_total("cloud_sync_tablet_meta_skipped_total");
 bvar::Adder<int64_t> g_cloud_sync_tablet_meta_failed_total("cloud_sync_tablet_meta_failed_total");
 
-// Concurrency guard for server-side S3 pull-through fills.
-static std::atomic<int32_t> g_active_server_fills {0};
-bvar::PassiveStatus<int32_t> g_peer_active_fills(
-        "peer_active_fills",
-        [](void*) { return g_active_server_fills.load(std::memory_order_relaxed); }, nullptr);
+namespace {
 
-CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
-        : PInternalService(exec_env), _engine(engine) {}
-
-CloudInternalServiceImpl::~CloudInternalServiceImpl() = default;
-
-void CloudInternalServiceImpl::sync_tablet_meta(google::protobuf::RpcController* controller,
-                                                const PSyncTabletMetaRequest* request,
-                                                PSyncTabletMetaResponse* response,
-                                                google::protobuf::Closure* done) {
+void submit_sync_tablet_meta(CloudStorageEngine& engine, FifoThreadPool& work_pool,
+                             const PSyncTabletMetaRequest* request,
+                             PSyncTabletMetaResponse* response, google::protobuf::Closure* done) {
     auto start_time = std::chrono::steady_clock::now();
-    bool ret = _light_work_pool.try_offer([this, request, response, done, start_time]() {
+    bool ret = work_pool.try_offer([engine = &engine, request, response, done, start_time]() {
         brpc::ClosureGuard closure_guard(done);
         LOG(INFO) << "begin to sync tablet meta, request=" << request->ShortDebugString();
         int64_t synced = 0;
@@ -132,7 +122,7 @@ void CloudInternalServiceImpl::sync_tablet_meta(google::protobuf::RpcController*
         int64_t failed = 0;
         g_cloud_sync_tablet_meta_requests_total << 1;
         for (const auto tablet_id : request->tablet_ids()) {
-            auto tablet = _engine.tablet_mgr().get_tablet_if_cached(tablet_id);
+            auto tablet = engine->tablet_mgr().get_tablet_if_cached(tablet_id);
             if (!tablet) {
                 ++skipped;
                 continue;
@@ -171,6 +161,35 @@ void CloudInternalServiceImpl::sync_tablet_meta(google::protobuf::RpcController*
                      << ", cost_ms=" << cost_ms;
     }
 }
+
+} // namespace
+
+// Concurrency guard for server-side S3 pull-through fills.
+static std::atomic<int32_t> g_active_server_fills {0};
+bvar::PassiveStatus<int32_t> g_peer_active_fills(
+        "peer_active_fills",
+        [](void*) { return g_active_server_fills.load(std::memory_order_relaxed); }, nullptr);
+
+CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
+        : PInternalService(exec_env), _engine(engine) {}
+
+CloudInternalServiceImpl::~CloudInternalServiceImpl() = default;
+
+void CloudInternalServiceImpl::sync_tablet_meta(google::protobuf::RpcController* controller,
+                                                const PSyncTabletMetaRequest* request,
+                                                PSyncTabletMetaResponse* response,
+                                                google::protobuf::Closure* done) {
+    submit_sync_tablet_meta(_engine, _light_work_pool, request, response, done);
+}
+
+#ifdef BE_TEST
+void test_submit_sync_tablet_meta(CloudStorageEngine& engine, FifoThreadPool& work_pool,
+                                  const PSyncTabletMetaRequest* request,
+                                  PSyncTabletMetaResponse* response,
+                                  google::protobuf::Closure* done) {
+    submit_sync_tablet_meta(engine, work_pool, request, response, done);
+}
+#endif
 
 void CloudInternalServiceImpl::alter_vault_sync(google::protobuf::RpcController* controller,
                                                 const doris::PAlterVaultSyncRequest* request,
