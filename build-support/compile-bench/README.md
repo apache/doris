@@ -83,11 +83,6 @@ Benchmark numbers are only comparable when every run does the same cold work:
   part of the real build being optimized. Override with `ENABLE_PCH=OFF` to
   compare with/without PCH.
 
-Not isolated (by design, both are outside the BE compile and near-constant):
-the `contrib/datasketches-cpp` mini-build reuses its own build dir, and
-`--clean` is not required (passing it additionally rebuilds gensrc from
-scratch; the timed BE phases are unaffected).
-
 ## What the report contains
 
 - **Phases**: gensrc, contrib submodules, datasketches install, cmake
