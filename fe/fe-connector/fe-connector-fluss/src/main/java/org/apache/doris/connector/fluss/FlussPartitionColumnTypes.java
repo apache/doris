@@ -75,7 +75,7 @@ final class FlussPartitionColumnTypes {
                 return options.isMapBinaryToVarbinary()
                         ? "fluss names such a partition with the hex text of the bytes, which this catalog"
                                 + " cannot read back as the VARBINARY column that '"
-                                + FlussConnectorProperties.ENABLE_MAPPING_VARBINARY + "=true' asks for;"
+                                + FlussCatalogProperties.ENABLE_MAPPING_VARBINARY + "=true' asks for;"
                                 + " turning that property off reads the column, and the partition, as text"
                         : null;
             case FLOAT:
