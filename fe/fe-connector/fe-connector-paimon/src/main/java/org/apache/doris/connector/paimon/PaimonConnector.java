@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
@@ -101,6 +102,8 @@ public class PaimonConnector implements Connector {
     // still validated at CREATE/ALTER for legacy parity (reject non-boolean / out-of-range garbage).
     static final String TABLE_CACHE_ENABLE = "meta.cache.paimon.table.enable";
     static final String TABLE_CACHE_CAPACITY = "meta.cache.paimon.table.capacity";
+    static final String PARTITION_VIEW_CACHE_MAX_WEIGHT =
+            CacheSpec.metaCacheMaxWeightKey("paimon", "partition_view");
     // Legacy default = Config.external_cache_expire_time_seconds_after_access (24h); the connector is isolated
     // from fe-core Config, so the legacy default is mirrored here (an explicit ttl-second always overrides it).
     static final long DEFAULT_TABLE_CACHE_TTL_SECOND = 86400L;
@@ -165,9 +168,10 @@ public class PaimonConnector implements Connector {
                 this::pluginAuthenticator);
         this.latestSnapshotCache =
                 new PaimonLatestSnapshotCache(resolveTableCacheTtlSecond(properties), DEFAULT_TABLE_CACHE_CAPACITY);
-        // Reads its own meta.cache.paimon.partition_view.(enable|ttl-second|capacity) from the catalog
-        // properties via the framework's CacheSpec (default ON / 24h / 1000).
-        this.partitionViewCache = new ConnectorMetadataCache<>("paimon", "partition_view", properties);
+        // Reads its own meta.cache.paimon.partition_view.(enable|ttl-second|capacity|max-weight) from the
+        // catalog properties via the framework's CacheSpec (default ON / 24h / 1000).
+        this.partitionViewCache = new ConnectorMetadataCache<>("paimon", "partition_view", properties,
+                PaimonPartitionViewSizeEstimator::estimateEntry);
     }
 
     /**

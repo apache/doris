@@ -971,15 +971,15 @@ final class IcebergPartitionUtils {
 
     /** One PARTITIONS-metadata-table row reduced to what the MTMV partition view needs (port of IcebergPartition). */
     static final class IcebergRawPartition {
-        private final String name;
+        final String name;
         // Partition-field SOURCE column names (lowercased), parallel to {@link #values}, so listPartitions can
         // build a value map keyed by the generic partition-column remote name (see IcebergConnectorMetadata
         // buildTableSchema's "partition_columns" derivation).
-        private final List<String> columnNames;
-        private final List<String> values;
-        private final List<String> transforms;
-        private final long lastUpdateTime;
-        private final long lastSnapshotId;
+        final List<String> columnNames;
+        final List<String> values;
+        final List<String> transforms;
+        final long lastUpdateTime;
+        final long lastSnapshotId;
 
         IcebergRawPartition(String name, List<String> columnNames, List<String> values, List<String> transforms,
                 long lastUpdateTime, long lastSnapshotId) {

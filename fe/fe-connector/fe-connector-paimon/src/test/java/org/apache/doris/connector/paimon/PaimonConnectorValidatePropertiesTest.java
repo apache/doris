@@ -115,6 +115,16 @@ public class PaimonConnectorValidatePropertiesTest {
     }
 
     @Test
+    public void validatesPartitionViewMaxWeight() {
+        Assertions.assertDoesNotThrow(() -> validate(props(
+                "paimon.catalog.type", "filesystem", "warehouse", "/wh",
+                PaimonConnector.PARTITION_VIEW_CACHE_MAX_WEIGHT, "256MB")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> validate(props(
+                "paimon.catalog.type", "filesystem", "warehouse", "/wh",
+                PaimonConnector.PARTITION_VIEW_CACHE_MAX_WEIGHT, "not-a-size")));
+    }
+
+    @Test
     public void requiresWarehouseForRest() {
         // Legacy parity: AbstractPaimonProperties requires warehouse and PaimonRestMetaStoreProperties
         // does NOT override it, so a REST catalog without warehouse is rejected.

@@ -20,6 +20,7 @@ package org.apache.doris.datasource.metacache;
 import org.apache.doris.common.Config;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.MoreExecutors;
 import org.junit.Assert;
@@ -33,6 +34,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -220,6 +222,97 @@ public class MetaCacheEntryTest {
 
             LoadingCache<String, Integer> loadingCache = extractLoadingCache(entry);
             Assert.assertFalse(loadingCache.policy().refreshAfterWrite().isPresent());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testMaximumWeightUsesEstimatorAndExposesWeightStats() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "weighted",
+                    String::length,
+                    CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 100L, 5L),
+                    refreshExecutor,
+                    false,
+                    false,
+                    (key, value) -> value);
+
+            entry.put("first", 4);
+            waitUntil(() -> entry.stats().getEstimatedWeight() == 4L);
+            entry.put("second", 4);
+            waitUntil(() -> entry.stats().getEvictionCount() == 1L);
+
+            MetaCacheEntryStats stats = entry.stats();
+            Assert.assertTrue(stats.isWeightBounded());
+            Assert.assertEquals(5L, stats.getMaxWeight());
+            Assert.assertTrue(stats.getEstimatedWeight() <= 5L);
+            Assert.assertEquals(1L, stats.getEvictionCount());
+            Assert.assertEquals(4L, stats.getEvictionWeight());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testMaximumWeightRequiresEstimator() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            IllegalArgumentException exception = Assert.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new MetaCacheEntry<>(
+                            "weighted",
+                            String::length,
+                            CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 100L, 5L),
+                            refreshExecutor,
+                            false));
+            Assert.assertTrue(exception.getMessage().contains("size estimator"));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testMaximumWeightRejectsNegativeEstimatorResult() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "weighted",
+                    String::length,
+                    CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 100L, 5L),
+                    refreshExecutor,
+                    false,
+                    false,
+                    (key, value) -> -1L);
+
+            IllegalStateException exception = Assert.assertThrows(
+                    IllegalStateException.class, () -> entry.put("key", 1));
+            Assert.assertTrue(exception.getMessage().contains("negative weight"));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testMaximumWeightSaturatesEstimatorResultToCaffeineLimit() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "weighted",
+                    String::length,
+                    CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 100L, Integer.MAX_VALUE),
+                    refreshExecutor,
+                    false,
+                    false,
+                    (key, value) -> Long.MAX_VALUE);
+
+            entry.put("key", 1);
+            waitUntil(() -> entry.stats().getEstimatedWeight() == Integer.MAX_VALUE);
+            MetaCacheEntryStats stats = entry.stats();
+            Assert.assertEquals(1L, stats.getEstimatedSize());
+            Assert.assertEquals(Integer.MAX_VALUE, stats.getEstimatedWeight());
         } finally {
             refreshExecutor.shutdownNow();
         }
@@ -1074,6 +1167,36 @@ public class MetaCacheEntryTest {
             Assert.assertFalse(extractLoadingCache(entry).policy().refreshAfterWrite().isPresent());
             entry.invalidateAll();
             Assert.assertEquals(1, removalCounter.get());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testMaximumWeightEvictionRunsSyncRemovalListener() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 100L, 5L);
+            AtomicInteger removalCounter = new AtomicInteger();
+            AtomicReference<RemovalCause> removalCause = new AtomicReference<>();
+            MetaCacheEntry<String, Integer> entry = MetaCacheEntry.withSyncRemovalListener(
+                    "weighted-sync-listener",
+                    String::length,
+                    cacheSpec,
+                    refreshExecutor,
+                    (key, value) -> value,
+                    (key, value, cause) -> {
+                        removalCounter.incrementAndGet();
+                        removalCause.set(cause);
+                    });
+
+            entry.put("first", 4);
+            entry.put("second", 4);
+
+            Assert.assertEquals(1, removalCounter.get());
+            Assert.assertEquals(RemovalCause.SIZE, removalCause.get());
+            Assert.assertEquals(1L, entry.stats().getEstimatedSize());
+            Assert.assertEquals(4L, entry.stats().getEstimatedWeight());
         } finally {
             refreshExecutor.shutdownNow();
         }

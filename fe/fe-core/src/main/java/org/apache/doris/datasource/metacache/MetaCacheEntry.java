@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.Policy;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.base.Preconditions;
@@ -116,6 +117,13 @@ public class MetaCacheEntry<K, V> {
                 defaultObjectStripeCount(), null, false);
     }
 
+    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                defaultObjectStripeCount(), sizeEstimator, null, false);
+    }
+
     public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor,
             boolean autoRefresh, int stripeCount) {
         this(name, loader, cacheSpec, refreshExecutor, autoRefresh, false, stripeCount, null, false);
@@ -124,6 +132,13 @@ public class MetaCacheEntry<K, V> {
     public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly, int stripeCount) {
         this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly, stripeCount, null, false);
+    }
+
+    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly, int stripeCount,
+            @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                stripeCount, sizeEstimator, null, false);
     }
 
     public static <K, V> MetaCacheEntry<K, V> withSyncRemovalListener(String name, Function<K, V> loader,
@@ -147,9 +162,40 @@ public class MetaCacheEntry<K, V> {
                 true);
     }
 
+    public static <K, V> MetaCacheEntry<K, V> withSyncRemovalListener(String name, Function<K, V> loader,
+            CacheSpec cacheSpec, ExecutorService refreshExecutor, MetaCacheSizeEstimator<K, V> sizeEstimator,
+            RemovalListener<K, V> removalListener) {
+        return withSyncRemovalListener(name, loader, cacheSpec, refreshExecutor,
+                defaultObjectStripeCount(), sizeEstimator, removalListener);
+    }
+
+    public static <K, V> MetaCacheEntry<K, V> withSyncRemovalListener(String name, Function<K, V> loader,
+            CacheSpec cacheSpec, ExecutorService refreshExecutor, int stripeCount,
+            MetaCacheSizeEstimator<K, V> sizeEstimator, RemovalListener<K, V> removalListener) {
+        return new MetaCacheEntry<>(
+                name,
+                loader,
+                cacheSpec,
+                refreshExecutor,
+                false,
+                false,
+                stripeCount,
+                Objects.requireNonNull(sizeEstimator, "sizeEstimator can not be null"),
+                Objects.requireNonNull(removalListener, "removalListener can not be null"),
+                true);
+    }
+
     private MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
             int stripeCount, @Nullable RemovalListener<K, V> removalListener, boolean syncRemovalListener) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                stripeCount, null, removalListener, syncRemovalListener);
+    }
+
+    private MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            int stripeCount, @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator,
+            @Nullable RemovalListener<K, V> removalListener, boolean syncRemovalListener) {
         this.name = Objects.requireNonNull(name, "name can not be null");
         if (contextualOnly) {
             if (loader != null) {
@@ -170,6 +216,9 @@ public class MetaCacheEntry<K, V> {
         this.loader = loader;
         this.cacheSpec = Objects.requireNonNull(cacheSpec, "cacheSpec can not be null");
         this.autoRefresh = autoRefresh;
+        if (cacheSpec.isWeightBounded() && sizeEstimator == null) {
+            throw new IllegalArgumentException("max-weight requires an entry size estimator: " + name);
+        }
         if (stripeCount < 1) {
             throw new IllegalArgumentException("stripeCount must be positive");
         }
@@ -180,15 +229,14 @@ public class MetaCacheEntry<K, V> {
             stripeStates.set(0, new StripeState<>());
         }
         Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
-        this.effectiveEnabled = CacheSpec.isCacheEnabled(
-                this.cacheSpec.isEnable(), this.cacheSpec.getTtlSecond(), this.cacheSpec.getCapacity());
+        this.effectiveEnabled = this.cacheSpec.isCacheEnabled();
         OptionalLong expireAfterAccessSec =
                 effectiveEnabled ? CacheSpec.toExpireAfterAccess(this.cacheSpec.getTtlSecond()) : OptionalLong.empty();
         OptionalLong refreshAfterWriteSec =
                 effectiveEnabled && autoRefresh
                         ? OptionalLong.of(Config.external_cache_refresh_time_minutes * 60)
                         : OptionalLong.empty();
-        long maxSize = effectiveEnabled ? this.cacheSpec.getCapacity() : 0L;
+        long maxSize = effectiveEnabled && !cacheSpec.isWeightBounded() ? this.cacheSpec.getCapacity() : 0L;
         CacheFactory cacheFactory = new CacheFactory(
                 expireAfterAccessSec,
                 refreshAfterWriteSec,
@@ -197,7 +245,22 @@ public class MetaCacheEntry<K, V> {
                 null);
         // Build through a dedicated loader so refresh results admitted under an older generation are rejected.
         CacheLoader<K, V> cacheLoader = newCacheLoader();
-        if (syncRemovalListener) {
+        if (cacheSpec.isWeightBounded()) {
+            long maxWeight = effectiveEnabled ? cacheSpec.getMaxWeight().getAsLong() : 0L;
+            if (syncRemovalListener) {
+                this.loadingData = cacheFactory.buildCacheWithWeightAndSyncRemovalListener(
+                        cacheLoader,
+                        maxWeight,
+                        (key, value) -> toCaffeineWeight(sizeEstimator.estimateBytes(key, value)),
+                        removalListener);
+            } else {
+                this.loadingData = cacheFactory.buildCacheWithWeight(
+                        cacheLoader,
+                        refreshExecutor,
+                        maxWeight,
+                        (key, value) -> toCaffeineWeight(sizeEstimator.estimateBytes(key, value)));
+            }
+        } else if (syncRemovalListener) {
             this.loadingData = cacheFactory.buildCacheWithSyncRemovalListener(cacheLoader, removalListener);
         } else {
             this.loadingData = cacheFactory.buildCache(cacheLoader, refreshExecutor);
@@ -207,6 +270,13 @@ public class MetaCacheEntry<K, V> {
 
     public String name() {
         return name;
+    }
+
+    private int toCaffeineWeight(long estimatedBytes) {
+        if (estimatedBytes < 0L) {
+            throw new IllegalStateException("entry size estimator returned a negative weight: " + name);
+        }
+        return estimatedBytes >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) estimatedBytes;
     }
 
     public V get(K key) {
@@ -373,7 +443,11 @@ public class MetaCacheEntry<K, V> {
     }
 
     public MetaCacheEntryStats stats() {
+        // Keep statistics reads lightweight and side-effect free. Caffeine policy values may be briefly stale while
+        // asynchronous maintenance is pending; querying stats must not trigger expiration or removal listeners.
         CacheStats cacheStats = loadingData.stats();
+        Policy.Eviction<K, V> evictionPolicy = loadingData.policy().eviction()
+                .orElseThrow(() -> new IllegalStateException("cache has no eviction policy: " + name));
         long successCount = loadSuccessCount.get();
         long failureCount = loadFailureCount.get();
         long totalLoadTime = totalLoadTimeNanos.get();
@@ -384,7 +458,10 @@ public class MetaCacheEntry<K, V> {
                 autoRefresh,
                 cacheSpec.getTtlSecond(),
                 cacheSpec.getCapacity(),
+                cacheSpec.isWeightBounded(),
+                cacheSpec.getMaxWeight().orElse(-1L),
                 data.estimatedSize(),
+                evictionPolicy.weightedSize().orElse(-1L),
                 cacheStats.requestCount(),
                 cacheStats.hitCount(),
                 cacheStats.missCount(),
@@ -394,6 +471,7 @@ public class MetaCacheEntry<K, V> {
                 totalLoadTime,
                 totalLoadCount == 0 ? 0D : (double) totalLoadTime / totalLoadCount,
                 cacheStats.evictionCount(),
+                cacheStats.evictionWeight(),
                 invalidateCount.get(),
                 lastLoadSuccessTimeMs.get(),
                 lastLoadFailureTimeMs.get(),

@@ -33,10 +33,12 @@ import java.util.List;
 public class ManifestCacheValue {
     private final List<DataFile> dataFiles;
     private final List<DeleteFile> deleteFiles;
+    private final long estimatedBytes;
 
     private ManifestCacheValue(List<DataFile> dataFiles, List<DeleteFile> deleteFiles) {
         this.dataFiles = dataFiles == null ? Collections.emptyList() : dataFiles;
         this.deleteFiles = deleteFiles == null ? Collections.emptyList() : deleteFiles;
+        this.estimatedBytes = IcebergCacheSizeEstimator.estimateManifestValue(this);
     }
 
     public static ManifestCacheValue forDataFiles(List<DataFile> dataFiles) {
@@ -53,5 +55,9 @@ public class ManifestCacheValue {
 
     public List<DeleteFile> getDeleteFiles() {
         return deleteFiles;
+    }
+
+    long getEstimatedBytes() {
+        return estimatedBytes;
     }
 }

@@ -19,6 +19,7 @@ package org.apache.doris.connector.cache;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.Policy;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 
 import java.util.Objects;
@@ -84,6 +85,14 @@ public class MetaCacheEntry<K, V> {
     public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
             long refreshAfterWriteSeconds, boolean manualMissLoadEnabled) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                refreshAfterWriteSeconds, manualMissLoadEnabled, null);
+    }
+
+    public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            long refreshAfterWriteSeconds, boolean manualMissLoadEnabled,
+            MetaCacheSizeEstimator<K, V> sizeEstimator) {
         this.name = name;
         if (contextualOnly) {
             if (loader != null) {
@@ -101,22 +110,35 @@ public class MetaCacheEntry<K, V> {
         this.refreshAfterWriteSeconds = refreshAfterWriteSeconds;
         this.manualMissLoadEnabled = manualMissLoadEnabled;
         Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
-        this.effectiveEnabled = CacheSpec.isCacheEnabled(
-                this.cacheSpec.isEnable(), this.cacheSpec.getTtlSecond(), this.cacheSpec.getCapacity());
+        if (this.cacheSpec.isWeightBounded()) {
+            Objects.requireNonNull(sizeEstimator, "sizeEstimator is required when max-weight is configured");
+        }
+        this.effectiveEnabled = this.cacheSpec.isCacheEnabled();
         OptionalLong expireAfterAccessSec =
                 effectiveEnabled ? CacheSpec.toExpireAfterAccess(this.cacheSpec.getTtlSecond()) : OptionalLong.empty();
         OptionalLong refreshAfterWriteSec =
                 effectiveEnabled && autoRefresh
                         ? OptionalLong.of(refreshAfterWriteSeconds)
                         : OptionalLong.empty();
-        long maxSize = effectiveEnabled ? this.cacheSpec.getCapacity() : 0L;
+        long maxSize = effectiveEnabled && !this.cacheSpec.isWeightBounded()
+                ? this.cacheSpec.getCapacity()
+                : 0L;
         CacheFactory cacheFactory = new CacheFactory(
                 expireAfterAccessSec,
                 refreshAfterWriteSec,
                 maxSize,
                 true,
                 null);
-        this.loadingData = cacheFactory.buildCache(this::loadFromDefaultLoader, refreshExecutor);
+        if (this.cacheSpec.isWeightBounded()) {
+            long maxWeight = effectiveEnabled ? this.cacheSpec.getMaxWeight().getAsLong() : 0L;
+            this.loadingData = cacheFactory.buildCacheWithWeight(
+                    this::loadFromDefaultLoader,
+                    refreshExecutor,
+                    maxWeight,
+                    (key, value) -> toCaffeineWeight(sizeEstimator.estimateBytes(key, value)));
+        } else {
+            this.loadingData = cacheFactory.buildCache(this::loadFromDefaultLoader, refreshExecutor);
+        }
         this.data = loadingData;
         // Initialize striped locks eagerly to keep the hot path allocation-free.
         for (int i = 0; i < loadLocks.length; i++) {
@@ -227,6 +249,8 @@ public class MetaCacheEntry<K, V> {
 
     public MetaCacheEntryStats stats() {
         CacheStats cacheStats = loadingData.stats();
+        Policy.Eviction<K, V> evictionPolicy = loadingData.policy().eviction()
+                .orElseThrow(() -> new IllegalStateException("cache has no eviction policy: " + name));
         long successCount = loadSuccessCount.get();
         long failureCount = loadFailureCount.get();
         long totalLoadTime = totalLoadTimeNanos.get();
@@ -237,7 +261,10 @@ public class MetaCacheEntry<K, V> {
                 autoRefresh,
                 cacheSpec.getTtlSecond(),
                 cacheSpec.getCapacity(),
+                cacheSpec.isWeightBounded(),
+                cacheSpec.getMaxWeight().orElse(-1L),
                 data.estimatedSize(),
+                evictionPolicy.weightedSize().orElse(-1L),
                 cacheStats.requestCount(),
                 cacheStats.hitCount(),
                 cacheStats.missCount(),
@@ -247,10 +274,18 @@ public class MetaCacheEntry<K, V> {
                 totalLoadTime,
                 totalLoadCount == 0 ? 0D : (double) totalLoadTime / totalLoadCount,
                 cacheStats.evictionCount(),
+                cacheStats.evictionWeight(),
                 invalidateCount.get(),
                 lastLoadSuccessTimeMs.get(),
                 lastLoadFailureTimeMs.get(),
                 lastError.get());
+    }
+
+    private static int toCaffeineWeight(long estimatedBytes) {
+        if (estimatedBytes < 0L) {
+            throw new IllegalArgumentException("estimated cache entry bytes can not be negative: " + estimatedBytes);
+        }
+        return estimatedBytes >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) estimatedBytes;
     }
 
     // Injected at construction (fe-core reads Config.enable_external_meta_cache_manual_miss_load dynamically).

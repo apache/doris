@@ -264,6 +264,33 @@ public class ConnectorMetadataCacheTest {
     }
 
     @Test
+    public void maxWeightRequiresEstimator() {
+        Map<String, String> props = new HashMap<>();
+        props.put("meta.cache." + ENGINE + ".partition_view.max-weight", "1KB");
+
+        Assertions.assertThrows(NullPointerException.class,
+                () -> new ConnectorMetadataCache<>(ENGINE, "partition_view", props));
+    }
+
+    @Test
+    public void maxWeightUsesProvidedEstimator() {
+        Map<String, String> props = new HashMap<>();
+        props.put("meta.cache." + ENGINE + ".partition_view.max-weight", "1B");
+        AtomicInteger estimates = new AtomicInteger();
+        ConnectorMetadataCache<String> cache = new ConnectorMetadataCache<>(
+                ENGINE, "partition_view", props, (key, value) -> {
+                    estimates.incrementAndGet();
+                    return value.length();
+                });
+
+        String value = cache.get(key("db", "t", 5L, 1L), () -> "weighted");
+
+        Assertions.assertEquals("weighted", value);
+        Assertions.assertEquals(1, estimates.get(), "the max-weight branch must call the provided estimator");
+        Assertions.assertTrue(cache.isWeightBounded());
+    }
+
+    @Test
     public void loaderExceptionPropagatesUnwrappedAndIsNotCached() {
         ConnectorMetadataCache<String> cache = newCache();
         // A failed load (e.g. a remote enumeration RPC failure) must propagate to the caller verbatim and must

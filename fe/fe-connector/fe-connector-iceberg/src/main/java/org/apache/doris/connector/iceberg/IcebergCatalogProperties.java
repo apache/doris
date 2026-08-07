@@ -158,6 +158,8 @@ public final class IcebergCatalogProperties {
                 -1L, IcebergConnector.TABLE_CACHE_TTL_SECOND);
         CacheSpec.checkLongProperty(properties.get(IcebergConnector.TABLE_CACHE_CAPACITY),
                 0L, IcebergConnector.TABLE_CACHE_CAPACITY);
+        CacheSpec.checkDataSizeProperty(properties.get(IcebergConnector.TABLE_CACHE_MAX_WEIGHT),
+                IcebergConnector.TABLE_CACHE_MAX_WEIGHT);
 
         CacheSpec.checkBooleanProperty(properties.get(IcebergConnector.MANIFEST_CACHE_ENABLE),
                 IcebergConnector.MANIFEST_CACHE_ENABLE);
@@ -165,6 +167,8 @@ public final class IcebergCatalogProperties {
                 -1L, IcebergConnector.MANIFEST_CACHE_TTL_SECOND);
         CacheSpec.checkLongProperty(properties.get(IcebergConnector.MANIFEST_CACHE_CAPACITY),
                 0L, IcebergConnector.MANIFEST_CACHE_CAPACITY);
+        CacheSpec.checkDataSizeProperty(properties.get(IcebergConnector.MANIFEST_CACHE_MAX_WEIGHT),
+                IcebergConnector.MANIFEST_CACHE_MAX_WEIGHT);
     }
 
     /** The metastore backend, lower-cased; {@code null} when the catalog does not name one. */

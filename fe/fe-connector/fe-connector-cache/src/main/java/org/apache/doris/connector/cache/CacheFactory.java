@@ -24,6 +24,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.Ticker;
+import com.github.benmanes.caffeine.cache.Weigher;
 
 import java.time.Duration;
 import java.util.OptionalLong;
@@ -73,22 +74,49 @@ public class CacheFactory {
 
     // Build a loading cache, without executor, it will use fork-join pool for refresh
     public <K, V> LoadingCache<K, V> buildCache(CacheLoader<K, V> cacheLoader) {
-        Caffeine<Object, Object> builder = buildWithParams();
+        Caffeine<Object, Object> builder = buildSizeBoundedWithParams();
         return builder.build(cacheLoader);
     }
 
     // Build a loading cache, with executor, it will use given executor for refresh
     public <K, V> LoadingCache<K, V> buildCache(CacheLoader<K, V> cacheLoader,
             ExecutorService executor) {
-        Caffeine<Object, Object> builder = buildWithParams();
+        Caffeine<Object, Object> builder = buildSizeBoundedWithParams();
         builder.executor(executor);
+        return builder.build(cacheLoader);
+    }
+
+    /**
+     * Build a loading cache bounded by weight instead of entry count.
+     */
+    public <K, V> LoadingCache<K, V> buildCacheWithWeight(CacheLoader<K, V> cacheLoader,
+            ExecutorService executor, long maxWeight, Weigher<K, V> weigher) {
+        Caffeine<K, V> builder = buildWithParams()
+                .maximumWeight(maxWeight)
+                .weigher(weigher);
+        builder.executor(executor);
+        return builder.build(cacheLoader);
+    }
+
+    /**
+     * Build a loading cache bounded by weight with a synchronous removal listener.
+     */
+    public <K, V> LoadingCache<K, V> buildCacheWithWeightAndSyncRemovalListener(CacheLoader<K, V> cacheLoader,
+            long maxWeight, Weigher<K, V> weigher, RemovalListener<K, V> removalListener) {
+        Caffeine<K, V> builder = buildWithParams()
+                .maximumWeight(maxWeight)
+                .weigher(weigher);
+        if (removalListener != null) {
+            builder.removalListener(removalListener);
+        }
+        builder.executor(Runnable::run);  // Sync execution to avoid thread pool deadlock
         return builder.build(cacheLoader);
     }
 
     // Build cache with sync removal listener to prevent deadlock when listener calls invalidateAll()
     public <K, V> LoadingCache<K, V> buildCacheWithSyncRemovalListener(CacheLoader<K, V> cacheLoader,
             RemovalListener<K, V> removalListener) {
-        Caffeine<Object, Object> builder = buildWithParams();
+        Caffeine<Object, Object> builder = buildSizeBoundedWithParams();
         if (removalListener != null) {
             builder.removalListener(removalListener);
         }
@@ -99,15 +127,13 @@ public class CacheFactory {
     // Build an async loading cache
     public <K, V> AsyncLoadingCache<K, V> buildAsyncCache(AsyncCacheLoader<K, V> cacheLoader,
             ExecutorService executor) {
-        Caffeine<Object, Object> builder = buildWithParams();
+        Caffeine<Object, Object> builder = buildSizeBoundedWithParams();
         builder.executor(executor);
         return builder.buildAsync(cacheLoader);
     }
 
     private Caffeine<Object, Object> buildWithParams() {
         Caffeine<Object, Object> builder = Caffeine.newBuilder();
-        builder.maximumSize(maxSize);
-
         if (expireAfterAccessSec.isPresent()) {
             builder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSec.getAsLong()));
         }
@@ -123,5 +149,9 @@ public class CacheFactory {
             builder.ticker(ticker);
         }
         return builder;
+    }
+
+    private Caffeine<Object, Object> buildSizeBoundedWithParams() {
+        return buildWithParams().maximumSize(maxSize);
     }
 }

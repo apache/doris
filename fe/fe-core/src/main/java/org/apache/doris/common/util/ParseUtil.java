@@ -70,6 +70,36 @@ public class ParseUtil {
         return dataVolumn;
     }
 
+    /**
+     * Parse a data volume while allowing zero and rejecting arithmetic overflow.
+     */
+    public static long analyzeDataVolumeAllowZero(String dataVolumnStr) throws AnalysisException {
+        long dataVolumn;
+        Matcher m = dataVolumnPattern.matcher(dataVolumnStr);
+        if (!m.matches()) {
+            throw new AnalysisException("invalid data volume expression:" + dataVolumnStr);
+        }
+        try {
+            dataVolumn = Long.parseLong(m.group(1));
+        } catch (NumberFormatException nfe) {
+            throw new AnalysisException("invalid data volume:" + m.group(1));
+        }
+
+        String unit = "B";
+        String tmpUnit = m.group(2);
+        if (!Strings.isNullOrEmpty(tmpUnit)) {
+            unit = tmpUnit.toUpperCase();
+        }
+        if (!validDataVolumnUnitMultiplier.containsKey(unit)) {
+            throw new AnalysisException("invalid unit:" + tmpUnit);
+        }
+        try {
+            return Math.multiplyExact(dataVolumn, validDataVolumnUnitMultiplier.get(unit));
+        } catch (ArithmeticException e) {
+            throw new AnalysisException("data volume is too large:" + dataVolumnStr);
+        }
+    }
+
     public static long analyzeReplicaNumber(String replicaNumberStr) throws AnalysisException {
         long replicaNumber = 0;
         try {

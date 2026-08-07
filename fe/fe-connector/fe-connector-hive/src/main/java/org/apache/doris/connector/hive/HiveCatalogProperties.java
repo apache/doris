@@ -187,6 +187,9 @@ public final class HiveCatalogProperties {
         // "The parameter ... is wrong, value is ..." message.
         CacheSpec.checkLongProperty(raw.get("file.meta.cache.ttl-second"), 0L, "file.meta.cache.ttl-second");
         CacheSpec.checkLongProperty(raw.get("partition.cache.ttl-second"), 0L, "partition.cache.ttl-second");
+        String fileMaxWeightKey = CacheSpec.metaCacheMaxWeightKey(
+                HiveFileListingCache.ENGINE, HiveFileListingCache.ENTRY_FILE);
+        CacheSpec.checkDataSizeProperty(raw.get(fileMaxWeightKey), fileMaxWeightKey);
         return this;
     }
 

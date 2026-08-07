@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.MetaCacheEntryStats;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
@@ -100,12 +101,26 @@ final class IcebergManifestCache {
         this(maxSize, DEFAULT_STATS_TTL_SECONDS, System::nanoTime);
     }
 
+    IcebergManifestCache(Map<String, String> properties) {
+        this(CacheSpec.fromProperties(
+                        properties,
+                        "iceberg",
+                        "manifest",
+                        CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, DEFAULT_MANIFEST_CACHE_CAPACITY)),
+                DEFAULT_STATS_TTL_SECONDS,
+                System::nanoTime);
+    }
+
     /** Visible for testing: injectable stats TTL + clock so the leak sweep is deterministic without sleeping. */
     IcebergManifestCache(int maxSize, long statsTtlSeconds, LongSupplier nanoClock) {
         // Always enabled, no expiry, capacity-bounded (CACHE_NO_TTL == -1 means "no expiration", enabled).
-        CacheSpec spec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, Math.max(1, maxSize));
+        this(CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, Math.max(1, maxSize)), statsTtlSeconds, nanoClock);
+    }
+
+    private IcebergManifestCache(CacheSpec spec, long statsTtlSeconds, LongSupplier nanoClock) {
         this.entry = new MetaCacheEntry<>("iceberg-manifest", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+                ForkJoinPool.commonPool(), false, true, 0L, true,
+                IcebergCacheSizeEstimator::estimateManifestEntry);
         this.statsTtlNanos = TimeUnit.SECONDS.toNanos(Math.max(1L, statsTtlSeconds));
         this.nanoClock = nanoClock;
     }
@@ -231,5 +246,9 @@ final class IcebergManifestCache {
         int[] count = {0};
         entry.forEach((key, value) -> count[0]++);
         return count[0];
+    }
+
+    MetaCacheEntryStats stats() {
+        return entry.stats();
     }
 }

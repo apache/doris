@@ -243,6 +243,66 @@ public class MetaCacheEntryTest {
         }
     }
 
+    @Test
+    public void weightedEntryEvictsAndReportsWeight() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 100L, 4L);
+            MetaCacheEntry<String, String> entry = new MetaCacheEntry<>(
+                    "weighted", key -> key, cacheSpec, refreshExecutor,
+                    false, false, 0L, false, (key, value) -> value.length());
+
+            entry.get("aaa");
+            entry.get("bbb");
+            extractLoadingCache(entry).cleanUp();
+
+            MetaCacheEntryStats stats = entry.stats();
+            Assertions.assertTrue(stats.isWeightBounded());
+            Assertions.assertEquals(4L, stats.getMaxWeight());
+            Assertions.assertTrue(stats.getEstimatedWeight() <= 4L);
+            Assertions.assertEquals(1L, stats.getEvictionCount());
+            Assertions.assertEquals(3L, stats.getEvictionWeight());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void weightedEntryRequiresEstimator() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 100L, 4L);
+            NullPointerException error = Assertions.assertThrows(NullPointerException.class,
+                    () -> new MetaCacheEntry<>("weighted", String::length, cacheSpec, refreshExecutor));
+            Assertions.assertEquals("sizeEstimator is required when max-weight is configured", error.getMessage());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void weightedEntryRejectsNegativeAndSaturatesLargeEstimate() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec smallSpec = CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 100L, 4L);
+            MetaCacheEntry<String, String> negative = new MetaCacheEntry<>(
+                    "negative", key -> key, smallSpec, refreshExecutor,
+                    false, false, 0L, false, (key, value) -> -1L);
+            Assertions.assertThrows(IllegalArgumentException.class, () -> negative.get("a"));
+
+            CacheSpec largeSpec = CacheSpec.ofWeight(
+                    true, CacheSpec.CACHE_NO_TTL, 100L, Integer.MAX_VALUE);
+            MetaCacheEntry<String, String> saturated = new MetaCacheEntry<>(
+                    "saturated", key -> key, largeSpec, refreshExecutor,
+                    false, false, 0L, false, (key, value) -> Long.MAX_VALUE);
+            saturated.get("a");
+            extractLoadingCache(saturated).cleanUp();
+            Assertions.assertEquals(Integer.MAX_VALUE, saturated.stats().getEstimatedWeight());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static LoadingCache<Object, Object> extractLoadingCache(MetaCacheEntry<?, ?> entry) throws Exception {
         Field field = MetaCacheEntry.class.getDeclaredField("loadingData");

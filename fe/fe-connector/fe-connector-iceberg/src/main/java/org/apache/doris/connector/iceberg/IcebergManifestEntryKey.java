@@ -35,10 +35,12 @@ import java.util.Objects;
 public class IcebergManifestEntryKey {
     private final String manifestPath;
     private final ManifestContent content;
+    private final long estimatedBytes;
 
     public IcebergManifestEntryKey(String manifestPath, ManifestContent content) {
         this.manifestPath = Objects.requireNonNull(manifestPath, "manifestPath can not be null");
         this.content = Objects.requireNonNull(content, "content can not be null");
+        this.estimatedBytes = IcebergCacheSizeEstimator.estimateManifestKey(this);
     }
 
     public static IcebergManifestEntryKey of(ManifestFile manifest) {
@@ -51,6 +53,10 @@ public class IcebergManifestEntryKey {
 
     public ManifestContent getContent() {
         return content;
+    }
+
+    long getEstimatedBytes() {
+        return estimatedBytes;
     }
 
     @Override
