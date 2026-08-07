@@ -50,29 +50,21 @@ enum KeysType : int;
 // FLUSH: the memtable is under flushing, write segment to disk.
 enum MemType { ACTIVE = 0, WRITE_FINISHED = 1, FLUSH = 2 };
 
-// row pos in _input_mutable_block
+// A row of _input_mutable_block, kept by value in MemTable::_row_in_blocks.
+// Small and trivially copyable on purpose: there is one of these per loaded row,
+// so anything stored here is multiplied by the memtable's row count.
 struct RowInBlock {
     size_t _row_pos;
     int64_t _row_binlog_lsn = 0;
+    // Aggregate state of this row, allocated from MemTable::_arena; null means
+    // the row has not been aggregated into yet. The offsets of the individual
+    // states are the same for every row, so they live on the MemTable rather
+    // than being repeated here.
     char* _agg_mem = nullptr;
-    size_t* _agg_state_offset = nullptr;
-    bool _has_init_agg;
 
-    RowInBlock(size_t row) : _row_pos(row), _has_init_agg(false) {}
+    RowInBlock(size_t row) : _row_pos(row) {}
     RowInBlock(size_t row, int64_t row_binlog_lsn)
-            : _row_pos(row), _row_binlog_lsn(row_binlog_lsn), _has_init_agg(false) {}
-
-    void init_agg_places(char* agg_mem, size_t* agg_state_offset) {
-        _has_init_agg = true;
-        _agg_mem = agg_mem;
-        _agg_state_offset = agg_state_offset;
-    }
-
-    char* agg_places(size_t offset) const { return _agg_mem + _agg_state_offset[offset]; }
-
-    inline bool has_init_agg() const { return _has_init_agg; }
-
-    inline void remove_init_agg() { _has_init_agg = false; }
+            : _row_pos(row), _row_binlog_lsn(row_binlog_lsn) {}
 };
 
 class Tie {
@@ -217,18 +209,19 @@ public:
 private:
     // for vectorized
     template <bool has_skip_bitmap_col>
-    void _aggregate_two_row_in_block(MutableBlock& mutable_block, RowInBlock* new_row,
-                                     RowInBlock* row_in_skiplist);
+    void _aggregate_two_row_in_block(MutableBlock& mutable_block, const RowInBlock& new_row,
+                                     RowInBlock& row_in_skiplist);
 
     // Merge row-binlog LSN sidecar only when MemTable merges two RowInBlock objects.
     // Table models that require complex merge semantics, such as AGG tables and unique key
     // merge-on-read tables, do not support row-binlog LSN now and are rejected in insert().
-    void _merge_row_binlog_lsn(RowInBlock* src_row, RowInBlock* dst_row);
+    void _merge_row_binlog_lsn(const RowInBlock& src_row, RowInBlock& dst_row);
 
-    void _append_output_row_binlog_lsn(RowInBlock* row);
+    void _append_output_row_binlog_lsn(const RowInBlock& row);
 
-    void _aggregate_two_row_with_sequence_map(MutableBlock& mutable_block, RowInBlock* new_row,
-                                              RowInBlock* row_in_skiplist);
+    void _aggregate_two_row_with_sequence_map(MutableBlock& mutable_block,
+                                              const RowInBlock& new_row,
+                                              RowInBlock& row_in_skiplist);
 
     // Used to wrapped by to_block to do exception handle logic
     Status _to_block(std::unique_ptr<Block>* res);
@@ -275,25 +268,28 @@ private:
     //return number of same keys
     size_t _sort();
     Status _sort_by_cluster_keys();
-    void _sort_one_column(DorisVector<std::shared_ptr<RowInBlock>>& row_in_blocks, Tie& tie,
-                          std::function<int(RowInBlock*, RowInBlock*)> cmp);
+    void _sort_one_column(DorisVector<RowInBlock>& row_in_blocks, Tie& tie,
+                          std::function<int(const RowInBlock&, const RowInBlock&)> cmp);
     template <bool is_final>
-    void _finalize_one_row(RowInBlock* row, MutableBlock& mutable_block, int row_pos);
-    void _init_row_for_agg(RowInBlock* row, MutableBlock& mutable_block);
-    void _clear_row_agg(RowInBlock* row);
+    void _finalize_one_row(RowInBlock& row, MutableBlock& mutable_block, int row_pos);
+    void _init_row_for_agg(RowInBlock& row, MutableBlock& mutable_block);
+    void _clear_row_agg(RowInBlock& row);
+
+    static bool _has_agg(const RowInBlock& row) { return row._agg_mem != nullptr; }
+    char* _agg_place(const RowInBlock& row, size_t cid) const {
+        return row._agg_mem + _offsets_of_aggregate_states[cid];
+    }
 
     template <bool is_final, bool has_skip_bitmap_col = false>
     void _aggregate();
 
     template <bool is_final>
     void _aggregate_for_flexible_partial_update_without_seq_col(
-            MutableBlock& mutable_block,
-            DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
+            MutableBlock& mutable_block, DorisVector<RowInBlock>& temp_row_in_blocks);
 
     template <bool is_final>
     void _aggregate_for_flexible_partial_update_with_seq_col(
-            MutableBlock& mutable_block,
-            DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
+            MutableBlock& mutable_block, DorisVector<RowInBlock>& temp_row_in_blocks);
 
     Status _put_into_output(Block& in_block);
     bool _is_first_insertion;
@@ -302,7 +298,7 @@ private:
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<size_t> _offsets_of_aggregate_states;
     size_t _total_size_of_aggregate_states;
-    std::unique_ptr<DorisVector<std::shared_ptr<RowInBlock>>> _row_in_blocks;
+    std::unique_ptr<DorisVector<RowInBlock>> _row_in_blocks;
 
     size_t _num_columns;
     int32_t _seq_col_idx_in_block {-1};
