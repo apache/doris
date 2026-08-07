@@ -317,6 +317,7 @@ public class BackendServiceProxyTest {
 
         BackendServiceClient client = Mockito.mock(BackendServiceClient.class);
         Mockito.when(client.isNormalState()).thenReturn(true);
+        Mockito.when(client.isUsingLatestChannelConfig()).thenReturn(true);
         ListenableFuture<InternalService.PSyncTabletMetaResponse> expectedFuture = Futures.immediateFuture(
                 InternalService.PSyncTabletMetaResponse.newBuilder()
                         .setSyncedTablets(1)
