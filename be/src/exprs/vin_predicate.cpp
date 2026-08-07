@@ -160,11 +160,17 @@ Status VInPredicate::_materialize_for_zonemap_filter(VExprContext* context) {
     _seg_filter_contains_nan = false;
     _zonemap_materialized = false;
     _direct_filter_set.reset();
-    if (_children.size() < 2 || !_children[0]->is_slot_ref()) {
+    if (_children.size() < 2) {
         return Status::OK();
     }
 
-    const auto data_type = remove_nullable(_children[0]->data_type());
+    auto bloom_probe = expr_zonemap::extract_bloom_filter_probe(_children[0]);
+    if (!bloom_probe.has_value()) {
+        return Status::OK();
+    }
+    // Materialization is shared by all pruning paths. Their capability checks keep ZoneMap,
+    // dictionary, and raw evaluation direct-slot-only while Bloom may consume a nested leaf.
+    const auto data_type = remove_nullable(bloom_probe->value_type);
     DORIS_CHECK(data_type != nullptr);
     if (is_complex_type(data_type->get_primitive_type())) {
         return Status::OK();
@@ -222,7 +228,7 @@ ZoneMapFilterResult VInPredicate::evaluate_bloom_filter(const BloomFilterEvalCon
 bool VInPredicate::can_evaluate_bloom_filter() const {
     // A NaN member forces conservative retention regardless of the remaining finite probes.
     return _zonemap_materialized && !_is_not_in && !_seg_filter_contains_nan &&
-           std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
+           expr_zonemap::extract_bloom_filter_probe(get_child(0)).has_value();
 }
 
 bool VInPredicate::can_execute_on_raw_fixed_values(const DataTypePtr& data_type,

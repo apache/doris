@@ -87,6 +87,9 @@ struct FileScanRequest {
     // Only this leading subset may participate in footer/page metadata pruning. The boundary is
     // inherited from table-conjunct order so an omitted slotless unsafe expression remains a fence.
     size_t metadata_pruning_safe_conjunct_count = std::numeric_limits<size_t>::max();
+    // Constant split pruning may use only this table-filter prefix after mapping. A rejected
+    // file-local rewrite is a materialization barrier even when a later filter is constant.
+    size_t constant_pruning_safe_table_filter_count = std::numeric_limits<size_t>::max();
     // Delete predicates converted to file-local expressions. A TRUE result means that the row is
     // deleted, so readers must invert each result when building their keep filter.
     VExprContextSPtrs delete_conjuncts;
