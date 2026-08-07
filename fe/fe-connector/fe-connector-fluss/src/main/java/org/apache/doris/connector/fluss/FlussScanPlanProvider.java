@@ -139,6 +139,16 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     /** The only lake format that can be delegated today; fluss also defines iceberg / lance / hudi. */
     private static final String PAIMON_LAKE_FORMAT = "paimon";
 
+    /**
+     * The SCAN-LEVEL table format, read by BE's scanner selection before it fetches any range. Every reader
+     * this connector needs lives in {@code FileScannerV2} only, so a scan planned here must use it whatever
+     * {@code enable_file_scanner_v2} says; the legacy scanner's JNI dispatch has no fluss branch and would
+     * fail the query with {@code Not supported create reader for table format}. Same literal as the per-range
+     * marker ({@link FlussScanRange#getTableFormatType}), and the mirror image of the {@code
+     * transactional_hive} stamp, which uses this same channel to force the OPPOSITE choice.
+     */
+    private static final String SCAN_LEVEL_TABLE_FORMAT = "fluss";
+
     private final FlussAdminOps adminOps;
     private final FlussCatalogProperties catalogProperties;
     private final Function<Map<String, String>, Connector> lakeSiblingFactory;
@@ -1005,6 +1015,15 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 return null;
             });
         }
+
+        // Last, so the sibling's turn at the same params cannot take the marker away. The node is stamped
+        // for being planned HERE rather than for the ranges it ended up with: a plan whose buckets are all
+        // tiered holds only lake splits, but which scanner reads them is decided before any range is
+        // fetched, and a rule that depended on what planScan produced would go quiet exactly when the
+        // planning order changed.
+        TTableFormatFileDesc scanLevelFormat = new TTableFormatFileDesc();
+        scanLevelFormat.setTableFormatType(SCAN_LEVEL_TABLE_FORMAT);
+        params.setTableFormatParams(scanLevelFormat);
     }
 
     /**

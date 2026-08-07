@@ -254,6 +254,40 @@ suite("test_fluss_misc", "p0,external") {
         from copied c join ${catalogName}.fluss_test.log_types t on c.id = t.id
     """
 
+    // --- the scanner the session asked for is not the scanner fluss needs ------
+    // Every fluss reader exists in FileScannerV2 alone, and enable_file_scanner_v2 is
+    // a session variable a user may legitimately turn off (the fuzzy mode this pipeline
+    // runs turns it off at random, which is why every suite here pins it on). A scan
+    // that honoured it would reach the legacy scanner, whose JNI dispatch has no fluss
+    // branch, and die with "Not supported create reader for table format" -- so what is
+    // asserted is that the variable cannot change the answer, on each range kind a plain
+    // fluss catalog plans. This stays in the code rather than becoming a recorded block:
+    // what is under test is the agreement between two settings, and two identical
+    // recordings only look alike to whoever reads them.
+    def rowsOf = { String query -> sql(query).collect { row -> row.collect { it.toString() } } }
+    def sameWithScannerV2Off = { String query ->
+        sql """set enable_file_scanner_v2 = true"""
+        def withV2 = rowsOf(query)
+        sql """set enable_file_scanner_v2 = false"""
+        def withoutV2 = rowsOf(query)
+        sql """set enable_file_scanner_v2 = true"""
+        assertEquals(withV2, withoutV2,
+                "enable_file_scanner_v2 changed the answer for: ${query}"
+                        + "\non=${withV2}\noff=${withoutV2}")
+    }
+
+    // LOG, PK_FULL, and a partitioned log table -- the three shapes whose ranges only
+    // the v2 scanner can read.
+    sameWithScannerV2Off """
+        select id, name, price from ${catalogName}.fluss_test.log_basic order by id
+    """
+    sameWithScannerV2Off """
+        select id, name from ${catalogName}.fluss_test.pk_basic order by id
+    """
+    sameWithScannerV2Off """
+        select count(*) from ${catalogName}.fluss_test.log_part
+    """
+
     sql """drop database if exists ${internalDb} force"""
     sql """switch internal"""
     sql """drop catalog if exists ${catalogName}"""
