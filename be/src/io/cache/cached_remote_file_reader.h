@@ -60,9 +60,12 @@ struct SourceReadBreakdown {
 };
 using PeerFetchedBlockSet = std::unordered_set<const FileBlock*>;
 
-// Query-scoped cache for File Scanner V2 reads served by FileCache. The cache key includes the
-// immutable external-file identity, so all scanners in one query can share a single block fill.
-class FileScannerV2ReaderLocalCache {
+class FileScannerV2ReaderLocalFileCache;
+
+// Query-scoped registry and memory budget for File Scanner V2 reader-local caches. Readers bind
+// to a file cache once, while all file caches still share the query memory limit.
+class FileScannerV2ReaderLocalCache
+        : public std::enable_shared_from_this<FileScannerV2ReaderLocalCache> {
 public:
     struct LookupResult {
         std::shared_ptr<std::vector<char>> data;
@@ -78,50 +81,81 @@ public:
             size_t capacity, std::shared_ptr<doris::MemTrackerLimiter> query_mem_tracker = nullptr);
     ~FileScannerV2ReaderLocalCache();
 
-    bool read_if_present(const UInt128Wrapper& file_key, size_t block_offset, size_t read_offset,
-                         Slice result, LookupResult* lookup);
-    Status get_or_load(const UInt128Wrapper& file_key, size_t block_offset, size_t block_size,
-                       const FileBlockSPtr& file_block, size_t file_block_offset,
-                       LookupResult* lookup);
+    std::shared_ptr<FileScannerV2ReaderLocalFileCache> get_or_create_file_cache(
+            const UInt128Wrapper& file_key);
 
     size_t entry_count() const;
     size_t memory_usage() const;
     int64_t tracked_memory() const;
 
 private:
-    struct Key {
+    friend class FileScannerV2ReaderLocalFileCache;
+
+    struct FileKey {
         uint64_t file_key_high = 0;
         uint64_t file_key_low = 0;
-        size_t block_offset = 0;
 
-        bool operator<(const Key& other) const {
-            return std::tie(file_key_high, file_key_low, block_offset) <
-                   std::tie(other.file_key_high, other.file_key_low, other.block_offset);
+        bool operator<(const FileKey& other) const {
+            return std::tie(file_key_high, file_key_low) <
+                   std::tie(other.file_key_high, other.file_key_low);
         }
     };
+
+    static FileKey _make_file_key(const UInt128Wrapper& file_key);
+    bool _reserve(size_t bytes, FileScannerV2ReaderLocalFileCache* requester, size_t* evicted);
+    bool _try_reserve(size_t bytes);
+    void _commit(size_t bytes);
+    void _cancel_reservation(size_t bytes);
+    void _release(size_t bytes);
+    std::vector<std::shared_ptr<FileScannerV2ReaderLocalFileCache>> _file_caches() const;
+
+    const size_t _capacity;
+    std::shared_ptr<doris::MemTrackerLimiter> _query_mem_tracker;
+    std::shared_ptr<doris::MemTracker> _memory_tracker;
+    mutable std::mutex _budget_mutex;
+    size_t _memory_bytes = 0;
+    size_t _reserved_bytes = 0;
+    mutable std::mutex _registry_mutex;
+    mutable std::map<FileKey, std::weak_ptr<FileScannerV2ReaderLocalFileCache>> _files;
+};
+
+// File-scoped block map for reader-local data. Different external files never contend on this
+// mutex; duplicate reads of the same file still share fills and LRU state.
+class FileScannerV2ReaderLocalFileCache {
+public:
+    using LookupResult = FileScannerV2ReaderLocalCache::LookupResult;
+
+    ~FileScannerV2ReaderLocalFileCache();
+
+    bool read_if_present(size_t block_offset, size_t read_offset, Slice result,
+                         LookupResult* lookup);
+    Status get_or_load(size_t block_offset, size_t block_size, const FileBlockSPtr& file_block,
+                       size_t file_block_offset, LookupResult* lookup);
+
+    size_t entry_count() const;
+
+private:
+    friend class FileScannerV2ReaderLocalCache;
 
     struct Entry {
         std::shared_ptr<std::vector<char>> data;
         Status load_status = Status::OK();
         std::condition_variable ready;
-        std::list<Key>::iterator lru_position;
+        std::list<size_t>::iterator lru_position;
         size_t reserved_bytes = 0;
         bool loading = true;
         bool in_lru = false;
     };
 
-    static Key _make_key(const UInt128Wrapper& file_key, size_t block_offset);
-    bool _reserve_locked(size_t bytes, size_t* evicted);
+    explicit FileScannerV2ReaderLocalFileCache(
+            std::shared_ptr<FileScannerV2ReaderLocalCache> owner);
     void _touch_locked(const std::shared_ptr<Entry>& entry);
+    bool _evict_one();
 
-    const size_t _capacity;
-    std::shared_ptr<doris::MemTrackerLimiter> _query_mem_tracker;
-    std::shared_ptr<doris::MemTracker> _memory_tracker;
+    std::shared_ptr<FileScannerV2ReaderLocalCache> _owner;
     mutable std::mutex _mutex;
-    std::map<Key, std::shared_ptr<Entry>> _entries;
-    std::list<Key> _lru;
-    size_t _memory_bytes = 0;
-    size_t _reserved_bytes = 0;
+    std::map<size_t, std::shared_ptr<Entry>> _entries;
+    std::list<size_t> _lru;
 };
 
 class ExactCacheReader {
@@ -418,6 +452,7 @@ private:
     std::shared_mutex _mtx;
     std::map<size_t, FileBlockSPtr> _cache_file_readers;
     std::shared_ptr<FileScannerV2ReaderLocalCache> _reader_local_cache;
+    std::shared_ptr<FileScannerV2ReaderLocalFileCache> _reader_local_file_cache;
     // Keep query-shared fills smaller than the FileCache block so page reuse does not promote an
     // entire large block.
     static constexpr size_t READER_LOCAL_CACHE_BLOCK_BYTES = 256 * 1024;
