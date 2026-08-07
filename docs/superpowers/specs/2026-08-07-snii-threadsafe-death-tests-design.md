@@ -27,7 +27,7 @@ Do not add a shared helper, fixture, listener, macro, or separate test executabl
 and restores its flags around each test, so the setting remains scoped to that SNII test and does
 not alter other modules.
 
-The audit currently covers nine death assertions in four files, including disabled SNII benchmark
+The audit currently covers ten death assertions in four files, including disabled SNII benchmark
 tests so they are safe when explicitly enabled. The exact-phrase test already has the setting and
 requires no semantic change.
 

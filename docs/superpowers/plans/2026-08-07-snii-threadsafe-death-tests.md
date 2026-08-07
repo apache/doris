@@ -29,7 +29,7 @@
 
 **Interfaces:**
 - Consumes: GoogleTest's `GTEST_FLAG_SET` and existing `EXPECT_DEATH` assertions.
-- Produces: Nine SNII death assertions that select threadsafe execution locally; the exact-phrase assertion already satisfies the contract.
+- Produces: Ten SNII death assertions that select threadsafe execution locally; the exact-phrase assertion already satisfies the contract.
 
 - [ ] **Step 1: Record the failing baseline**
 
@@ -41,7 +41,7 @@ Death tests use fork(), ... detected 156 threads
 Aborted (core dumped)
 ```
 
-Confirm the source audit finds nine SNII death assertions but only the exact-phrase owner already sets threadsafe mode:
+Confirm the source audit finds ten SNII death assertions but only the exact-phrase assertion already sets threadsafe mode:
 
 ```bash
 rg -n -C 5 'EXPECT_DEATH|ASSERT_DEATH|GTEST_FLAG_SET\(death_test_style' \
@@ -136,7 +136,7 @@ build-support/run-clang-tidy.sh --build-dir be/ut_build_ASAN --files \
 ```
 
 Expected: formatting, whitespace, and static-analysis checks pass with no warnings on the modified
-files. The source audit still reports nine death assertions, each with an immediately preceding
+files. The source audit still reports ten death assertions, each with an immediately preceding
 threadsafe setting (including the already-fixed exact-phrase test).
 
 - [ ] **Step 6: Commit the implementation**
