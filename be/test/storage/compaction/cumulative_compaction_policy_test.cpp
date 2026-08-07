@@ -506,6 +506,53 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
     EXPECT_EQ(-1, last_delete_version.second);
 }
 
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_notready_keeps_latest_versions) {
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+
+    RowsetMetaSharedPtr base_rowset(new RowsetMeta());
+    init_rs_meta(base_rowset, 0, 1);
+    base_rowset->set_total_disk_size(kGiB);
+    base_rowset->set_segments_overlap(NONOVERLAPPING);
+    rs_metas.push_back(base_rowset);
+
+    for (int64_t version = 2; version <= 20; ++version) {
+        RowsetMetaSharedPtr rowset(new RowsetMeta());
+        init_rs_meta(rowset, version, version);
+        rowset->set_total_disk_size(kMiB);
+        rowset->set_num_segments(1);
+        rowset->set_segments_overlap(OVERLAPPING);
+        rs_metas.push_back(rowset);
+    }
+
+    for (const auto& rowset : rs_metas) {
+        ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset).ok());
+    }
+
+    TabletSharedPtr tablet(
+            new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    ASSERT_TRUE(tablet->init().ok());
+    ASSERT_TRUE(tablet->set_tablet_state(TABLET_NOTREADY).ok());
+    tablet->calculate_cumulative_point();
+
+    EXPECT_EQ(2, tablet->cumulative_layer_point());
+    auto candidate_rowsets = tablet->pick_candidate_rowsets_to_cumulative_compaction();
+    ASSERT_EQ(19, candidate_rowsets.size());
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    auto picked_size = tablet->_cumulative_compaction_policy->pick_input_rowsets(
+            tablet.get(), candidate_rowsets, 100, 5, &input_rowsets, &last_delete_version,
+            &compaction_score, config::enable_delete_when_cumu_compaction);
+
+    EXPECT_EQ(9, picked_size);
+    ASSERT_EQ(9, input_rowsets.size());
+    EXPECT_EQ(9, compaction_score);
+    EXPECT_EQ(2, input_rowsets.front()->start_version());
+    EXPECT_EQ(10, input_rowsets.back()->end_version());
+    EXPECT_EQ(Version(-1, -1), last_delete_version);
+}
+
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_big_base) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_big_base(&rs_metas);

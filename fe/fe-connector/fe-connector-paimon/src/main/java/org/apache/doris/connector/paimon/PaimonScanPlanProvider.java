@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -47,6 +48,7 @@ import org.apache.doris.thrift.schema.external.TStructField;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
@@ -214,7 +216,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
     private static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
 
-    private final Map<String, String> properties;
+    private final PaimonCatalogProperties catalogProps;
     private final PaimonCatalogOps catalogOps;
     private final ConnectorContext context;
     // FIX-B-R2-be: connector-level (per-catalog, long-lived) memo of the per-committed-schema-id field
@@ -230,18 +232,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // path (paimon never streams), so the CopyOnWriteArrayList value is only ever appended single-threaded.
     private final ConcurrentHashMap<String, List<ConnectorScanProfile>> scanProfileStash = new ConcurrentHashMap<>();
 
-    public PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps) {
-        this(properties, catalogOps, null);
+    public PaimonScanPlanProvider(PaimonCatalogProperties catalogProps, PaimonCatalogOps catalogOps) {
+        this(catalogProps, catalogOps, null);
     }
 
-    public PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps,
+    public PaimonScanPlanProvider(PaimonCatalogProperties catalogProps, PaimonCatalogOps catalogOps,
             ConnectorContext context) {
-        this(properties, catalogOps, context, new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE));
+        this(catalogProps, catalogOps, context, new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE));
     }
 
-    PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps,
+    PaimonScanPlanProvider(PaimonCatalogProperties catalogProps, PaimonCatalogOps catalogOps,
             ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo) {
-        this.properties = properties;
+        this.catalogProps = catalogProps;
         this.catalogOps = catalogOps;
         this.context = context;
         this.schemaAtMemo = schemaAtMemo;
@@ -1708,6 +1710,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // Package-private for direct unit testing (PaimonScanPlanProviderTest).
     Map<String, String> getBackendPaimonOptions() {
         Map<String, String> options = new HashMap<>();
+        // Two wildcard namespaces the holder does not model, forwarded verbatim: the paimon.jni.* knobs
+        // below and the jdbc.* / warehouse / uri / metastore / catalog-key set further down.
+        Map<String, String> properties = catalogProps.getRaw();
         // #65332: forward the JNI IOManager options for ALL metastore flavors (mirrors upstream
         // PaimonScanNode.getBackendPaimonOptions returning them before the jdbc-only branch), so
         // non-jdbc catalogs are no longer silently stripped of the enable flag.
@@ -1717,8 +1722,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 options.put(option, properties.get(prefixed));
             }
         }
-        String metastoreType = properties.get("paimon.catalog.type");
-        if (!"jdbc".equalsIgnoreCase(metastoreType)) {
+        if (!PaimonCatalogProperties.JDBC.equals(catalogProps.getFlavor())) {
             return options;
         }
         // Forward relevant JDBC catalog properties for BE's paimon-cpp reader
@@ -1737,16 +1741,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // BE reader accepts (PaimonJdbcDriverUtils reads both aliases): honor either alias and resolve
         // a bare jar name to a full file:// URL. Mirrors legacy
         // PaimonJdbcMetaStoreProperties.getBackendPaimonOptions (getFullDriverUrl + driver_class).
-        String driverUrl = PaimonCatalogFactory.firstNonBlank(
-                properties, PaimonConnectorProperties.JDBC_DRIVER_URL);
-        if (driverUrl != null) {
-            options.put("jdbc.driver_url", JdbcDriverSupport.resolveDriverUrl(driverUrl,
-                    PaimonConnectorProperties.configuredDriversDir(context),
-                    PaimonConnectorProperties.configuredDorisHome(context)));
-            String driverClass = PaimonCatalogFactory.firstNonBlank(
-                    properties, PaimonConnectorProperties.JDBC_DRIVER_CLASS);
-            if (driverClass != null) {
-                options.put("jdbc.driver_class", driverClass);
+        PaimonJdbcMetaStoreProperties jdbc = PaimonJdbcMetaStoreProperties.of(catalogProps.getRaw());
+        if (StringUtils.isNotBlank(jdbc.getDriverUrl())) {
+            options.put("jdbc.driver_url", JdbcDriverSupport.resolveDriverUrl(jdbc.getDriverUrl(),
+                    PaimonConf.driversDir(context),
+                    PaimonConf.dorisHome(context)));
+            if (StringUtils.isNotBlank(jdbc.getDriverClass())) {
+                options.put("jdbc.driver_class", jdbc.getDriverClass());
             }
         }
         return options;

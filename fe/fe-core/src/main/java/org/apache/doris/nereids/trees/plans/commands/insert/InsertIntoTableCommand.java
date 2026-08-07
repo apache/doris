@@ -259,6 +259,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         int retryTimes = 0;
         ctx.getStatementContext().setIsInsert(true);
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
+            // Each internal attempt must repin connector metadata; retaining the previous writer schema can
+            // plan defaults and partition fields against the table version that triggered the retry.
+            ctx.getStatementContext().resetConnectorStatementScope();
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth

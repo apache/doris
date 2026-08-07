@@ -22,6 +22,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -394,6 +395,10 @@ public class ExternalRowLevelMergePlanBuilder {
     // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here.
     LogicalPlan buildMergePlan(ConnectContext ctx, ExternalTable icebergTable) {
         LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
+        // Project synthesis pins both the request-scoped writer columns and their identity. Read the snapshot
+        // afterwards so the sink fence cannot retain the older cached identity while carrying newer columns.
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                ((PluginDrivenExternalTable) icebergTable).getWriteSchemaSnapshot();
 
         List<NamedExpression> outputExprs;
         if (!RowLevelDmlRowIdUtils.hasUnboundPlan(projectPlan)) {
@@ -409,6 +414,7 @@ public class ExternalRowLevelMergePlanBuilder {
         return new LogicalExternalRowLevelMergeSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
+                writeSchema.getWriteMetadataIdentity(),
                 ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable),
                 outputExprs,
                 true,

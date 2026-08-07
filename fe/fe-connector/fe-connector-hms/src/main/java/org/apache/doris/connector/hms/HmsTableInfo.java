@@ -34,6 +34,8 @@ public final class HmsTableInfo {
 
     private final String dbName;
     private final String tableName;
+    private final String owner;
+    private final int createTime;
     private final String tableType;
     private final String location;
     private final String inputFormat;
@@ -51,6 +53,8 @@ public final class HmsTableInfo {
     private HmsTableInfo(Builder builder) {
         this.dbName = Objects.requireNonNull(builder.dbName, "dbName");
         this.tableName = Objects.requireNonNull(builder.tableName, "tableName");
+        this.owner = builder.owner;
+        this.createTime = builder.createTime;
         this.tableType = builder.tableType;
         this.location = builder.location;
         this.inputFormat = builder.inputFormat;
@@ -82,6 +86,16 @@ public final class HmsTableInfo {
 
     public String getTableName() {
         return tableName;
+    }
+
+    /** HMS owner captured with the table generation. */
+    public String getOwner() {
+        return owner;
+    }
+
+    /** HMS creation time, used as the standard metastore table-incarnation signal. */
+    public int getCreateTime() {
+        return createTime;
     }
 
     /** e.g. "MANAGED_TABLE", "EXTERNAL_TABLE", "VIRTUAL_VIEW". */
@@ -165,6 +179,8 @@ public final class HmsTableInfo {
     public static final class Builder {
         private String dbName;
         private String tableName;
+        private String owner;
+        private int createTime;
         private String tableType;
         private String location;
         private String inputFormat;
@@ -189,6 +205,16 @@ public final class HmsTableInfo {
 
         public Builder tableName(String val) {
             this.tableName = val;
+            return this;
+        }
+
+        public Builder owner(String val) {
+            this.owner = val;
+            return this;
+        }
+
+        public Builder createTime(int val) {
+            this.createTime = val;
             return this;
         }
 

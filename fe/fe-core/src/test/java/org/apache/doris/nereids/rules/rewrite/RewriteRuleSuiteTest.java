@@ -126,6 +126,7 @@ public class RewriteRuleSuiteTest extends SqlTestBase {
         Mockito.when(olapTable.getName()).thenReturn("t1");
         Mockito.when(olapTable.getPartition(Mockito.anyLong())).thenReturn(partition);
         Mockito.when(partition.getIndex(Mockito.anyLong())).thenReturn(index);
+        Mockito.when(olapTable.getPartitionIndex(Mockito.eq(partition), Mockito.anyLong())).thenReturn(index);
         Mockito.when(partition.getDistributionInfo()).thenReturn(distributionInfo);
         Mockito.when(index.getTabletIdsInOrder()).thenReturn(tabletIds);
         Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(columns);

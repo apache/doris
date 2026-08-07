@@ -17,40 +17,38 @@
 
 #pragma once
 
-#include <cstdint>
-#include <string_view>
+#include <memory>
+#include <vector>
 
 #include "common/status.h"
-#include "io/io_common.h"
-#include "storage/compaction/compaction.h"
+#include "information_schema/schema_scanner.h"
 
 namespace doris {
 
-class BinlogCompaction final : public CompactionMixin {
+class RuntimeState;
+class Block;
+class TFetchSchemaTableDataResult;
+
+class SchemaTsoStatusScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaTsoStatusScanner);
+
 public:
-    BinlogCompaction(StorageEngine& engine, const TabletSharedPtr& tablet, int8_t compaction_level);
-    ~BinlogCompaction() override;
+    SchemaTsoStatusScanner();
+    ~SchemaTsoStatusScanner() override;
 
-    Status prepare_compact() override;
-    Status execute_compact() override;
-
-    std::optional<CompactionProfileType> profile_type() const override {
-        return CompactionProfileType::BINLOG;
-    }
-
-    int8_t compaction_level() const override { return _compaction_level; }
-
-protected:
-    Status modify_rowsets() override;
-
-    std::string_view compaction_name() const override { return "binlog compaction"; }
-
-    ReaderType compaction_type() const override { return ReaderType::READER_BINLOG_COMPACTION; }
+    Status start(RuntimeState* state) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
 private:
-    Status pick_rowsets_to_compact();
+    Status _get_tso_status_block_from_fe();
+    Status _process_tso_status_result(const TFetchSchemaTableDataResult& result);
 
-    int8_t _compaction_level = -1;
+    int _block_rows_limit = 4096;
+    int _row_idx = 0;
+    int _total_rows = 0;
+    std::unique_ptr<Block> _tso_status_block = nullptr;
+    int _rpc_timeout_ms = 3000;
+    static std::vector<SchemaScanner::ColumnDesc> _s_tso_status_columns;
 };
 
 } // namespace doris

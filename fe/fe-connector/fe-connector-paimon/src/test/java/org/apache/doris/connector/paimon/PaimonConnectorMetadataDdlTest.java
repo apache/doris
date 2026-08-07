@@ -48,7 +48,7 @@ public class PaimonConnectorMetadataDdlTest {
 
     private static PaimonConnectorMetadata metadata(RecordingPaimonCatalogOps ops,
             RecordingConnectorContext ctx) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), ctx);
     }
 
     /** Builds a CREATE TABLE request: db1.t1, columns (id INT, name STRING), partitioned by id, ifNotExists. */

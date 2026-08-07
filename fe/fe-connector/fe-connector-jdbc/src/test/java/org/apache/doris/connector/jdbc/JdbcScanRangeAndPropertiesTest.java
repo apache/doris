@@ -23,7 +23,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashMap;
 import java.util.Map;
 
 class JdbcScanRangeAndPropertiesTest {
@@ -148,60 +147,4 @@ class JdbcScanRangeAndPropertiesTest {
         Assertions.assertEquals("false", range.getProperties().get("connection_pool_keep_alive"));
     }
 
-    // === JdbcConnectorProperties.getInt ===
-
-    @Test
-    void testGetIntValidValue() {
-        Map<String, String> props = new HashMap<>();
-        props.put("pool_size", "42");
-        Assertions.assertEquals(42, JdbcConnectorProperties.getInt(props, "pool_size", 10));
-    }
-
-    @Test
-    void testGetIntMissingKeyReturnsDefault() {
-        Map<String, String> props = new HashMap<>();
-        Assertions.assertEquals(10, JdbcConnectorProperties.getInt(props, "missing", 10));
-    }
-
-    @Test
-    void testGetIntNullValueReturnsDefault() {
-        Map<String, String> props = new HashMap<>();
-        props.put("key", null);
-        Assertions.assertEquals(5, JdbcConnectorProperties.getInt(props, "key", 5));
-    }
-
-    @Test
-    void testGetIntEmptyStringReturnsDefault() {
-        Map<String, String> props = new HashMap<>();
-        props.put("key", "");
-        Assertions.assertEquals(5, JdbcConnectorProperties.getInt(props, "key", 5));
-    }
-
-    @Test
-    void testGetIntNonNumericReturnsDefault() {
-        Map<String, String> props = new HashMap<>();
-        props.put("key", "not_a_number");
-        Assertions.assertEquals(5, JdbcConnectorProperties.getInt(props, "key", 5));
-    }
-
-    @Test
-    void testGetIntWithWhitespace() {
-        Map<String, String> props = new HashMap<>();
-        props.put("key", "  100  ");
-        Assertions.assertEquals(100, JdbcConnectorProperties.getInt(props, "key", 5));
-    }
-
-    @Test
-    void testGetIntNegativeValue() {
-        Map<String, String> props = new HashMap<>();
-        props.put("key", "-1");
-        Assertions.assertEquals(-1, JdbcConnectorProperties.getInt(props, "key", 0));
-    }
-
-    @Test
-    void testGetIntZero() {
-        Map<String, String> props = new HashMap<>();
-        props.put("key", "0");
-        Assertions.assertEquals(0, JdbcConnectorProperties.getInt(props, "key", 99));
-    }
 }

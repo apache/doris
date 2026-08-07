@@ -77,12 +77,12 @@ class AdbcScanPlanProviderTest {
 
     /** Plans statements: partitioned execution off, so no client is needed at all. */
     private static AdbcScanPlanProvider statementProvider() {
-        return statementProvider(Map.of(AdbcConnectorProperties.URI, "file:/tmp/x.db"));
+        return statementProvider(Map.of(AdbcCatalogProperties.URI, "file:/tmp/x.db"));
     }
 
     private static AdbcScanPlanProvider statementProvider(Map<String, String> properties) {
         Map<String, String> withoutPartitions = new LinkedHashMap<>(properties);
-        withoutPartitions.put(AdbcConnectorProperties.PARTITIONED_READ, "disabled");
+        withoutPartitions.put(AdbcCatalogProperties.PARTITIONED_READ, "disabled");
         return provider(withoutPartitions, () -> {
             throw new AssertionError("planning a statement must not open a connection");
         }, new AdbcPartitionedReadSupport());
@@ -90,10 +90,13 @@ class AdbcScanPlanProviderTest {
 
     private static AdbcScanPlanProvider provider(Map<String, String> properties,
             Supplier<AdbcClient> clientSupplier, AdbcPartitionedReadSupport partitionedRead) {
-        AdbcDialectSelector selector = new AdbcDialectSelector(
-                Map.of(AdbcConnectorProperties.SQL_DIALECT, AnsiDialect.NAME));
-        return new AdbcScanPlanProvider(properties, Paths.get(DRIVER), selector, clientSupplier,
-                partitionedRead);
+        AdbcDialectSelector selector = new AdbcDialectSelector(AnsiDialect.NAME);
+        // driver_url is required of every catalog, so the holder each case is written against has to
+        // carry one; which driver it names is immaterial here, since nothing in scan planning opens it.
+        Map<String, String> full = new LinkedHashMap<>(properties);
+        full.putIfAbsent(AdbcCatalogProperties.DRIVER_URL, "libadbc_driver_sqlite.so");
+        return new AdbcScanPlanProvider(AdbcCatalogProperties.of(full), Paths.get(DRIVER), selector,
+                clientSupplier, partitionedRead);
     }
 
     private static List<ConnectorColumnHandle> columns(String... names) {
@@ -139,9 +142,9 @@ class AdbcScanPlanProviderTest {
     @Test
     void carriesTheCatalogConnectionOntoTheRange() {
         Map<String, String> properties = new LinkedHashMap<>();
-        properties.put(AdbcConnectorProperties.URI, "file:/tmp/x.db");
-        properties.put(AdbcConnectorProperties.USER, "alice");
-        properties.put(AdbcConnectorProperties.PASSWORD, "secret");
+        properties.put(AdbcCatalogProperties.URI, "file:/tmp/x.db");
+        properties.put(AdbcCatalogProperties.USER, "alice");
+        properties.put(AdbcCatalogProperties.PASSWORD, "secret");
         properties.put("adbc.snowflake.sql.db", "MYDB");
 
         Map<String, String> params = paramsOf(planAll(statementProvider(properties)).get(0));
@@ -173,7 +176,7 @@ class AdbcScanPlanProviderTest {
         // Three partitions, three ranges: this is what lets one remote query be read by three backends.
         FakeClient client = FakeClient.partitioning("p0", "p1", "p2");
         List<ConnectorScanRange> ranges = planAll(provider(
-                Map.of(AdbcConnectorProperties.URI, "grpc://remote:9090"), () -> client,
+                Map.of(AdbcCatalogProperties.URI, "grpc://remote:9090"), () -> client,
                 new AdbcPartitionedReadSupport()));
 
         Assertions.assertEquals(3, ranges.size());
@@ -194,7 +197,7 @@ class AdbcScanPlanProviderTest {
         // The pushed-down statement is what gets partitioned. Splitting an unfiltered query instead would
         // make the source materialize the whole table and Doris filter it afterwards.
         FakeClient client = FakeClient.partitioning("p0");
-        provider(Map.of(AdbcConnectorProperties.URI, "grpc://remote:9090"), () -> client,
+        provider(Map.of(AdbcCatalogProperties.URI, "grpc://remote:9090"), () -> client,
                 new AdbcPartitionedReadSupport()).planScan(null,
                         ConnectorScanRequest.builder(T1, columns("a"))
                                 .filter(Optional.of(greaterThan(10))).limit(7).build());
@@ -208,7 +211,7 @@ class AdbcScanPlanProviderTest {
         FakeClient client = FakeClient.notImplemented();
         AdbcPartitionedReadSupport support = new AdbcPartitionedReadSupport();
         AdbcScanPlanProvider planner = provider(
-                Map.of(AdbcConnectorProperties.URI, "file:/tmp/x.db"), () -> client, support);
+                Map.of(AdbcCatalogProperties.URI, "file:/tmp/x.db"), () -> client, support);
 
         List<ConnectorScanRange> first = planAll(planner);
         Assertions.assertEquals(1, first.size());
@@ -229,7 +232,7 @@ class AdbcScanPlanProviderTest {
         AdbcPartitionedReadSupport support = new AdbcPartitionedReadSupport();
 
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
-                () -> planAll(provider(Map.of(AdbcConnectorProperties.URI, "grpc://remote:9090"),
+                () -> planAll(provider(Map.of(AdbcCatalogProperties.URI, "grpc://remote:9090"),
                         () -> client, support)));
 
         Assertions.assertTrue(failure.getMessage().contains("SELECT \"a\""), failure.getMessage());
@@ -239,7 +242,7 @@ class AdbcScanPlanProviderTest {
         // something other than Doris will hit, and the rejection arrives in the source's own words --
         // usually a syntax error about a quote character. Nothing in that says Doris generated the SQL,
         // let alone that which SQL it generates is a property the user can set. So the message has to.
-        Assertions.assertTrue(failure.getMessage().contains(AdbcConnectorProperties.SQL_DIALECT),
+        Assertions.assertTrue(failure.getMessage().contains(AdbcCatalogProperties.SQL_DIALECT),
                 failure.getMessage());
         Assertions.assertTrue(failure.getMessage().contains(AnsiDialect.NAME), failure.getMessage());
     }
@@ -249,7 +252,7 @@ class AdbcScanPlanProviderTest {
         // Zero ranges would be a scan that returns no rows, silently. The partition count reflects the
         // source's parallelism, not its cardinality, so it is never a legitimate way to say "empty".
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
-                () -> planAll(provider(Map.of(AdbcConnectorProperties.URI, "grpc://remote:9090"),
+                () -> planAll(provider(Map.of(AdbcCatalogProperties.URI, "grpc://remote:9090"),
                         FakeClient::partitioningNothing, new AdbcPartitionedReadSupport())));
         Assertions.assertTrue(failure.getMessage().contains("no partitions"), failure.getMessage());
     }
@@ -259,23 +262,23 @@ class AdbcScanPlanProviderTest {
         // Not a fallback to one statement: the source has already executed the query to produce these
         // descriptors, so re-planning it as a statement would execute it a second time.
         Map<String, String> properties = new LinkedHashMap<>();
-        properties.put(AdbcConnectorProperties.URI, "grpc://remote:9090");
-        properties.put(AdbcConnectorProperties.MAX_PARTITIONS, "2");
+        properties.put(AdbcCatalogProperties.URI, "grpc://remote:9090");
+        properties.put(AdbcCatalogProperties.MAX_PARTITIONS, "2");
         FakeClient client = FakeClient.partitioning("p0", "p1", "p2");
 
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
                 () -> planAll(provider(properties, () -> client, new AdbcPartitionedReadSupport())));
 
         Assertions.assertTrue(failure.getMessage().contains("3 partitions"), failure.getMessage());
-        Assertions.assertTrue(failure.getMessage().contains(AdbcConnectorProperties.MAX_PARTITIONS),
+        Assertions.assertTrue(failure.getMessage().contains(AdbcCatalogProperties.MAX_PARTITIONS),
                 failure.getMessage());
     }
 
     @Test
     void skipsThePartitionRoundTripWhenTheCatalogTurnedItOff() {
         Map<String, String> properties = new LinkedHashMap<>();
-        properties.put(AdbcConnectorProperties.URI, "grpc://remote:9090");
-        properties.put(AdbcConnectorProperties.PARTITIONED_READ, "disabled");
+        properties.put(AdbcCatalogProperties.URI, "grpc://remote:9090");
+        properties.put(AdbcCatalogProperties.PARTITIONED_READ, "disabled");
         FakeClient client = FakeClient.partitioning("p0", "p1");
 
         List<ConnectorScanRange> ranges = planAll(
@@ -326,8 +329,8 @@ class AdbcScanPlanProviderTest {
         // from one backend instead of many -- so a test written for the partitioned path would pass while
         // exercising the fallback, and the pass would be indistinguishable from the real thing.
         Map<String, String> properties = new LinkedHashMap<>();
-        properties.put(AdbcConnectorProperties.URI, "grpc://remote:9090");
-        properties.put(AdbcConnectorProperties.PARTITIONED_READ, "required");
+        properties.put(AdbcCatalogProperties.URI, "grpc://remote:9090");
+        properties.put(AdbcCatalogProperties.PARTITIONED_READ, "required");
         FakeClient client = FakeClient.notImplemented();
         AdbcPartitionedReadSupport support = new AdbcPartitionedReadSupport();
         AdbcScanPlanProvider planner = provider(properties, () -> client, support);
@@ -347,8 +350,8 @@ class AdbcScanPlanProviderTest {
         // Without it the message says only that partitioning is unavailable, and which layer refused --
         // driver, driver manager, or the JNI bridge -- has to be found by hand.
         Map<String, String> properties = new LinkedHashMap<>();
-        properties.put(AdbcConnectorProperties.URI, "grpc://remote:9090");
-        properties.put(AdbcConnectorProperties.PARTITIONED_READ, "required");
+        properties.put(AdbcCatalogProperties.URI, "grpc://remote:9090");
+        properties.put(AdbcCatalogProperties.PARTITIONED_READ, "required");
 
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
                 () -> planAll(provider(properties, FakeClient::notImplemented,
@@ -360,8 +363,8 @@ class AdbcScanPlanProviderTest {
     @Test
     void requiredModePlansPartitionsWhenTheDriverHasThem() {
         Map<String, String> properties = new LinkedHashMap<>();
-        properties.put(AdbcConnectorProperties.URI, "grpc://remote:9090");
-        properties.put(AdbcConnectorProperties.PARTITIONED_READ, "required");
+        properties.put(AdbcCatalogProperties.URI, "grpc://remote:9090");
+        properties.put(AdbcCatalogProperties.PARTITIONED_READ, "required");
 
         Assertions.assertEquals(2, planAll(provider(properties,
                 () -> FakeClient.partitioning("p0", "p1"), new AdbcPartitionedReadSupport())).size());
@@ -372,8 +375,8 @@ class AdbcScanPlanProviderTest {
         // EXPLAIN deliberately does not ask for partitions, so it must not be failed for not having any:
         // refusing to describe a query would help nobody, and describing it costs the source nothing.
         Map<String, String> properties = new LinkedHashMap<>();
-        properties.put(AdbcConnectorProperties.URI, "grpc://remote:9090");
-        properties.put(AdbcConnectorProperties.PARTITIONED_READ, "required");
+        properties.put(AdbcCatalogProperties.URI, "grpc://remote:9090");
+        properties.put(AdbcCatalogProperties.PARTITIONED_READ, "required");
         AdbcScanPlanProvider planner = provider(properties, () -> {
             throw new AssertionError("EXPLAIN must not reach the ADBC driver");
         }, new AdbcPartitionedReadSupport());
@@ -391,7 +394,7 @@ class AdbcScanPlanProviderTest {
         // query it was asked to describe would double the work with nothing on screen to show for it.
         FakeClient client = FakeClient.partitioning("p0", "p1");
         List<ConnectorScanRange> ranges = provider(
-                Map.of(AdbcConnectorProperties.URI, "grpc://remote:9090"), () -> client,
+                Map.of(AdbcCatalogProperties.URI, "grpc://remote:9090"), () -> client,
                 new AdbcPartitionedReadSupport()).planScan(null,
                         ConnectorScanRequest.builder(T1, columns("a")).explainOnly(true).build());
 
@@ -406,7 +409,7 @@ class AdbcScanPlanProviderTest {
         // Asking for partitions IS executing the query on a Flight SQL source, so an EXPLAIN that took
         // this path would run the very query the user asked only to have described. Partitioned read is
         // ON here, and the client still must not be touched.
-        AdbcScanPlanProvider planner = provider(Map.of(AdbcConnectorProperties.URI, "grpc://remote:9090"),
+        AdbcScanPlanProvider planner = provider(Map.of(AdbcCatalogProperties.URI, "grpc://remote:9090"),
                 () -> {
                     throw new AssertionError("EXPLAIN must not reach the ADBC driver");
                 }, new AdbcPartitionedReadSupport());

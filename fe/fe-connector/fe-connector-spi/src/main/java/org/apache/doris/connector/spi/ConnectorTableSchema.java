@@ -106,13 +106,16 @@ public final class ConnectorTableSchema {
     private final String tableFormatType;
     private final Map<String, String> properties;
     private final Set<ConnectorCapability> tableCapabilities;
+    // Opaque connector generation captured by the same remote load as columns. Write binding carries this
+    // value forward so a later planning load can validate rather than silently replace the bind-time baseline.
+    private final String writeMetadataIdentity;
 
     /** For a connector whose tables all have the same capabilities — the per-table set is empty. */
     public ConnectorTableSchema(String tableName,
             List<ConnectorColumn> columns,
             String tableFormatType,
             Map<String, String> properties) {
-        this(tableName, columns, tableFormatType, properties, Collections.emptySet());
+        this(tableName, columns, tableFormatType, properties, Collections.emptySet(), null);
     }
 
     /** For a connector that refines its capabilities per table — see {@link #getTableCapabilities()}. */
@@ -121,6 +124,18 @@ public final class ConnectorTableSchema {
             String tableFormatType,
             Map<String, String> properties,
             Set<ConnectorCapability> tableCapabilities) {
+        this(tableName, columns, tableFormatType, properties, tableCapabilities, null);
+    }
+
+    /**
+     * Builds a schema with the connector's opaque write generation captured from the same table load.
+     */
+    public ConnectorTableSchema(String tableName,
+            List<ConnectorColumn> columns,
+            String tableFormatType,
+            Map<String, String> properties,
+            Set<ConnectorCapability> tableCapabilities,
+            String writeMetadataIdentity) {
         this.tableName = Objects.requireNonNull(tableName, "tableName");
         this.columns = columns == null
                 ? Collections.emptyList()
@@ -132,6 +147,7 @@ public final class ConnectorTableSchema {
         this.tableCapabilities = tableCapabilities == null || tableCapabilities.isEmpty()
                 ? Collections.emptySet()
                 : Collections.unmodifiableSet(EnumSet.copyOf(tableCapabilities));
+        this.writeMetadataIdentity = writeMetadataIdentity;
     }
 
     public String getTableName() {
@@ -170,6 +186,11 @@ public final class ConnectorTableSchema {
         return tableCapabilities;
     }
 
+    /** Opaque write generation captured together with {@link #getColumns()}, or {@code null}. */
+    public String getWriteMetadataIdentity() {
+        return writeMetadataIdentity;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -183,12 +204,14 @@ public final class ConnectorTableSchema {
                 && columns.equals(that.columns)
                 && Objects.equals(tableFormatType, that.tableFormatType)
                 && properties.equals(that.properties)
-                && tableCapabilities.equals(that.tableCapabilities);
+                && tableCapabilities.equals(that.tableCapabilities)
+                && Objects.equals(writeMetadataIdentity, that.writeMetadataIdentity);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(tableName, columns, tableFormatType, properties, tableCapabilities);
+        return Objects.hash(tableName, columns, tableFormatType, properties, tableCapabilities,
+                writeMetadataIdentity);
     }
 
     @Override

@@ -67,8 +67,7 @@ public class TabletsProcDir implements ProcDirInterface {
                 .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("WindowAccessCount")
                 .add("LastAccessTime").add("PathHash").add("Path")
                 .add("MetaUrl").add("CompactionStatus")
-                .add("CooldownReplicaId").add("CooldownMetaId")
-                .add("BinlogSize").add("BinlogFileNum");
+                .add("CooldownReplicaId").add("CooldownMetaId").add("IsRowBinlog");
         if (Config.isCloudMode()) {
             builder.add("PrimaryBackendId");
         }
@@ -158,8 +157,7 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(FeConstants.null_string); // compaction status
                     tabletInfo.add(-1); // cooldown replica id
                     tabletInfo.add(""); // cooldown meta id
-                    tabletInfo.add(-1L); // binlog data size
-                    tabletInfo.add(-1L); // binlog file num
+                    tabletInfo.add(index.isRowBinlog()); // is row binlog
                     if (Config.isCloudMode()) {
                         tabletInfo.add(-1L); // primary backend id
                     }
@@ -227,8 +225,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         } else {
                             tabletInfo.add(replica.getCooldownMetaId().toString());
                         }
-                        tabletInfo.add(replica.getBinlogSize());
-                        tabletInfo.add(replica.getBinlogFileNum());
+                        tabletInfo.add(index.isRowBinlog());
                         if (Config.isCloudMode()) {
                             tabletInfo.add(((CloudReplica) replica).getPrimaryBackendId());
                         }

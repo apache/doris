@@ -91,6 +91,8 @@ protected:
     }
     void TearDown() override {
         _wg_manager.reset();
+        ExecEnv::GetInstance()->spill_file_mgr()->stop();
+        SAFE_DELETE(ExecEnv::GetInstance()->_spill_file_mgr);
         ExecEnv::GetInstance()->_runtime_query_statistics_mgr->stop_report_thread();
         SAFE_DELETE(ExecEnv::GetInstance()->_runtime_query_statistics_mgr);
 

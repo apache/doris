@@ -72,12 +72,12 @@ import java.util.Optional;
 public class IcebergConnectorMetadataSysTableTest {
 
     private static IcebergConnectorMetadata metadataWith(RecordingIcebergCatalogOps ops) {
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     private static IcebergConnectorMetadata metadataWith(
             RecordingIcebergCatalogOps ops, RecordingConnectorContext ctx) {
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), ctx);
     }
 
     private static IcebergTableHandle baseHandle() {
@@ -384,10 +384,10 @@ public class IcebergConnectorMetadataSysTableTest {
         IcebergConnectorMetadata mdDefault = metadataWith(seamWith(inMemoryBaseTable()));
 
         Map<String, String> tzProps = new HashMap<>();
-        tzProps.put(IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
+        tzProps.put(IcebergCatalogProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
         RecordingIcebergCatalogOps opsTz = seamWith(inMemoryBaseTable());
         IcebergConnectorMetadata mdTz =
-                new IcebergConnectorMetadata(opsTz, tzProps, new RecordingConnectorContext());
+                new IcebergConnectorMetadata(opsTz, IcebergCatalogProperties.of(tzProps), new RecordingConnectorContext());
 
         ConnectorColumn committedDefault = committedAtColumn(mdDefault);
         ConnectorColumn committedTz = committedAtColumn(mdTz);

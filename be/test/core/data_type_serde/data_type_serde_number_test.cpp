@@ -620,6 +620,130 @@ TEST_F(DataTypeNumberSerDeTest, RowStoreDateTimeJsonbWidth) {
             });
 }
 
+TEST_F(DataTypeNumberSerDeTest, ArrowFloat16ToFloat32) {
+    arrow::HalfFloatBuilder builder;
+    ASSERT_TRUE(builder.AppendNull().ok());
+    ASSERT_TRUE(builder.Append(0x0000).ok());
+    ASSERT_TRUE(builder.Append(0x8000).ok());
+    ASSERT_TRUE(builder.Append(0x3E00).ok());
+    ASSERT_TRUE(builder.Append(0x7BFF).ok());
+    ASSERT_TRUE(builder.Append(0x7C00).ok());
+    ASSERT_TRUE(builder.Append(0xFC00).ok());
+    ASSERT_TRUE(builder.Append(0x7E00).ok());
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder.Finish(&array).ok());
+
+    auto float_column = ColumnFloat32::create();
+    cctz::time_zone tz;
+    ASSERT_TRUE(serde_float32
+                        ->read_column_from_arrow(*float_column, array.get(), 0, array->length(), tz)
+                        .ok());
+
+    ASSERT_EQ(8, float_column->size());
+    EXPECT_FLOAT_EQ(0.0F, float_column->get_data()[0]);
+    EXPECT_FLOAT_EQ(0.0F, float_column->get_data()[1]);
+    EXPECT_FALSE(std::signbit(float_column->get_data()[1]));
+    EXPECT_FLOAT_EQ(-0.0F, float_column->get_data()[2]);
+    EXPECT_TRUE(std::signbit(float_column->get_data()[2]));
+    EXPECT_FLOAT_EQ(1.5F, float_column->get_data()[3]);
+    EXPECT_FLOAT_EQ(65504.0F, float_column->get_data()[4]);
+    EXPECT_EQ(std::numeric_limits<float>::infinity(), float_column->get_data()[5]);
+    EXPECT_EQ(-std::numeric_limits<float>::infinity(), float_column->get_data()[6]);
+    EXPECT_TRUE(std::isnan(float_column->get_data()[7]));
+}
+
+TEST_F(DataTypeNumberSerDeTest, ArrowUnsignedIntegersAreWidenedLosslessly) {
+    cctz::time_zone tz;
+
+    {
+        arrow::UInt8Builder builder;
+        ASSERT_TRUE(builder.AppendNull().ok());
+        ASSERT_TRUE(builder.Append(0).ok());
+        ASSERT_TRUE(builder.Append(127).ok());
+        ASSERT_TRUE(builder.Append(128).ok());
+        ASSERT_TRUE(builder.Append(std::numeric_limits<UInt8>::max()).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+
+        auto column = ColumnInt16::create();
+        ASSERT_TRUE(
+                serde_int16->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
+                        .ok());
+        ASSERT_EQ(5, column->size());
+        EXPECT_EQ(0, column->get_data()[0]);
+        EXPECT_EQ(0, column->get_data()[1]);
+        EXPECT_EQ(127, column->get_data()[2]);
+        EXPECT_EQ(128, column->get_data()[3]);
+        EXPECT_EQ(255, column->get_data()[4]);
+    }
+
+    {
+        arrow::UInt16Builder builder;
+        ASSERT_TRUE(builder.AppendNull().ok());
+        ASSERT_TRUE(builder.Append(0).ok());
+        ASSERT_TRUE(builder.Append(32767).ok());
+        ASSERT_TRUE(builder.Append(32768).ok());
+        ASSERT_TRUE(builder.Append(std::numeric_limits<UInt16>::max()).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+
+        auto column = ColumnInt32::create();
+        ASSERT_TRUE(
+                serde_int32->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
+                        .ok());
+        ASSERT_EQ(5, column->size());
+        EXPECT_EQ(0, column->get_data()[0]);
+        EXPECT_EQ(0, column->get_data()[1]);
+        EXPECT_EQ(32767, column->get_data()[2]);
+        EXPECT_EQ(32768, column->get_data()[3]);
+        EXPECT_EQ(65535, column->get_data()[4]);
+    }
+
+    {
+        arrow::UInt32Builder builder;
+        ASSERT_TRUE(builder.AppendNull().ok());
+        ASSERT_TRUE(builder.Append(0).ok());
+        ASSERT_TRUE(builder.Append(std::numeric_limits<Int32>::max()).ok());
+        ASSERT_TRUE(builder.Append(UInt32(1) << 31).ok());
+        ASSERT_TRUE(builder.Append(std::numeric_limits<UInt32>::max()).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+
+        auto column = ColumnInt64::create();
+        ASSERT_TRUE(
+                serde_int64->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
+                        .ok());
+        ASSERT_EQ(5, column->size());
+        EXPECT_EQ(0, column->get_data()[0]);
+        EXPECT_EQ(0, column->get_data()[1]);
+        EXPECT_EQ(std::numeric_limits<Int32>::max(), column->get_data()[2]);
+        EXPECT_EQ(Int64(1) << 31, column->get_data()[3]);
+        EXPECT_EQ(std::numeric_limits<UInt32>::max(), column->get_data()[4]);
+    }
+
+    {
+        arrow::UInt64Builder builder;
+        ASSERT_TRUE(builder.AppendNull().ok());
+        ASSERT_TRUE(builder.Append(0).ok());
+        ASSERT_TRUE(builder.Append(std::numeric_limits<Int64>::max()).ok());
+        ASSERT_TRUE(builder.Append(UInt64(1) << 63).ok());
+        ASSERT_TRUE(builder.Append(std::numeric_limits<UInt64>::max()).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+
+        auto column = ColumnInt128::create();
+        ASSERT_TRUE(
+                serde_int128->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
+                        .ok());
+        ASSERT_EQ(5, column->size());
+        EXPECT_EQ(Int128(0), column->get_data()[0]);
+        EXPECT_EQ(Int128(0), column->get_data()[1]);
+        EXPECT_EQ(static_cast<Int128>(std::numeric_limits<Int64>::max()), column->get_data()[2]);
+        EXPECT_EQ(Int128(1) << 63, column->get_data()[3]);
+        EXPECT_EQ(static_cast<Int128>(std::numeric_limits<UInt64>::max()), column->get_data()[4]);
+    }
+}
+
 // to_olap_string / from_zonemap_string must round-trip finite floating-point
 // extremes (±DBL_MAX / ±FLT_MAX). The old digits10+1 (16g/7g) formatter rounded
 // DBL_MAX up to 1.797693134862316e+308 — larger than the largest finite double —

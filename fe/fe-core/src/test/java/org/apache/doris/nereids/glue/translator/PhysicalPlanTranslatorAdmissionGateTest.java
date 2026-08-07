@@ -17,25 +17,33 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWriteSortColumn;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PluginDrivenTableSink;
+import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -44,6 +52,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -59,6 +68,9 @@ import java.util.Set;
 public class PhysicalPlanTranslatorAdmissionGateTest {
 
     private static final Column DATA = new Column("data", PrimitiveType.INT);
+    private static final Column A = new Column("a", PrimitiveType.INT);
+    private static final Column B = new Column("b", PrimitiveType.INT);
+    private static final Column C = new Column("c", PrimitiveType.INT);
 
     @Test
     public void insertGateAllowsConnectorDeclaringInsert() {
@@ -129,6 +141,68 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
                         + ex.getMessage());
     }
 
+    @Test
+    public void rowLevelDmlPreservesBindTimeWriteMetadataIdentity() {
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        PlanFragment childFragment = Mockito.mock(PlanFragment.class);
+        ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
+        PluginDrivenExternalTable table = pluginTable(EnumSet.of(WriteOperation.DELETE), provider);
+
+        @SuppressWarnings("unchecked")
+        PhysicalExternalRowLevelDeleteSink<Plan> sink = Mockito.mock(PhysicalExternalRowLevelDeleteSink.class);
+        Mockito.doReturn(mockChild(childFragment)).when(sink).child();
+        Mockito.doReturn(table).when(sink).getTargetTable();
+        Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
+        Mockito.doReturn("uuid-u0/schema-1").when(sink).getBoundWriteMetadataIdentity();
+
+        new PhysicalPlanTranslator(context, null).visitPhysicalExternalRowLevelDeleteSink(sink, context);
+
+        PluginDrivenTableSink pluginSink = capturePluginSink(childFragment);
+        Assertions.assertEquals("uuid-u0/schema-1",
+                Deencapsulation.getField(pluginSink, "boundWriteMetadataIdentity"));
+        // Re-reading at translation time would accept a replacement table as this write's conflict baseline.
+        Mockito.verify(provider, Mockito.never()).getWriteMetadataIdentity(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void partialInsertResolvesWriteSortAgainstFullOutput() {
+        assertWriteSortUsesBoundOutputColumn(ImmutableList.of(C), C);
+    }
+
+    @Test
+    public void reorderedInsertResolvesWriteSortAgainstFullOutput() {
+        assertWriteSortUsesBoundOutputColumn(ImmutableList.of(C, A), C);
+    }
+
+    @Test
+    public void staticPartitionInsertKeepsSortColumnInFullOutput() {
+        assertWriteSortUsesBoundOutputColumn(ImmutableList.of(A, C), B);
+    }
+
+    @Test
+    public void insertPreservesBindTimeWriteMetadataIdentity() {
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        PlanFragment childFragment = Mockito.mock(PlanFragment.class);
+        ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
+        PluginDrivenExternalTable table = pluginTable(EnumSet.of(WriteOperation.INSERT), provider);
+
+        @SuppressWarnings("unchecked")
+        PhysicalConnectorTableSink<Plan> sink = Mockito.mock(PhysicalConnectorTableSink.class);
+        Mockito.doReturn(mockChild(childFragment)).when(sink).child();
+        Mockito.doReturn(table).when(sink).getTargetTable();
+        Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
+        Mockito.doReturn("uuid-u0/schema-1").when(sink).getBoundWriteMetadataIdentity();
+        Mockito.doReturn(false).when(sink).isRewrite();
+
+        new PhysicalPlanTranslator(context, null).visitPhysicalConnectorTableSink(sink, context);
+
+        PluginDrivenTableSink pluginSink = capturePluginSink(childFragment);
+        Assertions.assertEquals("uuid-u0/schema-1",
+                Deencapsulation.getField(pluginSink, "boundWriteMetadataIdentity"));
+        // A translator-time refresh must not move the fence away from the schema used by BindSink.
+        Mockito.verify(provider, Mockito.never()).getWriteMetadataIdentity(Mockito.any(), Mockito.any());
+    }
+
     // ==================== helpers ====================
 
     private static Plan mockChild(PlanFragment childFragment) {
@@ -137,15 +211,75 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         return child;
     }
 
+    private static void assertWriteSortUsesBoundOutputColumn(List<Column> writeColumns, Column sortColumn) {
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        PlanFragment childFragment = Mockito.mock(PlanFragment.class);
+        ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
+        Mockito.when(provider.getWriteSortColumns(Mockito.any(), Mockito.any(), Mockito.anyList()))
+                .thenAnswer(invocation -> {
+                    List<ConnectorColumn> columns = invocation.getArgument(2);
+                    for (int i = 0; i < columns.size(); i++) {
+                        if (columns.get(i).getName().equals(sortColumn.getName())) {
+                            return ImmutableList.of(new ConnectorWriteSortColumn(i, true, true));
+                        }
+                    }
+                    return ImmutableList.of();
+                });
+        PluginDrivenExternalTable table = pluginTable(EnumSet.of(WriteOperation.INSERT), provider);
+        Mockito.when(table.requiresFullSchemaWriteOrder()).thenReturn(true);
+
+        SlotReference aOutput = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference bOutput = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference cOutput = new SlotReference("c", IntegerType.INSTANCE);
+        TupleDescriptor tuple = context.generateTupleDesc();
+        SlotRef aSlot = registerLegacySlot(context, tuple, aOutput, A);
+        SlotRef bSlot = registerLegacySlot(context, tuple, bOutput, B);
+        SlotRef cSlot = registerLegacySlot(context, tuple, cOutput, C);
+
+        @SuppressWarnings("unchecked")
+        PhysicalConnectorTableSink<Plan> sink = Mockito.mock(PhysicalConnectorTableSink.class);
+        Mockito.doReturn(mockChild(childFragment)).when(sink).child();
+        Mockito.doReturn(table).when(sink).getTargetTable();
+        Mockito.doReturn(writeColumns).when(sink).getCols();
+        Mockito.doReturn(ImmutableList.of(A, B, C)).when(sink).getBoundTargetSchema();
+        Mockito.doReturn(ImmutableList.of(aOutput, bOutput, cOutput)).when(sink).getOutput();
+        Mockito.doReturn(false).when(sink).isRewrite();
+
+        new PhysicalPlanTranslator(context, null).visitPhysicalConnectorTableSink(sink, context);
+
+        TSortInfo sortInfo = Deencapsulation.getField(capturePluginSink(childFragment), "writeSortInfo");
+        Assertions.assertNotNull(sortInfo);
+        Assertions.assertEquals(1, sortInfo.getOrderingExprsSize());
+        int actualSlotId = sortInfo.getOrderingExprs().get(0).getNodes().get(0).getSlotRef().getSlotId();
+        SlotRef expected = sortColumn == A ? aSlot : sortColumn == B ? bSlot : cSlot;
+        Assertions.assertEquals(expected.getDesc().getId().asInt(), actualSlotId,
+                "write-sort position must use the same full-schema coordinates as the sink output");
+    }
+
+    private static SlotRef registerLegacySlot(PlanTranslatorContext context, TupleDescriptor tuple,
+            SlotReference output, Column column) {
+        SlotDescriptor descriptor = context.addSlotDesc(tuple);
+        descriptor.setColumn(column);
+        descriptor.setType(column.getType());
+        descriptor.setIsNullable(true);
+        SlotRef slotRef = new SlotRef(descriptor);
+        context.addExprIdSlotRefPair(output.getExprId(), slotRef);
+        return slotRef;
+    }
+
     /** A plugin-driven table whose connector declares exactly the given write operations. */
     private static PluginDrivenExternalTable pluginTable(Set<WriteOperation> ops) {
+        return pluginTable(ops, Mockito.mock(ConnectorWritePlanProvider.class));
+    }
+
+    private static PluginDrivenExternalTable pluginTable(Set<WriteOperation> ops,
+            ConnectorWritePlanProvider provider) {
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
         // The write seams now resolve metadata through the per-statement funnel, which reads the session's
         // statement scope; offline tests use NONE (a fresh getMetadata per call, byte-identical to pre-funnel).
         Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
-        ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getWritePlanProvider()).thenReturn(provider);
         // Production selects the write provider per-handle; a plain mock does not run the interface default.

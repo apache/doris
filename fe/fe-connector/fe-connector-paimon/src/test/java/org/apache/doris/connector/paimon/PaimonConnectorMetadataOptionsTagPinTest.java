@@ -161,7 +161,7 @@ public class PaimonConnectorMetadataOptionsTagPinTest {
     }
 
     private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     /** A normal (non-sys) handle whose transient paimon Table is the REAL local table. */

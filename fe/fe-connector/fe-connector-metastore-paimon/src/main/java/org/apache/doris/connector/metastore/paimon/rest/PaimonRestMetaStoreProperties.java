@@ -94,18 +94,25 @@ public final class PaimonRestMetaStoreProperties extends AbstractMetaStoreProper
 
     @Override
     public Map<String, String> toRestOptions() {
-        // Mirrors legacy appendRestOptions: set "uri" then re-key every paimon.rest.* (prefix stripped).
-        // Legacy sets "uri" unconditionally; we guard null so the neutral map carries no null value (the
-        // no-uri case is already rejected by validate()).
+        // Mirrors legacy appendRestOptions: re-key every paimon.rest.* (prefix stripped) plus "uri".
+        //
+        // The prefix strip is a wildcard passthrough -- it forwards keys this class does not model at
+        // all -- so it copies raw values verbatim. The uri is the exception: it is the one key here the
+        // connector resolves across aliases, so the BOUND value is written LAST and wins. Otherwise a
+        // "paimon.rest.uri" would strip down onto "uri" and overwrite it, and the catalog would connect
+        // with a value that differs from the one validate() checked.
+        //
+        // Legacy set "uri" unconditionally; blank is skipped here so the neutral map carries no null
+        // value (the no-uri case is already rejected by validate()).
         Map<String, String> options = new LinkedHashMap<>();
-        if (StringUtils.isNotBlank(uri)) {
-            options.put("uri", uri);
-        }
         raw.forEach((k, v) -> {
             if (k.startsWith(PAIMON_REST_PREFIX)) {
                 options.put(k.substring(PAIMON_REST_PREFIX.length()), v);
             }
         });
+        if (StringUtils.isNotBlank(uri)) {
+            options.put("uri", uri);
+        }
         return options;
     }
 }
