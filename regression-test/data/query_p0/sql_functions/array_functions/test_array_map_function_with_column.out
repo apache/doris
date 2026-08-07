@@ -39,3 +39,17 @@
 4	5	[6, 7, null, 9]	[4, 5, 6, 7]	[0, 0, null, 0]
 5	6	[10, 11, 12, 13]	[8, 9, null, 11]	[0, 0, null, 0]
 
+-- !select_captured_selector_if --
+0	[]
+1	[23]
+2	[]
+3	[47, 48, 49]
+4	[null, null]
+
+-- !select_captured_selector_case --
+0	[-9, -8]
+1	[23]
+2	[]
+3	[47, 48, 49]
+4	[null, null]
+
