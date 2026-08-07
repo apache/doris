@@ -66,6 +66,21 @@ public abstract class BaseAnalysisTask {
     public static final double LIMIT_FACTOR = 1.2;
 
     /**
+     * The statistics collection algorithm chosen for a sampled analyze task. It determines
+     * both the SQL template used to collect stats and the params rendered into it, so callers
+     * must derive the template and the params from the same algorithm decision.
+     */
+    public enum AnalyzeSampleAlgorithm {
+        // Full table scan without sampling, used when the table is small or the sample
+        // tablets contain too few rows. Statistics are computed with the LINEAR template.
+        FULL,
+        // Linear estimator, used for single unique key column / single distribution column.
+        LINEAR,
+        // DUJ1 estimator, based on the PostgreSQL analyze algorithm.
+        DUJ1
+    }
+
+    /**
      * Marker string embedded in {@code assert_true} inside statistics collection SQL.
      * When any row's string column length exceeds the configured limit, BE throws an
      * error whose message contains this marker; FE detects it and converts the task
