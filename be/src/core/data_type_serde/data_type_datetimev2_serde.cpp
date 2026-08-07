@@ -665,6 +665,9 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                            type->unit());
         }
         }
+        // A timezone-naive Arrow timestamp is a wall-clock value. Decode its epoch-based
+        // representation in UTC so the session timezone does not shift its date/time fields.
+        const cctz::time_zone& real_ctz = type->timezone().empty() ? cctz::utc_time_zone() : ctz;
         const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
         const size_t element_size = sizeof(int64_t);
         for (auto value_i = start; value_i < end; ++value_i) {
@@ -681,7 +684,7 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                 --seconds;
                 remainder += divisor;
             }
-            v.from_unixtime(seconds, ctz);
+            v.from_unixtime(seconds, real_ctz);
             // Get the fractional part.
             // add 0 on the right to make it 6 digits. DateTimeV2Value microsecond is 6 digits,
             // the scale decides to keep the first few digits, so the valid digits should be kept at the front.
