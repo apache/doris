@@ -175,6 +175,30 @@ public class ConnectorPropertiesUtilsTest {
     }
 
     @Test
+    void testPropertyValidatorRejectsInvalidValue() {
+        Map<String, String> props = new HashMap<>();
+        props.put("path.key", "core-site.xml, ..\\secret.xml");
+
+        SampleConfig config = new SampleConfig();
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> ConnectorPropertiesUtils.bindConnectorProperties(config, props));
+
+        Assertions.assertTrue(ex.getMessage().contains("parent-directory references"), ex.getMessage());
+        Assertions.assertNull(config.getPathValue());
+    }
+
+    @Test
+    void testPropertyValidatorAcceptsSafeValue() {
+        Map<String, String> props = new HashMap<>();
+        props.put("path.key", "conf/core-site.xml");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        Assertions.assertEquals("conf/core-site.xml", config.getPathValue());
+    }
+
+    @Test
     void testGetConnectorPropertiesIncludesSuperclassFields() {
         List<java.lang.reflect.Field> fields = ConnectorPropertiesUtils.getConnectorProperties(SampleConfig.class);
         Assertions.assertTrue(fields.stream().anyMatch(field -> field.getName().equals("baseValue")));
@@ -258,6 +282,9 @@ public class ConnectorPropertiesUtilsTest {
         @ConnectorProperty(names = {"secret.key", "secret.alias"}, sensitive = true)
         private String secretValue;
 
+        @ConnectorProperty(names = {"path.key"}, validator = NoPathTraversalValidator.class)
+        private String pathValue;
+
         public String getStringValue() {
             return stringValue;
         }
@@ -292,6 +319,10 @@ public class ConnectorPropertiesUtilsTest {
 
         public String getSecretValue() {
             return secretValue;
+        }
+
+        public String getPathValue() {
+            return pathValue;
         }
     }
 
