@@ -55,6 +55,8 @@ public:
 
     bool is_normal_column(uint32_t source_cid) const;
 
+    bool is_after_column(uint32_t source_cid) const;
+
     size_t normal_column_ordinal(uint32_t source_cid) const;
 
 private:

@@ -25,6 +25,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "storage/binlog.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/olap_utils.h"
@@ -32,6 +33,17 @@
 
 namespace doris {
 namespace segment_v2 {
+
+namespace {
+
+ColumnWithTypeAndName make_nullable_after_column(const ColumnWithTypeAndName& source) {
+    auto result = source;
+    result.column = make_nullable(source.column);
+    result.type = make_nullable(source.type);
+    return result;
+}
+
+} // namespace
 
 RowBinlogSourceDataWriter::RowBinlogSourceDataWriter(const SegmentWriteBinlogOptions& opt)
         : _opt(opt) {}
@@ -212,9 +224,9 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
         std::vector<uint32_t> row_binlog_missing_column_ids;
         row_binlog_missing_column_ids.reserve(
                 _binlog_opts.source.partial_update_info->missing_cids.size());
-        // Missing cids are source cids too. Only normal columns have AFTER writers.
+        // Missing cids are source cids too. Only AFTER columns have AFTER writers.
         for (uint32_t cid : _binlog_opts.source.partial_update_info->missing_cids) {
-            if (_source_data_writer->is_normal_column(cid)) {
+            if (_source_data_writer->is_after_column(cid)) {
                 row_binlog_missing_column_ids.emplace_back(cid);
             }
         }
@@ -224,9 +236,11 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
 
         // write AFTER missing columns from full_block to segment
         auto& after_convertor = _source_data_writer->olap_data_convertor();
-        RETURN_IF_ERROR(after_convertor->set_source_content_with_specifid_columns(
-                &full_block, row_pos, num_rows, row_binlog_missing_column_ids));
         for (auto cid : row_binlog_missing_column_ids) {
+            const auto nullable_after_column =
+                    make_nullable_after_column(full_block.get_by_position(cid));
+            RETURN_IF_ERROR(after_convertor->set_source_content_with_specifid_column(
+                    nullable_after_column, row_pos, num_rows, cid));
             auto converted_cid =
                     _normal_col_start_id + _source_data_writer->normal_column_ordinal(cid);
             auto converted_result = after_convertor->convert_column_data(cid);
@@ -453,6 +467,12 @@ bool RowBinlogSourceDataWriter::is_normal_column(uint32_t source_cid) const {
            _normal_column_ids.end();
 }
 
+bool RowBinlogSourceDataWriter::is_after_column(uint32_t source_cid) const {
+    DCHECK(_opt.source.tablet_schema != nullptr);
+    DCHECK_LT(source_cid, _opt.source.tablet_schema->num_columns());
+    return is_normal_column(source_cid) && !_opt.source.tablet_schema->column(source_cid).is_key();
+}
+
 size_t RowBinlogSourceDataWriter::normal_column_ordinal(uint32_t source_cid) const {
     auto it = std::find(_normal_column_ids.begin(), _normal_column_ids.end(), source_cid);
     DCHECK(it != _normal_column_ids.end()) << source_cid;
@@ -503,16 +523,17 @@ Status RowBinlogSourceDataWriter::prepare_by_source_block(
         const ColumnWithTypeAndName& col =
                 block->get_by_position(is_partial_update ? col_pos_in_block++ : source_cid);
 
+        full_block->replace_by_position(source_cid, col.column);
+        const auto source_column =
+                is_after_column(source_cid) ? make_nullable_after_column(col) : col;
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
-                col, row_pos, num_rows, source_cid));
+                source_column, row_pos, num_rows, source_cid));
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(source_cid);
         if (!converted_result.first.ok()) {
             return converted_result.first;
         }
         _converted_columns[source_cid] = converted_result.second;
-
-        full_block->replace_by_position(source_cid, col.column);
     }
     for (uint32_t cid : _normal_column_ids) {
         if (!tablet_schema->column(cid).is_key()) {

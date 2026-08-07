@@ -2864,7 +2864,7 @@ protected:
 
     Result<RowsetSharedPtr> write_mow_history(const TabletSharedPtr& tablet,
                                               const TabletSchemaSPtr& schema,
-                                              int64_t rowset_numeric_id) {
+                                              int64_t rowset_numeric_id, Block block) {
         RowsetWriterContext context;
         context.rowset_id.init(rowset_numeric_id);
         context.tablet_id = tablet->tablet_id();
@@ -2887,16 +2887,22 @@ protected:
             return unexpected(writer_result.error());
         }
         auto writer = std::move(writer_result).value();
-        auto block_result = create_mow_history_block(schema);
-        if (!block_result.has_value()) {
-            return unexpected(block_result.error());
-        }
-        Block block = std::move(block_result).value();
         RETURN_IF_ERROR_RESULT(writer->add_block(&block));
         RETURN_IF_ERROR_RESULT(writer->flush());
         RowsetSharedPtr rowset;
         RETURN_IF_ERROR_RESULT(writer->build(rowset));
         return rowset;
+    }
+
+    Result<RowsetSharedPtr> write_mow_history(const TabletSharedPtr& tablet,
+                                              const TabletSchemaSPtr& schema,
+                                              int64_t rowset_numeric_id) {
+        auto block_result = create_mow_history_block(schema);
+        if (!block_result.has_value()) {
+            return unexpected(block_result.error());
+        }
+        return write_mow_history(tablet, schema, rowset_numeric_id,
+                                 std::move(block_result).value());
     }
 
     TabletSharedPtr create_binlog_tablet(int64_t tablet_id, bool enable_mow,
@@ -3152,6 +3158,41 @@ TEST_F(SegmentFlusherTransformFormatTest,
     ASSERT_TRUE(verify_complex_row_binlog_segment(partial_update_tablet,
                                                   "complex_row_binlog_partial_update", 0,
                                                   expected_partial_update)
+                        .ok());
+
+    auto missing_update_tablet = create_complex_row_binlog_tablet(schemas, 22007);
+    auto history_block_result = create_complex_row_binlog_block(schemas.source, 0);
+    ASSERT_TRUE(history_block_result.has_value()) << history_block_result.error();
+    auto history_result = write_mow_history(missing_update_tablet, schemas.source, 31011,
+                                            std::move(history_block_result).value());
+    ASSERT_TRUE(history_result.has_value()) << history_result.error();
+    std::vector<RowsetSharedPtr> history {history_result.value()};
+
+    auto missing_update_info = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(missing_update_info
+                        ->init(missing_update_tablet->tablet_id(), 1, *schemas.source,
+                               UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                               PartialUpdateNewRowPolicyPB::APPEND, {"k1", "v_array"}, false, 0, 0,
+                               "UTC", "")
+                        .ok());
+    auto missing_update_block_result =
+            create_complex_row_binlog_block(schemas.source, 0, missing_update_info);
+    ASSERT_TRUE(missing_update_block_result.has_value()) << missing_update_block_result.error();
+    auto expected_missing_update_result = create_complex_row_binlog_block(schemas.source, 0);
+    ASSERT_TRUE(expected_missing_update_result.has_value())
+            << expected_missing_update_result.error();
+    ASSERT_TRUE(flush_row_binlog_block("complex_row_binlog_missing_update", schemas.row_binlog,
+                                       std::move(missing_update_block_result).value(),
+                                       [this, missing_update_tablet, missing_update_info,
+                                        history](RowsetWriterContext& context) {
+                                           configure_row_binlog_context(
+                                                   context, missing_update_tablet,
+                                                   missing_update_info, history);
+                                       })
+                        .ok());
+    ASSERT_TRUE(verify_complex_row_binlog_segment(missing_update_tablet,
+                                                  "complex_row_binlog_missing_update", 0,
+                                                  expected_missing_update_result.value())
                         .ok());
 }
 
