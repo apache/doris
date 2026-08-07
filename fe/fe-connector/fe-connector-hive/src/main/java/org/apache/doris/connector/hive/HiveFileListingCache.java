@@ -390,7 +390,7 @@ public class HiveFileListingCache {
         final List<HiveFileStatus> files;
         final long estimatedBytes;
 
-        private FileListingValue(List<HiveFileStatus> files) {
+        FileListingValue(List<HiveFileStatus> files) {
             this.files = Collections.unmodifiableList(new ArrayList<>(files));
             this.estimatedBytes = HiveFileListingSizeEstimator.estimateValue(this);
         }

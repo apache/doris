@@ -508,6 +508,12 @@ under the License.
                 </plugins>
             </build>
         </profile>
+        <profile>
+            <id>benchmark</id>
+            <modules>
+                <module>fe-benchmark</module>
+            </modules>
+        </profile>
     </profiles>
     <dependencyManagement>
         <dependencies>
