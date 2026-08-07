@@ -72,6 +72,16 @@ def _decode_identifier(identifier: str) -> tuple[str, ...]:
     return tuple(part for part in identifier.split(DELIMITER) if part)
 
 
+def _namespace_exists(namespace: tuple[str, ...]) -> bool:
+    if not namespace:
+        return True
+    return any(
+        len(identifier) > len(namespace)
+        and identifier[: len(namespace)] == namespace
+        for identifier in TABLES
+    )
+
+
 class LanceRestHandler(BaseHTTPRequestHandler):
     server_version = "DorisLanceRestFixture/1.0"
 
@@ -147,6 +157,18 @@ class LanceRestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        table_exists_match = re.fullmatch(r"/v1/table/(.+)/exists", path)
+        if table_exists_match:
+            identifier = _decode_identifier(table_exists_match.group(1))
+            if identifier in TABLES:
+                self._write_empty(200)
+                return
+            if not _namespace_exists(identifier[:-1]):
+                self._write_json(404, {"error": "namespace not found", "code": 1})
+                return
+            self._write_json(404, {"error": "table not found", "code": 4})
+            return
+
         self._write_json(404, {"error": "not found", "code": 4})
 
     def _authorized(self) -> bool:
@@ -167,6 +189,11 @@ class LanceRestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(response)))
         self.end_headers()
         self.wfile.write(response)
+
+    def _write_empty(self, status: int) -> None:
+        self.send_response(status)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def log_message(self, message: str, *args: object) -> None:
         print(f"{self.address_string()} - {message % args}", flush=True)

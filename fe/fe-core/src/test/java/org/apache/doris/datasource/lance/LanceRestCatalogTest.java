@@ -41,6 +41,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class LanceRestCatalogTest {
     private static final String BEARER_TOKEN = "test-bearer-token";
+    private static final String EXISTING_TABLE = "existing_table";
+    private static final String MISSING_TABLE = "missing_table";
+    private static final String MISSING_NAMESPACE = "missing_namespace";
 
     private final List<RequestRecord> requests = new CopyOnWriteArrayList<>();
     private HttpServer server;
@@ -156,6 +159,25 @@ public class LanceRestCatalogTest {
         assertInvalid(filesystemWithRest, "not valid for Lance filesystem catalog");
     }
 
+    @Test
+    public void testTableExist() {
+        LanceExternalCatalog catalog = new LanceExternalCatalog(
+                201, "lance_rest_table_exists", null, restProperties(), "");
+        try {
+            Assertions.assertTrue(catalog.tableExist(null, "default", EXISTING_TABLE));
+            Assertions.assertFalse(catalog.tableExist(null, "default", MISSING_TABLE));
+            Assertions.assertFalse(catalog.tableExist(null, MISSING_NAMESPACE, MISSING_TABLE));
+        } finally {
+            catalog.onClose();
+        }
+    }
+
+    @Test
+    public void testTableExistDoesNotHideServiceErrors() {
+        assertTableExistThrows(202, "lance_rest_table_exists_unauthorized", "fail/");
+        assertTableExistThrows(203, "lance_rest_table_exists_unavailable", "service-error/");
+    }
+
     private Map<String, String> restProperties() {
         Map<String, String> properties = restPropertiesWithoutUri();
         properties.put(LanceExternalCatalog.REST_URI, restUri);
@@ -177,6 +199,20 @@ public class LanceRestCatalogTest {
         Assertions.assertTrue(exception.getMessage().contains(expectedMessage), exception.getMessage());
     }
 
+    private void assertTableExistThrows(long catalogId, String catalogName, String endpointPrefix) {
+        Map<String, String> properties = restProperties();
+        properties.put(LanceExternalCatalog.REST_URI, restUri + endpointPrefix);
+        LanceExternalCatalog catalog = new LanceExternalCatalog(
+                catalogId, catalogName, null, properties, "");
+        try {
+            Assertions.assertThrows(
+                    RuntimeException.class,
+                    () -> catalog.tableExist(null, "default", EXISTING_TABLE));
+        } finally {
+            catalog.onClose();
+        }
+    }
+
     private void handleRequest(HttpExchange exchange) throws IOException {
         ByteStreams.toByteArray(exchange.getRequestBody());
         String path = exchange.getRequestURI().getPath();
@@ -189,6 +225,21 @@ public class LanceRestCatalogTest {
         if (path.startsWith("/fail/")) {
             status = 401;
             response = "{\"error\":\"invalid token " + BEARER_TOKEN + "\",\"code\":16}";
+        } else if (path.startsWith("/service-error/")) {
+            status = 503;
+            response = "{\"error\":\"service unavailable\",\"code\":17}";
+        } else if ("POST".equals(exchange.getRequestMethod())
+                && path.matches("/v1/table/[^/]+/exists")) {
+            String tableId = path.substring("/v1/table/".length(), path.length() - "/exists".length());
+            if (EXISTING_TABLE.equals(tableId)) {
+                exchange.sendResponseHeaders(200, -1);
+                exchange.close();
+                return;
+            }
+            status = 404;
+            response = tableId.startsWith(MISSING_NAMESPACE + "$")
+                    ? "{\"error\":\"namespace not found\",\"code\":1}"
+                    : "{\"error\":\"table not found\",\"code\":4}";
         } else if (path.endsWith("/table/list")) {
             response = "{\"tables\":[]}";
         } else if (path.endsWith("/list")) {
