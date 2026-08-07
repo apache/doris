@@ -50,13 +50,12 @@
 #include "format/format_common.h"
 #include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/column_mapper.h"
-#include "format_v2/jni/fluss_jni_reader.h"
 #include "format_v2/jni/iceberg_sys_table_reader.h"
 #include "format_v2/jni/jdbc_reader.h"
 #include "format_v2/jni/max_compute_jni_reader.h"
 #include "format_v2/jni/trino_connector_jni_reader.h"
 #include "format_v2/table/adbc_reader.h"
-#include "format_v2/table/fluss_union_lake_reader.h"
+#include "format_v2/table/fluss_hybrid_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
@@ -102,11 +101,7 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
         return false;
     }
     return table_format == "NotSet" || table_format == "tvf" || table_format == "hive" ||
-           table_format == "iceberg" || table_format == "paimon" || table_format == "hudi" ||
-           // A lake split of a fluss primary-key table read as its lake plus its log tail. It is the
-           // paimon sibling's own split, wrapped, so it arrives in whichever form the sibling planned
-           // it - native Parquet/ORC here, a serialized JNI split below.
-           table_format == "fluss_union";
+           table_format == "iceberg" || table_format == "paimon" || table_format == "hudi";
 }
 
 bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
@@ -114,35 +109,52 @@ bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
     return table_format == "remote_doris" || table_format == "adbc";
 }
 
+bool is_supported_paimon_jni_payload(const TFileRangeDesc& range) {
+    if (!range.__isset.table_format_params || !range.table_format_params.__isset.paimon_params) {
+        return false;
+    }
+    const auto& params = range.table_format_params.paimon_params;
+    if (params.__isset.reader_type) {
+        if (params.reader_type == TPaimonReaderType::PAIMON_JNI) {
+            return params.__isset.paimon_split;
+        }
+        // V2 cannot pass a logical DataSplit through a raw native child without silently
+        // dropping its multi-file semantics, so PAIMON_CPP must remain on the V1 fallback.
+        return false;
+    }
+    if (params.__isset.paimon_split) {
+        // Before reader_type was added, an encoded split unambiguously selected the Java
+        // reader; native scans carried only their physical Parquet or ORC range.
+        return true;
+    }
+    return params.__isset.file_format &&
+           (params.file_format == "parquet" || params.file_format == "orc");
+}
+
 bool is_supported_jni_table_format(const TFileRangeDesc& range) {
     const auto table_format = table_format_name(range);
-    // A wrapped lake split is a paimon split in every respect that decides how it is read, so
-    // whether it can be read here is the paimon answer, asked of the paimon payload it carries.
-    if (table_format == "paimon" || table_format == "fluss_union") {
-        if (!range.__isset.table_format_params ||
-            !range.table_format_params.__isset.paimon_params) {
-            return false;
-        }
-        const auto& params = range.table_format_params.paimon_params;
-        if (params.__isset.reader_type) {
-            if (params.reader_type == TPaimonReaderType::PAIMON_JNI) {
-                return params.__isset.paimon_split;
-            }
-            // V2 cannot pass a logical DataSplit through a raw native child without silently
-            // dropping its multi-file semantics, so PAIMON_CPP must remain on the V1 fallback.
-            return false;
-        }
-        if (params.__isset.paimon_split) {
-            // Before reader_type was added, an encoded split unambiguously selected the Java
-            // reader; native scans carried only their physical Parquet or ORC range.
-            return true;
-        }
-        return params.__isset.file_format &&
-               (params.file_format == "parquet" || params.file_format == "orc");
+    if (table_format == "paimon") {
+        return is_supported_paimon_jni_payload(range);
     }
     return table_format == "jdbc" || table_format == "iceberg" || table_format == "hudi" ||
-           table_format == "max_compute" || table_format == "trino_connector" ||
-           table_format == "fluss";
+           table_format == "max_compute" || table_format == "trino_connector";
+}
+
+bool is_supported_fluss_range(const TFileScanRangeParams& params, const TFileRangeDesc& range) {
+    const auto format_type = get_range_format_type(params, range);
+    if (format::fluss::FlussHybridReader::is_lake_range(range)) {
+        // A lake split is the paimon sibling's own split, wrapped, so it arrives in whichever form
+        // the sibling planned it and whether it can be read here is the paimon answer, asked of the
+        // paimon payload it carries.
+        if (format_type == TFileFormatType::FORMAT_PARQUET ||
+            format_type == TFileFormatType::FORMAT_ORC) {
+            return true;
+        }
+        return format_type == TFileFormatType::FORMAT_JNI && is_supported_paimon_jni_payload(range);
+    }
+    // A range of fluss's own log - a log slice, a primary-key bucket, a primary-key log tail - is
+    // read through the JNI scanner alone.
+    return format_type == TFileFormatType::FORMAT_JNI;
 }
 
 bool is_iceberg_position_deletes_sys_table(const TFileRangeDesc& range) {
@@ -313,6 +325,12 @@ bool FileScannerV2::TEST_should_skip_empty(const Status& status, bool stopped) {
 #endif
 
 bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range) {
+    if (table_format_name(range) == "fluss") {
+        // Every range of a fluss scan carries the one format "fluss" and is dispatched inside
+        // FlussHybridReader, so its support is answered by the same per-range key the reader
+        // dispatches on rather than by the file-format buckets below.
+        return is_supported_fluss_range(params, range);
+    }
     const auto format_type = get_range_format_type(params, range);
     if (format_type == TFileFormatType::FORMAT_PARQUET ||
         format_type == TFileFormatType::FORMAT_ORC) {
@@ -627,9 +645,7 @@ Status FileScannerV2::_create_table_reader_for_format(
     } else if (table_format == "hudi") {
         *reader = std::make_unique<format::hudi::HudiHybridReader>();
     } else if (table_format == "fluss") {
-        *reader = std::make_unique<format::fluss::FlussJniReader>();
-    } else if (table_format == "fluss_union") {
-        *reader = std::make_unique<format::fluss::FlussUnionLakeReader>();
+        *reader = std::make_unique<format::fluss::FlussHybridReader>();
     } else if (table_format == "jdbc") {
         *reader = std::make_unique<format::jdbc::JdbcJniReader>();
     } else if (table_format == "max_compute") {

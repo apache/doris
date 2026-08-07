@@ -78,36 +78,41 @@ TEST(FileScanOperatorFlussTest, FlussForcingDoesNotApplyToLoads) {
                                                                      scan_level_format("fluss")));
 }
 
-// The escape hatch is keyed on the exact scan-level marker FE writes. "fluss_union" is a RANGE kind,
-// never a scan-level one, so a node is not admitted by carrying one.
+// The escape hatch is keyed on the exact scan-level marker FE writes. A node planned by another
+// connector - even the paimon sibling whose splits a fluss scan borrows - is not admitted by it.
 TEST(FileScanOperatorFlussTest, OnlyTheScanLevelFlussMarkerForcesV2) {
     TQueryOptions opts;
     opts.__set_enable_file_scanner_v2(false);
 
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(
-            opts, /*is_load=*/false, scan_level_format("fluss_union")));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(opts, /*is_load=*/false,
+                                                                     scan_level_format("paimon")));
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(opts, /*is_load=*/false,
                                                                      scan_level_format("")));
 }
 
-// Forcing the node onto V2 is only half an answer: V2 has to accept both range kinds that node can
+// Forcing the node onto V2 is only half an answer: V2 has to accept every range kind that node can
 // carry, or the failure just moves from the legacy scanner to _validate_scan_range.
-TEST(FileScanOperatorFlussTest, ScannerV2SupportsBothRangeKindsOfAForcedNode) {
+TEST(FileScanOperatorFlussTest, ScannerV2SupportsEveryRangeKindOfAForcedNode) {
     const auto params = scan_level_format("fluss");
 
-    EXPECT_TRUE(FileScannerV2::is_supported(params, jni_range("fluss")));
+    TFileRangeDesc log_range = jni_range("fluss");
+    log_range.table_format_params.__set_fluss_params({{"fluss.range_type", "LOG"}});
+    EXPECT_TRUE(FileScannerV2::is_supported(params, log_range));
 
-    // A wrapped lake split arrives in whichever form the paimon sibling planned it: a serialized JNI
+    // A lake split arrives in whichever form the paimon sibling planned it: a serialized JNI
     // split, or a native Parquet/ORC range.
-    TFileRangeDesc union_jni = jni_range("fluss_union");
+    TFileRangeDesc lake_jni = jni_range("fluss");
+    lake_jni.table_format_params.__set_fluss_params(
+            {{"fluss.range_type", "LAKE_SUPPRESS"}, {"fluss.union.tail", ":0:0:9"}});
     TPaimonFileDesc paimon_params;
     paimon_params.__set_paimon_split("encoded");
-    union_jni.table_format_params.__set_paimon_params(paimon_params);
-    EXPECT_TRUE(FileScannerV2::is_supported(params, union_jni));
+    lake_jni.table_format_params.__set_paimon_params(paimon_params);
+    EXPECT_TRUE(FileScannerV2::is_supported(params, lake_jni));
 
-    TFileRangeDesc union_native = jni_range("fluss_union");
-    union_native.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-    EXPECT_TRUE(FileScannerV2::is_supported(params, union_native));
+    TFileRangeDesc lake_native = jni_range("fluss");
+    lake_native.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
+    lake_native.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    EXPECT_TRUE(FileScannerV2::is_supported(params, lake_native));
 }
 
 } // namespace doris::pipeline

@@ -23,6 +23,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <typeinfo>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -47,6 +48,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/expr/cast.h"
+#include "format_v2/table/fluss_hybrid_reader.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
@@ -318,8 +320,11 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"iceberg", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"paimon", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
-            {"fluss_union", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
-            {"fluss_union", TFileFormatType::FORMAT_ORC, std::nullopt, true},
+            // A fluss range that does not say it is a lake split is a range of fluss's own log,
+            // and those are read through JNI alone; see FlussRangesAreSupportedByTheirRangeKind
+            // for the lake shapes.
+            {"fluss", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
+            {"fluss", TFileFormatType::FORMAT_JNI, std::nullopt, true},
             {"hudi", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"jdbc", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
             {"", TFileFormatType::FORMAT_JNI, std::nullopt, false},
@@ -477,33 +482,82 @@ TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
 }
 
-// Scenario: a lake split of a fluss primary-key table read as its lake plus its log tail. It is the
-// paimon sibling's own split with a suppression descriptor attached, so whether V2 can read it is
-// the paimon answer, asked of the paimon payload it carries - not a separate rule that could start
-// disagreeing with paimon's after the sibling changes how it plans a split.
-TEST(FileScannerV2Test, WrappedLakeSplitsAreSupportedWhereverThePaimonOnesAre) {
+// Scenario: every range of a fluss scan carries the one table format "fluss", and which side reads
+// it - fluss's own JNI scanner, or the paimon sibling's stack - is named per range in
+// fluss.range_type. Support therefore follows that key: a lake split is supported exactly where the
+// paimon payload it carries is, not by a separate rule that could start disagreeing with paimon's
+// after the sibling changes how it plans a split.
+TEST(FileScannerV2Test, FlussRangesAreSupportedByTheirRangeKind) {
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
 
     auto serialized_split = legacy_paimon_jni_range_without_reader_type();
-    serialized_split.table_format_params.__set_table_format_type("fluss_union");
+    serialized_split.table_format_params.__set_table_format_type("fluss");
+    serialized_split.table_format_params.__set_fluss_params(
+            {{"fluss.range_type", "LAKE_SUPPRESS"}, {"fluss.union.tail", ":0:0:9"}});
     EXPECT_TRUE(FileScannerV2::is_supported(params, serialized_split));
 
-    auto native_file_as_jni = range_with_format("fluss_union", TFileFormatType::FORMAT_JNI);
+    auto native_file_as_jni = range_with_format("fluss", TFileFormatType::FORMAT_JNI);
+    native_file_as_jni.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
     TPaimonFileDesc paimon_params;
     paimon_params.__set_file_format("orc");
     native_file_as_jni.table_format_params.__set_paimon_params(paimon_params);
     EXPECT_TRUE(FileScannerV2::is_supported(params, native_file_as_jni));
 
-    // No paimon payload at all is not a split this reader can hand to the sibling.
-    EXPECT_FALSE(FileScannerV2::is_supported(
-            params, range_with_format("fluss_union", TFileFormatType::FORMAT_JNI)));
+    // A plain native lake split, in both physical formats the sibling plans.
+    for (const auto native_format :
+         {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC}) {
+        auto native_split = range_with_format("fluss", native_format);
+        native_split.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
+        EXPECT_TRUE(FileScannerV2::is_supported(params, native_split))
+                << "native_format=" << static_cast<int>(native_format);
+    }
 
-    // The C++ paimon reader stays on the V1 fallback, which has no fluss_union branch: a clean
-    // refusal rather than a lake half read without its suppression.
+    // No paimon payload at all is not a split the fluss reader can hand to the sibling.
+    auto lake_without_payload = range_with_format("fluss", TFileFormatType::FORMAT_JNI);
+    lake_without_payload.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
+    EXPECT_FALSE(FileScannerV2::is_supported(params, lake_without_payload));
+
+    // The C++ paimon reader stays on the V1 fallback, which has no fluss branch: a clean refusal
+    // rather than a lake half read without its suppression.
     auto cpp_split = paimon_cpp_jni_range();
-    cpp_split.table_format_params.__set_table_format_type("fluss_union");
+    cpp_split.table_format_params.__set_table_format_type("fluss");
+    cpp_split.table_format_params.__set_fluss_params(
+            {{"fluss.range_type", "LAKE_SUPPRESS"}, {"fluss.union.tail", ":0:0:9"}});
     EXPECT_FALSE(FileScannerV2::is_supported(params, cpp_split));
+}
+
+// The scanner builds ONE reader from the first range and keeps it for its whole life, so the one
+// "fluss" format must map to the hybrid dispatcher whichever range kind happens to arrive first --
+// and the retired per-range format "fluss_union" must not resolve to a reader at all.
+TEST(FileScannerV2Test, EveryFlussRangeGetsTheOneHybridReader) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner_v2_fluss_reader");
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._params = &params;
+
+    auto log_range = range_with_format("fluss", TFileFormatType::FORMAT_JNI);
+    log_range.table_format_params.__set_fluss_params({{"fluss.range_type", "LOG"}});
+    auto lake_range = range_with_format("fluss", TFileFormatType::FORMAT_PARQUET);
+    lake_range.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
+
+    std::unique_ptr<format::TableReader> from_log_range;
+    std::unique_ptr<format::TableReader> from_lake_range;
+    ASSERT_TRUE(scanner._create_table_reader_for_format(log_range, &from_log_range).ok());
+    ASSERT_TRUE(scanner._create_table_reader_for_format(lake_range, &from_lake_range).ok());
+    const format::TableReader& log_reader = *from_log_range;
+    const format::TableReader& lake_reader = *from_lake_range;
+    EXPECT_TRUE(typeid(log_reader) == typeid(format::fluss::FlussHybridReader));
+    EXPECT_TRUE(typeid(lake_reader) == typeid(format::fluss::FlussHybridReader));
+
+    std::unique_ptr<format::TableReader> from_retired_format;
+    const auto retired = scanner._create_table_reader_for_format(
+            range_with_format("fluss_union", TFileFormatType::FORMAT_PARQUET),
+            &from_retired_format);
+    EXPECT_TRUE(retired.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << retired;
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
