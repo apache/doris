@@ -109,7 +109,7 @@ public class FlussPartitionColumnTypesTest {
             // The property that caused it is named, because turning it off is the fix and nothing else
             // about the table changed.
             Assertions.assertTrue(
-                    rejection.contains(FlussConnectorProperties.ENABLE_MAPPING_VARBINARY),
+                    rejection.contains(FlussCatalogProperties.ENABLE_MAPPING_VARBINARY),
                     "the rejection should name the property that caused it: " + rejection);
         }
     }

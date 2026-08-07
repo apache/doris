@@ -232,7 +232,7 @@ public final class FlussTypeMapping implements DataTypeVisitor<ConnectorType> {
 
     /**
      * The catalog-level switches that change a mapping. Both default to off and both carry the same
-     * name and meaning they have on other Doris catalogs (see {@link FlussConnectorProperties}).
+     * name and meaning they have on other Doris catalogs (see {@link FlussCatalogProperties}).
      */
     public static final class Options {
 

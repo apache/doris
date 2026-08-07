@@ -34,13 +34,18 @@ public class FlussConnectorProvider implements ConnectorProvider {
         return "fluss";
     }
 
+    /**
+     * One line, because binding IS validating: {@link FlussCatalogProperties#of} throws on any bad value.
+     * The SPI default {@code validatePropertiesForUpdate} calls this with the merged candidate, so the
+     * same line guards CREATE CATALOG and ALTER CATALOG.
+     */
     @Override
     public void validateProperties(Map<String, String> properties) {
-        FlussConnectorProperties.validate(properties);
+        FlussCatalogProperties.of(properties);
     }
 
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
-        return new FlussConnector(properties, context);
+        return new FlussConnector(FlussCatalogProperties.of(properties), context);
     }
 }
