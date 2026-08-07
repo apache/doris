@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.connector.iceberg;
+package org.apache.doris.connector.paimon;
 
-import org.apache.iceberg.DataFile;
-import org.apache.iceberg.DataFiles;
-import org.apache.iceberg.ManifestContent;
-import org.apache.iceberg.PartitionSpec;
+import org.apache.doris.connector.cache.ConnectorTableKey;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -36,26 +35,30 @@ import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jol.info.GraphLayout;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-/** Compares the O(1) production manifest weight with construction-time accounting and JOL traversal. */
+/** Compares Paimon's O(1) cached partition-view weight with construction-time accounting and JOL traversal. */
 @BenchmarkMode(Mode.AverageTime)
 @Warmup(iterations = 1, time = 500, timeUnit = TimeUnit.MILLISECONDS)
 @Measurement(iterations = 3, time = 500, timeUnit = TimeUnit.MILLISECONDS)
 @Fork(value = 1, jvmArgsAppend = {"-Xms1g", "-Xmx4g", "-Djol.magicFieldOffset=true"})
-public class IcebergManifestSizeBenchmark {
+public class PaimonPartitionViewSizeBenchmark {
 
     @Benchmark
     @OutputTimeUnit(TimeUnit.NANOSECONDS)
     public long cachedWeight(BenchmarkState state) {
-        return IcebergCacheSizeEstimator.estimateManifestEntry(state.key, state.value);
+        return PaimonPartitionViewSizeEstimator.estimateEntry(state.key, state.value);
     }
 
     @Benchmark
     @OutputTimeUnit(TimeUnit.MILLISECONDS)
     public long constructAndEstimate(BenchmarkState state) {
-        return ManifestCacheValue.forDataFiles(state.files).getEstimatedBytes();
+        return new PaimonPartitionView(state.key, state.partitions).getEstimatedBytes();
     }
 
     @Benchmark
@@ -69,24 +72,30 @@ public class IcebergManifestSizeBenchmark {
         @Param({"10000", "100000"})
         public int size;
 
-        private IcebergManifestEntryKey key;
-        private ManifestCacheValue value;
-        private List<DataFile> files;
+        private ConnectorTableKey key;
+        private PaimonPartitionView value;
+        private List<ConnectorPartitionInfo> partitions;
 
         @Setup(Level.Trial)
         public void setup() {
-            PartitionSpec spec = PartitionSpec.unpartitioned();
-            files = new ArrayList<>(size);
+            partitions = new ArrayList<>(size);
             for (int i = 0; i < size; i++) {
-                files.add(DataFiles.builder(spec)
-                        .withPath("s3://warehouse/db/table/data/part-" + i + ".parquet")
-                        .withFileSizeInBytes(128L * 1024L * 1024L + i)
-                        .withRecordCount(1_000_000L + i)
-                        .build());
+                Map<String, String> values = new LinkedHashMap<>();
+                values.put("dt", "2026-08-" + (i % 28 + 1));
+                values.put("bucket", Integer.toString(i));
+                partitions.add(new ConnectorPartitionInfo(
+                        "dt=" + values.get("dt") + "/bucket=" + i,
+                        values,
+                        Collections.emptyMap(),
+                        10_000L + i,
+                        128L * 1024L * 1024L + i,
+                        1_786_048_000_000L + i,
+                        4L,
+                        new ArrayList<>(values.values()),
+                        Arrays.asList(false, false)));
             }
-            key = new IcebergManifestEntryKey(
-                    "s3://benchmark-bucket/warehouse/db/table/metadata/manifest.avro", ManifestContent.DATA);
-            value = ManifestCacheValue.forDataFiles(files);
+            key = new ConnectorTableKey("db", "table", 10_000L, -1L);
+            value = new PaimonPartitionView(key, partitions);
         }
     }
 }

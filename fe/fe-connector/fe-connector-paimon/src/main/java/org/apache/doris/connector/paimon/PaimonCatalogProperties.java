@@ -165,6 +165,8 @@ public final class PaimonCatalogProperties {
                 -1L, PaimonConnector.TABLE_CACHE_TTL_SECOND);
         CacheSpec.checkLongProperty(properties.get(PaimonConnector.TABLE_CACHE_CAPACITY),
                 0L, PaimonConnector.TABLE_CACHE_CAPACITY);
+        CacheSpec.checkDataSizeProperty(properties.get(PaimonConnector.PARTITION_VIEW_CACHE_MAX_WEIGHT),
+                PaimonConnector.PARTITION_VIEW_CACHE_MAX_WEIGHT);
     }
 
     // R2: warn (do not reject, do not strip) when a CREATE/ALTER CATALOG carries the now-dead paimon

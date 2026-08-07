@@ -21,7 +21,7 @@ set -euo pipefail
 
 BENCHMARK_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 FE_DIR=$(cd -- "${BENCHMARK_DIR}/.." && pwd)
-BENCHMARK_PATTERN=${1:-'(HiveFileListingSizeBenchmark|IcebergPartitionSizeBenchmark|IcebergManifestSizeBenchmark)'}
+BENCHMARK_PATTERN=${1:-'(HiveFileListingSizeBenchmark|IcebergPartitionSizeBenchmark|IcebergManifestSizeBenchmark|PaimonPartitionViewSizeBenchmark)'}
 if [[ $# -gt 0 ]]; then
     shift
 fi

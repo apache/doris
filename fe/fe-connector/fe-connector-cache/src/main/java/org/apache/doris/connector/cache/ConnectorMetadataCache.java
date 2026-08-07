@@ -33,10 +33,12 @@ import java.util.function.Supplier;
  * the hive/iceberg/paimon derived partition-view caches (entry {@code "partition_view"}); a connector may hold
  * several instances under distinct entry names.
  *
- * <p><b>Config</b>: {@code meta.cache.<engine>.<entry>.(enable|ttl-second|capacity)}, default ON / 86400s / 1000
- * entries (matching {@code IcebergPartitionCache}'s {@code DEFAULT_TABLE_CACHE_CAPACITY}). {@code enable=false} /
- * {@code ttl-second=0} / {@code capacity=0} each disable the cache (see {@link CacheSpec#isCacheEnabled}): {@link
- * #get} then calls the loader on every call, matching {@code IcebergPartitionCache}'s disabled-cache bypass.
+ * <p><b>Config</b>: {@code meta.cache.<engine>.<entry>.(enable|ttl-second|capacity|max-weight)}, default ON /
+ * 86400s / 1000 entries (matching {@code IcebergPartitionCache}'s {@code DEFAULT_TABLE_CACHE_CAPACITY}).
+ * {@code enable=false} / {@code ttl-second=0} / an effective bound of zero each disable the cache (see
+ * {@link CacheSpec#isCacheEnabled}): {@link #get} then calls the loader on every call, matching
+ * {@code IcebergPartitionCache}'s disabled-cache bypass. A caller that supports {@code max-weight} must use the
+ * estimator constructor; count-bounded callers can keep using the original constructor.
  *
  * <p><b>Concurrency</b>: mirrors {@code IcebergPartitionCache} / {@code MaxComputePartitionCache} exactly — the
  * entry is contextual-only (no built-in loader; the caller supplies one per {@link #get} call) with manual miss
@@ -51,30 +53,48 @@ public final class ConnectorMetadataCache<V> {
     static final long DEFAULT_CAPACITY = 1000L;
 
     private final MetaCacheEntry<ConnectorTableKey, V> entry;
+    private final boolean weightBounded;
 
     /**
      * @param engine    engine token for the {@code meta.cache.<engine>.<entry>.*} property namespace, e.g.
      *                  {@code "iceberg"}/{@code "paimon"}/{@code "hive"}/{@code "max_compute"}.
      * @param entryName the entry name within that namespace (e.g. {@code "partition_view"}); a connector may hold
      *                  several {@code ConnectorMetadataCache}s under distinct entry names.
-     * @param props     the catalog properties; drives the {@link CacheSpec} (enable/ttl-second/capacity). May be
-     *                  {@code null}, treated as empty (defaults apply).
+     * @param props     the catalog properties; drives the {@link CacheSpec}
+     *                  (enable/ttl-second/capacity/max-weight). May be {@code null}, treated as empty.
      */
     public ConnectorMetadataCache(String engine, String entryName, Map<String, String> props) {
+        this(engine, entryName, props, null);
+    }
+
+    /**
+     * Builds a generic connector metadata cache with an optional type-specific byte estimator.
+     *
+     * @param sizeEstimator required when {@code meta.cache.<engine>.<entry>.max-weight} is configured; ignored by
+     *                      the count-bounded branch
+     */
+    public ConnectorMetadataCache(String engine, String entryName, Map<String, String> props,
+            MetaCacheSizeEstimator<ConnectorTableKey, V> sizeEstimator) {
         Objects.requireNonNull(engine, "engine can not be null");
         Objects.requireNonNull(entryName, "entryName can not be null");
         Map<String, String> properties = props == null ? Collections.emptyMap() : props;
         CacheSpec spec = CacheSpec.fromProperties(properties, engine, entryName,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_CAPACITY));
+        this.weightBounded = spec.isWeightBounded();
         // contextual-only (loader == null, supplied per-call by get()) + manual-miss-load, no auto-refresh --
         // identical shape to IcebergPartitionCache / MaxComputePartitionCache's entry construction.
         this.entry = new MetaCacheEntry<>(engine + "." + entryName, null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+                ForkJoinPool.commonPool(), false, true, 0L, true, sizeEstimator);
     }
 
     /** Caching is on only when the resolved {@link CacheSpec} is effectively enabled (see {@link #entry}'s spec). */
     public boolean isEnabled() {
         return entry.stats().isEffectiveEnabled();
+    }
+
+    /** Whether this cache is configured with {@code max-weight} instead of the legacy entry-count capacity. */
+    public boolean isWeightBounded() {
+        return weightBounded;
     }
 
     /**
