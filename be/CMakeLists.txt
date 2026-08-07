@@ -232,6 +232,16 @@ SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
 SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
 
+set(BUILD_TESTS OFF)
+add_subdirectory(
+    ${CONTRIB_PATH}/datasketches-cpp
+    ${PROJECT_BINARY_DIR}/datasketches-cpp
+    EXCLUDE_FROM_ALL)
+target_include_directories(
+    hll SYSTEM INTERFACE $<BUILD_INTERFACE:${CONTRIB_PATH}/datasketches-cpp/hll/include>)
+target_include_directories(
+    common SYSTEM INTERFACE $<BUILD_INTERFACE:${CONTRIB_PATH}/datasketches-cpp/common/include>)
+
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
 target_compile_options(orc PRIVATE -fno-omit-frame-pointer -Wno-implicit-fallthrough -w)
