@@ -170,7 +170,6 @@ Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concu
 //                    |                           |
 //          ignores actual_code            local enum recognizes
 //          and reads code                 actual_code value?
-//                                           /                  \
 //                                         yes                  no
 //                                         |                     |
 //                                  use actual code      use code only when it
