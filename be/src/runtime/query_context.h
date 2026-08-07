@@ -47,6 +47,7 @@
 namespace doris {
 
 namespace io {
+class FileScannerV2ReaderLocalCache;
 class RemoteScanCacheWriteLimiter;
 } // namespace io
 
@@ -237,6 +238,9 @@ public:
         return _resource_ctx->memory_context()->mem_tracker();
     }
 
+    std::shared_ptr<io::FileScannerV2ReaderLocalCache>
+    get_or_create_file_scanner_v2_reader_local_cache();
+
     int32_t get_slot_count() const {
         return _query_options.__isset.query_slot_count ? _query_options.query_slot_count : 1;
     }
@@ -337,6 +341,9 @@ private:
     std::unordered_set<SpillDataDir*> _spill_data_dirs;
 
     std::shared_ptr<ResourceContext> _resource_ctx;
+
+    std::mutex _file_scanner_v2_reader_local_cache_mutex;
+    std::shared_ptr<io::FileScannerV2ReaderLocalCache> _file_scanner_v2_reader_local_cache;
 
     void _init_resource_context();
     void _init_query_mem_tracker();

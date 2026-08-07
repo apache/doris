@@ -101,6 +101,10 @@ public:
         return _should_run_adaptive_batch_size(predictor_initialized,
                                                current_split_uses_metadata_count);
     }
+    Status TEST_init_io_ctx() { return _init_io_ctx(); }
+    bool TEST_has_reader_local_cache() const {
+        return _io_ctx != nullptr && _io_ctx->reader_local_cache != nullptr;
+    }
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,

@@ -964,6 +964,12 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
 
 Status FileScannerV2::_init_io_ctx() {
     _io_ctx = create_file_scan_io_context(_state);
+    if (config::enable_file_scanner_v2_reader_local_cache) {
+        if (auto* query_ctx = _state->get_query_ctx(); query_ctx != nullptr) {
+            _io_ctx->reader_local_cache =
+                    query_ctx->get_or_create_file_scanner_v2_reader_local_cache();
+        }
+    }
     return Status::OK();
 }
 

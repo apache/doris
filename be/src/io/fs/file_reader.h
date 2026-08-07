@@ -37,6 +37,7 @@ namespace doris {
 namespace io {
 
 class FileSystem;
+class FileScannerV2ReaderLocalCache;
 struct IOContext;
 
 enum class FileCachePolicy : uint8_t {
@@ -58,6 +59,8 @@ struct FileReaderOptions {
     bool is_doris_table = false;
     // Keep this opt-in so legacy scanners and internal-table readers retain their existing IO path.
     bool enable_reader_local_cache = false;
+    // File Scanner V2 readers in one query share this cache and its bounded memory budget.
+    std::shared_ptr<FileScannerV2ReaderLocalCache> reader_local_cache {nullptr};
     std::string cache_base_path;
     // Length of the file in bytes, -1 means unset.
     // If the file length is not set, the file length will be fetched from the file system.

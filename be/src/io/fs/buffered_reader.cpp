@@ -31,6 +31,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "core/custom_allocator.h"
+#include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
@@ -385,8 +386,12 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
     *bytes_read = 0;
     {
         SCOPED_RAW_TIMER(&_statistics.read_time);
+        IOContext merge_io_ctx = io_ctx != nullptr ? *io_ctx : IOContext {};
+        // MergeRange retains the merged slice in its boxes; bypassing reader-local promotion keeps
+        // one owner for these bytes instead of duplicating every cached block in both buffers.
+        merge_io_ctx.bypass_reader_local_cache = true;
         RETURN_IF_ERROR(_reader->read_at(start_offset, Slice(_read_slice->data(), to_read),
-                                         bytes_read, io_ctx));
+                                         bytes_read, &merge_io_ctx));
         _statistics.merged_io++;
         _statistics.merged_bytes += *bytes_read;
     }
