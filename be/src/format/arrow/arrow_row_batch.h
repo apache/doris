@@ -43,25 +43,15 @@ constexpr size_t MAX_ARROW_UTF8 = (1ULL << 31); // 2G
 
 class RowDescriptor;
 
-// Most Arrow consumers exchange Variant as JSON text. Consumers that understand the Variant V2
-// physical layout can request its lossless value/metadata representation instead.
-enum class ArrowVariantRepresentation {
-    JSON,
-    BINARY_V2,
-};
-
-Status convert_to_arrow_type(
-        const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result,
-        const std::string& timezone,
-        ArrowVariantRepresentation variant_representation = ArrowVariantRepresentation::JSON);
+Status convert_to_arrow_type(const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result,
+                             const std::string& timezone);
 
 std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,
         bool is_nullable, PrimitiveType primitive_type);
 
-Status get_arrow_schema_from_block(
-        const Block& block, std::shared_ptr<arrow::Schema>* result, const std::string& timezone,
-        ArrowVariantRepresentation variant_representation = ArrowVariantRepresentation::JSON);
+Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Schema>* result,
+                                   const std::string& timezone);
 
 Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                        std::shared_ptr<arrow::Schema>* result,

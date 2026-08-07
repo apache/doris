@@ -49,8 +49,8 @@
 namespace doris {
 
 Status convert_to_arrow_type(const DataTypePtr& origin_type,
-                             std::shared_ptr<arrow::DataType>* result, const std::string& timezone,
-                             ArrowVariantRepresentation variant_representation) {
+                             std::shared_ptr<arrow::DataType>* result,
+                             const std::string& timezone) {
     auto type = get_serialized_type(origin_type);
     switch (type->get_primitive_type()) {
     case TYPE_NULL:
@@ -123,8 +123,7 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     case TYPE_ARRAY: {
         const auto* type_arr = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> item_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone,
-                                              variant_representation));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
@@ -132,10 +131,8 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone,
-                                              variant_representation));
-        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone,
-                                              variant_representation));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone));
         *result = std::make_shared<arrow::MapType>(key_type, val_type);
         break;
     }
@@ -144,8 +141,8 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         std::vector<std::shared_ptr<arrow::Field>> fields;
         for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
-            RETURN_IF_ERROR(convert_to_arrow_type(type_struct->get_element(i), &field_type,
-                                                  timezone, variant_representation));
+            RETURN_IF_ERROR(
+                    convert_to_arrow_type(type_struct->get_element(i), &field_type, timezone));
             fields.push_back(
                     std::make_shared<arrow::Field>(type_struct->get_element_name(i), field_type,
                                                    type_struct->get_element(i)->is_nullable()));
@@ -154,14 +151,7 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         break;
     }
     case TYPE_VARIANT: {
-        if (variant_representation == ArrowVariantRepresentation::BINARY_V2) {
-            // Variant V2 follows the Parquet Variant physical layout. Keeping both children
-            // non-null distinguishes a SQL NULL struct from a non-null Variant value.
-            *result = arrow::struct_({arrow::field("value", arrow::binary(), false),
-                                      arrow::field("metadata", arrow::binary(), false)});
-        } else {
-            *result = arrow::utf8();
-        }
+        *result = arrow::utf8();
         break;
     }
     case TYPE_QUANTILE_STATE:
@@ -200,13 +190,11 @@ std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
 }
 
 Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Schema>* result,
-                                   const std::string& timezone,
-                                   ArrowVariantRepresentation variant_representation) {
+                                   const std::string& timezone) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type, &arrow_type, timezone,
-                                              variant_representation));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type, &arrow_type, timezone));
         auto field = create_arrow_field_with_metadata(type_and_name.name, arrow_type,
                                                       type_and_name.type->is_nullable(),
                                                       type_and_name.type->get_primitive_type());
