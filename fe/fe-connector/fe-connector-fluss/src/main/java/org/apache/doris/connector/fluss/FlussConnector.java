@@ -53,7 +53,7 @@ public class FlussConnector implements Connector {
      */
     private static final String PAIMON_CONNECTOR_TYPE = "paimon";
 
-    private final Map<String, String> properties;
+    private final FlussCatalogProperties properties;
     private final String catalogName;
     private final ConnectorContext context;
 
@@ -77,17 +77,15 @@ public class FlussConnector implements Connector {
     // Written BEFORE the volatile lakeSibling publishes it, so a reader that sees the sibling sees this.
     private Map<String, String> lakeSiblingProperties;
 
-    public FlussConnector(Map<String, String> properties, ConnectorContext context) {
-        FlussConnectorProperties.validate(properties);
-        this.properties = Collections.unmodifiableMap(new HashMap<>(properties));
+    public FlussConnector(FlussCatalogProperties properties, ConnectorContext context) {
+        this.properties = properties;
         this.catalogName = context.getCatalogName();
         this.context = context;
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new FlussConnectorMetadata(adminOps(),
-                FlussConnectorProperties.typeMappingOptions(properties),
+        return new FlussConnectorMetadata(adminOps(), properties.getTypeMappingOptions(),
                 this::getOrCreateLakeSibling, this::lakeSiblingOwning);
     }
 
@@ -220,7 +218,7 @@ public class FlussConnector implements Connector {
 
     private FlussAdminOps adminOps() {
         return new ConnectionBackedFlussAdminOps(getOrCreateConnection(), catalogName,
-                FlussConnectorProperties.bootstrapServers(properties));
+                properties.getBootstrapServers());
     }
 
     private Connection getOrCreateConnection() {
@@ -236,7 +234,7 @@ public class FlussConnector implements Connector {
 
     private Connection createConnection() {
         Configuration config = new Configuration();
-        FlussConnectorProperties.toFlussClientConfig(properties).forEach(config::setString);
+        properties.getFlussClientConfig().forEach(config::setString);
 
         // TCCL pin, and this is the locus that matters: creating the connection is what spawns the
         // fluss client's own threads (netty IO, metadata updater), and a thread inherits the context
@@ -250,8 +248,8 @@ public class FlussConnector implements Connector {
             return ConnectionFactory.createConnection(config);
         } catch (RuntimeException e) {
             throw new DorisConnectorException("Failed to connect fluss catalog '" + catalogName + "' ("
-                    + FlussConnectorProperties.BOOTSTRAP_SERVERS + "="
-                    + FlussConnectorProperties.bootstrapServers(properties) + ")", e);
+                    + FlussCatalogProperties.BOOTSTRAP_SERVERS + "="
+                    + properties.getBootstrapServers() + ")", e);
         } finally {
             Thread.currentThread().setContextClassLoader(callerLoader);
         }

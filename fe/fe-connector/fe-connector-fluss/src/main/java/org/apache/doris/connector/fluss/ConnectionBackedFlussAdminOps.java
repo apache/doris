@@ -164,6 +164,6 @@ public class ConnectionBackedFlussAdminOps implements FlussAdminOps {
 
     private String describe(String operation, String outcome) {
         return "fluss catalog '" + catalogName + "': " + operation + " " + outcome
-                + " (" + FlussConnectorProperties.BOOTSTRAP_SERVERS + "=" + bootstrapServers + ")";
+                + " (" + FlussCatalogProperties.BOOTSTRAP_SERVERS + "=" + bootstrapServers + ")";
     }
 }

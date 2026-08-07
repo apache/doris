@@ -76,7 +76,7 @@ public class FlussConnectorLakeSiblingTest {
     private static FlussConnector connector(ConnectorContext context) {
         Map<String, String> catalogProperties = new HashMap<>();
         catalogProperties.put("fluss.bootstrap.servers", "127.0.0.1:9123");
-        return new FlussConnector(catalogProperties, context);
+        return new FlussConnector(FlussCatalogProperties.of(catalogProperties), context);
     }
 
     @Test
