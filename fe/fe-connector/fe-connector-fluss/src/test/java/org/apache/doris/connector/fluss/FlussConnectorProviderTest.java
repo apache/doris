@@ -84,7 +84,7 @@ public class FlussConnectorProviderTest {
         // where an unreachable cluster must not block startup. The fluss connection is therefore lazy,
         // and closing a connector that never connected must be a no-op rather than an NPE.
         Map<String, String> properties = new HashMap<>();
-        properties.put(FlussConnectorProperties.BOOTSTRAP_SERVERS, "localhost:9123");
+        properties.put(FlussCatalogProperties.BOOTSTRAP_SERVERS, "localhost:9123");
 
         Connector connector = new FlussConnectorProvider().create(properties, context());
         Assertions.assertTrue(connector instanceof FlussConnector);

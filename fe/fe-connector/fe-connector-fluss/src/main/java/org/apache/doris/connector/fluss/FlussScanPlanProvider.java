@@ -124,7 +124,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      */
     static final String PROP_UNION_PK_NAMES = "fluss.union.pk_names";
 
-    /** Node property carrying {@link FlussConnectorProperties#UNION_READ_MAX_TAIL_ROWS} to both readers. */
+    /** Node property carrying {@link FlussCatalogProperties#UNION_READ_MAX_TAIL_ROWS} to both readers. */
     static final String PROP_UNION_MAX_TAIL_ROWS = "fluss.union.max_tail_rows";
 
     /**
@@ -140,7 +140,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String PAIMON_LAKE_FORMAT = "paimon";
 
     private final FlussAdminOps adminOps;
-    private final Map<String, String> catalogProperties;
+    private final FlussCatalogProperties catalogProperties;
     private final Function<Map<String, String>, Connector> lakeSiblingFactory;
 
     /**
@@ -183,7 +183,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     /** {@link #degradedReason} when a partition column's values do not render the same way on both sides. */
     private static final String DEGRADED_PARTITION_TYPE = "partition-type";
 
-    public FlussScanPlanProvider(FlussAdminOps adminOps, Map<String, String> catalogProperties,
+    public FlussScanPlanProvider(FlussAdminOps adminOps, FlussCatalogProperties catalogProperties,
             Function<Map<String, String>, Connector> lakeSiblingFactory) {
         this.adminOps = adminOps;
         this.catalogProperties = catalogProperties;
@@ -287,13 +287,13 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
 
         String truncated = firstTruncatedTail(states, buckets);
         if (truncated != null) {
-            if (FlussConnectorProperties.unionReadMode(catalogProperties)
-                    == FlussConnectorProperties.UnionReadMode.REQUIRED) {
+            if (catalogProperties.getUnionReadMode()
+                    == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                 throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
                         + handle.getTableName() + "' cannot be read as its lake plus its log: " + truncated
                         + ". Fluss has already deleted part of the log the lake snapshot stops before, and a"
                         + " primary-key table's log cannot be re-read from the lake. Set '"
-                        + FlussConnectorProperties.UNION_READ_MODE + "' to auto or disabled to read the"
+                        + FlussCatalogProperties.UNION_READ_MODE + "' to auto or disabled to read the"
                         + " table from fluss alone, which still returns every row.");
             }
             degradeToFlussOnly(DEGRADED_TAIL_TRUNCATED);
@@ -594,9 +594,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private UnionRead resolveUnionReadUncached(ConnectorSession session, FlussTableHandle handle) {
-        FlussConnectorProperties.UnionReadMode mode =
-                FlussConnectorProperties.unionReadMode(catalogProperties);
-        if (!handle.isDataLakeEnabled() || mode == FlussConnectorProperties.UnionReadMode.DISABLED) {
+        FlussCatalogProperties.UnionReadMode mode = catalogProperties.getUnionReadMode();
+        if (!handle.isDataLakeEnabled() || mode == FlussCatalogProperties.UnionReadMode.DISABLED) {
             // Not a lake table, or the user asked for the fluss-only read explicitly.
             return null;
         }
@@ -613,11 +612,11 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 reason = DEGRADED_PARTITION_TYPE;
             }
             if (rejection != null) {
-                if (mode == FlussConnectorProperties.UnionReadMode.REQUIRED) {
+                if (mode == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                     throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
                             + handle.getTableName() + "' cannot be read as its lake plus its change log: "
                             + rejection + ". Reading it from fluss alone still returns every row, so set '"
-                            + FlussConnectorProperties.UNION_READ_MODE + "' to auto or disabled.");
+                            + FlussCatalogProperties.UNION_READ_MODE + "' to auto or disabled.");
                 }
                 degradedReason = reason;
                 return null;
@@ -627,10 +626,10 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         try {
             snapshot = adminOps.getReadableLakeSnapshot(handle.toTablePath());
         } catch (LakeTableSnapshotNotExistException e) {
-            if (mode == FlussConnectorProperties.UnionReadMode.REQUIRED) {
+            if (mode == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                 throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
                         + handle.getTableName() + "' has no readable lake snapshot yet, and '"
-                        + FlussConnectorProperties.UNION_READ_MODE + "=required' forbids falling back to "
+                        + FlussCatalogProperties.UNION_READ_MODE + "=required' forbids falling back to "
                         + "a fluss-only read. Wait for the tiering service to commit, or set the property "
                         + "to auto or disabled.", e);
             }
@@ -937,7 +936,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         }
         props.put(PROP_DB_NAME, flussHandle.getDatabaseName());
         props.put(PROP_TABLE_NAME, flussHandle.getTableName());
-        FlussConnectorProperties.toFlussClientConfig(catalogProperties)
+        catalogProperties.getFlussClientConfig()
                 .forEach((key, value) -> props.put(PROP_CLIENT_PREFIX + key, value));
 
         UnionRead union = resolveUnionRead(session, flussHandle);
@@ -948,7 +947,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 // the same for every range of the scan.
                 props.put(PROP_UNION_PK_NAMES, String.join(",", flussHandle.getPhysicalPrimaryKeys()));
                 props.put(PROP_UNION_MAX_TAIL_ROWS,
-                        String.valueOf(FlussConnectorProperties.maxTailRows(catalogProperties)));
+                        String.valueOf(catalogProperties.getMaxTailRows()));
             }
             List<ConnectorColumnHandle> lakeColumns = lakeColumns(session, union, columns, handle);
             mergeLakeProperties(props, LakeSibling.call(union.sibling,
@@ -1040,7 +1039,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 .append(", pkRanges=").append(plannedPkRanges)
                 .append(", pkTailRanges=").append(plannedPkTailRanges)
                 .append(", mode=")
-                .append(FlussConnectorProperties.unionReadMode(catalogProperties).propertyValue());
+                .append(catalogProperties.getUnionReadMode().propertyValue());
         if (degradedReason != null) {
             // Only reachable under 'auto'. Without it, a table whose lake this query could not use looks
             // exactly like a table that has no lake at all.
