@@ -119,7 +119,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(oldConjuncts.get(i), context);
                         Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyResult =
-                                simplifyConjunctWithMarkJoinSlot(conjunct, null, ctx.cascadesContext);
+                                simplifyConjunctWithMarkJoinSlot(conjunct, filter, ctx.cascadesContext);
                         conjunct = simplifyResult.first;
                         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo = simplifyResult.second;
                         Pair<LogicalPlan, Optional<Expression>> result = subqueryToApply(subqueryExprs.stream()
@@ -232,15 +232,45 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         ReplaceSubquery replaceSubquery = new ReplaceSubquery(ctx.statementContext, true);
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(subqueryConjuncts.get(i), context);
+                        Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyResult =
+                                    simplifyConjunctWithMarkJoinSlot(conjunct, join, ctx.cascadesContext);
+                        /*
+                         * for each mark slot, Pair.first indicates whether the null and false
+                         * values of the mark slot are indistinguishable in the conjunct. it's
+                         * only used to treat the mark slot as a non-nullable boolean (null is
+                         * computed as false when producing the mark value), which never changes
+                         * the number of output rows, so it's safe for all join types.
+                         *
+                         * Pair.second indicates whether the original mark join can be directly
+                         * eliminated and turned into a plain semi join. a plain semi join only
+                         * outputs the matched rows, while a mark join keeps all original rows
+                         * and adds a mark column, so eliminating the mark join is only safe when
+                         * discarding the unmatched rows is already part of the join semantics,
+                         * i.e. inner, cross and semi joins. for outer joins the unmatched rows
+                         * must be preserved with a null or false mark; for anti joins the mark
+                         * has null-aware semantics; for asof joins the match semantics are
+                         * special, so the mark join must be kept for these join types.
+                         */
                         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo;
                         if (join.getJoinType().isInnerOrCrossJoin() || join.getJoinType().isSemiJoin()) {
-                            Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyResult =
-                                    simplifyConjunctWithMarkJoinSlot(conjunct, join, ctx.cascadesContext);
+                            // inner / cross / semi join already discard the unmatched rows, so the
+                            // mark slot whose Pair.second is true can be replaced by the true
+                            // literal and the mark join can be eliminated into a plain semi join
                             conjunct = simplifyResult.first;
                             markSlotsInfo = simplifyResult.second;
                         } else {
-                            // can't simplify for outer join, asof join or anti join
+                            // outer / anti / asof join must keep the mark join: it preserves all
+                            // original rows plus the mark column, and the null/false values of the
+                            // mark slot are significant in the join condition. only the
+                            // non-nullable inference (Pair.first) is kept, while mark elimination
+                            // (Pair.second) is forced to false, and the conjunct keeps the original
+                            // mark slot instead of replacing it with the true literal
                             markSlotsInfo = Maps.newHashMap();
+                            for (Map.Entry<MarkJoinSlotReference, Pair<Boolean, Boolean>> entry
+                                        : simplifyResult.second.entrySet()) {
+                                markSlotsInfo.put(entry.getKey(),
+                                        Pair.of(entry.getValue().first, false));
+                            }
                         }
                         Pair<LogicalPlan, Optional<Expression>> result = subqueryToApply(
                                 subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
@@ -455,7 +485,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         boolean isMarkJoinSlotNotNull = false;
         if (markJoinSlot.isPresent() && markSlotsInfo.containsKey(markJoinSlot.get())) {
             Pair<Boolean, Boolean> info = markSlotsInfo.get(markJoinSlot.get());
+            // Pair.first: the null and false values of the mark slot are indistinguishable,
+            // so the mark slot can be treated as a non-nullable boolean
             isMarkJoinSlotNotNull = info.first;
+            // Pair.second: the mark join can be directly eliminated into a plain semi join
+            // that only outputs the matched rows, so drop the mark join slot here
             if (info.second) {
                 markJoinSlot = Optional.empty();
             }
@@ -502,24 +536,27 @@ public class SubqueryToApply implements AnalysisRuleFactory {
     }
 
     /**
-     * infer the null and false behavior of each mark join slot in the conjunct,
-     * replace the mark slots whose false and null values are indistinguishable in the
-     * original predicate with the true literal, and return the rewritten conjunct
-     * together with the mark slots info.
-     * the idea is replacing each mark join slot with null and false literal
-     * then run FoldConstant rule, if the evaluate result are:
-     * 1. all true
-     * 2. all null and false (in logicalFilter, we discard both null and false values)
-     * the mark slot can be non-nullable boolean
-     * we pass this info to LogicalApply. And in InApplyToJoin rule
-     * if it's semi join with non-null mark slot
-     * we can safely change the mark conjunct to hash conjunct
+     * simplify the conjunct that contains mark join slots and infer the behavior of each
+     * mark join slot, return the rewritten conjunct together with the mark slots info.
+     *
+     * for each mark slot, the pair in the returned map has:
+     * Pair.first: whether the null and false values of the mark slot are indistinguishable,
+     *             i.e. the mark slot can be treated as a non-nullable boolean. it only affects
+     *             how the mark value is computed (treating null as false) and never changes the
+     *             number of output rows, so it's safe for every join type and the filter.
+     * Pair.second: whether the original mark join can be directly eliminated and turned into a
+     *              plain semi join. a plain semi join only outputs the matched rows, while a
+     *              mark join keeps all original rows and adds a mark column, so eliminating the
+     *              mark join is only safe when discarding the unmatched rows is already part of
+     *              the containing join's semantics (inner, cross and semi joins).
+     *
+     * when Pair.second is true, the mark slot is replaced by the true literal in the returned
+     * conjunct, and the caller can drop the mark join slot to turn the mark join into a plain
+     * semi join.
      */
     private Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyConjunctWithMarkJoinSlot(
             Expression conjunct, Plan plan, CascadesContext cascadesContext) {
-        ExpressionRewriteContext rewriteContext = plan == null
-                ? new ExpressionRewriteContext(cascadesContext)
-                : new ExpressionRewriteContext(plan, cascadesContext);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(plan, cascadesContext);
         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo;
         if (conjunct.containsType(MarkJoinSlotReference.class)) {
             markSlotsInfo = ExpressionUtils.inferMarkSlotNotNullMap(conjunct, rewriteContext);

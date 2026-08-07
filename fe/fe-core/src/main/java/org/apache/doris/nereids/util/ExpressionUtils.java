@@ -127,6 +127,9 @@ public class ExpressionUtils {
     private static final int MAX_INFER_NOT_NULL_EXPR_WIDTH = 256;
     private static final int MAX_INFER_NOT_NULL_EXPR_DEPTH = 64;
     private static final int MAX_INFER_NOT_NULL_INPUT_SLOTS = 32;
+    // The inferMarkSlotNotNullMap function needs at most 3^MAX_MARK_SLOT_COUNT loops to compute results.
+    // We restrict MAX_MARK_SLOT_COUNT to 4 to avoid long computation time.
+    private static final int MAX_MARK_SLOT_COUNT = 4;
 
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
@@ -696,16 +699,13 @@ public class ExpressionUtils {
      */
     public static Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> inferMarkSlotNotNullMap(
             Expression predicate, ExpressionRewriteContext ctx) {
-        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx.cascadesContext);
-        Expression simplifiedPredicate = TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(predicate,
-                rewriteContext);
+        Expression simplifiedPredicate = TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(predicate, ctx);
         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> result = Maps.newLinkedHashMap();
         List<MarkJoinSlotReference> markJoinSlotReferenceList = new ArrayList<>(
                 (predicate.collect(MarkJoinSlotReference.class::isInstance)));
         int markSlotSize = markJoinSlotReferenceList.size();
-        int maxMarkSlotCount = 4;
         // if the conjunct has mark slot, and maximum 4 mark slots(for performance)
-        if (markSlotSize > 0 && markSlotSize <= maxMarkSlotCount) {
+        if (markSlotSize > 0 && markSlotSize <= MAX_MARK_SLOT_COUNT) {
             for (int targetIdx = 0; targetIdx < markSlotSize; ++targetIdx) {
                 result.put(markJoinSlotReferenceList.get(targetIdx),
                         inferMarkSlotNotNullForTargetMarkSlot(
@@ -792,6 +792,10 @@ public class ExpressionUtils {
              */
             if (!isFalseOrNull(simplifiedEvalResultWithFalse) || !isFalseOrNull(simplifiedEvalResultWithNull)) {
                 simplifiedForFalseAndNull = false;
+            }
+
+            if (!sameResultForFalseAndNull && !simplifiedForFalseAndNull) {
+                break;
             }
         }
         return Pair.of(simplifiedForFalseAndNull, sameResultForFalseAndNull);

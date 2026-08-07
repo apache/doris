@@ -145,4 +145,80 @@ suite ("subquery_unnesting") {
         FROM (SELECT 1 AS x) t
         WHERE 1 NOT IN (SELECT CAST(NULL AS INT));
     """
+
+    // =====================================================================
+    // mark join elimination in the join ON condition.
+    //
+    // inferMarkSlotNotNullMap returns a pair for each mark join slot:
+    //   Pair.first : the null and false values of the mark slot are
+    //                indistinguishable, so the mark slot can be treated as a
+    //                non-nullable boolean (null is computed as false when
+    //                producing the mark value). this never changes the number
+    //                of output rows, so it's safe for all join types.
+    //   Pair.second: the original mark join can be directly eliminated and
+    //                turned into a plain semi join. a plain semi join only
+    //                outputs the matched rows, while a mark join keeps all
+    //                original rows plus the mark column, so eliminating the
+    //                mark join is only safe for inner, cross and semi joins
+    //                where dropping the unmatched rows is already part of the
+    //                join semantics.
+    //
+    // take the query below as an example:
+    //   select t1.* from t1 left join t2 on t1.k2 = t2.k3
+    //          and t1.k1 in (select t3.k1 from t3 where t1.k2 = t3.k2)
+    // for the outer join the mark join must be kept: the unmatched left rows
+    // (mark = false/null) must be preserved with null columns of t2, while a
+    // plain semi join would drop them. so the analyzed plan must keep
+    // isMarkJoin=true and only infer the non-nullable mark
+    // (isMarkJoinSlotNotNull=true). for inner/cross/semi join the unmatched
+    // rows are dropped anyway, so the mark join can be safely eliminated
+    // (isMarkJoin=false and the mark slot is replaced by the true literal).
+    //
+    // note: anti join also keeps the mark join for the null-aware semantics
+    // of NOT IN, but executing an anti join with a subquery in its ON
+    // condition is a pre-existing unsupported path in physical planning, so
+    // only the analyzed plan is checked here. asof join's ON clause only
+    // allows equal conjuncts, so a subquery can never appear in it and the
+    // asof branch in the code is defensive only.
+    // =====================================================================
+
+    // inner join: the mark join is eliminated (isMarkJoin=false, MarkJoinSlotReference=empty)
+    explain {
+        sql("""analyzed plan select t1.* from t1 inner join t2 on t1.k2 = t2.k3
+                and t1.k1 in (select t3.k1 from t3 where t1.k2 = t3.k2) order by t1.k1, t1.k2;""")
+        contains("isMarkJoin=false")
+        contains("MarkJoinSlotReference=empty")
+    }
+    // semi join: the mark join is eliminated too
+    explain {
+        sql("""analyzed plan select t1.* from t1 left semi join t2 on t1.k2 = t2.k3
+                and t1.k1 in (select t3.k1 from t3 where t1.k2 = t3.k2) order by t1.k1, t1.k2;""")
+        contains("isMarkJoin=false")
+        contains("MarkJoinSlotReference=empty")
+    }
+    // outer join: the mark join must be kept, and the mark slot's null/false
+    // equivalence (isMarkJoinSlotNotNull=true) is still inferred
+    explain {
+        sql("""analyzed plan select t1.* from t1 left join t2 on t1.k2 = t2.k3
+                and t1.k1 in (select t3.k1 from t3 where t1.k2 = t3.k2) order by t1.k1, t1.k2;""")
+        contains("isMarkJoin=true")
+        contains("isMarkJoinSlotNotNull=true")
+    }
+    // anti join: the mark join must be kept for the null-aware semantics of NOT IN
+    explain {
+        sql("""analyzed plan select t1.* from t1 left anti join t2 on t1.k2 = t2.k3
+                and t1.k1 not in (select t3.k1 from t3 where t1.k2 = t3.k2) order by t1.k1, t1.k2;""")
+        contains("isMarkJoin=true")
+        contains("isMarkJoinSlotNotNull=true")
+    }
+
+    // result checks: the mark join elimination must not change the query results.
+    // (the outer join results with subquery in the ON condition are already
+    // covered by qt_select37 / qt_select43, the mark join is kept there)
+    // inner join with IN subquery in the ON condition (mark join eliminated)
+    qt_select66 """select t1.* from t1 inner join t2 on t1.k2 = t2.k3 and t1.k1 in (select t3.k1 from t3 where t1.k2 = t3.k2) order by t1.k1, t1.k2;"""
+    // inner join with NOT IN subquery in the ON condition (mark join eliminated)
+    qt_select67 """select t1.* from t1 inner join t2 on t1.k2 = t2.k3 and t1.k1 not in (select t3.k1 from t3 where t1.k2 = t3.k2) order by t1.k1, t1.k2;"""
+    // left semi join with IN subquery in the ON condition (mark join eliminated)
+    qt_select68 """select t1.* from t1 left semi join t2 on t1.k2 = t2.k3 and t1.k1 in (select t3.k1 from t3 where t1.k2 = t3.k2) order by t1.k1, t1.k2;"""
 }
