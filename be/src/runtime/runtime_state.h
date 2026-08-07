@@ -85,6 +85,7 @@ class ExternalFileReportState {
 private:
     std::mutex mutex;
     size_t iceberg_serialized_bytes = 0;
+    bool ownership_may_have_transferred = false;
     std::vector<std::function<void()>> rejected_report_cleanups;
 };
 

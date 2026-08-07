@@ -34,6 +34,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import com.google.common.cache.Cache;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.Collections;
 
 class QeProcessorImplReportAckTest {
@@ -97,6 +101,34 @@ class QeProcessorImplReportAckTest {
     }
 
     @Test
+    void evictedAcceptanceTokenRejectsRetryAfterCoordinatorRemoval() throws Exception {
+        TUniqueId queryId = new TUniqueId(12345, 5);
+        Coordinator coordinator = register(queryId);
+        Mockito.when(coordinator.updateFragmentExecStatus(Mockito.any())).thenReturn(true);
+        TReportExecStatusParams params = params(queryId);
+
+        TReportExecStatusResult first = report(params);
+        QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        registeredQueryId = null;
+        acceptedExternalFileReports().invalidateAll();
+        TReportExecStatusResult retry = report(params);
+
+        Assertions.assertTrue(first.isExternalFileCommitDataAccepted());
+        Assertions.assertFalse(retry.isExternalFileCommitDataAccepted());
+        Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, retry.getStatus().getStatusCode());
+        Mockito.verify(coordinator, Mockito.times(1)).updateFragmentExecStatus(params);
+    }
+
+    @Test
+    void coordinatorReportStateUsesCrossThreadVisibility() throws Exception {
+        Field done = Coordinator.PipelineExecContext.class.getDeclaredField("done");
+        Field txnId = Coordinator.class.getDeclaredField("txnId");
+
+        Assertions.assertTrue(Modifier.isVolatile(done.getModifiers()));
+        Assertions.assertTrue(Modifier.isVolatile(txnId.getModifiers()));
+    }
+
+    @Test
     void legacyCoordinatorRetriesFailedAcceptanceBeforeMarkingDone() {
         Backend backend = Mockito.mock(Backend.class);
         Mockito.when(backend.getHost()).thenReturn("127.0.0.1");
@@ -132,5 +164,12 @@ class QeProcessorImplReportAckTest {
 
     private static TReportExecStatusResult report(TReportExecStatusParams params) {
         return QeProcessorImpl.INSTANCE.reportExecStatus(params, new TNetworkAddress("127.0.0.1", 9050));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Cache<String, Boolean> acceptedExternalFileReports() throws Exception {
+        Field field = QeProcessorImpl.class.getDeclaredField("acceptedExternalFileReports");
+        field.setAccessible(true);
+        return (Cache<String, Boolean>) field.get(QeProcessorImpl.INSTANCE);
     }
 }

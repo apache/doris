@@ -131,7 +131,11 @@ void RuntimeState::finalize_external_file_report_cleanup(ExternalFileReportOutco
             return;
         }
         if (outcome == ExternalFileReportOutcome::AMBIGUOUS) {
-            // A consumed request with a lost ACK may already be publishing these files.
+            // Once an ACK can have been lost, a later rejection cannot prove FE never accepted the files.
+            _external_file_report_state->ownership_may_have_transferred = true;
+            return;
+        }
+        if (_external_file_report_state->ownership_may_have_transferred) {
             return;
         }
         cleanups.swap(_external_file_report_state->rejected_report_cleanups);

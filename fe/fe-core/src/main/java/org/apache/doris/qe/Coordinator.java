@@ -253,7 +253,8 @@ public class Coordinator implements CoordInterface {
     private String trackingUrl;
     private String firstErrorMsg;
     // related txnId and label of group commit
-    private long txnId;
+    // Final reports race with status readers, so the transaction identity must be safely published.
+    private volatile long txnId;
     private String label;
 
     // for export
@@ -2632,8 +2633,10 @@ public class Coordinator implements CoordInterface {
                 LOG.info("query_id={} first_error_msg: {}", DebugUtil.printId(queryId), params.getFirstErrorMsg());
                 firstErrorMsg = params.getFirstErrorMsg();
             }
+            // Keep this report's identity local so another report cannot redirect its commit data.
+            long reportTxnId = params.isSetTxnId() ? params.getTxnId() : txnId;
             if (params.isSetTxnId()) {
-                txnId = params.getTxnId();
+                txnId = reportTxnId;
             }
             if (params.isSetLabel()) {
                 label = params.getLabel();
@@ -2649,7 +2652,7 @@ public class Coordinator implements CoordInterface {
             }
             if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
                     || params.isSetMcCommitDatas()) {
-                Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId);
+                Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(reportTxnId);
                 if (params.isSetHivePartitionUpdates()) {
                     CommitDataSerializer.feed(txn, params.getHivePartitionUpdates());
                 }
@@ -3080,7 +3083,8 @@ public class Coordinator implements CoordInterface {
         TPipelineFragmentParams rpcParams;
         PlanFragmentId fragmentId;
         boolean initiated;
-        boolean done;
+        // Non-final reports read this outside the monitor after updatePipelineStatus returns.
+        volatile boolean done;
         boolean processingDoneReport;
 
         TNetworkAddress brpcAddress;

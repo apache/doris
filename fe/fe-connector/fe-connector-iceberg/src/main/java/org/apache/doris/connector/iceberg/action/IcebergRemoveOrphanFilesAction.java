@@ -118,7 +118,9 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
                 // Object stores use raw prefix matching, so the separator excludes sibling prefixes.
                 String listingPrefix = scope.root.endsWith("/") ? scope.root : scope.root + "/";
                 for (FileInfo file : ((SupportsPrefixOperations) table.io()).listPrefix(listingPrefix)) {
-                    if (scope.owns(file.location()) && file.createdAtMillis() < olderThan
+                    // Unknown creation time cannot prove the file predates every in-flight writer.
+                    if (scope.owns(file.location()) && file.createdAtMillis() > 0
+                            && file.createdAtMillis() < olderThan
                             && !isReachable(file.location(), reachable)) {
                         orphanCount++;
                         if (!dryRun) {

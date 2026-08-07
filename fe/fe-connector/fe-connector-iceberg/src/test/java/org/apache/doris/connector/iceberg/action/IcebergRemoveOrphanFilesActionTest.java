@@ -47,8 +47,11 @@ import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 public class IcebergRemoveOrphanFilesActionTest {
     private static final long MIN_RETENTION_MS = Duration.ofHours(24).toMillis();
@@ -101,6 +104,44 @@ public class IcebergRemoveOrphanFilesActionTest {
         Assertions.assertEquals("1", result.getRows().get(0).get(1));
         Assertions.assertFalse(Files.exists(orphan));
         Assertions.assertTrue(Files.exists(versionHint));
+    }
+
+    @Test
+    public void keepsOrphansWhenFileCreationTimeIsUnknown(@TempDir Path temp) throws Exception {
+        Table table = createTable(temp.resolve("table"), Collections.emptyMap());
+        Path zeroTimestamp = createOldFile(temp.resolve("table/data/zero.parquet"));
+        Path negativeTimestamp = createOldFile(temp.resolve("table/data/negative.parquet"));
+        RecordingFileIO recordingFileIO = new RecordingFileIO(table.io(), Collections.emptySet()) {
+            @Override
+            public Iterable<FileInfo> listPrefix(String prefix) {
+                List<FileInfo> files = StreamSupport.stream(super.listPrefix(prefix).spliterator(), false)
+                        .map(file -> {
+                            long createdAtMillis = file.createdAtMillis();
+                            if (IcebergRemoveOrphanFilesAction.sameFileIdentity(
+                                    file.location(), negativeTimestamp.toUri().toString())) {
+                                createdAtMillis = -1;
+                            } else if (IcebergRemoveOrphanFilesAction.sameFileIdentity(
+                                    file.location(), zeroTimestamp.toUri().toString())) {
+                                createdAtMillis = 0;
+                            }
+                            return new FileInfo(file.location(), file.size(), createdAtMillis);
+                        })
+                        .collect(Collectors.toList());
+                return files;
+            }
+        };
+        Table recordingTable = new BaseTable(
+                new StaticTableOperations(((HasTableOperations) table).operations().current(), recordingFileIO),
+                table.name());
+        IcebergRemoveOrphanFilesAction action = action(
+                System.currentTimeMillis() - MIN_RETENTION_MS, false);
+        action.validate();
+
+        ConnectorProcedureResult result = action.execute(recordingTable, ActionTestTables.session("UTC"));
+
+        Assertions.assertEquals("0", result.getRows().get(0).get(0));
+        Assertions.assertTrue(Files.exists(zeroTimestamp));
+        Assertions.assertTrue(Files.exists(negativeTimestamp));
     }
 
     @Test
@@ -365,7 +406,7 @@ public class IcebergRemoveOrphanFilesActionTest {
         table.newFastAppend().appendFile(dataFile).commit();
     }
 
-    private static final class RecordingFileIO implements SupportsPrefixOperations {
+    private static class RecordingFileIO implements SupportsPrefixOperations {
         private final FileIO delegate;
         private final SupportsPrefixOperations prefixDelegate;
         private final Set<String> manifestPaths;

@@ -129,7 +129,18 @@ TEST(RuntimeStateIcebergCommitDataTest, RetainsFileCleanupUntilReportAcknowledge
     coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::AMBIGUOUS);
     EXPECT_EQ(1, cleanup_count);
     coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
-    EXPECT_EQ(2, cleanup_count);
+    EXPECT_EQ(1, cleanup_count);
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, AmbiguousOwnershipCannotBecomeRejected) {
+    RuntimeState state;
+    int cleanup_count = 0;
+    state.add_rejected_external_file_report_cleanup([&] { ++cleanup_count; });
+
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::AMBIGUOUS);
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+
+    EXPECT_EQ(0, cleanup_count);
 }
 
 // ---------------------------------------------------------------------------
