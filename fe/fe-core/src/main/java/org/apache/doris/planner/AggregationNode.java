@@ -282,6 +282,8 @@ public class AggregationNode extends PlanNode {
         // PR #62438: when false, non-finalize agg falls back to BE base class.
         boolean enableLeBeforeAgg = sessionVariable.enableLocalExchangeBeforeAgg;
         boolean hasKeys = !aggInfo.getGroupingExprs().isEmpty();
+        boolean selfOrInheritedShuffled = translatorContext.hasShuffleForCorrectnessAncestor(this)
+                || requiresShuffleForCorrectness();
 
         // Each branch mirrors the corresponding BE operator's required_data_distribution()
         // check order 1:1. The helper baseClassRequire() expands BE's base class behavior.
@@ -335,7 +337,16 @@ public class AggregationNode extends PlanNode {
             // early return also catches FIRST_MERGE, dropping the HASH requirement and
             // causing wrong-result (e.g. PASSTHROUGH over serial child breaks the
             // group-by-key invariant — DORIS-25413).
-            if (!hasKeys) {
+            if (!hasPartitionRequirement(selfOrInheritedShuffled)) {
+                // No effective partition key (no group keys, and no child distribute
+                // exprs set for a DISTINCT / followed-by-shuffle agg): the input
+                // distribution is irrelevant. A finalize agg with an effective key
+                // emits per-instance scalar values (sum0(multi_distinct_count(...))
+                // above) that the parent sums, so same-key rows must stay in a single
+                // instance — this mirrors BE's `_partition_exprs` exactly, and keeps
+                // a directly called multi_distinct_count(col) (no distribute exprs)
+                // on the no-requirement path instead of collapsing it onto a zero-key
+                // HASH exchange.
                 requireChild = needsFinalize
                         ? LocalExchangeTypeRequire.noRequire()
                         : baseClassRequire(connectContext);
@@ -348,13 +359,16 @@ public class AggregationNode extends PlanNode {
                 // FIRST_MERGE (correctness) or finalize+colocate → HASH.
                 requireChild = parentRequire.autoRequireHash();
             } else if (hasPartitionExprs(parentRequire)) {
-                // FE-only heuristic: finalize non-colocate with parent hash requirement
-                // → inherit parent's specific hash type.
+                // finalize non-colocate with a parent hash requirement → inherit the
+                // parent's specific hash type.
                 requireChild = parentRequire.autoRequireHash();
             } else {
-                // FE-only heuristic: finalize non-colocate without parent hash → skip
-                // LE (child Exchange already provides hash distribution).
-                requireChild = LocalExchangeTypeRequire.noRequire();
+                // finalize non-colocate without a parent hash requirement: the input
+                // must still be key-aligned (group/distinct key), so require HASH
+                // explicitly instead of trusting the child's distribution. When the
+                // child already provides hash distribution, satisfy() passes and no
+                // LE is inserted, so this is safe and free in the common case.
+                requireChild = LocalExchangeTypeRequire.requireHash();
             }
         }
 
@@ -369,6 +383,36 @@ public class AggregationNode extends PlanNode {
         return children.get(0).isSerialOperatorOnBe(connectContext)
                 ? LocalExchangeTypeRequire.requirePassthrough()
                 : LocalExchangeTypeRequire.noRequire();
+    }
+
+    /**
+     * Whether this agg needs key-aligned (hash-partitioned) input from its child.
+     * Mirrors BE AggSinkOperatorX::update_operator's `_partition_exprs` exactly:
+     * non-empty grouping exprs, or the child distribute exprs when the plan set
+     * them for a DISTINCT (or followed-by-shuffle) agg. The test is on the
+     * *effective* key, not the function name: a directly called
+     * multi_distinct_count(col) has neither distribute exprs nor grouping exprs,
+     * so it stays on the no-requirement path — a zero-key HASH exchange would
+     * collapse the whole input onto one task per BE. A finalize agg with an
+     * effective key emits per-instance scalar values (the
+     * sum0(multi_distinct_count(...)) above) that the parent sums, so same-key
+     * rows must stay in a single instance.
+     */
+    private boolean hasPartitionRequirement(boolean followedByShuffled) {
+        return !getLocalExchangeDistributeExprs(0, followedByShuffled).isEmpty();
+    }
+
+    private boolean hasDistinctAggregate() {
+        // Multi-distinct aggregates are detected by function name. Nereids rewrites
+        // count/sum/group_concat(distinct ...) into dedicated MultiDistinct* functions
+        // constructed with distinct=false, so by this legacy FunctionCallExpr layer
+        // isDistinct() is already false and the function name is the only signal.
+        return aggInfo.getAggregateExprs().stream()
+                .map(FunctionCallExpr::getFnName)
+                .filter(name -> name != null)
+                .map(name -> name.getFunction())
+                .filter(name -> name != null)
+                .anyMatch(name -> name.startsWith("multi_distinct_"));
     }
 
     @Override
@@ -386,18 +430,7 @@ public class AggregationNode extends PlanNode {
         // chain scatters same-group rows across N instances, leaving partial_preagg essentially a
         // no-op and breaking row-arrival order at downstream merge-finalize (e.g. group_concat).
         List<Expr> childDist = getChildDistributeExprList(childIndex);
-        // Multi-distinct aggregates are detected by function name. Nereids rewrites
-        // count/sum(distinct ...) into dedicated MultiDistinct* functions constructed with
-        // distinct=false and a "multi_distinct_" name, so by this legacy FunctionCallExpr layer
-        // isDistinct() is already false and the function name is the only remaining signal —
-        // there is no structural flag to test here.
-        boolean hasDistinct = aggInfo.getAggregateExprs().stream()
-                .map(FunctionCallExpr::getFnName)
-                .filter(name -> name != null)
-                .map(name -> name.getFunction())
-                .filter(name -> name != null)
-                .anyMatch(name -> name.startsWith("multi_distinct_"));
-        if (childDist != null && !childDist.isEmpty() && (followedByShuffled || hasDistinct)) {
+        if (childDist != null && !childDist.isEmpty() && (followedByShuffled || hasDistinctAggregate())) {
             return childDist;
         }
         return Lists.newArrayList(aggInfo.getGroupingExprs());
@@ -406,13 +439,17 @@ public class AggregationNode extends PlanNode {
     @Override
     public boolean requiresShuffleForCorrectness() {
         // Mirrors BE's AggSinkOperatorX::is_shuffled_operator() exactly:
-        //   finalize agg with group keys needs hash-distributed input for correctness.
+        //   finalize agg with partition exprs (group keys, or child distribute
+        //   exprs set for a DISTINCT aggregate) needs hash-distributed input for
+        //   correctness. The effective-key test is the node's own requirement
+        //   (followedByShuffled=false); inherited shuffle state is added by the
+        //   caller via selfOrInheritedShuffled.
         // GLOBAL dedup (!needsFinalize) is intentionally NOT included here — if a
         // GLOBAL dedup exists, a finalize agg always sits above it (e.g. DISTINCT_GLOBAL
         // above DISTINCT_LOCAL/GLOBAL_DEDUP), and the finalize agg propagates the flag
         // down via inheritedShuffled. A solo finalize agg satisfies hash distribution
         // through its own child requirement.
-        return needsFinalize && !aggInfo.getGroupingExprs().isEmpty();
+        return needsFinalize && !getLocalExchangeDistributeExprs(0, false).isEmpty();
     }
 
     private boolean canUseDistinctStreamingAgg(SessionVariable sessionVariable) {
