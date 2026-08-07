@@ -246,6 +246,10 @@ void FlussUnionLakeReader::_init_union_profile() {
             _scanner_profile, "FlussUnionSuppressedRows", TUnit::UNIT, table_profile, 1);
     _tail_keys_read_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
             _scanner_profile, "FlussUnionTailKeysRead", TUnit::UNIT, table_profile, 1);
+    // Change-log records read against distinct keys retained: the second is what the scan holds for its
+    // whole life, once per bucket per partition, so the two apart are what says whether it is bounded.
+    _tail_keys_retained_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _scanner_profile, "FlussUnionTailKeysRetained", TUnit::UNIT, table_profile, 1);
     _tail_cache_hit_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
             _scanner_profile, "FlussUnionTailCacheHitCount", TUnit::UNIT, table_profile, 1);
 }
@@ -307,7 +311,7 @@ Status FlussUnionLakeReader::_load_suppression_keys(const format::SplitReadOptio
             cache_key,
             [&]() -> SuppressionKeys* {
                 auto keys = std::make_unique<SuppressionKeys>();
-                read_status = _read_tail_keys(tail, &keys->keys);
+                read_status = _read_tail_keys(tail, keys.get());
                 if (!read_status.ok()) {
                     return nullptr;
                 }
@@ -319,7 +323,8 @@ Status FlussUnionLakeReader::_load_suppression_keys(const format::SplitReadOptio
     if (cache_hit) {
         update_counter(_tail_cache_hit_counter, 1);
     } else {
-        update_counter(_tail_keys_read_counter, cast_set<int64_t>(cached->keys.rows()));
+        update_counter(_tail_keys_read_counter, cached->records);
+        update_counter(_tail_keys_retained_counter, cast_set<int64_t>(cached->keys.rows()));
     }
     return _build_suppression_predicate(cached->keys);
 }
@@ -333,7 +338,7 @@ Block FlussUnionLakeReader::_empty_key_block() const {
 }
 
 Status FlussUnionLakeReader::_accumulate_tail_keys(const Tail& tail, const NextBatch& next_batch,
-                                                   Block* keys) {
+                                                   SuppressionKeys* keys) {
     auto builder = MutableBlock::build_mutable_block(_empty_key_block());
     Block batch = _empty_key_block();
     while (true) {
@@ -357,13 +362,18 @@ Status FlussUnionLakeReader::_accumulate_tail_keys(const Tail& tail, const NextB
             }
         }
         if (eos) {
-            *keys = builder.to_block();
+            // Deduplicated only here, never during accumulation: the limit above counts change-log
+            // records, which is the yardstick the Java side applies to this very range, and a limit
+            // that counted distinct keys instead would let the two halves of one table disagree about
+            // whether the table can be read at all.
+            keys->records = cast_set<int64_t>(builder.rows());
+            keys->keys = EqualityDeletePredicate::distinct_rows(builder.to_block());
             return Status::OK();
         }
     }
 }
 
-Status FlussUnionLakeReader::_read_tail_keys(const Tail& tail, Block* keys) {
+Status FlussUnionLakeReader::_read_tail_keys(const Tail& tail, SuppressionKeys* keys) {
     DORIS_CHECK(keys != nullptr);
 #ifdef BE_TEST
     if (_test_tail_reader) {
