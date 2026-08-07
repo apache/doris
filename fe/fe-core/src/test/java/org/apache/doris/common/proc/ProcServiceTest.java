@@ -198,8 +198,6 @@ public class ProcServiceTest {
         int backendIdIdx = replicasTitles.indexOf("BackendId");
         int versionIdx = replicasTitles.indexOf("Version");
         int lastSuccessVersionIdx = replicasTitles.indexOf("LstSuccessVersion");
-        int replicasBinlogSizeIdx = replicasTitles.indexOf("BinlogSize");
-        int replicasBinlogFileNumIdx = replicasTitles.indexOf("BinlogFileNum");
 
         long tabletId = 10001L;
         long backendId = 10002L;
@@ -228,8 +226,6 @@ public class ProcServiceTest {
         Mockito.when(replica.getBackendIdWithoutException()).thenReturn(backendId);
         Mockito.when(replica.getVersion()).thenReturn(101L);
         Mockito.when(replica.getLastSuccessVersion()).thenReturn(100L);
-        Mockito.when(replica.getBinlogSize()).thenReturn(8192L);
-        Mockito.when(replica.getBinlogFileNum()).thenReturn(5L);
 
         try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class)) {
             mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
@@ -246,8 +242,6 @@ public class ProcServiceTest {
             Assert.assertEquals("10002", row.get(backendIdIdx));
             Assert.assertEquals("101", row.get(versionIdx));
             Assert.assertEquals("100", row.get(lastSuccessVersionIdx));
-            Assert.assertEquals("8192", row.get(replicasBinlogSizeIdx));
-            Assert.assertEquals("5", row.get(replicasBinlogFileNumIdx));
         }
     }
 

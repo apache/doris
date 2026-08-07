@@ -533,6 +533,7 @@ message TxnInfoPB {
     // The cluster_id of the compute cluster that performed the load
     // Set by FE during begin_txn, used by commit_txn for compaction read-write separation
     optional string load_cluster_id = 22;
+    optional int64 commit_tso = 23;
 }
 
 // For check txn conflict and txn timeout
@@ -547,6 +548,7 @@ message VersionPB {
     optional int64 update_time_ms = 2;
     // now only allow one element
     repeated int64 pending_txn_ids = 3;
+    optional int64 commit_tso = 4 [default = -1];
 }
 
 message RecycleTxnPB {
@@ -1021,6 +1023,7 @@ message CommitTxnRequest {
     repeated SubTxnInfo sub_txn_infos = 10;
     optional bool enable_txn_lazy_commit = 11;
     optional string request_ip = 12;
+    optional int64 commit_tso = 13;
 }
 
 message SubTxnInfo {
@@ -1235,6 +1238,7 @@ message GetVersionResponse {
     repeated int64 partition_ids = 5;
     repeated int64 versions = 6;
     repeated int64 version_update_time_ms = 7;
+    repeated int64 commit_tsos = 8;
 };
 
 message GetObjStoreInfoRequest {
