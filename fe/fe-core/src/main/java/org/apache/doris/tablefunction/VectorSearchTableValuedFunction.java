@@ -96,8 +96,7 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
             throws AnalysisException {
         Map<String, String> params = normalizeProperties(properties);
         sourceTableName = parseTableName(required(params, TABLE));
-        checkSelectPrivilege(sourceTableName);
-        sourceTable = resolveLanceTable(sourceTableName);
+        sourceTable = findLanceExternalTable(sourceTableName);
         try {
             metadata = sourceTable.loadMetadata();
         } catch (RuntimeException e) {
@@ -108,9 +107,9 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
             throw new AnalysisException("Lance vector search requires a fixed positive dataset version");
         }
 
-        Field vectorField = LanceVectorQuery.resolveVectorField(
+        Field vectorField = LanceVectorQuery.findVectorColumnField(
                 metadata.getSchema(), required(params, COLUMN));
-        TSearchVector queryVector = LanceVectorQuery.encode(
+        TSearchVector queryVector = LanceVectorQuery.parseAndEncodeQueryVector(
                 vectorField, required(params, QUERY_VECTOR));
         long topK = parseLong(params.getOrDefault(TOP_K, "10"), TOP_K, 1, Long.MAX_VALUE);
         long offset = parseLong(params.getOrDefault(OFFSET, "0"), OFFSET, 0, Long.MAX_VALUE);
@@ -236,7 +235,8 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
         return new TableName(names.get(0), names.get(1), names.get(2));
     }
 
-    private static void checkSelectPrivilege(TableName tableName) throws AnalysisException {
+    private static LanceExternalTable findLanceExternalTable(TableName tableName)
+            throws AnalysisException {
         ConnectContext context = ConnectContext.get();
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(context, tableName, PrivPredicate.SELECT)) {
@@ -244,10 +244,6 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
                     context.getQualifiedUser(), context.getRemoteIP(),
                     tableName.getDb() + ": " + tableName.getTbl());
         }
-    }
-
-    private static LanceExternalTable resolveLanceTable(TableName tableName)
-            throws AnalysisException {
         CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (!(catalog instanceof LanceExternalCatalog)) {
             throw new AnalysisException("Catalog '" + tableName.getCtl()

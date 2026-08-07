@@ -65,7 +65,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         if (isLanceFormat()) {
             try {
                 LanceTableMetadata metadata =
-                        LanceMetadataLoader.load(filePath, backendConnectProperties);
+                        LanceMetadataLoader.loadLatestForTvf(filePath, backendConnectProperties);
                 setLanceTableMetadata(metadata);
             } catch (Exception e) {
                 throw new AnalysisException(
