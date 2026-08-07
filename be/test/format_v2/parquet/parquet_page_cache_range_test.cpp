@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "format_v2/parquet/parquet_file_context.h"
+#include "format_v2/parquet/parquet_scan.h"
 #include "io/fs/buffered_reader.h"
 
 namespace doris::format::parquet {
@@ -99,6 +100,26 @@ TEST(ParquetPageCacheRangeTest, MergeRangeReaderDecisionRejectsEmptyInvalidAndIn
     EXPECT_FALSE(detail::should_use_merge_range_reader(invalid_ranges, 128, false));
     EXPECT_FALSE(detail::should_use_merge_range_reader(
             valid_ranges, detail::average_prefetch_range_size(valid_ranges), true));
+}
+
+TEST(ParquetPageCacheRangeTest, DeferredMergeRangesRetainPredicateAndLazyColumns) {
+    format::FileScanRequest request;
+    ASSERT_TRUE(format::FileScanRequestBuilder(&request)
+                        .add_predicate_column(format::LocalColumnId(1))
+                        .ok());
+    ASSERT_TRUE(format::FileScanRequestBuilder(&request)
+                        .add_non_predicate_column(format::LocalColumnId(2))
+                        .ok());
+    ASSERT_TRUE(format::FileScanRequestBuilder(&request)
+                        .add_non_predicate_column(format::LocalColumnId(3))
+                        .ok());
+    request.count_star_placeholder_columns.push_back(format::LocalColumnId(3));
+
+    const auto columns = detail::deferred_merge_range_columns(request);
+
+    ASSERT_EQ(columns.size(), 2);
+    EXPECT_EQ(columns[0].column_id(), format::LocalColumnId(1));
+    EXPECT_EQ(columns[1].column_id(), format::LocalColumnId(2));
 }
 
 } // namespace

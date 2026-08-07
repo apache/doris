@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -70,11 +71,13 @@ public:
     struct LookupResult {
         std::shared_ptr<std::vector<char>> data;
         bool admitted = false;
+        bool admission_rejected = false;
         bool hit = false;
         bool waited = false;
         size_t evicted = 0;
         int64_t wait_time = 0;
         int64_t fill_time = 0;
+        FileBlockSPtr file_block_to_touch;
     };
 
     explicit FileScannerV2ReaderLocalCache(
@@ -116,7 +119,8 @@ private:
     size_t _memory_bytes = 0;
     size_t _reserved_bytes = 0;
     mutable std::mutex _registry_mutex;
-    mutable std::map<FileKey, std::weak_ptr<FileScannerV2ReaderLocalFileCache>> _files;
+    std::map<FileKey, std::shared_ptr<FileScannerV2ReaderLocalFileCache>> _files;
+    static constexpr size_t FILE_CACHE_REGISTRY_GRANULARITY = 256 * 1024;
 };
 
 // File-scoped block map for reader-local data. Different external files never contend on this
@@ -129,8 +133,10 @@ public:
 
     bool read_if_present(size_t block_offset, size_t read_offset, Slice result,
                          LookupResult* lookup);
+    bool pin_if_present(size_t block_offset, size_t read_offset, size_t read_size,
+                        LookupResult* lookup);
     Status get_or_load(size_t block_offset, size_t block_size, const FileBlockSPtr& file_block,
-                       size_t file_block_offset, LookupResult* lookup);
+                       size_t file_block_offset, size_t requested_bytes, LookupResult* lookup);
 
     size_t entry_count() const;
 
@@ -139,9 +145,11 @@ private:
 
     struct Entry {
         std::shared_ptr<std::vector<char>> data;
+        std::weak_ptr<FileBlock> source_file_block;
         Status load_status = Status::OK();
-        std::condition_variable ready;
+        std::condition_variable_any ready;
         std::list<size_t>::iterator lru_position;
+        std::atomic<uint32_t> hit_count {0};
         size_t reserved_bytes = 0;
         bool loading = true;
         bool in_lru = false;
@@ -150,12 +158,19 @@ private:
     explicit FileScannerV2ReaderLocalFileCache(
             std::shared_ptr<FileScannerV2ReaderLocalCache> owner);
     void _touch_locked(const std::shared_ptr<Entry>& entry);
+    bool _should_admit_locked(size_t block_offset, size_t block_size, size_t requested_bytes);
+    void _abort_load(size_t block_offset, const std::shared_ptr<Entry>& entry);
+    void _drain(FileScannerV2ReaderLocalCache* owner);
     bool _evict_one();
 
-    std::shared_ptr<FileScannerV2ReaderLocalCache> _owner;
-    mutable std::mutex _mutex;
+    std::weak_ptr<FileScannerV2ReaderLocalCache> _owner;
+    mutable std::shared_mutex _mutex;
     std::map<size_t, std::shared_ptr<Entry>> _entries;
     std::list<size_t> _lru;
+    std::unordered_set<size_t> _admission_probes;
+    static constexpr size_t MAX_ADMISSION_PROBES = 128;
+    static constexpr size_t DIRECT_ADMISSION_RATIO = 4;
+    static constexpr uint32_t LRU_TOUCH_INTERVAL = 64;
 };
 
 class ExactCacheReader {

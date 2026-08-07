@@ -419,6 +419,7 @@ public:
 
 protected:
     virtual void _init_profile() {}
+    virtual bool _supports_reader_local_cache() const { return false; }
     void _record_scan_rows(int64_t rows) {
         DORIS_CHECK(rows >= 0);
         _reader_statistics.read_rows += rows;

@@ -93,11 +93,19 @@ struct ReadStatistics {
     int64_t num_reader_local_cache_fill = 0;
     int64_t num_reader_local_cache_evict = 0;
     int64_t num_reader_local_cache_wait = 0;
+    int64_t num_reader_local_cache_admission_reject = 0;
+    int64_t num_reader_local_cache_partial_miss = 0;
+    int64_t num_reader_local_cache_disk_lru_touch = 0;
     int64_t bytes_reader_local_cache_request = 0;
     int64_t bytes_read_from_reader_local_cache = 0;
     int64_t bytes_read_into_reader_local_cache = 0;
     int64_t reader_local_cache_fill_timer = 0;
     int64_t reader_local_cache_wait_timer = 0;
+    int64_t reader_local_cache_probe_timer = 0;
+    int64_t num_exact_cache_probe = 0;
+    int64_t num_exact_cache_probe_hit = 0;
+    int64_t num_exact_cache_probe_miss = 0;
+    int64_t exact_cache_probe_timer = 0;
 };
 
 class BlockFileCache;

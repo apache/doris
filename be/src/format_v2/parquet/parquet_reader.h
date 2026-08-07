@@ -86,6 +86,7 @@ public:
 
 protected:
     void _init_profile() override;
+    bool _supports_reader_local_cache() const override { return true; }
 
 private:
     void _sync_page_cache_profile();

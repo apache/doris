@@ -94,9 +94,11 @@ Status FileReader::init(RuntimeState* state) {
     ++_reader_statistics.open_file_num;
     io::FileReaderOptions reader_options =
             FileFactory::get_reader_options(state->query_options(), *_file_description);
-    // Only File Scanner V2 installs the query-scoped cache in IOContext. Keeping this opt-in here
-    // preserves the File Scanner V1 and internal-table reader paths.
-    reader_options.reader_local_cache = _io_ctx != nullptr ? _io_ctx->reader_local_cache : nullptr;
+    // Parquet currently supplies the planned range reuse that amortizes a promoted block. Other
+    // V2 formats keep their existing buffering path until they opt in with equivalent semantics.
+    reader_options.reader_local_cache = _supports_reader_local_cache() && _io_ctx != nullptr
+                                                ? _io_ctx->reader_local_cache
+                                                : nullptr;
     reader_options.enable_reader_local_cache = reader_options.reader_local_cache != nullptr;
     _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
             _profile, *_system_properties, *_file_description, reader_options,

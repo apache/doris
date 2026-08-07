@@ -105,11 +105,19 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(num_reader_local_cache_fill);
     SUBTRACT_FIELD(num_reader_local_cache_evict);
     SUBTRACT_FIELD(num_reader_local_cache_wait);
+    SUBTRACT_FIELD(num_reader_local_cache_admission_reject);
+    SUBTRACT_FIELD(num_reader_local_cache_partial_miss);
+    SUBTRACT_FIELD(num_reader_local_cache_disk_lru_touch);
     SUBTRACT_FIELD(bytes_reader_local_cache_request);
     SUBTRACT_FIELD(bytes_read_from_reader_local_cache);
     SUBTRACT_FIELD(bytes_read_into_reader_local_cache);
     SUBTRACT_FIELD(reader_local_cache_fill_timer);
     SUBTRACT_FIELD(reader_local_cache_wait_timer);
+    SUBTRACT_FIELD(reader_local_cache_probe_timer);
+    SUBTRACT_FIELD(num_exact_cache_probe);
+    SUBTRACT_FIELD(num_exact_cache_probe_hit);
+    SUBTRACT_FIELD(num_exact_cache_probe_miss);
+    SUBTRACT_FIELD(exact_cache_probe_timer);
 
     SUBTRACT_FIELD(inverted_index_num_local_io_total);
     SUBTRACT_FIELD(inverted_index_num_remote_io_total);
@@ -192,6 +200,12 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
             profile, "ReaderLocalCacheEvictions", TUnit::UNIT, cache_profile, 1);
     num_reader_local_cache_wait = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ReaderLocalCacheWaits",
                                                                TUnit::UNIT, cache_profile, 1);
+    num_reader_local_cache_admission_reject = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "ReaderLocalCacheAdmissionRejects", TUnit::UNIT, cache_profile, 1);
+    num_reader_local_cache_partial_miss = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "ReaderLocalCachePartialMisses", TUnit::UNIT, cache_profile, 1);
+    num_reader_local_cache_disk_lru_touch = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "ReaderLocalCacheDiskLRUTouches", TUnit::UNIT, cache_profile, 1);
     bytes_reader_local_cache_request = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "ReaderLocalCacheRequestBytes", TUnit::BYTES, cache_profile, 1);
     bytes_read_from_reader_local_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -202,6 +216,16 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "ReaderLocalCacheFillTimer", cache_profile, 1);
     reader_local_cache_wait_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "ReaderLocalCacheWaitTimer", cache_profile, 1);
+    reader_local_cache_probe_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "ReaderLocalCacheProbeTimer", cache_profile, 1);
+    num_exact_cache_probe = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ExactCacheProbes", TUnit::UNIT,
+                                                         cache_profile, 1);
+    num_exact_cache_probe_hit = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ExactCacheProbeHits",
+                                                             TUnit::UNIT, cache_profile, 1);
+    num_exact_cache_probe_miss = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ExactCacheProbeMisses",
+                                                              TUnit::UNIT, cache_profile, 1);
+    exact_cache_probe_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "ExactCacheProbeTimer", cache_profile, 1);
 
     inverted_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "InvertedIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -306,6 +330,12 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(num_reader_local_cache_fill, statistics->num_reader_local_cache_fill);
     COUNTER_UPDATE(num_reader_local_cache_evict, statistics->num_reader_local_cache_evict);
     COUNTER_UPDATE(num_reader_local_cache_wait, statistics->num_reader_local_cache_wait);
+    COUNTER_UPDATE(num_reader_local_cache_admission_reject,
+                   statistics->num_reader_local_cache_admission_reject);
+    COUNTER_UPDATE(num_reader_local_cache_partial_miss,
+                   statistics->num_reader_local_cache_partial_miss);
+    COUNTER_UPDATE(num_reader_local_cache_disk_lru_touch,
+                   statistics->num_reader_local_cache_disk_lru_touch);
     COUNTER_UPDATE(bytes_reader_local_cache_request, statistics->bytes_reader_local_cache_request);
     COUNTER_UPDATE(bytes_read_from_reader_local_cache,
                    statistics->bytes_read_from_reader_local_cache);
@@ -313,6 +343,11 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
                    statistics->bytes_read_into_reader_local_cache);
     COUNTER_UPDATE(reader_local_cache_fill_timer, statistics->reader_local_cache_fill_timer);
     COUNTER_UPDATE(reader_local_cache_wait_timer, statistics->reader_local_cache_wait_timer);
+    COUNTER_UPDATE(reader_local_cache_probe_timer, statistics->reader_local_cache_probe_timer);
+    COUNTER_UPDATE(num_exact_cache_probe, statistics->num_exact_cache_probe);
+    COUNTER_UPDATE(num_exact_cache_probe_hit, statistics->num_exact_cache_probe_hit);
+    COUNTER_UPDATE(num_exact_cache_probe_miss, statistics->num_exact_cache_probe_miss);
+    COUNTER_UPDATE(exact_cache_probe_timer, statistics->exact_cache_probe_timer);
 
     COUNTER_UPDATE(inverted_index_num_local_io_total,
                    statistics->inverted_index_num_local_io_total);

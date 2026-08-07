@@ -98,11 +98,19 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* num_reader_local_cache_fill = nullptr;
     RuntimeProfile::Counter* num_reader_local_cache_evict = nullptr;
     RuntimeProfile::Counter* num_reader_local_cache_wait = nullptr;
+    RuntimeProfile::Counter* num_reader_local_cache_admission_reject = nullptr;
+    RuntimeProfile::Counter* num_reader_local_cache_partial_miss = nullptr;
+    RuntimeProfile::Counter* num_reader_local_cache_disk_lru_touch = nullptr;
     RuntimeProfile::Counter* bytes_reader_local_cache_request = nullptr;
     RuntimeProfile::Counter* bytes_read_from_reader_local_cache = nullptr;
     RuntimeProfile::Counter* bytes_read_into_reader_local_cache = nullptr;
     RuntimeProfile::Counter* reader_local_cache_fill_timer = nullptr;
     RuntimeProfile::Counter* reader_local_cache_wait_timer = nullptr;
+    RuntimeProfile::Counter* reader_local_cache_probe_timer = nullptr;
+    RuntimeProfile::Counter* num_exact_cache_probe = nullptr;
+    RuntimeProfile::Counter* num_exact_cache_probe_hit = nullptr;
+    RuntimeProfile::Counter* num_exact_cache_probe_miss = nullptr;
+    RuntimeProfile::Counter* exact_cache_probe_timer = nullptr;
 
     RuntimeProfile::Counter* inverted_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* inverted_index_num_remote_io_total = nullptr;
