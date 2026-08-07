@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Types_types.h>
 
+#include <memory>
 #include <set>
 #include <string>
 
@@ -38,6 +39,7 @@ enum class ReaderType : uint8_t {
 
 namespace io {
 
+class FileScannerV2ReaderLocalCache;
 class RemoteScanCacheWriteLimiter;
 
 enum class FileCacheMissPolicy : uint8_t {
@@ -234,6 +236,10 @@ struct IOContext {
     bool bypass_peer_read {false};
     FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
     RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr; // Ref
+    // MergeRange owns the bytes it buffers, so its fill path must not promote the same bytes into
+    // the query-shared reader cache as well.
+    bool bypass_reader_local_cache {false};
+    std::shared_ptr<FileScannerV2ReaderLocalCache> reader_local_cache {nullptr};
 };
 
 } // namespace io

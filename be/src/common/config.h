@@ -1310,6 +1310,11 @@ DECLARE_mInt64(file_cache_background_block_lru_update_qps_limit);
 DECLARE_mInt64(file_cache_background_block_lru_update_queue_max_size);
 DECLARE_mBool(enable_file_cache_async_touch_on_get_or_set);
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
+// Cache File Scanner V2 file-cache blocks in query-shared memory. File Scanner V1 and internal
+// table readers never opt in to this cache.
+DECLARE_mBool(enable_file_scanner_v2_reader_local_cache);
+// Maximum reader-local cache bytes shared by all File Scanner V2 readers in one query.
+DECLARE_mInt64(file_scanner_v2_reader_local_cache_size);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_info_update_interval_ms);

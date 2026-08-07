@@ -134,6 +134,24 @@ TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
     EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(false, false));
 }
 
+TEST(FileScannerV2Test, ReaderLocalCacheSwitchDefaultsOnAndCanDisable) {
+    const bool original = config::enable_file_scanner_v2_reader_local_cache;
+    Defer restore {[&]() { config::enable_file_scanner_v2_reader_local_cache = original; }};
+
+    EXPECT_TRUE(original);
+    MockRuntimeState state;
+    RuntimeProfile profile("reader_local_cache_switch");
+    config::enable_file_scanner_v2_reader_local_cache = true;
+    FileScannerV2 enabled_scanner(&state, &profile, nullptr);
+    ASSERT_TRUE(enabled_scanner.TEST_init_io_ctx().ok());
+    EXPECT_TRUE(enabled_scanner.TEST_has_reader_local_cache());
+
+    config::enable_file_scanner_v2_reader_local_cache = false;
+    FileScannerV2 disabled_scanner(&state, &profile, nullptr);
+    ASSERT_TRUE(disabled_scanner.TEST_init_io_ctx().ok());
+    EXPECT_FALSE(disabled_scanner.TEST_has_reader_local_cache());
+}
+
 struct RetryableCloseState {
     int close_calls = 0;
 };

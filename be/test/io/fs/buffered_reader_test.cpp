@@ -132,11 +132,16 @@ public:
     size_t remote_read_calls() const { return _remote_read_calls; }
     size_t cache_read_calls() const { return _cache_read_calls; }
     size_t last_cache_read_size() const { return _last_cache_read_size; }
+    bool merged_read_bypassed_reader_local_cache() const {
+        return _merged_read_bypassed_reader_local_cache;
+    }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const io::IOContext* io_ctx) override {
         ++_remote_read_calls;
+        _merged_read_bypassed_reader_local_cache =
+                io_ctx != nullptr && io_ctx->bypass_reader_local_cache;
         return MockOffsetFileReader::read_at_impl(offset, result, bytes_read, io_ctx);
     }
 
@@ -157,6 +162,7 @@ private:
     size_t _remote_read_calls = 0;
     size_t _cache_read_calls = 0;
     size_t _last_cache_read_size = 0;
+    bool _merged_read_bypassed_reader_local_cache = false;
 };
 
 class BlockingFileReader : public io::FileReader {
@@ -499,6 +505,7 @@ TEST_F(BufferedReaderTest, cache_miss_keeps_remote_range_merging) {
     EXPECT_GT(reader.statistics().merged_gap_bytes, 0);
     EXPECT_EQ(reader.statistics().merged_bytes,
               reader.statistics().merged_useful_bytes + reader.statistics().merged_gap_bytes);
+    EXPECT_TRUE(inner->merged_read_bypassed_reader_local_cache());
 }
 
 TEST_F(BufferedReaderTest, ranges_are_exposed_incrementally_by_predicate_stage) {

@@ -25,6 +25,7 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -46,8 +47,10 @@ struct PeerFetchResult;
 } // namespace doris::io
 
 namespace doris {
+class MemTracker;
+class MemTrackerLimiter;
 struct PeerCandidate;
-}
+} // namespace doris
 
 namespace doris::io {
 struct SourceReadBreakdown {
@@ -56,6 +59,70 @@ struct SourceReadBreakdown {
     int64_t peer_bytes = 0;
 };
 using PeerFetchedBlockSet = std::unordered_set<const FileBlock*>;
+
+// Query-scoped cache for File Scanner V2 reads served by FileCache. The cache key includes the
+// immutable external-file identity, so all scanners in one query can share a single block fill.
+class FileScannerV2ReaderLocalCache {
+public:
+    struct LookupResult {
+        std::shared_ptr<std::vector<char>> data;
+        bool admitted = false;
+        bool hit = false;
+        bool waited = false;
+        size_t evicted = 0;
+        int64_t wait_time = 0;
+        int64_t fill_time = 0;
+    };
+
+    explicit FileScannerV2ReaderLocalCache(
+            size_t capacity, std::shared_ptr<doris::MemTrackerLimiter> query_mem_tracker = nullptr);
+    ~FileScannerV2ReaderLocalCache();
+
+    bool read_if_present(const UInt128Wrapper& file_key, size_t block_offset, size_t read_offset,
+                         Slice result, LookupResult* lookup);
+    Status get_or_load(const UInt128Wrapper& file_key, size_t block_offset, size_t block_size,
+                       const FileBlockSPtr& file_block, size_t file_block_offset,
+                       LookupResult* lookup);
+
+    size_t entry_count() const;
+    size_t memory_usage() const;
+    int64_t tracked_memory() const;
+
+private:
+    struct Key {
+        uint64_t file_key_high = 0;
+        uint64_t file_key_low = 0;
+        size_t block_offset = 0;
+
+        bool operator<(const Key& other) const {
+            return std::tie(file_key_high, file_key_low, block_offset) <
+                   std::tie(other.file_key_high, other.file_key_low, other.block_offset);
+        }
+    };
+
+    struct Entry {
+        std::shared_ptr<std::vector<char>> data;
+        Status load_status = Status::OK();
+        std::condition_variable ready;
+        std::list<Key>::iterator lru_position;
+        size_t reserved_bytes = 0;
+        bool loading = true;
+        bool in_lru = false;
+    };
+
+    static Key _make_key(const UInt128Wrapper& file_key, size_t block_offset);
+    bool _reserve_locked(size_t bytes, size_t* evicted);
+    void _touch_locked(const std::shared_ptr<Entry>& entry);
+
+    const size_t _capacity;
+    std::shared_ptr<doris::MemTrackerLimiter> _query_mem_tracker;
+    std::shared_ptr<doris::MemTracker> _memory_tracker;
+    mutable std::mutex _mutex;
+    std::map<Key, std::shared_ptr<Entry>> _entries;
+    std::list<Key> _lru;
+    size_t _memory_bytes = 0;
+    size_t _reserved_bytes = 0;
+};
 
 class ExactCacheReader {
 public:
@@ -338,16 +405,8 @@ private:
 
     /// Read one FileCache block through 256 KiB reader-local sub-blocks.
     Status _read_local_block(const FileBlockSPtr& block, size_t file_offset, size_t absolute_offset,
-                             Slice result, ReadStatistics& stats);
-
-    struct ReaderLocalCacheEntry {
-        std::shared_ptr<std::vector<char>> data;
-        Status load_status = Status::OK();
-        std::condition_variable ready;
-        std::list<size_t>::iterator lru_position;
-        bool loading = true;
-        bool in_lru = false;
-    };
+                             Slice result, ReadStatistics& stats,
+                             bool bypass_reader_local_cache = false);
 
     bool _is_doris_table = false;
     bool _enable_reader_local_cache = false;
@@ -358,14 +417,10 @@ private:
     BlockFileCache* _cache = nullptr;
     std::shared_mutex _mtx;
     std::map<size_t, FileBlockSPtr> _cache_file_readers;
-    // Keep reader-local fills smaller than the shared FileCache block so page reuse does not
-    // promote an entire large block, while bounding memory independently from FileCache capacity.
+    std::shared_ptr<FileScannerV2ReaderLocalCache> _reader_local_cache;
+    // Keep query-shared fills smaller than the FileCache block so page reuse does not promote an
+    // entire large block.
     static constexpr size_t READER_LOCAL_CACHE_BLOCK_BYTES = 256 * 1024;
-    static constexpr size_t MAX_MEMORY_BLOCK_CACHE_BYTES = 16 * 1024 * 1024;
-    std::mutex _memory_block_cache_mutex;
-    std::map<size_t, std::shared_ptr<ReaderLocalCacheEntry>> _memory_block_cache;
-    std::list<size_t> _memory_block_cache_lru;
-    size_t _memory_block_cache_bytes = 0;
 };
 
 } // namespace doris::io
