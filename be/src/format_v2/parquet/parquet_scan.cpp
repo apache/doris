@@ -523,6 +523,11 @@ void materialize_count_star_placeholders(const format::FileScanRequest& request,
 
 namespace detail {
 
+std::vector<format::LocalColumnIndex> deferred_merge_range_columns(
+        const format::FileScanRequest& request) {
+    return request_scan_columns(request);
+}
+
 Status build_native_prefetch_ranges(
         const tparquet::FileMetaData& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -1518,7 +1523,7 @@ Status ParquetScanScheduler::open_next_row_group(
         _current_merge_range_reader =
                 typeid_cast<io::MergeRangeFileReader*>(file_context.native_data_file().get());
         DORIS_CHECK(_current_merge_range_reader != nullptr);
-        for (const auto& column : request.predicate_columns) {
+        for (const auto& column : detail::deferred_merge_range_columns(request)) {
             std::vector<ParquetPageCacheRange> column_ranges;
             RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
                     thrift_metadata, file_schema, {column}, row_group_idx,
@@ -2984,6 +2989,17 @@ Status ParquetScanScheduler::read_current_row_group_batch(
                 file_context, file_schema, physical_non_predicate_columns(physical_request),
                 &_current_non_predicate_prefetched));
     }
+    if (_current_merge_range_reader != nullptr && selected_rows > 0) {
+        std::vector<format::LocalColumnId> lazy_columns;
+        lazy_columns.reserve(_current_non_predicate_columns.size());
+        for (const auto& fid : _current_non_predicate_columns | std::views::keys) {
+            lazy_columns.push_back(fid);
+        }
+        // Deferred remote ranges are intentionally absent while predicates reject rows. Activate
+        // every surviving output column at the exact lazy-materialization boundary so its page
+        // reads do not silently fall back to many direct remote requests.
+        RETURN_IF_ERROR(activate_merge_ranges_for_columns(lazy_columns));
+    }
 
     if (selected_rows > _batch_size) {
         DORIS_CHECK(_pending_predicate_selection.empty());
@@ -3075,6 +3091,14 @@ Status ParquetScanScheduler::materialize_pending_predicate_batch(
     for (const auto& [block_position, column] : _pending_predicate_columns) {
         file_block->replace_by_position(
                 block_position, column->cut(_pending_predicate_selected_offset, output_rows));
+    }
+    if (_current_merge_range_reader != nullptr) {
+        std::vector<format::LocalColumnId> lazy_columns;
+        lazy_columns.reserve(_current_non_predicate_columns.size());
+        for (const auto& fid : _current_non_predicate_columns | std::views::keys) {
+            lazy_columns.push_back(fid);
+        }
+        RETURN_IF_ERROR(activate_merge_ranges_for_columns(lazy_columns));
     }
     {
         SCOPED_TIMER(_scan_profile.column_read_time);

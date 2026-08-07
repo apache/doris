@@ -301,6 +301,9 @@ QueryContext::get_or_create_file_scanner_v2_reader_local_cache() {
     if (_file_scanner_v2_reader_local_cache == nullptr) {
         const size_t capacity = cast_set<size_t>(
                 std::max<int64_t>(0, config::file_scanner_v2_reader_local_cache_size));
+        if (capacity == 0) {
+            return nullptr;
+        }
         _file_scanner_v2_reader_local_cache =
                 std::make_shared<io::FileScannerV2ReaderLocalCache>(capacity, query_mem_tracker());
     }

@@ -79,11 +79,19 @@ struct FileCacheStatistics {
     int64_t num_reader_local_cache_fill = 0;
     int64_t num_reader_local_cache_evict = 0;
     int64_t num_reader_local_cache_wait = 0;
+    int64_t num_reader_local_cache_admission_reject = 0;
+    int64_t num_reader_local_cache_partial_miss = 0;
+    int64_t num_reader_local_cache_disk_lru_touch = 0;
     int64_t bytes_reader_local_cache_request = 0;
     int64_t bytes_read_from_reader_local_cache = 0;
     int64_t bytes_read_into_reader_local_cache = 0;
     int64_t reader_local_cache_fill_timer = 0;
     int64_t reader_local_cache_wait_timer = 0;
+    int64_t reader_local_cache_probe_timer = 0;
+    int64_t num_exact_cache_probe = 0;
+    int64_t num_exact_cache_probe_hit = 0;
+    int64_t num_exact_cache_probe_miss = 0;
+    int64_t exact_cache_probe_timer = 0;
 
     int64_t inverted_index_num_local_io_total = 0;
     int64_t inverted_index_num_remote_io_total = 0;
@@ -151,11 +159,19 @@ struct FileCacheStatistics {
         num_reader_local_cache_fill += other.num_reader_local_cache_fill;
         num_reader_local_cache_evict += other.num_reader_local_cache_evict;
         num_reader_local_cache_wait += other.num_reader_local_cache_wait;
+        num_reader_local_cache_admission_reject += other.num_reader_local_cache_admission_reject;
+        num_reader_local_cache_partial_miss += other.num_reader_local_cache_partial_miss;
+        num_reader_local_cache_disk_lru_touch += other.num_reader_local_cache_disk_lru_touch;
         bytes_reader_local_cache_request += other.bytes_reader_local_cache_request;
         bytes_read_from_reader_local_cache += other.bytes_read_from_reader_local_cache;
         bytes_read_into_reader_local_cache += other.bytes_read_into_reader_local_cache;
         reader_local_cache_fill_timer += other.reader_local_cache_fill_timer;
         reader_local_cache_wait_timer += other.reader_local_cache_wait_timer;
+        reader_local_cache_probe_timer += other.reader_local_cache_probe_timer;
+        num_exact_cache_probe += other.num_exact_cache_probe;
+        num_exact_cache_probe_hit += other.num_exact_cache_probe_hit;
+        num_exact_cache_probe_miss += other.num_exact_cache_probe_miss;
+        exact_cache_probe_timer += other.exact_cache_probe_timer;
 
         inverted_index_num_local_io_total += other.inverted_index_num_local_io_total;
         inverted_index_num_remote_io_total += other.inverted_index_num_remote_io_total;

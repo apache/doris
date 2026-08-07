@@ -60,11 +60,19 @@ io::FileCacheStatistics make_file_cache_stats(int64_t multiplier) {
     stats.num_reader_local_cache_fill = multiplier * 34;
     stats.num_reader_local_cache_evict = multiplier * 35;
     stats.num_reader_local_cache_wait = multiplier * 36;
-    stats.bytes_reader_local_cache_request = multiplier * 37;
-    stats.bytes_read_from_reader_local_cache = multiplier * 38;
-    stats.bytes_read_into_reader_local_cache = multiplier * 39;
-    stats.reader_local_cache_fill_timer = multiplier * 40;
-    stats.reader_local_cache_wait_timer = multiplier * 41;
+    stats.num_reader_local_cache_admission_reject = multiplier * 37;
+    stats.num_reader_local_cache_partial_miss = multiplier * 38;
+    stats.num_reader_local_cache_disk_lru_touch = multiplier * 39;
+    stats.bytes_reader_local_cache_request = multiplier * 40;
+    stats.bytes_read_from_reader_local_cache = multiplier * 41;
+    stats.bytes_read_into_reader_local_cache = multiplier * 42;
+    stats.reader_local_cache_fill_timer = multiplier * 43;
+    stats.reader_local_cache_wait_timer = multiplier * 44;
+    stats.reader_local_cache_probe_timer = multiplier * 45;
+    stats.num_exact_cache_probe = multiplier * 46;
+    stats.num_exact_cache_probe_hit = multiplier * 47;
+    stats.num_exact_cache_probe_miss = multiplier * 48;
+    stats.exact_cache_probe_timer = multiplier * 49;
     return stats;
 }
 
@@ -111,6 +119,12 @@ void expect_file_cache_stats_eq(const io::FileCacheStatistics& actual,
     EXPECT_EQ(actual.num_reader_local_cache_fill, expected.num_reader_local_cache_fill);
     EXPECT_EQ(actual.num_reader_local_cache_evict, expected.num_reader_local_cache_evict);
     EXPECT_EQ(actual.num_reader_local_cache_wait, expected.num_reader_local_cache_wait);
+    EXPECT_EQ(actual.num_reader_local_cache_admission_reject,
+              expected.num_reader_local_cache_admission_reject);
+    EXPECT_EQ(actual.num_reader_local_cache_partial_miss,
+              expected.num_reader_local_cache_partial_miss);
+    EXPECT_EQ(actual.num_reader_local_cache_disk_lru_touch,
+              expected.num_reader_local_cache_disk_lru_touch);
     EXPECT_EQ(actual.bytes_reader_local_cache_request, expected.bytes_reader_local_cache_request);
     EXPECT_EQ(actual.bytes_read_from_reader_local_cache,
               expected.bytes_read_from_reader_local_cache);
@@ -118,6 +132,11 @@ void expect_file_cache_stats_eq(const io::FileCacheStatistics& actual,
               expected.bytes_read_into_reader_local_cache);
     EXPECT_EQ(actual.reader_local_cache_fill_timer, expected.reader_local_cache_fill_timer);
     EXPECT_EQ(actual.reader_local_cache_wait_timer, expected.reader_local_cache_wait_timer);
+    EXPECT_EQ(actual.reader_local_cache_probe_timer, expected.reader_local_cache_probe_timer);
+    EXPECT_EQ(actual.num_exact_cache_probe, expected.num_exact_cache_probe);
+    EXPECT_EQ(actual.num_exact_cache_probe_hit, expected.num_exact_cache_probe_hit);
+    EXPECT_EQ(actual.num_exact_cache_probe_miss, expected.num_exact_cache_probe_miss);
+    EXPECT_EQ(actual.exact_cache_probe_timer, expected.exact_cache_probe_timer);
 }
 
 } // namespace
@@ -169,6 +188,22 @@ TEST(FileCacheProfileReporterTest, ReporterAggregatesDeltaReportsToExactFinalTot
               after_second_report.bytes_read_from_reader_local_cache);
     EXPECT_EQ(profile->get_counter("ReaderLocalCacheFillBytes")->value(),
               after_second_report.bytes_read_into_reader_local_cache);
+    EXPECT_EQ(profile->get_counter("ReaderLocalCacheAdmissionRejects")->value(),
+              after_second_report.num_reader_local_cache_admission_reject);
+    EXPECT_EQ(profile->get_counter("ReaderLocalCachePartialMisses")->value(),
+              after_second_report.num_reader_local_cache_partial_miss);
+    EXPECT_EQ(profile->get_counter("ReaderLocalCacheDiskLRUTouches")->value(),
+              after_second_report.num_reader_local_cache_disk_lru_touch);
+    EXPECT_EQ(profile->get_counter("ReaderLocalCacheProbeTimer")->value(),
+              after_second_report.reader_local_cache_probe_timer);
+    EXPECT_EQ(profile->get_counter("ExactCacheProbes")->value(),
+              after_second_report.num_exact_cache_probe);
+    EXPECT_EQ(profile->get_counter("ExactCacheProbeHits")->value(),
+              after_second_report.num_exact_cache_probe_hit);
+    EXPECT_EQ(profile->get_counter("ExactCacheProbeMisses")->value(),
+              after_second_report.num_exact_cache_probe_miss);
+    EXPECT_EQ(profile->get_counter("ExactCacheProbeTimer")->value(),
+              after_second_report.exact_cache_probe_timer);
 }
 
 } // namespace doris

@@ -106,6 +106,8 @@ Status build_native_prefetch_ranges(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const std::vector<format::LocalColumnIndex>& scan_columns, int row_group_idx,
         size_t file_size, bool parquet_816_padding, std::vector<ParquetPageCacheRange>* ranges);
+std::vector<format::LocalColumnIndex> deferred_merge_range_columns(
+        const format::FileScanRequest& request);
 Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& metadata,
                                               const ParquetScanRange& scan_range,
                                               std::vector<int64_t>* row_group_first_rows,
