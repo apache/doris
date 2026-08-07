@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.fluss;
 
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.fluss.client.Connection;
 import org.apache.fluss.client.admin.Admin;
