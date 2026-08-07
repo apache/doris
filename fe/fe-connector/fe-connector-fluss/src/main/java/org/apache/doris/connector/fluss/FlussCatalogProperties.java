@@ -93,6 +93,29 @@ public final class FlussCatalogProperties {
     public static final long DEFAULT_MAX_TAIL_ROWS = 2_000_000L;
 
     /**
+     * Optional. How many log-tail rows one union-read SCAN may hold across every bucket it touches.
+     *
+     * <p>Doris-only, and the scan-wide companion of {@link #UNION_READ_MAX_TAIL_ROWS}: that one bounds any
+     * single bucket, this one bounds their sum. The two are not the same guard rail. BE caches the keys of
+     * each tail it reads for the whole life of the scan, because the lake splits of one bucket arrive
+     * spread among the splits of every other bucket and each of them needs its own tail to suppress with —
+     * so a table with many partitions and many buckets retains {@code partitions * buckets} tails at once
+     * while every individual one stays far below its own ceiling.
+     *
+     * <p>Checked while planning, from the offsets fluss already reported, so an over-large read is answered
+     * by a plan that does not need the memory rather than by an allocation failure part-way through it.
+     */
+    public static final String UNION_READ_MAX_TOTAL_TAIL_ROWS =
+            "fluss.union_read.max_total_tail_rows";
+
+    /**
+     * Default {@link #UNION_READ_MAX_TOTAL_TAIL_ROWS}: ten times {@link #DEFAULT_MAX_TAIL_ROWS}. A scan may
+     * therefore hold ten maximal tails, or any number of ordinary ones — a healthy tail is the data written
+     * within one {@code table.datalake.freshness} period, orders of magnitude below its own ceiling.
+     */
+    public static final long DEFAULT_MAX_TOTAL_TAIL_ROWS = 10 * DEFAULT_MAX_TAIL_ROWS;
+
+    /**
      * Optional. Whether a fluss BINARY/BYTES column reads as Doris VARBINARY instead of STRING.
      *
      * <p>Unprefixed on purpose: this is the engine-wide catalog property
@@ -136,6 +159,10 @@ public final class FlussCatalogProperties {
             description = "guard rail: log-tail rows one bucket may contribute to a union read")
     private long maxTailRows = DEFAULT_MAX_TAIL_ROWS;
 
+    @ConnectorProperty(names = {UNION_READ_MAX_TOTAL_TAIL_ROWS}, required = false,
+            description = "guard rail: log-tail rows one union-read scan may hold across all buckets")
+    private long maxTotalTailRows = DEFAULT_MAX_TOTAL_TAIL_ROWS;
+
     @ConnectorProperty(names = {ENABLE_MAPPING_VARBINARY}, required = false,
             description = "map fluss BINARY/BYTES to Doris VARBINARY instead of STRING")
     private boolean enableMappingVarbinary;
@@ -170,6 +197,17 @@ public final class FlussCatalogProperties {
                 // ceiling has no way to say so, which is the point.
                 .check(() -> p.maxTailRows <= 0, "Invalid value '" + p.maxTailRows + "' for property '"
                         + UNION_READ_MAX_TAIL_ROWS + "'; expected a positive number of rows")
+                .check(() -> p.maxTotalTailRows <= 0,
+                        "Invalid value '" + p.maxTotalTailRows + "' for property '"
+                                + UNION_READ_MAX_TOTAL_TAIL_ROWS
+                                + "'; expected a positive number of rows")
+                // A scan-wide ceiling below the per-bucket one cannot describe a scan that passes the
+                // per-bucket check, so the pair would be unsatisfiable in a way neither value shows on
+                // its own. Equal is legitimate: it says "one maximal tail, and no more".
+                .check(() -> p.maxTotalTailRows < p.maxTailRows,
+                        "Property '" + UNION_READ_MAX_TOTAL_TAIL_ROWS + "' (" + p.maxTotalTailRows
+                                + ") is below '" + UNION_READ_MAX_TAIL_ROWS + "' (" + p.maxTailRows
+                                + "), so no union read could satisfy both")
                 .validate();
         checkBootstrapServerList(p.bootstrapServers);
         // Derived after the checks, so a catalog that fails validation fails on the property it got
@@ -231,7 +269,8 @@ public final class FlussCatalogProperties {
 
     /** Whether {@code key} configures Doris's own behaviour and must not reach the fluss client. */
     private static boolean isDorisOnly(String key) {
-        return UNION_READ_MODE.equals(key) || UNION_READ_MAX_TAIL_ROWS.equals(key);
+        return UNION_READ_MODE.equals(key) || UNION_READ_MAX_TAIL_ROWS.equals(key)
+                || UNION_READ_MAX_TOTAL_TAIL_ROWS.equals(key);
     }
 
     private static void checkBootstrapServerList(String value) {
@@ -273,6 +312,12 @@ public final class FlussCatalogProperties {
     /** The per-bucket log-tail ceiling for a union read. Always positive. */
     public long getMaxTailRows() {
         return maxTailRows;
+    }
+
+    /** The scan-wide log-tail ceiling for a union read. Always positive, never below {@link
+     * #getMaxTailRows()}. */
+    public long getMaxTotalTailRows() {
+        return maxTotalTailRows;
     }
 
     /** The type-mapping switches this catalog declares; both default to off. */
