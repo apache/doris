@@ -945,6 +945,106 @@ public class FlussSplitPlanTest {
     }
 
     /**
+     * A tail over its own ceiling is caught while planning, from the offsets fluss already reported, rather
+     * than by whichever BE reached the limit first part-way through reading it. The fluss-only plan that
+     * replaces it needs no tail in memory at all.
+     */
+    @Test
+    public void tailOverThePerBucketCeilingGivesUpTheLakeHalf() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 201L);
+        earliestOffsets(null, 0L);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps,
+                FlussCatalogProperties.of(catalog(FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "100")),
+                this::lakeSibling);
+
+        List<ConnectorScanRange> ranges =
+                provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
+
+        Assertions.assertEquals(1, ranges.size());
+        assertPkRange(ranges.get(0), 0, 4L, 10L, 201L);
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+        Assertions.assertTrue(output.toString().contains("degraded=tail-too-large"), output.toString());
+    }
+
+    /**
+     * The case the per-bucket ceiling cannot see, and the reason there are two of them: BE holds the keys
+     * of every tail it has touched until the scan ends, so buckets that are each well inside their own
+     * ceiling still add up to more than one scan should hold. Two tails of exactly 100 pass the per-bucket
+     * check of 100 and breach the scan-wide 150 together.
+     */
+    @Test
+    public void tailsUnderTheirOwnCeilingCanStillBreachTheScanWideOne() {
+        registerPkLakeTable(2);
+        lakeSnapshotAt(9L, offsets(100L, 200L));
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 200L, 300L);
+        earliestOffsets(null, 0L, 0L);
+        Map<String, String> properties =
+                catalog(FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "100");
+        properties.put(FlussCatalogProperties.UNION_READ_MAX_TOTAL_TAIL_ROWS, "150");
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps,
+                FlussCatalogProperties.of(properties), this::lakeSibling);
+
+        List<ConnectorScanRange> ranges =
+                provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
+
+        // Fluss-only, and therefore no cached tail on any BE.
+        Assertions.assertEquals(2, ranges.size());
+        assertPkRange(ranges.get(0), 0, 4L, 10L, 200L);
+        assertPkRange(ranges.get(1), 1, 5L, 20L, 300L);
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+        Assertions.assertTrue(output.toString().contains("degraded=tail-too-large"), output.toString());
+    }
+
+    /** The same two tails are a union read when the scan-wide ceiling has room for both. */
+    @Test
+    public void tailsThatFitUnderBothCeilingsAreStillMerged() {
+        registerPkLakeTable(2);
+        lakeSnapshotAt(9L, offsets(100L, 200L));
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 200L, 300L);
+        earliestOffsets(null, 0L, 0L);
+        Map<String, String> properties =
+                catalog(FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "100");
+        properties.put(FlussCatalogProperties.UNION_READ_MAX_TOTAL_TAIL_ROWS, "200");
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps,
+                FlussCatalogProperties.of(properties), this::lakeSibling);
+
+        provider.planScan(session, request(handle(PK_TABLE), Collections.emptyList()));
+
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+        Assertions.assertTrue(output.toString().contains("unionRead=yes"), output.toString());
+        Assertions.assertFalse(output.toString().contains("degraded="), output.toString());
+    }
+
+    /** Under {@code required} there is nothing to fall back to, so the ceiling is an error with its number. */
+    @Test
+    public void requiredModeRefusesTailsOverTheScanWideCeiling() {
+        registerPkLakeTable(2);
+        lakeSnapshotAt(9L, offsets(100L, 200L));
+        kvSnapshots(null, new long[] {4L, 5L}, new long[] {10L, 20L});
+        latestOffsets(null, 200L, 300L);
+        earliestOffsets(null, 0L, 0L);
+        Map<String, String> properties =
+                catalog(FlussCatalogProperties.UNION_READ_MODE, "required");
+        properties.put(FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "100");
+        properties.put(FlussCatalogProperties.UNION_READ_MAX_TOTAL_TAIL_ROWS, "150");
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(PK_TABLE, properties));
+        Assertions.assertTrue(e.getMessage().contains("200 records in total"), e.getMessage());
+        Assertions.assertTrue(
+                e.getMessage().contains(FlussCatalogProperties.UNION_READ_MAX_TOTAL_TAIL_ROWS),
+                e.getMessage());
+    }
+
+    /**
      * A key column Doris cannot compare exactly is a permanent property of the table, so it is settled
      * before anything is asked of the lake — that is what lets the answer be the same at plan-translation
      * time, when the key columns are kept in the scan's tuple, as it is here.
