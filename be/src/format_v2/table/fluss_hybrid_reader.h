@@ -20,7 +20,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
+#include <string>
 
 #include "common/status.h"
 #include "exprs/vexpr_fwd.h"
@@ -69,13 +71,49 @@ public:
     static bool is_lake_range(const TFileRangeDesc& range);
 
 private:
+    /**
+     * What one side of the dispatch cost and produced. Every reader of a scan shares one profile and
+     * therefore one set of the common TableReader timers, so without these a fluss scan's time is a
+     * single number covering the log side, the lake side and the paimon stack underneath it.
+     */
+    struct SideMetrics {
+        /** Everything the wrapper forwards to that child, standing it up and closing it included. */
+        RuntimeProfile::Counter* read_time = nullptr;
+        RuntimeProfile::Counter* rows_returned = nullptr;
+    };
+
+    /** What one kind of range cost within its side: the per-range work alone. */
+    struct RangeTypeMetrics {
+        RuntimeProfile::Counter* num = nullptr;
+        RuntimeProfile::Counter* read_time = nullptr;
+    };
+
     Status _ensure_current_split_reader(const format::SplitReadOptions& options);
     Status _init_child_reader(format::TableReader* reader, format::FileFormat file_format);
     Status _clone_conjuncts(VExprContextSPtrs* conjuncts) const;
+    SideMetrics _register_side_metrics(const char* read_time_name,
+                                       const char* rows_returned_name) const;
+    RangeTypeMetrics* _count_range_of_type(const std::string& range_type, const char* metric_stem,
+                                           const char* side_timer_name);
 
     std::unique_ptr<format::TableReader> _log_reader;  // LOG / PK_FULL / PK_TAIL, via JNI
     std::unique_ptr<format::TableReader> _lake_reader; // LAKE / LAKE_SUPPRESS, via the paimon stack
     format::TableReader* _current_split_reader = nullptr;
+
+    SideMetrics _log_metrics;
+    SideMetrics _lake_metrics;
+    /**
+     * Registered when a kind of range first arrives, keyed by the kind FE named it, so that a scan's
+     * profile carries lines only for the kinds it actually read - a pure log-table query shows no
+     * lake or primary-key lines at all. Keyed in a std::map because the pointers below outlive the
+     * insertion of later kinds.
+     */
+    std::map<std::string, RangeTypeMetrics> _range_type_metrics;
+    // The side and the kind of the split being read, resolved once when it is prepared. Neither
+    // close() nor refresh_conjuncts() belongs to a single range, so neither may use the latter: at
+    // close time it still names whichever range happened to come last.
+    SideMetrics* _current_side = nullptr;
+    RangeTypeMetrics* _current_type = nullptr;
 #ifdef BE_TEST
     // Tests reach in directly (the UT build disables access control) to observe routing and to
     // stand in children that need no cluster.
