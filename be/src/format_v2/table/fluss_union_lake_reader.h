@@ -149,6 +149,11 @@ private:
     RuntimeProfile::Counter* _tail_keys_read_counter = nullptr;
     RuntimeProfile::Counter* _tail_keys_retained_counter = nullptr;
     RuntimeProfile::Counter* _tail_cache_hit_counter = nullptr;
+    // What this reader adds to reading the lake, and the two are answered separately because the
+    // remedies differ: a slow tail read is a round trip to fluss made once per bucket, while a slow
+    // suppression grows with the lake half's rows.
+    RuntimeProfile::Counter* _tail_read_timer = nullptr;
+    RuntimeProfile::Counter* _suppress_timer = nullptr;
 
 #ifdef BE_TEST
     // Reading the tail needs a fluss cluster. Tests stand in for that one step and drive everything

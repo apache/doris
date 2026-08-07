@@ -35,6 +35,7 @@
 #include "format/format_common.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris::format::fluss {
 namespace {
@@ -131,7 +132,8 @@ TFileRangeDesc plain_lake_split() {
 }
 
 Status init_reader(FlussUnionLakeReader* reader, TFileScanRangeParams* scan_params,
-                   std::vector<format::ColumnDefinition> columns = projected_columns()) {
+                   std::vector<format::ColumnDefinition> columns = projected_columns(),
+                   RuntimeProfile* scanner_profile = nullptr) {
     return reader->init({
             .projected_columns = std::move(columns),
             .conjuncts = {},
@@ -139,7 +141,7 @@ Status init_reader(FlussUnionLakeReader* reader, TFileScanRangeParams* scan_para
             .scan_params = scan_params,
             .io_ctx = nullptr,
             .runtime_state = nullptr,
-            .scanner_profile = nullptr,
+            .scanner_profile = scanner_profile,
     });
 }
 
@@ -393,9 +395,10 @@ struct SuppressionFixture {
     ShardedKVCache cache {2};
     RecordingLakeReader* lake = nullptr;
     std::vector<std::string> tails_read;
+    RuntimeProfile profile {"fluss_union_lake_reader_test"};
 
-    Status open(Block keys) {
-        RETURN_IF_ERROR(init_reader(&reader, &scan_params));
+    Status open(Block keys, RuntimeProfile* scanner_profile = nullptr) {
+        RETURN_IF_ERROR(init_reader(&reader, &scan_params, projected_columns(), scanner_profile));
         lake = install_lake_reader(&reader);
         reader._test_tail_reader = [this, keys](const Tail& tail, Block* out) mutable {
             tails_read.push_back(tail.spec);
@@ -544,6 +547,57 @@ TEST(FlussUnionLakeReaderTest, SuppressesEachBucketWithItsOwnTail) {
     ASSERT_TRUE(reader.get_block(&bucket1, &eos).ok());
     EXPECT_EQ(ids_of(bucket1), (std::vector<int32_t> {1}));
     EXPECT_EQ(tails_read, (std::vector<std::string> {":0:10:20", ":1:30:40"}));
+}
+
+// ------------------------------------------------------------------ what the union half costs
+
+// The tail read is a network round trip to fluss, and the cache is what keeps it to one per bucket.
+// Timing it apart from the lake read is how "reading the lake is slow" is told from "preparing to
+// read the lake is slow" - so a split that found its bucket's keys already read must add nothing.
+TEST(FlussUnionLakeReaderTest, TimesEachTailItReadsAndNotTheCacheHitThatFollows) {
+    SuppressionFixture fixture;
+    ASSERT_TRUE(fixture.open(make_key_block({2}, {"b"}), &fixture.profile).ok());
+    auto* tail_timer = fixture.profile.get_counter("FlussUnionTailReadTime");
+    ASSERT_NE(tail_timer, nullptr);
+    EXPECT_EQ(tail_timer->value(), 0);
+
+    ASSERT_TRUE(fixture.reader.prepare_split(fixture.split(":0:10:20")).ok());
+    const auto after_first_bucket = tail_timer->value();
+    EXPECT_GT(after_first_bucket, 0);
+
+    ASSERT_TRUE(fixture.reader.prepare_split(fixture.split(":1:10:20")).ok());
+    const auto after_second_bucket = tail_timer->value();
+    EXPECT_GT(after_second_bucket, after_first_bucket);
+
+    // Bucket 0 again, and no longer the predicate this reader holds: it goes to the scan's cache,
+    // finds the keys already there, and reads nothing.
+    ASSERT_TRUE(fixture.reader.prepare_split(fixture.split(":0:10:20")).ok());
+    EXPECT_EQ(fixture.tails_read, (std::vector<std::string> {":0:10:20", ":1:10:20"}));
+    EXPECT_EQ(fixture.profile.get_counter("FlussUnionTailCacheHitCount")->value(), 1);
+    EXPECT_EQ(tail_timer->value(), after_second_bucket);
+}
+
+// What the suppression itself costs, per block, growing with the lake half's rows rather than with
+// the tail. It is a detail of the block finalization it happens inside, not a rival to it: the
+// established FinalizeBlockTime keeps counting it, so its own meaning does not change.
+TEST(FlussUnionLakeReaderTest, TimesTheSuppressionAsAPartOfBlockFinalization) {
+    SuppressionFixture fixture;
+    ASSERT_TRUE(fixture.open(make_key_block({2, 4}, {"b", "d"}), &fixture.profile).ok());
+    ASSERT_TRUE(fixture.reader.prepare_split(fixture.split(":0:10:20")).ok());
+    fixture.lake->blocks.push_back(
+            make_block({1, 2, 3, 4}, {"a", "b", "c", "d"}, {10, 20, 30, 40}));
+    auto* suppress_timer = fixture.profile.get_counter("FlussUnionSuppressTime");
+    ASSERT_NE(suppress_timer, nullptr);
+    EXPECT_EQ(suppress_timer->value(), 0);
+
+    Block block = make_block({}, {}, {});
+    bool eos = false;
+    ASSERT_TRUE(fixture.reader.get_block(&block, &eos).ok());
+
+    EXPECT_EQ(fixture.profile.get_counter("FlussUnionSuppressedRows")->value(), 2);
+    EXPECT_GT(suppress_timer->value(), 0);
+    ASSERT_NE(fixture.profile.get_counter("FinalizeBlockTime"), nullptr);
+    EXPECT_GE(fixture.profile.get_counter("FinalizeBlockTime")->value(), suppress_timer->value());
 }
 
 // The limit exists because a BE is a long-lived process shared by every query on it. Both halves of
