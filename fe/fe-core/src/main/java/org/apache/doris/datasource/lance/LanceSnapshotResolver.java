@@ -17,11 +17,15 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.arrow.memory.BufferAllocator;
+import org.lance.Dataset;
 import org.lance.Version;
 
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.OptionalLong;
 
 /** Resolves Doris time-travel selectors to immutable Lance version IDs. */
 final class LanceSnapshotResolver {
@@ -43,6 +47,22 @@ final class LanceSnapshotResolver {
         return version;
     }
 
+    /**
+     * Gets the latest Lance version whose commit time does not exceed the requested timestamp.
+     *
+     * <p>Called by
+     * {@link LanceExternalCatalog#loadTableMetadata(String, String, java.util.Optional)} to resolve
+     * a {@code FOR TIME AS OF} clause before loading the selected metadata snapshot.
+     */
+    static long getVersionAtOrBefore(String datasetUri, Map<String, String> javaStorageOptions,
+            long timestampMillis, BufferAllocator allocator) throws Exception {
+        try (Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
+                .readOptions(LanceReadOptions.build(javaStorageOptions, OptionalLong.empty())).build()) {
+            return versionAtOrBefore(dataset.listVersions(), timestampMillis);
+        }
+    }
+
+    /** Selects a version from the version list fetched by {@link #getVersionAtOrBefore}. */
     static long versionAtOrBefore(List<Version> versions, long timestampMillis) {
         Instant requestedTime = Instant.ofEpochMilli(timestampMillis);
         return versions.stream()

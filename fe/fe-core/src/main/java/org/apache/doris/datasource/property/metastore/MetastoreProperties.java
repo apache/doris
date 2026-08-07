@@ -88,7 +88,7 @@ public class MetastoreProperties extends ConnectionProperties {
         register(Type.ICEBERG, new IcebergPropertiesFactory());
         register(Type.PAIMON, new PaimonPropertiesFactory());
         register(Type.TRINO_CONNECTOR, new TrinoConnectorPropertiesFactory());
-        register(Type.LANCE, props -> new MetastoreProperties(Type.LANCE, props));
+        register(Type.LANCE, new LancePropertiesFactory());
     }
 
     public static void register(Type type, MetastorePropertiesFactory factory) {

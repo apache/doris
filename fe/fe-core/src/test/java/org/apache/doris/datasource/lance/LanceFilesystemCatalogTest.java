@@ -46,34 +46,48 @@ public class LanceFilesystemCatalogTest {
 
     @Test
     public void testNamespaceNameRoundTrip() throws Exception {
-        Assert.assertEquals(Collections.emptyList(), LanceNamespaceName.decode(
-                LanceNamespaceName.encode(Collections.emptyList(), ".", "default"), ".", "default"));
+        Assert.assertEquals(Collections.emptyList(), LanceNamespaceName.dorisDatabaseNameToNamespace(
+                LanceNamespaceName.namespaceToDorisDatabaseName(
+                        Collections.emptyList(), ".", "default"),
+                ".", "default"));
         Assert.assertEquals("doris",
-                LanceNamespaceName.encode(Collections.singletonList("doris"), ".", "default"));
+                LanceNamespaceName.namespaceToDorisDatabaseName(
+                        Collections.singletonList("doris"), ".", "default"));
         Assert.assertEquals("company.analytics",
-                LanceNamespaceName.encode(java.util.Arrays.asList("company", "analytics"), ".", "default"));
-        Assert.assertEquals(java.util.Arrays.asList("company", "analytics"), LanceNamespaceName.decode(
-                LanceNamespaceName.encode(java.util.Arrays.asList("company", "analytics"), ".", "default"),
-                ".", "default"));
-        Assert.assertEquals(java.util.Arrays.asList("a.b", "c"), LanceNamespaceName.decode(
-                LanceNamespaceName.encode(java.util.Arrays.asList("a.b", "c"), ".", "default"),
-                ".", "default"));
+                LanceNamespaceName.namespaceToDorisDatabaseName(
+                        java.util.Arrays.asList("company", "analytics"), ".", "default"));
+        Assert.assertEquals(java.util.Arrays.asList("company", "analytics"),
+                LanceNamespaceName.dorisDatabaseNameToNamespace(
+                        LanceNamespaceName.namespaceToDorisDatabaseName(
+                                java.util.Arrays.asList("company", "analytics"), ".", "default"),
+                        ".", "default"));
+        Assert.assertEquals(java.util.Arrays.asList("a.b", "c"),
+                LanceNamespaceName.dorisDatabaseNameToNamespace(
+                        LanceNamespaceName.namespaceToDorisDatabaseName(
+                                java.util.Arrays.asList("a.b", "c"), ".", "default"),
+                        ".", "default"));
 
         java.util.List<String> delimiterAtEnd = java.util.Arrays.asList("a.", "b");
         java.util.List<String> delimiterAtStart = java.util.Arrays.asList("a", ".b");
-        String encodedAtEnd = LanceNamespaceName.encode(delimiterAtEnd, ".", "default");
-        String encodedAtStart = LanceNamespaceName.encode(delimiterAtStart, ".", "default");
+        String encodedAtEnd =
+                LanceNamespaceName.namespaceToDorisDatabaseName(delimiterAtEnd, ".", "default");
+        String encodedAtStart =
+                LanceNamespaceName.namespaceToDorisDatabaseName(delimiterAtStart, ".", "default");
         Assert.assertNotEquals(encodedAtEnd, encodedAtStart);
-        Assert.assertEquals(delimiterAtEnd, LanceNamespaceName.decode(encodedAtEnd, ".", "default"));
-        Assert.assertEquals(delimiterAtStart, LanceNamespaceName.decode(encodedAtStart, ".", "default"));
-        Assert.assertEquals(java.util.Arrays.asList("a\\b", "c"), LanceNamespaceName.decode(
-                LanceNamespaceName.encode(java.util.Arrays.asList("a\\b", "c"), ".", "default"),
-                ".", "default"));
+        Assert.assertEquals(delimiterAtEnd,
+                LanceNamespaceName.dorisDatabaseNameToNamespace(encodedAtEnd, ".", "default"));
+        Assert.assertEquals(delimiterAtStart,
+                LanceNamespaceName.dorisDatabaseNameToNamespace(encodedAtStart, ".", "default"));
+        Assert.assertEquals(java.util.Arrays.asList("a\\b", "c"),
+                LanceNamespaceName.dorisDatabaseNameToNamespace(
+                        LanceNamespaceName.namespaceToDorisDatabaseName(
+                                java.util.Arrays.asList("a\\b", "c"), ".", "default"),
+                        ".", "default"));
 
-        String rootCollision = LanceNamespaceName.encode(
+        String rootCollision = LanceNamespaceName.namespaceToDorisDatabaseName(
                 Collections.singletonList("default"), ".", "default");
         Assert.assertEquals("\\default", rootCollision);
         Assert.assertEquals(Collections.singletonList("default"),
-                LanceNamespaceName.decode(rootCollision, ".", "default"));
+                LanceNamespaceName.dorisDatabaseNameToNamespace(rootCollision, ".", "default"));
     }
 }
