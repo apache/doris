@@ -827,8 +827,8 @@ public class IcebergScanPlanProviderTest {
         table.newRowDelta().addDeletes(equalityDeleteFile(
                 "s3://b/db/cached_eq_ids/eq.parquet", FileFormat.PARQUET, 1)).commit();
         IcebergManifestCache cache = new IcebergManifestCache();
-        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
-                Collections.emptyMap(), opsReturning(table), null, cache);
+        // Keep construction behind the shared helper so catalog-property API migrations do not break this test.
+        IcebergScanPlanProvider provider = manifestProvider(Collections.emptyMap(), table, cache);
 
         provider.getScanNodeProperties(null, new IcebergTableHandle("db1", "cached_eq_ids"),
                 Collections.singletonList(new IcebergColumnHandle("value", 2)), Optional.empty());
@@ -1468,7 +1468,8 @@ public class IcebergScanPlanProviderTest {
     public void getScanNodePropertiesForPositionDeletesRowRequiresCurrentBackendSemantics() {
         Table table = tableWithPositionDelete(
                 positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null));
-        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        // The helper follows the active catalog-property wrapper while this test stays focused on scan semantics.
+        IcebergScanPlanProvider provider = providerOver(table);
 
         Map<String, String> props = provider.getScanNodeProperties(
                 null, IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
