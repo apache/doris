@@ -444,9 +444,19 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
             }
             // Prefer the stable source field id carried by the bind-time schema. A same-name replacement
             // must not inherit the old output expression after concurrent Iceberg schema evolution.
-            ExprId exprId = columnIdToExprId.isEmpty()
-                    ? columnExprIdMap.get(sourceColumnName)
-                    : columnIdToExprId.get(field.getSourceId());
+            Column sourceColumn = findSourceColumn(tableColumns, sourceColumnName);
+            ExprId exprId;
+            if (columnIdToExprId.isEmpty()) {
+                exprId = columnExprIdMap.get(sourceColumnName);
+            } else if (sourceColumn == null) {
+                // The id-only test seam has no column tree, so preserve its exact top-level-id lookup.
+                exprId = tableColumns == null ? columnIdToExprId.get(field.getSourceId()) : null;
+            } else {
+                // A nested Iceberg source id identifies a child, but the Nereids slot and its ExprId belong to
+                // the top-level struct. Resolve the slot by its root id and use sourceFieldPath for the child.
+                exprId = sourceColumn.getUniqueId() < 0
+                        ? null : columnIdToExprId.get(sourceColumn.getUniqueId());
+            }
             if (exprId == null) {
                 insertPartitionFields.clear();
                 return new InsertPartitionFieldResult(false, hasNonIdentity, spec.getSpecId());
@@ -472,17 +482,15 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
         if (tableColumns == null) {
             return ImmutableList.of();
         }
-        Column sourceColumn = null;
-        for (Column column : tableColumns) {
-            if (column.getName().equalsIgnoreCase(sourceColumnName)) {
-                sourceColumn = column;
-                break;
-            }
-        }
+        Column sourceColumn = findSourceColumn(tableColumns, sourceColumnName);
         if (sourceColumn == null) {
             return null;
         }
-        if (sourceColumn.getUniqueId() < 0 || sourceColumn.getUniqueId() == sourceId) {
+        if (sourceColumn.getUniqueId() < 0) {
+            // Without the root id an empty path cannot distinguish a top-level source from an unstamped child.
+            return null;
+        }
+        if (sourceColumn.getUniqueId() == sourceId) {
             return ImmutableList.of();
         }
         List<Integer> path = new ArrayList<>();
@@ -490,6 +498,18 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
         // and keeps exchange routing on the same nested value used by the writer.
         return findSourceFieldPath(sourceColumn.getChildren(), sourceId, path)
                 ? ImmutableList.copyOf(path) : null;
+    }
+
+    private static Column findSourceColumn(List<Column> tableColumns, String sourceColumnName) {
+        if (tableColumns == null) {
+            return null;
+        }
+        for (Column column : tableColumns) {
+            if (column.getName().equalsIgnoreCase(sourceColumnName)) {
+                return column;
+            }
+        }
+        return null;
     }
 
     private static boolean findSourceFieldPath(List<Column> columns, int sourceId, List<Integer> path) {

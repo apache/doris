@@ -230,8 +230,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // null in offline unit tests via the 2-arg ctor, in which case resolveTable resolves directly.
     private final ConnectorContext context;
     // T08: per-catalog manifest cache, owned by the long-lived IcebergConnector and injected via getScanPlanProvider.
-    // Nullable — null via the 2-/3-arg ctors (offline tests, default-disabled gate); when null the gate is
-    // forced off and planScan uses the SDK splitFiles path.
+    // Its compact equality-delete field-id projection is used regardless of the full-cache feature gate. Nullable
+    // via the 2-/3-arg ctors (offline tests); when null the projection is loaded directly, the full-cache gate is
+    // forced off, and planScan uses the SDK splitFiles path.
     private final IcebergManifestCache manifestCache;
     // PERF-01: cross-query RAW-table cache shared with the metadata layer, owned by the long-lived
     // IcebergConnector and injected via getScanPlanProvider. Nullable — null via the offline-test ctors and
@@ -1603,7 +1604,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (!systemTable) {
             scanSchema = pinnedSchema(table, iceHandle);
             exactScan = buildScan(table, iceHandle, filter, session);
-            applicableEqualityDeleteFieldIds = applicableEqualityDeleteFieldIds(table, exactScan);
+            applicableEqualityDeleteFieldIds = cachedApplicableEqualityDeleteFieldIds(table, exactScan);
             hasApplicableEqualityDeletes = !applicableEqualityDeleteFieldIds.isEmpty();
             Optional<Map<Integer, List<String>>> nameMapping = IcebergSchemaUtils.extractNameMapping(table);
             if (requiresCurrentScanSemantics(
@@ -1846,6 +1847,20 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return fieldIds;
+    }
+
+    private Set<Integer> cachedApplicableEqualityDeleteFieldIds(Table table, TableScan scan) {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null || "0".equals(snapshot.summary().get(TOTAL_EQUALITY_DELETES))) {
+            return Collections.emptySet();
+        }
+        if (manifestCache == null) {
+            return applicableEqualityDeleteFieldIds(table, scan);
+        }
+        // Snapshot contents are immutable, so this compact projection can be shared even when the optional
+        // full manifest cache is disabled; a loader failure must still escape and remain retryable.
+        return manifestCache.getOrLoadEqualityDeleteFieldIds(
+                table.location(), snapshot.snapshotId(), () -> applicableEqualityDeleteFieldIds(table, scan));
     }
 
     /**

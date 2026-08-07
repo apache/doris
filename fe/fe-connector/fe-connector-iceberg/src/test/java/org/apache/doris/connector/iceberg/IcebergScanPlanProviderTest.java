@@ -816,6 +816,31 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void getScanNodePropertiesCachesEqualityDeleteFieldIdsWithManifestCacheDisabled() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        Table table = createTable("cached_eq_ids", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/cached_eq_ids/f1.parquet", 1024, null, null)).commit();
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/cached_eq_ids/eq.parquet", FileFormat.PARQUET, 1)).commit();
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                Collections.emptyMap(), opsReturning(table), null, cache);
+
+        provider.getScanNodeProperties(null, new IcebergTableHandle("db1", "cached_eq_ids"),
+                Collections.singletonList(new IcebergColumnHandle("value", 2)), Optional.empty());
+
+        Set<Integer> cached = cache.getOrLoadEqualityDeleteFieldIds(
+                table.location(), table.currentSnapshot().snapshotId(), () -> {
+                    throw new AssertionError("the provider must populate the snapshot-scoped projection cache");
+                });
+        Assertions.assertEquals(Collections.singleton(1), cached);
+    }
+
+    @Test
     public void equalityCarrierAllowsUnrelatedDropAndReaddNames() throws Exception {
         Schema schema = new Schema(
                 Arrays.asList(
