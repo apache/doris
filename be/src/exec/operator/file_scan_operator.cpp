@@ -120,8 +120,14 @@ bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_
     // mechanism as is_transactional_hive below, pointed the other way. Loads are left alone: there
     // is no ADBC load path, so widening the rule to cover them would only route them somewhere they
     // still cannot run.
+    // Fluss is in the same position, and reaches this the same way: FlussScanPlanProvider stamps the
+    // scan-level format so the choice can be made here, before any range is fetched. Both of its range
+    // kinds -- "fluss" and the "fluss_union" lake split -- are dispatched in FileScannerV2 alone, and
+    // one node can carry both, so the node is admitted as a whole rather than per range. Loads are left
+    // alone for the same reason as adbc: there is no fluss load path.
     if (!is_load && scan_params.__isset.table_format_params &&
-        scan_params.table_format_params.table_format_type == "adbc") {
+        (scan_params.table_format_params.table_format_type == "adbc" ||
+         scan_params.table_format_params.table_format_type == "fluss")) {
         return true;
     }
     const bool is_transactional_hive =
