@@ -187,6 +187,51 @@ suite("test_fluss_lake_pk_merge", "p0,external") {
     order_qt_cold_rows """select id, name from lake_pk_cold"""
     compareModes("select id, name from lake_pk_cold order by id")
 
+    // --- the tails this scan would have to hold -------------------------------
+    // BE keeps the keys of every tail it has touched until the scan ends, so what
+    // bounds a merge is not one bucket's tail but their sum. Both ceilings are
+    // checked while planning, from the offsets fluss already reported, so an
+    // over-large read is answered by a plan that needs no tail at all rather than
+    // by an allocation failure part-way through one. The fixtures here are far
+    // below any sane ceiling, so the ceiling is brought down to them.
+    String cappedCatalog = "test_fluss_lake_pk_merge_capped"
+    sql """drop catalog if exists ${cappedCatalog}"""
+    sql """
+        create catalog ${cappedCatalog} properties (
+            "type" = "fluss",
+            "fluss.bootstrap.servers" = "${bootstrapServers}",
+            "fluss.union_read.max_tail_rows" = "1",
+            "fluss.union_read.max_total_tail_rows" = "1"
+        );
+    """
+    def cappedPlan = sql("""explain select * from ${cappedCatalog}.fluss_test.lake_pk_multi""")
+            .collect { it[0].toString() }.join("\n")
+    assertTrue(cappedPlan.contains("unionRead=no"), "still merged under the ceiling: ${cappedPlan}")
+    assertTrue(cappedPlan.contains("degraded=tail-too-large"),
+            "degraded for the wrong reason: ${cappedPlan}")
+    // Giving up the lake half must not give up rows: the fluss-only read it falls
+    // back to is a primary-key table in full.
+    assertEquals(rowsOf("select id, name from lake_pk_multi order by id"),
+            rowsOf("select id, name from ${cappedCatalog}.fluss_test.lake_pk_multi order by id"))
+
+    // Under `required` there is nothing to fall back to, so the same ceiling is an
+    // error that names the number that tripped it rather than a silent plan change.
+    String cappedRequired = "test_fluss_lake_pk_merge_capped_required"
+    sql """drop catalog if exists ${cappedRequired}"""
+    sql """
+        create catalog ${cappedRequired} properties (
+            "type" = "fluss",
+            "fluss.bootstrap.servers" = "${bootstrapServers}",
+            "fluss.union_read.mode" = "required",
+            "fluss.union_read.max_tail_rows" = "1",
+            "fluss.union_read.max_total_tail_rows" = "1"
+        );
+    """
+    test {
+        sql """select id, name from ${cappedRequired}.fluss_test.lake_pk_multi"""
+        exception "cannot be read as its lake plus its log"
+    }
+
     // --- the scanner the session asked for ------------------------------------
     // A merge plans BOTH range kinds onto one scan node -- the wrapped lake split
     // and the PK_TAIL that replays what it suppressed -- and neither is dispatched
@@ -212,4 +257,6 @@ suite("test_fluss_lake_pk_merge", "p0,external") {
     sql """switch internal"""
     sql """drop catalog if exists ${mergeCatalog}"""
     sql """drop catalog if exists ${flussOnlyCatalog}"""
+    sql """drop catalog if exists ${cappedCatalog}"""
+    sql """drop catalog if exists ${cappedRequired}"""
 }

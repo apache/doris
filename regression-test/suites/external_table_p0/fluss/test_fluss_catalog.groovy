@@ -120,4 +120,31 @@ suite("test_fluss_catalog", "p0,external") {
         """
         exception "expected one of auto, required, disabled"
     }
+
+    // The two union-read ceilings bound different things -- one bucket's tail, and the sum a scan
+    // holds across every bucket at once -- so a scan-wide value below the per-bucket one describes a
+    // read nothing could satisfy. Refused here rather than silently taking the smaller of the two,
+    // which would make every later error quote a number nobody configured.
+    test {
+        sql """
+            create catalog test_fluss_ceiling_conflict properties (
+                "type" = "fluss",
+                "fluss.bootstrap.servers" = "${bootstrapServers}",
+                "fluss.union_read.max_tail_rows" = "100",
+                "fluss.union_read.max_total_tail_rows" = "99"
+            );
+        """
+        exception "no union read could satisfy both"
+    }
+
+    test {
+        sql """
+            create catalog test_fluss_bad_total_ceiling properties (
+                "type" = "fluss",
+                "fluss.bootstrap.servers" = "${bootstrapServers}",
+                "fluss.union_read.max_total_tail_rows" = "0"
+            );
+        """
+        exception "fluss.union_read.max_total_tail_rows"
+    }
 }
