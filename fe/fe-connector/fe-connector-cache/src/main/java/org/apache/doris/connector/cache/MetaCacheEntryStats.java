@@ -35,6 +35,8 @@ import java.util.Objects;
  *
  * <p>For last-load timestamps, {@code -1} means no corresponding event happened yet.
  * {@code lastError} keeps the latest load failure message; empty string means no failure recorded.
+ * Snapshots do not trigger Caffeine maintenance, so size, weight, and eviction values may be briefly stale while
+ * asynchronous maintenance is pending.
  */
 public final class MetaCacheEntryStats {
     private final boolean configEnabled;
@@ -42,7 +44,10 @@ public final class MetaCacheEntryStats {
     private final boolean autoRefresh;
     private final long ttlSecond;
     private final long capacity;
+    private final boolean weightBounded;
+    private final long maxWeight;
     private final long estimatedSize;
+    private final long estimatedWeight;
     private final long requestCount;
     private final long hitCount;
     private final long missCount;
@@ -52,6 +57,7 @@ public final class MetaCacheEntryStats {
     private final long totalLoadTimeNanos;
     private final double averageLoadPenaltyNanos;
     private final long evictionCount;
+    private final long evictionWeight;
     private final long invalidateCount;
     private final long lastLoadSuccessTimeMs;
     private final long lastLoadFailureTimeMs;
@@ -66,7 +72,10 @@ public final class MetaCacheEntryStats {
             boolean autoRefresh,
             long ttlSecond,
             long capacity,
+            boolean weightBounded,
+            long maxWeight,
             long estimatedSize,
+            long estimatedWeight,
             long requestCount,
             long hitCount,
             long missCount,
@@ -76,6 +85,7 @@ public final class MetaCacheEntryStats {
             long totalLoadTimeNanos,
             double averageLoadPenaltyNanos,
             long evictionCount,
+            long evictionWeight,
             long invalidateCount,
             long lastLoadSuccessTimeMs,
             long lastLoadFailureTimeMs,
@@ -85,7 +95,10 @@ public final class MetaCacheEntryStats {
         this.autoRefresh = autoRefresh;
         this.ttlSecond = ttlSecond;
         this.capacity = capacity;
+        this.weightBounded = weightBounded;
+        this.maxWeight = maxWeight;
         this.estimatedSize = estimatedSize;
+        this.estimatedWeight = estimatedWeight;
         this.requestCount = requestCount;
         this.hitCount = hitCount;
         this.missCount = missCount;
@@ -95,6 +108,7 @@ public final class MetaCacheEntryStats {
         this.totalLoadTimeNanos = totalLoadTimeNanos;
         this.averageLoadPenaltyNanos = averageLoadPenaltyNanos;
         this.evictionCount = evictionCount;
+        this.evictionWeight = evictionWeight;
         this.invalidateCount = invalidateCount;
         this.lastLoadSuccessTimeMs = lastLoadSuccessTimeMs;
         this.lastLoadFailureTimeMs = lastLoadFailureTimeMs;
@@ -106,7 +120,7 @@ public final class MetaCacheEntryStats {
     }
 
     /**
-     * Effective cache enable state evaluated by {@link CacheSpec#isCacheEnabled(boolean, long, long)}.
+     * Effective cache enable state evaluated by {@link CacheSpec#isCacheEnabled()}.
      */
     public boolean isEffectiveEnabled() {
         return effectiveEnabled;
@@ -124,8 +138,26 @@ public final class MetaCacheEntryStats {
         return capacity;
     }
 
+    public boolean isWeightBounded() {
+        return weightBounded;
+    }
+
+    /**
+     * Returns the configured maximum weight in bytes, or -1 for a count-bounded cache.
+     */
+    public long getMaxWeight() {
+        return maxWeight;
+    }
+
     public long getEstimatedSize() {
         return estimatedSize;
+    }
+
+    /**
+     * Returns Caffeine's current weighted size in bytes, or -1 for a count-bounded cache.
+     */
+    public long getEstimatedWeight() {
+        return estimatedWeight;
     }
 
     public long getRequestCount() {
@@ -165,6 +197,10 @@ public final class MetaCacheEntryStats {
 
     public long getEvictionCount() {
         return evictionCount;
+    }
+
+    public long getEvictionWeight() {
+        return evictionWeight;
     }
 
     public double getEvictionRate() {

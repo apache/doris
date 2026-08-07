@@ -18,9 +18,12 @@
 package org.apache.doris.connector.cache;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Common cache specification for external metadata caches.
@@ -42,7 +45,9 @@ import java.util.OptionalLong;
  * <ul>
  *   <li>enable=false disables cache</li>
  *   <li>ttlSecond=0 disables cache, ttlSecond=-1 means no expiration</li>
- *   <li>capacity=0 disables cache; capacity is count-based</li>
+ *   <li>capacity=0 disables a count-bounded cache</li>
+ *   <li>when maxWeight is present, it replaces capacity as the effective bound</li>
+ *   <li>maxWeight accepts an optional binary unit such as KB, MB, or GB; a bare number means bytes</li>
  * </ul>
  */
 public final class CacheSpec {
@@ -52,19 +57,27 @@ public final class CacheSpec {
     private static final String KEY_ENABLE = ".enable";
     private static final String KEY_TTL_SECOND = ".ttl-second";
     private static final String KEY_CAPACITY = ".capacity";
+    private static final String KEY_MAX_WEIGHT = ".max-weight";
+    private static final Pattern DATA_SIZE_PATTERN = Pattern.compile("(\\d+)([a-zA-Z]*)");
 
     private final boolean enable;
     private final long ttlSecond;
     private final long capacity;
+    private final OptionalLong maxWeight;
 
-    private CacheSpec(boolean enable, long ttlSecond, long capacity) {
+    private CacheSpec(boolean enable, long ttlSecond, long capacity, OptionalLong maxWeight) {
         this.enable = enable;
         this.ttlSecond = ttlSecond;
         this.capacity = capacity;
+        this.maxWeight = Objects.requireNonNull(maxWeight, "maxWeight is required");
     }
 
     public static CacheSpec of(boolean enable, long ttlSecond, long capacity) {
-        return new CacheSpec(enable, ttlSecond, capacity);
+        return new CacheSpec(enable, ttlSecond, capacity, OptionalLong.empty());
+    }
+
+    public static CacheSpec ofWeight(boolean enable, long ttlSecond, long capacity, long maxWeight) {
+        return new CacheSpec(enable, ttlSecond, capacity, OptionalLong.of(maxWeight));
     }
 
     /**
@@ -103,12 +116,14 @@ public final class CacheSpec {
         boolean enable = getBooleanProperty(properties, propertySpec.getEnableKey(), propertySpec.isDefaultEnable());
         long ttlSecond = getLongProperty(properties, propertySpec.getTtlKey(), propertySpec.getDefaultTtlSecond());
         long capacity = getLongProperty(properties, propertySpec.getCapacityKey(), propertySpec.getDefaultCapacity());
-        return of(enable, ttlSecond, capacity);
+        OptionalLong maxWeight = getOptionalDataSizeProperty(
+                properties, propertySpec.getMaxWeightKey(), propertySpec.getDefaultMaxWeight());
+        return new CacheSpec(enable, ttlSecond, capacity, maxWeight);
     }
 
     /**
      * Build a cache spec from catalog properties by standard external meta cache key pattern:
-     * meta.cache.&lt;engine&gt;.&lt;entry&gt;.(enable|ttl-second|capacity)
+     * meta.cache.&lt;engine&gt;.&lt;entry&gt;.(enable|ttl-second|capacity|max-weight)
      */
     public static CacheSpec fromProperties(Map<String, String> properties,
             String engine, String entryName, CacheSpec defaultSpec) {
@@ -121,6 +136,7 @@ public final class CacheSpec {
                 .enable(cacheKeyPrefix + KEY_ENABLE, defaultSpec.isEnable())
                 .ttl(cacheKeyPrefix + KEY_TTL_SECOND, defaultSpec.getTtlSecond())
                 .capacity(cacheKeyPrefix + KEY_CAPACITY, defaultSpec.getCapacity())
+                .maxWeight(cacheKeyPrefix + KEY_MAX_WEIGHT, defaultSpec.getMaxWeight())
                 .build();
     }
 
@@ -173,6 +189,17 @@ public final class CacheSpec {
         }
     }
 
+    public static void checkDataSizeProperty(String value, String key) {
+        if (value == null) {
+            return;
+        }
+        try {
+            parseDataSizeAllowZero(value);
+        } catch (IllegalArgumentException e) {
+            throw invalidDataSizeProperty(key, value);
+        }
+    }
+
     public static boolean isCacheEnabled(boolean enable, long ttlSecond, long capacity) {
         return enable && ttlSecond != 0 && capacity != 0;
     }
@@ -194,6 +221,13 @@ public final class CacheSpec {
      */
     public static String metaCacheTtlKey(String engine, String entryName) {
         return META_CACHE_PREFIX + engine + "." + entryName + KEY_TTL_SECOND;
+    }
+
+    /**
+     * Build the standard external meta cache maximum-weight key for one engine+entry.
+     */
+    public static String metaCacheMaxWeightKey(String engine, String entryName) {
+        return META_CACHE_PREFIX + engine + "." + entryName + KEY_MAX_WEIGHT;
     }
 
     /**
@@ -234,6 +268,75 @@ public final class CacheSpec {
         }
     }
 
+    private static OptionalLong getOptionalDataSizeProperty(
+            Map<String, String> properties, String key, OptionalLong defaultValue) {
+        if (key == null) {
+            return defaultValue;
+        }
+        String value = properties.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return OptionalLong.of(parseDataSizeAllowZero(value));
+        } catch (IllegalArgumentException e) {
+            throw invalidDataSizeProperty(key, value);
+        }
+    }
+
+    private static long parseDataSizeAllowZero(String value) {
+        Matcher matcher = DATA_SIZE_PATTERN.matcher(value);
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException("invalid data size");
+        }
+
+        long number;
+        try {
+            number = Long.parseLong(matcher.group(1));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("invalid data size", e);
+        }
+
+        long multiplier;
+        switch (matcher.group(2).toUpperCase(Locale.ROOT)) {
+            case "":
+            case "B":
+                multiplier = 1L;
+                break;
+            case "K":
+            case "KB":
+                multiplier = 1L << 10;
+                break;
+            case "M":
+            case "MB":
+                multiplier = 1L << 20;
+                break;
+            case "G":
+            case "GB":
+                multiplier = 1L << 30;
+                break;
+            case "T":
+            case "TB":
+                multiplier = 1L << 40;
+                break;
+            case "P":
+            case "PB":
+                multiplier = 1L << 50;
+                break;
+            default:
+                throw new IllegalArgumentException("invalid data size unit");
+        }
+        try {
+            return Math.multiplyExact(number, multiplier);
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("data size is too large", e);
+        }
+    }
+
+    private static IllegalArgumentException invalidDataSizeProperty(String key, String value) {
+        return new IllegalArgumentException("The parameter " + key + " is wrong, value is " + value);
+    }
+
     public boolean isEnable() {
         return enable;
     }
@@ -246,6 +349,20 @@ public final class CacheSpec {
         return capacity;
     }
 
+    public OptionalLong getMaxWeight() {
+        return maxWeight;
+    }
+
+    public boolean isWeightBounded() {
+        return maxWeight.isPresent();
+    }
+
+    public boolean isCacheEnabled() {
+        return enable
+                && ttlSecond != CACHE_TTL_DISABLE_CACHE
+                && maxWeight.orElse(capacity) != 0L;
+    }
+
     public static final class PropertySpec {
         private final String enableKey;
         private final boolean defaultEnable;
@@ -253,15 +370,20 @@ public final class CacheSpec {
         private final long defaultTtlSecond;
         private final String capacityKey;
         private final long defaultCapacity;
+        private final String maxWeightKey;
+        private final OptionalLong defaultMaxWeight;
 
         private PropertySpec(String enableKey, boolean defaultEnable, String ttlKey,
-                long defaultTtlSecond, String capacityKey, long defaultCapacity) {
+                long defaultTtlSecond, String capacityKey, long defaultCapacity,
+                String maxWeightKey, OptionalLong defaultMaxWeight) {
             this.enableKey = enableKey;
             this.defaultEnable = defaultEnable;
             this.ttlKey = ttlKey;
             this.defaultTtlSecond = defaultTtlSecond;
             this.capacityKey = capacityKey;
             this.defaultCapacity = defaultCapacity;
+            this.maxWeightKey = maxWeightKey;
+            this.defaultMaxWeight = defaultMaxWeight;
         }
 
         public String getEnableKey() {
@@ -288,6 +410,14 @@ public final class CacheSpec {
             return defaultCapacity;
         }
 
+        public String getMaxWeightKey() {
+            return maxWeightKey;
+        }
+
+        public OptionalLong getDefaultMaxWeight() {
+            return defaultMaxWeight;
+        }
+
         public static final class Builder {
             private String enableKey;
             private boolean defaultEnable;
@@ -295,6 +425,8 @@ public final class CacheSpec {
             private long defaultTtlSecond;
             private String capacityKey;
             private long defaultCapacity;
+            private String maxWeightKey;
+            private OptionalLong defaultMaxWeight = OptionalLong.empty();
 
             public Builder enable(String key, boolean defaultValue) {
                 this.enableKey = key;
@@ -314,6 +446,12 @@ public final class CacheSpec {
                 return this;
             }
 
+            public Builder maxWeight(String key, OptionalLong defaultValue) {
+                this.maxWeightKey = Objects.requireNonNull(key, "maxWeightKey is required");
+                this.defaultMaxWeight = Objects.requireNonNull(defaultValue, "defaultMaxWeight is required");
+                return this;
+            }
+
             public PropertySpec build() {
                 return new PropertySpec(
                         Objects.requireNonNull(enableKey, "enableKey is required"),
@@ -321,7 +459,9 @@ public final class CacheSpec {
                         Objects.requireNonNull(ttlKey, "ttlKey is required"),
                         defaultTtlSecond,
                         Objects.requireNonNull(capacityKey, "capacityKey is required"),
-                        defaultCapacity);
+                        defaultCapacity,
+                        maxWeightKey,
+                        defaultMaxWeight);
             }
         }
     }

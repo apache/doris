@@ -19,11 +19,14 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.MetaCacheEntryStats;
 import org.apache.doris.connector.iceberg.IcebergPartitionUtils.IcebergRawPartition;
 
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ForkJoinPool;
@@ -61,10 +64,12 @@ final class IcebergPartitionCache {
     static final class Key {
         final TableIdentifier id;
         final long snapshotId;
+        final long estimatedBytes;
 
         Key(TableIdentifier id, long snapshotId) {
             this.id = id;
             this.snapshotId = snapshotId;
+            this.estimatedBytes = IcebergCacheSizeEstimator.estimatePartitionKey(this);
         }
 
         @Override
@@ -85,13 +90,27 @@ final class IcebergPartitionCache {
         }
     }
 
-    private final MetaCacheEntry<Key, List<IcebergRawPartition>> entry;
+    static final class CachedPartitions {
+        final List<IcebergRawPartition> partitions;
+        final long estimatedBytes;
+
+        CachedPartitions(List<IcebergRawPartition> partitions) {
+            this.partitions = Collections.unmodifiableList(new ArrayList<>(partitions));
+            this.estimatedBytes = IcebergCacheSizeEstimator.estimatePartitions(this.partitions);
+        }
+    }
+
+    private final MetaCacheEntry<Key, CachedPartitions> entry;
 
     IcebergPartitionCache(long ttlSeconds, int maxSize) {
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
-        CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
+        this(CacheSpec.ofConnectorTtl(ttlSeconds, maxSize));
+    }
+
+    IcebergPartitionCache(CacheSpec spec) {
         this.entry = new MetaCacheEntry<>("iceberg-partition", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+                ForkJoinPool.commonPool(), false, true, 0L, true,
+                IcebergCacheSizeEstimator::estimatePartitionEntry);
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always scan live". */
@@ -105,7 +124,7 @@ final class IcebergPartitionCache {
      * loader runs OUTSIDE Caffeine's compute lock (single-flight per key) and its exception propagates unwrapped.
      */
     List<IcebergRawPartition> getOrLoad(Key key, Supplier<List<IcebergRawPartition>> loader) {
-        return entry.get(key, ignored -> loader.get());
+        return entry.get(key, ignored -> new CachedPartitions(loader.get())).partitions;
     }
 
     /** Drops every cached snapshot entry for one table so the next read scans live (REFRESH TABLE). */
@@ -134,5 +153,9 @@ final class IcebergPartitionCache {
     /** Test-only: how many times the live loader (the PARTITIONS scan) actually ran — the metric gate. */
     long loadCountForTest() {
         return entry.stats().getLoadSuccessCount();
+    }
+
+    MetaCacheEntryStats stats() {
+        return entry.stats();
     }
 }

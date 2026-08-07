@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
@@ -141,9 +142,11 @@ public class IcebergConnector implements Connector {
     static final String TABLE_CACHE_ENABLE = "meta.cache.iceberg.table.enable";
     static final String TABLE_CACHE_TTL_SECOND = "meta.cache.iceberg.table.ttl-second";
     static final String TABLE_CACHE_CAPACITY = "meta.cache.iceberg.table.capacity";
+    static final String TABLE_CACHE_MAX_WEIGHT = "meta.cache.iceberg.table.max-weight";
     static final String MANIFEST_CACHE_ENABLE = "meta.cache.iceberg.manifest.enable";
     static final String MANIFEST_CACHE_TTL_SECOND = "meta.cache.iceberg.manifest.ttl-second";
     static final String MANIFEST_CACHE_CAPACITY = "meta.cache.iceberg.manifest.capacity";
+    static final String MANIFEST_CACHE_MAX_WEIGHT = "meta.cache.iceberg.manifest.max-weight";
     static final long DEFAULT_TABLE_CACHE_TTL_SECOND = 86400L;
     static final int DEFAULT_TABLE_CACHE_CAPACITY = 1000;
 
@@ -224,7 +227,7 @@ public class IcebergConnector implements Connector {
             listPartitionsViewCache;
     // Manifest content cache — pure metadata, default-off (meta.cache.iceberg.manifest.enable), and consumed
     // ONLY after a per-user resolveTable(ForRead) -- exempt: no read path without a per-user load.
-    private final IcebergManifestCache manifestCache = new IcebergManifestCache();
+    private final IcebergManifestCache manifestCache;
 
     // Lazily-built plugin-side Kerberos authenticator (single-owner auth; see TcclPinningConnectorContext).
     // null for a non-Kerberos catalog. Its doAs acts on the PLUGIN's UserGroupInformation copy — the one the
@@ -248,6 +251,8 @@ public class IcebergConnector implements Connector {
         // authenticator never logs in — so without this the DDL/read hits secured HDFS as SIMPLE auth.
         this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader(),
                 this::pluginAuthenticator);
+        CacheSpec tableCacheSpec = resolveTableCacheSpec(this.properties);
+        this.manifestCache = new IcebergManifestCache(this.properties);
         // Authorization-sensitive projection (snapshotId/schemaId). Under iceberg.rest.session=user the value is
         // per-user AUTHORIZED metadata that a "can-list-cannot-load" principal must not see. beginQuerySnapshot
         // reads this cache WITHOUT a preceding per-user loadTable, so a shared (table-keyed, no user dimension)
@@ -270,8 +275,7 @@ public class IcebergConnector implements Connector {
         this.tableCache = (isUserSessionEnabled()
                 || IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties))
                 ? null
-                : new IcebergTableCache(
-                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                : new IcebergTableCache(tableCacheSpec);
         // PERF-02: partition-view cache. Authorization-sensitive projection: a shared (table+snapshot-keyed, no
         // user dimension) hit would disclose one user's partition list. Its readers are all downstream of a
         // per-user resolveTableForRead today (so a hit cannot precede authz), but that safety rests entirely on
@@ -280,8 +284,7 @@ public class IcebergConnector implements Connector {
         // otherwise (single static identity). Readers already tolerate a null cache (loadRawPartitions).
         this.partitionCache = isUserSessionEnabled()
                 ? null
-                : new IcebergPartitionCache(
-                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                : new IcebergPartitionCache(tableCacheSpec);
         // PERF-03: inferred-file-format cache. Same authorization-sensitive treatment as partitionCache (disabled
         // under session=user, kept otherwise); readers already tolerate a null cache (resolveFileFormatName).
         this.formatCache = isUserSessionEnabled()
@@ -328,6 +331,24 @@ public class IcebergConnector implements Connector {
                     DEFAULT_TABLE_CACHE_TTL_SECOND);
             return DEFAULT_TABLE_CACHE_TTL_SECOND;
         }
+    }
+
+    private static CacheSpec resolveTableCacheSpec(Map<String, String> properties) {
+        CacheSpec parsed = CacheSpec.fromProperties(
+                properties,
+                "iceberg",
+                "table",
+                CacheSpec.of(true, DEFAULT_TABLE_CACHE_TTL_SECOND, DEFAULT_TABLE_CACHE_CAPACITY));
+        if (parsed.getTtlSecond() > 0L) {
+            return parsed;
+        }
+        if (parsed.isWeightBounded()) {
+            return CacheSpec.ofWeight(
+                    parsed.isEnable(), CacheSpec.CACHE_TTL_DISABLE_CACHE,
+                    parsed.getCapacity(), parsed.getMaxWeight().getAsLong());
+        }
+        return CacheSpec.of(
+                parsed.isEnable(), CacheSpec.CACHE_TTL_DISABLE_CACHE, parsed.getCapacity());
     }
 
     @Override

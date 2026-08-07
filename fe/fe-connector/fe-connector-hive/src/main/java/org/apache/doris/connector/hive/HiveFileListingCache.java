@@ -19,6 +19,7 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.MetaCacheEntryStats;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
@@ -104,7 +105,7 @@ public class HiveFileListingCache {
         List<HiveFileStatus> list(String location, FileSystem fs);
     }
 
-    private final MetaCacheEntry<FileListingKey, List<HiveFileStatus>> cache;
+    private final MetaCacheEntry<FileListingKey, FileListingValue> cache;
     private final DirectoryLister lister;
 
     public HiveFileListingCache(HiveCatalogProperties properties) {
@@ -138,7 +139,9 @@ public class HiveFileListingCache {
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_FILE_CAPACITY));
         // Contextual-only + manual-miss so the slow listStatus runs on the caller (TCCL-pinned) thread outside
         // Caffeine's sync compute lock, deduplicated by a striped lock — mirrors CachingHmsClient's entries.
-        this.cache = new MetaCacheEntry<>("hive.file", null, spec, ForkJoinPool.commonPool(), false, true, 0L, true);
+        this.cache = new MetaCacheEntry<>(
+                "hive.file", null, spec, ForkJoinPool.commonPool(), false, true, 0L, true,
+                HiveFileListingSizeEstimator::estimateEntry);
         this.lister = Objects.requireNonNull(lister, "lister can not be null");
     }
 
@@ -165,7 +168,7 @@ public class HiveFileListingCache {
     public List<HiveFileStatus> listDataFiles(String dbName, String tableName, String location,
             List<String> partitionValues, FileSystem fs) {
         return cache.get(new FileListingKey(dbName, tableName, location, partitionValues),
-                key -> lister.list(key.location, fs));
+                key -> new FileListingValue(lister.list(key.location, fs))).files;
     }
 
     /** Drops every cached listing for one table. Backs {@code REFRESH TABLE}. */
@@ -204,6 +207,10 @@ public class HiveFileListingCache {
         long[] count = {0L};
         cache.forEach((key, value) -> count[0]++);
         return count[0];
+    }
+
+    MetaCacheEntryStats stats() {
+        return cache.stats();
     }
 
     /**
@@ -334,10 +341,11 @@ public class HiveFileListingCache {
      * size-estimate paths sharing the same entry while making per-partition invalidation possible.
      */
     static final class FileListingKey {
-        private final String dbName;
-        private final String tableName;
-        private final String location;
-        private final List<String> partitionValues;
+        final String dbName;
+        final String tableName;
+        final String location;
+        final List<String> partitionValues;
+        final long estimatedBytes;
 
         FileListingKey(String dbName, String tableName, String location, List<String> partitionValues) {
             this.dbName = dbName;
@@ -346,6 +354,7 @@ public class HiveFileListingCache {
             this.partitionValues = partitionValues == null
                     ? Collections.emptyList()
                     : Collections.unmodifiableList(new ArrayList<>(partitionValues));
+            this.estimatedBytes = HiveFileListingSizeEstimator.estimateKey(this);
         }
 
         boolean matches(String db, String table) {
@@ -374,6 +383,16 @@ public class HiveFileListingCache {
         @Override
         public int hashCode() {
             return Objects.hash(dbName, tableName, location, partitionValues);
+        }
+    }
+
+    static final class FileListingValue {
+        final List<HiveFileStatus> files;
+        final long estimatedBytes;
+
+        private FileListingValue(List<HiveFileStatus> files) {
+            this.files = Collections.unmodifiableList(new ArrayList<>(files));
+            this.estimatedBytes = HiveFileListingSizeEstimator.estimateValue(this);
         }
     }
 }

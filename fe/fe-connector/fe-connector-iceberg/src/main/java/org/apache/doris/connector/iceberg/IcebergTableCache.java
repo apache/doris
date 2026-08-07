@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.MetaCacheEntryStats;
 
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
@@ -58,13 +59,27 @@ import java.util.function.Supplier;
  */
 final class IcebergTableCache {
 
-    private final MetaCacheEntry<TableIdentifier, Table> entry;
+    static final class CachedTable {
+        final Table table;
+        final long estimatedBytes;
+
+        CachedTable(Table table) {
+            this.table = table;
+            this.estimatedBytes = IcebergCacheSizeEstimator.estimateTable(table);
+        }
+    }
+
+    private final MetaCacheEntry<TableIdentifier, CachedTable> entry;
 
     IcebergTableCache(long ttlSeconds, int maxSize) {
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
-        CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
+        this(CacheSpec.ofConnectorTtl(ttlSeconds, maxSize));
+    }
+
+    IcebergTableCache(CacheSpec spec) {
         this.entry = new MetaCacheEntry<>("iceberg-table", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+                ForkJoinPool.commonPool(), false, true, 0L, true,
+                IcebergCacheSizeEstimator::estimateTableEntry);
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read live". */
@@ -80,7 +95,7 @@ final class IcebergTableCache {
      * propagates unwrapped.
      */
     Table getOrLoad(TableIdentifier identifier, Supplier<Table> loader) {
-        return entry.get(identifier, ignored -> loader.get());
+        return entry.get(identifier, ignored -> new CachedTable(loader.get())).table;
     }
 
     /** Drops the cached entry for one table so the next read goes live (REFRESH TABLE). */
@@ -109,5 +124,9 @@ final class IcebergTableCache {
         int[] count = {0};
         entry.forEach((key, value) -> count[0]++);
         return count[0];
+    }
+
+    MetaCacheEntryStats stats() {
+        return entry.stats();
     }
 }

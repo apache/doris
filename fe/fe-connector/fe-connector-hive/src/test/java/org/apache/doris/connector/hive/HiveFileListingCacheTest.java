@@ -192,6 +192,29 @@ public class HiveFileListingCacheTest {
         Assertions.assertEquals(2, lister.totalCalls);
     }
 
+    @Test
+    public void maximumWeightUsesTypedFileListingEstimator() {
+        CountingLister lister = new CountingLister();
+        HiveFileListingCache cache = new HiveFileListingCache(
+                HiveCatalogProperties.of(props("meta.cache.hive.file.max-weight", "1MB")), lister);
+
+        cache.listDataFiles("db", "table", "s3://bucket/table/p=1", Collections.singletonList("1"), FS);
+
+        Assertions.assertTrue(cache.stats().isWeightBounded());
+        Assertions.assertEquals(1024L * 1024, cache.stats().getMaxWeight());
+        Assertions.assertTrue(cache.stats().getEstimatedWeight() > 0L);
+    }
+
+    @Test
+    public void invalidMaximumWeightIsRejectedAtCreateTime() {
+        HiveCatalogProperties properties = HiveCatalogProperties.of(
+                props("meta.cache.hive.file.max-weight", "broken"));
+        IllegalArgumentException error = Assertions.assertThrows(
+                IllegalArgumentException.class, properties::checkCreateTimeOnlyRules);
+        Assertions.assertEquals(
+                "The parameter meta.cache.hive.file.max-weight is wrong, value is broken", error.getMessage());
+    }
+
     // ==================== the production lister: filters dirs + hidden files, lists literally ====================
 
     @Test

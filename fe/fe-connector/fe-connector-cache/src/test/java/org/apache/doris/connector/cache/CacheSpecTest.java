@@ -247,4 +247,42 @@ public class CacheSpecTest {
                 CacheSpec.isMetaCacheKeyForEngine("meta.cache.paimon.table.ttl-second", "iceberg"));
         Assertions.assertFalse(CacheSpec.isMetaCacheKeyForEngine(null, "iceberg"));
     }
+
+    @Test
+    public void fromPropertiesParsesMaximumWeight() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("meta.cache.hive.file.max-weight", "512MB");
+
+        CacheSpec spec = CacheSpec.fromProperties(
+                properties, "hive", "file", CacheSpec.of(true, 60L, 100L));
+
+        Assertions.assertTrue(spec.isWeightBounded());
+        Assertions.assertEquals(512L * 1024 * 1024, spec.getMaxWeight().getAsLong());
+        Assertions.assertTrue(spec.isCacheEnabled());
+    }
+
+    @Test
+    public void maximumWeightOverridesCountCapacity() {
+        CacheSpec spec = CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 0L, 1024L);
+        Assertions.assertTrue(spec.isCacheEnabled());
+
+        CacheSpec disabled = CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 100L, 0L);
+        Assertions.assertFalse(disabled.isCacheEnabled());
+    }
+
+    @Test
+    public void maximumWeightRejectsInvalidValues() {
+        String key = "meta.cache.iceberg.table.max-weight";
+        for (String value : new String[] {"abc", "-1", "9223372036854775807KB"}) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put(key, value);
+            IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> CacheSpec.fromProperties(
+                            properties, "iceberg", "table", CacheSpec.of(true, 60L, 100L)));
+            Assertions.assertEquals("The parameter " + key + " is wrong, value is " + value,
+                    error.getMessage());
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> CacheSpec.checkDataSizeProperty(value, key));
+        }
+    }
 }
