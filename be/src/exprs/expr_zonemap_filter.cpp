@@ -18,7 +18,9 @@
 #include "exprs/expr_zonemap_filter.h"
 
 #include <algorithm>
+#include <cmath>
 #include <set>
+#include <type_traits>
 #include <utility>
 
 #include "common/check.h"
@@ -60,6 +62,24 @@ bool dictionary_contains(const DictionaryEvalContext::SlotDictionary& dictionary
     });
 }
 
+template <typename T>
+bool floating_point_bloom_filter_may_contain(const segment_v2::BloomFilter& bloom_filter, T value) {
+    static_assert(std::is_floating_point_v<T>);
+    // Doris equality collapses NaN payloads and signed zeros, while Parquet Bloom hashes physical
+    // bytes. A negative probe is safe only after covering the entire Doris-equivalent class.
+    if (std::isnan(value)) {
+        return true;
+    }
+    const auto test_value = [&](T candidate) {
+        return bloom_filter.test_bytes(reinterpret_cast<const char*>(&candidate),
+                                       sizeof(candidate));
+    };
+    if (test_value(value)) {
+        return true;
+    }
+    return value == T {0} && test_value(-value);
+}
+
 bool bloom_filter_may_contain(const BloomFilterEvalContext::SlotBloomFilter& slot_filter,
                               const Field& value) {
     DORIS_CHECK(slot_filter.data_type != nullptr);
@@ -84,13 +104,11 @@ bool bloom_filter_may_contain(const BloomFilterEvalContext::SlotBloomFilter& slo
     }
     case TYPE_FLOAT: {
         const float typed_value = value.get<TYPE_FLOAT>();
-        return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
-                                                    sizeof(typed_value));
+        return floating_point_bloom_filter_may_contain(*slot_filter.bloom_filter, typed_value);
     }
     case TYPE_DOUBLE: {
         const double typed_value = value.get<TYPE_DOUBLE>();
-        return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
-                                                    sizeof(typed_value));
+        return floating_point_bloom_filter_may_contain(*slot_filter.bloom_filter, typed_value);
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -151,6 +169,7 @@ Status materialize_hybrid_set_for_zonemap_filter(HybridSetBase& set, const DataT
     DORIS_CHECK(value_type != nullptr);
 
     result->contains_null = set.contain_null();
+    result->contains_nan = false;
     result->values.clear();
     result->min_value = Field();
     result->max_value = Field();
@@ -165,6 +184,7 @@ Status materialize_hybrid_set_for_zonemap_filter(HybridSetBase& set, const DataT
             auto literal = VLiteral::create_shared(literal_node);
             Field field;
             literal->get_column_ptr()->get(0, field);
+            result->contains_nan |= field.is_nan();
             result->values.emplace_back(std::move(field));
         }
         iterator->next();
@@ -244,7 +264,8 @@ ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExpr
 
 ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSPtr& slot_expr,
                                     bool is_not_in, const std::vector<Field>& values,
-                                    const Field& min_value, const Field& max_value) {
+                                    bool contains_nan, const Field& min_value,
+                                    const Field& max_value) {
     auto slot = std::dynamic_pointer_cast<VSlotRef>(slot_expr);
     DORIS_CHECK(slot != nullptr);
     // Empty IN has no candidate values, while NOT IN with an empty set cannot filter anything.
@@ -275,6 +296,12 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
     // IN values are all non-null here, so an all-null zone cannot match.
     if (!zone_map.has_not_null) {
         return ZoneMapFilterResult::kNoMatch;
+    }
+
+    if (ctx.floating_nan_count_unknown(slot->column_id()) &&
+        ((!is_not_in && contains_nan) || (is_not_in && !contains_nan))) {
+        // Hidden Parquet NaNs can satisfy IN only when queried, and NOT IN only when omitted.
+        return unsupported_zonemap_filter(ctx);
     }
 
     if (!range_stats_usable_for_zonemap(zone_map, slot_type)) {

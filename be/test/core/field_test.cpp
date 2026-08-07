@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <limits>
 #include <string>
 
 #include "core/column/column_string.h"
@@ -32,6 +33,16 @@
 #include "gtest/gtest_pred_impl.h" // IWYU pragma: keep
 
 namespace doris {
+TEST(VFieldTest, detects_floating_point_nan) {
+    EXPECT_TRUE(Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::quiet_NaN()).is_nan());
+    EXPECT_TRUE(
+            Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN()).is_nan());
+    EXPECT_FALSE(Field::create_field<TYPE_FLOAT>(0.0F).is_nan());
+    EXPECT_FALSE(Field::create_field<TYPE_DOUBLE>(-0.0).is_nan());
+    EXPECT_FALSE(Field::create_field<TYPE_INT>(0).is_nan());
+    EXPECT_FALSE(Field().is_nan());
+}
+
 TEST(VFieldTest, field_string) {
     Field f;
 
