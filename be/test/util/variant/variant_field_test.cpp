@@ -252,6 +252,28 @@ TEST(VariantFieldTest, ScalarObjectAndArrayRoundTrip) {
     EXPECT_EQ(b.array_at(1).get_string(), StringRef("x"));
 }
 
+TEST(VariantFieldTest, ScalarRefsOwnEncodedSlices) {
+    VariantField null_value = VariantField::from_scalar(VariantScalarRef::null_value());
+    EXPECT_TRUE(null_value.ref().is_null());
+    EXPECT_EQ(as_view({null_value.metadata().data, null_value.metadata().size}),
+              std::string_view(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size()));
+    EXPECT_EQ(null_value.value().data, null_value.ref().value.data);
+    EXPECT_EQ(null_value.value().size, null_value.ref().value.size);
+
+    VariantField integer_value = VariantField::from_scalar(VariantScalarRef::integer(-12345));
+    EXPECT_EQ(integer_value.ref().get_int(), -12345);
+
+    VariantField decimal_value = VariantField::from_scalar(VariantScalarRef::decimal(-12345, 2, 8));
+    EXPECT_EQ(decimal_value.ref().get_decimal(),
+              (VariantDecimal {.unscaled = -12345, .scale = 2, .width = 8}));
+
+    std::string source = "owned";
+    VariantField string_value =
+            VariantField::from_scalar(VariantScalarRef::string(StringRef(source)));
+    source = "changed";
+    EXPECT_EQ(string_value.ref().get_string(), StringRef("owned"));
+}
+
 TEST(VariantFieldTest, CopyAndMoveOwnTheirBytes) {
     const std::string metadata_bytes = metadata({}, true);
     const std::string value_bytes = short_string("owned");

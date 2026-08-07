@@ -208,14 +208,6 @@ void visit_typed_scalar_column(const ColumnNullable& nullable, PrimitiveType typ
                                   });
 }
 
-VariantField field_from_scalar(const VariantScalarRef& scalar) {
-    DorisVector<char> value(scalar.encoded_size());
-    scalar.write_physical(value.data(), value.size());
-    return VariantField::from_ref({.metadata = {.data = VARIANT_EMPTY_METADATA.data(),
-                                                .size = VARIANT_EMPTY_METADATA.size()},
-                                   .value = {value.data(), value.size()}});
-}
-
 template <typename Sink, typename Hash>
 void update_typed_hashes(const ColumnNullable& nullable, PrimitiveType type, uint32_t scale,
                          Hash* __restrict hashes, const uint8_t* __restrict null_data) {
@@ -678,9 +670,11 @@ void ColumnVariantV2::get(size_t row, Field& result) const {
     VariantField value;
     if (_typed) {
         const auto& nullable = assert_cast<const ColumnNullable&>(*_typed);
-        visit_typed_scalar_column(
-                nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), row, row + 1,
-                [&](size_t, const VariantScalarRef& scalar) { value = field_from_scalar(scalar); });
+        visit_typed_scalar_column(nullable, _typed_type->get_primitive_type(),
+                                  _typed_type->get_scale(), row, row + 1,
+                                  [&](size_t, const VariantScalarRef& scalar) {
+                                      value = VariantField::from_scalar(scalar);
+                                  });
     } else {
         value = VariantField::from_ref(get_value_ref(row));
     }
@@ -691,7 +685,7 @@ void ColumnVariantV2::insert(const Field& field) {
     VariantField null_value;
     const VariantField* value = nullptr;
     if (field.get_type() == TYPE_NULL) {
-        null_value = field_from_scalar(VariantScalarRef::null_value());
+        null_value = VariantField::from_scalar(VariantScalarRef::null_value());
         value = &null_value;
     } else if (field.get_type() == TYPE_VARIANT) {
         value = &field.get<TYPE_VARIANT>();
@@ -705,18 +699,19 @@ void ColumnVariantV2::insert(const Field& field) {
                         field.get_type_name());
     }
 
-    const VariantRef ref = value->ref();
-    if (ref.metadata.size > std::numeric_limits<uint32_t>::max() ||
-        ref.value.size > std::numeric_limits<uint32_t>::max()) {
+    const VariantMetadataRef metadata = value->metadata();
+    const StringRef encoded_value = value->value();
+    if (metadata.size > std::numeric_limits<uint32_t>::max() ||
+        encoded_value.size > std::numeric_limits<uint32_t>::max()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant Field row exceeds ColumnString uint32 limits");
     }
-    const std::array<uint32_t, 2> metadata_offsets {0, static_cast<uint32_t>(ref.metadata.size)};
-    const std::array<uint32_t, 2> value_offsets {0, static_cast<uint32_t>(ref.value.size)};
-    insert_encoded_rows({.metadata_bytes = {ref.metadata.data, ref.metadata.size},
+    const std::array<uint32_t, 2> metadata_offsets {0, static_cast<uint32_t>(metadata.size)};
+    const std::array<uint32_t, 2> value_offsets {0, static_cast<uint32_t>(encoded_value.size)};
+    insert_encoded_rows({.metadata_bytes = {metadata.data, metadata.size},
                          .metadata_offsets = metadata_offsets,
                          .meta_ids = {},
-                         .value_bytes = ref.value,
+                         .value_bytes = encoded_value,
                          .value_offsets = value_offsets});
 }
 

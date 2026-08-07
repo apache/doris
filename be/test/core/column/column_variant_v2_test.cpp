@@ -412,10 +412,31 @@ void validate_encoded_column(const ColumnVariantV2& column) {
     }
 }
 
+void ensure_typed_fields_match_direct_encoding(ColumnVariantV2& column) {
+    ASSERT_TRUE(column.is_typed());
+    std::vector<Field> fields(column.size());
+    for (size_t row = 0; row < column.size(); ++row) {
+        column.get(row, fields[row]);
+        ASSERT_EQ(fields[row].get_type(), TYPE_VARIANT) << row;
+    }
+
+    column.ensure_encoded();
+    for (size_t row = 0; row < column.size(); ++row) {
+        const VariantField& field = fields[row].get<TYPE_VARIANT>();
+        const VariantMetadataRef metadata = field.metadata();
+        const StringRef value = field.value();
+        const VariantRef direct = column.get_value_ref(row);
+        EXPECT_EQ(std::string_view(metadata.data, metadata.size),
+                  std::string_view(direct.metadata.data, direct.metadata.size))
+                << row;
+        EXPECT_EQ(as_view(value), as_view(direct.value)) << row;
+    }
+}
+
 template <typename CheckValue>
 void expect_single_typed_encoding(ColumnPtr nullable, DataTypePtr type, CheckValue&& check_value) {
     auto column = ColumnVariantV2::create_typed(std::move(nullable), std::move(type));
-    column->ensure_encoded();
+    ensure_typed_fields_match_direct_encoding(*column);
     EXPECT_FALSE(column->is_typed());
     ASSERT_EQ(column->size(), 1);
     EXPECT_EQ(metadata_count(*column), 1);
@@ -827,6 +848,7 @@ TEST(ColumnVariantV2Test, EncodedScalarObjectAndArray) {
     column->sanity_check();
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest assertions inflate it.
 TEST(ColumnVariantV2Test, FieldRoundTripOwnsEncodedAndTypedRows) {
     const std::string raw = noncanonical_object_field_bytes();
     const VariantField noncanonical = VariantField::from_bytes({raw.data(), raw.size()});
@@ -2105,7 +2127,7 @@ TEST(ColumnVariantV2Test, ReadViewBorrowsTypedStateWithoutMaterializingIt) {
 TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     auto booleans = ColumnVariantV2::create_typed(
             nullable_fixed<ColumnUInt8, UInt8>({0, 1}, {0, 0}), std::make_shared<DataTypeBool>());
-    booleans->ensure_encoded();
+    ensure_typed_fields_match_direct_encoding(*booleans);
     EXPECT_EQ(booleans->get_value_ref(0).primitive_id(), VariantPrimitiveId::FALSE_VALUE);
     EXPECT_EQ(booleans->get_value_ref(1).primitive_id(), VariantPrimitiveId::TRUE_VALUE);
     validate_encoded_column(*booleans);
@@ -2143,7 +2165,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
             nullable_fixed<ColumnInt128, Int128>(
                     {decimal38_max, outside_decimal38, -outside_decimal38}, {0, 0, 0}),
             std::make_shared<DataTypeInt128>());
-    largeints->ensure_encoded();
+    ensure_typed_fields_match_direct_encoding(*largeints);
     EXPECT_EQ(largeints->get_value_ref(0).primitive_id(), VariantPrimitiveId::DECIMAL16);
     EXPECT_EQ(largeints->get_value_ref(0).get_decimal(), (VariantDecimal {decimal38_max, 0, 16}));
     EXPECT_EQ(largeints->get_value_ref(1).get_string(),
@@ -2242,7 +2264,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
         auto strings =
                 ColumnVariantV2::create_typed(nullable_strings(STRINGS, STRING_NULLS),
                                               std::make_shared<DataTypeString>(64, primitive));
-        strings->ensure_encoded();
+        ensure_typed_fields_match_direct_encoding(*strings);
         EXPECT_EQ(strings->get_value_ref(0).basic_type(), VariantBasicType::SHORT_STRING);
         EXPECT_EQ(strings->get_value_ref(0).get_string(), StringRef(short_text));
         EXPECT_EQ(strings->get_value_ref(1).primitive_id(), VariantPrimitiveId::STRING);
@@ -2264,7 +2286,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     constexpr std::array<int32_t, 3> NULL_VALUES {1, 0, -2};
     constexpr std::array<uint8_t, 3> INNER_NULLS {0, 0, 1};
     auto nulls = typed_int32(NULL_VALUES, INNER_NULLS);
-    nulls->ensure_encoded();
+    ensure_typed_fields_match_direct_encoding(*nulls);
     EXPECT_EQ(nulls->get_value_ref(0).get_int(), 1);
     EXPECT_EQ(nulls->get_value_ref(1).get_int(), 0);
     EXPECT_TRUE(nulls->get_value_ref(2).is_null());

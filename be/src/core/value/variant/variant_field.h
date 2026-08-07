@@ -28,6 +28,7 @@
 namespace doris {
 
 struct FieldWithDataType;
+class VariantScalarRef;
 using VariantMap = std::map<PathInData, FieldWithDataType>;
 
 // Validate a complete metadata dictionary, including every UTF-8 key. Call this once before
@@ -66,10 +67,16 @@ public:
     // returned field never borrows from bytes and preserves legal non-canonical encodings.
     static VariantField from_bytes(StringRef bytes);
 
+    // Encode one scalar view with the empty metadata dictionary. The returned VariantField owns
+    // the encoded bytes, including any data borrowed by the scalar view.
+    static VariantField from_scalar(const VariantScalarRef& scalar);
+
     // The returned view borrows this field and is invalidated by assignment or destruction. It is
     // O(1) and does not revalidate. Default and moved-from fields have empty bytes(), and ref()
     // throws for them.
     VariantRef ref() const;
+    VariantMetadataRef metadata() const;
+    StringRef value() const;
     StringRef bytes() const noexcept;
 
     // VariantField has no ordering or equality contract; all six comparisons always throw.

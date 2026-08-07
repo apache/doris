@@ -26,6 +26,7 @@
 #include "common/exception.h"
 #include "core/field.h"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "core/value/variant/variant_scalar.h"
 #include "util/utf8_check.h"
 
 namespace doris {
@@ -293,6 +294,7 @@ bool VariantField::is_legacy() const noexcept {
     return _legacy_representation;
 }
 
+// NOLINTNEXTLINE(readability-make-member-function-const) -- non-const overload exposes a writable V1 map.
 VariantMap& VariantField::legacy_map() {
     if (!_legacy_representation) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -382,6 +384,17 @@ VariantField VariantField::from_bytes(StringRef bytes) {
     return {copy_bytes(bytes), bytes.size};
 }
 
+VariantField VariantField::from_scalar(const VariantScalarRef& scalar) {
+    const size_t metadata_size = VARIANT_EMPTY_METADATA.size();
+    const size_t value_offset = METADATA_SIZE_PREFIX + metadata_size;
+    const size_t value_size = scalar.encoded_size();
+    auto data = std::make_unique<char[]>(value_offset + value_size);
+    write_u32(data.get(), static_cast<uint32_t>(metadata_size));
+    std::memcpy(data.get() + METADATA_SIZE_PREFIX, VARIANT_EMPTY_METADATA.data(), metadata_size);
+    scalar.write_physical(data.get() + value_offset, value_size);
+    return VariantField(std::move(data), value_offset + value_size);
+}
+
 VariantRef VariantField::ref() const {
     if (_legacy_representation) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -398,6 +411,14 @@ VariantRef VariantField::ref() const {
     VariantMetadataRef metadata {.data = _data.get() + METADATA_SIZE_PREFIX, .size = metadata_size};
     return {.metadata = metadata,
             .value = {metadata.data + metadata.size, _size - METADATA_SIZE_PREFIX - metadata.size}};
+}
+
+VariantMetadataRef VariantField::metadata() const {
+    return ref().metadata;
+}
+
+StringRef VariantField::value() const {
+    return ref().value;
 }
 
 StringRef VariantField::bytes() const noexcept {
