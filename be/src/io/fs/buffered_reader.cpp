@@ -58,22 +58,51 @@ Status MergeRangeFileReader::add_random_access_ranges(const std::vector<Prefetch
                                    [](const PrefetchRange& lhs, size_t start_offset) {
                                        return lhs.start_offset < start_offset;
                                    });
-        const size_t index = static_cast<size_t>(it - _random_access_ranges.begin());
-        if (it != _random_access_ranges.end() && it->start_offset == range.start_offset) {
-            if (it->end_offset != range.end_offset) {
-                return Status::InvalidArgument("Overlapping merge-read ranges");
+        if (it != _random_access_ranges.begin() && std::prev(it)->end_offset > range.start_offset) {
+            --it;
+        }
+        const size_t first = static_cast<size_t>(it - _random_access_ranges.begin());
+        size_t last = first;
+        size_t merged_start = range.start_offset;
+        size_t merged_end = range.end_offset;
+        uint32_t merged_stage = stage;
+        while (last < _random_access_ranges.size() &&
+               _random_access_ranges[last].start_offset < merged_end) {
+            if (_random_access_ranges[last].end_offset <= merged_start) {
+                ++last;
+                continue;
             }
-            _range_stages[index] = std::min(_range_stages[index], stage);
+            merged_start = std::min(merged_start, _random_access_ranges[last].start_offset);
+            merged_end = std::max(merged_end, _random_access_ranges[last].end_offset);
+            merged_stage = std::min(merged_stage, _range_stages[last]);
+            ++last;
+        }
+        if (last == first) {
+            _random_access_ranges.insert(it, range);
+            _range_cached_data.insert(_range_cached_data.begin() + first, RangeCachedData {});
+            _range_stages.insert(_range_stages.begin() + first, stage);
             continue;
         }
-        if ((it != _random_access_ranges.begin() &&
-             std::prev(it)->end_offset > range.start_offset) ||
-            (it != _random_access_ranges.end() && range.end_offset > it->start_offset)) {
-            return Status::InvalidArgument("Overlapping merge-read ranges");
+        if (last == first + 1 && merged_start == _random_access_ranges[first].start_offset &&
+            merged_end == _random_access_ranges[first].end_offset) {
+            _range_stages[first] = merged_stage;
+            continue;
         }
-        _random_access_ranges.insert(it, range);
-        _range_cached_data.insert(_range_cached_data.begin() + index, RangeCachedData {});
-        _range_stages.insert(_range_stages.begin() + index, stage);
+        // PARQUET-816 padding can make staged column-chunk ranges legitimately overlap. Replace
+        // the whole connected component so ranges stay non-overlapping, and drop cached boxes
+        // whose coordinates were defined by the old boundaries before realigning these vectors.
+        for (size_t index = first; index < last; ++index) {
+            _clean_cached_data(_range_cached_data[index]);
+        }
+        _random_access_ranges.erase(_random_access_ranges.begin() + first,
+                                    _random_access_ranges.begin() + last);
+        _range_cached_data.erase(_range_cached_data.begin() + first,
+                                 _range_cached_data.begin() + last);
+        _range_stages.erase(_range_stages.begin() + first, _range_stages.begin() + last);
+        _random_access_ranges.insert(_random_access_ranges.begin() + first,
+                                     PrefetchRange {merged_start, merged_end});
+        _range_cached_data.insert(_range_cached_data.begin() + first, RangeCachedData {});
+        _range_stages.insert(_range_stages.begin() + first, merged_stage);
     }
     return Status::OK();
 }
@@ -308,11 +337,11 @@ int MergeRangeFileReader::_search_read_range(size_t start_offset, size_t end_off
 
 void MergeRangeFileReader::_clean_cached_data(RangeCachedData& cached_data) {
     if (!cached_data.empty()) {
-        for (int i = 0; i < cached_data.ref_box.size(); ++i) {
+        for (size_t i = 0; i < cached_data.ref_box.size(); ++i) {
             DCHECK_GT(cached_data.box_end_offset[i], cached_data.box_start_offset[i]);
-            int16_t box_index = cached_data.ref_box[i];
+            const int16_t box_index = cached_data.ref_box[i];
             DCHECK_GT(_box_ref[box_index], 0);
-            _box_ref[box_index]--;
+            _dec_box_ref(box_index);
         }
     }
     cached_data.reset();
