@@ -275,6 +275,52 @@ VariantRowGroupProjectionCounts finalize_variant_projections_for_row_group(
     return counts;
 }
 
+void prepare_row_group_physical_projection(
+        const tparquet::RowGroup& row_group,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, RowGroupReadPlan* row_group_plan) {
+    DORIS_CHECK(row_group_plan != nullptr);
+    const auto may_project_variant_leaf = [&](const auto& projections) {
+        return std::ranges::any_of(projections, [&](const auto& projection) {
+            const int32_t local_id = projection.local_id();
+            return local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()) &&
+                   file_schema[local_id] != nullptr && file_schema[local_id]->contains_variant &&
+                   format::is_partial_projection(&projection);
+        });
+    };
+    if (!may_project_variant_leaf(request.predicate_columns) &&
+        !may_project_variant_leaf(request.non_predicate_columns)) {
+        row_group_plan->physical_predicate_columns = {};
+        row_group_plan->physical_non_predicate_columns = {};
+        row_group_plan->has_row_group_physical_projection = false;
+        row_group_plan->variant_leaf_projection_columns = 0;
+        row_group_plan->variant_full_projection_columns = 0;
+        return;
+    }
+    row_group_plan->physical_predicate_columns = request.predicate_columns;
+    row_group_plan->physical_non_predicate_columns = request.non_predicate_columns;
+    const auto predicate_counts = finalize_variant_projections_for_row_group(
+            row_group, file_schema, &row_group_plan->physical_predicate_columns);
+    const auto non_predicate_counts = finalize_variant_projections_for_row_group(
+            row_group, file_schema, &row_group_plan->physical_non_predicate_columns);
+    row_group_plan->variant_leaf_projection_columns =
+            predicate_counts.leaf + non_predicate_counts.leaf;
+    row_group_plan->variant_full_projection_columns =
+            predicate_counts.full + non_predicate_counts.full;
+    row_group_plan->has_row_group_physical_projection = true;
+}
+
+std::optional<format::FileScanRequest> physical_request_for_row_group(
+        const format::FileScanRequest& request, const RowGroupReadPlan& row_group_plan) {
+    if (!row_group_plan.has_row_group_physical_projection) {
+        return std::nullopt;
+    }
+    auto physical_request = request;
+    physical_request.predicate_columns = row_group_plan.physical_predicate_columns;
+    physical_request.non_predicate_columns = row_group_plan.physical_non_predicate_columns;
+    return std::optional<format::FileScanRequest>(std::move(physical_request));
+}
+
 void materialize_count_star_placeholders(const format::FileScanRequest& request, size_t rows,
                                          Block* file_block) {
     DORIS_CHECK(file_block != nullptr);
@@ -470,19 +516,22 @@ Status finalize_native_row_group_read_plan(
     }
     row_group_plan->expensive_pruning_pending = false;
     const auto& thrift = metadata.to_thrift();
+    const auto physical_request_storage = physical_request_for_row_group(request, *row_group_plan);
+    const auto& physical_request =
+            physical_request_storage.has_value() ? *physical_request_storage : request;
     const std::vector<int> candidate {row_group_plan->row_group_id};
     std::vector<int> metadata_selected;
     RETURN_IF_ERROR(select_row_groups_by_metadata(
-            thrift, file_schema, request, &candidate, &metadata_selected, enable_bloom_filter,
-            pruning_stats, timezone, runtime_state, file_context, column_reader_profile,
-            ParquetMetadataProbeMode::EXPENSIVE_ONLY));
+            thrift, file_schema, physical_request, &candidate, &metadata_selected,
+            enable_bloom_filter, pruning_stats, timezone, runtime_state, file_context,
+            column_reader_profile, ParquetMetadataProbeMode::EXPENSIVE_ONLY));
     if (metadata_selected.empty()) {
         *selected = false;
         return Status::OK();
     }
 
     std::unordered_set<int> requested_leaf_ids;
-    for (const auto& projection : request_scan_columns(request)) {
+    for (const auto& projection : request_scan_columns(physical_request)) {
         const auto local_id = projection.local_id();
         if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
             continue;
@@ -490,7 +539,7 @@ Status finalize_native_row_group_read_plan(
         collect_projected_leaf_column_ids(*file_schema[local_id], projection, &requested_leaf_ids);
     }
     std::unordered_map<int, NativeParquetPageIndex> page_indexes;
-    if (can_use_parquet_page_index(request, runtime_state)) {
+    if (can_use_parquet_page_index(physical_request, runtime_state)) {
         RETURN_IF_ERROR(file_context->load_native_page_indexes(
                 row_group_plan->row_group_id, requested_leaf_ids, &page_indexes,
                 &pruning_stats->read_page_index_time, &pruning_stats->parse_page_index_time));
@@ -499,8 +548,8 @@ Status finalize_native_row_group_read_plan(
     std::map<int, ParquetPageSkipPlan> page_skip_plans;
     RETURN_IF_ERROR(select_row_group_ranges_by_native_page_index(
             thrift, thrift.row_groups[row_group_plan->row_group_id], page_indexes, file_schema,
-            request, row_group_plan->row_group_rows, &page_selected_ranges, &page_skip_plans,
-            pruning_stats, timezone, runtime_state));
+            physical_request, row_group_plan->row_group_rows, &page_selected_ranges,
+            &page_skip_plans, pruning_stats, timezone, runtime_state));
     row_group_plan->selected_ranges =
             intersect_row_ranges(row_group_plan->selected_ranges, page_selected_ranges);
     row_group_plan->page_skip_plans = std::move(page_skip_plans);
@@ -536,6 +585,7 @@ Status build_native_row_group_read_plans(
         row_group_plan.row_group_rows = row_group.num_rows;
         row_group_plan.selected_ranges = {{.start = 0, .length = row_group.num_rows}};
         row_group_plan.expensive_pruning_pending = true;
+        prepare_row_group_physical_projection(row_group, file_schema, request, &row_group_plan);
         plan->row_groups.push_back(std::move(row_group_plan));
     }
     return Status::OK();
@@ -558,14 +608,28 @@ Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
     std::vector<int> scan_range_selected;
     RETURN_IF_ERROR(detail::select_native_row_groups_by_scan_range(
             metadata.to_thrift(), scan_range, &row_group_first_rows, &scan_range_selected));
-    std::vector<int> metadata_selected;
-    RETURN_IF_ERROR(select_row_groups_by_metadata(
-            metadata.to_thrift(), file_schema, request, &scan_range_selected, &metadata_selected,
-            enable_bloom_filter, &plan->pruning_stats, timezone, runtime_state, file_context,
-            column_reader_profile, ParquetMetadataProbeMode::FOOTER_ONLY));
     RETURN_IF_ERROR(build_native_row_group_read_plans(metadata, file_schema, request,
-                                                      metadata_selected, row_group_first_rows, plan,
-                                                      timezone, runtime_state, file_context));
+                                                      scan_range_selected, row_group_first_rows,
+                                                      plan, timezone, runtime_state, file_context));
+    std::vector<RowGroupReadPlan> metadata_selected_plans;
+    metadata_selected_plans.reserve(plan->row_groups.size());
+    for (auto& row_group_plan : plan->row_groups) {
+        const auto physical_request_storage =
+                physical_request_for_row_group(request, row_group_plan);
+        const auto& physical_request =
+                physical_request_storage.has_value() ? *physical_request_storage : request;
+        const std::vector<int> candidate {row_group_plan.row_group_id};
+        std::vector<int> metadata_selected;
+        RETURN_IF_ERROR(select_row_groups_by_metadata(
+                metadata.to_thrift(), file_schema, physical_request, &candidate, &metadata_selected,
+                enable_bloom_filter, &plan->pruning_stats, timezone, runtime_state, file_context,
+                column_reader_profile, ParquetMetadataProbeMode::FOOTER_ONLY));
+        if (!metadata_selected.empty()) {
+            metadata_selected_plans.push_back(std::move(row_group_plan));
+        }
+    }
+    plan->row_groups = std::move(metadata_selected_plans);
+    plan->pruning_stats.total_row_groups = cast_set<int64_t>(scan_range_selected.size());
     plan->pruning_stats.selected_row_groups = plan->row_groups.size();
     return Status::OK();
 }
@@ -1109,11 +1173,18 @@ Status ParquetScanScheduler::open_next_row_group(
             candidate_plan.expensive_pruning_pending = true;
             candidate_plan.page_skip_plans.clear();
             candidate_plan.offset_indexes.clear();
+            const auto& row_group = file_context.native_metadata->to_thrift()
+                                            .row_groups[candidate_plan.row_group_id];
+            prepare_row_group_physical_projection(row_group, file_schema, request, &candidate_plan);
+            const auto physical_request_storage =
+                    physical_request_for_row_group(request, candidate_plan);
+            const auto& physical_request =
+                    physical_request_storage.has_value() ? *physical_request_storage : request;
             const std::vector<int> candidate {candidate_plan.row_group_id};
             std::vector<int> footer_selected;
             RETURN_IF_ERROR(select_row_groups_by_metadata(
-                    file_context.native_metadata->to_thrift(), file_schema, request, &candidate,
-                    &footer_selected, _enable_bloom_filter, &deferred_stats, _timezone,
+                    file_context.native_metadata->to_thrift(), file_schema, physical_request,
+                    &candidate, &footer_selected, _enable_bloom_filter, &deferred_stats, _timezone,
                     _runtime_state, &file_context, _scan_profile.column_reader_profile,
                     ParquetMetadataProbeMode::FOOTER_ONLY));
             if (footer_selected.empty()) {
@@ -1155,20 +1226,16 @@ Status ParquetScanScheduler::open_next_row_group(
     const auto& row_group_metadata =
             file_context.native_metadata->to_thrift().row_groups[row_group_idx];
     _current_row_group_request = std::make_unique<format::FileScanRequest>();
-    _current_row_group_request->predicate_columns = request.predicate_columns;
-    _current_row_group_request->non_predicate_columns = request.non_predicate_columns;
+    _current_row_group_request->predicate_columns =
+            row_group_plan.has_row_group_physical_projection
+                    ? row_group_plan.physical_predicate_columns
+                    : request.predicate_columns;
+    _current_row_group_request->non_predicate_columns =
+            row_group_plan.has_row_group_physical_projection
+                    ? row_group_plan.physical_non_predicate_columns
+                    : request.non_predicate_columns;
     _current_row_group_request->count_star_placeholder_columns =
             request.count_star_placeholder_columns;
-    VariantRowGroupProjectionCounts variant_projection_counts;
-    if (file_context.contains_variant) {
-        const auto predicate_counts = finalize_variant_projections_for_row_group(
-                row_group_metadata, file_schema, &_current_row_group_request->predicate_columns);
-        const auto non_predicate_counts = finalize_variant_projections_for_row_group(
-                row_group_metadata, file_schema,
-                &_current_row_group_request->non_predicate_columns);
-        variant_projection_counts.leaf = predicate_counts.leaf + non_predicate_counts.leaf;
-        variant_projection_counts.full = predicate_counts.full + non_predicate_counts.full;
-    }
     const auto& row_group_request = *_current_row_group_request;
     _current_row_group_rows = row_group_metadata.num_rows;
     DORIS_CHECK(_current_row_group_rows == row_group_plan.row_group_rows);
@@ -1313,10 +1380,12 @@ Status ParquetScanScheduler::open_next_row_group(
                 &_current_non_predicate_prefetched));
     }
     if (_parquet_profile != nullptr) {
-        update_counter_if_not_null(_parquet_profile->variant_leaf_projection_row_group_columns,
-                                   cast_set<int64_t>(variant_projection_counts.leaf));
-        update_counter_if_not_null(_parquet_profile->variant_full_projection_row_group_columns,
-                                   cast_set<int64_t>(variant_projection_counts.full));
+        update_counter_if_not_null(
+                _parquet_profile->variant_leaf_projection_row_group_columns,
+                cast_set<int64_t>(row_group_plan.variant_leaf_projection_columns));
+        update_counter_if_not_null(
+                _parquet_profile->variant_full_projection_row_group_columns,
+                cast_set<int64_t>(row_group_plan.variant_full_projection_columns));
     }
     *has_row_group = true;
     return Status::OK();

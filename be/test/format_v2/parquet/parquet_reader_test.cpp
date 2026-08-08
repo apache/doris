@@ -88,11 +88,8 @@ namespace {
 
 constexpr int64_t ROW_COUNT = 5;
 
-void duplicate_variant_fixture_with_unsafe_second_row_group(const std::string& source_path,
-                                                            const std::string& output_path) {
-    std::filesystem::copy_file(source_path, output_path,
-                               std::filesystem::copy_options::overwrite_existing);
-    std::ifstream input(output_path, std::ios::binary | std::ios::ate);
+void annotate_variant_schema(const std::string& file_path) {
+    std::ifstream input(file_path, std::ios::binary | std::ios::ate);
     DORIS_CHECK(input.good());
     const auto input_size = static_cast<std::streamoff>(input.tellg());
     DORIS_CHECK(input_size >= static_cast<std::streamoff>(8));
@@ -110,16 +107,13 @@ void duplicate_variant_fixture_with_unsafe_second_row_group(const std::string& s
     DORIS_CHECK(
             deserialize_thrift_msg(file_bytes.data() + footer_offset, &thrift_size, true, &metadata)
                     .ok());
-    DORIS_CHECK(metadata.row_groups.size() == 1);
-    DORIS_CHECK(metadata.row_groups[0].columns.size() > 2);
-    // Reuse the immutable chunks to isolate the scheduler decision: each row-group reader owns an
-    // independent cursor, while the second footer entry deliberately cannot prove an empty residual.
-    auto second_row_group = metadata.row_groups[0];
-    auto& root_residual = second_row_group.columns[2].meta_data.statistics;
-    DORIS_CHECK(root_residual.__isset.null_count);
-    root_residual.__set_null_count(second_row_group.num_rows - 1);
-    metadata.row_groups.push_back(std::move(second_row_group));
-    metadata.__set_num_rows(metadata.num_rows * 2);
+    input.close();
+    const auto schema_it = std::ranges::find_if(
+            metadata.schema, [](const auto& element) { return element.name == "v"; });
+    DORIS_CHECK(schema_it != metadata.schema.end());
+    schema_it->__set_logicalType(tparquet::LogicalType());
+    schema_it->logicalType.__set_VARIANT(tparquet::VariantType());
+    schema_it->logicalType.VARIANT.__set_specification_version(1);
 
     file_bytes.resize(footer_offset);
     std::vector<uint8_t> footer;
@@ -131,7 +125,7 @@ void duplicate_variant_fixture_with_unsafe_second_row_group(const std::string& s
     file_bytes.insert(file_bytes.end(), encoded_footer_size.begin(), encoded_footer_size.end());
     file_bytes.insert(file_bytes.end(), {'P', 'A', 'R', '1'});
 
-    std::ofstream output(output_path, std::ios::binary | std::ios::trunc);
+    std::ofstream output(file_path, std::ios::binary | std::ios::trunc);
     output.write(reinterpret_cast<const char*>(file_bytes.data()),
                  cast_set<std::streamsize>(file_bytes.size()));
     output.close();
@@ -864,6 +858,74 @@ void write_parquet_file(const std::string& file_path, int64_t row_group_size = R
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       row_group_size, builder.build()));
+}
+
+void write_mixed_variant_row_groups(const std::string& file_path) {
+    auto n_type = arrow::struct_({arrow::field("value", arrow::binary(), true),
+                                  arrow::field("typed_value", arrow::int32(), true)});
+    auto padding_type = arrow::struct_({arrow::field("value", arrow::binary(), true),
+                                        arrow::field("typed_value", arrow::utf8(), true)});
+    auto typed_value_type = arrow::struct_(
+            {arrow::field("n", n_type, false), arrow::field("padding", padding_type, false)});
+    auto variant_type = arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                                        arrow::field("value", arrow::binary(), true),
+                                        arrow::field("typed_value", typed_value_type, true)});
+
+    auto metadata_builder = std::make_shared<arrow::BinaryBuilder>();
+    auto root_value_builder = std::make_shared<arrow::BinaryBuilder>();
+    auto n_value_builder = std::make_shared<arrow::BinaryBuilder>();
+    auto n_typed_builder = std::make_shared<arrow::Int32Builder>();
+    auto n_builder = std::make_shared<arrow::StructBuilder>(
+            n_type, arrow::default_memory_pool(),
+            std::vector<std::shared_ptr<arrow::ArrayBuilder>> {n_value_builder, n_typed_builder});
+    auto padding_value_builder = std::make_shared<arrow::BinaryBuilder>();
+    auto padding_typed_builder = std::make_shared<arrow::StringBuilder>();
+    auto padding_builder = std::make_shared<arrow::StructBuilder>(
+            padding_type, arrow::default_memory_pool(),
+            std::vector<std::shared_ptr<arrow::ArrayBuilder>> {padding_value_builder,
+                                                               padding_typed_builder});
+    auto typed_value_builder = std::make_shared<arrow::StructBuilder>(
+            typed_value_type, arrow::default_memory_pool(),
+            std::vector<std::shared_ptr<arrow::ArrayBuilder>> {n_builder, padding_builder});
+    arrow::StructBuilder variant_builder(
+            variant_type, arrow::default_memory_pool(),
+            std::vector<std::shared_ptr<arrow::ArrayBuilder>> {metadata_builder, root_value_builder,
+                                                               typed_value_builder});
+
+    const std::string metadata("\x11\x02\x00\x01\x08npadding", 13);
+    for (int row = 0; row < 2; ++row) {
+        ASSERT_TRUE(variant_builder.Append().ok());
+        ASSERT_TRUE(metadata_builder->Append(metadata).ok());
+        ASSERT_TRUE(root_value_builder->AppendNull().ok());
+        ASSERT_TRUE(typed_value_builder->Append().ok());
+        ASSERT_TRUE(n_builder->Append().ok());
+        if (row == 0) {
+            ASSERT_TRUE(n_value_builder->AppendNull().ok());
+            ASSERT_TRUE(n_typed_builder->Append(1).ok());
+        } else {
+            const std::string residual("\x0dn/a", 4);
+            ASSERT_TRUE(n_value_builder->Append(residual).ok());
+            ASSERT_TRUE(n_typed_builder->AppendNull().ok());
+        }
+        ASSERT_TRUE(padding_builder->Append().ok());
+        ASSERT_TRUE(padding_value_builder->AppendNull().ok());
+        ASSERT_TRUE(padding_typed_builder->Append("x").ok());
+    }
+
+    auto schema = arrow::schema(
+            {arrow::field("id", arrow::int32(), false), arrow::field("v", variant_type, false)});
+    auto table =
+            arrow::Table::Make(schema, {build_int32_array({1, 2}), finish_array(&variant_builder)});
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder writer_properties;
+    writer_properties.compression(::parquet::Compression::UNCOMPRESSED);
+    writer_properties.disable_dictionary();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      writer_properties.build()));
+    ASSERT_TRUE(out->Close().ok());
+    annotate_variant_schema(file_path);
 }
 
 void write_unannotated_binary_parquet_file(const std::string& file_path) {
@@ -1842,6 +1904,18 @@ TEST(ParquetVariantProjectionTest, ResidualStatisticsGuardPhysicalLeafProjection
     EXPECT_FALSE(row_group_projection.project_all_children);
     EXPECT_EQ(full_projections, 0);
 
+    // A conforming partially shredded object keeps unrelated keys in the ancestor residual. The
+    // requested field is still complete when its own value column is all null.
+    row_group.columns[1].meta_data.statistics.__set_null_count(9);
+    row_group_projection = projection;
+    full_projections = 0;
+    EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
+                      row_group, *root, &row_group_projection, &full_projections),
+              1);
+    EXPECT_FALSE(row_group_projection.project_all_children);
+    EXPECT_EQ(full_projections, 0);
+    row_group.columns[1].meta_data.statistics.__set_null_count(10);
+
     row_group.columns[2].meta_data.statistics.__set_null_count(9);
     row_group_projection = projection;
     full_projections = 0;
@@ -1868,6 +1942,125 @@ TEST(ParquetVariantProjectionTest, ResidualStatisticsGuardPhysicalLeafProjection
               0);
     EXPECT_TRUE(row_group_projection.project_all_children);
     EXPECT_EQ(full_projections, 1);
+}
+
+TEST(ParquetVariantProjectionTest, FinalizesPhysicalProjectionBeforeFooterPruning) {
+    using format::parquet::ParquetColumnSchema;
+    using format::parquet::ParquetColumnSchemaKind;
+    auto primitive = [](std::string name, int32_t local_id, int leaf_id,
+                        tparquet::Type::type physical_type, DataTypePtr type) {
+        auto result = std::make_unique<ParquetColumnSchema>();
+        result->name = std::move(name);
+        result->local_id = local_id;
+        result->kind = ParquetColumnSchemaKind::PRIMITIVE;
+        result->leaf_column_id = leaf_id;
+        result->type = std::move(type);
+        result->type_descriptor.doris_type = result->type;
+        result->type_descriptor.physical_type = physical_type;
+        return result;
+    };
+    auto bytes = [&](std::string name, int32_t local_id, int leaf_id) {
+        return primitive(std::move(name), local_id, leaf_id, tparquet::Type::BYTE_ARRAY,
+                         make_nullable(std::make_shared<DataTypeString>()));
+    };
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> schema;
+    schema.push_back(primitive("id", 0, 0, tparquet::Type::INT32,
+                               make_nullable(std::make_shared<DataTypeInt32>())));
+    auto variant = std::make_unique<ParquetColumnSchema>();
+    variant->name = "v";
+    variant->local_id = 1;
+    variant->kind = ParquetColumnSchemaKind::VARIANT;
+    variant->contains_variant = true;
+    variant->type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    variant->children.push_back(bytes("metadata", 0, 1));
+    variant->children.push_back(bytes("value", 1, 2));
+    auto typed_object = std::make_unique<ParquetColumnSchema>();
+    typed_object->name = "typed_value";
+    typed_object->local_id = 2;
+    typed_object->kind = ParquetColumnSchemaKind::STRUCT;
+    auto field = std::make_unique<ParquetColumnSchema>();
+    field->name = "n";
+    field->local_id = 0;
+    field->kind = ParquetColumnSchemaKind::STRUCT;
+    field->children.push_back(bytes("value", 0, 3));
+    field->children.push_back(primitive("typed_value", 1, 4, tparquet::Type::INT32,
+                                        make_nullable(std::make_shared<DataTypeInt32>())));
+    typed_object->children.push_back(std::move(field));
+    variant->children.push_back(std::move(typed_object));
+    schema.push_back(std::move(variant));
+
+    auto chunk = [](tparquet::Type::type type, int64_t null_count, int64_t compressed_size,
+                    std::optional<int32_t> min_value = std::nullopt,
+                    std::optional<int32_t> max_value = std::nullopt) {
+        tparquet::Statistics statistics;
+        statistics.__set_null_count(null_count);
+        if (min_value.has_value() && max_value.has_value()) {
+            std::string min_bytes(sizeof(int32_t), '\0');
+            std::string max_bytes(sizeof(int32_t), '\0');
+            encode_fixed32_le(reinterpret_cast<uint8_t*>(min_bytes.data()), *min_value);
+            encode_fixed32_le(reinterpret_cast<uint8_t*>(max_bytes.data()), *max_value);
+            statistics.__set_min_value(std::move(min_bytes));
+            statistics.__set_max_value(std::move(max_bytes));
+        }
+        tparquet::ColumnMetaData column_metadata;
+        column_metadata.__set_type(type);
+        column_metadata.__set_num_values(10);
+        column_metadata.__set_total_compressed_size(compressed_size);
+        column_metadata.__set_statistics(std::move(statistics));
+        tparquet::ColumnChunk result;
+        result.__set_meta_data(std::move(column_metadata));
+        return result;
+    };
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(10);
+    row_group.__set_columns(
+            {chunk(tparquet::Type::INT32, 0, 10, 1, 2), chunk(tparquet::Type::BYTE_ARRAY, 0, 20),
+             chunk(tparquet::Type::BYTE_ARRAY, 10, 30), chunk(tparquet::Type::BYTE_ARRAY, 9, 40),
+             chunk(tparquet::Type::INT32, 1, 50)});
+    tparquet::ColumnOrder order;
+    order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+    tparquet::FileMetaData thrift_metadata;
+    thrift_metadata.__set_num_rows(10);
+    thrift_metadata.__set_row_groups({row_group});
+    thrift_metadata.__set_column_orders({order, order, order, order, order});
+    format::parquet::NativeParquetMetadata metadata(std::move(thrift_metadata), 0);
+
+    auto leaf_projection = format::LocalColumnIndex::partial_local(1);
+    leaf_projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+    leaf_projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
+    leaf_projection.children.back().children.back().children.push_back(
+            format::LocalColumnIndex::local(1));
+    format::FileScanRequest request;
+    request.predicate_columns = {format::LocalColumnIndex::local(0)};
+    request.non_predicate_columns = {std::move(leaf_projection)};
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.local_positions.emplace(format::LocalColumnId(1), format::LocalIndex(1));
+    request.conjuncts.push_back(create_int32_greater_than_conjunct(0, 50));
+
+    format::parquet::ParquetFileContext file_context;
+    file_context.native_metadata = &metadata;
+    file_context.contains_variant = true;
+    format::parquet::RowGroupScanPlan plan;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(metadata, schema, request,
+                                                         {.start_offset = 0, .size = -1}, false,
+                                                         &plan, nullptr, nullptr, &file_context)
+                        .ok());
+    EXPECT_TRUE(plan.row_groups.empty());
+    // Footer accounting must use the row-group fallback shape: id plus all four Variant leaves.
+    EXPECT_EQ(plan.pruning_stats.filtered_bytes, 150);
+
+    request.conjuncts.clear();
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(metadata, schema, request,
+                                                         {.start_offset = 0, .size = -1}, false,
+                                                         &plan, nullptr, nullptr, &file_context)
+                        .ok());
+    ASSERT_EQ(plan.row_groups.size(), 1);
+    EXPECT_TRUE(plan.row_groups[0].has_row_group_physical_projection);
+    ASSERT_EQ(plan.row_groups[0].physical_non_predicate_columns.size(), 1);
+    EXPECT_TRUE(plan.row_groups[0].physical_non_predicate_columns[0].project_all_children);
+    EXPECT_EQ(plan.row_groups[0].variant_leaf_projection_columns, 0);
+    EXPECT_EQ(plan.row_groups[0].variant_full_projection_columns, 1);
 }
 
 TEST(ParquetVariantProjectionTest, FinalizesNestedVariantProjectionPerRowGroup) {
@@ -2070,14 +2263,8 @@ TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
 }
 
 TEST_F(NewParquetReaderTest, SwitchesVariantLeafProjectionPerRowGroup) {
-    const char* source_root = std::getenv("ROOT");
-    ASSERT_NE(source_root, nullptr);
-    const std::string source_path =
-            std::string(source_root) +
-            "/regression-test/data/external_table_p0/iceberg/iceberg_variant_shredded.parquet";
-    ASSERT_TRUE(std::filesystem::exists(source_path));
     _file_path = (_test_dir / "iceberg_variant_mixed_row_groups.parquet").string();
-    duplicate_variant_fixture_with_unsafe_second_row_group(source_path, _file_path);
+    write_mixed_variant_row_groups(_file_path);
 
     RuntimeProfile profile("variant_row_group_projection_switch");
     auto reader = create_reader(0, -1, &profile);
@@ -2124,7 +2311,7 @@ TEST_F(NewParquetReaderTest, SwitchesVariantLeafProjectionPerRowGroup) {
         ASSERT_TRUE(reader->get_block(&block, &batch_rows, &eof).ok());
         rows += batch_rows;
     }
-    EXPECT_EQ(rows, 8192);
+    EXPECT_EQ(rows, 2);
     ASSERT_NE(profile.get_counter("VariantLeafProjectionRowGroupColumns"), nullptr);
     EXPECT_EQ(profile.get_counter("VariantLeafProjectionRowGroupColumns")->value(), 1);
     ASSERT_NE(profile.get_counter("VariantFullProjectionRowGroupColumns"), nullptr);
@@ -2136,8 +2323,14 @@ TEST_F(NewParquetReaderTest, SwitchesVariantLeafProjectionPerRowGroup) {
             .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("n")}};
     const auto match = variants.find_shredded_typed_value(path);
     ASSERT_TRUE(match.has_value());
-    ASSERT_TRUE(match->column);
-    EXPECT_EQ(match->column->size(), rows);
+    ASSERT_TRUE(match->normalized);
+    EXPECT_EQ(match->normalized->size(), rows);
+    std::vector<std::string> values;
+    for (size_t row = 0; row < rows; ++row) {
+        values.push_back(schema[1].type->to_string(*match->normalized, row,
+                                                   DataTypeSerDe::get_default_format_options()));
+    }
+    EXPECT_EQ(values, std::vector<std::string>({"1", R"("n/a")"}));
 }
 
 TEST_F(NewParquetReaderTest, ShreddedVariantPredicateUsesTypedLeafPageIndexWithRootOutput) {

@@ -72,22 +72,37 @@ const ParquetColumnSchema* schema_child_by_name(const ParquetColumnSchema& schem
     return child_it == schema.children.end() ? nullptr : child_it->get();
 }
 
-bool collect_variant_residual_leaf_ids(const ParquetColumnSchema& schema,
-                                       const format::LocalColumnIndex& projection,
-                                       std::vector<int>* residual_leaf_ids) {
+bool collect_variant_terminal_fallback_leaf_ids(const ParquetColumnSchema& schema,
+                                                const format::LocalColumnIndex& projection,
+                                                std::vector<int>* residual_leaf_ids) {
     DORIS_CHECK(residual_leaf_ids != nullptr);
     const auto* value = schema_child_by_name(schema, "value");
     const auto* typed_value = schema_child_by_name(schema, "typed_value");
-    if (value != nullptr && typed_value != nullptr) {
-        if (value->kind != ParquetColumnSchemaKind::PRIMITIVE || value->leaf_column_id < 0) {
+    if (value != nullptr && value->kind == ParquetColumnSchemaKind::PRIMITIVE &&
+        typed_value != nullptr) {
+        if (value->leaf_column_id < 0) {
             return false;
         }
+        const auto typed_projection_it =
+                std::ranges::find_if(projection.children, [&](const auto& child_projection) {
+                    return child_projection.local_id() == typed_value->local_id;
+                });
+        if (typed_projection_it == projection.children.end()) {
+            return false;
+        }
+        if (typed_value->kind != ParquetColumnSchemaKind::PRIMITIVE) {
+            return collect_variant_terminal_fallback_leaf_ids(*typed_value, *typed_projection_it,
+                                                              residual_leaf_ids);
+        }
+        // Object residual keys are disjoint from shredded keys. Only the fallback paired with the
+        // terminal typed leaf can supply that projected path; ancestor values contain other keys.
         residual_leaf_ids->push_back(value->leaf_column_id);
+        return true;
     }
     for (const auto& child_projection : projection.children) {
         const auto* child = projected_schema_child(schema, child_projection.local_id());
-        if (child == nullptr ||
-            !collect_variant_residual_leaf_ids(*child, child_projection, residual_leaf_ids)) {
+        if (child == nullptr || !collect_variant_terminal_fallback_leaf_ids(
+                                        *child, child_projection, residual_leaf_ids)) {
             return false;
         }
     }
@@ -104,7 +119,7 @@ bool variant_projection_is_fully_shredded_in_row_group(const tparquet::RowGroup&
         return false;
     }
     std::vector<int> residual_leaf_ids;
-    if (!collect_variant_residual_leaf_ids(schema, projection, &residual_leaf_ids) ||
+    if (!collect_variant_terminal_fallback_leaf_ids(schema, projection, &residual_leaf_ids) ||
         residual_leaf_ids.empty()) {
         return false;
     }
@@ -166,8 +181,8 @@ size_t count_variant_leaf_projection_candidates(const ParquetColumnSchema& schem
     if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
         std::vector<int> residual_leaf_ids;
         return schema.max_repetition_level == 0 &&
-                               collect_variant_residual_leaf_ids(schema, projection,
-                                                                 &residual_leaf_ids) &&
+                               collect_variant_terminal_fallback_leaf_ids(schema, projection,
+                                                                          &residual_leaf_ids) &&
                                !residual_leaf_ids.empty()
                        ? 1
                        : 0;

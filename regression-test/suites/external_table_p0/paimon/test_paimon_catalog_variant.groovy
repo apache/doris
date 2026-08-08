@@ -283,21 +283,30 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
         """
         assertEquals(2, deepProjectionRows.size())
         String deepProjectionProfile = new ProfileAction(context).getProfileBySql(
-                deepProjectionToken, ["VariantLeafProjections"], 30000L, 500L)
-        def leafProjectionValues = deepProjectionProfile =~
-                /(?m)^\s*(?:-\s*)?VariantLeafProjections:\s+([^\n]+)/
-        long leafProjectionCount = 0L
-        while (leafProjectionValues.find()) {
-            def exactValue = leafProjectionValues.group(1).toString() =~ /\(([0-9,]+)\)/
-            def displayedValue = leafProjectionValues.group(1).toString() =~ /([0-9,]+)/
-            if (exactValue.find()) {
-                leafProjectionCount += Long.parseLong(exactValue.group(1).replace(",", ""))
-            } else if (displayedValue.find()) {
-                leafProjectionCount += Long.parseLong(displayedValue.group(1).replace(",", ""))
+                deepProjectionToken,
+                ["VariantLeafProjectionRowGroupColumns", "VariantFullProjectionRowGroupColumns"],
+                30000L, 500L)
+        def counterSum = { String profile, String counterName ->
+            def values = profile =~
+                    /(?m)^\s*(?:-\s*)?${counterName}:\s+([^\n]+)/
+            long total = 0L
+            while (values.find()) {
+                def exactValue = values.group(1).toString() =~ /\(([0-9,]+)\)/
+                def displayedValue = values.group(1).toString() =~ /([0-9,]+)/
+                if (exactValue.find()) {
+                    total += Long.parseLong(exactValue.group(1).replace(",", ""))
+                } else if (displayedValue.find()) {
+                    total += Long.parseLong(displayedValue.group(1).replace(",", ""))
+                }
             }
+            return total
         }
-        assertTrue(leafProjectionCount > 0,
+        assertTrue(counterSum(deepProjectionProfile,
+                        "VariantLeafProjectionRowGroupColumns") > 0,
                 "Paimon Native did not project the deeply shredded Variant object leaves")
+        assertEquals(0L, counterSum(deepProjectionProfile,
+                        "VariantFullProjectionRowGroupColumns"),
+                "Paimon Native unexpectedly fell back to full Variant row-group projection")
         sql """set enable_profile = false"""
 
         order_qt_native_mixed_us_partitions """

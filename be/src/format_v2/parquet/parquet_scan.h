@@ -122,6 +122,13 @@ struct RowGroupReadPlan {
     // Deferred planning transfers parsed indexes to execution so narrowed scans never issue the
     // same remote index reads a second time while opening the row group.
     std::unordered_map<int, tparquet::OffsetIndex> offset_indexes;
+    // Variant leaf/full selection is row-group scoped and must be fixed before footer byte
+    // accounting, metadata probes, page indexes, prefetch, and physical readers use the request.
+    std::vector<format::LocalColumnIndex> physical_predicate_columns;
+    std::vector<format::LocalColumnIndex> physical_non_predicate_columns;
+    bool has_row_group_physical_projection = false;
+    size_t variant_leaf_projection_columns = 0;
+    size_t variant_full_projection_columns = 0;
     // Footer statistics are cheap and eager. Remote dictionary/Bloom/page-index probes fill the
     // remaining fields only when this row group reaches the scheduler.
     bool expensive_pruning_pending = false;

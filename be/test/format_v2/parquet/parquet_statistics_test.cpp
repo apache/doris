@@ -1528,8 +1528,8 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
                         .ok());
     EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
 
-    // A root residual can contain the requested nested path even when that path's own fallback is
-    // all null. Every wrapper from the Variant root to the typed leaf must prove completeness.
+    // Object residual keys are disjoint from shredded fields, so an unrelated root residual must
+    // not disable statistics for a complete nested field.
     footer_only_metadata = metadata;
     footer_only_metadata.row_groups[0].columns[3].meta_data.statistics.__set_max_value(
             encode_int32(2));
@@ -1539,7 +1539,7 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
                         nullptr, nullptr, nullptr, nullptr, {},
                         format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
                         .ok());
-    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+    EXPECT_TRUE(selected_row_groups.empty());
 
     // A contradictory non-repeated value count cannot prove that every row lacks fallback bytes.
     footer_only_metadata = metadata;
@@ -1597,8 +1597,8 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
                         &selected_ranges, &skip_plans, nullptr)
                         .ok());
     ASSERT_EQ(selected_ranges.size(), 1);
-    EXPECT_EQ(selected_ranges[0].start, 0);
-    EXPECT_EQ(selected_ranges[0].length, 100);
+    EXPECT_EQ(selected_ranges[0].start, 50);
+    EXPECT_EQ(selected_ranges[0].length, 50);
 
     // Direct Variant numeric comparisons coerce integral literals to a wide DECIMAL domain.
     request.conjuncts = {variant_path_gt_conjunct(50, false, true)};
