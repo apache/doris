@@ -252,6 +252,29 @@ std::vector<format::LocalColumnIndex> physical_non_predicate_columns(
     return columns;
 }
 
+struct VariantRowGroupProjectionCounts {
+    size_t leaf = 0;
+    size_t full = 0;
+};
+
+VariantRowGroupProjectionCounts finalize_variant_projections_for_row_group(
+        const tparquet::RowGroup& row_group,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        std::vector<format::LocalColumnIndex>* projections) {
+    DORIS_CHECK(projections != nullptr);
+    VariantRowGroupProjectionCounts counts;
+    for (auto& projection : *projections) {
+        const int32_t local_id = projection.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size()) ||
+            !file_schema[local_id]->contains_variant) {
+            continue;
+        }
+        counts.leaf += detail::finalize_variant_leaf_projection_for_row_group(
+                row_group, *file_schema[local_id], &projection, &counts.full);
+    }
+    return counts;
+}
+
 void materialize_count_star_placeholders(const format::FileScanRequest& request, size_t rows,
                                          Block* file_block) {
     DORIS_CHECK(file_block != nullptr);
@@ -941,6 +964,7 @@ void ParquetScanScheduler::reset_current_row_group() {
     _has_current_row_group = false;
     _current_predicate_columns.clear();
     _current_non_predicate_columns.clear();
+    _current_row_group_request.reset();
     _current_dictionary_filters.clear();
     _current_dictionary_residual_conjuncts.clear();
     _current_row_group_rows = 0;
@@ -1017,11 +1041,12 @@ const detail::PredicateConjunctSchedule& ParquetScanScheduler::predicate_conjunc
 }
 
 std::vector<format::LocalColumnIndex> ParquetScanScheduler::adaptive_predicate_prefetch_columns(
-        const format::FileScanRequest& request) {
+        const format::FileScanRequest& request,
+        const std::vector<format::LocalColumnIndex>& physical_predicate_columns) {
     std::vector<size_t> positions;
     std::unordered_map<size_t, const format::LocalColumnIndex*> columns_by_position;
-    columns_by_position.reserve(request.predicate_columns.size());
-    for (const auto& column : request.predicate_columns) {
+    columns_by_position.reserve(physical_predicate_columns.size());
+    for (const auto& column : physical_predicate_columns) {
         const auto position_it = request.local_positions.find(column.column_id());
         DORIS_CHECK(position_it != request.local_positions.end());
         const size_t position = position_it->second.value();
@@ -1129,6 +1154,22 @@ Status ParquetScanScheduler::open_next_row_group(
 
     const auto& row_group_metadata =
             file_context.native_metadata->to_thrift().row_groups[row_group_idx];
+    _current_row_group_request = std::make_unique<format::FileScanRequest>();
+    _current_row_group_request->predicate_columns = request.predicate_columns;
+    _current_row_group_request->non_predicate_columns = request.non_predicate_columns;
+    _current_row_group_request->count_star_placeholder_columns =
+            request.count_star_placeholder_columns;
+    VariantRowGroupProjectionCounts variant_projection_counts;
+    if (file_context.contains_variant) {
+        const auto predicate_counts = finalize_variant_projections_for_row_group(
+                row_group_metadata, file_schema, &_current_row_group_request->predicate_columns);
+        const auto non_predicate_counts = finalize_variant_projections_for_row_group(
+                row_group_metadata, file_schema,
+                &_current_row_group_request->non_predicate_columns);
+        variant_projection_counts.leaf = predicate_counts.leaf + non_predicate_counts.leaf;
+        variant_projection_counts.full = predicate_counts.full + non_predicate_counts.full;
+    }
+    const auto& row_group_request = *_current_row_group_request;
     _current_row_group_rows = row_group_metadata.num_rows;
     DORIS_CHECK(_current_row_group_rows == row_group_plan.row_group_rows);
     DORIS_CHECK(_current_row_group_rows > 0);
@@ -1165,6 +1206,7 @@ Status ParquetScanScheduler::open_next_row_group(
     _current_non_predicate_columns.clear();
     _current_dictionary_filters.clear();
     RETURN_IF_ERROR(prepare_current_dictionary_filters(file_context, file_schema, request,
+                                                       row_group_request.predicate_columns,
                                                        row_group_idx, row_group_metadata));
     // Dictionary probing is complete, so the native data-page readers can now share the same
     // row-group-scoped MergeRangeFileReader policy as v1. Sharing one wrapper is important: a
@@ -1175,7 +1217,7 @@ Status ParquetScanScheduler::open_next_row_group(
             thrift_metadata.__isset.created_by ? thrift_metadata.created_by : std::string {});
     std::vector<ParquetPageCacheRange> native_ranges;
     RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
-            thrift_metadata, file_schema, request_scan_columns(request), row_group_idx,
+            thrift_metadata, file_schema, request_scan_columns(row_group_request), row_group_idx,
             file_context.native_file->size(), compat.parquet_816_padding, &native_ranges));
     if (request.non_predicate_positions.empty()) {
         _current_merge_range_active = file_context.set_native_random_access_ranges(
@@ -1189,7 +1231,7 @@ Status ParquetScanScheduler::open_next_row_group(
                 {}, 0, _profile, _merge_read_slice_size);
     }
 
-    for (const auto& col : request.predicate_columns) {
+    for (const auto& col : row_group_request.predicate_columns) {
         const auto local_id = col.column_id();
         if (_current_predicate_columns.contains(local_id)) {
             continue;
@@ -1225,11 +1267,12 @@ Status ParquetScanScheduler::open_next_row_group(
     // BufferedFileStreamReader later consumes the same Doris file-cache blocks; prefetch never
     // changes row/column materialization order.
     if (!_current_merge_range_active) {
-        const auto prefetch_columns = adaptive_predicate_prefetch_columns(request);
+        const auto prefetch_columns =
+                adaptive_predicate_prefetch_columns(request, row_group_request.predicate_columns);
         RETURN_IF_ERROR(prefetch_current_row_group_columns(
                 file_context, file_schema, prefetch_columns, &_current_predicate_prefetched));
     }
-    for (const auto& col : request.non_predicate_columns) {
+    for (const auto& col : row_group_request.non_predicate_columns) {
         const auto local_id = col.column_id();
         if (request.is_count_star_placeholder(col.column_id())) {
             continue;
@@ -1265,9 +1308,15 @@ Status ParquetScanScheduler::open_next_row_group(
         // With no row-level filters there is no lazy-read decision to wait for, so start warming
         // output chunks immediately after their readers are created. Filtered scans still defer
         // this until at least one row survives the predicate phase.
-        RETURN_IF_ERROR(prefetch_current_row_group_columns(file_context, file_schema,
-                                                           physical_non_predicate_columns(request),
-                                                           &_current_non_predicate_prefetched));
+        RETURN_IF_ERROR(prefetch_current_row_group_columns(
+                file_context, file_schema, physical_non_predicate_columns(row_group_request),
+                &_current_non_predicate_prefetched));
+    }
+    if (_parquet_profile != nullptr) {
+        update_counter_if_not_null(_parquet_profile->variant_leaf_projection_row_group_columns,
+                                   cast_set<int64_t>(variant_projection_counts.leaf));
+        update_counter_if_not_null(_parquet_profile->variant_full_projection_row_group_columns,
+                                   cast_set<int64_t>(variant_projection_counts.full));
     }
     *has_row_group = true;
     return Status::OK();
@@ -1735,7 +1784,8 @@ Status build_dictionary_entry_filter(size_t block_position,
 Status ParquetScanScheduler::prepare_current_dictionary_filters(
         ParquetFileContext& file_context,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request, int row_group_idx,
+        const format::FileScanRequest& request,
+        const std::vector<format::LocalColumnIndex>& physical_predicate_columns, int row_group_idx,
         const tparquet::RowGroup& row_group_metadata) {
     _current_dictionary_filters.clear();
     _current_dictionary_residual_conjuncts.clear();
@@ -1752,7 +1802,7 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
     }
 
     SCOPED_TIMER(_scan_profile.dict_filter_rewrite_time);
-    for (const auto& col : request.predicate_columns) {
+    for (const auto& col : physical_predicate_columns) {
         const auto local_id = col.column_id();
         if (!local_id.is_valid() || local_id.value() >= static_cast<int32_t>(file_schema.size())) {
             continue;
@@ -2601,9 +2651,11 @@ Status ParquetScanScheduler::read_current_row_group_batch(
         // Do not prefetch lazy output columns until at least one row survives filtering. This is
         // the same decision point where the v2 reader switches from predicate-only reads to
         // materializing non-predicate columns, so fully filtered batches avoid unnecessary IO.
-        RETURN_IF_ERROR(prefetch_current_row_group_columns(file_context, file_schema,
-                                                           physical_non_predicate_columns(request),
-                                                           &_current_non_predicate_prefetched));
+        DORIS_CHECK(_current_row_group_request != nullptr);
+        RETURN_IF_ERROR(prefetch_current_row_group_columns(
+                file_context, file_schema,
+                physical_non_predicate_columns(*_current_row_group_request),
+                &_current_non_predicate_prefetched));
     }
 
     if (selected_rows > _batch_size) {

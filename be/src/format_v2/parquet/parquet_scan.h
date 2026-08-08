@@ -77,6 +77,11 @@ struct AdaptivePredicateStats {
     size_t samples = 0;
 };
 
+size_t finalize_variant_leaf_projection_for_row_group(const tparquet::RowGroup& row_group,
+                                                      const ParquetColumnSchema& schema,
+                                                      format::LocalColumnIndex* projection,
+                                                      size_t* full_projections = nullptr);
+
 std::vector<size_t> order_adaptive_predicates(
         const std::vector<size_t>& positions,
         const std::unordered_map<size_t, AdaptivePredicateStats>& stats);
@@ -218,7 +223,8 @@ private:
     const detail::PredicateConjunctSchedule& predicate_conjunct_schedule(
             const format::FileScanRequest& request);
     std::vector<format::LocalColumnIndex> adaptive_predicate_prefetch_columns(
-            const format::FileScanRequest& request);
+            const format::FileScanRequest& request,
+            const std::vector<format::LocalColumnIndex>& physical_predicate_columns);
 
     Status open_next_row_group(ParquetFileContext& file_context,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -235,8 +241,9 @@ private:
     Status prepare_current_dictionary_filters(
             ParquetFileContext& file_context,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-            const format::FileScanRequest& request, int row_group_idx,
-            const tparquet::RowGroup& row_group_metadata);
+            const format::FileScanRequest& request,
+            const std::vector<format::LocalColumnIndex>& physical_predicate_columns,
+            int row_group_idx, const tparquet::RowGroup& row_group_metadata);
 
     Status prefetch_current_row_group_columns(
             ParquetFileContext& file_context,
@@ -261,6 +268,9 @@ private:
     bool _has_current_row_group = false;
     // Readers retain pointers into this immutable row-group map, so it must outlive both maps below.
     std::unordered_map<int, tparquet::OffsetIndex> _current_offset_indexes;
+    // The logical request remains immutable across the file. This row-group copy owns only the
+    // physical projections used by readers and deferred prefetch.
+    std::unique_ptr<format::FileScanRequest> _current_row_group_request;
     // File-local ids are signed because virtual columns use reserved negative values. Keeping the
     // typed id as the map key prevents GLOBAL_ROWID_COLUMN_ID from wrapping to a storage ColumnId.
     std::map<format::LocalColumnId, std::unique_ptr<ParquetColumnReader>>

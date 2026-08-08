@@ -29,6 +29,7 @@
 #include <array>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <numeric>
@@ -78,12 +79,64 @@
 #include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "util/coding.h"
 #include "util/defer_op.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 namespace {
 
 constexpr int64_t ROW_COUNT = 5;
+
+void duplicate_variant_fixture_with_unsafe_second_row_group(const std::string& source_path,
+                                                            const std::string& output_path) {
+    std::filesystem::copy_file(source_path, output_path,
+                               std::filesystem::copy_options::overwrite_existing);
+    std::ifstream input(output_path, std::ios::binary | std::ios::ate);
+    DORIS_CHECK(input.good());
+    const auto input_size = static_cast<std::streamoff>(input.tellg());
+    DORIS_CHECK(input_size >= static_cast<std::streamoff>(8));
+    std::vector<uint8_t> file_bytes(cast_set<size_t>(input_size));
+    input.seekg(0);
+    input.read(reinterpret_cast<char*>(file_bytes.data()), cast_set<std::streamsize>(input_size));
+    DORIS_CHECK(input.good());
+    DORIS_CHECK(memcmp(file_bytes.data() + file_bytes.size() - 4, "PAR1", 4) == 0);
+
+    const uint32_t footer_size = decode_fixed32_le(file_bytes.data() + file_bytes.size() - 8);
+    DORIS_CHECK(footer_size <= file_bytes.size() - 8);
+    const size_t footer_offset = file_bytes.size() - 8 - footer_size;
+    uint32_t thrift_size = footer_size;
+    tparquet::FileMetaData metadata;
+    DORIS_CHECK(
+            deserialize_thrift_msg(file_bytes.data() + footer_offset, &thrift_size, true, &metadata)
+                    .ok());
+    DORIS_CHECK(metadata.row_groups.size() == 1);
+    DORIS_CHECK(metadata.row_groups[0].columns.size() > 2);
+    // Reuse the immutable chunks to isolate the scheduler decision: each row-group reader owns an
+    // independent cursor, while the second footer entry deliberately cannot prove an empty residual.
+    auto second_row_group = metadata.row_groups[0];
+    auto& root_residual = second_row_group.columns[2].meta_data.statistics;
+    DORIS_CHECK(root_residual.__isset.null_count);
+    root_residual.__set_null_count(second_row_group.num_rows - 1);
+    metadata.row_groups.push_back(std::move(second_row_group));
+    metadata.__set_num_rows(metadata.num_rows * 2);
+
+    file_bytes.resize(footer_offset);
+    std::vector<uint8_t> footer;
+    ThriftSerializer serializer(/*compact=*/true, 1024);
+    DORIS_CHECK(serializer.serialize(&metadata, &footer).ok());
+    file_bytes.insert(file_bytes.end(), footer.begin(), footer.end());
+    std::array<uint8_t, sizeof(uint32_t)> encoded_footer_size {};
+    encode_fixed32_le(encoded_footer_size.data(), cast_set<uint32_t>(footer.size()));
+    file_bytes.insert(file_bytes.end(), encoded_footer_size.begin(), encoded_footer_size.end());
+    file_bytes.insert(file_bytes.end(), {'P', 'A', 'R', '1'});
+
+    std::ofstream output(output_path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(file_bytes.data()),
+                 cast_set<std::streamsize>(file_bytes.size()));
+    output.close();
+    DORIS_CHECK(output.good());
+}
 
 format::LocalColumnIndex field_projection(int32_t column_id) {
     return format::LocalColumnIndex {.index = column_id};
@@ -1775,25 +1828,49 @@ TEST(ParquetVariantProjectionTest, ResidualStatisticsGuardPhysicalLeafProjection
         tparquet::Statistics statistics;
         statistics.__set_null_count(leaf == 1 || leaf == 2 ? 10 : 0);
         tparquet::ColumnMetaData column_metadata;
+        column_metadata.__set_num_values(10);
         column_metadata.__set_statistics(std::move(statistics));
         tparquet::ColumnChunk chunk;
         chunk.__set_meta_data(std::move(column_metadata));
         row_group.columns.push_back(std::move(chunk));
     }
-    tparquet::FileMetaData metadata;
-    metadata.row_groups.push_back(row_group);
-    EXPECT_TRUE(format::parquet::detail::variant_projection_is_fully_shredded(metadata, *root,
-                                                                              projection));
+    auto row_group_projection = projection;
+    size_t full_projections = 0;
+    EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
+                      row_group, *root, &row_group_projection, &full_projections),
+              1);
+    EXPECT_FALSE(row_group_projection.project_all_children);
+    EXPECT_EQ(full_projections, 0);
 
-    metadata.row_groups[0].columns[2].meta_data.statistics.__set_null_count(9);
-    EXPECT_FALSE(format::parquet::detail::variant_projection_is_fully_shredded(metadata, *root,
-                                                                               projection));
-    metadata.row_groups[0].columns[2].meta_data.__isset.statistics = false;
-    EXPECT_FALSE(format::parquet::detail::variant_projection_is_fully_shredded(metadata, *root,
-                                                                               projection));
+    row_group.columns[2].meta_data.statistics.__set_null_count(9);
+    row_group_projection = projection;
+    full_projections = 0;
+    EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
+                      row_group, *root, &row_group_projection, &full_projections),
+              0);
+    EXPECT_TRUE(row_group_projection.project_all_children);
+    EXPECT_EQ(full_projections, 1);
+    row_group.columns[2].meta_data.__set_num_values(9);
+    row_group.columns[2].meta_data.statistics.__set_null_count(9);
+    row_group_projection = projection;
+    full_projections = 0;
+    EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
+                      row_group, *root, &row_group_projection, &full_projections),
+              0);
+    EXPECT_TRUE(row_group_projection.project_all_children);
+    EXPECT_EQ(full_projections, 1);
+    row_group.columns[2].meta_data.__set_num_values(10);
+    row_group.columns[2].meta_data.__isset.statistics = false;
+    row_group_projection = projection;
+    full_projections = 0;
+    EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
+                      row_group, *root, &row_group_projection, &full_projections),
+              0);
+    EXPECT_TRUE(row_group_projection.project_all_children);
+    EXPECT_EQ(full_projections, 1);
 }
 
-TEST(ParquetVariantProjectionTest, FinalizesNestedVariantProjectionRecursively) {
+TEST(ParquetVariantProjectionTest, FinalizesNestedVariantProjectionPerRowGroup) {
     using format::parquet::ParquetColumnSchema;
     using format::parquet::ParquetColumnSchemaKind;
     auto node = [](std::string name, int32_t local_id, ParquetColumnSchemaKind kind,
@@ -1831,28 +1908,28 @@ TEST(ParquetVariantProjectionTest, FinalizesNestedVariantProjectionRecursively) 
         tparquet::Statistics statistics;
         statistics.__set_null_count(leaf == 1 || leaf == 2 ? 10 : 0);
         tparquet::ColumnMetaData column_metadata;
+        column_metadata.__set_num_values(10);
         column_metadata.__set_statistics(std::move(statistics));
         tparquet::ColumnChunk chunk;
         chunk.__set_meta_data(std::move(column_metadata));
         row_group.columns.push_back(std::move(chunk));
     }
-    tparquet::FileMetaData metadata;
-    metadata.row_groups.push_back(row_group);
-
-    EXPECT_EQ(
-            format::parquet::detail::finalize_variant_leaf_projection(metadata, *root, &projection),
-            1);
+    EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
+                      row_group, *root, &projection),
+              1);
     EXPECT_FALSE(projection.children[0].project_all_children);
 
     auto fallback = projection;
-    metadata.row_groups[0].columns[2].meta_data.statistics.__set_null_count(9);
-    EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection(metadata, *root, &fallback),
+    row_group.columns[2].meta_data.statistics.__set_null_count(9);
+    EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
+                      row_group, *root, &fallback),
               0);
     EXPECT_TRUE(fallback.children[0].project_all_children);
 
     auto repeated = projection;
     root->children[0]->max_repetition_level = 1;
-    EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection(metadata, *root, &repeated),
+    EXPECT_EQ(format::parquet::detail::finalize_variant_leaf_projection_for_row_group(
+                      row_group, *root, &repeated),
               0);
     EXPECT_TRUE(repeated.children[0].project_all_children);
 }
@@ -1924,6 +2001,10 @@ TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
     EXPECT_EQ(profile.get_counter("VariantDirectLeafRows")->value(), rows);
     ASSERT_NE(profile.get_counter("VariantReconstructedRows"), nullptr);
     EXPECT_EQ(profile.get_counter("VariantReconstructedRows")->value(), 0);
+    ASSERT_NE(profile.get_counter("VariantLeafProjectionRowGroupColumns"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantLeafProjectionRowGroupColumns")->value(), 1);
+    ASSERT_NE(profile.get_counter("VariantFullProjectionRowGroupColumns"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantFullProjectionRowGroupColumns")->value(), 0);
     const std::array missing_path {VariantShreddedPathSegment {
             .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("missing")}};
     EXPECT_FALSE(variants.find_shredded_typed_value(missing_path).has_value());
@@ -1986,6 +2067,77 @@ TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
                     assert_cast<const ColumnNullable&>(*gathered_match->column).get_nested_column())
                     .get_data()[0],
             first_value + 2);
+}
+
+TEST_F(NewParquetReaderTest, SwitchesVariantLeafProjectionPerRowGroup) {
+    const char* source_root = std::getenv("ROOT");
+    ASSERT_NE(source_root, nullptr);
+    const std::string source_path =
+            std::string(source_root) +
+            "/regression-test/data/external_table_p0/iceberg/iceberg_variant_shredded.parquet";
+    ASSERT_TRUE(std::filesystem::exists(source_path));
+    _file_path = (_test_dir / "iceberg_variant_mixed_row_groups.parquet").string();
+    duplicate_variant_fixture_with_unsafe_second_row_group(source_path, _file_path);
+
+    RuntimeProfile profile("variant_row_group_projection_switch");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(1024);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto find_child = [](const std::vector<format::ColumnDefinition>& children,
+                         std::string_view name) -> const format::ColumnDefinition* {
+        const auto it = std::ranges::find_if(
+                children, [name](const auto& child) { return child.name == name; });
+        return it == children.end() ? nullptr : &*it;
+    };
+    const auto* root_typed = find_child(schema[1].children, "typed_value");
+    ASSERT_NE(root_typed, nullptr);
+    const auto* n_wrapper = find_child(root_typed->children, "n");
+    ASSERT_NE(n_wrapper, nullptr);
+    const auto* n_typed = find_child(n_wrapper->children, "typed_value");
+    ASSERT_NE(n_typed, nullptr);
+
+    auto projection = format::LocalColumnIndex::partial_local(schema[1].local_id);
+    projection.children.push_back(format::LocalColumnIndex::partial_local(root_typed->local_id));
+    projection.children.back().children.push_back(
+            format::LocalColumnIndex::partial_local(n_wrapper->local_id));
+    projection.children.back().children.back().children.push_back(
+            format::LocalColumnIndex::local(n_typed->local_id));
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns.push_back(std::move(projection));
+    request->local_positions.emplace(format::LocalColumnId(schema[1].local_id),
+                                     format::LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+    ASSERT_NE(profile.get_counter("VariantLeafProjections"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantLeafProjections")->value(), 1);
+
+    Block block;
+    block.insert({schema[1].type->create_column(), schema[1].type, "v"});
+    size_t rows = 0;
+    bool eof = false;
+    while (!eof) {
+        size_t batch_rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &batch_rows, &eof).ok());
+        rows += batch_rows;
+    }
+    EXPECT_EQ(rows, 8192);
+    ASSERT_NE(profile.get_counter("VariantLeafProjectionRowGroupColumns"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantLeafProjectionRowGroupColumns")->value(), 1);
+    ASSERT_NE(profile.get_counter("VariantFullProjectionRowGroupColumns"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantFullProjectionRowGroupColumns")->value(), 1);
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    const std::array path {VariantShreddedPathSegment {
+            .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("n")}};
+    const auto match = variants.find_shredded_typed_value(path);
+    ASSERT_TRUE(match.has_value());
+    ASSERT_TRUE(match->column);
+    EXPECT_EQ(match->column->size(), rows);
 }
 
 TEST_F(NewParquetReaderTest, ShreddedVariantPredicateUsesTypedLeafPageIndexWithRootOutput) {

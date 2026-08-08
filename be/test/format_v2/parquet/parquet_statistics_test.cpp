@@ -1528,7 +1528,23 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
                         .ok());
     EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
 
+    // A root residual can contain the requested nested path even when that path's own fallback is
+    // all null. Every wrapper from the Variant root to the typed leaf must prove completeness.
+    footer_only_metadata = metadata;
+    footer_only_metadata.row_groups[0].columns[3].meta_data.statistics.__set_max_value(
+            encode_int32(2));
+    footer_only_metadata.row_groups[0].columns[1].meta_data.statistics.__set_null_count(99);
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        footer_only_metadata, schema, request, nullptr, &selected_row_groups, false,
+                        nullptr, nullptr, nullptr, nullptr, {},
+                        format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                        .ok());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+
     // A contradictory non-repeated value count cannot prove that every row lacks fallback bytes.
+    footer_only_metadata = metadata;
+    footer_only_metadata.row_groups[0].columns[3].meta_data.statistics.__set_max_value(
+            encode_int32(2));
     footer_only_metadata.row_groups[0].columns[2].meta_data.__set_num_values(99);
     footer_only_metadata.row_groups[0].columns[2].meta_data.statistics.__set_null_count(99);
     ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
@@ -1573,6 +1589,16 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
     EXPECT_EQ(selected_ranges[0].length, 50);
     EXPECT_EQ(pruning_stats.page_index_read_calls, 1);
     EXPECT_EQ(pruning_stats.filtered_page_rows, 50);
+
+    auto row_group_with_root_residual = metadata.row_groups[0];
+    row_group_with_root_residual.columns[1].meta_data.statistics.__set_null_count(99);
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, row_group_with_root_residual, page_indexes, schema, request, 100,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 100);
 
     // Direct Variant numeric comparisons coerce integral literals to a wide DECIMAL domain.
     request.conjuncts = {variant_path_gt_conjunct(50, false, true)};
