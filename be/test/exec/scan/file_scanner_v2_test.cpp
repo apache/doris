@@ -145,6 +145,10 @@ TEST(FileScannerV2Test, ReaderLocalCacheSwitchDefaultsOnAndCanDisable) {
     FileScannerV2 enabled_scanner(&state, &profile, nullptr);
     ASSERT_TRUE(enabled_scanner.TEST_init_io_ctx().ok());
     EXPECT_TRUE(enabled_scanner.TEST_has_reader_local_cache());
+    FileScannerV2 another_enabled_scanner(&state, &profile, nullptr);
+    ASSERT_TRUE(another_enabled_scanner.TEST_init_io_ctx().ok());
+    EXPECT_NE(enabled_scanner.TEST_reader_local_cache(),
+              another_enabled_scanner.TEST_reader_local_cache());
 
     config::enable_file_scanner_v2_reader_local_cache = false;
     FileScannerV2 disabled_scanner(&state, &profile, nullptr);

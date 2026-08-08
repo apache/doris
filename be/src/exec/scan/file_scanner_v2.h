@@ -105,6 +105,9 @@ public:
     bool TEST_has_reader_local_cache() const {
         return _io_ctx != nullptr && _io_ctx->reader_local_cache != nullptr;
     }
+    const void* TEST_reader_local_cache() const {
+        return _io_ctx != nullptr ? _io_ctx->reader_local_cache.get() : nullptr;
+    }
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,

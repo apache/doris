@@ -31,7 +31,6 @@
 #include <vector>
 
 #include "cloud/config.h"
-#include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/operator/rec_cte_scan_operator.h"
@@ -39,7 +38,6 @@
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/spill/spill_file_manager.h"
-#include "io/cache/cached_remote_file_reader.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -232,9 +230,6 @@ void QueryContext::record_spill_data_dir(SpillDataDir* data_dir) {
 
 QueryContext::~QueryContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
-    // Release query-owned cache buffers while this query tracker is still attached; otherwise
-    // allocator hooks would attribute the frees to whichever tracker destroys the last scanner.
-    _file_scanner_v2_reader_local_cache.reset();
     // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
     // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
     // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
@@ -293,21 +288,6 @@ QueryContext::~QueryContext() {
                          (now.tv_nsec - _query_arrival_timestamp.tv_nsec) / 1000000LL;
     LOG_INFO("Query {} deconstructed, elapsed_ms: {}, mem_tracker: {}", print_id(this->_query_id),
              elapsed_ms, mem_tracker_msg);
-}
-
-std::shared_ptr<io::FileScannerV2ReaderLocalCache>
-QueryContext::get_or_create_file_scanner_v2_reader_local_cache() {
-    std::lock_guard lock(_file_scanner_v2_reader_local_cache_mutex);
-    if (_file_scanner_v2_reader_local_cache == nullptr) {
-        const size_t capacity = cast_set<size_t>(
-                std::max<int64_t>(0, config::file_scanner_v2_reader_local_cache_size));
-        if (capacity == 0) {
-            return nullptr;
-        }
-        _file_scanner_v2_reader_local_cache =
-                std::make_shared<io::FileScannerV2ReaderLocalCache>(capacity, query_mem_tracker());
-    }
-    return _file_scanner_v2_reader_local_cache;
 }
 
 void QueryContext::set_ready_to_execute(Status reason) {

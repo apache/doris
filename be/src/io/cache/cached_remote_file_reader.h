@@ -26,7 +26,6 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
-#include <tuple>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -63,8 +62,8 @@ using PeerFetchedBlockSet = std::unordered_set<const FileBlock*>;
 
 class FileScannerV2ReaderLocalFileCache;
 
-// Query-scoped registry and memory budget for File Scanner V2 reader-local caches. Readers bind
-// to a file cache once, while all file caches still share the query memory limit.
+// Scanner-scoped memory budget for File Scanner V2 reader-local caches. Every physical reader owns
+// its block map, matching the lifetime of the corresponding external-file stream.
 class FileScannerV2ReaderLocalCache
         : public std::enable_shared_from_this<FileScannerV2ReaderLocalCache> {
 public:
@@ -84,8 +83,7 @@ public:
             size_t capacity, std::shared_ptr<doris::MemTrackerLimiter> query_mem_tracker = nullptr);
     ~FileScannerV2ReaderLocalCache();
 
-    std::shared_ptr<FileScannerV2ReaderLocalFileCache> get_or_create_file_cache(
-            const UInt128Wrapper& file_key);
+    std::shared_ptr<FileScannerV2ReaderLocalFileCache> create_file_cache();
 
     size_t entry_count() const;
     size_t memory_usage() const;
@@ -94,17 +92,6 @@ public:
 private:
     friend class FileScannerV2ReaderLocalFileCache;
 
-    struct FileKey {
-        uint64_t file_key_high = 0;
-        uint64_t file_key_low = 0;
-
-        bool operator<(const FileKey& other) const {
-            return std::tie(file_key_high, file_key_low) <
-                   std::tie(other.file_key_high, other.file_key_low);
-        }
-    };
-
-    static FileKey _make_file_key(const UInt128Wrapper& file_key);
     bool _reserve(size_t bytes, FileScannerV2ReaderLocalFileCache* requester, size_t* evicted);
     bool _try_reserve(size_t bytes);
     void _commit(size_t bytes);
@@ -119,8 +106,7 @@ private:
     size_t _memory_bytes = 0;
     size_t _reserved_bytes = 0;
     mutable std::mutex _registry_mutex;
-    std::map<FileKey, std::shared_ptr<FileScannerV2ReaderLocalFileCache>> _files;
-    static constexpr size_t FILE_CACHE_REGISTRY_GRANULARITY = 256 * 1024;
+    std::vector<std::weak_ptr<FileScannerV2ReaderLocalFileCache>> _files;
 };
 
 // File-scoped block map for reader-local data. Different external files never contend on this
@@ -136,7 +122,7 @@ public:
     bool pin_if_present(size_t block_offset, size_t read_offset, size_t read_size,
                         LookupResult* lookup);
     Status get_or_load(size_t block_offset, size_t block_size, const FileBlockSPtr& file_block,
-                       size_t file_block_offset, size_t requested_bytes, LookupResult* lookup);
+                       size_t file_block_offset, LookupResult* lookup);
 
     size_t entry_count() const;
 
@@ -158,7 +144,6 @@ private:
     explicit FileScannerV2ReaderLocalFileCache(
             std::shared_ptr<FileScannerV2ReaderLocalCache> owner);
     void _touch_locked(const std::shared_ptr<Entry>& entry);
-    bool _should_admit_locked(size_t block_offset, size_t block_size, size_t requested_bytes);
     void _abort_load(size_t block_offset, const std::shared_ptr<Entry>& entry);
     void _drain(FileScannerV2ReaderLocalCache* owner);
     bool _evict_one();
@@ -167,9 +152,6 @@ private:
     mutable std::shared_mutex _mutex;
     std::map<size_t, std::shared_ptr<Entry>> _entries;
     std::list<size_t> _lru;
-    std::unordered_set<size_t> _admission_probes;
-    static constexpr size_t MAX_ADMISSION_PROBES = 128;
-    static constexpr size_t DIRECT_ADMISSION_RATIO = 4;
     static constexpr uint32_t LRU_TOUCH_INTERVAL = 64;
 };
 
@@ -308,17 +290,14 @@ private:
     /// @param[in,out] stats Read statistics updated for remote and local cache work.
     /// @param[in] io_ctx IO context passed to peer/S3 reads.
     /// @param[in,out] indirect_read_bytes Bytes copied into result through the indirect path.
-    /// @param[out] empty_start Left boundary of the fetched contiguous empty range.
-    /// @param[out] empty_end Right boundary of the fetched contiguous empty range.
-    /// @param[out] peer_fetched_blocks Exact blocks fetched by peer in sparse mode; empty for S3.
+    /// @param[in,out] fetched_blocks Exact blocks fetched from peer or remote storage.
     /// @return OK on success; otherwise an error from peer/S3 read.
     Status _read_remote_blocks_into_cache(const std::vector<FileBlockSPtr>& empty_blocks,
                                           size_t offset, size_t bytes_req, size_t already_read,
                                           Slice result, bool is_dryrun, ReadStatistics& stats,
                                           SourceReadBreakdown& source_read_breakdown,
                                           const IOContext* io_ctx, size_t& indirect_read_bytes,
-                                          size_t& empty_start, size_t& empty_end,
-                                          PeerFetchedBlockSet& peer_fetched_blocks);
+                                          PeerFetchedBlockSet& fetched_blocks);
 
     /// Read cached blocks that were not covered by the remote-fetch range, with remote fallback.
     /// @param[in] holder Cache blocks covering the aligned request range.
@@ -326,17 +305,14 @@ private:
     /// @param[in] bytes_req Original request size.
     /// @param[out] result Destination buffer for the original request.
     /// @param[in] is_dryrun True if local cache IO should be skipped.
-    /// @param[in] empty_start Left boundary of the range already handled by remote fetch.
-    /// @param[in] empty_end Right boundary of the range already handled by remote fetch.
-    /// @param[in] peer_fetched_blocks Exact blocks already filled by peer; empty for S3 path.
+    /// @param[in] fetched_blocks Exact blocks already handled by remote fetch.
     /// @param[in,out] stats Read statistics updated for wait, cache, and remote fallback paths.
     /// @param[in,out] indirect_read_bytes Bytes copied into result through this indirect stage.
     /// @param[out] bytes_read Total bytes covered for the original request after this stage.
     /// @return OK on success; otherwise an error from cache read or remote fallback read.
     Status _read_remaining_blocks_from_cache(const FileBlocksHolder& holder, size_t offset,
                                              size_t bytes_req, Slice result, bool is_dryrun,
-                                             size_t empty_start, size_t empty_end,
-                                             const PeerFetchedBlockSet& peer_fetched_blocks,
+                                             const PeerFetchedBlockSet& fetched_blocks,
                                              ReadStatistics& stats,
                                              SourceReadBreakdown& source_read_breakdown,
                                              size_t& indirect_read_bytes, size_t* bytes_read,
@@ -468,7 +444,7 @@ private:
     std::map<size_t, FileBlockSPtr> _cache_file_readers;
     std::shared_ptr<FileScannerV2ReaderLocalCache> _reader_local_cache;
     std::shared_ptr<FileScannerV2ReaderLocalFileCache> _reader_local_file_cache;
-    // Keep query-shared fills smaller than the FileCache block so page reuse does not promote an
+    // Keep reader-local fills smaller than the FileCache block so page reuse does not promote an
     // entire large block.
     static constexpr size_t READER_LOCAL_CACHE_BLOCK_BYTES = 256 * 1024;
 };
