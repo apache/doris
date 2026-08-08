@@ -337,6 +337,31 @@ private:
     bool _fail = false;
 };
 
+class RecordingFileReader : public FileReader {
+public:
+    explicit RecordingFileReader(FileReaderSPtr reader) : _reader(std::move(reader)) {}
+    ~RecordingFileReader() override = default;
+
+    Status close() override { return _reader->close(); }
+    const Path& path() const override { return _reader->path(); }
+    size_t size() const override { return _reader->size(); }
+    bool closed() const override { return _reader->closed(); }
+    int64_t mtime() const override { return _reader->mtime(); }
+
+    const std::vector<PrefetchRange>& reads() const { return _reads; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override {
+        _reads.emplace_back(offset, offset + result.size);
+        return _reader->read_at(offset, result, bytes_read, io_ctx);
+    }
+
+private:
+    FileReaderSPtr _reader;
+    std::vector<PrefetchRange> _reads;
+};
+
 void assert_range([[maybe_unused]] size_t assert_n, io::FileBlockSPtr file_block,
                   const io::FileBlock::Range& expected_range, io::FileBlock::State expected_state) {
     auto range = file_block->range();
@@ -10244,6 +10269,51 @@ TEST_F(BlockFileCacheTest, file_block_appendv_persists_segmented_payload_to_memo
     EXPECT_EQ(buffer, "abcd");
 }
 
+TEST_F(BlockFileCacheTest, cached_remote_reader_merges_only_contiguous_cache_misses) {
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path =
+            create_cached_remote_reader_test_file("contiguous_cache_misses", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ignore;
+        fs::remove(file_path, ignore);
+    }};
+
+    const fs::path cache_path = caches_dir / "contiguous_cache_misses_cache";
+    clear_cached_remote_reader_factory();
+    Defer cleanup_cache {[&]() {
+        std::error_code ignore;
+        fs::remove_all(cache_path, ignore);
+        clear_cached_remote_reader_factory();
+    }};
+    auto* cache =
+            create_cached_remote_reader_test_cache(cache_path, kCachedRemoteReaderTinyBlockSize);
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
+    auto recording_reader = std::make_shared<RecordingFileReader>(local_reader);
+    io::FileReaderOptions opts;
+    opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = false;
+    opts.cache_base_path = cache_path.string();
+    opts.mtime = 1;
+    CachedRemoteFileReader reader(recording_reader, opts);
+
+    ReadStatistics cache_stats;
+    auto context = create_cached_remote_reader_context(&cache_stats);
+    FileBlocksHolder cached_holder = cache->get_or_set(reader._cache_hash, 4, 4, context);
+    auto cached_blocks = fromHolder(cached_holder);
+    ASSERT_EQ(cached_blocks.size(), 1);
+    append_cached_remote_reader_block(cached_blocks[0], content);
+
+    std::string buffer(12, '#');
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read).ok());
+    EXPECT_EQ(buffer, content.substr(0, buffer.size()));
+    ASSERT_EQ(recording_reader->reads().size(), 2);
+    EXPECT_EQ(recording_reader->reads()[0], PrefetchRange(0, 4));
+    EXPECT_EQ(recording_reader->reads()[1], PrefetchRange(8, 16));
+}
+
 TEST_F(BlockFileCacheTest,
        cached_remote_file_reader_read_remote_blocks_into_cache_copy_boundaries) {
     const std::string content = "abcdefghijklmnop";
@@ -10290,20 +10360,17 @@ TEST_F(BlockFileCacheTest,
 
     std::string buffer(8, '#');
     size_t indirect_read_bytes = 0;
-    size_t empty_start = std::numeric_limits<size_t>::max();
-    size_t empty_end = std::numeric_limits<size_t>::max();
     PeerFetchedBlockSet peer_fetched_blocks;
     ReadStatistics read_stats;
     SourceReadBreakdown source_read_breakdown;
     IOContext io_ctx;
-    ASSERT_TRUE(reader._read_remote_blocks_into_cache(
-                              empty_blocks, 2, 8, 2, Slice(buffer.data(), buffer.size()), false,
-                              read_stats, source_read_breakdown, &io_ctx, indirect_read_bytes,
-                              empty_start, empty_end, peer_fetched_blocks)
+    ASSERT_TRUE(reader._read_remote_blocks_into_cache(empty_blocks, 2, 8, 2,
+                                                      Slice(buffer.data(), buffer.size()), false,
+                                                      read_stats, source_read_breakdown, &io_ctx,
+                                                      indirect_read_bytes, peer_fetched_blocks)
                         .ok());
 
-    EXPECT_EQ(empty_start, 4);
-    EXPECT_EQ(empty_end, 11);
+    EXPECT_EQ(peer_fetched_blocks.size(), empty_blocks.size());
     EXPECT_EQ(indirect_read_bytes, 6);
     EXPECT_EQ(buffer, "##efghij");
     EXPECT_EQ(read_stats.bytes_write_into_file_cache, 8);
@@ -10359,20 +10426,17 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_read_remote_blocks_into_cac
 
     std::string buffer(4, '#');
     size_t indirect_read_bytes = 0;
-    size_t empty_start = 99;
-    size_t empty_end = 99;
     PeerFetchedBlockSet peer_fetched_blocks;
     ReadStatistics read_stats;
     SourceReadBreakdown source_read_breakdown;
     IOContext io_ctx;
-    ASSERT_TRUE(reader._read_remote_blocks_into_cache(
-                              empty_blocks, 1, 3, 0, Slice(buffer.data(), buffer.size()), true,
-                              read_stats, source_read_breakdown, &io_ctx, indirect_read_bytes,
-                              empty_start, empty_end, peer_fetched_blocks)
+    ASSERT_TRUE(reader._read_remote_blocks_into_cache(empty_blocks, 1, 3, 0,
+                                                      Slice(buffer.data(), buffer.size()), true,
+                                                      read_stats, source_read_breakdown, &io_ctx,
+                                                      indirect_read_bytes, peer_fetched_blocks)
                         .ok());
 
-    EXPECT_EQ(empty_start, 0);
-    EXPECT_EQ(empty_end, 3);
+    EXPECT_EQ(peer_fetched_blocks.size(), empty_blocks.size());
     EXPECT_EQ(indirect_read_bytes, 0);
     EXPECT_EQ(buffer, "####");
     EXPECT_EQ(read_stats.bytes_write_into_file_cache, 4);
@@ -10424,10 +10488,11 @@ TEST_F(BlockFileCacheTest,
     size_t indirect_read_bytes = 0;
     size_t bytes_read = 0;
     PeerFetchedBlockSet peer_fetched_blocks;
+    peer_fetched_blocks.insert(blocks[1].get());
     ReadStatistics read_stats;
     SourceReadBreakdown source_read_breakdown;
     ASSERT_TRUE(reader._read_remaining_blocks_from_cache(
-                              holder, 1, 10, Slice(buffer.data(), buffer.size()), false, 4, 7,
+                              holder, 1, 10, Slice(buffer.data(), buffer.size()), false,
                               peer_fetched_blocks, read_stats, source_read_breakdown,
                               indirect_read_bytes, &bytes_read, &io_ctx)
                         .ok());
@@ -10488,7 +10553,7 @@ TEST_F(BlockFileCacheTest,
     ReadStatistics read_stats;
     SourceReadBreakdown source_read_breakdown;
     ASSERT_TRUE(reader._read_remaining_blocks_from_cache(
-                              holder, 1, 10, Slice(buffer.data(), buffer.size()), false, 0, 0,
+                              holder, 1, 10, Slice(buffer.data(), buffer.size()), false,
                               peer_fetched_blocks, read_stats, source_read_breakdown,
                               indirect_read_bytes, &bytes_read, &io_ctx)
                         .ok());
@@ -10544,7 +10609,7 @@ TEST_F(BlockFileCacheTest,
     ReadStatistics read_stats;
     SourceReadBreakdown source_read_breakdown;
     ASSERT_TRUE(reader._read_remaining_blocks_from_cache(
-                              holder, 1, 2, Slice(buffer.data(), buffer.size()), false, 0, 0,
+                              holder, 1, 2, Slice(buffer.data(), buffer.size()), false,
                               peer_fetched_blocks, read_stats, source_read_breakdown,
                               indirect_read_bytes, &bytes_read, &io_ctx)
                         .ok());
@@ -10649,7 +10714,7 @@ TEST_F(BlockFileCacheTest, external_reader_buffers_small_cache_block_on_first_re
 
 TEST_F(BlockFileCacheTest, reader_local_cache_zero_capacity_is_disabled) {
     auto cache = std::make_shared<FileScannerV2ReaderLocalCache>(0);
-    EXPECT_EQ(cache->get_or_create_file_cache(BlockFileCache::hash("zero-capacity")), nullptr);
+    EXPECT_EQ(cache->create_file_cache(), nullptr);
     EXPECT_EQ(cache->entry_count(), 0);
     EXPECT_EQ(cache->memory_usage(), 0);
 }
@@ -10736,8 +10801,6 @@ TEST_F(BlockFileCacheTest, reader_local_cache_fill_exception_is_best_effort) {
     std::string buffer(8, '#');
     size_t bytes_read = 0;
     ASSERT_TRUE(reader.read_at(1_kb, Slice(buffer.data(), buffer.size()), &bytes_read).ok());
-    reader._reader_local_file_cache->_admission_probes.insert(0);
-
     auto* sp = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sp->set_call_back(
@@ -10756,14 +10819,12 @@ TEST_F(BlockFileCacheTest, reader_local_cache_fill_exception_is_best_effort) {
     EXPECT_EQ(buffer, std::string(8, 'x'));
 }
 
-TEST_F(BlockFileCacheTest, reader_local_cache_uses_one_cache_object_per_file) {
+TEST_F(BlockFileCacheTest, reader_local_cache_uses_one_cache_object_per_reader) {
     auto cache = std::make_shared<FileScannerV2ReaderLocalCache>(1_mb);
-    auto first = cache->get_or_create_file_cache(BlockFileCache::hash("reader-local-file-a"));
-    auto first_again = cache->get_or_create_file_cache(BlockFileCache::hash("reader-local-file-a"));
-    auto second = cache->get_or_create_file_cache(BlockFileCache::hash("reader-local-file-b"));
+    auto first = cache->create_file_cache();
+    auto second = cache->create_file_cache();
 
     ASSERT_NE(first, nullptr);
-    EXPECT_EQ(first, first_again);
     EXPECT_NE(first, second);
 
     std::unique_lock first_file_lock(first->_mutex);
@@ -10838,7 +10899,7 @@ TEST_F(BlockFileCacheTest, reader_local_cache_is_opt_in_and_excludes_doris_table
     EXPECT_EQ(internal_reader._reader_local_cache, nullptr);
 }
 
-TEST_F(BlockFileCacheTest, reader_local_cache_admits_large_sub_block_after_reuse) {
+TEST_F(BlockFileCacheTest, reader_local_cache_buffers_full_block_on_first_cache_hit) {
     constexpr size_t cache_block_size = 1_mb;
     constexpr size_t reader_block_size = 256_kb;
     const std::string content(600_kb, 'x');
@@ -10882,24 +10943,12 @@ TEST_F(BlockFileCacheTest, reader_local_cache_admits_large_sub_block_after_reuse
                         .ok());
     ASSERT_TRUE(cache_hit);
     ASSERT_NE(reader._reader_local_cache, nullptr);
-    EXPECT_EQ(reader._reader_local_cache->entry_count(), 0);
-    EXPECT_EQ(reader._reader_local_cache->memory_usage(), 0);
-    EXPECT_EQ(fill_stats.num_reader_local_cache_miss, 1);
-    EXPECT_EQ(fill_stats.num_reader_local_cache_fill, 0);
-    EXPECT_EQ(fill_stats.bytes_reader_local_cache_request, buffer.size());
-    EXPECT_EQ(fill_stats.bytes_read_into_reader_local_cache, 0);
-
-    FileCacheStatistics admit_stats;
-    IOContext admit_ctx;
-    admit_ctx.file_cache_stats = &admit_stats;
-    ASSERT_TRUE(reader.read_at_from_cache(128_kb, Slice(buffer.data(), buffer.size()), &bytes_read,
-                                          &cache_hit, &admit_ctx)
-                        .ok());
-    ASSERT_TRUE(cache_hit);
     EXPECT_EQ(reader._reader_local_cache->entry_count(), 1);
     EXPECT_EQ(reader._reader_local_cache->memory_usage(), reader_block_size);
-    EXPECT_EQ(admit_stats.num_reader_local_cache_fill, 1);
-    EXPECT_EQ(admit_stats.bytes_read_into_reader_local_cache, reader_block_size);
+    EXPECT_EQ(fill_stats.num_reader_local_cache_miss, 1);
+    EXPECT_EQ(fill_stats.num_reader_local_cache_fill, 1);
+    EXPECT_EQ(fill_stats.bytes_reader_local_cache_request, buffer.size());
+    EXPECT_EQ(fill_stats.bytes_read_into_reader_local_cache, reader_block_size);
 
     FileCacheStatistics hit_stats;
     IOContext hit_ctx;
@@ -10913,12 +10962,6 @@ TEST_F(BlockFileCacheTest, reader_local_cache_admits_large_sub_block_after_reuse
     EXPECT_EQ(hit_stats.bytes_read_from_reader_local_cache, buffer.size());
     EXPECT_EQ(hit_stats.bytes_read_into_reader_local_cache, 0);
 
-    cache_hit = false;
-    ASSERT_TRUE(reader.read_at_from_cache(300_kb, Slice(buffer.data(), buffer.size()), &bytes_read,
-                                          &cache_hit)
-                        .ok());
-    ASSERT_TRUE(cache_hit);
-
     FileCacheStatistics cross_block_stats;
     IOContext cross_block_ctx;
     cross_block_ctx.file_cache_stats = &cross_block_stats;
@@ -10928,9 +10971,8 @@ TEST_F(BlockFileCacheTest, reader_local_cache_admits_large_sub_block_after_reuse
                                &bytes_read, &cross_block_ctx)
                         .ok());
     EXPECT_EQ(cross_block_buffer, std::string(8, 'x'));
-    // The first block is hot while the second block has only passed admission. The all-or-none
-    // memory probe must leave the output untouched before FileCache serves the first part from
-    // memory and promotes the second part.
+    // The all-or-none memory probe must leave the output untouched before FileCache serves the
+    // first part from memory and promotes the missing second block.
     EXPECT_EQ(cross_block_stats.num_reader_local_cache_partial_miss, 1);
     EXPECT_EQ(cross_block_stats.num_reader_local_cache_hit, 1);
     EXPECT_EQ(cross_block_stats.num_reader_local_cache_fill, 1);
@@ -10964,14 +11006,12 @@ TEST_F(BlockFileCacheTest, concurrent_reader_local_cache_fill_is_single_flight) 
     opts.cache_base_path = cache_path.string();
     opts.mtime = 1;
     auto loader_reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
-    auto waiter_reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+    auto waiter_reader = loader_reader;
 
     std::string warmup(8, '#');
     size_t bytes_read = 0;
     ASSERT_TRUE(
             loader_reader->read_at(1_kb, Slice(warmup.data(), warmup.size()), &bytes_read).ok());
-    loader_reader->_reader_local_file_cache->_admission_probes.insert(0);
-
     std::promise<void> loader_entered;
     std::promise<void> waiter_entered;
     std::promise<void> release_loader;
@@ -11063,14 +11103,12 @@ TEST_F(BlockFileCacheTest, reader_local_cache_fill_exception_wakes_waiter) {
     opts.cache_base_path = cache_path.string();
     opts.mtime = 1;
     auto loader_reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
-    auto waiter_reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+    auto waiter_reader = loader_reader;
 
     std::string warmup(8, '#');
     size_t bytes_read = 0;
     ASSERT_TRUE(
             loader_reader->read_at(1_kb, Slice(warmup.data(), warmup.size()), &bytes_read).ok());
-    loader_reader->_reader_local_file_cache->_admission_probes.insert(0);
-
     std::promise<void> loader_entered;
     std::promise<void> waiter_entered;
     std::promise<void> release_loader;
@@ -11128,7 +11166,7 @@ TEST_F(BlockFileCacheTest, reader_local_cache_fill_exception_wakes_waiter) {
     EXPECT_EQ(opts.reader_local_cache->memory_usage(), 0);
 }
 
-TEST_F(BlockFileCacheTest, reader_local_cache_is_shared_across_v2_readers) {
+TEST_F(BlockFileCacheTest, reader_local_cache_block_maps_are_scoped_to_physical_readers) {
     constexpr size_t reader_block_size = 256_kb;
     const std::string content(600_kb, 'x');
     const fs::path file_path =
@@ -11174,13 +11212,6 @@ TEST_F(BlockFileCacheTest, reader_local_cache_is_shared_across_v2_readers) {
                                             &bytes_read, &cache_hit, &first_ctx)
                         .ok());
     ASSERT_TRUE(cache_hit);
-    EXPECT_EQ(first_stats.num_reader_local_cache_admission_reject, 1);
-    first_stats = {};
-    ASSERT_TRUE(first_reader
-                        .read_at_from_cache(128_kb, Slice(buffer.data(), buffer.size()),
-                                            &bytes_read, &cache_hit, &first_ctx)
-                        .ok());
-    ASSERT_TRUE(cache_hit);
     EXPECT_EQ(first_stats.num_reader_local_cache_fill, 1);
 
     FileCacheStatistics second_stats;
@@ -11192,14 +11223,14 @@ TEST_F(BlockFileCacheTest, reader_local_cache_is_shared_across_v2_readers) {
                                             &bytes_read, &cache_hit, &second_ctx)
                         .ok());
     ASSERT_TRUE(cache_hit);
-    EXPECT_EQ(second_stats.num_reader_local_cache_hit, 1);
-    EXPECT_EQ(second_stats.num_reader_local_cache_fill, 0);
-    EXPECT_EQ(shared_cache->entry_count(), 1);
-    EXPECT_EQ(shared_cache->memory_usage(), reader_block_size);
-    EXPECT_EQ(shared_cache->tracked_memory(), reader_block_size);
+    EXPECT_EQ(second_stats.num_reader_local_cache_hit, 0);
+    EXPECT_EQ(second_stats.num_reader_local_cache_fill, 1);
+    EXPECT_EQ(shared_cache->entry_count(), 2);
+    EXPECT_EQ(shared_cache->memory_usage(), 2 * reader_block_size);
+    EXPECT_EQ(shared_cache->tracked_memory(), 2 * reader_block_size);
 }
 
-TEST_F(BlockFileCacheTest, reader_local_cache_survives_sequential_reader_lifetimes) {
+TEST_F(BlockFileCacheTest, reader_local_cache_is_released_with_file_reader_lifetime) {
     constexpr size_t reader_block_size = 256_kb;
     const std::string content(300_kb, 'x');
     const fs::path file_path =
@@ -11248,6 +11279,8 @@ TEST_F(BlockFileCacheTest, reader_local_cache_survives_sequential_reader_lifetim
         ASSERT_TRUE(cache_hit);
         ASSERT_EQ(shared_cache->entry_count(), 1);
     }
+    EXPECT_EQ(shared_cache->entry_count(), 0);
+    EXPECT_EQ(shared_cache->memory_usage(), 0);
 
     CachedRemoteFileReader second_reader(local_reader, opts);
     FileCacheStatistics stats;
@@ -11258,11 +11291,11 @@ TEST_F(BlockFileCacheTest, reader_local_cache_survives_sequential_reader_lifetim
                                             &bytes_read, &cache_hit, &io_ctx)
                         .ok());
     EXPECT_TRUE(cache_hit);
-    EXPECT_EQ(stats.num_reader_local_cache_hit, 1);
-    EXPECT_EQ(stats.num_reader_local_cache_fill, 0);
+    EXPECT_EQ(stats.num_reader_local_cache_hit, 0);
+    EXPECT_EQ(stats.num_reader_local_cache_fill, 1);
 }
 
-TEST_F(BlockFileCacheTest, reader_local_cache_capacity_is_shared_by_all_v2_readers) {
+TEST_F(BlockFileCacheTest, reader_local_cache_does_not_evict_another_reader) {
     constexpr size_t reader_block_size = 256_kb;
     const std::string content(600_kb, 'x');
     const fs::path first_file_path =
@@ -11332,13 +11365,9 @@ TEST_F(BlockFileCacheTest, reader_local_cache_capacity_is_shared_by_all_v2_reade
                                             &bytes_read, &cache_hit, &second_ctx)
                         .ok());
     ASSERT_TRUE(cache_hit);
-    second_stats = {};
-    ASSERT_TRUE(second_reader
-                        .read_at_from_cache(384_kb, Slice(warmup.data(), warmup.size()),
-                                            &bytes_read, &cache_hit, &second_ctx)
-                        .ok());
-    ASSERT_TRUE(cache_hit);
-    EXPECT_EQ(second_stats.num_reader_local_cache_evict, 1);
+    EXPECT_EQ(second_stats.num_reader_local_cache_evict, 0);
+    EXPECT_EQ(second_stats.num_reader_local_cache_fill, 0);
+    EXPECT_EQ(second_stats.num_reader_local_cache_miss, 1);
     EXPECT_EQ(shared_cache->entry_count(), 1);
     EXPECT_LE(shared_cache->memory_usage(), reader_block_size);
     EXPECT_EQ(shared_cache->tracked_memory(), shared_cache->memory_usage());

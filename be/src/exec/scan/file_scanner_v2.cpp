@@ -67,6 +67,7 @@
 #include "format_v2/table_reader.h"
 #include "format_v2/wal/wal_table_reader.h"
 #include "io/cache/block_file_cache_profile.h"
+#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
@@ -965,10 +966,10 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
 Status FileScannerV2::_init_io_ctx() {
     _io_ctx = create_file_scan_io_context(_state);
     if (config::enable_file_scanner_v2_reader_local_cache) {
-        if (auto* query_ctx = _state->get_query_ctx(); query_ctx != nullptr) {
-            _io_ctx->reader_local_cache =
-                    query_ctx->get_or_create_file_scanner_v2_reader_local_cache();
-        }
+        const size_t capacity = cast_set<size_t>(
+                std::max<int64_t>(0, config::file_scanner_v2_reader_local_cache_size));
+        _io_ctx->reader_local_cache = std::make_shared<io::FileScannerV2ReaderLocalCache>(
+                capacity, _state->query_mem_tracker());
     }
     return Status::OK();
 }

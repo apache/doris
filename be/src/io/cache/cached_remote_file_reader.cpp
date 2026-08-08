@@ -36,7 +36,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <ranges>
 #include <thread>
 #include <vector>
 
@@ -121,60 +120,40 @@ FileScannerV2ReaderLocalCache::FileScannerV2ReaderLocalCache(
           _memory_tracker(std::make_shared<doris::MemTracker>("FileScannerV2ReaderLocalCache")) {}
 
 FileScannerV2ReaderLocalCache::~FileScannerV2ReaderLocalCache() {
-    std::map<FileKey, std::shared_ptr<FileScannerV2ReaderLocalFileCache>> files;
-    {
-        std::lock_guard lock(_registry_mutex);
-        files.swap(_files);
-    }
-    for (const auto& file : files | std::views::values) {
+    auto files = _file_caches();
+    for (const auto& file : files) {
         file->_drain(this);
     }
-    files.clear();
     std::lock_guard lock(_budget_mutex);
     DORIS_CHECK(_memory_bytes == 0);
     DORIS_CHECK(_reserved_bytes == 0);
 }
 
-FileScannerV2ReaderLocalCache::FileKey FileScannerV2ReaderLocalCache::_make_file_key(
-        const UInt128Wrapper& file_key) {
-    return {.file_key_high = file_key.high(), .file_key_low = file_key.low()};
-}
-
 std::shared_ptr<FileScannerV2ReaderLocalFileCache>
-FileScannerV2ReaderLocalCache::get_or_create_file_cache(const UInt128Wrapper& file_key) {
+FileScannerV2ReaderLocalCache::create_file_cache() {
     if (_capacity == 0) {
         return nullptr;
     }
-    const FileKey key = _make_file_key(file_key);
-    std::shared_ptr<FileScannerV2ReaderLocalFileCache> retired_file;
     std::shared_ptr<FileScannerV2ReaderLocalFileCache> file_cache;
+    try {
+        file_cache = std::shared_ptr<FileScannerV2ReaderLocalFileCache>(
+                new FileScannerV2ReaderLocalFileCache(shared_from_this()));
+    } catch (const doris::Exception&) {
+        return nullptr;
+    } catch (const std::bad_alloc&) {
+        return nullptr;
+    }
     {
         std::lock_guard lock(_registry_mutex);
-        if (const auto it = _files.find(key); it != _files.end()) {
-            return it->second;
-        }
-        const size_t registry_limit =
-                std::max<size_t>(16, _capacity / FILE_CACHE_REGISTRY_GRANULARITY);
-        if (_files.size() >= registry_limit) {
-            const auto idle = std::ranges::find_if(
-                    _files, [](const auto& item) { return item.second.use_count() == 1; });
-            if (idle != _files.end()) {
-                retired_file = std::move(idle->second);
-                _files.erase(idle);
-            }
-        }
         try {
-            file_cache = std::shared_ptr<FileScannerV2ReaderLocalFileCache>(
-                    new FileScannerV2ReaderLocalFileCache(shared_from_this()));
-            _files.emplace(key, file_cache);
+            std::erase_if(_files, [](const auto& file) { return file.expired(); });
+            _files.emplace_back(file_cache);
         } catch (const doris::Exception&) {
             return nullptr;
         } catch (const std::bad_alloc&) {
             return nullptr;
         }
     }
-    // Retiring outside the registry lock avoids coupling file cleanup to new-reader admission.
-    retired_file.reset();
     return file_cache;
 }
 
@@ -205,20 +184,12 @@ bool FileScannerV2ReaderLocalCache::_reserve(size_t bytes,
     if (_try_reserve(bytes)) {
         return true;
     }
-    auto files = _file_caches();
-    // Reservation is a cold-path operation. Cross-file eviction keeps one query budget without
-    // putting a query-global mutex on every cache hit.
-    for (int pass = 0; pass < 2; ++pass) {
-        for (const auto& file : files) {
-            if ((pass == 0) != (file.get() == requester)) {
-                continue;
-            }
-            while (file->_evict_one()) {
-                ++*evicted;
-                if (_try_reserve(bytes)) {
-                    return true;
-                }
-            }
+    // A stream may recycle its own cold blocks, but it must never evict another stream's hot
+    // block map. StarRocks gets the same isolation from CacheInputStream::_block_map ownership.
+    while (requester->_evict_one()) {
+        ++*evicted;
+        if (_try_reserve(bytes)) {
+            return true;
         }
     }
     return false;
@@ -254,8 +225,10 @@ FileScannerV2ReaderLocalCache::_file_caches() const {
     std::vector<std::shared_ptr<FileScannerV2ReaderLocalFileCache>> files;
     std::lock_guard lock(_registry_mutex);
     files.reserve(_files.size());
-    for (const auto& file : _files | std::views::values) {
-        files.push_back(file);
+    for (const auto& file : _files) {
+        if (auto live_file = file.lock(); live_file != nullptr) {
+            files.push_back(std::move(live_file));
+        }
     }
     return files;
 }
@@ -301,7 +274,6 @@ void FileScannerV2ReaderLocalFileCache::_drain(FileScannerV2ReaderLocalCache* ow
         }
         _entries.clear();
         _lru.clear();
-        _admission_probes.clear();
     };
     try {
         std::optional<SwitchThreadMemTrackerLimiter> switch_query_tracker;
@@ -370,26 +342,6 @@ bool FileScannerV2ReaderLocalFileCache::_evict_one() {
     }
     owner->_release(bytes);
     return true;
-}
-
-bool FileScannerV2ReaderLocalFileCache::_should_admit_locked(size_t block_offset, size_t block_size,
-                                                             size_t requested_bytes) {
-    if (requested_bytes >= (block_size + DIRECT_ADMISSION_RATIO - 1) / DIRECT_ADMISSION_RATIO) {
-        _admission_probes.erase(block_offset);
-        return true;
-    }
-    if (_admission_probes.erase(block_offset) != 0) {
-        return true;
-    }
-    if (_admission_probes.size() >= MAX_ADMISSION_PROBES) {
-        _admission_probes.erase(_admission_probes.begin());
-    }
-    try {
-        _admission_probes.emplace(block_offset);
-    } catch (...) {
-        return false;
-    }
-    return false;
 }
 
 void FileScannerV2ReaderLocalFileCache::_abort_load(size_t block_offset,
@@ -462,7 +414,6 @@ bool FileScannerV2ReaderLocalFileCache::read_if_present(size_t block_offset, siz
 Status FileScannerV2ReaderLocalFileCache::get_or_load(size_t block_offset, size_t block_size,
                                                       const FileBlockSPtr& file_block,
                                                       size_t file_block_offset,
-                                                      size_t requested_bytes,
                                                       LookupResult* lookup) {
     DORIS_CHECK(lookup != nullptr);
     *lookup = {};
@@ -476,10 +427,6 @@ Status FileScannerV2ReaderLocalFileCache::get_or_load(size_t block_offset, size_
         std::unique_lock lock(_mutex);
         const auto it = _entries.find(block_offset);
         if (it == _entries.end()) {
-            if (!_should_admit_locked(block_offset, block_size, requested_bytes)) {
-                lookup->admission_rejected = true;
-                return Status::OK();
-            }
             try {
                 entry = std::make_shared<Entry>();
             } catch (const doris::Exception&) {
@@ -612,8 +559,8 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         _init_external_table_cache(opts);
     }
     if (_enable_reader_local_cache) {
-        // Bind once per immutable file identity so hot reads never visit the query-wide registry.
-        _reader_local_file_cache = _reader_local_cache->get_or_create_file_cache(_cache_hash);
+        // The block map follows this physical reader rather than surviving in a query registry.
+        _reader_local_file_cache = _reader_local_cache->create_file_cache();
         _enable_reader_local_cache = _reader_local_file_cache != nullptr;
     }
 }
@@ -1394,9 +1341,8 @@ Status CachedRemoteFileReader::_read_local_block(const FileBlockSPtr& block, siz
 
         const size_t buffer_size = buffer_end - buffer_offset;
         FileScannerV2ReaderLocalFileCache::LookupResult lookup;
-        RETURN_IF_ERROR(_reader_local_file_cache->get_or_load(buffer_offset, buffer_size, block,
-                                                              buffer_offset - block->range().left,
-                                                              copy_size, &lookup));
+        RETURN_IF_ERROR(_reader_local_file_cache->get_or_load(
+                buffer_offset, buffer_size, block, buffer_offset - block->range().left, &lookup));
         stats.num_reader_local_cache_evict += cast_set<int64_t>(lookup.evicted);
         stats.num_reader_local_cache_admission_reject += lookup.admission_rejected ? 1 : 0;
         stats.reader_local_cache_fill_timer += lookup.fill_time;
@@ -1469,17 +1415,13 @@ Status CachedRemoteFileReader::_read_remote_blocks_into_cache(
         const std::vector<FileBlockSPtr>& empty_blocks, size_t offset, size_t bytes_req,
         size_t already_read, Slice result, bool is_dryrun, ReadStatistics& stats,
         SourceReadBreakdown& source_read_breakdown, const IOContext* io_ctx,
-        size_t& indirect_read_bytes, size_t& empty_start, size_t& empty_end,
-        PeerFetchedBlockSet& peer_fetched_blocks) {
-    empty_start = 0;
-    empty_end = 0;
-    peer_fetched_blocks.clear();
+        size_t& indirect_read_bytes, PeerFetchedBlockSet& fetched_blocks) {
     if (empty_blocks.empty()) {
         return Status::OK();
     }
 
-    empty_start = empty_blocks.front()->range().left;
-    empty_end = empty_blocks.back()->range().right;
+    const size_t empty_start = empty_blocks.front()->range().left;
+    const size_t empty_end = empty_blocks.back()->range().right;
     const size_t span_read_size = empty_end - empty_start + 1;
     const auto peer_fetch_layout = build_peer_fetch_layout(empty_blocks, size());
     std::unique_ptr<char[]> buffer;
@@ -1491,10 +1433,6 @@ Status CachedRemoteFileReader::_read_remote_blocks_into_cache(
     std::vector<std::vector<const PeerFetchChunk*>> peer_chunks_by_block;
     if (stats.from_peer_cache) {
         // Peer returns sparse payloads; remember the exact sparse blocks that were filled.
-        peer_fetched_blocks.reserve(empty_blocks.size());
-        for (const auto& block : empty_blocks) {
-            peer_fetched_blocks.insert(block.get());
-        }
         peer_chunks_by_block.resize(empty_blocks.size());
         for (const auto& chunk : peer_result.chunks) {
             DCHECK_LT(chunk.block_index, empty_blocks.size());
@@ -1503,8 +1441,10 @@ Status CachedRemoteFileReader::_read_remote_blocks_into_cache(
     }
 
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().cached_remote_reader_write_back);
+    fetched_blocks.reserve(fetched_blocks.size() + empty_blocks.size());
     for (size_t idx = 0; idx < empty_blocks.size(); ++idx) {
         auto& block = empty_blocks[idx];
+        fetched_blocks.insert(block.get());
         if (block->state() == FileBlock::State::SKIP_CACHE) {
             continue;
         }
@@ -1566,8 +1506,7 @@ Status CachedRemoteFileReader::_read_remote_blocks_into_cache(
 
 Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
         const FileBlocksHolder& holder, size_t offset, size_t bytes_req, Slice result,
-        bool is_dryrun, size_t empty_start, size_t empty_end,
-        const PeerFetchedBlockSet& peer_fetched_blocks, ReadStatistics& stats,
+        bool is_dryrun, const PeerFetchedBlockSet& fetched_blocks, ReadStatistics& stats,
         SourceReadBreakdown& source_read_breakdown, size_t& indirect_read_bytes, size_t* bytes_read,
         const IOContext* io_ctx) {
     size_t current_offset = offset + *bytes_read;
@@ -1586,14 +1525,7 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
 
         size_t read_size =
                 end_offset > right ? right - current_offset + 1 : end_offset - current_offset + 1;
-        if (!peer_fetched_blocks.empty() && contains_file_block(peer_fetched_blocks, block)) {
-            // For sparse peer reads, skip only blocks fetched from peer. Other blocks inside the
-            // enclosing span may still come from local cache.
-            *bytes_read += read_size;
-            current_offset = right + 1;
-            continue;
-        }
-        if (peer_fetched_blocks.empty() && empty_start <= left && right <= empty_end) {
+        if (contains_file_block(fetched_blocks, block)) {
             *bytes_read += read_size;
             current_offset = right + 1;
             continue;
@@ -1816,17 +1748,27 @@ Status CachedRemoteFileReader::_read_from_indirect_cache(size_t offset, Slice re
     stats.cache_get_or_set_timer += sw.elapsed_time();
 
     auto empty_blocks = _collect_remote_read_blocks(holder, stats);
-    size_t empty_start = 0;
-    size_t empty_end = 0;
-    PeerFetchedBlockSet peer_fetched_blocks;
-    RETURN_IF_ERROR(_read_remote_blocks_into_cache(empty_blocks, offset, bytes_req, already_read,
-                                                   result, is_dryrun, stats, source_read_breakdown,
-                                                   io_ctx, indirect_read_bytes, empty_start,
-                                                   empty_end, peer_fetched_blocks));
+    PeerFetchedBlockSet fetched_blocks;
+    size_t run_start = 0;
+    for (size_t index = 1; index <= empty_blocks.size(); ++index) {
+        const bool end_of_run =
+                index == empty_blocks.size() ||
+                empty_blocks[index - 1]->range().right + 1 != empty_blocks[index]->range().left;
+        if (!end_of_run) {
+            continue;
+        }
+        // A cache hit is a hard merge boundary. Reading across it would redownload resident data
+        // and violate the cache-aware miss coalescing invariant used by StarRocks.
+        std::vector<FileBlockSPtr> contiguous_misses(empty_blocks.begin() + run_start,
+                                                     empty_blocks.begin() + index);
+        RETURN_IF_ERROR(_read_remote_blocks_into_cache(
+                contiguous_misses, offset, bytes_req, already_read, result, is_dryrun, stats,
+                source_read_breakdown, io_ctx, indirect_read_bytes, fetched_blocks));
+        run_start = index;
+    }
     *bytes_read = already_read;
     RETURN_IF_ERROR(_read_remaining_blocks_from_cache(holder, offset, bytes_req, result, is_dryrun,
-                                                      empty_start, empty_end, peer_fetched_blocks,
-                                                      stats, source_read_breakdown,
+                                                      fetched_blocks, stats, source_read_breakdown,
                                                       indirect_read_bytes, bytes_read, io_ctx));
     g_read_cache_indirect_bytes << indirect_read_bytes;
     g_read_cache_indirect_total_bytes << *bytes_read;

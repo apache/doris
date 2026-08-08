@@ -253,7 +253,7 @@ struct IOContext {
     FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
     RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr; // Ref
     // MergeRange owns the bytes it buffers, so its fill path must not promote the same bytes into
-    // the query-shared reader cache as well.
+    // the reader-local block map as well.
     bool bypass_reader_local_cache {false};
     std::shared_ptr<FileScannerV2ReaderLocalCache> reader_local_cache {nullptr};
 };
