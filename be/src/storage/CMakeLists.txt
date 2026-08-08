@@ -45,3 +45,19 @@ if (OS_MACOSX)
 endif()
 
 pch_reuse(Storage)
+
+# Unity build scoped to storage/index/: 115 homogeneous reader/writer/iterator
+# TUs sharing one (CLucene-heavy) header closure. The rest of Storage keeps
+# compiling individually. Batch 32 bounds jumbo-TU size and memory. Four index
+# files stay individual because their file-scope macros (CL_MAX_PATH and
+# friends, IS_CHINESE_CHAR, APPLY_FOR_PRIMITITYPE) must not leak into unity
+# siblings.
+set(STORAGE_UNITY_SKIP ${SRC_FILES})
+list(FILTER STORAGE_UNITY_SKIP EXCLUDE REGEX ".*/storage/index/.*")
+list(APPEND STORAGE_UNITY_SKIP
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/inverted_index_compound_reader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/inverted_index_fs_directory.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/tokenizer/basic/basic_tokenizer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/zone_map/zone_map_index.cpp)
+set_source_files_properties(${STORAGE_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+set_target_properties(Storage PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 32)
