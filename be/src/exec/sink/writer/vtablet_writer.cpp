@@ -127,8 +127,6 @@ static const std::vector<int32_t>& adaptive_local_bucket_seqs(const VOlapTablePa
     return partition.local_bucket_seqs;
 }
 
-static constexpr int64_t CLOSE_WAIT_EVENT_FALLBACK_MS = 1000;
-
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets,
                           bool incremental) {
     SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());

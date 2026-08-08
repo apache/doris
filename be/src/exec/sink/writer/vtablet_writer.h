@@ -589,6 +589,8 @@ private:
     friend class VTabletWriter;
     friend class VRowDistribution;
 
+    static constexpr int64_t CLOSE_WAIT_EVENT_FALLBACK_MS = 1000;
+
     int _max_failed_replicas(int64_t tablet_id);
 
     int _load_required_replicas_num(int64_t tablet_id);
