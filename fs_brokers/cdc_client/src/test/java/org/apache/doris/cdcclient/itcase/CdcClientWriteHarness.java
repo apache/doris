@@ -213,6 +213,12 @@ final class CdcClientWriteHarness implements AutoCloseable {
         return this;
     }
 
+    /** Set the SSL mode used by the CDC connector (e.g. "require", "disable", "verify-ca"). */
+    CdcClientWriteHarness withSslMode(String sslMode) {
+        config.put(DataSourceConfigKeys.SSL_MODE, sslMode);
+        return this;
+    }
+
     private JobBaseConfig baseConfig() {
         return new JobBaseConfig(jobId, dataSource, config, null);
     }
