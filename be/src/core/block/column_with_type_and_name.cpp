@@ -128,6 +128,15 @@ NullableColumnInfo ColumnWithTypeAndName::get_nullable_column_info() const {
 }
 
 ColumnWithTypeAndName ColumnWithTypeAndName::unnest_nullable(
+        bool replace_null_data_to_default) const {
+    NullableColumnInfo info;
+    if (type->is_nullable()) {
+        info = get_nullable_column_info();
+    }
+    return unnest_nullable(info, replace_null_data_to_default);
+}
+
+ColumnWithTypeAndName ColumnWithTypeAndName::unnest_nullable(
         const NullableColumnInfo& info, bool replace_null_data_to_default) const {
     if (!type->is_nullable()) {
         return {column, type, ""};

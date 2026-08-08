@@ -83,6 +83,7 @@ struct ColumnWithTypeAndName {
 
     const ColumnUInt8::Ptr& get_nullable_null_map_column() const;
     NullableColumnInfo get_nullable_column_info() const;
+    ColumnWithTypeAndName unnest_nullable(bool replace_null_data_to_default = false) const;
     ColumnWithTypeAndName unnest_nullable(const NullableColumnInfo& info,
                                           bool replace_null_data_to_default) const;
 
