@@ -525,6 +525,28 @@ TEST_F(BufferedReaderTest, ranges_are_exposed_incrementally_by_predicate_stage) 
     EXPECT_EQ(reader.statistics().future_predicate_prefetch_bytes, 0);
 }
 
+TEST_F(BufferedReaderTest, overlapping_incremental_ranges_are_coalesced) {
+    constexpr size_t KB = 1024;
+    auto inner = std::make_shared<CacheAwareMockFileReader>(64 * KB, false);
+    io::MergeRangeFileReader reader(nullptr, inner, {}, 8 * KB);
+    ASSERT_TRUE(reader.add_random_access_ranges({{0, 2 * KB}}, 0).ok());
+
+    std::vector<char> first_page(256);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader.read_at(0, Slice(first_page.data(), first_page.size()), &bytes_read).ok());
+    ASSERT_EQ(bytes_read, first_page.size());
+
+    ASSERT_TRUE(reader.add_random_access_ranges({{KB, 3 * KB}}, 1).ok());
+    EXPECT_EQ(reader.buffer_remaining(), io::MergeRangeFileReader::TOTAL_BUFFER_SIZE);
+    std::vector<char> cross_original_boundary(KB);
+    ASSERT_TRUE(
+            reader.read_at(1536,
+                           Slice(cross_original_boundary.data(), cross_original_boundary.size()),
+                           &bytes_read)
+                    .ok());
+    EXPECT_EQ(bytes_read, cross_original_boundary.size());
+}
+
 TEST_F(BufferedReaderTest, eager_later_stage_range_is_counted_as_future_prefetch) {
     constexpr size_t KB = 1024;
     auto inner = std::make_shared<CacheAwareMockFileReader>(64 * KB, false);
