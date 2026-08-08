@@ -36,6 +36,21 @@ add_library(Service STATIC ${SRC_FILES})
 
 pch_reuse(Service)
 
+# Unity build scoped to the http glue: ~60 small handlers re-parsing the same
+# header closure once per file. Non-http sources (service entry points,
+# arrow_flight) are heterogeneous heavy TUs that gain nothing from merging.
+# http_parser.cpp and be_thread_stack_action.cpp stay individual because their
+# file-scope macros (CR/LF, UNW_LOCAL_ONLY) must not leak into unity siblings.
+set(SERVICE_UNITY_SKIP ${SRC_FILES})
+list(FILTER SERVICE_UNITY_SKIP EXCLUDE REGEX ".*/service/http/.*")
+list(APPEND SERVICE_UNITY_SKIP
+    ${CMAKE_CURRENT_SOURCE_DIR}/http/http_parser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/http/action/be_thread_stack_action.cpp)
+set_source_files_properties(${SERVICE_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+if (ENABLE_UNITY_BUILD)
+    set_target_properties(Service PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 0)
+endif()
+
 if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     add_executable(doris_be
         doris_main.cpp
