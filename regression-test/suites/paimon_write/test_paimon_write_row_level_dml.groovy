@@ -120,6 +120,16 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
             'sequence.field' = 'seq',
             'sequence.field.sort-order' = 'descending'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_rowkind_field;
+        CREATE TABLE paimon.${dbName}.t_rowkind_field (
+            id INT, row_kind STRING, name STRING
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'rowkind.field' = 'row_kind'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -174,6 +184,22 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
                 WHEN MATCHED THEN UPDATE SET seq = s.score, name = s.name
             """
             exception "Paimon UPDATE cannot modify sequence-field column 'seq'"
+        }
+        test {
+            sql """UPDATE t_rowkind_field SET name = 'updated' WHERE id = 1"""
+            exception "Paimon UPDATE is not supported when rowkind.field is configured"
+        }
+        test {
+            sql """DELETE FROM t_rowkind_field WHERE id = 1"""
+            exception "Paimon DELETE is not supported when rowkind.field is configured"
+        }
+        test {
+            sql """
+                MERGE INTO t_rowkind_field t
+                USING internal.${dbName}.t_merge_source s ON t.id = s.id
+                WHEN MATCHED THEN DELETE
+            """
+            exception "Paimon MERGE is not supported when rowkind.field is configured"
         }
 
         sql """
@@ -235,10 +261,30 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
         }
         order_qt_paimon_merge_duplicate_unchanged """SELECT * FROM t_dml ORDER BY id"""
 
+        test {
+            sql """
+                MERGE INTO t_dml t
+                USING internal.${dbName}.t_merge_source s ON t.id = s.id
+                WHEN NOT MATCHED THEN INSERT (id, name, score, status)
+                    VALUES (s.id + 1, s.name, s.score, 'invalid-insert-key')
+            """
+            exception "each INSERT to use the corresponding deterministic source expression"
+        }
+        test {
+            sql """
+                MERGE INTO t_dml t
+                USING internal.${dbName}.t_merge_source s
+                ON t.id = s.id AND t.status = 'not-present'
+                WHEN NOT MATCHED THEN INSERT (id, name, score, status)
+                    VALUES (s.id, s.name, s.score, 'invalid-extra-predicate')
+            """
+            exception "Paimon MERGE with NOT MATCHED INSERT requires ON to contain only equality predicates"
+        }
+
         sql """TRUNCATE TABLE internal.${dbName}.t_merge_source"""
         sql """INSERT INTO internal.${dbName}.t_merge_source VALUES
-            (100, 'duplicate_insert_1', 301, 'I'),
-            (101, 'duplicate_insert_2', 302, 'I')
+            (1000, 'duplicate_insert_1', 301, 'I'),
+            (1000, 'duplicate_insert_2', 302, 'I')
         """
         test {
             sql """
@@ -246,11 +292,37 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
                 USING internal.${dbName}.t_merge_source s
                 ON t.id = s.id
                 WHEN NOT MATCHED THEN INSERT (id, name, score, status)
-                    VALUES (1000, s.name, s.score, 'duplicate-insert')
+                    VALUES (s.id, s.name, s.score, 'duplicate-insert')
             """
             exception "Paimon MERGE attempted to insert multiple rows with the same primary key"
         }
         order_qt_paimon_merge_duplicate_insert_unchanged """SELECT * FROM t_dml ORDER BY id"""
+
+        test {
+            sql """
+                MERGE INTO t_dml t
+                USING internal.${dbName}.t_merge_source s
+                ON t.id = CAST(RAND() * 1000000 AS INT)
+                WHEN NOT MATCHED THEN INSERT (id, name, score, status)
+                    VALUES (CAST(RAND() * 1000000 AS INT), s.name, s.score, 'random-key')
+            """
+            exception "each INSERT to use the corresponding deterministic source expression"
+        }
+
+        sql """TRUNCATE TABLE internal.${dbName}.t_merge_source"""
+        sql """
+            INSERT INTO internal.${dbName}.t_merge_source
+            SELECT CAST(number + 2000 AS INT), CONCAT('unmatched_', number),
+                   CAST(number AS INT), 'I'
+            FROM numbers("number" = "1024")
+        """
+        sql """
+            MERGE INTO t_dml t
+            USING internal.${dbName}.t_merge_source s ON t.id = s.id
+            WHEN NOT MATCHED THEN INSERT (id, name, score, status)
+                VALUES (s.id, s.name, s.score, 'many-unmatched')
+        """
+        qt_paimon_merge_many_unmatched """SELECT count(*) FROM t_dml WHERE id >= 2000"""
 
         test {
             sql """UPDATE t_append_only SET name = 'x' WHERE id = 1"""

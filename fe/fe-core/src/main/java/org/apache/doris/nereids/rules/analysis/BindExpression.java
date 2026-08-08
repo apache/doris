@@ -25,7 +25,6 @@ import org.apache.doris.datasource.VariantWritePlanValidator;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
-import org.apache.doris.datasource.paimon.PaimonRowChangeOperation;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -91,7 +90,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLoadProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -248,9 +246,6 @@ public class BindExpression implements AnalysisRuleFactory {
             RuleType.BINDING_ICEBERG_MERGE_SINK_OUTPUT.build(
                 logicalIcebergMergeSink().thenApply(this::bindIcebergMergeSink)
             ),
-            RuleType.BINDING_PAIMON_TABLE_SINK_OUTPUT.build(
-                logicalPaimonTableSink().thenApply(this::bindPaimonTableSink)
-            ),
             RuleType.BINDING_RESULT_SINK.build(
                 unboundResultSink().thenApply(this::bindResultSink)
             )
@@ -380,48 +375,6 @@ public class BindExpression implements AnalysisRuleFactory {
         }
         return castExprs;
     }
-
-    private LogicalPaimonTableSink<Plan> bindPaimonTableSink(
-            MatchingContext<LogicalPaimonTableSink<Plan>> ctx) {
-        LogicalPaimonTableSink<Plan> sink = ctx.root;
-        if (!sink.isChangelogWrite() || hasUnboundPlan(sink.child())) {
-            return sink;
-        }
-
-        List<NamedExpression> outputExprs = sink.child().getOutput().stream()
-                .map(NamedExpression.class::cast)
-                .collect(ImmutableList.toImmutableList());
-        if (outputExprs.size() != sink.getCols().size() + 1) {
-            throw new AnalysisException("Paimon changelog sink requires one operation column and "
-                    + sink.getCols().size() + " data columns, but got " + outputExprs.size());
-        }
-        NamedExpression operationExpr = outputExprs.get(0);
-        if (!PaimonRowChangeOperation.OPERATION_COLUMN.equalsIgnoreCase(operationExpr.getName())) {
-            throw new AnalysisException("Paimon changelog sink first output must be "
-                    + PaimonRowChangeOperation.OPERATION_COLUMN + ", but got " + operationExpr.getName());
-        }
-
-        boolean changed = false;
-        List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());
-        castExprs.add(operationExpr);
-        for (int i = 0; i < sink.getCols().size(); i++) {
-            NamedExpression expr = outputExprs.get(i + 1);
-            NamedExpression namedExpr = coerceToColumn(expr, sink.getCols().get(i));
-            if (!namedExpr.equals(expr)) {
-                changed = true;
-            }
-            castExprs.add(namedExpr);
-        }
-        if (!changed) {
-            if (sink.getOutputExprs().equals(outputExprs)) {
-                return sink;
-            }
-            return sink.withOutputExprs(outputExprs);
-        }
-        LogicalProject<?> project = new LogicalProject<>(castExprs, sink.child());
-        return (LogicalPaimonTableSink<Plan>) sink.withChildAndUpdateOutput(project);
-    }
-
     private static NamedExpression coerceToColumn(NamedExpression expr, Column column) {
         DataType targetType = DataType.fromCatalogType(column.getType());
         Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);

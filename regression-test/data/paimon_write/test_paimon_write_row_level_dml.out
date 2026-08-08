@@ -33,6 +33,9 @@
 5	Eve	50	inserted
 6	priority_insert	60	first-not-matched
 
+-- !paimon_merge_many_unmatched --
+1024
+
 -- !paimon_ignore_delete_unchanged --
 10	keep
 

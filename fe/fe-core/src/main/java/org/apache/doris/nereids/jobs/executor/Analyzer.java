@@ -133,12 +133,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new BindExpression()
             ),
             topDown(new BindSink()),
-            // Sink binding may introduce projections whose expressions depend on target metadata.
-            // Bind those expressions and refresh sink outputs before running post-bind checks.
-            bottomUp(
-                    new BindExpression(),
-                    new CheckAfterBind()
-            ),
+            bottomUp(new CheckAfterBind()),
             topDown(new FillUpQualifyMissingSlot()),
             bottomUp(
                     new OneRowRelationToProject(),

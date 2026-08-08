@@ -107,13 +107,6 @@ public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTabl
         return dmlCommandType;
     }
 
-    /** Whether the first sink column carries a per-row Paimon change operation. */
-    public boolean isChangelogWrite() {
-        return dmlCommandType == DMLCommandType.UPDATE
-                || dmlCommandType == DMLCommandType.DELETE
-                || dmlCommandType == DMLCommandType.MERGE;
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {
