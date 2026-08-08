@@ -525,50 +525,48 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             }
             PreAggStatus preAggStatus = PreAggStatus.on();
             for (AggregateFunction aggFunc : aggregateFuncs) {
+                // candidateAggFuncs only contains functions whose input slots
+                // intersect outputSlots (see createPreAggStatus), so aggSlots is
+                // never empty and splitKeyValueSlots always inspects real slots.
                 Set<Slot> aggSlots = Sets.intersection(
                         aggFunc.getInputSlots(), outputSlots);
-                if (aggSlots.isEmpty()) {
-                    preAggStatus = PreAggStatus.off(
-                            String.format("can't turn preAgg on for aggregate function %s", aggFunc));
-                } else {
-                    Pair<Set<SlotReference>, Set<SlotReference>> splitSlots = splitKeyValueSlots(aggSlots);
-                    if (splitSlots.first.isEmpty()) {
-                        // only value slots
-                        Expression valueChild = aggFunc.child(0);
-                        if (aggFunc.children().size() == 1 && valueChild instanceof SlotReference) {
-                            SlotReference slotRef = (SlotReference) valueChild;
-                            if (slotRef.getOriginalColumn().isPresent()) {
-                                preAggStatus = OneValueSlotAggChecker.INSTANCE.check(aggFunc,
-                                        slotRef.getOriginalColumn().get().getAggregationType());
-                            } else {
-                                preAggStatus = PreAggStatus.off(
-                                        String.format("can't turn preAgg on for aggregate function %s", aggFunc));
-                            }
-                        } else if (aggFunc.children().size() == 1
-                                && (valueChild instanceof If || valueChild instanceof CaseWhen)) {
-                            // IF/CaseWhen: the condition references only key columns (foreign or
-                            // local), stable across this scan's partial rows.  The return
-                            // expressions reference local value columns validated below.
-                            // Reuse checkAggWithKeyAndValueSlots: the global condition
-                            // check (step 2) accepts foreign key columns.
-                            preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, outputSlots);
+                Pair<Set<SlotReference>, Set<SlotReference>> splitSlots = splitKeyValueSlots(aggSlots);
+                if (splitSlots.first.isEmpty()) {
+                    // only value slots
+                    Expression valueChild = aggFunc.child(0);
+                    if (aggFunc.children().size() == 1 && valueChild instanceof SlotReference) {
+                        SlotReference slotRef = (SlotReference) valueChild;
+                        if (slotRef.getOriginalColumn().isPresent()) {
+                            preAggStatus = OneValueSlotAggChecker.INSTANCE.check(aggFunc,
+                                    slotRef.getOriginalColumn().get().getAggregationType());
                         } else {
                             preAggStatus = PreAggStatus.off(
                                     String.format("can't turn preAgg on for aggregate function %s", aggFunc));
                         }
-                    } else if (splitSlots.second.isEmpty()) {
-                        // only key slots
-                        preAggStatus = KeySlotAggChecker.INSTANCE.check(aggFunc);
+                    } else if (aggFunc.children().size() == 1
+                            && (valueChild instanceof If || valueChild instanceof CaseWhen)) {
+                        // IF/CaseWhen: the condition references only key columns (foreign or
+                        // local), stable across this scan's partial rows.  The return
+                        // expressions reference local value columns validated below.
+                        // Reuse checkAggWithKeyAndValueSlots: the global condition
+                        // check (step 2) accepts foreign key columns.
+                        preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, outputSlots);
                     } else {
-                        // checkAggWithKeyAndValueSlots only inspects child(0) for IF/CaseWhen patterns.
-                        // For multi-argument aggregate functions, child(0) inspection is insufficient
-                        // as later arguments may contain value columns that are not validated.
-                        if (aggFunc.children().size() > 1) {
-                            preAggStatus = PreAggStatus.off(
-                                    String.format("can't turn preAgg on for aggregate function %s", aggFunc));
-                        } else {
-                            preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, outputSlots);
-                        }
+                        preAggStatus = PreAggStatus.off(
+                                String.format("can't turn preAgg on for aggregate function %s", aggFunc));
+                    }
+                } else if (splitSlots.second.isEmpty()) {
+                    // only key slots
+                    preAggStatus = KeySlotAggChecker.INSTANCE.check(aggFunc);
+                } else {
+                    // checkAggWithKeyAndValueSlots only inspects child(0) for IF/CaseWhen patterns.
+                    // For multi-argument aggregate functions, child(0) inspection is insufficient
+                    // as later arguments may contain value columns that are not validated.
+                    if (aggFunc.children().size() > 1) {
+                        preAggStatus = PreAggStatus.off(
+                                String.format("can't turn preAgg on for aggregate function %s", aggFunc));
+                    } else {
+                        preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, outputSlots);
                     }
                 }
                 if (preAggStatus.isOff()) {
@@ -645,6 +643,18 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             // KeyAndValueSlotsAggChecker). Keep the fence for non-idempotent
             // aggregates (SUM, COUNT, ...) where a repeated foreign value would
             // be double-counted.
+            //
+            // count(distinct ...) is also multiplicity-immune (DISTINCT
+            // deduplicates repeated foreign values), like MAX/MIN, but is
+            // deliberately not exempted: the exemption would be a no-op. A safe
+            // foreign return for it is a key slot, and such aggregates never
+            // reach this fence — key-only local slots go through
+            // KeySlotAggChecker (isDistinct -> ON), empty local slots are
+            // whitelisted as other-table count-distinct. When this fence does
+            // fire for count(distinct), step 2 (a value column in the
+            // condition) or KeyAndValueSlotsAggChecker.visitCount (a value
+            // column in a return; only key/0/NULL returns are accepted)
+            // independently rejects it anyway.
             if (!(aggFunc instanceof Max || aggFunc instanceof Min)) {
                 for (Expression returnExp : returnExps) {
                     if (returnExp instanceof SlotReference && !outputSlots.contains(returnExp)) {
