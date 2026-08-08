@@ -57,6 +57,7 @@
 #include "load/stream_load/stream_load_recorder.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_common.h"
 #include "service/http/http_headers.h"
@@ -84,7 +85,6 @@ bvar::LatencyRecorder g_stream_load_commit_and_publish_latency_ms("stream_load",
                                                                   "commit_and_publish_ms");
 
 static constexpr size_t MIN_CHUNK_SIZE = 64 * 1024;
-static constexpr size_t MEBIBYTE = 1024 * 1024;
 static const std::string CHUNK = "chunked";
 static const std::string OFF_MODE = "off_mode";
 static const std::string SYNC_MODE = "sync_mode";

@@ -33,6 +33,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "service/backend_options.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
@@ -50,12 +51,6 @@
 
 namespace doris {
 using namespace ErrorCode;
-
-namespace {
-
-constexpr std::string_view HEADER_JSON = "application/json";
-
-} // namespace
 
 CompactionAction::CompactionAction(CompactionActionType ctype, ExecEnv* exec_env,
                                    StorageEngine& engine, TPrivilegeHier::type hier,

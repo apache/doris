@@ -49,6 +49,7 @@
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_common.h"
 #include "service/http/http_headers.h"
@@ -67,8 +68,6 @@ namespace doris {
 using namespace ErrorCode;
 
 namespace {
-
-constexpr size_t MEBIBYTE = 1024 * 1024;
 
 bool is_compressed_file_scan(const TPipelineFragmentParams& params) {
     if (!params.__isset.file_scan_params) {
