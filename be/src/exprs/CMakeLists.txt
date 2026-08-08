@@ -36,6 +36,61 @@ target_link_libraries(Exprs PRIVATE ann_index)
 
 pch_reuse(Exprs)
 
+# Unity build for the Exprs glue: ~250 registration/wrapper TUs share the
+# vexpr/factory header closure. Batch 8 bounds jumbo-TU size and memory.
+# Opted out and kept as individual TUs:
+#  - the flex/bison outputs and tldLookup.generated.cpp (generated tables and
+#    macros would clash),
+#  - files whose file-scope macros must not leak into unity siblings
+#    (fmod_fast, function_bitmap_variadic, function_date_or_datetime_computation,
+#    function_datetime_floor_ceil, function_string_misc, json_functions,
+#    math_functions),
+#  - the heavy template-instantiation TUs (>15s wall or >2.2GB RSS in the
+#    compile bench: the min_max/collect/topn/percentile aggregate family,
+#    in.cpp, multiply.cpp, round.cpp, function_array_aggregation.cpp, ...);
+#    their codegen is per-file and would only stack into jumbo poles.
+set(EXPRS_UNITY_SKIP
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_array_agg.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_avg.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_bit.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_collect_limit.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_collect_no_limit.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_distinct.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_group_array_intersect.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_group_array_union.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_histogram.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_map_combinator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_min_max_any.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_min_max_by.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_min_max_max.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_min_max_min.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_percentile.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_reader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_sum.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_topn_array.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_topn_weighted.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_uniq.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/ai/ai_functions.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/array/function_array_aggregation.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/cast/function_cast_decimal.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/fmod_fast.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/function_bitmap_variadic.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/function_date_or_datetime_computation.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/function_datetime_floor_ceil.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/function_string_misc.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/in.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/minus.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/multiply.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/plus.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/round.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/url/tldLookup.generated.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/json_functions.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/math_functions.cpp
+    ${GENSRC_DIR}/geo/wkt_lex.l.cpp
+    ${GENSRC_DIR}/geo/wkt_yacc.y.cpp)
+set_source_files_properties(${EXPRS_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+set_target_properties(Exprs PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 8)
+
 # Flex/Bison generation rules for geo WKT parsing
 add_custom_command(
     OUTPUT ${GENSRC_DIR}/geo/wkt_lex.l.cpp ${GENSRC_DIR}/geo/wkt_lex.l.h
