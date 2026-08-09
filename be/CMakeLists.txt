@@ -784,12 +784,15 @@ endif ()
 
 # Add sanitize static link flags
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
-    if (OS_MACOSX AND ARCH_ARM AND MAKE_TEST)
-        # doris_be_test's Debug .text exceeds arm64's +/-128MB BL reach and
-        # Apple's linker emits no branch islands for tcmalloc's prebuilt
-        # archive ("fixup error ... B/BL out of range"). Tests don't need a
-        # custom allocator; fall back to system malloc here. ASAN builds never
-        # linked ${MALLOCLIB} anyway, which is why they never hit this.
+    if (OS_MACOSX AND ARCH_ARM AND (MAKE_TEST OR BUILD_BENCHMARK))
+        # doris_be_test's and benchmark_test's .text exceeds arm64's +/-128MB
+        # BL reach (BE_TEST/BE_BENCHMARK macros inflate it further) and Apple's
+        # linker emits no branch islands for tcmalloc's prebuilt archive
+        # ("fixup error ... B/BL out of range"). Tests and benchmarks don't
+        # need a custom allocator; fall back to system malloc here. ASAN
+        # builds never linked ${MALLOCLIB} anyway, which is why they never
+        # hit this. gperftools_stubs.cpp supplies the few symbols still
+        # referenced unconditionally.
     else()
         set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
     endif()
@@ -1050,7 +1053,10 @@ if (BUILD_BENCHMARK)
     if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "RELEASE")
         message(FATAL_ERROR "Benchmark should be built with RELEASE build type, current build type is ${CMAKE_BUILD_TYPE}")
     endif()
-    add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp)
+    add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp
+        # No-ops everywhere except macOS/arm64, where benchmark_test links
+        # without tcmalloc (see the MALLOCLIB branch above).
+        ${BASE_DIR}/test/testutil/gperftools_stubs.cpp)
     set_target_properties(benchmark_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
     message(STATUS "Add benchmark to build")
