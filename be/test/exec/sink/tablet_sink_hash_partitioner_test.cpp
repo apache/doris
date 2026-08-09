@@ -340,7 +340,7 @@ TEST(TabletSinkHashPartitionerTest, OlapTabletFinderRoundRobinEveryBatch) {
     }
 }
 
-TEST(TabletSinkHashPartitionerTest, TimeStampNsRangeUsesPartitionColumnScale) {
+TEST(TabletSinkHashPartitionerTest, TimeStampNsRangePartitionKey) {
     OperatorContext ctx;
 
     TOlapTableSchemaParam tschema;

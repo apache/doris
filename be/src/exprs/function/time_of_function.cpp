@@ -20,7 +20,6 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h" // IWYU pragma: keep
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
-#include "core/data_type/data_type_timestamp_ns.h"
 #include "exprs/function/date_time_transforms.h"
 #include "exprs/function/function_date_or_datetime_to_something.h"
 #include "exprs/function/simple_function_factory.h"
@@ -52,17 +51,6 @@ using FunctionDateTimeV2YearWeek =
 using FunctionDateTimeV2WeekDay =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, WeekDayImpl<TYPE_DATETIMEV2>>;
 
-#define TIMESTAMP_NS_TIME_OF_FUNCTION(NAME, RESULT_TYPE, IMPL) \
-    using FunctionTimeStampNs##NAME =                          \
-            FunctionDateOrDateTimeToSomething<RESULT_TYPE, IMPL<TYPE_TIMESTAMP_NS>>
-
-TIMESTAMP_NS_TIME_OF_FUNCTION(WeekOfYear, DataTypeInt8, WeekOfYearImpl);
-TIMESTAMP_NS_TIME_OF_FUNCTION(DayOfYear, DataTypeInt16, DayOfYearImpl);
-TIMESTAMP_NS_TIME_OF_FUNCTION(DayOfWeek, DataTypeInt8, DayOfWeekImpl);
-TIMESTAMP_NS_TIME_OF_FUNCTION(DayOfMonth, DataTypeInt8, DayOfMonthImpl);
-TIMESTAMP_NS_TIME_OF_FUNCTION(YearWeek, DataTypeInt32, ToYearWeekOneArgImpl);
-TIMESTAMP_NS_TIME_OF_FUNCTION(WeekDay, DataTypeInt8, WeekDayImpl);
-
 void register_function_time_of_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayOfWeekV2>();
     factory.register_function<FunctionDayOfMonthV2>();
@@ -76,11 +64,5 @@ void register_function_time_of_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTimeV2DayOfMonth>();
     factory.register_function<FunctionDateTimeV2YearWeek>();
     factory.register_function<FunctionDateTimeV2WeekDay>();
-    factory.register_function<FunctionTimeStampNsWeekOfYear>();
-    factory.register_function<FunctionTimeStampNsDayOfYear>();
-    factory.register_function<FunctionTimeStampNsDayOfWeek>();
-    factory.register_function<FunctionTimeStampNsDayOfMonth>();
-    factory.register_function<FunctionTimeStampNsYearWeek>();
-    factory.register_function<FunctionTimeStampNsWeekDay>();
 }
 } // namespace doris

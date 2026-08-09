@@ -73,7 +73,7 @@ public class SimplifyInPredicate implements ExpressionPatternRuleFactory {
                                             (DateTimeV2Literal) literal, compareType.getScale()))) {
                         ImmutableList.Builder<Expression> children = ImmutableList.builder();
                         children.add(cast.child());
-                        literals.forEach(l -> children.add(DateTimeV2Literal.create(compareType,
+                        literals.forEach(l -> children.add(new DateTimeV2Literal(compareType,
                                 ((DateTimeV2Literal) l).getStringValue())));
                         return expr.withChildren(children.build());
                     }

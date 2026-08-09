@@ -18,11 +18,9 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.types.StringType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -35,19 +33,11 @@ class StrToDateTest {
                 new Concat(new StringLiteral("%Y-%m"), new StringLiteral("-%d")));
         StrToDate dateTimeFormat = new StrToDate(new StringLiteral("2024-01-01 12:34:56"),
                 new Concat(new StringLiteral("%Y-%m-%d"), new StringLiteral(" %H:%i:%s")));
-        StrToDate microsecondFormat = new StrToDate(new StringLiteral("2024-01-01 12:34:56.123456"),
-                new Concat(new StringLiteral("%Y-%m-%d %H:%i:%s"), new StringLiteral(".%f")));
-        StrToDate nonConstantFormat = new StrToDate(new StringLiteral("2024-01-01 12:34:56.123456"),
-                new SlotReference("format", StringType.INSTANCE));
 
         FunctionSignature dateSignature = dateFormat.computeSignature(StrToDate.SIGNATURES.get(0));
         FunctionSignature dateTimeSignature = dateTimeFormat.computeSignature(StrToDate.SIGNATURES.get(0));
-        FunctionSignature microsecondSignature = microsecondFormat.computeSignature(StrToDate.SIGNATURES.get(0));
-        FunctionSignature nonConstantSignature = nonConstantFormat.computeSignature(StrToDate.SIGNATURES.get(1));
 
         Assertions.assertEquals(DateV2Type.INSTANCE, dateSignature.returnType);
         Assertions.assertEquals(DateTimeV2Type.SYSTEM_DEFAULT, dateTimeSignature.returnType);
-        Assertions.assertEquals(DateTimeV2Type.MAX, microsecondSignature.returnType);
-        Assertions.assertEquals(DateTimeV2Type.MAX, nonConstantSignature.returnType);
     }
 }

@@ -37,6 +37,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.MapType;
@@ -299,6 +300,8 @@ public final class ExprToConnectorExpressionConverter {
             return new ConnectorLiteral(ct, ((DecimalLiteral) literal).getValue());
         } else if (literal instanceof StringLiteral) {
             return new ConnectorLiteral(ct, ((StringLiteral) literal).getValue());
+        } else if (literal instanceof TimeStampNsLiteral) {
+            return new ConnectorLiteral(ct, ((TimeStampNsLiteral) literal).toLocalDateTime());
         } else if (literal instanceof DateLiteral) {
             return convertDateLiteral((DateLiteral) literal, ct);
         } else {

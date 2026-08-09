@@ -29,7 +29,6 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -51,9 +50,6 @@ public class WindowFunnel extends NullableAggregateFunction
                             BooleanType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE)
                     .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, DateTimeV2Type.WILDCARD,
-                            BooleanType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE)
-                    .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, TimeStampNsType.INSTANCE,
                             BooleanType.INSTANCE)
 
     );

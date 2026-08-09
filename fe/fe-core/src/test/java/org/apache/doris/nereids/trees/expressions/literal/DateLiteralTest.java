@@ -241,7 +241,7 @@ class DateLiteralTest {
         Assertions.assertInstanceOf(org.apache.doris.analysis.TimeStampNsLiteral.class,
                 nanoseconds.toLegacyLiteral());
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> DateTimeV2Literal.create(TimeStampNsType.INSTANCE,
+                () -> new DateTimeV2Literal(TimeStampNsType.INSTANCE,
                         "1970-01-01 00:00:00.123456789"));
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> new DateTimeV2Literal(

@@ -17,22 +17,17 @@
 
 #include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 
-#include <arrow/array.h>
-#include <arrow/builder.h>
 #include <cctz/time_zone.h>
 
 #include <algorithm>
 #include <cctype>
 #include <limits>
-#include <orc/Vector.hh>
 #include <string>
 
-#include "common/config.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
@@ -63,26 +58,6 @@ Status utc_epoch_nanos_to_local_epoch_nanos(int64_t source, const cctz::time_zon
     *result = target_value.epoch_nanos();
     return Status::OK();
 }
-
-/*
-Status local_epoch_nanos_to_utc_epoch_nanos(int64_t source, const cctz::time_zone& timezone,
-                                            int64_t* result) {
-    const TimeStampNsValue source_value(source);
-    auto local_value = source_value.to_datetime();
-    int64_t seconds = 0;
-    local_value.unix_timestamp(&seconds, timezone);
-    const __int128 epoch_nanos =
-            static_cast<__int128>(seconds) * TimeStampNsValue::NANOS_PER_SECOND +
-            source_value.nanosecond();
-    if (epoch_nanos < std::numeric_limits<int64_t>::min() ||
-        epoch_nanos > std::numeric_limits<int64_t>::max()) {
-        return Status::DataQualityError("TIMESTAMP_NS value {} is outside epoch nanosecond range",
-                                        source_value.to_string(9));
-    }
-    *result = static_cast<int64_t>(epoch_nanos);
-    return Status::OK();
-}
-*/
 
 } // namespace
 
@@ -261,38 +236,6 @@ Status DataTypeTimeStampNsSerDe::write_column_to_arrow(const IColumn& column,
                                                        int64_t start, int64_t end,
                                                        const cctz::time_zone& ctz) const {
     return Status::NotSupported("DataTypeTimeStampNsSerDe::write_column_to_arrow");
-    // TODO: support write_column_to_arrow
-    /*
-    const auto& data = assert_cast<const ColumnTimeStampNs&>(column).get_data();
-    auto& builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
-    const auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(builder.type());
-    const auto& timezone = timestamp_type->timezone();
-    for (int64_t i = start; i < end; ++i) {
-        if (null_map != nullptr && (*null_map)[i]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
-            continue;
-        }
-        int64_t value = data[i].epoch_nanos();
-        if (!timezone.empty()) {
-            RETURN_IF_ERROR(local_epoch_nanos_to_utc_epoch_nanos(value, ctz, &value));
-        }
-        switch (timestamp_type->unit()) {
-        case arrow::TimeUnit::SECOND:
-            value /= TimeStampNsValue::NANOS_PER_SECOND;
-            break;
-        case arrow::TimeUnit::MILLI:
-            value /= NANOS_PER_MILLISECOND;
-            break;
-        case arrow::TimeUnit::MICRO:
-            value /= NANOS_PER_MICROSECOND;
-            break;
-        case arrow::TimeUnit::NANO:
-            break;
-        }
-        RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column, builder));
-    }
-    return Status::OK();
-    */
 }
 
 Status DataTypeTimeStampNsSerDe::read_column_from_arrow(IColumn& column,
@@ -300,47 +243,6 @@ Status DataTypeTimeStampNsSerDe::read_column_from_arrow(IColumn& column,
                                                         int64_t start, int64_t end,
                                                         const cctz::time_zone& ctz) const {
     return Status::NotSupported("DataTypeTimeStampNsSerDe::read_column_from_arrow");
-    // TODO:
-    /*
-    if (arrow_array->type_id() != arrow::Type::TIMESTAMP) {
-        return Status::InvalidArgument("Expected Arrow timestamp, got {}", arrow_array->type_id());
-    }
-    if (config::enable_arrow_input_validation) {
-        check_arrow_no_offset(*arrow_array);
-    }
-    const auto& array = assert_cast<const arrow::TimestampArray&>(*arrow_array);
-    const auto type = std::static_pointer_cast<arrow::TimestampType>(array.type());
-    auto& data = assert_cast<ColumnTimeStampNs&>(column).get_data();
-    for (int64_t i = start; i < end; ++i) {
-        int64_t value = array.Value(i);
-        int64_t nanos = 0;
-        switch (type->unit()) {
-        case arrow::TimeUnit::SECOND:
-            if (!checked_scale_to_nanos(value, TimeStampNsValue::NANOS_PER_SECOND, &nanos)) {
-                return Status::DataQualityError("Arrow timestamp {} overflows nanoseconds", value);
-            }
-            break;
-        case arrow::TimeUnit::MILLI:
-            if (!checked_scale_to_nanos(value, NANOS_PER_MILLISECOND, &nanos)) {
-                return Status::DataQualityError("Arrow timestamp {} overflows nanoseconds", value);
-            }
-            break;
-        case arrow::TimeUnit::MICRO:
-            if (!checked_scale_to_nanos(value, NANOS_PER_MICROSECOND, &nanos)) {
-                return Status::DataQualityError("Arrow timestamp {} overflows nanoseconds", value);
-            }
-            break;
-        case arrow::TimeUnit::NANO:
-            nanos = value;
-            break;
-        }
-        if (!type->timezone().empty()) {
-            RETURN_IF_ERROR(utc_epoch_nanos_to_local_epoch_nanos(nanos, ctz, &nanos));
-        }
-        data.push_back(TimeStampNsValue(nanos));
-    }
-    return Status::OK();
-    */
 }
 
 Status DataTypeTimeStampNsSerDe::read_column_from_decoded_values(
@@ -407,27 +309,6 @@ Status DataTypeTimeStampNsSerDe::write_column_to_orc(const std::string& timezone
                                                      int64_t start, int64_t end, Arena& arena,
                                                      const FormatOptions& options) const {
     return Status::NotSupported("DataTypeTimeStampNsSerDe::write_column_to_orc");
-    // TODO: support write_column_to_orc
-    /*
-    const auto& data = assert_cast<const ColumnTimeStampNs&>(column).get_data();
-    auto& batch = assert_cast<orc::TimestampVectorBatch&>(*orc_col_batch);
-    cctz::time_zone parsed_timezone;
-    if (!cctz::load_time_zone(timezone, &parsed_timezone)) {
-        return Status::InvalidArgument("Invalid timezone '{}'", timezone);
-    }
-    for (int64_t row = start; row < end; ++row) {
-        if (batch.notNull[row] == 0) {
-            continue;
-        }
-        int64_t value = data[row].epoch_nanos();
-        RETURN_IF_ERROR(local_epoch_nanos_to_utc_epoch_nanos(value, parsed_timezone, &value));
-        const TimeStampNsValue timestamp(value);
-        batch.data[row] = timestamp.epoch_seconds();
-        batch.nanoseconds[row] = timestamp.nanosecond();
-    }
-    batch.numElements = end - start;
-    return Status::OK();
-    */
 }
 
 void DataTypeTimeStampNsSerDe::write_one_cell_to_binary(const IColumn& src_column,

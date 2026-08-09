@@ -40,8 +40,7 @@ public class MicroSecondsSub extends ScalarFunction implements BinaryExpression,
         PropagateNullable, DateAddSubMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList
-            .of(FunctionSignature.ret(DateTimeV2Type.WILDCARD)
-                            .args(DateTimeV2Type.WILDCARD, BigIntType.INSTANCE),
+            .of(FunctionSignature.ret(DateTimeV2Type.MAX).args(DateTimeV2Type.MAX, BigIntType.INSTANCE),
                 FunctionSignature.ret(TimeStampTzType.MAX).args(TimeStampTzType.MAX, BigIntType.INSTANCE)
     );
 
@@ -68,13 +67,10 @@ public class MicroSecondsSub extends ScalarFunction implements BinaryExpression,
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
-        if (getArgument(0).getDataType() instanceof TimeStampTzType
-                || signature.argumentsTypes.get(0) instanceof TimeStampTzType) {
+        if (signature.argumentsTypes.get(0) instanceof TimeStampTzType) {
             return signature.withArgumentType(0, TimeStampTzType.MAX).withReturnType(TimeStampTzType.MAX);
         }
-        DateTimeV2Type returnType = DateTimeV2Type.forTypeWithMinimumScale(
-                getArgument(0).getDataType(), DateTimeV2Type.MAX_SCALE);
-        return signature.withArgumentType(0, returnType).withReturnType(returnType);
+        return signature.withArgumentType(0, DateTimeV2Type.MAX).withReturnType(DateTimeV2Type.MAX);
     }
 
     @Override

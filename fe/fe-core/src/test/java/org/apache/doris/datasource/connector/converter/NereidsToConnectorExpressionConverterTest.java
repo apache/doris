@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
@@ -148,7 +149,7 @@ public class NereidsToConnectorExpressionConverterTest {
 
         ConnectorLiteral nanoTs = rightLiteralOf(NereidsToConnectorExpressionConverter.convert(
                 new EqualTo(slot("timestamp_ns", ScalarType.createTimeStampNsType()),
-                        new DateTimeV2Literal("2024-01-02 12:34:56.123456789"))));
+                        new TimeStampNsLiteral("2024-01-02 12:34:56.123456789"))));
         Assertions.assertEquals(LocalDateTime.of(2024, 1, 2, 12, 34, 56, 123456789), nanoTs.getValue());
     }
 

@@ -24,6 +24,8 @@
 namespace doris {
 
 DateV2Value<DateTimeV2ValueType> TimeStampNsValue::to_datetime() const {
+    // epoch_seconds() is floor-divided, so set_microsecond() always receives the first six digits
+    // of a non-negative fractional second even for timestamps before the epoch.
     DateV2Value<DateTimeV2ValueType> value;
     value.from_unixtime(epoch_seconds(), cctz::utc_time_zone());
     value.set_microsecond(microsecond());
@@ -35,6 +37,8 @@ bool TimeStampNsValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& val
     DORIS_CHECK_LE(nanosecond_remainder, 999);
     int64_t seconds = 0;
     value.unix_timestamp(&seconds, cctz::utc_time_zone());
+    // The civil adapter and remainder form one exact epoch-nanosecond value. Int128 is required:
+    // valid boundary dates overflow Int64 during the intermediate seconds-to-nanoseconds product.
     const __int128 epoch_nanos = static_cast<__int128>(seconds) * NANOS_PER_SECOND +
                                  static_cast<__int128>(value.microsecond()) * 1000 +
                                  nanosecond_remainder;
@@ -56,6 +60,8 @@ int32_t TimeStampNsValue::to_buffer(char* buffer, int scale) const {
     }
     buffer[base_length] = '.';
     uint32_t nanos = nanosecond();
+    // Consume the fraction from most significant to least significant digit. Deliberately do not
+    // round here: type normalization happens while parsing/casting, before a value is stored.
     for (int i = 0; i < scale; ++i) {
         buffer[base_length + 1 + i] =
                 static_cast<char>('0' + nanos / static_cast<uint32_t>(int_exp10(8 - i)));

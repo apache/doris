@@ -712,7 +712,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         if (type instanceof TimeStampNsType) {
             return TimeStampNsLiteral.fromJavaDateType(dateTime);
         }
-        return DateTimeV2Literal.create(type, dateTime.getYear(), dateTime.getMonthValue(),
+        return new DateTimeV2Literal(type, dateTime.getYear(), dateTime.getMonthValue(),
                 dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(),
                 dateTime.getSecond(), dateTime.getNano() / 1000);
     }

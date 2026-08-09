@@ -81,7 +81,6 @@ public:
     static void cast_to_date_time(const DateV2Value<DateV2ValueType> from, VecDateTimeValue& to);
     static void cast_to_date_time_v2(const DateV2Value<DateV2ValueType> from,
                                      DateV2Value<DateTimeV2ValueType>& to);
-    static void cast_to_date_time_v2(const DateV2Value<DateV2ValueType> from, TimeStampNsValue& to);
     static void cast_from_date(const VecDateTimeValue from, DateV2Value<DateV2ValueType>& to);
     static void cast_from_date_time(const VecDateTimeValue from, DateV2Value<DateV2ValueType>& to);
 };
@@ -147,9 +146,6 @@ public:
                                   VecDateTimeValue& to);
     static void cast_to_date_v2(const DateV2Value<DateTimeV2ValueType> from,
                                 DateV2Value<DateV2ValueType>& to);
-    static void cast_to_date(const TimeStampNsValue from, VecDateTimeValue& to);
-    static void cast_to_date_time(const TimeStampNsValue from, VecDateTimeValue& to);
-    static void cast_to_date_v2(const TimeStampNsValue from, DateV2Value<DateV2ValueType>& to);
     static void cast_from_date(const VecDateTimeValue from, DateV2Value<DateTimeV2ValueType>& to);
     static void cast_from_date_time(const VecDateTimeValue from,
                                     DateV2Value<DateTimeV2ValueType>& to);
@@ -160,12 +156,8 @@ private:
 
 DataTypePtr create_datetimev2(UInt64 scale);
 
-class DataTypeTimeStampNs;
-
 template <typename DataType>
 constexpr bool IsDataTypeDateTimeV2 = false;
 template <>
 inline constexpr bool IsDataTypeDateTimeV2<DataTypeDateTimeV2> = true;
-template <>
-inline constexpr bool IsDataTypeDateTimeV2<DataTypeTimeStampNs> = true;
 } // namespace doris

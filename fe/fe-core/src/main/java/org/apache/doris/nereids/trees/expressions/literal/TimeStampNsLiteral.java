@@ -19,19 +19,10 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.exceptions.CastException;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
-import org.apache.doris.nereids.types.TimeStampTzType;
-import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 
-import java.math.BigInteger;
-import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoField;
@@ -122,6 +113,7 @@ public final class TimeStampNsLiteral extends DateLiteral {
         return new TimeStampNsLiteral(dateTime);
     }
 
+    /** Return whether the civil fields are invalid or outside the signed epoch-nanosecond range. */
     public boolean checkRange() {
         if (checkRange(year, month, day) || month < 1 || day < 1 || checkDate(year, month, day)
                 || hour < 0 || hour > 23 || minute < 0 || minute > 59
@@ -177,96 +169,6 @@ public final class TimeStampNsLiteral extends DateLiteral {
     public LiteralExpr toLegacyLiteral() {
         return new org.apache.doris.analysis.TimeStampNsLiteral(
                 year, month, day, hour, minute, second, nanosecond);
-    }
-
-    @Override
-    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
-        if (dataType.equals(targetType)) {
-            return this;
-        }
-        if (targetType.isIntegralType()) {
-            if (targetType.isBigIntType()) {
-                return new BigIntLiteral(getValue());
-            } else if (targetType.isLargeIntType()) {
-                return new LargeIntLiteral(new BigInteger(String.valueOf(getValue())));
-            }
-            throw new AnalysisException("TIMESTAMP_NS can not cast to " + targetType);
-        } else if (targetType.isDateV2Type()) {
-            return new DateV2Literal(year, month, day);
-        } else if (targetType.isDateType()) {
-            return new DateLiteral(year, month, day);
-        } else if (targetType.isDateTimeType()) {
-            return new DateTimeLiteral((DateTimeType) targetType,
-                    year, month, day, hour, minute, second, nanosecond / 1000);
-        } else if (targetType.isDateTimeV2Type()) {
-            try {
-                DateTimeV2Type dateTimeV2Type = (DateTimeV2Type) targetType;
-                int scale = dateTimeV2Type.getScale();
-                long factor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale);
-                LocalDateTime roundedDateTime = toJavaDateType().plusNanos(factor / 2);
-                return DateTimeV2Literal.fromJavaDateType(roundedDateTime, dateTimeV2Type);
-            } catch (AnalysisException | DateTimeException e) {
-                throw new CastException(e.getMessage(), e);
-            }
-        } else if (targetType.isTimeStampTzType()) {
-            TimeStampTzType timeStampTzType = (TimeStampTzType) targetType;
-            DateTimeV2Literal rounded = (DateTimeV2Literal) uncheckedCastTo(
-                    DateTimeV2Type.of(timeStampTzType.getScale()));
-            return TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, rounded);
-        } else if (targetType.isTimeType()) {
-            int scale = ((TimeV2Type) targetType).getScale();
-            long factor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale);
-            long roundedNanosecond = (nanosecond + factor / 2) / factor * factor;
-            long totalNanosecond = ((hour * 60 + minute) * 60 + second) * NANOS_PER_SECOND
-                    + roundedNanosecond;
-            int resultHour = (int) (totalNanosecond / NANOS_PER_SECOND / 60 / 60);
-            int resultMinute = (int) (totalNanosecond / NANOS_PER_SECOND / 60 % 60);
-            int resultSecond = (int) (totalNanosecond / NANOS_PER_SECOND % 60);
-            int resultMicrosecond = (int) (totalNanosecond % NANOS_PER_SECOND / 1000);
-            return new TimeV2Literal(resultHour, resultMinute, resultSecond,
-                    resultMicrosecond, scale, false);
-        } else if (targetType.isFloatType()) {
-            return new FloatLiteral(getValue());
-        } else if (targetType.isDoubleType()) {
-            return new DoubleLiteral(getValue());
-        }
-        return super.uncheckedCastTo(targetType);
-    }
-
-    public TimeStampNsLiteral plusDays(long days) {
-        return fromJavaDateType(toJavaDateType().plusDays(days));
-    }
-
-    public TimeStampNsLiteral plusMonths(long months) {
-        return fromJavaDateType(toJavaDateType().plusMonths(months));
-    }
-
-    public TimeStampNsLiteral plusWeeks(long weeks) {
-        return fromJavaDateType(toJavaDateType().plusWeeks(weeks));
-    }
-
-    public TimeStampNsLiteral plusYears(long years) {
-        return fromJavaDateType(toJavaDateType().plusYears(years));
-    }
-
-    public TimeStampNsLiteral plusHours(long hours) {
-        return fromJavaDateType(toJavaDateType().plusHours(hours));
-    }
-
-    public TimeStampNsLiteral plusMinutes(long minutes) {
-        return fromJavaDateType(toJavaDateType().plusMinutes(minutes));
-    }
-
-    public TimeStampNsLiteral plusSeconds(long seconds) {
-        return fromJavaDateType(toJavaDateType().plusSeconds(seconds));
-    }
-
-    public TimeStampNsLiteral plusMicroSeconds(long microseconds) {
-        return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microseconds, 1000L)));
-    }
-
-    public TimeStampNsLiteral plusMilliSeconds(long milliseconds) {
-        return plusMicroSeconds(Math.multiplyExact(milliseconds, 1000L));
     }
 
     public DateTimeV2Literal roundFloorToDateTimeV2(int scale) {

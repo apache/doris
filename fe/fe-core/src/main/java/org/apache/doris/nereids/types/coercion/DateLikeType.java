@@ -75,7 +75,7 @@ public abstract class DateLikeType extends PrimitiveType implements RangeScalabl
         } else if (this instanceof TimeStampNsType) {
             return new TimeStampNsLiteral(s);
         } else if (this instanceof DateTimeV2Type) {
-            return DateTimeV2Literal.create((DateTimeV2Type) this, s);
+            return new DateTimeV2Literal((DateTimeV2Type) this, s);
         } else {
             throw new AnalysisException("unknown date like type");
         }

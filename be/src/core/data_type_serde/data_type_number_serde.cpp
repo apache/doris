@@ -655,10 +655,9 @@ using DORIS_NUMERIC_ARROW_BUILDER =
         TypeMap<UInt8, arrow::BooleanBuilder, Int8, arrow::Int8Builder, UInt16,
                 arrow::UInt16Builder, Int16, arrow::Int16Builder, UInt32, arrow::UInt32Builder,
                 Int32, arrow::Int32Builder, UInt64, arrow::UInt64Builder, Int64,
-                arrow::Int64Builder, TimeStampNsValue, arrow::Int64Builder, UInt128,
-                arrow::FixedSizeBinaryBuilder, Int128, arrow::FixedSizeBinaryBuilder, IPv6,
-                arrow::FixedSizeBinaryBuilder, Float32, arrow::FloatBuilder, Float64,
-                arrow::DoubleBuilder, void,
+                arrow::Int64Builder, UInt128, arrow::FixedSizeBinaryBuilder, Int128,
+                arrow::FixedSizeBinaryBuilder, IPv6, arrow::FixedSizeBinaryBuilder, Float32,
+                arrow::FloatBuilder, Float64, arrow::DoubleBuilder, void,
                 void // Add this line to represent the end of the TypeMap
                 >;
 
@@ -728,13 +727,6 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
                 builder.AppendValues((uint64_t*)col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
                 column, *array_builder));
-    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
-        auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-        RETURN_IF_ERROR(checkArrowStatus(
-                builder.AppendValues(reinterpret_cast<const int64_t*>(col_data.data()) + start,
-                                     end - start,
-                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column, *array_builder));
     } else {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         RETURN_IF_ERROR(checkArrowStatus(
@@ -743,6 +735,13 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
                 column, *array_builder));
     }
     return Status::OK();
+}
+
+template <>
+Status DataTypeNumberSerDe<TYPE_TIMESTAMP_NS>::write_column_to_arrow(
+        const IColumn& column, const NullMap* null_map, arrow::ArrayBuilder* array_builder,
+        int64_t start, int64_t end, const cctz::time_zone& ctz) const {
+    return Status::NotSupported("DataTypeNumberSerDe<TYPE_TIMESTAMP_NS>::write_column_to_arrow");
 }
 
 template <PrimitiveType T>

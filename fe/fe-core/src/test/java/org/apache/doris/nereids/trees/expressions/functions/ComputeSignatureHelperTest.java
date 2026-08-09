@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -46,7 +45,6 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -449,50 +447,6 @@ public class ComputeSignatureHelperTest {
         Assertions.assertEquals(DateTimeV2Type.of(3), signature.getArgType(2));
         // Return type should also be promoted to precision 3
         Assertions.assertEquals(DateTimeV2Type.of(3), signature.returnType);
-    }
-
-    @Test
-    void testDateTimeV2SignatureDoesNotPromoteToTimestampNs() {
-        FunctionSignature signature = FunctionSignature.ret(DateV2Type.INSTANCE)
-                .args(DateTimeV2Type.SYSTEM_DEFAULT);
-        List<Expression> arguments = Lists.newArrayList(
-                new TimeStampNsLiteral("2020-02-02 00:00:00.123456789"));
-
-        signature = ComputeSignatureHelper.computePrecision(
-                new FakeComputeSignature(), signature, arguments);
-
-        Assertions.assertEquals(DateTimeV2Type.MAX, signature.getArgType(0));
-        Assertions.assertEquals(DateV2Type.INSTANCE, signature.returnType);
-    }
-
-    @Test
-    void testTimestampNsDoesNotPromoteDateTimeV2OrTimeV2Signatures() {
-        FunctionSignature signature = FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                .args(DateTimeV2Type.SYSTEM_DEFAULT, TimeV2Type.SYSTEM_DEFAULT);
-        List<Expression> arguments = Lists.newArrayList(
-                new TimeStampNsLiteral("2020-02-02 00:00:00.123456789"),
-                new TimeV2Literal("12:34:56.123456"));
-
-        signature = ComputeSignatureHelper.computePrecision(
-                new FakeComputeSignature(), signature, arguments);
-
-        Assertions.assertEquals(DateTimeV2Type.MAX, signature.getArgType(0));
-        Assertions.assertEquals(TimeV2Type.of(6), signature.getArgType(1));
-        Assertions.assertEquals(DateTimeV2Type.MAX, signature.returnType);
-    }
-
-    @Test
-    void testExplicitTimestampNsSignatureRemainsTimestampNs() {
-        FunctionSignature signature = FunctionSignature.ret(TimeStampNsType.INSTANCE)
-                .args(TimeStampNsType.INSTANCE);
-        List<Expression> arguments = Lists.newArrayList(
-                new TimeStampNsLiteral("2020-02-02 00:00:00.123456789"));
-
-        signature = ComputeSignatureHelper.computePrecision(
-                new FakeComputeSignature(), signature, arguments);
-
-        Assertions.assertEquals(TimeStampNsType.INSTANCE, signature.getArgType(0));
-        Assertions.assertEquals(TimeStampNsType.INSTANCE, signature.returnType);
     }
 
     @Test

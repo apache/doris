@@ -109,10 +109,8 @@ public class TimestampTzLiteral extends DateTimeLiteral {
      */
     public static TimestampTzLiteral fromTimeZone(TimeStampTzType dateType, DateTimeV2Literal literal,
             String timeZone) {
-        DateTimeV2Literal roundedLiteral = (DateTimeV2Literal) literal.uncheckedCastTo(
-                DateTimeV2Type.of(dateType.getScale()));
         DateTimeV2Literal utcLiteral = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
-                roundedLiteral,
+                literal,
                 new StringLiteral(timeZone),
                 new StringLiteral("UTC"));
         return new TimestampTzLiteral(dateType,
@@ -173,13 +171,13 @@ public class TimestampTzLiteral extends DateTimeLiteral {
             return new TimestampTzLiteral((TimeStampTzType) targetType,
                     year, month, day, hour, minute, second, microSecond);
         } else if (targetType.isDateTimeV2Type()) {
-            DateTimeV2Literal dtV2Lit = DateTimeV2Literal.create(DateTimeV2Type.of(getDataType().getScale()),
+            DateTimeV2Literal dtV2Lit = new DateTimeV2Literal((DateTimeV2Type) targetType,
                     year, month, day, hour, minute, second, microSecond);
             dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
                     dtV2Lit,
                     new StringLiteral("UTC"),
                     new StringLiteral(ConnectContext.get().getSessionVariable().timeZone)));
-            return dtV2Lit.uncheckedCastTo(targetType);
+            return dtV2Lit;
         }
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
     }
@@ -442,7 +440,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
 
     @Override
     protected void roundMicroSecond(int scale) {
-        Preconditions.checkArgument(scale >= 0 && scale <= TimeStampTzType.MAX_SCALE,
+        Preconditions.checkArgument(scale >= 0 && scale <= DateTimeV2Type.MAX_SCALE,
                 "invalid datetime v2 scale: %s", scale);
         double factor = Math.pow(10, 6 - scale);
 

@@ -28,6 +28,8 @@ import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 
+import com.google.common.base.Preconditions;
+
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -46,7 +48,7 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
 
     private final int scale;
 
-    private DateTimeV2Type(int scale) {
+    protected DateTimeV2Type(int scale) {
         this.scale = scale;
     }
 
@@ -63,11 +65,11 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
         }
     }
 
-    /** Return the wider type without losing the distinct TIMESTAMP_NS physical type. */
+    /** Return the wider DATETIMEV2 type. */
     public static DateTimeV2Type getWiderDatetimeV2Type(DateTimeV2Type t1, DateTimeV2Type t2) {
-        if (t1 instanceof TimeStampNsType || t2 instanceof TimeStampNsType) {
-            return TimeStampNsType.INSTANCE;
-        }
+        Preconditions.checkArgument(t1.getClass() == DateTimeV2Type.class
+                        && t2.getClass() == DateTimeV2Type.class,
+                "TIMESTAMP_NS does not belong to the DATETIMEV2 precision family");
         if (t1.scale > t2.scale) {
             return t1;
         }

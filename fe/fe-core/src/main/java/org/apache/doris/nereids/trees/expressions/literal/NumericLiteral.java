@@ -174,7 +174,7 @@ public abstract class NumericLiteral extends Literal implements ComparableLitera
             return new TimeStampNsLiteral(s);
         }
         if (targetType instanceof DateTimeV2Type) {
-            return DateTimeV2Literal.create((DateTimeV2Type) targetType, s);
+            return new DateTimeV2Literal((DateTimeV2Type) targetType, s);
         }
         if (targetType instanceof TimeStampTzType) {
             return new TimestampTzLiteral((TimeStampTzType) targetType, s);

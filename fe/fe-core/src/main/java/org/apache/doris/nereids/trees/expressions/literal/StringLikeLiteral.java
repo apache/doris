@@ -389,7 +389,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             }
         } else {
             try {
-                return DateTimeV2Literal.create((DateTimeV2Type) targetType, format);
+                return new DateTimeV2Literal((DateTimeV2Type) targetType, format);
             } catch (AnalysisException e) {
                 throw new CastException(e.getMessage(), e);
             }

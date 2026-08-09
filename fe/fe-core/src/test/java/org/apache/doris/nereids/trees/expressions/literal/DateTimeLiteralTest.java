@@ -33,8 +33,6 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TimeStampNsType;
-import org.apache.doris.nereids.types.TimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
@@ -752,43 +750,6 @@ class DateTimeLiteralTest {
         expression = v2.uncheckedCastTo(StringType.INSTANCE);
         Assertions.assertInstanceOf(StringLiteral.class, expression);
         Assertions.assertEquals("2025-07-23 13:25:59.000000", ((StringLiteral) expression).value);
-    }
-
-    @Test
-    void testTimeStampNsUncheckedCastRoundingAndRange() {
-        TimeStampNsLiteral nano = new TimeStampNsLiteral("2024-02-29 12:34:56.123456789");
-        DateTimeV2Literal micro = (DateTimeV2Literal) nano.uncheckedCastTo(DateTimeV2Type.of(6));
-        Assertions.assertEquals("2024-02-29 12:34:56.123457", micro.getStringValue());
-
-        nano = new TimeStampNsLiteral("1969-12-31 23:59:59.999999999");
-        micro = (DateTimeV2Literal) nano.uncheckedCastTo(DateTimeV2Type.of(6));
-        Assertions.assertEquals("1970-01-01 00:00:00.000000", micro.getStringValue());
-        TimeV2Literal time = (TimeV2Literal) nano.uncheckedCastTo(TimeV2Type.of(6));
-        Assertions.assertEquals("24:00:00.000000", time.getStringValue());
-
-        nano = new TimeStampNsLiteral("2024-02-29 12:34:56.123456789");
-        time = (TimeV2Literal) nano.uncheckedCastTo(TimeV2Type.of(6));
-        Assertions.assertEquals("12:34:56.123457", time.getStringValue());
-
-        TimeStampNsLiteral lower = new TimeStampNsLiteral("1677-09-21 00:12:43.145224192");
-        Assertions.assertSame(lower, lower.uncheckedCastTo(TimeStampNsType.INSTANCE));
-
-        TimeStampNsLiteral upper = new TimeStampNsLiteral("2262-04-11 23:47:16.854775807");
-        Assertions.assertSame(upper, upper.uncheckedCastTo(TimeStampNsType.INSTANCE));
-
-        DateTimeV2Literal lowerMicro = new DateTimeV2Literal(
-                DateTimeV2Type.of(6), "1677-09-21 00:12:43.145225");
-        Assertions.assertEquals("1677-09-21 00:12:43.145225000",
-                ((TimeStampNsLiteral) lowerMicro.uncheckedCastTo(TimeStampNsType.INSTANCE)).getStringValue());
-
-        DateTimeV2Literal yearZero = new DateTimeV2Literal(
-                DateTimeV2Type.of(6), "0000-01-01 00:00:00.000000");
-        DateTimeV2Literal yearNineNineNineNine = new DateTimeV2Literal(
-                DateTimeV2Type.of(6), "9999-12-31 23:59:59.999999");
-        Assertions.assertThrows(CastException.class,
-                () -> yearZero.uncheckedCastTo(TimeStampNsType.INSTANCE));
-        Assertions.assertThrows(CastException.class,
-                () -> yearNineNineNineNine.uncheckedCastTo(TimeStampNsType.INSTANCE));
     }
 
     @Test

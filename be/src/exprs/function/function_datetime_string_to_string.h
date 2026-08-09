@@ -229,7 +229,6 @@ public:
                                               std::is_same_v<ColumnType, ColumnDateV2> ||
                                               std::is_same_v<ColumnType, ColumnDateTime> ||
                                               std::is_same_v<ColumnType, ColumnDateTimeV2> ||
-                                              std::is_same_v<ColumnType, ColumnTimeStampNs> ||
                                               std::is_same_v<ColumnType, ColumnTimeStampTz>) {
                                     char buf[64];
                                     pod_array[i].to_string(buf);

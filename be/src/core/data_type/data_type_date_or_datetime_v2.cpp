@@ -106,13 +106,6 @@ void DataTypeDateV2::cast_to_date_time_v2(const DateV2Value<DateV2ValueType> fro
                                                                << TIME_PART_LENGTH);
 }
 
-void DataTypeDateV2::cast_to_date_time_v2(const DateV2Value<DateV2ValueType> from,
-                                          TimeStampNsValue& to) {
-    DateV2Value<DateTimeV2ValueType> value;
-    cast_to_date_time_v2(from, value);
-    DORIS_CHECK(to.from_datetime(value));
-}
-
 void DataTypeDateV2::cast_from_date(const VecDateTimeValue from, DateV2Value<DateV2ValueType>& to) {
     auto& to_value = (DateV2Value<DateV2ValueType>&)(to);
     auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
@@ -188,19 +181,6 @@ void DataTypeDateTimeV2::cast_to_date_v2(const DateV2Value<DateTimeV2ValueType> 
                                          DateV2Value<DateV2ValueType>& to) {
     to = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
             UInt32(from.to_date_int_val() >> TIME_PART_LENGTH));
-}
-
-void DataTypeDateTimeV2::cast_to_date(const TimeStampNsValue from, VecDateTimeValue& to) {
-    cast_to_date(from.to_datetime(), to);
-}
-
-void DataTypeDateTimeV2::cast_to_date_time(const TimeStampNsValue from, VecDateTimeValue& to) {
-    cast_to_date_time(from.to_datetime(), to);
-}
-
-void DataTypeDateTimeV2::cast_to_date_v2(const TimeStampNsValue from,
-                                         DateV2Value<DateV2ValueType>& to) {
-    cast_to_date_v2(from.to_datetime(), to);
 }
 
 DataTypePtr create_datetimev2(UInt64 scale_value) {

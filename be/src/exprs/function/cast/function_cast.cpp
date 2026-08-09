@@ -21,7 +21,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/data_type_quantilestate.h"
-#include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_timestamp_ns.h" // IWYU pragma: keep
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"

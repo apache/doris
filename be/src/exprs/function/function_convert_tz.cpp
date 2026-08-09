@@ -40,12 +40,10 @@
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
-#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
 #include "core/types.h"
-#include "core/value/timestamp_ns_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
@@ -66,6 +64,10 @@ struct ConvertTzState {
 };
 
 class FunctionConvertTZ : public IFunction {
+    constexpr static PrimitiveType PType = PrimitiveType::TYPE_DATETIMEV2;
+    using DateValueType = PrimitiveTypeTraits<PType>::CppType;
+    using ColumnType = PrimitiveTypeTraits<PType>::ColumnType;
+
 public:
     static constexpr auto name = "convert_tz";
 
@@ -76,11 +78,8 @@ public:
     size_t get_number_of_arguments() const override { return 3; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypePtr result_type = std::make_shared<DataTypeDateTimeV2>();
-        if (remove_nullable(arguments[0])->get_primitive_type() == TYPE_TIMESTAMP_NS) {
-            result_type = std::make_shared<DataTypeTimeStampNs>();
-        }
-        return have_nullable(arguments) ? make_nullable(result_type) : result_type;
+        return have_nullable(arguments) ? make_nullable(std::make_shared<DataTypeDateTimeV2>())
+                                        : std::make_shared<DataTypeDateTimeV2>();
     }
 
     // default value of timezone is invalid, should skip to avoid wrong exception
@@ -169,46 +168,23 @@ public:
         argument_columns[1] = remove_nullable(argument_columns[1]);
         argument_columns[2] = remove_nullable(argument_columns[2]);
 
-        const auto argument_type =
-                remove_nullable(block.get_by_position(arguments[0]).type)->get_primitive_type();
-        if (argument_type == TYPE_TIMESTAMP_NS) {
-            return execute_impl_typed<TYPE_TIMESTAMP_NS>(
-                    context, block, result, input_rows_count, argument_columns, col_const,
-                    convert_tz_state, std::move(result_null_map_column), result_null_map);
-        }
-        DORIS_CHECK_EQ(argument_type, TYPE_DATETIMEV2);
-        return execute_impl_typed<TYPE_DATETIMEV2>(
-                context, block, result, input_rows_count, argument_columns, col_const,
-                convert_tz_state, std::move(result_null_map_column), result_null_map);
-    }
-
-private:
-    template <PrimitiveType PType>
-    static Status execute_impl_typed(FunctionContext* context, Block& block, uint32_t result,
-                                     size_t input_rows_count,
-                                     const ColumnPtr (&argument_columns)[3],
-                                     const bool (&col_const)[3], ConvertTzState* convert_tz_state,
-                                     MutableColumnPtr result_null_map_column,
-                                     NullMap& result_null_map) {
-        using ColumnType = PrimitiveTypeTraits<PType>::ColumnType;
         auto result_column = ColumnType::create();
         if (convert_tz_state->use_state) {
             // ignore argument columns, use cached timezone input in state
-            execute_tz_const_with_state<PType>(
-                    convert_tz_state, assert_cast<const ColumnType*>(argument_columns[0].get()),
-                    result_column.get(), result_null_map, input_rows_count);
+            execute_tz_const_with_state(convert_tz_state,
+                                        assert_cast<const ColumnType*>(argument_columns[0].get()),
+                                        result_column.get(), result_null_map, input_rows_count);
         } else if (col_const[1] && col_const[2]) {
             // arguments are const
-            execute_tz_const<PType>(context,
-                                    assert_cast<const ColumnType*>(argument_columns[0].get()),
-                                    assert_cast<const ColumnString*>(argument_columns[1].get()),
-                                    assert_cast<const ColumnString*>(argument_columns[2].get()),
-                                    result_column.get(), result_null_map, input_rows_count);
+            execute_tz_const(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
+                             assert_cast<const ColumnString*>(argument_columns[1].get()),
+                             assert_cast<const ColumnString*>(argument_columns[2].get()),
+                             result_column.get(), result_null_map, input_rows_count);
         } else {
-            execute<PType>(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
-                           assert_cast<const ColumnString*>(argument_columns[1].get()),
-                           assert_cast<const ColumnString*>(argument_columns[2].get()),
-                           result_column.get(), result_null_map, input_rows_count);
+            _execute(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
+                     assert_cast<const ColumnString*>(argument_columns[1].get()),
+                     assert_cast<const ColumnString*>(argument_columns[2].get()),
+                     result_column.get(), result_null_map, input_rows_count);
         } //if const
 
         if (block.get_data_type(result)->is_nullable()) {
@@ -220,12 +196,11 @@ private:
         return Status::OK();
     }
 
-    template <PrimitiveType PType>
-    static void execute(FunctionContext* context,
-                        const typename PrimitiveTypeTraits<PType>::ColumnType* date_column,
-                        const ColumnString* from_tz_column, const ColumnString* to_tz_column,
-                        typename PrimitiveTypeTraits<PType>::ColumnType* result_column,
-                        NullMap& result_null_map, size_t input_rows_count) {
+private:
+    static void _execute(FunctionContext* context, const ColumnType* date_column,
+                         const ColumnString* from_tz_column, const ColumnString* to_tz_column,
+                         ColumnType* result_column, NullMap& result_null_map,
+                         size_t input_rows_count) {
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
                 result_column->insert_default();
@@ -233,60 +208,27 @@ private:
             }
             auto from_tz = from_tz_column->get_data_at(i).to_string();
             auto to_tz = to_tz_column->get_data_at(i).to_string();
-            execute_inner_loop<PType>(date_column, from_tz, to_tz, result_column, result_null_map,
-                                      i);
+            execute_inner_loop(date_column, from_tz, to_tz, result_column, result_null_map, i);
         }
     }
 
-    template <typename DateValueType>
-    static std::pair<int64_t, uint32_t> unix_timestamp_for_convert_tz(
+    static std::pair<int64_t, int64_t> unix_timestamp_for_convert_tz(
             const DateValueType& ts_value, const cctz::time_zone& from_tz) {
-        const auto civil_value = [&]() {
-            if constexpr (std::is_same_v<DateValueType, TimeStampNsValue>) {
-                return ts_value.to_datetime();
-            } else {
-                return ts_value;
-            }
-        }();
-        cctz::civil_second civil_time(civil_value.year(), civil_value.month(), civil_value.day(),
-                                      civil_value.hour(), civil_value.minute(),
-                                      civil_value.second());
+        cctz::civil_second civil_time(ts_value.year(), ts_value.month(), ts_value.day(),
+                                      ts_value.hour(), ts_value.minute(), ts_value.second());
         const auto lookup = from_tz.lookup(civil_time);
         const bool skipped = lookup.kind == cctz::time_zone::civil_lookup::SKIPPED;
         const auto tp = skipped ? lookup.trans : lookup.pre;
 
         // Skipped civil times map to the transition instant. Do not keep the
         // input fractional part inside a local time interval that never existed.
-        const uint32_t fraction = [&]() {
-            if constexpr (std::is_same_v<DateValueType, TimeStampNsValue>) {
-                return ts_value.nanosecond();
-            }
-            return ts_value.microsecond() * 1000;
-        }();
-        return {tp.time_since_epoch().count(), skipped ? 0 : fraction};
+        return {tp.time_since_epoch().count(), skipped ? 0 : ts_value.microsecond()};
     }
 
-    template <typename DateValueType>
-    static bool convert_tz_value(const DateValueType& source, const cctz::time_zone& from_tz,
-                                 const cctz::time_zone& to_tz, DateValueType& result) {
-        const auto [seconds, nanoseconds] = unix_timestamp_for_convert_tz(source, from_tz);
-        if constexpr (std::is_same_v<DateValueType, TimeStampNsValue>) {
-            DateV2Value<DateTimeV2ValueType> datetime;
-            datetime.from_unixtime({seconds, nanoseconds / 1000}, to_tz);
-            return result.from_datetime(datetime, nanoseconds % 1000);
-        } else {
-            result.from_unixtime({seconds, nanoseconds / 1000}, to_tz);
-            return result.is_valid_date();
-        }
-    }
-
-    template <PrimitiveType PType>
-    static void execute_tz_const_with_state(
-            ConvertTzState* convert_tz_state,
-            const typename PrimitiveTypeTraits<PType>::ColumnType* date_column,
-            typename PrimitiveTypeTraits<PType>::ColumnType* result_column,
-            NullMap& result_null_map, size_t input_rows_count) {
-        using DateValueType = PrimitiveTypeTraits<PType>::CppType;
+    static void execute_tz_const_with_state(ConvertTzState* convert_tz_state,
+                                            const ColumnType* date_column,
+                                            ColumnType* result_column, NullMap& result_null_map,
+                                            size_t input_rows_count) {
         cctz::time_zone& from_tz = convert_tz_state->from_tz;
         cctz::time_zone& to_tz = convert_tz_state->to_tz;
         auto push_null = [&](size_t row) {
@@ -310,21 +252,20 @@ private:
             DateValueType ts_value = date_column->get_element(i);
             DateValueType ts_value2;
 
-            if (!convert_tz_value(ts_value, from_tz, to_tz, ts_value2)) [[unlikely]] {
+            ts_value2.from_unixtime(unix_timestamp_for_convert_tz(ts_value, from_tz), to_tz);
+
+            if (!ts_value2.is_valid_date()) [[unlikely]] {
                 throw_out_of_bound_convert_tz<DateValueType>(date_column->get_element(i),
                                                              from_tz.name(), to_tz.name());
             }
 
-            result_column->insert(Field::create_field<PType>(ts_value2));
+            result_column->insert(Field::create_field<TYPE_DATETIMEV2>(ts_value2));
         }
     }
 
-    template <PrimitiveType PType>
-    static void execute_tz_const(FunctionContext* context,
-                                 const typename PrimitiveTypeTraits<PType>::ColumnType* date_column,
+    static void execute_tz_const(FunctionContext* context, const ColumnType* date_column,
                                  const ColumnString* from_tz_column,
-                                 const ColumnString* to_tz_column,
-                                 typename PrimitiveTypeTraits<PType>::ColumnType* result_column,
+                                 const ColumnString* to_tz_column, ColumnType* result_column,
                                  NullMap& result_null_map, size_t input_rows_count) {
         auto from_tz = from_tz_column->get_data_at(0).to_string();
         auto to_tz = to_tz_column->get_data_at(0).to_string();
@@ -342,18 +283,13 @@ private:
                 result_column->insert_default();
                 continue;
             }
-            execute_inner_loop<PType>(date_column, from_tz, to_tz, result_column, result_null_map,
-                                      i);
+            execute_inner_loop(date_column, from_tz, to_tz, result_column, result_null_map, i);
         }
     }
 
-    template <PrimitiveType PType>
-    static void execute_inner_loop(
-            const typename PrimitiveTypeTraits<PType>::ColumnType* date_column,
-            const std::string& from_tz_name, const std::string& to_tz_name,
-            typename PrimitiveTypeTraits<PType>::ColumnType* result_column,
-            NullMap& result_null_map, const size_t index_now) {
-        using DateValueType = PrimitiveTypeTraits<PType>::CppType;
+    static void execute_inner_loop(const ColumnType* date_column, const std::string& from_tz_name,
+                                   const std::string& to_tz_name, ColumnType* result_column,
+                                   NullMap& result_null_map, const size_t index_now) {
         DateValueType ts_value = date_column->get_element(index_now);
         cctz::time_zone from_tz {}, to_tz {};
         DateValueType ts_value2;
@@ -367,12 +303,14 @@ private:
                             to_tz_name);
         }
 
-        if (!convert_tz_value(ts_value, from_tz, to_tz, ts_value2)) [[unlikely]] {
+        ts_value2.from_unixtime(unix_timestamp_for_convert_tz(ts_value, from_tz), to_tz);
+
+        if (!ts_value2.is_valid_date()) [[unlikely]] {
             throw_out_of_bound_convert_tz<DateValueType>(date_column->get_element(index_now),
                                                          from_tz.name(), to_tz.name());
         }
 
-        result_column->insert(Field::create_field<PType>(ts_value2));
+        result_column->insert(Field::create_field<TYPE_DATETIMEV2>(ts_value2));
     }
 };
 

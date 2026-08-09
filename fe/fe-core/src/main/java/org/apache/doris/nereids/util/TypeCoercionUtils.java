@@ -237,6 +237,21 @@ public class TypeCoercionUtils {
      * Return Optional.empty() if we cannot do implicit cast.
      */
     public static Optional<DataType> implicitCastPrimitive(DataType input, DataType expected) {
+        // TIMESTAMP_NS has a different physical representation from DATETIMEV2. Until explicit
+        // cross-type casts are implemented, only its string conversions can be implicit.
+        if (input instanceof TimeStampNsType || expected instanceof TimeStampNsType) {
+            if (input.equals(expected) || expected instanceof AnyDataType) {
+                return Optional.of(input);
+            } else if (input instanceof NullType) {
+                return Optional.of(expected.defaultConcreteType());
+            } else if (input instanceof CharacterType && expected instanceof TimeStampNsType) {
+                return Optional.of(expected);
+            } else if (input instanceof TimeStampNsType && expected instanceof CharacterType) {
+                return Optional.of(expected.defaultConcreteType());
+            }
+            return Optional.empty();
+        }
+
         Optional<DataType> castType = implicitCastPrimitiveInternal(input, expected);
         // TODO: complete the cast logic like FunctionCallExpr.analyzeImpl
         boolean legacyCastCompatible = false;
@@ -336,7 +351,7 @@ public class TypeCoercionUtils {
     }
 
     public static boolean hasDateTimeV2Type(DataType dataType) {
-        return hasSpecifiedType(dataType, DateTimeV2Type.class);
+        return hasSpecifiedType(dataType, type -> type.getClass() == DateTimeV2Type.class);
     }
 
     public static boolean hasTimeStampNsType(DataType dataType) {
@@ -352,16 +367,20 @@ public class TypeCoercionUtils {
     }
 
     private static boolean hasSpecifiedType(DataType dataType, Class<? extends DataType> specifiedType) {
+        return hasSpecifiedType(dataType, type -> specifiedType.isAssignableFrom(type.getClass()));
+    }
+
+    private static boolean hasSpecifiedType(DataType dataType, Predicate<DataType> predicate) {
         if (dataType instanceof ArrayType) {
-            return hasSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType);
+            return hasSpecifiedType(((ArrayType) dataType).getItemType(), predicate);
         } else if (dataType instanceof MapType) {
-            return hasSpecifiedType(((MapType) dataType).getKeyType(), specifiedType)
-                    || hasSpecifiedType(((MapType) dataType).getValueType(), specifiedType);
+            return hasSpecifiedType(((MapType) dataType).getKeyType(), predicate)
+                    || hasSpecifiedType(((MapType) dataType).getValueType(), predicate);
         } else if (dataType instanceof StructType) {
             return ((StructType) dataType).getFields().stream()
-                    .anyMatch(f -> hasSpecifiedType(f.getDataType(), specifiedType));
+                    .anyMatch(f -> hasSpecifiedType(f.getDataType(), predicate));
         }
-        return specifiedType.isAssignableFrom(dataType.getClass());
+        return predicate.test(dataType);
     }
 
     /**
@@ -389,9 +408,9 @@ public class TypeCoercionUtils {
     }
 
     private static DataType replaceDateLikeWithMaxPrecision(DataType dataType) {
-        DataType targetType = hasTimeStampNsType(dataType)
-                ? TimeStampNsType.INSTANCE : DateTimeV2Type.MAX;
-        return replaceSpecifiedType(dataType, DateLikeType.class, targetType);
+        return replaceSpecifiedType(dataType,
+                type -> type instanceof DateLikeType && !(type instanceof TimeStampNsType),
+                DateTimeV2Type.MAX);
     }
 
     /**
@@ -1020,6 +1039,8 @@ public class TypeCoercionUtils {
      */
     private static Optional<DataType> getCommonDataTypeWithDateTimeV2Type(
             DateTimeV2Type leftType, DataType rightType) {
+        Preconditions.checkArgument(leftType.getClass() == DateTimeV2Type.class,
+                "TIMESTAMP_NS does not belong to the DATETIMEV2 precision family");
         if (rightType.isNumericType()) {
             if (rightType instanceof IntegralType) {
                 return Optional.of(leftType);
@@ -1041,18 +1062,29 @@ public class TypeCoercionUtils {
                 return Optional.of(DateTimeV2Type.getWiderDatetimeV2Type(leftType, dateTimeV2Type));
             } else if (rightType instanceof TimeStampTzType) {
                 TimeStampTzType timeStampTzType = (TimeStampTzType) rightType;
-                return leftType instanceof TimeStampNsType ? Optional.of(leftType)
-                        : Optional.of(DateTimeV2Type.of(Math.max(leftType.getScale(), timeStampTzType.getScale())));
+                return Optional.of(DateTimeV2Type.of(
+                        Math.max(leftType.getScale(), timeStampTzType.getScale())));
             } else {
                 return Optional.of(leftType);
             }
         } else if (rightType instanceof TimeV2Type) {
             TimeV2Type timeV2Type = (TimeV2Type) rightType;
-            return leftType instanceof TimeStampNsType ? Optional.of(leftType)
-                    : Optional.of(DateTimeV2Type.of(Math.max(leftType.getScale(), timeV2Type.getScale())));
+            return Optional.of(DateTimeV2Type.of(
+                    Math.max(leftType.getScale(), timeV2Type.getScale())));
         } else if (rightType.isStringLikeType()) {
             return Optional.of(DateTimeV2Type.forTypeWithMinimumScale(
                     leftType, DateTimeV2Type.MAX_SCALE));
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * TIMESTAMP_NS is not a high-scale DATETIMEV2. It can only share a coercion target with
+     * strings until casts between TIMESTAMP_NS and other temporal or numeric types are available.
+     */
+    private static Optional<DataType> getCommonDataTypeWithTimeStampNsType(DataType otherType) {
+        if (otherType instanceof TimeStampNsType || otherType.isStringLikeType()) {
+            return Optional.of(TimeStampNsType.INSTANCE);
         }
         return Optional.empty();
     }
@@ -1249,6 +1281,12 @@ public class TypeCoercionUtils {
             } else if (rightType.isStringLikeType() && canCastTo(leftType, StringType.INSTANCE)) {
                 return Optional.of(StringType.INSTANCE);
             }
+        }
+
+        if (leftType instanceof TimeStampNsType) {
+            return getCommonDataTypeWithTimeStampNsType(rightType);
+        } else if (rightType instanceof TimeStampNsType) {
+            return getCommonDataTypeWithTimeStampNsType(leftType);
         }
 
         // we process date like type first
@@ -1779,6 +1817,12 @@ public class TypeCoercionUtils {
             return Optional.of(leftType);
         }
 
+        if (leftType instanceof TimeStampNsType) {
+            return getCommonDataTypeWithTimeStampNsType(rightType);
+        } else if (rightType instanceof TimeStampNsType) {
+            return getCommonDataTypeWithTimeStampNsType(leftType);
+        }
+
         // decimal v3
         if (leftType.isDecimalV3Type() && rightType.isDecimalV3Type()) {
             return Optional.of(DecimalV3Type.widerDecimalV3Type(
@@ -2050,6 +2094,10 @@ public class TypeCoercionUtils {
                 return Optional.of(VarcharType.createVarcharType(len));
             }
             return Optional.of(StringType.INSTANCE);
+        }
+
+        if (t1 instanceof TimeStampNsType || t2 instanceof TimeStampNsType) {
+            return Optional.empty();
         }
 
         // decimal with date should return double

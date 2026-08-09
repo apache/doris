@@ -42,7 +42,6 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
-#include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 #include "core/value/large_int_value.h"
 #include "runtime/descriptors.h"
@@ -183,9 +182,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     for (const auto& p_slot_desc : pschema.slot_descs()) {
         auto* slot_desc = _obj_pool.add(new SlotDescriptor(p_slot_desc));
         _tuple_desc->add_slot(slot_desc);
+        std::string data_type;
+        EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
         std::string is_null_str = slot_desc->is_nullable() ? "true" : "false";
-        std::string data_type_str = std::to_string(
-                int64_t(primitive_type_to_storage_field_type(slot_desc->col_type())));
+        std::string data_type_str =
+                std::to_string(int64_t(TabletColumn::get_field_type_by_string(data_type)));
         slots_map.emplace(to_lower(slot_desc->col_name()) + "+" + data_type_str + is_null_str,
                           slot_desc);
     }
@@ -198,12 +199,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
             index->row_binlog_id = p_index.row_binlog_id();
         }
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
-            TabletColumn* tc = _obj_pool.add(new TabletColumn());
-            tc->init_from_pb(pcolumn_desc);
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(pcolumn_desc.name())) {
                 std::string is_null_str = pcolumn_desc.is_nullable() ? "true" : "false";
-                std::string data_type_str = std::to_string(int64_t(tc->type()));
+                std::string data_type_str = std::to_string(
+                        int64_t(TabletColumn::get_field_type_by_string(pcolumn_desc.type())));
                 auto it = slots_map.find(to_lower(pcolumn_desc.name()) + "+" + data_type_str +
                                          is_null_str);
                 if (it == std::end(slots_map)) {
@@ -223,6 +223,8 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
                 }
                 index->slots.emplace_back(it->second);
             }
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_pb(pcolumn_desc);
             index->columns.emplace_back(tc);
         }
         for (const auto& pindex_desc : p_index.indexes_desc()) {
@@ -358,13 +360,11 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
             index->row_binlog_id = t_index.row_binlog_id;
         }
         for (const auto& tcolumn_desc : t_index.columns_desc) {
-            TabletColumn* tc = _obj_pool.add(new TabletColumn());
-            tc->init_from_thrift(tcolumn_desc);
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(tcolumn_desc.column_name)) {
                 std::string is_null_str = tcolumn_desc.is_allow_null ? "true" : "false";
                 std::string data_type_str =
-                        std::to_string(int64_t(storage_field_type_to_primitive_type(tc->type())));
+                        std::to_string(int64_t(thrift_to_type(tcolumn_desc.column_type.type)));
                 auto it = slots_map.find(to_lower(tcolumn_desc.column_name) + "+" + data_type_str +
                                          is_null_str);
                 if (it == slots_map.end()) {
@@ -387,6 +387,8 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 index->slots.emplace_back(it->second);
             }
             index_slots_map.emplace(to_lower(tcolumn_desc.column_name), tcolumn_desc.col_unique_id);
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_thrift(tcolumn_desc);
             index->columns.emplace_back(tc);
         }
         if (t_index.__isset.indexes_desc) {
@@ -617,12 +619,11 @@ bool VOlapTablePartitionParam::_part_contains(VOlapTablePartition* part,
 // insert value into _partition_block's column
 // NOLINTBEGIN(readability-function-size)
 static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key, uint16_t pos) {
-    const auto& partition_column = part_key->first->get_by_position(pos);
-    const auto partition_type = remove_nullable(partition_column.type);
-    auto column = std::move(*partition_column.column).mutate();
+    auto column = std::move(*part_key->first->get_by_position(pos).column).mutate();
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
-        const auto primitive_type = partition_type->get_primitive_type();
+        auto primitive_type =
+                DataTypeFactory::instance().create_data_type(t_expr.type)->get_primitive_type();
         if (primitive_type == TYPE_DATEV2) {
             DateV2Value<DateV2ValueType> dt;
             CastParameters params;
@@ -636,7 +637,8 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else if (primitive_type == TYPE_DATETIMEV2) {
             DateV2Value<DateTimeV2ValueType> dt;
-            const int32_t scale = cast_set<int32_t>(partition_type->get_scale());
+            const int32_t scale =
+                    t_expr.type.types.empty() ? -1 : t_expr.type.types.front().scalar_type.scale;
             CastParameters params;
             if (!CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
                         {t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size()}, dt,
@@ -656,7 +658,8 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
         } else if (primitive_type == TYPE_TIMESTAMPTZ) {
             TimestampTzValue res;
             CastParameters params {.status = Status::OK(), .is_strict = true};
-            const int32_t scale = cast_set<int32_t>(partition_type->get_scale());
+            const int32_t scale =
+                    t_expr.type.types.empty() ? -1 : t_expr.type.types.front().scalar_type.scale;
             if (!CastToTimestampTz::from_string(
                         {t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size()}, res,
                         params, nullptr, scale)) [[unlikely]] {

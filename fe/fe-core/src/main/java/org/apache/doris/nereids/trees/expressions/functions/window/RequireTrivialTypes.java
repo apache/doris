@@ -32,7 +32,6 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -62,7 +61,6 @@ public interface RequireTrivialTypes {
             DateTimeType.INSTANCE,
             DateV2Type.INSTANCE,
             DateTimeV2Type.WILDCARD,
-            TimeStampNsType.INSTANCE,
             TimeV2Type.WILDCARD,
             TimeStampTzType.WILDCARD,
             VarcharType.SYSTEM_DEFAULT,

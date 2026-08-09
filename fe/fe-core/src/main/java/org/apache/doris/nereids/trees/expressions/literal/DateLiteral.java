@@ -26,7 +26,6 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
@@ -639,10 +638,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         } else if (targetType.isDoubleType()) {
             return new DoubleLiteral(value);
         } else if (targetType.isDateTimeV2Type()) {
-            if (targetType instanceof TimeStampNsType) {
-                return new TimeStampNsLiteral(year, month, day, 0, 0, 0, 0);
-            }
-            return DateTimeV2Literal.create((DateTimeV2Type) targetType, year, month, day, 0, 0, 0, 0);
+            return new DateTimeV2Literal((DateTimeV2Type) targetType, year, month, day, 0, 0, 0, 0);
         } else if (targetType.isDateTimeType()) {
             return new DateTimeLiteral((DateTimeType) targetType, year, month, day, 0, 0, 0, 0);
         } else if (targetType.isDateV2Type()) {

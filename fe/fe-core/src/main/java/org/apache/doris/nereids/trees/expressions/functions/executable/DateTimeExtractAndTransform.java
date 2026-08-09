@@ -46,7 +46,6 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
@@ -414,7 +413,7 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "date_trunc")
     public static Expression dateTrunc(DateTimeV2Literal date, StringLikeLiteral trunc) {
         return DateTimeV2Literal.fromJavaDateType(
-                dateTruncHelper(date.toJavaDateType(), trunc.getValue()), date.getDataType());
+                dateTruncHelper(date.toJavaDateType(), trunc.getValue()), date.getScale());
     }
 
     @ExecFunction(name = "date_trunc")
@@ -425,7 +424,7 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "date_trunc")
     public static Expression dateTrunc(StringLikeLiteral trunc, DateTimeV2Literal date) {
         return DateTimeV2Literal.fromJavaDateType(
-                dateTruncHelper(date.toJavaDateType(), trunc.getValue()), date.getDataType());
+                dateTruncHelper(date.toJavaDateType(), trunc.getValue()), date.getScale());
     }
 
     @ExecFunction(name = "date_trunc")
@@ -616,7 +615,7 @@ public class DateTimeExtractAndTransform {
     public static Expression unixTimestamp(DateTimeV2Literal date) {
         int scale = date.getDataType().getScale();
         return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(12 + scale, scale),
-                new BigDecimal(getTimestamp(date.toJavaDateType(), scale)));
+                new BigDecimal(getTimestamp(date.toJavaDateType())));
     }
 
     /**
@@ -638,10 +637,6 @@ public class DateTimeExtractAndTransform {
     }
 
     private static String getTimestamp(LocalDateTime dateTime) {
-        return getTimestamp(dateTime, 6);
-    }
-
-    private static String getTimestamp(LocalDateTime dateTime, int scale) {
         LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
         dateTime = dateTime.atZone(DateUtils.getTimeZone())
                         .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
@@ -656,8 +651,7 @@ public class DateTimeExtractAndTransform {
         if (duration.getNano() == 0) {
             return String.valueOf(duration.getSeconds());
         } else {
-            long fraction = duration.getNano() / (long) Math.pow(10, TimeStampNsType.SCALE - scale);
-            return duration.getSeconds() + "." + String.format("%0" + scale + "d", fraction);
+            return duration.getSeconds() + "." + String.format("%06d", duration.getNano() / 1000);
         }
     }
 
@@ -831,9 +825,9 @@ public class DateTimeExtractAndTransform {
         ZoneId toZone = ZoneId.from(zoneFormatter.parse(toTz.getStringValue()));
 
         LocalDateTime localDateTime = datetime.toJavaDateType();
-        Instant instant = DateUtils.convertLocalToInstant(localDateTime, fromZone);
+        Instant instant = DateTimeLiteral.convertLocalToInstant(localDateTime, fromZone);
         return DateTimeV2Literal.fromJavaDateType(LocalDateTime.ofInstant(instant, toZone),
-                datetime.getDataType());
+                datetime.getDataType().getScale());
     }
 
     private static void validateTimezoneOffset(String timezone) {

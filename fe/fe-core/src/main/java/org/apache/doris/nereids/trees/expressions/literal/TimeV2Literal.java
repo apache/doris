@@ -315,7 +315,7 @@ public class TimeV2Literal extends Literal {
             return new DateTimeLiteral(time.getYear(), time.getMonth(), time.getDay(), time.getHour(), time.getMinute(),
                     time.getSecond());
         } else if (targetType.isDateTimeV2Type()) {
-            return time.uncheckedCastTo(targetType);
+            return time;
         }
         return super.uncheckedCastTo(targetType);
     }

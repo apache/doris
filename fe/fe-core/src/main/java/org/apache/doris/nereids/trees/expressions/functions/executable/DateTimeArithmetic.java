@@ -268,7 +268,7 @@ public class DateTimeArithmetic {
             DateTimeV2Literal dt = (DateTimeV2Literal) result;
             if (dt.getScale() != date.getScale()) {
                 // Keep original scale to match existing folding behavior.
-                return DateTimeV2Literal.fromJavaDateType(dt.toJavaDateType(), date.getDataType());
+                return DateTimeV2Literal.fromJavaDateType(dt.toJavaDateType(), date.getScale());
             }
         }
         return result;

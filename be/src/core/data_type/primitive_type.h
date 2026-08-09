@@ -182,6 +182,10 @@ constexpr bool is_date_type(PrimitiveType type) {
            type == TYPE_TIMESTAMP_NS || type == TYPE_DATEV2;
 }
 
+constexpr bool is_timestamp_ns_type(PrimitiveType type) {
+    return type == TYPE_TIMESTAMP_NS;
+}
+
 constexpr bool is_time_type(PrimitiveType type) {
     return type == TYPE_TIMEV2;
 }
@@ -195,11 +199,11 @@ constexpr bool is_date_or_datetime(PrimitiveType type) {
 }
 
 constexpr bool is_date_v2_or_datetime_v2(PrimitiveType type) {
-    return type == TYPE_DATETIMEV2 || type == TYPE_TIMESTAMP_NS || type == TYPE_DATEV2;
+    return type == TYPE_DATETIMEV2 || type == TYPE_DATEV2;
 }
 
 constexpr bool is_datetime_v2(PrimitiveType type) {
-    return type == TYPE_DATETIMEV2 || type == TYPE_TIMESTAMP_NS;
+    return type == TYPE_DATETIMEV2;
 }
 
 constexpr bool is_ip(PrimitiveType type) {

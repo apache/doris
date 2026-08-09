@@ -47,6 +47,22 @@
 
 namespace doris {
 
+TEST(DataTypeTimeStampNsTest, TypeFamilyClassifiersKeepTimestampNsIndependent) {
+    EXPECT_TRUE(is_date_type(TYPE_TIMESTAMP_NS));
+    EXPECT_TRUE(is_timestamp_ns_type(TYPE_TIMESTAMP_NS));
+    EXPECT_FALSE(is_timestamp_ns_type(TYPE_DATETIMEV2));
+
+    EXPECT_TRUE(is_date_v2_or_datetime_v2(TYPE_DATEV2));
+    EXPECT_TRUE(is_date_v2_or_datetime_v2(TYPE_DATETIMEV2));
+    EXPECT_FALSE(is_date_v2_or_datetime_v2(TYPE_TIMESTAMP_NS));
+
+    EXPECT_TRUE(is_datetime_v2(TYPE_DATETIMEV2));
+    EXPECT_FALSE(is_datetime_v2(TYPE_TIMESTAMP_NS));
+
+    EXPECT_TRUE(IsDataTypeDateTimeV2<DataTypeDateTimeV2>);
+    EXPECT_FALSE(IsDataTypeDateTimeV2<DataTypeTimeStampNs>);
+}
+
 TEST(DataTypeTimeStampNsTest, Int64EpochRangeAndOrdering) {
     const TimeStampNsValue epoch(0);
     const TimeStampNsValue before_epoch(-1);
@@ -180,44 +196,16 @@ TEST(DataTypeTimeStampNsTest, CivilRoundTripPreservesSubMicrosecondDigits) {
     TimeStampNsValue value;
     ASSERT_TRUE(value.from_datetime(civil, 789));
     EXPECT_EQ(value.to_string(9), "2024-02-29 23:59:58.123456789");
-    EXPECT_EQ(value.year(), 2024);
-    EXPECT_EQ(value.month(), 2);
-    EXPECT_EQ(value.day(), 29);
-    EXPECT_EQ(value.hour(), 23);
-    EXPECT_EQ(value.minute(), 59);
-    EXPECT_EQ(value.second(), 58);
+    const auto round_trip = value.to_datetime();
+    EXPECT_EQ(round_trip.year(), 2024);
+    EXPECT_EQ(round_trip.month(), 2);
+    EXPECT_EQ(round_trip.day(), 29);
+    EXPECT_EQ(round_trip.hour(), 23);
+    EXPECT_EQ(round_trip.minute(), 59);
+    EXPECT_EQ(round_trip.second(), 58);
     EXPECT_EQ(value.microsecond(), 123456);
     EXPECT_EQ(value.nanosecond_remainder(), 789);
-    EXPECT_EQ(value.to_datetime().to_date_int_val(), civil.to_date_int_val());
-}
-
-TEST(DataTypeTimeStampNsTest, CalendarArithmeticPreservesSubMicrosecondDigits) {
-    int64_t raw_value = 0;
-    ASSERT_TRUE(parse_timestamp_ns(StringRef("2024-01-31 23:59:59.123456789"), &raw_value).ok());
-    TimeStampNsValue value(raw_value);
-
-    ASSERT_TRUE(value.date_add_interval<TimeUnit::MONTH>(TimeInterval(TimeUnit::MONTH, 1, false)));
-    EXPECT_EQ(value.to_string(9), "2024-02-29 23:59:59.123456789");
-
-    ASSERT_TRUE(
-            value.date_add_interval<TimeUnit::SECOND>(TimeInterval(TimeUnit::SECOND, 1, false)));
-    EXPECT_EQ(value.to_string(9), "2024-03-01 00:00:00.123456789");
-}
-
-TEST(DataTypeTimeStampNsTest, DiffTruncatesIncompleteUnitsTowardZero) {
-    int64_t lhs_raw = 0;
-    int64_t rhs_raw = 0;
-    ASSERT_TRUE(parse_timestamp_ns(StringRef("1970-01-01 00:00:00.000000001"), &lhs_raw).ok());
-    ASSERT_TRUE(parse_timestamp_ns(StringRef("1970-01-01 00:00:01.999999999"), &rhs_raw).ok());
-    const TimeStampNsValue lhs(lhs_raw);
-    const TimeStampNsValue rhs(rhs_raw);
-
-    EXPECT_EQ(datetime_diff<TimeUnit::SECOND>(lhs, rhs), 1);
-    EXPECT_EQ(datetime_diff<TimeUnit::SECOND>(rhs, lhs), -1);
-    EXPECT_EQ(datetime_diff<TimeUnit::MILLISECOND>(lhs, rhs), 1999);
-    EXPECT_EQ(datetime_diff<TimeUnit::MILLISECOND>(rhs, lhs), -1999);
-    EXPECT_EQ(lhs.datetime_diff_in_microseconds(rhs), -1999999);
-    EXPECT_EQ(rhs.datetime_diff_in_microseconds(lhs), 1999999);
+    EXPECT_EQ(round_trip.to_date_int_val(), civil.to_date_int_val());
 }
 
 TEST(DataTypeTimeStampNsTest, FactoryKeepsTimestampNsSeparateFromDateTimeV2) {
@@ -353,7 +341,7 @@ TEST(DataTypeTimeStampNsTest, DecodedTimestampUnitsAndValidation) {
     }
 }
 
-TEST(DataTypeTimeStampNsTest, DataTypeLiteralFieldAndCivilCasts) {
+TEST(DataTypeTimeStampNsTest, DataTypeLiteralField) {
     const DataTypeTimeStampNs type;
     const DataTypeDateTimeV2 legacy6(6);
 
@@ -376,102 +364,22 @@ TEST(DataTypeTimeStampNsTest, DataTypeLiteralFieldAndCivilCasts) {
     EXPECT_EQ(field_with_type.base_scalar_type_id, TYPE_TIMESTAMP_NS);
     EXPECT_EQ(field_with_type.precision, -1);
     EXPECT_EQ(field_with_type.scale, 9);
-
-    DateV2Value<DateV2ValueType> date;
-    date.unchecked_set_time(2024, 2, 29, 0, 0, 0, 0);
-    TimeStampNsValue nano_from_date;
-    DataTypeDateV2::cast_to_date_time_v2(date, nano_from_date);
-    EXPECT_EQ(nano_from_date.to_string(9), "2024-02-29 00:00:00.000000000");
-
-    VecDateTimeValue date_v1;
-    VecDateTimeValue datetime_v1;
-    DateV2Value<DateV2ValueType> date_v2;
-    DataTypeDateTimeV2::cast_to_date(field.get<TYPE_TIMESTAMP_NS>(), date_v1);
-    DataTypeDateTimeV2::cast_to_date_time(field.get<TYPE_TIMESTAMP_NS>(), datetime_v1);
-    DataTypeDateTimeV2::cast_to_date_v2(field.get<TYPE_TIMESTAMP_NS>(), date_v2);
-    char date_v1_text[64] = {};
-    char datetime_v1_text[64] = {};
-    date_v1.to_string(date_v1_text);
-    datetime_v1.to_string(datetime_v1_text);
-    EXPECT_STREQ(date_v1_text, "2024-02-29");
-    EXPECT_STREQ(datetime_v1_text, "2024-02-29 12:34:56");
-    EXPECT_EQ(date_v2.to_string(), "2024-02-29");
 }
 
-TEST(DataTypeTimeStampNsTest, CalendarHelpersArithmeticAndHash) {
+TEST(DataTypeTimeStampNsTest, FormattingAndHash) {
     int64_t raw = 0;
     ASSERT_TRUE(parse_timestamp_ns(StringRef("2024-02-29 12:34:56.123456789"), &raw).ok());
     TimeStampNsValue value(raw);
 
-    EXPECT_EQ(value.quarter(), 1);
-    EXPECT_GT(value.daynr(), 0);
-    EXPECT_GT(value.year_of_week(), 0);
-    EXPECT_GT(value.week(0), 0);
-    EXPECT_GT(value.year_week(0), 0);
-    EXPECT_EQ(value.day_of_year(), 60);
-    EXPECT_GT(value.day_of_week(), 0);
-    EXPECT_LT(value.weekday(), 7);
-    EXPECT_EQ(value.time_part_to_seconds(), 12 * 3600 + 34 * 60 + 56);
-    EXPECT_EQ(value.time_part_to_microsecond(), (12 * 3600 + 34 * 60 + 56) * 1000000LL + 123456);
     EXPECT_TRUE(value.is_valid_date());
-
-    static const char* const day_names[] = {"Monday", "Tuesday",  "Wednesday", "Thursday",
-                                            "Friday", "Saturday", "Sunday"};
-    static const char* const month_names[] = {
-            "",     "January", "February",  "March",   "April",    "May",     "June",
-            "July", "August",  "September", "October", "November", "December"};
-    EXPECT_STREQ(value.day_name_with_locale(day_names), "Thursday");
-    EXPECT_STREQ(value.month_name_with_locale(month_names), "February");
-
-    char formatted[64] = {};
-    constexpr char format[] = "%Y-%m-%d %H:%i:%s.%f";
-    ASSERT_TRUE(value.to_format_string_conservative(format, std::strlen(format), formatted,
-                                                    sizeof(formatted)));
-    EXPECT_STREQ(formatted, "2024-02-29 12:34:56.123456");
 
     char text[40] = {};
     const char* end = value.to_string(text, 9);
     EXPECT_STREQ(text, "2024-02-29 12:34:56.123456789");
     EXPECT_EQ(end, text + std::strlen(text) + 1);
 
-    TimeStampNsValue adjusted = value;
-    adjusted += 2;
-    EXPECT_EQ(adjusted.epoch_nanos(), value.epoch_nanos() + 2000000000LL);
-    adjusted -= 3;
-    EXPECT_EQ(adjusted.epoch_nanos(), value.epoch_nanos() - 1000000000LL);
     EXPECT_EQ(value.hash(17), value.hash(17));
     EXPECT_EQ(std::hash<TimeStampNsValue> {}(value), std::hash<int64_t> {}(value.epoch_nanos()));
-
-    int64_t earlier_raw = 0;
-    int64_t later_raw = 0;
-    ASSERT_TRUE(parse_timestamp_ns(StringRef("2020-01-31 12:00:00.900000009"), &earlier_raw).ok());
-    ASSERT_TRUE(parse_timestamp_ns(StringRef("2022-03-31 11:00:00.100000001"), &later_raw).ok());
-    const TimeStampNsValue earlier(earlier_raw);
-    const TimeStampNsValue later(later_raw);
-
-    EXPECT_EQ(datetime_diff<TimeUnit::YEAR>(earlier, later), 2);
-    EXPECT_EQ(datetime_diff<TimeUnit::YEAR>(later, earlier), -2);
-    EXPECT_EQ(datetime_diff<TimeUnit::MONTH>(earlier, later), 25);
-    EXPECT_EQ(datetime_diff<TimeUnit::MONTH>(later, earlier), -25);
-    EXPECT_EQ(datetime_diff<TimeUnit::QUARTER>(earlier, later), 8);
-    EXPECT_EQ(datetime_diff<TimeUnit::WEEK>(earlier, later), 112);
-    EXPECT_EQ(datetime_diff<TimeUnit::DAY>(earlier, later), 789);
-    EXPECT_EQ(datetime_diff<TimeUnit::DAY>(later, earlier), -789);
-    EXPECT_EQ(earlier.date_diff_in_days(later), -790);
-    EXPECT_EQ(later.date_diff_in_days_round_to_zero_by_time(earlier), 789);
-    EXPECT_EQ(earlier.date_diff_in_days_round_to_zero_by_time(later), -789);
-    EXPECT_EQ(later.datetime_diff_in_seconds_round_to_zero_by_ms(earlier),
-              -earlier.datetime_diff_in_seconds_round_to_zero_by_ms(later));
-
-    const auto legacy = later.to_datetime();
-    EXPECT_EQ(earlier.time_part_diff_in_ms(legacy), 3600800000LL);
-    EXPECT_EQ(earlier.datetime_diff_in_microseconds(legacy),
-              earlier.datetime_diff_in_seconds(legacy) * 1000000LL +
-                      earlier.time_part_diff_in_ms(legacy) % 1000000LL);
-
-    TimeStampNsValue truncated = value;
-    ASSERT_TRUE(truncated.datetime_trunc<TimeUnit::DAY>());
-    EXPECT_EQ(truncated.to_string(9), "2024-02-29 00:00:00.000000000");
 }
 
 TEST(DataTypeTimeStampNsTest, SerDeStrictBatchJsonJsonbMysqlAndBinaryField) {
