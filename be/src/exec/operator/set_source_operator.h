@@ -103,4 +103,11 @@ private:
     const size_t _child_quantity;
     const bool _is_colocate;
 };
+
+/// Instantiated once in set_source_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class SetSourceLocalState<true>;
+extern template class SetSourceLocalState<false>;
+extern template class SetSourceOperatorX<true>;
+extern template class SetSourceOperatorX<false>;
+
 } // namespace doris
