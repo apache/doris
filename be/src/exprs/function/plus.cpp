@@ -30,19 +30,21 @@ struct PlusImpl {
     NO_SANITIZE_UNDEFINED static inline Arg apply(Arg a, Arg b) { return a + b; }
 };
 
-template <PrimitiveType TypeA, PrimitiveType TypeB>
+// FE casts both children of decimal add to exactly the same type as the return
+// type (TypeCoercionUtils#processDecimalV3BinaryArithmetic), so only same-width
+// pairs are reachable at runtime. Keep a single type parameter so mixed-width
+// instantiations cannot be registered again.
+template <PrimitiveType Type>
 struct PlusDecimalImpl {
-    static_assert(is_decimal(TypeA) && is_decimal(TypeB));
-    static_assert((TypeA == TYPE_DECIMALV2 && TypeB == TYPE_DECIMALV2) ||
-                  (TypeA != TYPE_DECIMALV2 && TypeB != TYPE_DECIMALV2));
+    static_assert(is_decimal(Type));
 
     constexpr static bool need_replace_null_data_to_default = true;
 
     static constexpr auto name = "add";
-    static constexpr PrimitiveType PTypeA = TypeA;
-    static constexpr PrimitiveType PTypeB = TypeA;
-    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppType::NativeType;
-    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppType::NativeType;
+    static constexpr PrimitiveType PTypeA = Type;
+    static constexpr PrimitiveType PTypeB = Type;
+    using ArgNativeTypeA = typename PrimitiveTypeTraits<Type>::CppType::NativeType;
+    using ArgNativeTypeB = typename PrimitiveTypeTraits<Type>::CppType::NativeType;
 
     template <PrimitiveType Result>
         requires(is_decimal(Result) && Result != TYPE_DECIMALV2)
@@ -69,44 +71,17 @@ struct PlusDecimalImpl {
 };
 
 void register_function_plus(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMALV2, TYPE_DECIMALV2>>>>();
+    factory.register_function<
+            FunctionPlusMinus<PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMALV2>>>>();
 
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL32>>>>();
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL64>>>>();
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL128I>>>>();
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL256>>>>();
-
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL32>>>>();
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL64>>>>();
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL128I>>>>();
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL256>>>>();
-
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL32>>>>();
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL64>>>>();
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL128I>>>>();
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL256>>>>();
-
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL32>>>>();
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL64>>>>();
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL128I>>>>();
-    factory.register_function<FunctionPlusMinus<
-            PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL256>>>>();
+    factory.register_function<
+            FunctionPlusMinus<PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL32>>>>();
+    factory.register_function<
+            FunctionPlusMinus<PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL64>>>>();
+    factory.register_function<
+            FunctionPlusMinus<PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL128I>>>>();
+    factory.register_function<
+            FunctionPlusMinus<PlusMinusDecimalImpl<PlusDecimalImpl<TYPE_DECIMAL256>>>>();
 
     factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<PlusImpl<TYPE_TINYINT>>>>();
     factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<PlusImpl<TYPE_SMALLINT>>>>();
