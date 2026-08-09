@@ -857,13 +857,14 @@ Status FileScanner::_convert_to_output_block(Block* block) {
             column_ptr = make_nullable(column_ptr);
         }
         DORIS_CHECK_EQ(column_ptr->size(), rows);
-        if (mutable_output_columns[j]->get_name() == column_ptr->get_name()) {
-            output_columns[j] = std::move(column_ptr);
-        } else {
-            // Some columns use specialized expression-result representations. For example, a
-            // scalar Variant must be inserted into the destination Variant column to normalize
-            // its internal structure before publication.
+        if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+            DORIS_CHECK_EQ(ctx->root()->data_type()->get_primitive_type(),
+                           PrimitiveType::TYPE_VARIANT);
+            // CAST to Variant may produce a scalar Variant expression result. Insert it into the
+            // destination Variant column to normalize its internal structure before publication.
             mutable_output_columns[j]->insert_range_from(*column_ptr, 0, rows);
+        } else {
+            output_columns[j] = std::move(column_ptr);
         }
         ctx_idx++;
     }
