@@ -349,10 +349,6 @@ static VExprSPtr create_file_slot_ref(const VSlotRef& slot_ref,
     return ref;
 }
 
-static bool is_cast_expr(const VExprSPtr& expr) {
-    return dynamic_cast<const Cast*>(expr.get()) != nullptr;
-}
-
 static bool is_binary_comparison_predicate(const VExprSPtr& expr) {
     if (expr == nullptr || expr->get_num_children() != 2 ||
         (expr->node_type() != TExprNodeType::BINARY_PRED &&
