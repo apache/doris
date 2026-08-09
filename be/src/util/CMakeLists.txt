@@ -41,3 +41,23 @@ add_library(Util STATIC
 )
 
 pch_reuse(Util)
+
+# Unity build for the small util TUs (parse-overhead dominated). Ten files
+# leak file-scope macros and stay individual; hash/city.cc keeps its generic
+# k0..k4 static hash constants away from sibling scopes. perf_counters.cpp
+# is a Linux-only member (macOS builds its _mac variant, which is clean).
+set(UTIL_UNITY_SKIP
+    ${CMAKE_CURRENT_SOURCE_DIR}/bfd_parser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/hash/city.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/hash/murmur_hash3.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network_util.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/os_info.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/os_util.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/perf_counters.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/simd/parquet_kernels.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/thrift_util.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/zlib.cpp)
+set_source_files_properties(${UTIL_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+if (ENABLE_UNITY_BUILD)
+    set_target_properties(Util PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 24)
+endif()

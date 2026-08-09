@@ -34,3 +34,14 @@ add_library(Runtime STATIC
 )
 
 pch_reuse(Runtime)
+
+# Unity build: runtime glue TUs share the exec-env/runtime-state header
+# closure. memory/jemalloc_hook.cpp (a Linux-only member, absent on macOS)
+# stays individual: it defines malloc-replacement hooks and leaks
+# __THROW/ALIAS macros.
+set(RUNTIME_UNITY_SKIP
+    ${CMAKE_CURRENT_SOURCE_DIR}/memory/jemalloc_hook.cpp)
+set_source_files_properties(${RUNTIME_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+if (ENABLE_UNITY_BUILD)
+    set_target_properties(Runtime PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 12)
+endif()
