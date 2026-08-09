@@ -63,6 +63,7 @@
 #include "storage/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "storage/rowset/segment_creator.h"
 #include "storage/segment/column_writer.h" // ColumnWriter
+#include "storage/segment/common.h"        // k_segment_magic
 #include "storage/segment/encoding_info.h"
 #include "storage/segment/external_col_meta_util.h"
 #include "storage/segment/historical_row_retriever.h"
@@ -82,9 +83,6 @@ namespace doris {
 namespace segment_v2 {
 
 using namespace ErrorCode;
-
-const char* k_segment_magic = "D0R1";
-const uint32_t k_segment_magic_length = 4;
 
 inline std::string segment_mem_tracker_name(uint32_t segment_id) {
     return "SegmentWriter:Segment-" + std::to_string(segment_id);

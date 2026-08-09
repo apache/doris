@@ -925,12 +925,7 @@ bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_wait_for_compaction_num(
 bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_wait_for_compaction_timeout_num(
         "file_cache_warm_up_rowset_wait_for_compaction_timeout_num");
 
-// Per-job windowed metrics for target BE
-// bvar::Window enforces MAX_SECONDS_LIMIT = 3600, so the longest window is 1h.
-static constexpr int WINDOW_5M = 300;
-static constexpr int WINDOW_30M = 1800;
-static constexpr int WINDOW_1H = 3600;
-
+// Per-job windowed metrics for target BE (window spans shared via bvar_windowed_adder.h)
 MBvarWindowedAdder g_warmup_ed_finish_segment_num("warmup_ed_finish_segment_num", {"job_id"},
                                                   {WINDOW_5M, WINDOW_30M, WINDOW_1H}, false);
 MBvarWindowedAdder g_warmup_ed_finish_segment_size("warmup_ed_finish_segment_size", {"job_id"},

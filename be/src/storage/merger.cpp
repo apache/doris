@@ -120,8 +120,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         auto tablet_state = tablet->tablet_state();
         if (tablet_state != TABLET_RUNNING && tablet_state != TABLET_NOTREADY) {
             tablet->clear_cache();
-            return Status::Error<INTERNAL_ERROR>("tablet {} is not used any more",
-                                                 tablet->tablet_id());
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("tablet {} is not used any more",
+                                                            tablet->tablet_id());
         }
 
         // Read one block from block reader
@@ -143,8 +143,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         block.clear_column_data();
     }
     if (ExecEnv::GetInstance()->storage_engine().stopped()) {
-        return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
-                                             tablet->tablet_id());
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "tablet {} failed to do compaction, engine stopped", tablet->tablet_id());
     }
 
     if (stats_output != nullptr) {
@@ -310,8 +310,8 @@ Status Merger::vertical_compact_one_group(
         auto tablet_state = tablet->tablet_state();
         if (tablet_state != TABLET_RUNNING && tablet_state != TABLET_NOTREADY) {
             tablet->clear_cache();
-            return Status::Error<INTERNAL_ERROR>("tablet {} is not used any more",
-                                                 tablet->tablet_id());
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("tablet {} is not used any more",
+                                                            tablet->tablet_id());
         }
         // Read one block from block reader
         RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
@@ -333,8 +333,8 @@ Status Merger::vertical_compact_one_group(
         block.clear_column_data();
     }
     if (ExecEnv::GetInstance()->storage_engine().stopped()) {
-        return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
-                                             tablet->tablet_id());
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "tablet {} failed to do compaction, engine stopped", tablet->tablet_id());
     }
 
     if (stats_output != nullptr) {
@@ -389,8 +389,8 @@ Status Merger::vertical_compact_one_group(
         block.clear_column_data();
     }
     if (ExecEnv::GetInstance()->storage_engine().stopped()) {
-        return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
-                                             tablet_id);
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "tablet {} failed to do compaction, engine stopped", tablet_id);
     }
 
     if (stats_output != nullptr) {
