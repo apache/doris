@@ -37,10 +37,6 @@ namespace doris::format {
 
 namespace {
 
-static bool is_cast_expr(const VExprSPtr& expr) {
-    return dynamic_cast<const Cast*>(expr.get()) != nullptr;
-}
-
 static bool is_signed_integer_type(PrimitiveType type) {
     switch (type) {
     case TYPE_TINYINT:

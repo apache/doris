@@ -49,6 +49,7 @@
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
 #include "format_v2/parquet/reader/row_position_column_reader.h"
+#include "format_v2/parquet/selection_vector.h" // count_range_rows
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
 #include "util/time.h"
@@ -823,14 +824,6 @@ Status execute_batch_filters(const format::FileScanRequest& request, int64_t bat
 }
 
 namespace {
-int64_t count_range_rows(const std::vector<RowRange>& ranges) {
-    int64_t rows = 0;
-    for (const auto& range : ranges) {
-        rows += range.length;
-    }
-    return rows;
-}
-
 void append_intersection(const RowRange& left, const RowRange& right,
                          std::vector<RowRange>& result) {
     const int64_t start = std::max(left.start, right.start);

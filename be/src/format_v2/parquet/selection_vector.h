@@ -31,6 +31,14 @@ struct RowRange {
     int64_t length = 0;
 };
 
+inline int64_t count_range_rows(const std::vector<RowRange>& ranges) {
+    int64_t rows = 0;
+    for (const auto& range : ranges) {
+        rows += range.length;
+    }
+    return rows;
+}
+
 struct ParquetPageSkipPlan {
     int leaf_column_id = -1;
     // Page ordinal is the data-page ordinal in the column chunk. It intentionally excludes
