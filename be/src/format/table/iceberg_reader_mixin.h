@@ -22,7 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <ranges>
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <vector>
