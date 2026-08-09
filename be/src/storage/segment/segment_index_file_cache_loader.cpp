@@ -19,6 +19,8 @@
 
 #include <bvar/bvar.h>
 
+#include <utility>
+
 #include "cloud/config.h"
 #include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
@@ -124,6 +126,27 @@ Status SegmentIndexFileCacheLoader::preload_segment_indexes_to_file_cache(
                 context, task.segment_id, context.segment_path(task.segment_id), task.info));
     }
     return Status::OK();
+}
+
+void SegmentIndexFileCachePreloadBuffer::record(uint32_t segment_id,
+                                                SegmentIndexFileCacheInfo info) {
+    if (!enable_cloud_index_only_file_cache() || _context.is_local_rowset()) {
+        return;
+    }
+    std::lock_guard lock(_lock);
+    _tasks.push_back({segment_id, std::move(info)});
+}
+
+Status SegmentIndexFileCachePreloadBuffer::preload() {
+    std::vector<SegmentIndexFileCachePreloadTask> tasks;
+    {
+        std::lock_guard lock(_lock);
+        if (_tasks.empty()) {
+            return Status::OK();
+        }
+        tasks.swap(_tasks);
+    }
+    return SegmentIndexFileCacheLoader::preload_segment_indexes_to_file_cache(_context, tasks);
 }
 
 Status SegmentIndexFileCacheLoader::load_segment_index_to_file_cache(

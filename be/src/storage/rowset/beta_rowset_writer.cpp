@@ -188,6 +188,7 @@ Status SegmentFileCollection::close() {
         _closed = true;
     }
 
+    Status first_error;
     for (auto&& [_, writer] : _file_writers) {
         DBUG_EXECUTE_IF("SegmentFileCollection.close.wait_dat_closed", {
             auto before_state = writer->state();
@@ -200,12 +201,15 @@ Status SegmentFileCollection::close() {
                       << " after_state=" << static_cast<int>(writer->state());
         });
         if (writer->state() != io::FileWriter::State::CLOSED) {
-            RETURN_IF_ERROR(writer->close());
+            auto status = writer->close();
+            if (!status.ok() && first_error.ok()) {
+                first_error = std::move(status);
+            }
         }
         TEST_SYNC_POINT_CALLBACK("SegmentFileCollection::close_file_writer", writer.get());
     }
 
-    return Status::OK();
+    return first_error;
 }
 
 Result<std::vector<size_t>> SegmentFileCollection::segments_file_size(int seg_id_offset) {
@@ -274,20 +278,29 @@ Status InvertedIndexFileCollection::add(int seg_id, IndexFileWriterPtr&& index_w
 
 Status InvertedIndexFileCollection::begin_close() {
     std::lock_guard lock(_lock);
+    Status first_error;
     for (auto&& [id, writer] : _inverted_index_file_writers) {
-        RETURN_IF_ERROR(writer->begin_close());
+        auto status = writer->begin_close();
+        if (!status.ok() && first_error.ok()) {
+            first_error = std::move(status);
+        }
         _total_size += writer->get_index_file_total_size();
     }
 
-    return Status::OK();
+    return first_error;
 }
 
 Status InvertedIndexFileCollection::finish_close() {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("InvertedIndexFileCollection::finish_close", Status::OK());
     std::lock_guard lock(_lock);
+    Status first_error;
     for (auto&& [id, writer] : _inverted_index_file_writers) {
-        RETURN_IF_ERROR(writer->finish_close());
+        auto status = writer->finish_close();
+        if (!status.ok() && first_error.ok()) {
+            first_error = std::move(status);
+        }
     }
-    return Status::OK();
+    return first_error;
 }
 
 Result<std::vector<const InvertedIndexFileInfo*>>
@@ -773,10 +786,8 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     if (_is_doing_segcompaction.exchange(true)) {
         return status;
     }
-    if (_segcompaction_status.load() != OK) {
-        status = Status::Error<SEGCOMPACTION_FAILED>(
-                "BetaRowsetWriter::_segcompaction_if_necessary meet invalid state, error code: {}",
-                _segcompaction_status.load());
+    if (!_segcompaction_status.ok()) {
+        status = _segcompaction_status.status();
     } else {
         status = _check_segment_number_limit(_num_segcompacted);
     }
@@ -806,11 +817,8 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
     if (!config::enable_segcompaction) {
         return Status::OK();
     }
-    if (_segcompaction_status.load() != OK) {
-        return Status::Error<SEGCOMPACTION_FAILED>(
-                "BetaRowsetWriter::_segcompaction_rename_last_segments meet invalid state, error "
-                "code: {}",
-                _segcompaction_status.load());
+    if (!_segcompaction_status.ok()) {
+        return _segcompaction_status.status();
     }
     if (!is_segcompacted() || _segcompacted_point == _num_segment) {
         // no need if never segcompact before or all segcompacted
@@ -915,12 +923,49 @@ Status BetaRowsetWriter::_wait_flying_segcompaction() {
     if (elapsed >= MICROS_PER_SEC) {
         LOG(INFO) << "wait flying segcompaction finish time:" << elapsed << "us";
     }
-    if (_segcompaction_status.load() != OK) {
-        return Status::Error<SEGCOMPACTION_FAILED>(
-                "BetaRowsetWriter meet invalid state, error code: {}",
-                _segcompaction_status.load());
+    if (!_segcompaction_status.ok()) {
+        return _segcompaction_status.status();
     }
     return Status::OK();
+}
+
+Status BetaRowsetWriter::_synchronize_segcompaction() {
+    if (_segment_start_id != 0) {
+        return Status::OK();
+    }
+    if (_segcompaction_worker->cancel()) {
+        std::lock_guard lk(_is_doing_segcompaction_lock);
+        _is_doing_segcompaction = false;
+        _segcompacting_cond.notify_all();
+    }
+    return _wait_flying_segcompaction();
+}
+
+Status BetaRowsetWriter::_close_segcompaction_file_writers() {
+    Status first_error;
+    auto& index_file_writer = _segcompaction_worker->get_inverted_index_file_writer();
+    if (index_file_writer != nullptr) {
+        auto status = index_file_writer->begin_close();
+        if (!status.ok() && first_error.ok()) {
+            first_error = std::move(status);
+        }
+    }
+
+    auto& data_file_writer = _segcompaction_worker->get_file_writer();
+    if (data_file_writer != nullptr && data_file_writer->state() != io::FileWriter::State::CLOSED) {
+        auto status = data_file_writer->close();
+        if (!status.ok() && first_error.ok()) {
+            first_error = std::move(status);
+        }
+    }
+
+    if (index_file_writer != nullptr) {
+        auto status = index_file_writer->finish_close();
+        if (!status.ok() && first_error.ok()) {
+            first_error = std::move(status);
+        }
+    }
+    return first_error;
 }
 
 RowsetSharedPtr BaseBetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& spec_rowset_meta) {
@@ -947,28 +992,46 @@ Status BaseBetaRowsetWriter::_close_file_writers() {
     return Status::OK();
 }
 
+Status BaseBetaRowsetWriter::_close_inverted_index_file_writers() {
+    Status first_error = _idx_files.begin_close();
+    _total_index_size += _idx_files.get_total_index_size();
+    auto status = _idx_files.finish_close();
+    if (!status.ok() && first_error.ok()) {
+        first_error = std::move(status);
+    }
+    return first_error;
+}
+
 Status BetaRowsetWriter::_close_file_writers() {
-    RETURN_IF_ERROR(BaseBetaRowsetWriter::_close_file_writers());
+    auto first_error = BaseBetaRowsetWriter::_close_file_writers();
+    if (!first_error.ok()) {
+        LOG(WARNING) << "failed to close segment creator when build new rowset, error: "
+                     << first_error;
+    }
+
     // if _segment_start_id is not zero, that means it's a transient rowset writer for
     // MoW partial update, don't need to do segment compaction.
     if (_segment_start_id == 0) {
-        if (_segcompaction_worker->cancel()) {
-            std::lock_guard lk(_is_doing_segcompaction_lock);
-            _is_doing_segcompaction = false;
-            _segcompacting_cond.notify_all();
-        } else {
-            RETURN_NOT_OK_STATUS_WITH_WARN(_wait_flying_segcompaction(),
-                                           "segcompaction failed when build new rowset");
+        auto segcompaction_status = _synchronize_segcompaction();
+        if (!segcompaction_status.ok()) {
+            LOG(WARNING) << "segcompaction failed when build new rowset, error: "
+                         << segcompaction_status;
         }
-        RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_rename_last_segments(),
-                                       "rename last segments failed when build new rowset");
-        // segcompaction worker would do file wrier's close function in compact_segments
-        if (auto& seg_comp_file_writer = _segcompaction_worker->get_file_writer();
-            nullptr != seg_comp_file_writer &&
-            seg_comp_file_writer->state() != io::FileWriter::State::CLOSED) {
-            RETURN_NOT_OK_STATUS_WITH_WARN(seg_comp_file_writer->close(),
-                                           "close segment compaction worker failed");
+        if (!segcompaction_status.ok() && first_error.ok()) {
+            first_error = std::move(segcompaction_status);
         }
+
+        if (first_error.ok()) {
+            first_error = _segcompaction_rename_last_segments();
+        }
+        auto close_status = _close_segcompaction_file_writers();
+        if (!close_status.ok() && first_error.ok()) {
+            first_error = std::move(close_status);
+        }
+        if (!first_error.ok()) {
+            return first_error;
+        }
+
         // process delete bitmap for mow table
         if (is_segcompacted() && _segcompaction_worker->need_convert_delete_bitmap()) {
             auto converted_delete_bitmap = _segcompaction_worker->get_converted_delete_bitmap();
@@ -984,12 +1047,19 @@ Status BetaRowsetWriter::_close_file_writers() {
             }
         }
     }
-    return Status::OK();
+    return first_error;
 }
 
 Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     if (_calc_delete_bitmap_token != nullptr) {
-        RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
+        auto delete_bitmap_status = _calc_delete_bitmap_token->wait();
+        if (!delete_bitmap_status.ok()) {
+            WARN_IF_ERROR(_synchronize_segcompaction(),
+                          "failed to synchronize segcompaction after delete bitmap error");
+            WARN_IF_ERROR(_close_segcompaction_file_writers(),
+                          "failed to close segcompaction writers after delete bitmap error");
+            return delete_bitmap_status;
+        }
     }
     RETURN_IF_ERROR(_close_file_writers());
     const auto total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;

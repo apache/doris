@@ -27,6 +27,7 @@
 #include <map>
 #include <memory> // unique_ptr
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/status.h" // Status
@@ -132,6 +133,10 @@ public:
     Status finalize_columns_index(uint64_t* index_size);
     Status finalize_footer(uint64_t* segment_file_size,
                            SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
+
+    SegmentIndexFileCacheInfo move_index_file_cache_info() {
+        return std::move(_index_file_cache_info);
+    }
 
     void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                           const ColumnWriterOptions& opts);

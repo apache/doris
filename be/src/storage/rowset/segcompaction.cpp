@@ -36,6 +36,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/io_common.h"
@@ -254,6 +255,7 @@ Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("SegcompactionWorker::_do_compact_segments", Status::OK());
     DCHECK(_seg_compact_mem_tracker != nullptr);
     SCOPED_ATTACH_TASK(_seg_compact_mem_tracker);
     /* throttle segcompaction task if memory depleted */
@@ -379,6 +381,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
 void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segments) {
     Status status = Status::OK();
+    bool terminate_write = false;
     if (_is_compacting_state_mutable.exchange(false)) {
         status = _do_compact_segments(segments);
     } else {
@@ -399,17 +402,20 @@ void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segm
             LOG(WARNING) << "segcompaction fatal, terminating the write job."
                          << " tablet_id:" << ctx.tablet_id << " rowset_id:" << ctx.rowset_id
                          << " status:" << status;
-            // status will be checked by the next trigger of segcompaction or the final wait
-            _writer->_segcompaction_status.store(ErrorCode::INTERNAL_ERROR);
+            terminate_write = true;
+            break;
         }
     }
     DCHECK_EQ(_writer->_is_doing_segcompaction, true);
     {
         std::lock_guard lk(_writer->_is_doing_segcompaction_lock);
+        if (terminate_write) {
+            DORIS_CHECK(_writer->_segcompaction_status.update(status));
+        }
+        _is_compacting_state_mutable = true;
         _writer->_is_doing_segcompaction = false;
         _writer->_segcompacting_cond.notify_all();
     }
-    _is_compacting_state_mutable = true;
 }
 
 bool SegcompactionWorker::need_convert_delete_bitmap() {

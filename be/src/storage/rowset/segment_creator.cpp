@@ -60,7 +60,10 @@ using namespace ErrorCode;
 
 SegmentFlusher::SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files,
                                InvertedIndexFileCollection& idx_files)
-        : _context(context), _seg_files(seg_files), _idx_files(idx_files) {}
+        : _context(context),
+          _seg_files(seg_files),
+          _idx_files(idx_files),
+          _segment_index_file_cache_preload_buffer(context) {}
 
 SegmentFlusher::~SegmentFlusher() = default;
 
@@ -89,30 +92,25 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
 }
 
 Status SegmentFlusher::close() {
-    RETURN_IF_ERROR(_seg_files.close());
-    RETURN_IF_ERROR(_preload_segment_indexes_to_file_cache());
-    RETURN_IF_ERROR(_idx_files.finish_close());
-    return Status::OK();
-}
-
-void SegmentFlusher::_record_segment_index_file_cache_preload(
-        uint32_t segment_id, const segment_v2::SegmentIndexFileCacheInfo& info) {
-    std::lock_guard lock(_segment_index_file_cache_preloads_lock);
-    _segment_index_file_cache_preloads.push_back({segment_id, info});
-}
-
-Status SegmentFlusher::_preload_segment_indexes_to_file_cache() {
-    std::vector<segment_v2::SegmentIndexFileCachePreloadTask> tasks;
-    {
-        std::lock_guard lock(_segment_index_file_cache_preloads_lock);
-        tasks.swap(_segment_index_file_cache_preloads);
+    Status first_error = _idx_files.begin_close();
+    auto status = _seg_files.close();
+    if (!status.ok() && first_error.ok()) {
+        first_error = std::move(status);
     }
-    return segment_v2::SegmentIndexFileCacheLoader::preload_segment_indexes_to_file_cache(_context,
-                                                                                          tasks);
+    status = _idx_files.finish_close();
+    if (!status.ok() && first_error.ok()) {
+        first_error = std::move(status);
+    }
+    return first_error;
+}
+
+Status SegmentFlusher::preload_segment_indexes_to_file_cache() {
+    return _segment_index_file_cache_preload_buffer.preload();
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                                  const Block* block, size_t row_pos, size_t num_rows) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("SegmentFlusher::_add_rows.segment_writer", Status::OK());
     RETURN_IF_ERROR(segment_writer->append_block(block, row_pos, num_rows));
     _num_rows_written += num_rows;
     return Status::OK();
@@ -265,7 +263,7 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.key_bounds = key_bounds;
 
     writer.reset();
-    _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
+    _segment_index_file_cache_preload_buffer.record(segment_id, std::move(index_file_cache_info));
 
     MonotonicStopWatch collector_timer;
     collector_timer.start();
@@ -345,7 +343,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     segstat.key_bounds = key_bounds;
 
     writer.reset();
-    _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
+    _segment_index_file_cache_preload_buffer.record(segment_id, std::move(index_file_cache_info));
 
     MonotonicStopWatch collector_timer;
     collector_timer.start();
@@ -397,7 +395,18 @@ SegmentCreator::SegmentCreator(RowsetWriterContext& context, SegmentFileCollecti
                                InvertedIndexFileCollection& idx_files)
         : _segment_flusher(context, seg_files, idx_files) {}
 
+Status SegmentCreator::_update_write_status(const Status& status) {
+    static_cast<void>(_write_status.update(status));
+    if (!_write_status.ok()) {
+        return _write_status.status();
+    }
+    return status;
+}
+
 Status SegmentCreator::add_block(const Block* block) {
+    if (!_write_status.ok()) {
+        return _write_status.status();
+    }
     if (block->rows() == 0) {
         return Status::OK();
     }
@@ -408,7 +417,10 @@ Status SegmentCreator::add_block(const Block* block) {
     size_t row_offset = 0;
 
     if (_flush_writer == nullptr) {
-        RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, allocate_segment_id()));
+        auto status = _segment_flusher.create_writer(_flush_writer, allocate_segment_id());
+        if (!status.ok()) {
+            return _update_write_status(status);
+        }
     }
 
     do {
@@ -416,12 +428,19 @@ Status SegmentCreator::add_block(const Block* block) {
         if (UNLIKELY(max_row_add < 1)) {
             // no space for another single row, need flush now
             RETURN_IF_ERROR(flush());
-            RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, allocate_segment_id()));
+            auto status = _segment_flusher.create_writer(_flush_writer, allocate_segment_id());
+            if (!status.ok()) {
+                return _update_write_status(status);
+            }
             max_row_add = _flush_writer->max_row_to_add(row_avg_size_in_bytes);
             DCHECK(max_row_add > 0);
         }
         size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
-        RETURN_IF_ERROR(_flush_writer->add_rows(block, row_offset, input_row_num));
+        auto status = _flush_writer->add_rows(block, row_offset, input_row_num);
+        if (!status.ok()) {
+            _flush_writer.reset();
+            return _update_write_status(status);
+        }
         row_offset += input_row_num;
     } while (row_offset < block_row_num);
 
@@ -429,27 +448,40 @@ Status SegmentCreator::add_block(const Block* block) {
 }
 
 Status SegmentCreator::flush() {
+    if (!_write_status.ok()) {
+        _flush_writer.reset();
+        return _write_status.status();
+    }
     if (_flush_writer == nullptr) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_flush_writer->flush());
+    auto status = _flush_writer->flush();
     _flush_writer.reset();
-    return Status::OK();
+    return _update_write_status(status);
 }
 
 Status SegmentCreator::flush_single_block(const Block* block, int32_t segment_id,
                                           int64_t* flush_size) {
+    if (!_write_status.ok()) {
+        return _write_status.status();
+    }
     if (block->rows() == 0) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_segment_flusher.flush_single_block(block, segment_id, flush_size));
-    return Status::OK();
+    auto status = _segment_flusher.flush_single_block(block, segment_id, flush_size);
+    return _update_write_status(status);
 }
 
 Status SegmentCreator::close() {
-    RETURN_IF_ERROR(flush());
-    RETURN_IF_ERROR(_segment_flusher.close());
-    return Status::OK();
+    auto write_status = flush();
+    auto close_status = _segment_flusher.close();
+    if (!write_status.ok()) {
+        return write_status;
+    }
+    if (!close_status.ok()) {
+        return close_status;
+    }
+    return _segment_flusher.preload_segment_indexes_to_file_cache();
 }
 
 } // namespace doris

@@ -20,6 +20,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <atomic>
 #include <mutex>
 #include <vector>
 
@@ -115,6 +116,7 @@ public:
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
 
     Status close();
+    Status preload_segment_indexes_to_file_cache();
 
 public:
     class Writer {
@@ -153,9 +155,6 @@ private:
                                  int64_t* flush_size = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
                                  int64_t* flush_size = nullptr);
-    void _record_segment_index_file_cache_preload(
-            uint32_t segment_id, const segment_v2::SegmentIndexFileCacheInfo& info);
-    Status _preload_segment_indexes_to_file_cache();
 
 private:
     RowsetWriterContext& _context;
@@ -168,8 +167,7 @@ private:
     std::atomic<int64_t> _num_rows_new_added = 0;
     std::atomic<int64_t> _num_rows_deleted = 0;
     std::atomic<int64_t> _num_rows_filtered = 0;
-    std::mutex _segment_index_file_cache_preloads_lock;
-    std::vector<segment_v2::SegmentIndexFileCachePreloadTask> _segment_index_file_cache_preloads;
+    segment_v2::SegmentIndexFileCachePreloadBuffer _segment_index_file_cache_preload_buffer;
 };
 
 class SegmentCreator {
@@ -209,15 +207,22 @@ public:
     // Flush a block into a single segment, without pre-allocated segment_id.
     // This method is thread-safe.
     Status flush_single_block(const Block* block) {
+        if (!_write_status.ok()) {
+            return _write_status.status();
+        }
         return flush_single_block(block, allocate_segment_id());
     }
 
     Status close();
 
 private:
+    Status _update_write_status(const Status& status);
+
     std::atomic<int32_t> _next_segment_id = 0;
     SegmentFlusher _segment_flusher;
     std::unique_ptr<SegmentFlusher::Writer> _flush_writer;
+    // The first write failure is terminal for this creator.
+    AtomicStatus _write_status;
 };
 
 } // namespace doris

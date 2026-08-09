@@ -195,7 +195,9 @@ Result<std::unique_ptr<IndexSearcherBuilder>> IndexFileWriter::_construct_index_
 }
 
 Status IndexFileWriter::begin_close() {
-    DCHECK(!_closed) << debug_string();
+    if (_closed) {
+        return Status::OK();
+    }
     _closed = true;
     if (_indices_dirs.empty()) {
         // An empty file must still be created even if there are no indexes to write
