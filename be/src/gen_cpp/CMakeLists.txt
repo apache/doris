@@ -27,9 +27,25 @@ list(FILTER SRC_FILES EXCLUDE REGEX "_server\\.skeleton\\.cpp$")
 
 add_compile_options(-Wno-return-type)
 
-# keep everything in one library, the object files reference 
+# keep everything in one library, the object files reference
 # each other
 add_library(DorisGen STATIC ${SRC_FILES})
+
+# Unity build for the thrift-generated .cpp half (pre-scanned clean: no
+# file-scope macros or duplicate statics). Generated sources cannot be edited,
+# so anything that clashes can only be opted out, never fixed:
+# - every protobuf .cc stays individual: protoc emits the same file-scope
+#   statics (schemas[], file_default_instances[]) in each one, a structural
+#   clash for any merged pair
+# - the two heaviest thrift TUs stay individual so no batch inherits them
+set(GEN_UNITY_SKIP ${SRC_FILES})
+list(FILTER GEN_UNITY_SKIP INCLUDE REGEX "\\.cc$")
+list(APPEND GEN_UNITY_SKIP
+    ${GEN_CPP_DIR}/FrontendService_types.cpp
+    ${GEN_CPP_DIR}/PlanNodes_types.cpp)
+set_source_files_properties(${GEN_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+set_target_properties(DorisGen PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
+                                          UNITY_BUILD_BATCH_SIZE 8)
 
 if (COMPILER_CLANG)
     target_compile_options(DorisGen PRIVATE
