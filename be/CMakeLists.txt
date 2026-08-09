@@ -766,7 +766,15 @@ endif ()
 
 # Add sanitize static link flags
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
+    if (OS_MACOSX AND ARCH_ARM AND MAKE_TEST)
+        # doris_be_test's Debug .text exceeds arm64's +/-128MB BL reach and
+        # Apple's linker emits no branch islands for tcmalloc's prebuilt
+        # archive ("fixup error ... B/BL out of range"). Tests don't need a
+        # custom allocator; fall back to system malloc here. ASAN builds never
+        # linked ${MALLOCLIB} anyway, which is why they never hit this.
+    else()
+        set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
+    endif()
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN" OR "${CMAKE_BUILD_TYPE}" STREQUAL "ASAN_UT")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
     if (OS_LINUX)
