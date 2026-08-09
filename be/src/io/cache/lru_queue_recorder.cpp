@@ -26,10 +26,6 @@ namespace doris::io {
 
 namespace {
 
-size_t file_cache_type_index(FileCacheType type) {
-    return static_cast<size_t>(type);
-}
-
 } // namespace
 
 void LRUQueueRecorder::record_queue_event(FileCacheType type, CacheLRULogType log_type,

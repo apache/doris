@@ -43,6 +43,11 @@ enum FileCacheType {
     DISPOSABLE = 0,
     TTL = 3,
 };
+
+inline size_t file_cache_type_index(FileCacheType type) {
+    return static_cast<size_t>(type);
+}
+
 std::string cache_type_to_surfix(FileCacheType type);
 FileCacheType surfix_to_cache_type(const std::string& str);
 
