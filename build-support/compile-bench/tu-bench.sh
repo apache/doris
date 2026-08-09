@@ -81,17 +81,32 @@ if [[ "${TRACE}" == "ON" ]]; then
 fi
 
 TIME_LOG="${OUT_DIR}/${LABEL}.time"
-(cd "${WORK_DIR}" && /usr/bin/time -v bash -c "${CMD} ${TRACE_ARGS}" 2> "${TIME_LOG}")
-
-WALL_RAW="$(grep 'Elapsed (wall clock)' "${TIME_LOG}" | awk '{print $NF}')"
-# h:mm:ss or m:ss.ss -> seconds
-WALL_S="$(echo "${WALL_RAW}" | awk -F: '{ s=0; for (i=1; i<=NF; i++) s = s*60 + $i; printf "%.2f", s }')"
-MAX_RSS_KB="$(grep 'Maximum resident' "${TIME_LOG}" | awk '{print $NF}')"
-# Use the toolchain's llvm-nm (sits next to the clang++ in the command).
-NM="$(dirname "$(echo "${CMD}" | awk '{print $1}')")/llvm-nm"
+if [[ "$(uname)" == "Darwin" ]]; then
+    # BSD time: "X.XX real X.XX user X.XX sys" plus "-l" resource lines (RSS in bytes)
+    (cd "${WORK_DIR}" && /usr/bin/time -l bash -c "${CMD} ${TRACE_ARGS}" 2> "${TIME_LOG}")
+    WALL_S="$(awk '/ real /{printf "%.2f", $1}' "${TIME_LOG}")"
+    MAX_RSS_KB="$(awk '/maximum resident set size/{printf "%d", $1/1024}' "${TIME_LOG}")"
+else
+    (cd "${WORK_DIR}" && /usr/bin/time -v bash -c "${CMD} ${TRACE_ARGS}" 2> "${TIME_LOG}")
+    WALL_RAW="$(grep 'Elapsed (wall clock)' "${TIME_LOG}" | awk '{print $NF}')"
+    # h:mm:ss or m:ss.ss -> seconds
+    WALL_S="$(echo "${WALL_RAW}" | awk -F: '{ s=0; for (i=1; i<=NF; i++) s = s*60 + $i; printf "%.2f", s }')"
+    MAX_RSS_KB="$(grep 'Maximum resident' "${TIME_LOG}" | awk '{print $NF}')"
+fi
+# Use the toolchain's llvm-nm/llvm-size (sit next to the clang++ in the command;
+# Apple's /usr/bin/size lacks -A).
+TOOLDIR="$(dirname "$(echo "${CMD}" | awk '{print $1}')")"
+NM="${TOOLDIR}/llvm-nm"
 [[ -x "${NM}" ]] || NM="nm"
-WEAK="$(${NM} "${OBJ}" | grep -cE ' [VvWw] ' || true)"
-TEXT="$(size -A "${OBJ}" | awk '$1 ~ /^\.text/{s+=$2} END{print s+0}')"
+SIZE_TOOL="${TOOLDIR}/llvm-size"
+[[ -x "${SIZE_TOOL}" ]] || SIZE_TOOL="size"
+if [[ "$(uname)" == "Darwin" ]]; then
+    # Mach-O weak definitions don't get a distinct nm letter; use darwin format.
+    WEAK="$(${NM} -m "${OBJ}" 2>/dev/null | grep -c 'weak external' || true)"
+else
+    WEAK="$(${NM} "${OBJ}" | grep -cE ' [VvWw] ' || true)"
+fi
+TEXT="$(${SIZE_TOOL} -A "${OBJ}" | awk '$1 ~ /^__text$|^\.text/{s+=$2} END{print s+0}')"
 
 RESULTS="${OUT_DIR}/results.tsv"
 [[ -f "${RESULTS}" ]] || printf 'timestamp\tlabel\twall_s\tmax_rss_kb\tweak_defs\ttext_bytes\tsrc\n' > "${RESULTS}"
