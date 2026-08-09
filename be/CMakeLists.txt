@@ -45,10 +45,13 @@ endif ()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     set (OS_LINUX 1)
-    add_definitions(-D OS_LINUX)
+    # No space after -D: "-D OS_LINUX" becomes two argv entries in some
+    # generators, and the dangling "-D" then swallows the next flag
+    # (doris_be_test lost its -fno-access-control this way).
+    add_definitions(-DOS_LINUX)
 elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     set (OS_MACOSX 1)
-    add_definitions(-D OS_MACOSX)
+    add_definitions(-DOS_MACOSX)
 endif ()
 
 if (OS_MACOSX)
