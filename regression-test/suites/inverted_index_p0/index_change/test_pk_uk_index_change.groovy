@@ -28,34 +28,8 @@ import java.time.format.DateTimeFormatter;
 
 suite("test_pk_uk_index_change", "inverted_index") {
     def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
 
     sql "set enable_add_index_for_new_data = true"
-
-    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            def expected_finished_num = alter_res.size();
-            def finished_num = 0;
-            for (int i = 0; i < expected_finished_num; i++) {
-                logger.info(table_name + " build index job state: " + alter_res[i][7] + i
-                            + " expected_finished_num=" + expected_finished_num)
-                if (alter_res[i][7] == "FINISHED") {
-                    ++finished_num;
-                }
-            }
-            if (finished_num == expected_finished_num) {
-                sleep(10000) // wait change table state to normal
-                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
-    }
     
     def tableNamePk = "primary_key_pk_uk"
     def tableNameUk = "unique_key_pk_uk"
@@ -228,8 +202,9 @@ suite("test_pk_uk_index_change", "inverted_index") {
             """
 
             // build inverted index
-            build_index_on_table("L_ORDERKEY_idx", tableNamePk)
-            wait_for_build_index_on_partition_finish(tableNamePk, timeout)
+            run_index_change_job_and_wait(tableNamePk, timeout) {
+                build_index_on_table("L_ORDERKEY_idx", tableNamePk)
+            }
         }
 
         sql "sync"
@@ -303,8 +278,8 @@ suite("test_pk_uk_index_change", "inverted_index") {
         }
 
         // drop inverted index
-        sql """ DROP INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
-        wait_for_build_index_on_partition_finish(tableNamePk, timeout)
+        run_index_change_job_and_wait(tableNamePk, timeout) {
+            sql """ DROP INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
+        }
     }
 }
-

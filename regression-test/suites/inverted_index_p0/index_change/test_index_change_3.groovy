@@ -75,15 +75,18 @@ suite("test_index_change_3") {
     sql """ CREATE INDEX idx_city ON ${tableName}(`city`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
     wait_for_last_col_change_finish(tableName, timeout)
     if (!isCloudMode()) {
-        build_index_on_table("idx_city", tableName)
-        wait_for_last_build_index_finish(tableName, timeout)
+        run_index_change_job_and_wait(tableName, timeout) {
+            build_index_on_table("idx_city", tableName)
+        }
     }
 
     // drop inverted index idx_user_id, idx_note
-    sql """ DROP INDEX idx_city ON ${tableName} """
-    wait_for_last_build_index_finish(tableName, timeout)
-    sql """ DROP INDEX idx_note ON ${tableName} """
-    wait_for_last_build_index_finish(tableName, timeout)
+    run_index_change_job_and_wait(tableName, timeout) {
+        sql """ DROP INDEX idx_city ON ${tableName} """
+    }
+    run_index_change_job_and_wait(tableName, timeout) {
+        sql """ DROP INDEX idx_note ON ${tableName} """
+    }
 
     def show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
@@ -150,15 +153,18 @@ suite("test_index_change_3") {
     wait_for_last_col_change_finish(tableName, timeout)
 
     if (!isCloudMode()) {
-        build_index_on_table("idx_city", tableName)
-        wait_for_last_build_index_finish(tableName, timeout)
+        run_index_change_job_and_wait(tableName, timeout) {
+            build_index_on_table("idx_city", tableName)
+        }
     }
 
     // drop inverted index idx_user_id, idx_note
-    sql """ DROP INDEX idx_city ON ${tableName} """
-    wait_for_last_build_index_finish(tableName, timeout)
-    sql """ DROP INDEX idx_note ON ${tableName} """
-    wait_for_last_build_index_finish(tableName, timeout)
+    run_index_change_job_and_wait(tableName, timeout) {
+        sql """ DROP INDEX idx_city ON ${tableName} """
+    }
+    run_index_change_job_and_wait(tableName, timeout) {
+        sql """ DROP INDEX idx_note ON ${tableName} """
+    }
 
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)

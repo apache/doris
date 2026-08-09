@@ -47,8 +47,9 @@ suite("test_add_drop_index", "inverted_index"){
     // case1: create index for int colume
     // case1.0 create index
     sql "create index age_idx on ${indexTbName1}(tearchComment) using inverted"
-    build_index_on_table("age_idx", indexTbName1)
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        build_index_on_table("age_idx", indexTbName1)
+    }
 
     def show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
@@ -74,8 +75,9 @@ suite("test_add_drop_index", "inverted_index"){
     // case1.3 create duplicate different index for one colume with different name
     sql "create index age_idx_diff on ${indexTbName1}(`tearchComment`) using NGRAM_BF"
     if (isCloudMode()) {
-        build_index_on_table("age_idx_diff", indexTbName1)
-        wait_for_last_build_index_finish(indexTbName1, timeout)
+        run_index_change_job_and_wait(indexTbName1, timeout) {
+            build_index_on_table("age_idx_diff", indexTbName1)
+        }
     } else {
         wait_for_last_col_change_finish(indexTbName1, timeout)
     }
@@ -85,13 +87,15 @@ suite("test_add_drop_index", "inverted_index"){
     assertEquals(show_result[1][2], "age_idx_diff")
     
     // case1.4 drop index
-    def drop_result = sql """
-                          ALTER TABLE ${indexTbName1}
-                              drop index age_idx,
-                              drop index age_idx_diff;
-                      """
+    def drop_result
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        drop_result = sql """
+                              ALTER TABLE ${indexTbName1}
+                                  drop index age_idx,
+                                  drop index age_idx_diff;
+                          """
+    }
     logger.info("drop index age_idx and age_idx_diff on " + indexTbName1 + "; result: " + drop_result)
-    wait_for_last_build_index_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
     assertEquals(show_result.size(), 0)
     
@@ -107,12 +111,14 @@ suite("test_add_drop_index", "inverted_index"){
 
     // case2: create index for date colume
     sql "create index date_idx on ${indexTbName1}(`registDate`) using inverted"
-    build_index_on_table("date_idx", indexTbName1)
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        build_index_on_table("date_idx", indexTbName1)
+    }
     show_result = sql "show index from ${indexTbName1}"
     assertEquals(show_result.size(), 1)
-    sql "drop index date_idx on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index date_idx on ${indexTbName1}"
+    }
 
     // case3: create string inverted index for int colume
     def create_string_index_on_int_colume_result = "fail"
@@ -127,14 +133,16 @@ suite("test_add_drop_index", "inverted_index"){
 
     // case4: create default inverted index for varchar coulume
     sql "create index name_idx on ${indexTbName1}(`name`) using inverted"
-    build_index_on_table("name_idx", indexTbName1)
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        build_index_on_table("name_idx", indexTbName1)
+    }
     show_result = sql "show index from ${indexTbName1}"
     assertTrue(show_result[0][2] == "name_idx" && show_result[0][10] == "INVERTED")
     logger.info("create index name_idx for " + indexTbName1 + "(`name`)")
     logger.info("show index result: " + show_result)
-    sql "drop index name_idx on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index name_idx on ${indexTbName1}"
+    }
 
     // case5: create none inverted index for char colume
     sql "create index name_idx on ${indexTbName1}(`name`) USING INVERTED PROPERTIES(\"parser\"=\"none\")"
@@ -143,8 +151,10 @@ suite("test_add_drop_index", "inverted_index"){
     assertEquals(show_result[0][10], "INVERTED")
     logger.info("create index name_idx for " + indexTbName1 + "(`name`) USING INVERTED PROPERTIES(\"parser\"=\"none\")")
     logger.info("show index result: " + show_result)
-    sql "drop index name_idx on ${indexTbName1}"
-    wait_for_last_schema_change_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index name_idx on ${indexTbName1}"
+        wait_for_last_schema_change_finish(indexTbName1, timeout)
+    }
 
     // case5：create simple inverted index for char colume
     sql "create index studentInfo_idx on ${indexTbName1}(`studentInfo`) USING INVERTED PROPERTIES(\"parser\"=\"english\")"
@@ -153,8 +163,9 @@ suite("test_add_drop_index", "inverted_index"){
     assertTrue(show_result[0][2] == "studentInfo_idx" && show_result[0][10] == "INVERTED")
     logger.info("create index studentInfo_idx for " + indexTbName1 + "(`studentInfo`) USING INVERTED PROPERTIES(\"parser\"=\"english\")")
     logger.info("show index result: " + show_result)
-    sql "drop index studentInfo_idx on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index studentInfo_idx on ${indexTbName1}"
+    }
 
     // case6: create standard inverted index for text colume
     sql "create index tearchComment_idx on ${indexTbName1}(`tearchComment`) USING INVERTED PROPERTIES(\"parser\"=\"standard\")"
@@ -163,8 +174,9 @@ suite("test_add_drop_index", "inverted_index"){
     assertTrue(show_result[0][2] == "tearchComment_idx" && show_result[0][10] == "INVERTED")
     logger.info("create index tearchComment_idx for " + indexTbName1 + "(`tearchComment`) USING INVERTED PROPERTIES(\"parser\"=\"standard\")")
     logger.info("show index result: " + show_result)
-    sql "drop index tearchComment_idx on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index tearchComment_idx on ${indexTbName1}"
+    }
 
     // case7: drop not exist index
     def drop_no_exist_index_result = "fail"
@@ -180,37 +192,43 @@ suite("test_add_drop_index", "inverted_index"){
     // case8.0: create, drop, create same index with same name
     sql "create index tearchComment_idx on ${indexTbName1}(`tearchComment`) USING INVERTED PROPERTIES(\"parser\"=\"standard\")"
     wait_for_last_col_change_finish(indexTbName1, timeout)
-    sql "drop index tearchComment_idx on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index tearchComment_idx on ${indexTbName1}"
+    }
     sql "create index tearchComment_idx on ${indexTbName1}(`tearchComment`) USING INVERTED PROPERTIES(\"parser\"=\"standard\")"
     wait_for_last_col_change_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
     assertTrue(show_result[0][2] == "tearchComment_idx" && show_result[0][10] == "INVERTED")
-    sql "drop index tearchComment_idx on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index tearchComment_idx on ${indexTbName1}"
+    }
 
     // case8.1: create, drop, create other index with same name
     sql "create index tearchComment_idx on ${indexTbName1}(`tearchComment`) USING INVERTED PROPERTIES(\"parser\"=\"standard\")"
     wait_for_last_col_change_finish(indexTbName1, timeout)
-    sql "drop index tearchComment_idx on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index tearchComment_idx on ${indexTbName1}"
+    }
     sql "create index tearchComment_idx on ${indexTbName1}(`tearchComment`) USING INVERTED PROPERTIES(\"parser\"=\"none\")"
     wait_for_last_col_change_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
     assertTrue(show_result[0][2] == "tearchComment_idx" && show_result[0][10] == "INVERTED")
-    sql "drop index tearchComment_idx on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index tearchComment_idx on ${indexTbName1}"
+    }
 
     // case8.2: create, drop, create same index with other name
     sql "create index tearchComment_idx on ${indexTbName1}(`tearchComment`) USING INVERTED PROPERTIES(\"parser\"=\"standard\")"
     wait_for_last_col_change_finish(indexTbName1, timeout)
-    sql "drop index tearchComment_idx on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index tearchComment_idx on ${indexTbName1}"
+    }
     sql "create index tearchComment_idx_2 on ${indexTbName1}(`tearchComment`) USING INVERTED PROPERTIES(\"parser\"=\"standard\")"
     wait_for_last_col_change_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
     assertTrue(show_result[0][2] == "tearchComment_idx_2" && show_result[0][10] == "INVERTED")
-    sql "drop index tearchComment_idx_2 on ${indexTbName1}"
-    wait_for_last_build_index_finish(indexTbName1, timeout)
+    run_index_change_job_and_wait(indexTbName1, timeout) {
+        sql "drop index tearchComment_idx_2 on ${indexTbName1}"
+    }
 
 }

@@ -72,10 +72,12 @@ suite("test_index_change_5") {
     qt_select6 """ SELECT * FROM ${tableName} t WHERE note MATCH 'engineer Developer' AND city match_all 'Shanghai China' ORDER BY user_id; """
 
     // drop inverted index idx_user_id, idx_note
-    sql """ DROP INDEX idx_user_id ON ${tableName} """
-    wait_for_last_build_index_finish(tableName, timeout)
-    sql """ DROP INDEX idx_note ON ${tableName} """
-    wait_for_last_build_index_finish(tableName, timeout)
+    run_index_change_job_and_wait(tableName, timeout) {
+        sql """ DROP INDEX idx_user_id ON ${tableName} """
+    }
+    run_index_change_job_and_wait(tableName, timeout) {
+        sql """ DROP INDEX idx_note ON ${tableName} """
+    }
 
     def show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
@@ -137,10 +139,12 @@ suite("test_index_change_5") {
     qt_select6_v1 """ SELECT * FROM ${tableName} t WHERE note MATCH 'engineer Developer' AND city match_all 'Shanghai China' ORDER BY user_id; """
 
     // drop inverted index idx_user_id, idx_note
-    sql """ DROP INDEX idx_user_id ON ${tableName} """
-    wait_for_last_build_index_finish(tableName, timeout)
-    sql """ DROP INDEX idx_note ON ${tableName} """
-    wait_for_last_build_index_finish(tableName, timeout)
+    run_index_change_job_and_wait(tableName, timeout) {
+        sql """ DROP INDEX idx_user_id ON ${tableName} """
+    }
+    run_index_change_job_and_wait(tableName, timeout) {
+        sql """ DROP INDEX idx_note ON ${tableName} """
+    }
 
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)

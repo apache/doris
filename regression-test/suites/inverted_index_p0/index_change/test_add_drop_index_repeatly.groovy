@@ -19,33 +19,6 @@ suite("test_add_drop_index_repeatly"){
     sql "set enable_add_index_for_new_data = true"
 
     def timeout = 300000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
-
-    def wait_for_last_build_index_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
-
-            if (alter_res.size() == 0) {
-                logger.info(table_name + " last index job finished")
-                return "SKIPPED"
-            }
-            if (alter_res.size() > 0) {
-                def last_job_state = alter_res[alter_res.size()-1][7];
-                if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
-                    sleep(10000) // wait change table state to normal
-                    logger.info(table_name + " last index job finished, state: " + last_job_state + ", detail: " + alter_res)
-                    return last_job_state;
-                }
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        logger.info("wait_for_last_build_index_on_table_finish debug: " + alter_res)
-        assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout")
-        return "wait_timeout"
-    }
 
     def tbl = 'test_add_drop_index_repeatly'
     sql """ DROP TABLE IF EXISTS ${tbl} """
@@ -70,11 +43,12 @@ suite("test_add_drop_index_repeatly"){
         sql """ create index idx_k2 on ${tbl}(k2) using inverted """
 
         // build index
-        build_index_on_table("idx_k2", tbl)
-        def state = wait_for_last_build_index_on_table_finish(tbl, timeout)
-        assertEquals(state, "FINISHED")
+        run_index_change_job_and_wait(tbl, timeout) {
+            build_index_on_table("idx_k2", tbl)
+        }
 
-        sql """ drop index idx_k2 on ${tbl} """
-        wait_for_last_build_index_finish(tbl, timeout)
+        run_index_change_job_and_wait(tbl, timeout) {
+            sql """ drop index idx_k2 on ${tbl} """
+        }
     }
 }

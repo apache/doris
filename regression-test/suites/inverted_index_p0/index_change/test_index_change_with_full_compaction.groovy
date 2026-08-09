@@ -132,12 +132,22 @@ suite("test_index_change_with_full_compaction") {
 
         // build index
 
-        build_index_on_table("idx_user_id", tableName)
-        wait_for_last_build_index_finish(tableName, timeout)
-        build_index_on_table("idx_date", tableName)
-        wait_for_last_build_index_finish(tableName, timeout)
-        build_index_on_table("idx_city", tableName)
-        wait_for_last_build_index_finish(tableName, timeout)
+        if (isCloudMode()) {
+            // Cloud BUILD INDEX works at table scope and builds all indexes.
+            run_index_change_job_and_wait(tableName, timeout) {
+                build_index_on_table("idx_user_id", tableName)
+            }
+        } else {
+            run_index_change_job_and_wait(tableName, timeout) {
+                build_index_on_table("idx_user_id", tableName)
+            }
+            run_index_change_job_and_wait(tableName, timeout) {
+                build_index_on_table("idx_date", tableName)
+            }
+            run_index_change_job_and_wait(tableName, timeout) {
+                build_index_on_table("idx_city", tableName)
+            }
+        }
 
         // trigger compactions for all tablets in ${tableName}
         trigger_and_wait_compaction(tableName, "full")
