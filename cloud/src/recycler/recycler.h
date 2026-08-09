@@ -292,11 +292,11 @@ public:
 
     int recycle_deleted_instance_metadata();
 
-    int update_instance_recycled_state(InstanceRecycleState expected_state,
-                                       InstanceRecycleState target_state);
+    int update_instance_recycle_state(InstanceRecycleState expected_state,
+                                      InstanceRecycleState target_state);
 
-    int update_instance_recycled_state(InstanceRecycleState expected_state,
-                                       InstanceRecycleState target_state, Transaction* txn);
+    int update_instance_recycle_state(InstanceRecycleState expected_state,
+                                      InstanceRecycleState target_state, Transaction* txn);
 
     // scan and recycle expired indexes:
     // 1. dropped table, dropped mv

@@ -576,23 +576,10 @@ HttpResponse process_skip_instance_data_cleanup(RecyclerServiceImpl* service,
                                                 brpc::Controller* ctrl) {
     auto& uri = ctrl->http_request().uri();
     std::string instance_id(http_query(uri, "instance_id"));
-    std::string recycled_state_str(http_query(uri, "recycled_state"));
     if (instance_id.empty()) {
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id is empty");
     }
-    if (recycled_state_str.empty()) {
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "recycled_state is empty");
-    }
-
-    InstanceRecycleState recycled_state;
-    if (!InstanceRecycleState_Parse(recycled_state_str, &recycled_state) ||
-        (recycled_state != InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED)) {
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
-                               "invalid recycled_state, supported values: "
-                               "INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED");
-    }
-
-    auto [code, msg] = service->skip_instance_data_cleanup(instance_id, recycled_state);
+    auto [code, msg] = service->skip_instance_data_cleanup(instance_id);
     return http_json_reply(code, msg);
 }
 

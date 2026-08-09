@@ -400,7 +400,7 @@ void RecyclerServiceImpl::check_instance(const std::string& instance_id, MetaSer
 }
 
 std::pair<MetaServiceCode, std::string> RecyclerServiceImpl::skip_instance_data_cleanup(
-        const std::string& instance_id, InstanceRecycleState target_state) {
+        const std::string& instance_id) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -432,19 +432,27 @@ std::pair<MetaServiceCode, std::string> RecyclerServiceImpl::skip_instance_data_
         LOG(WARNING) << msg;
         return {MetaServiceCode::INVALID_ARGUMENT, std::move(msg)};
     }
-    const auto current_state = instance.recycled_state();
-    if (current_state != INSTANCE_RECYCLE_STATE_CLEANUP_PENDING) {
+    if (instance.recycle_state() != INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING) {
         std::string msg = fmt::format(
-                "invalid instance recycled state, instance_id={}, current_state={}, "
-                "target_state={}",
-                instance_id, InstanceRecycleState_Name(current_state),
-                InstanceRecycleState_Name(target_state));
+                "failed to set instance recycle state, instance state should be {}"
+                ", current_state={}"
+                ", instance_id={}",
+                INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING, instance.recycle_state(), instance_id);
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::INVALID_ARGUMENT, std::move(msg)};
+    }
+    if (instance.has_multi_version_status() &&
+        instance.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED) {
+        std::string msg = fmt::format(
+                "cannot skip instance data cleanup for a multi-version instance, instance_id={}, "
+                "multi_version_status={}",
+                instance_id, MultiVersionStatus_Name(instance.multi_version_status()));
         LOG(WARNING) << msg;
         return {MetaServiceCode::INVALID_ARGUMENT, std::move(msg)};
     }
 
-    instance.set_recycled_state(target_state);
-    instance.set_recycled_state_update_time_ms(
+    instance.set_recycle_state(INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING);
+    instance.set_recycle_state_update_time_ms(
             std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch())
                     .count());
@@ -463,8 +471,6 @@ std::pair<MetaServiceCode, std::string> RecyclerServiceImpl::skip_instance_data_
         return {MetaServiceCode::KV_TXN_COMMIT_ERR, std::move(msg)};
     }
 
-    LOG(INFO) << "set instance recycle state, instance_id=" << instance_id
-              << " recycled_state=" << InstanceRecycleState_Name(target_state);
     return {MetaServiceCode::OK, "OK"};
 }
 

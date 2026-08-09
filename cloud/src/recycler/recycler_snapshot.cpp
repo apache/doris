@@ -40,8 +40,8 @@
 namespace doris::cloud {
 
 int InstanceRecycler::recycle_cluster_snapshots() {
-    if (instance_info_.recycled_state() == INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED ||
-        instance_info_.recycled_state() == INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED) {
+    if (instance_info_.recycle_state() == INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING ||
+        instance_info_.recycle_state() == INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED) {
         return 0;
     }
     return snapshot_manager_->recycle_snapshots(this);

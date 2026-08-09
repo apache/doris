@@ -592,7 +592,7 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         ASSERT_EQ(instance.status(), InstanceInfoPB::DELETED);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
-        instance.set_recycled_state(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+        instance.set_recycle_state(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
         txn->put(key, instance.SerializeAsString());
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 

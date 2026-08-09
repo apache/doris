@@ -3693,8 +3693,8 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     }
 
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
-    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING,
-              recycler.instance_info().recycled_state());
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
+              recycler.instance_info().recycle_state());
 
     {
         // No thing to recycle
@@ -3714,11 +3714,11 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     }
 
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
-    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED,
-              recycler.instance_info().recycled_state());
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING,
+              recycler.instance_info().recycle_state());
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
     ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED,
-              recycler.instance_info().recycled_state());
+              recycler.instance_info().recycle_state());
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
 
     {
@@ -3790,7 +3790,7 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     }
 }
 
-TEST(RecyclerTest, init_deleted_instance_with_terminal_recycled_state) {
+TEST(RecyclerTest, init_deleted_instance_with_terminal_recycle_state) {
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
     ASSERT_EQ(txn_kv->init(), 0);
@@ -3798,8 +3798,7 @@ TEST(RecyclerTest, init_deleted_instance_with_terminal_recycled_state) {
     InstanceInfoPB instance_info;
     instance_info.set_instance_id(instance_id);
     instance_info.set_status(InstanceInfoPB::DELETED);
-    instance_info.set_recycled_state(
-            InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+    instance_info.set_recycle_state(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
     instance_info.add_resource_ids("deleted_vault");
 
     InstanceRecycler recycler(txn_kv, instance_info, thread_group,
@@ -3808,7 +3807,7 @@ TEST(RecyclerTest, init_deleted_instance_with_terminal_recycled_state) {
     ASSERT_EQ(recycler.do_recycle(), 0);
 }
 
-TEST(RecyclerTest, recycle_legacy_deleted_instance_without_recycled_state) {
+TEST(RecyclerTest, recycle_legacy_deleted_instance_without_recycle_state) {
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
     ASSERT_EQ(txn_kv->init(), 0);
@@ -3817,9 +3816,9 @@ TEST(RecyclerTest, recycle_legacy_deleted_instance_without_recycled_state) {
     instance_info.set_instance_id(instance_id);
     instance_info.set_status(InstanceInfoPB::DELETED);
     instance_info.add_obj_info()->set_id("legacy_instance_obj");
-    ASSERT_FALSE(instance_info.has_recycled_state());
-    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING,
-              instance_info.recycled_state());
+    ASSERT_FALSE(instance_info.has_recycle_state());
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
+              instance_info.recycle_state());
     put_instance_info(txn_kv.get(), instance_info);
 
     InstanceRecycler recycler(txn_kv, instance_info, thread_group,
@@ -3832,12 +3831,12 @@ TEST(RecyclerTest, recycle_legacy_deleted_instance_without_recycled_state) {
     std::string value;
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(instance_key({instance_id}), &value));
     ASSERT_TRUE(instance_info.ParseFromString(value));
-    ASSERT_TRUE(instance_info.has_recycled_state());
-    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED,
-              instance_info.recycled_state());
+    ASSERT_TRUE(instance_info.has_recycle_state());
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING,
+              instance_info.recycle_state());
 }
 
-TEST(RecyclerTest, reject_stale_instance_recycled_state_update) {
+TEST(RecyclerTest, reject_stale_instance_recycle_state_update) {
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
     ASSERT_EQ(txn_kv->init(), 0);
@@ -3845,22 +3844,23 @@ TEST(RecyclerTest, reject_stale_instance_recycled_state_update) {
     InstanceInfoPB stale_instance;
     stale_instance.set_instance_id(instance_id);
     stale_instance.set_status(InstanceInfoPB::DELETED);
-    stale_instance.set_recycled_state(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING);
+    stale_instance.set_recycle_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
 
     InstanceInfoPB latest_instance = stale_instance;
-    latest_instance.set_recycled_state(
+    latest_instance.set_recycle_state(
             InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
     put_instance_info(txn_kv.get(), latest_instance);
 
     InstanceRecycler stale_recycler(txn_kv, stale_instance, thread_group,
                                     std::make_shared<TxnLazyCommitter>(txn_kv));
-    ASSERT_NE(stale_recycler.update_instance_recycled_state(
-                      InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING,
+    ASSERT_NE(stale_recycler.update_instance_recycle_state(
+                      InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
                       InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED),
               0);
-    ASSERT_NE(stale_recycler.update_instance_recycled_state(
-                      InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING,
-                      InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED),
+    ASSERT_NE(stale_recycler.update_instance_recycle_state(
+                      InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
+                      InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING),
               0);
 
     std::unique_ptr<Transaction> txn;
@@ -3869,7 +3869,7 @@ TEST(RecyclerTest, reject_stale_instance_recycled_state_update) {
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(instance_key({instance_id}), &value));
     ASSERT_TRUE(latest_instance.ParseFromString(value));
     ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED,
-              latest_instance.recycled_state());
+              latest_instance.recycle_state());
 }
 
 TEST(RecyclerServiceTest, skip_instance_data_cleanup) {
@@ -3877,118 +3877,84 @@ TEST(RecyclerServiceTest, skip_instance_data_cleanup) {
     ASSERT_NE(txn_kv.get(), nullptr);
     ASSERT_EQ(txn_kv->init(), 0);
 
+    const std::string test_instance_id = "skip_instance_data_cleanup_instance";
+    RecyclerServiceImpl service(txn_kv, nullptr, nullptr, nullptr);
+    auto get_instance_info = [&](InstanceInfoPB* instance_info) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+        std::string value;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(instance_key({test_instance_id}), &value));
+        ASSERT_TRUE(instance_info->ParseFromString(value));
+    };
+
     InstanceInfoPB instance_info;
-    instance_info.set_instance_id("set_recycled_state_instance");
+    instance_info.set_instance_id(test_instance_id);
     instance_info.set_status(InstanceInfoPB::DELETED);
-    instance_info.set_recycled_state(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING);
+    instance_info.set_recycle_state(INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+    ASSERT_FALSE(instance_info.has_multi_version_status());
     put_instance_info(txn_kv.get(), instance_info);
 
-    RecyclerServiceImpl service(txn_kv, nullptr, nullptr, nullptr);
-    auto [code, msg] = service.skip_instance_data_cleanup(
-            instance_info.instance_id(),
-            InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED);
+    auto [code, msg] = service.skip_instance_data_cleanup(instance_info.instance_id());
     ASSERT_EQ(code, MetaServiceCode::OK) << msg;
 
-    std::unique_ptr<Transaction> txn;
-    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
-    std::string value;
-    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(instance_key({instance_info.instance_id()}), &value));
-    ASSERT_TRUE(instance_info.ParseFromString(value));
-    ASSERT_EQ(instance_info.recycled_state(),
-              InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED);
-    ASSERT_GT(instance_info.recycled_state_update_time_ms(), 0);
+    InstanceInfoPB persisted_instance;
+    get_instance_info(&persisted_instance);
+    ASSERT_FALSE(persisted_instance.has_multi_version_status());
+    ASSERT_EQ(persisted_instance.recycle_state(), INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING);
+    ASSERT_GT(persisted_instance.recycle_state_update_time_ms(), 0);
 
-    std::tie(code, msg) = service.skip_instance_data_cleanup(
-            instance_info.instance_id(),
-            InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED);
-    ASSERT_EQ(code, MetaServiceCode::INVALID_ARGUMENT);
-    ASSERT_NE(msg.find("current_state=INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED"),
-              std::string::npos)
-            << msg;
-    ASSERT_NE(msg.find("target_state=INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED"),
-              std::string::npos)
-            << msg;
-
-    std::tie(code, msg) = service.skip_instance_data_cleanup(
-            instance_info.instance_id(),
-            InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING);
-    ASSERT_EQ(code, MetaServiceCode::INVALID_ARGUMENT);
-    ASSERT_NE(msg.find("current_state=INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED"),
-              std::string::npos)
-            << msg;
-    ASSERT_NE(msg.find("target_state=INSTANCE_RECYCLE_STATE_CLEANUP_PENDING"), std::string::npos)
-            << msg;
+    instance_info.set_multi_version_status(MULTI_VERSION_DISABLED);
+    instance_info.set_recycle_state(INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+    instance_info.clear_recycle_state_update_time_ms();
+    put_instance_info(txn_kv.get(), instance_info);
 
     auto call_http = [&](std::string_view query) {
         brpc::Controller ctrl;
         ctrl.http_request().uri() = fmt::format("/?{}", query);
         return process_skip_instance_data_cleanup(&service, &ctrl);
     };
-    const std::string invalid_recycled_state_msg =
-            "invalid recycled_state, supported values: "
-            "INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED";
-
     auto response = call_http("");
     ASSERT_EQ(response.status_code, 400) << response.body;
     ASSERT_EQ(response.msg, "instance_id is empty");
 
-    response = call_http("instance_id=set_recycled_state_instance");
-    ASSERT_EQ(response.status_code, 400) << response.body;
-    ASSERT_EQ(response.msg, "recycled_state is empty");
-
-    response = call_http(
-            "instance_id=set_recycled_state_instance&recycled_state="
-            "INSTANCE_RECYCLE_STATE_UNSPECIFIED");
-    ASSERT_EQ(response.status_code, 400) << response.body;
-    ASSERT_EQ(response.msg, invalid_recycled_state_msg);
-
-    response = call_http(
-            "instance_id=set_recycled_state_instance&recycled_state="
-            "INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED");
-    ASSERT_EQ(response.status_code, 400) << response.body;
-    ASSERT_EQ(response.msg, invalid_recycled_state_msg);
-
-    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
-    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(instance_key({instance_info.instance_id()}), &value));
-    ASSERT_TRUE(instance_info.ParseFromString(value));
-    ASSERT_EQ(instance_info.recycled_state(),
-              InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED);
-
-    instance_info.set_recycled_state(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING);
-    put_instance_info(txn_kv.get(), instance_info);
-    response = call_http(
-            "instance_id=set_recycled_state_instance&recycled_state="
-            "INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED");
+    response = call_http(fmt::format("instance_id={}", test_instance_id));
     ASSERT_EQ(response.status_code, 200) << response.body;
     ASSERT_EQ(response.msg, "OK");
 
-    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
-    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(instance_key({instance_info.instance_id()}), &value));
-    ASSERT_TRUE(instance_info.ParseFromString(value));
-    ASSERT_EQ(instance_info.recycled_state(),
-              InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED);
+    get_instance_info(&persisted_instance);
+    ASSERT_EQ(persisted_instance.multi_version_status(), MULTI_VERSION_DISABLED);
+    ASSERT_EQ(persisted_instance.recycle_state(), INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING);
+    ASSERT_GT(persisted_instance.recycle_state_update_time_ms(), 0);
 
-    instance_info.set_recycled_state(
-            InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
-    put_instance_info(txn_kv.get(), instance_info);
-    std::tie(code, msg) = service.skip_instance_data_cleanup(
-            instance_info.instance_id(),
-            InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED);
-    ASSERT_EQ(code, MetaServiceCode::INVALID_ARGUMENT);
-    ASSERT_NE(msg.find("current_state=INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED"), std::string::npos)
-            << msg;
+    constexpr std::array unsupported_multi_version_statuses {
+            MULTI_VERSION_WRITE_ONLY,
+            MULTI_VERSION_READ_WRITE,
+            MULTI_VERSION_ENABLED,
+    };
+    for (auto multi_version_status : unsupported_multi_version_statuses) {
+        instance_info.set_multi_version_status(multi_version_status);
+        instance_info.set_recycle_state(INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+        instance_info.set_recycle_state_update_time_ms(123);
+        put_instance_info(txn_kv.get(), instance_info);
 
-    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
-    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(instance_key({instance_info.instance_id()}), &value));
-    ASSERT_TRUE(instance_info.ParseFromString(value));
-    ASSERT_EQ(instance_info.recycled_state(),
-              InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+        std::tie(code, msg) = service.skip_instance_data_cleanup(instance_info.instance_id());
+        ASSERT_EQ(code, MetaServiceCode::INVALID_ARGUMENT)
+                << MultiVersionStatus_Name(multi_version_status);
+        ASSERT_EQ(msg,
+                  fmt::format("cannot skip instance data cleanup for a multi-version instance, "
+                              "instance_id={}, multi_version_status={}",
+                              test_instance_id, MultiVersionStatus_Name(multi_version_status)));
+
+        get_instance_info(&persisted_instance);
+        ASSERT_EQ(persisted_instance.multi_version_status(), multi_version_status);
+        ASSERT_EQ(persisted_instance.recycle_state(), INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+        ASSERT_EQ(persisted_instance.recycle_state_update_time_ms(), 123);
+    }
 
     instance_info.set_status(InstanceInfoPB::NORMAL);
+    instance_info.clear_multi_version_status();
     put_instance_info(txn_kv.get(), instance_info);
-    std::tie(code, msg) = service.skip_instance_data_cleanup(
-            instance_info.instance_id(),
-            InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED);
+    std::tie(code, msg) = service.skip_instance_data_cleanup(instance_info.instance_id());
     ASSERT_EQ(code, MetaServiceCode::INVALID_ARGUMENT);
     ASSERT_NE(msg.find("instance is not deleted"), std::string::npos) << msg;
 }

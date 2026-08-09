@@ -757,8 +757,8 @@ int InstanceRecycler::init_storage_vault_accessors() {
 
 int InstanceRecycler::init() {
     if (instance_info_.status() == InstanceInfoPB::DELETED &&
-        (instance_info_.recycled_state() == INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED ||
-         instance_info_.recycled_state() == INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED)) {
+        (instance_info_.recycle_state() == INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING ||
+         instance_info_.recycle_state() == INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED)) {
         return 0;
     }
 
@@ -852,19 +852,30 @@ int InstanceRecycler::recycle_deleted_instance() {
 
     int ret = 0;
     auto start_time = steady_clock::now();
+    const auto recycle_state = instance_info_.recycle_state();
 
     DORIS_CLOUD_DEFER {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
-        LOG(WARNING) << (ret == 0 ? "successfully" : "failed to")
-                     << " recycle deleted instance, cost=" << cost
-                     << "s, instance_id=" << instance_id_;
+        if (ret != 0) {
+            LOG(WARNING) << "failed to recycle deleted instance, recycle_state="
+                         << InstanceRecycleState_Name(recycle_state) << ", cost=" << cost
+                         << "s, instance_id=" << instance_id_;
+        } else if (recycle_state ==
+                   InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED) {
+            LOG(INFO) << "successfully removed recycled instance key, cost=" << cost
+                      << "s, instance_id=" << instance_id_;
+        } else {
+            LOG(INFO) << "finished recycle deleted instance step, recycle_state="
+                      << InstanceRecycleState_Name(recycle_state) << ", cost=" << cost
+                      << "s, instance_id=" << instance_id_;
+        }
     };
 
-    switch (instance_info_.recycled_state()) {
-    case InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING:
+    switch (recycle_state) {
+    case InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING:
         ret = recycle_deleted_instance_data();
         break;
-    case InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED:
+    case InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING:
         ret = recycle_deleted_instance_metadata();
         break;
     case InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED:
@@ -873,7 +884,7 @@ int InstanceRecycler::recycle_deleted_instance() {
     default:
         LOG_WARNING("invalid instance recycle state")
                 .tag("instance_id", instance_id_)
-                .tag("recycled_state", instance_info_.recycled_state());
+                .tag("recycle_state", instance_info_.recycle_state());
         ret = -1;
         break;
     }
@@ -935,12 +946,12 @@ int InstanceRecycler::recycle_deleted_instance_data() {
         } else if (has_unrecycled_rowsets) {
             LOG_INFO("instance has referenced rowsets, skip recycling")
                     .tag("instance_id", instance_id_);
-            return 0;
+            return ret;
         }
     } else { // delete all remote data if snapshot is disabled
         for (auto& [_, accessor] : accessor_map_) {
             if (stopped()) {
-                return 0;
+                return ret;
             }
 
             LOG(INFO) << "begin to delete all objects in " << accessor->uri();
@@ -960,9 +971,9 @@ int InstanceRecycler::recycle_deleted_instance_data() {
         }
     }
 
-    if (update_instance_recycled_state(
-                InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING,
-                InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED) != 0) {
+    if (update_instance_recycle_state(
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING) != 0) {
         return -1;
     }
 
@@ -970,7 +981,7 @@ int InstanceRecycler::recycle_deleted_instance_data() {
 }
 
 int InstanceRecycler::recycle_deleted_instance_metadata() {
-    // Keep metadata until the successor instance finishes cleanup because it may still reference it.
+    // Check successor instance, if exists, skip deleting kv because successor instance may still need the data in kv
     if (instance_info_.has_successor_instance_id() &&
         !instance_info_.successor_instance_id().empty()) {
         std::string key = instance_key(instance_info_.successor_instance_id());
@@ -1056,8 +1067,8 @@ int InstanceRecycler::recycle_deleted_instance_metadata() {
 
     // Updating the recycle state also commits this transaction, making the metadata deletions
     // and state transition atomic.
-    if (update_instance_recycled_state(
-                InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED,
+    if (update_instance_recycle_state(
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING,
                 InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED, txn.get()) != 0) {
         return -1;
     }
@@ -1067,13 +1078,44 @@ int InstanceRecycler::recycle_deleted_instance_metadata() {
 
 int InstanceRecycler::remove_instance_key() {
     std::unique_ptr<Transaction> txn;
+    std::string key = instance_key(instance_info_.instance_id());
+    std::string value;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to create txn";
         return -1;
     }
+
+    err = txn->get(key, &value);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get instance, instance_id=" << instance_info_.instance_id()
+                     << ", err=" << err;
+        return -1;
+    }
+
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(value)) {
+        LOG(WARNING) << "malformed instance info, key=" << key;
+        return -1;
+    }
+
+    if (instance.status() != InstanceInfoPB::DELETED) {
+        LOG(WARNING) << "failed to remove instance key, instance is not deleted, instance_id="
+                     << instance_id_ << ", status=" << instance.status();
+        return -1;
+    }
+
+    if (instance.recycle_state() != INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED) {
+        LOG(WARNING) << "failed to remove instance key, invalid recycle state, instance_id="
+                     << instance_id_
+                     << ", current_state=" << InstanceRecycleState_Name(instance.recycle_state())
+                     << ", expected_state="
+                     << InstanceRecycleState_Name(INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+        return -1;
+    }
+
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
-    txn->remove(instance_key({instance_id_}));
+    txn->remove(key);
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to delete instance kv, instance_id=" << instance_id_
@@ -1083,24 +1125,25 @@ int InstanceRecycler::remove_instance_key() {
     return 0;
 }
 
-int InstanceRecycler::update_instance_recycled_state(InstanceRecycleState expected_state,
-                                                     InstanceRecycleState target_state) {
+int InstanceRecycler::update_instance_recycle_state(InstanceRecycleState expected_state,
+                                                    InstanceRecycleState target_state) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to create txn";
         return -1;
     }
-    return update_instance_recycled_state(expected_state, target_state, txn.get());
+    return update_instance_recycle_state(expected_state, target_state, txn.get());
 }
 
-int InstanceRecycler::update_instance_recycled_state(InstanceRecycleState current_state,
-                                                     InstanceRecycleState target_state,
-                                                     Transaction* txn) {
-    const bool valid_transition = (current_state == INSTANCE_RECYCLE_STATE_CLEANUP_PENDING &&
-                                   target_state == INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED) ||
-                                  (current_state == INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED &&
-                                   target_state == INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+int InstanceRecycler::update_instance_recycle_state(InstanceRecycleState current_state,
+                                                    InstanceRecycleState target_state,
+                                                    Transaction* txn) {
+    const bool valid_transition =
+            (current_state == INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING &&
+             target_state == INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING) ||
+            (current_state == INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING &&
+             target_state == INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
 
     if (!valid_transition) {
         LOG_WARNING("invalid instance recycled state transition")
@@ -1138,17 +1181,17 @@ int InstanceRecycler::update_instance_recycled_state(InstanceRecycleState curren
                 .tag("target_state", InstanceRecycleState_Name(target_state));
         return -1;
     }
-    if (instance.recycled_state() != current_state) {
+    if (instance.recycle_state() != current_state) {
         LOG_WARNING("instance recycled state changed before update")
                 .tag("instance_id", instance_id_)
-                .tag("current_state", InstanceRecycleState_Name(instance.recycled_state()))
+                .tag("current_state", InstanceRecycleState_Name(instance.recycle_state()))
                 .tag("expected_state", InstanceRecycleState_Name(current_state))
                 .tag("target_state", InstanceRecycleState_Name(target_state));
         return -1;
     }
 
-    instance.set_recycled_state(target_state);
-    instance.set_recycled_state_update_time_ms(
+    instance.set_recycle_state(target_state);
+    instance.set_recycle_state_update_time_ms(
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
     if (!instance.SerializeToString(&value)) {
         LOG_WARNING("failed to serialize InstanceInfoPB when updating instance recycled state")
@@ -1170,7 +1213,7 @@ int InstanceRecycler::update_instance_recycled_state(InstanceRecycleState curren
     instance_info_.Swap(&instance);
     LOG_INFO("updated instance recycled state")
             .tag("instance_id", instance_id_)
-            .tag("recycled_state", InstanceRecycleState_Name(target_state));
+            .tag("recycle_state", InstanceRecycleState_Name(target_state));
     return 0;
 }
 
