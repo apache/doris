@@ -150,4 +150,7 @@ private:
     VExprContextSPtrs _rowid_exprs;
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StatefulOperatorX<MaterializationLocalState>;
+
 } // namespace doris
