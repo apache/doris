@@ -77,6 +77,10 @@ add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 option(USE_LIBCPP "Use libc++" OFF)
 option(USE_JEMALLOC "Use jemalloc" ON)
+# Merge groups of .cpp files into jumbo translation units for much faster full
+# builds. Turn OFF for precise per-file diagnostics, per-file tooling
+# (clang-tidy/coverage), or the finest-grained incremental rebuilds.
+option(ENABLE_UNITY_BUILD "Enable CMake unity builds for BE targets" ON)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
@@ -100,6 +104,7 @@ message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
+message(STATUS "ENABLE_UNITY_BUILD is ${ENABLE_UNITY_BUILD}")
 message(STATUS "USE_AVX2 is ${USE_AVX2}")
 
 # set CMAKE_BUILD_TYPE

@@ -31,5 +31,7 @@ pch_reuse(InformationSchema)
 # Batch size 0 merges all sources into a single unity TU (~10x faster than
 # compiling them individually). A new file whose file-scope symbols clash
 # inside the unity TU can opt out via SKIP_UNITY_BUILD_INCLUSION.
-set_target_properties(InformationSchema PROPERTIES UNITY_BUILD ON
-                                                   UNITY_BUILD_BATCH_SIZE 0)
+if (ENABLE_UNITY_BUILD)
+    set_target_properties(InformationSchema PROPERTIES UNITY_BUILD ON
+                                                       UNITY_BUILD_BATCH_SIZE 0)
+endif()

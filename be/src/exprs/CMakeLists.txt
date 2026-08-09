@@ -89,7 +89,9 @@ set(EXPRS_UNITY_SKIP
     ${GENSRC_DIR}/geo/wkt_lex.l.cpp
     ${GENSRC_DIR}/geo/wkt_yacc.y.cpp)
 set_source_files_properties(${EXPRS_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
-set_target_properties(Exprs PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 8)
+if (ENABLE_UNITY_BUILD)
+    set_target_properties(Exprs PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 8)
+endif()
 
 # Flex/Bison generation rules for geo WKT parsing
 add_custom_command(

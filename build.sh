@@ -761,6 +761,7 @@ echo "Get params:
     DENABLE_CLANG_COVERAGE              -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
+    ENABLE_UNITY_BUILD                  -- ${ENABLE_UNITY_BUILD:-ON}
     EXTRA_FE_MODULES                    -- ${EXTRA_FE_MODULES}
     EXTRA_BE_MODULES                    -- ${EXTRA_BE_MODULES}
     EXTRA_CLOUD_MODULES                 -- ${EXTRA_CLOUD_MODULES}
@@ -939,6 +940,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
+        -DENABLE_UNITY_BUILD="${ENABLE_UNITY_BUILD:-ON}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DARM_MARCH="${ARM_MARCH}" \
