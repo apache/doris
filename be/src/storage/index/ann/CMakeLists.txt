@@ -30,3 +30,9 @@ target_link_libraries(ann_index PUBLIC faiss OpenMP::OpenMP_CXX)
 
 # Some header files from faiss are used by doris, they will break compile check.
 target_compile_options(ann_index PRIVATE -Wno-shadow-field)
+
+# Unity build: ten homogeneous TUs sharing the faiss header closure; batch 0
+# merges them into a single unity TU.
+if (ENABLE_UNITY_BUILD)
+    set_target_properties(ann_index PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 0)
+endif()

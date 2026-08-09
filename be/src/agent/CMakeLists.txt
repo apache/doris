@@ -30,3 +30,9 @@ endif()
 add_library(Agent STATIC ${AGENT_SOURCES})
 
 pch_reuse(Agent)
+
+# Unity build: nine homogeneous task-worker glue TUs sharing the agent header
+# closure; batch 0 merges them into a single unity TU.
+if (ENABLE_UNITY_BUILD)
+    set_target_properties(Agent PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 0)
+endif()
