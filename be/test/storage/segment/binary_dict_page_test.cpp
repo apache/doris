@@ -24,8 +24,10 @@
 #include <memory>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "core/column/column_dictionary.h"
 #include "core/column/column_string.h"
 #include "runtime/exec_env.h"
 #include "storage/olap_common.h"
@@ -35,9 +37,11 @@
 #include "storage/segment/binary_plain_page_v2_pre_decoder.h"
 #include "storage/segment/binary_plain_page_v3.h"
 #include "storage/segment/binary_plain_page_v3_pre_decoder.h"
+#include "storage/segment/bitshuffle_page.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
 #include "storage/types.h"
+#include "util/coding.h"
 #include "util/debug_util.h"
 
 namespace doris {
@@ -568,6 +572,110 @@ public:
 private:
     std::unique_ptr<segment_v2::EncodingInfoResolver> _resolver;
 };
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): gtest macros inflate the score.
+TEST_F(BinaryDictPageTest, RejectInvalidDictionaryCodes) {
+    std::vector<std::string> values = {"first", "last"};
+    std::vector<Slice> slices;
+    std::vector<StringRef> dictionary;
+    for (const auto& value : values) {
+        slices.emplace_back(value);
+        dictionary.emplace_back(value);
+    }
+
+    PageBuilderOptions options;
+    options.data_page_size = 256 * 1024;
+    options.dict_page_size = 256 * 1024;
+    auto page_builder = create_and_add_data(slices, options);
+    ASSERT_NE(nullptr, page_builder);
+    OwnedSlice encoded_page;
+    ASSERT_TRUE(page_builder->finish(&encoded_page).ok());
+
+    Slice decoded_slice = encoded_page.slice();
+    std::unique_ptr<DataPage> decoded_page;
+    ASSERT_TRUE(apply_pre_decode(decoded_slice, decoded_page).ok());
+    ASSERT_GE(decoded_slice.size, static_cast<size_t>(BINARY_DICT_PAGE_HEADER_SIZE) +
+                                          static_cast<size_t>(BITSHUFFLE_PAGE_HEADER_SIZE) +
+                                          2 * sizeof(int32_t));
+
+    auto check_valid = [&](bool only_read_offsets, bool read_by_rowids) {
+        PageDecoderOptions decoder_options;
+        decoder_options.only_read_offsets = only_read_offsets;
+        BinaryDictPageDecoder decoder(decoded_slice, decoder_options);
+        ASSERT_TRUE(decoder.init().ok());
+        ASSERT_TRUE(decoder.is_dict_encoding());
+        decoder.set_dict_decoder(cast_set<uint32_t>(dictionary.size()), dictionary.data());
+
+        MutableColumnPtr output = ColumnString::create();
+        size_t count = values.size();
+        Status status;
+        if (read_by_rowids) {
+            const rowid_t rowids[] = {0, 1};
+            status = decoder.read_by_rowids(rowids, 0, &count, output);
+        } else {
+            status = decoder.next_batch(&count, output);
+        }
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(values.size(), count);
+        ASSERT_EQ(values.size(), output->size());
+        const auto& string_output = assert_cast<const ColumnString&>(*output);
+        for (size_t i = 0; i < values.size(); ++i) {
+            if (only_read_offsets) {
+                EXPECT_EQ(values[i].size(), string_output.size_at(i));
+            } else {
+                EXPECT_EQ(values[i], string_output.get_data_at(i).to_string());
+            }
+        }
+    };
+
+    check_valid(false, false);
+    check_valid(false, true);
+    check_valid(true, false);
+    check_valid(true, true);
+
+    auto check_rejected = [&](bool only_read_offsets, bool read_by_rowids) {
+        PageDecoderOptions decoder_options;
+        decoder_options.only_read_offsets = only_read_offsets;
+        BinaryDictPageDecoder decoder(decoded_slice, decoder_options);
+        ASSERT_TRUE(decoder.init().ok());
+        ASSERT_TRUE(decoder.is_dict_encoding());
+        decoder.set_dict_decoder(cast_set<uint32_t>(dictionary.size()), dictionary.data());
+
+        auto dict_output = ColumnDictI32::create();
+        dict_output->reserve(1);
+        const int32_t existing_code = 0;
+        dict_output->insert_many_dict_data(&existing_code, 0, dictionary.data(), 1,
+                                           cast_set<uint32_t>(dictionary.size()));
+        MutableColumnPtr output = std::move(dict_output);
+        const auto* original_output = output.get();
+        size_t count = 2;
+        Status status;
+        if (read_by_rowids) {
+            const rowid_t rowids[] = {0, 1};
+            status = decoder.read_by_rowids(rowids, 0, &count, output);
+        } else {
+            status = decoder.next_batch(&count, output);
+        }
+        EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+        EXPECT_EQ(2, count);
+        EXPECT_EQ(original_output, output.get());
+        EXPECT_EQ(1, output->size());
+        EXPECT_EQ(existing_code, assert_cast<const ColumnDictI32&>(*output).get_data()[0]);
+        EXPECT_EQ(0, decoder.current_index());
+    };
+
+    constexpr size_t second_code_offset = static_cast<size_t>(BINARY_DICT_PAGE_HEADER_SIZE) +
+                                          static_cast<size_t>(BITSHUFFLE_PAGE_HEADER_SIZE) +
+                                          sizeof(int32_t);
+    for (int32_t invalid_code : {-1, static_cast<int32_t>(dictionary.size())}) {
+        encode_fixed32_le(reinterpret_cast<uint8_t*>(decoded_slice.data + second_code_offset),
+                          static_cast<uint32_t>(invalid_code));
+        check_rejected(false, false);
+        check_rejected(false, true);
+        check_rejected(true, false);
+        check_rejected(true, true);
+    }
+}
 
 // Local behavior tests - test specific config behavior
 TEST_F(BinaryDictPageTest, TestConfigUsePlainBinaryV2False) {
