@@ -23,6 +23,7 @@
 
 #include <memory>
 #include <ostream>
+#include <string_view>
 
 #include "common/cast_set.h"
 #include "common/config.h"
@@ -457,6 +458,39 @@ Status HttpClient::get_content_md5(std::string* md5) const {
     }
 
     *md5 = header_ptr->value;
+    return Status::OK();
+}
+
+Status HttpClient::get_content_range_total(uint64_t* total) const {
+    struct curl_header* header_ptr;
+    auto code =
+            curl_easy_header(_curl, HttpHeaders::CONTENT_RANGE, 0, CURLH_HEADER, 0, &header_ptr);
+    if (code == CURLHE_MISSING || code == CURLHE_NOHEADERS) {
+        return Status::NotFound("no Content-Range header in response");
+    } else if (code != CURLHE_OK) {
+        return Status::HttpError("failed to get http header {}: {} ({})",
+                                 HttpHeaders::CONTENT_RANGE, header_error_msg(code), code);
+    }
+
+    // Format: "bytes <start>-<end>/<total>", e.g. "bytes 0-0/12345".
+    // The total may be "*" when the server does not know the full size.
+    std::string_view value(header_ptr->value);
+    size_t slash_pos = value.rfind('/');
+    if (slash_pos == std::string_view::npos || slash_pos + 1 >= value.size()) {
+        return Status::NotFound("malformed Content-Range header: {}", header_ptr->value);
+    }
+    std::string_view total_view = value.substr(slash_pos + 1);
+    if (total_view == "*") {
+        return Status::NotFound("unknown total size in Content-Range header: {}",
+                                header_ptr->value);
+    }
+    uint64_t parsed = 0;
+    auto res = std::from_chars(total_view.data(), total_view.data() + total_view.size(), parsed);
+    if (res.ec != std::errc() || res.ptr != total_view.data() + total_view.size()) {
+        return Status::NotFound("invalid total size in Content-Range header: {}",
+                                header_ptr->value);
+    }
+    *total = parsed;
     return Status::OK();
 }
 
