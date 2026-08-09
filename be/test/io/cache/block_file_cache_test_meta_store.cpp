@@ -25,11 +25,7 @@
 
 #include "util/defer_op.h"
 
-#define private public
-#define protected public
 #include "io/cache/block_file_cache_test_common.h"
-#undef private
-#undef protected
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
