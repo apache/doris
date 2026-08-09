@@ -446,4 +446,24 @@ using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
 using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
 
+/// Instantiated once in column_vector.cpp; suppresses per-TU implicit instantiation.
+extern template class ColumnVector<TYPE_BOOLEAN>;
+extern template class ColumnVector<TYPE_TINYINT>;
+extern template class ColumnVector<TYPE_SMALLINT>;
+extern template class ColumnVector<TYPE_INT>;
+extern template class ColumnVector<TYPE_BIGINT>;
+extern template class ColumnVector<TYPE_LARGEINT>;
+extern template class ColumnVector<TYPE_FLOAT>;
+extern template class ColumnVector<TYPE_DOUBLE>;
+extern template class ColumnVector<TYPE_IPV4>;
+extern template class ColumnVector<TYPE_IPV6>;
+extern template class ColumnVector<TYPE_DATE>;
+extern template class ColumnVector<TYPE_DATEV2>;
+extern template class ColumnVector<TYPE_DATETIME>;
+extern template class ColumnVector<TYPE_DATETIMEV2>;
+extern template class ColumnVector<TYPE_TIMEV2>;
+extern template class ColumnVector<TYPE_TIMESTAMPTZ>;
+extern template class ColumnVector<TYPE_UINT32>;
+extern template class ColumnVector<TYPE_UINT64>;
+
 } // namespace doris
