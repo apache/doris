@@ -29,13 +29,11 @@
 #include "storage/index/inverted/util/reader.h"
 #include "storage/olap_common.h"
 #include "storage/segment/common.h"
+#include "storage/types.h"
 
 namespace doris {
 
 class KeyCoder;
-
-template <FieldType field_type>
-struct CppTypeTraits;
 
 namespace segment_v2 {
 
