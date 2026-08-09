@@ -709,4 +709,10 @@ public:
     void reset_filter_map_index() override { _filter_map_index = 0; }
 };
 
+/// Instantiated once in column_reader.cpp; suppresses per-TU implicit instantiation.
+extern template class ScalarColumnReader<true, true>;
+extern template class ScalarColumnReader<true, false>;
+extern template class ScalarColumnReader<false, true>;
+extern template class ScalarColumnReader<false, false>;
+
 } // namespace doris::format::parquet::native

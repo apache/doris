@@ -286,4 +286,10 @@ private:
 
 bool has_dict_page(const tparquet::ColumnMetaData& column);
 
+/// Instantiated once in vparquet_column_chunk_reader.cpp; suppresses per-TU implicit instantiation.
+extern template class ColumnChunkReader<true, true>;
+extern template class ColumnChunkReader<true, false>;
+extern template class ColumnChunkReader<false, true>;
+extern template class ColumnChunkReader<false, false>;
+
 } // namespace doris
