@@ -79,8 +79,6 @@ public:
         return make_nullable(arguments[0]);
     }
 
-    bool use_default_implementation_for_constants() const final { return false; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto& column_left = block.get_by_position(arguments[0]).column;
@@ -94,10 +92,10 @@ public:
         bool is_const_right = is_column_const(*column_right);
 
         ColumnPtr column_result = nullptr;
-        if (is_const_left && is_const_right) {
-            column_result = constant_constant(column_left, column_right, type_left, type_right,
-                                              res_data_type, context->check_overflow_for_decimal());
-        } else if (is_const_left) {
+        // All-constant arguments are unpacked to 1-row columns by
+        // default_implementation_for_constant_arguments before reaching here.
+        DCHECK(!(is_const_left && is_const_right));
+        if (is_const_left) {
             column_result = constant_vector(column_left, column_right, type_left, type_right,
                                             res_data_type, context->check_overflow_for_decimal());
         } else if (is_const_right) {
@@ -112,86 +110,6 @@ public:
     }
 
 private:
-    ColumnPtr constant_constant(ColumnPtr column_left, ColumnPtr column_right,
-                                const typename Impl::DataTypeA* type_left,
-                                const typename Impl::DataTypeB* type_right,
-                                DataTypePtr res_data_type, bool check_overflow_for_decimal) const {
-        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
-        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
-        DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
-
-        ColumnPtr column_result = nullptr;
-
-        if constexpr (result_is_decimal) {
-            if constexpr (Impl::DataTypeA::PType == TYPE_DECIMALV2) {
-                if (!cast_type_to_either<DataTypeDecimalV2>(
-                            remove_nullable(res_data_type).get(), [&](const auto& type_result) {
-                                auto max_and_multiplier = Impl::get_max_and_multiplier(
-                                        type_left, type_right, type_result);
-
-                                typename PrimitiveTypeTraits<Impl::DataTypeA::PType>::CppType
-                                        left_tmp;
-                                auto left_src =
-                                        column_left_ptr
-                                                ->template get_value<Impl::DataTypeA::PType>();
-                                std::memcpy(&left_tmp, &left_src, sizeof(left_src));
-                                typename PrimitiveTypeTraits<Impl::DataTypeB::PType>::CppType
-                                        right_tmp;
-                                auto right_src =
-                                        column_right_ptr
-                                                ->template get_value<Impl::DataTypeB::PType>();
-                                std::memcpy(&right_tmp, &right_src, sizeof(right_src));
-                                column_result = Impl::constant_constant(
-                                        left_tmp, right_tmp, max_and_multiplier.first,
-                                        max_and_multiplier.second, type_result,
-                                        check_overflow_for_decimal);
-                                return true;
-                            })) {
-                    throw Exception(ErrorCode::INTERNAL_ERROR,
-                                    "Wrong type. Expected: Decimal, Actually: {}",
-                                    type_to_string(res_data_type->get_primitive_type()));
-                }
-            } else {
-                if (!cast_type_to_either<DataTypeDecimal32, DataTypeDecimal64, DataTypeDecimal128,
-                                         DataTypeDecimal256>(
-                            remove_nullable(res_data_type).get(), [&](const auto& type_result) {
-                                auto max_and_multiplier = Impl::get_max_and_multiplier(
-                                        type_left, type_right, type_result);
-                                typename PrimitiveTypeTraits<Impl::DataTypeA::PType>::CppType
-                                        left_tmp;
-                                auto left_src =
-                                        column_left_ptr
-                                                ->template get_value<Impl::DataTypeA::PType>();
-                                std::memcpy(&left_tmp, &left_src, sizeof(left_src));
-                                typename PrimitiveTypeTraits<Impl::DataTypeB::PType>::CppType
-                                        right_tmp;
-                                auto right_src =
-                                        column_right_ptr
-                                                ->template get_value<Impl::DataTypeB::PType>();
-                                std::memcpy(&right_tmp, &right_src, sizeof(right_src));
-                                column_result = Impl::constant_constant(
-                                        left_tmp, right_tmp, max_and_multiplier.first,
-                                        max_and_multiplier.second, type_result,
-                                        check_overflow_for_decimal);
-                                return true;
-                            })) {
-                    throw Exception(ErrorCode::INTERNAL_ERROR,
-                                    "Wrong type. Expected: Decimal, Actually: {}",
-                                    type_to_string(res_data_type->get_primitive_type()));
-                }
-            }
-        } else {
-            typename PrimitiveTypeTraits<Impl::DataTypeA::PType>::CppType left_tmp;
-            auto left_src = column_left_ptr->template get_value<Impl::DataTypeA::PType>();
-            std::memcpy(&left_tmp, &left_src, sizeof(left_src));
-            typename PrimitiveTypeTraits<Impl::DataTypeB::PType>::CppType right_tmp;
-            auto right_src = column_right_ptr->template get_value<Impl::DataTypeB::PType>();
-            std::memcpy(&right_tmp, &right_src, sizeof(right_src));
-            column_result = Impl::constant_constant(left_tmp, right_tmp);
-        }
-
-        return ColumnConst::create(std::move(column_result), column_left->size());
-    }
 
     ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right,
                               const typename Impl::DataTypeA* type_left,
@@ -369,14 +287,6 @@ struct ModNumericImpl {
     constexpr static bool need_replace_null_data_to_default = false;
 
     static DataTypes get_variadic_argument_types() { return Impl::get_variadic_argument_types(); }
-
-    static ColumnPtr constant_constant(ArgA a, ArgB b) {
-        auto column_result = ColumnType ::create(1);
-
-        auto null_map = ColumnUInt8::create(1, 0);
-        column_result->get_element(0) = Impl::apply(a, b, null_map->get_element(0));
-        return ColumnNullable::create(std::move(column_result), std::move(null_map));
-    }
 
     static ColumnPtr vector_constant(ColumnPtr column_left, ArgB b) {
         const auto column_left_ptr = assert_cast<const ColumnType*>(column_left.get());
@@ -618,50 +528,6 @@ struct ModDecimalImpl {
             return static_cast<typename PrimitiveTypeTraits<ResultType>::CppType::NativeType>(a) %
                    b;
         }
-    }
-
-    template <PrimitiveType ResultType>
-        requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
-    static ColumnPtr constant_constant(
-            ArgA a, ArgB b,
-            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
-            const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier,
-            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
-        auto column_result = ColumnDecimal<ResultType>::create(1, res_data_type.get_scale());
-
-        auto null_map = ColumnUInt8::create(1, 0);
-        if (check_overflow_for_decimal) {
-            column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::CppType(apply<true, ResultType>(
-                            a.value, b.value, null_map->get_element(0), max_result_number));
-        } else {
-            column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::CppType(apply<false, ResultType>(
-                            a.value, b.value, null_map->get_element(0), max_result_number));
-        }
-        return ColumnNullable::create(std::move(column_result), std::move(null_map));
-    }
-
-    template <PrimitiveType ResultType>
-        requires(ResultType == TYPE_DECIMALV2)
-    static ColumnPtr constant_constant(
-            ArgA a, ArgB b,
-            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
-            const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier,
-            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
-        auto column_result = ColumnDecimal<ResultType>::create(1, res_data_type.get_scale());
-
-        auto null_map = ColumnUInt8::create(1, 0);
-        if (check_overflow_for_decimal) {
-            column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::CppType(apply<true, ResultType>(
-                            a.value(), b.value(), null_map->get_element(0), max_result_number));
-        } else {
-            column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::CppType(apply<false, ResultType>(
-                            a.value(), b.value(), null_map->get_element(0), max_result_number));
-        }
-        return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
 
     template <PrimitiveType ResultType>

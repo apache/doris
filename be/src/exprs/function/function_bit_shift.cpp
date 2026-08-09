@@ -43,8 +43,6 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
-    bool use_default_implementation_for_constants() const final { return false; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto& column_left = block.get_by_position(arguments[0]).column;
@@ -53,9 +51,10 @@ public:
         bool is_const_right = is_column_const(*column_right);
 
         ColumnPtr column_result = nullptr;
-        if (is_const_left && is_const_right) {
-            column_result = constant_constant(column_left, column_right);
-        } else if (is_const_left) {
+        // All-constant arguments are unpacked to 1-row columns by
+        // default_implementation_for_constant_arguments before reaching here.
+        DCHECK(!(is_const_left && is_const_right));
+        if (is_const_left) {
             column_result = constant_vector(column_left, column_right);
         } else if (is_const_right) {
             column_result = vector_constant(column_left, column_right);
@@ -68,17 +67,6 @@ public:
     }
 
 private:
-    ColumnPtr constant_constant(ColumnPtr column_left, ColumnPtr column_right) const {
-        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
-        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
-        ColumnPtr column_result = nullptr;
-
-        auto res = ColumnInt64::create(1);
-        res->get_element(0) = Impl::apply(column_left_ptr->template get_value<TYPE_BIGINT>(),
-                                          column_right_ptr->template get_value<TYPE_TINYINT>());
-        column_result = std::move(res);
-        return ColumnConst::create(std::move(column_result), column_left->size());
-    }
 
     ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());

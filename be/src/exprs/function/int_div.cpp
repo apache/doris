@@ -51,8 +51,6 @@ public:
         return make_nullable(type_res);
     }
 
-    bool use_default_implementation_for_constants() const final { return false; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto& column_left = block.get_by_position(arguments[0]).column;
@@ -61,9 +59,10 @@ public:
         bool is_const_right = is_column_const(*column_right);
 
         ColumnPtr column_result = nullptr;
-        if (is_const_left && is_const_right) {
-            column_result = constant_constant(column_left, column_right);
-        } else if (is_const_left) {
+        // All-constant arguments are unpacked to 1-row columns by
+        // default_implementation_for_constant_arguments before reaching here.
+        DCHECK(!(is_const_left && is_const_right));
+        if (is_const_left) {
             column_result = constant_vector(column_left, column_right);
         } else if (is_const_right) {
             column_result = vector_constant(column_left, column_right);
@@ -75,20 +74,6 @@ public:
     }
 
 private:
-    ColumnPtr constant_constant(ColumnPtr column_left, ColumnPtr column_right) const {
-        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
-        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
-        DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
-
-        ColumnPtr column_result = nullptr;
-
-        column_result =
-                Impl::constant_constant(column_left_ptr->template get_value<Impl::ResultType>(),
-                                        column_right_ptr->template get_value<Impl::ResultType>());
-
-        return ColumnConst::create(std::move(column_result), column_left->size());
-    }
-
     ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
         DCHECK(column_right_ptr != nullptr);
@@ -172,14 +157,6 @@ struct DivideIntegralImpl {
             return {};
         }
         return typename PrimitiveTypeTraits<ResultType>::CppType(a / b);
-    }
-
-    static ColumnPtr constant_constant(Arg a, Arg b) {
-        auto column_result = ColumnType ::create(1);
-
-        auto null_map = ColumnUInt8::create(1, 0);
-        column_result->get_element(0) = apply(a, b, null_map->get_element(0));
-        return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
 
     static ColumnPtr vector_constant(ColumnPtr column_left, Arg b) {
