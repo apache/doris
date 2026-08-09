@@ -66,6 +66,7 @@
 #include "storage/tablet/tablet_meta_manager.h"
 #include "storage/txn/txn_manager.h"
 #include "storage/utils.h" // for check_dir_existed
+#include "util/debug_points.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
 
@@ -107,6 +108,34 @@ Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id) {
 }
 
 } // namespace
+
+const char* tablet_path_gc_mode_name(TabletPathGcMode mode) {
+    switch (mode) {
+    case TabletPathGcMode::MOVE_TO_TRASH:
+        return "MOVE_TO_TRASH";
+    case TabletPathGcMode::DELETE_DIRECTLY:
+        return "DELETE_DIRECTLY";
+    }
+    LOG(FATAL) << "invalid tablet path gc mode=" << static_cast<int>(mode);
+    __builtin_unreachable();
+}
+
+const char* tablet_path_gc_reason_name(TabletPathGcReason reason) {
+    switch (reason) {
+    case TabletPathGcReason::NORMAL_RETENTION:
+        return "NORMAL_RETENTION";
+    case TabletPathGcReason::TRASH_RETENTION_DISABLED:
+        return "TRASH_RETENTION_DISABLED";
+    case TabletPathGcReason::MANUAL_CLEAN_TRASH:
+        return "MANUAL_CLEAN_TRASH";
+    case TabletPathGcReason::HIGH_DISK_WATERMARK:
+        return "HIGH_DISK_WATERMARK";
+    case TabletPathGcReason::UNUSED_DATA_DIR:
+        return "UNUSED_DATA_DIR";
+    }
+    LOG(FATAL) << "invalid tablet path gc reason=" << static_cast<int>(reason);
+    __builtin_unreachable();
+}
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_total_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_avail_capacity, MetricUnit::BYTES);
@@ -1019,14 +1048,29 @@ void DataDir::disks_compaction_num_increment(int64_t delta) {
     disks_compaction_num->increment(delta);
 }
 
-Status DataDir::move_to_trash(const std::string& tablet_path) {
-    if (config::trash_file_expire_time_sec <= 0) {
-        LOG(INFO) << "delete tablet dir " << tablet_path
-                  << " directly due to trash_file_expire_time_sec is 0";
+Status DataDir::gc_tablet_path(const std::string& tablet_path, TabletPathGcMode mode) {
+    switch (mode) {
+    case TabletPathGcMode::DELETE_DIRECTLY:
+        LOG(INFO) << "delete tablet dir directly. path=" << tablet_path;
+        DBUG_EXECUTE_IF("DataDir.gc_tablet_path.delete_directly_failed", {
+            return Status::InternalError("injected direct delete failure. path={}", tablet_path);
+        });
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_path));
         return delete_tablet_parent_path_if_empty(tablet_path);
+    case TabletPathGcMode::MOVE_TO_TRASH:
+        return _move_tablet_path_to_trash(tablet_path);
     }
+    LOG(FATAL) << "invalid tablet path gc mode=" << static_cast<int>(mode);
+    __builtin_unreachable();
+}
 
+Status DataDir::move_to_trash(const std::string& tablet_path) {
+    const auto mode = config::trash_file_expire_time_sec <= 0 ? TabletPathGcMode::DELETE_DIRECTLY
+                                                              : TabletPathGcMode::MOVE_TO_TRASH;
+    return gc_tablet_path(tablet_path, mode);
+}
+
+Status DataDir::_move_tablet_path_to_trash(const std::string& tablet_path) {
     Status res = Status::OK();
     // 1. get timestamp string
     std::string time_str;
@@ -1070,8 +1114,14 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
 Status DataDir::delete_tablet_parent_path_if_empty(const std::string& tablet_path) {
     auto fs_tablet_path = io::Path(tablet_path);
     std::string source_parent_dir = fs_tablet_path.parent_path(); // tablet_id level
-    std::vector<io::FileInfo> sub_files;
+    // A retry can arrive after the schema path and its empty parent were already deleted.
     bool exists = true;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(source_parent_dir, &exists));
+    if (!exists) {
+        return Status::OK();
+    }
+
+    std::vector<io::FileInfo> sub_files;
     RETURN_IF_ERROR(
             io::global_local_filesystem()->list(source_parent_dir, false, &sub_files, &exists));
     if (sub_files.empty()) {

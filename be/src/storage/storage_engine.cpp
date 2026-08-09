@@ -857,13 +857,13 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     const int32_t trash_expire = config::trash_file_expire_time_sec;
     // the guard space should be lower than storage_flood_stage_usage_percent,
     // so here we multiply 0.9
-    // if ignore_guard is true, set guard_space to 0.
-    const double guard_space =
-            ignore_guard ? 0 : config::storage_flood_stage_usage_percent / 100.0 * 0.9;
+    const double guard_space = config::storage_flood_stage_usage_percent / 100.0 * 0.9;
     std::vector<DataDirInfo> data_dir_infos;
     RETURN_NOT_OK_STATUS_WITH_WARN(get_all_data_dir_info(&data_dir_infos, false),
                                    "failed to get root path stat info when sweep trash.")
     std::sort(data_dir_infos.begin(), data_dir_infos.end(), DataDirInfoLessAvailability());
+    DataDirSweepPolicies data_dir_sweep_policies;
+    data_dir_sweep_policies.reserve(data_dir_infos.size());
 
     time_t now = time(nullptr); //获取UTC时间
     tm local_tm_now;
@@ -875,14 +875,32 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     double tmp_usage = 0.0;
     for (DataDirInfo& info : data_dir_infos) {
-        LOG(INFO) << "Start to sweep path " << info.path;
-        if (!info.is_used) {
-            continue;
+        DataDir* data_dir = get_store(info.path);
+        CHECK(data_dir != nullptr) << "data dir is missing from store map. path=" << info.path;
+
+        double curr_usage = 0.0;
+        if (info.is_used) {
+            curr_usage =
+                    static_cast<double>(info.disk_capacity - info.available) / info.disk_capacity;
+            tmp_usage = std::max(tmp_usage, curr_usage);
         }
 
-        double curr_usage =
-                (double)(info.disk_capacity - info.available) / (double)info.disk_capacity;
-        tmp_usage = std::max(tmp_usage, curr_usage);
+        auto policy = build_data_dir_sweep_policy(info.is_used, ignore_guard, trash_expire,
+                                                  curr_usage, guard_space);
+        auto [_, inserted] = data_dir_sweep_policies.emplace(data_dir, policy);
+        CHECK(inserted) << "duplicated data dir sweep policy. path=" << info.path;
+
+        LOG(INFO) << "Start to sweep path " << info.path << ", is_used=" << policy.is_used
+                  << ", usage=" << curr_usage << ", guard_space=" << guard_space
+                  << ", configured_trash_expire=" << trash_expire
+                  << ", effective_trash_expire=" << policy.effective_trash_expire_seconds
+                  << ", shutdown_tablet_gc_mode="
+                  << tablet_path_gc_mode_name(policy.shutdown_tablet_gc.mode)
+                  << ", shutdown_tablet_gc_reason="
+                  << tablet_path_gc_reason_name(policy.shutdown_tablet_gc.reason);
+        if (!policy.is_used) {
+            continue;
+        }
 
         Status curr_res = Status::OK();
         auto snapshot_path = fmt::format("{}/{}", info.path, SNAPSHOT_PREFIX);
@@ -894,7 +912,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         }
 
         auto trash_path = fmt::format("{}/{}", info.path, TRASH_PREFIX);
-        curr_res = _do_sweep(trash_path, local_now, curr_usage > guard_space ? 0 : trash_expire);
+        curr_res = _do_sweep(trash_path, local_now, policy.effective_trash_expire_seconds);
         if (!curr_res.ok()) {
             LOG(WARNING) << "failed to sweep trash. path=" << trash_path
                          << ", err_code=" << curr_res;
@@ -906,8 +924,8 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         *usage = tmp_usage; // update usage
     }
 
-    // clear expire incremental rowset, move deleted tablet to trash
-    RETURN_IF_ERROR(_tablet_manager->start_trash_sweep());
+    // Clear expired incremental rowsets and resolve shutdown tablet paths.
+    RETURN_IF_ERROR(_tablet_manager->start_trash_sweep(data_dir_sweep_policies));
 
     // clean rubbish transactions
     _clean_unused_txns();

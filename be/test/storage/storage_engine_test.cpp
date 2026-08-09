@@ -33,12 +33,59 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "storage/data_dir.h"
+#include "storage/data_dir_sweep_policy.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta_manager.h"
 #include "util/threadpool.h"
 
 namespace doris {
 using namespace config;
+
+TEST(DataDirSweepPolicyTest, BuildsConsistentTrashAndShutdownPolicies) {
+    struct TestCase {
+        const char* name;
+        bool is_used;
+        bool ignore_guard;
+        int32_t configured_trash_expire;
+        double current_usage;
+        double guard_space;
+        int32_t expected_effective_expire;
+        bool expected_eligible;
+        TabletPathGcMode expected_mode;
+        TabletPathGcReason expected_reason;
+    };
+
+    const std::vector<TestCase> test_cases {
+            {"retention_disabled", true, false, 0, 0.1, 0.8, 0, true,
+             TabletPathGcMode::DELETE_DIRECTLY, TabletPathGcReason::TRASH_RETENTION_DISABLED},
+            {"manual_clean_at_zero_usage", true, true, 3600, 0.0, 0.8, 0, true,
+             TabletPathGcMode::DELETE_DIRECTLY, TabletPathGcReason::MANUAL_CLEAN_TRASH},
+            {"high_watermark", true, false, 3600, 0.81, 0.8, 0, true,
+             TabletPathGcMode::DELETE_DIRECTLY, TabletPathGcReason::HIGH_DISK_WATERMARK},
+            {"below_watermark", true, false, 3600, 0.79, 0.8, 3600, true,
+             TabletPathGcMode::MOVE_TO_TRASH, TabletPathGcReason::NORMAL_RETENTION},
+            {"at_watermark", true, false, 3600, 0.8, 0.8, 3600, true,
+             TabletPathGcMode::MOVE_TO_TRASH, TabletPathGcReason::NORMAL_RETENTION},
+            {"unused_data_dir", false, true, 3600, 0.9, 0.8, 0, false,
+             TabletPathGcMode::MOVE_TO_TRASH, TabletPathGcReason::UNUSED_DATA_DIR},
+    };
+
+    for (const auto& test_case : test_cases) {
+        SCOPED_TRACE(test_case.name);
+        auto policy = build_data_dir_sweep_policy(test_case.is_used, test_case.ignore_guard,
+                                                  test_case.configured_trash_expire,
+                                                  test_case.current_usage, test_case.guard_space);
+        EXPECT_EQ(policy.is_used, test_case.is_used);
+        EXPECT_EQ(policy.effective_trash_expire_seconds, test_case.expected_effective_expire);
+        EXPECT_EQ(policy.shutdown_tablet_gc.eligible, test_case.expected_eligible);
+        EXPECT_EQ(policy.shutdown_tablet_gc.mode, test_case.expected_mode);
+        EXPECT_EQ(policy.shutdown_tablet_gc.reason, test_case.expected_reason);
+        if (policy.is_used) {
+            EXPECT_EQ(policy.effective_trash_expire_seconds <= 0,
+                      policy.shutdown_tablet_gc.mode == TabletPathGcMode::DELETE_DIRECTLY);
+        }
+    }
+}
 
 class StorageEngineTest : public testing::Test {
 public:
@@ -67,6 +114,33 @@ public:
     std::string _engine_data_path;
     std::unique_ptr<DataDir> _data_dir;
 };
+
+TEST_F(StorageEngineTest, GcTabletPathUsesExplicitMode) {
+    const std::string move_path = _engine_data_path + "/data/0/301/3333";
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(move_path).ok());
+    Status status = _data_dir->gc_tablet_path(move_path, TabletPathGcMode::MOVE_TO_TRASH);
+    ASSERT_TRUE(status.ok()) << status;
+
+    bool exists = true;
+    ASSERT_TRUE(io::global_local_filesystem()->exists(move_path, &exists).ok());
+    EXPECT_FALSE(exists);
+    std::vector<std::string> trash_paths;
+    _data_dir->find_tablet_in_trash(301, &trash_paths);
+    EXPECT_EQ(trash_paths.size(), 1);
+
+    const std::string direct_path = _engine_data_path + "/data/0/302/3333";
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(direct_path).ok());
+    status = _data_dir->gc_tablet_path(direct_path, TabletPathGcMode::DELETE_DIRECTLY);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(io::global_local_filesystem()->exists(direct_path, &exists).ok());
+    EXPECT_FALSE(exists);
+    trash_paths.clear();
+    _data_dir->find_tablet_in_trash(302, &trash_paths);
+    EXPECT_TRUE(trash_paths.empty());
+
+    status = _data_dir->gc_tablet_path(direct_path, TabletPathGcMode::DELETE_DIRECTLY);
+    EXPECT_TRUE(status.ok()) << status;
+}
 
 TEST_F(StorageEngineTest, TestBrokenDisk) {
     std::string path = config::custom_config_dir + "/be_custom.conf";

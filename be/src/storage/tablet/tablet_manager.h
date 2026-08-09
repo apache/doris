@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "storage/data_dir_sweep_policy.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
@@ -141,7 +142,7 @@ public:
 
     void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
 
-    Status start_trash_sweep();
+    Status start_trash_sweep(const DataDirSweepPolicies& data_dir_sweep_policies);
 
     void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
                                        SchemaHash schema_hash, const std::string& schema_hash_path,
@@ -226,7 +227,15 @@ private:
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 
-    bool _move_tablet_to_trash(const TabletSharedPtr& tablet);
+    const ShutdownTabletGcPolicy& _get_shutdown_tablet_gc_policy(
+            const DataDirSweepPolicies& data_dir_sweep_policies,
+            const TabletSharedPtr& tablet) const;
+
+    Status _gc_shutdown_tablet_path(const TabletSharedPtr& tablet,
+                                    const ShutdownTabletGcPolicy& policy);
+
+    bool _resolve_shutdown_tablet(const TabletSharedPtr& tablet,
+                                  const ShutdownTabletGcPolicy& policy);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
