@@ -1545,7 +1545,7 @@ Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
         if (expected_cardinality != cached_cardinality) {
             auto msg = fmt::format(
                     "delete bitmap cache check failed, cur_cardinality={}, cached_cardinality={}"
-                    "txn_id={}, tablet_id={}",
+                    ", txn_id={}, tablet_id={}",
                     expected_cardinality, cached_cardinality, txn_id, tablet_id());
             DCHECK_EQ(expected_cardinality, cached_cardinality) << msg;
             return Status::InternalError<false>(msg);
