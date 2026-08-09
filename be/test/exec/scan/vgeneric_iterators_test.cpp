@@ -156,7 +156,7 @@ TEST(VGenericIteratorsTest, StatisticsIteratorPreservesNullForNullableChar) {
                         .ok());
 
     std::vector<ColumnId> column_ids {0, 1};
-    Schema schema(tablet_schema->columns(), column_ids);
+    ReadSchema schema(tablet_schema->columns(), column_ids);
     VStatisticsIterator iterator(segment, schema);
     StorageReadOptions read_options;
     OlapReaderStatistics stats;

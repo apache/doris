@@ -585,7 +585,8 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     RowsetReaderContext reader_context;
     reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
-    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), {0, 1});
+    auto read_schema =
+            std::make_shared<ReadSchema>(tablet_schema->columns(), std::vector<ColumnId> {0, 1});
     reader_context.read_schema = read_schema;
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -690,7 +691,8 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
     RowsetReaderContext reader_context;
     reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
-    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), {0, 1});
+    auto read_schema =
+            std::make_shared<ReadSchema>(tablet_schema->columns(), std::vector<ColumnId> {0, 1});
     reader_context.read_schema = read_schema;
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -796,7 +798,8 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
     RowsetReaderContext reader_context;
     reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
-    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), {0, 1});
+    auto read_schema =
+            std::make_shared<ReadSchema>(tablet_schema->columns(), std::vector<ColumnId> {0, 1});
     reader_context.read_schema = read_schema;
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -1056,7 +1059,8 @@ TEST_F(VerticalCompactionTest, TestUniqueKeySegmentContextMemoryAmplification) {
         RowsetReaderContext reader_context;
         reader_context.tablet_schema = tablet_schema;
         reader_context.need_ordered_result = false;
-        auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), {0, 1, 2});
+        auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(),
+                                                        std::vector<ColumnId> {0, 1, 2});
         reader_context.read_schema = read_schema;
         RowsetReaderSharedPtr output_rs_reader;
         create_and_init_rowset_reader(output_rowset.get(), reader_context, &output_rs_reader);
@@ -1174,7 +1178,8 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     RowsetReaderContext reader_context;
     reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
-    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), {0, 1});
+    auto read_schema =
+            std::make_shared<ReadSchema>(tablet_schema->columns(), std::vector<ColumnId> {0, 1});
     reader_context.read_schema = read_schema;
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -1275,7 +1280,8 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
     RowsetReaderContext reader_context;
     reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
-    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), {0, 1});
+    auto read_schema =
+            std::make_shared<ReadSchema>(tablet_schema->columns(), std::vector<ColumnId> {0, 1});
     reader_context.read_schema = read_schema;
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -1367,7 +1373,8 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     RowsetReaderContext reader_context;
     reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
-    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), {0, 1});
+    auto read_schema =
+            std::make_shared<ReadSchema>(tablet_schema->columns(), std::vector<ColumnId> {0, 1});
     reader_context.read_schema = read_schema;
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -1561,7 +1568,8 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColum
     RowsetReaderContext reader_context;
     reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
-    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), {0, 1, 2});
+    auto read_schema =
+            std::make_shared<ReadSchema>(tablet_schema->columns(), std::vector<ColumnId> {0, 1, 2});
     reader_context.read_schema = read_schema;
     RowsetReaderSharedPtr output_rs_reader;
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);

@@ -494,7 +494,8 @@ TEST_F(OrderedDataCompactionTest, test_01) {
     RowsetReaderContext reader_context;
     reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
-    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), {0, 1});
+    auto read_schema =
+            std::make_shared<ReadSchema>(tablet_schema->columns(), std::vector<ColumnId> {0, 1});
     reader_context.read_schema = read_schema;
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";

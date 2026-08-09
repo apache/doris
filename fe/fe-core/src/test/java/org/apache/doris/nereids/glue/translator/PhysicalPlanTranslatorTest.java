@@ -542,7 +542,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
             long timestamp = System.currentTimeMillis();
             partition.setVisibleVersionAndTime(newVersion, timestamp, timestamp);
             partition.setNextVersion(newVersion + 1);
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
                         replica.updateVersion(newVersion);

@@ -78,6 +78,7 @@ TEST(SegmentIteratorNoNeedReadDataTest, zonemap_always_true_predicate_column) {
     pred_col->set_unique_id(2);
     pred_col->set_name("event_time");
     pred_col->set_type("DATETIMEV2");
+    pred_col->set_frac(0);
     pred_col->set_is_key(false);
     pred_col->set_is_nullable(false);
 
