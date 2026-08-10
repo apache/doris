@@ -31,6 +31,8 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelationManager;
+import org.apache.doris.mtmv.MTMVRewriteUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext;
@@ -56,6 +58,7 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -197,6 +200,91 @@ public class ExecuteCommandTest {
         new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
 
         Assertions.assertEquals(2, executionCount.get());
+    }
+
+    @Test
+    public void testMvValidPartitionsAreRefreshedForEveryExecute() throws Exception {
+        String sql = "select 1";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        StatementContext statementContext = new StatementContext(
+                connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        connectContext.addPreparedStatementContext("stmt", new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt"));
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        DatabaseIf<TableIf> database = Mockito.mock(DatabaseIf.class);
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(mtmv.getId()).thenReturn(3L);
+        Mockito.when(mtmv.getName()).thenReturn("mv");
+        Mockito.when(mtmv.getDatabase()).thenReturn(database);
+        Mockito.when(database.getId()).thenReturn(2L);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Partition firstPartition = Mockito.mock(Partition.class);
+        Partition secondPartition = Mockito.mock(Partition.class);
+        MTMVRelationManager relationManager = new MTMVRelationManager();
+
+        try (MockedStatic<MTMVRewriteUtil> rewriteUtil = Mockito.mockStatic(MTMVRewriteUtil.class)) {
+            rewriteUtil.when(() -> MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                    Mockito.eq(mtmv), Mockito.eq(connectContext), Mockito.anyLong(), Mockito.eq(false),
+                    Mockito.anyMap())).thenReturn(Arrays.asList(firstPartition, secondPartition),
+                            Collections.singleton(firstPartition));
+            Mockito.doAnswer(invocation -> {
+                relationManager.isMVPartitionValid(
+                        mtmv, connectContext, false, Collections.emptyMap());
+                return null;
+            }).when(executor).execute();
+
+            ExecuteCommand executeCommand = new ExecuteCommand("stmt", prepareCommand, statementContext);
+            executeCommand.run(connectContext, executor);
+            Assertions.assertEquals(Arrays.asList(firstPartition, secondPartition),
+                    statementContext.getMvCanRewritePartitionsMap().get(new BaseTableInfo(mtmv)));
+
+            executeCommand.run(connectContext, executor);
+            Assertions.assertEquals(Collections.singleton(firstPartition),
+                    statementContext.getMvCanRewritePartitionsMap().get(new BaseTableInfo(mtmv)));
+        }
+    }
+
+    @Test
+    public void testMaterializationHookFollowsRewriteSettingForEveryExecute() throws Exception {
+        String sql = "select 1";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        StatementContext statementContext = new StatementContext(
+                connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        connectContext.getState().setIsQuery(true);
+        connectContext.getSessionVariable().setEnableMaterializedViewRewrite(true);
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        connectContext.addPreparedStatementContext("stmt", new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt"));
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+        Mockito.doAnswer(invocation -> {
+            NereidsPlanner planner = new NereidsPlanner(statementContext);
+            planner.plan(new LogicalPlanAdapter(logicalPlan, statementContext));
+            return null;
+        }).when(executor).execute();
+
+        ExecuteCommand executeCommand = new ExecuteCommand("stmt", prepareCommand, statementContext);
+        executeCommand.run(connectContext, executor);
+        Assertions.assertTrue(statementContext.getPlannerHooks().stream()
+                .anyMatch(InitMaterializationContextHook.class::isInstance));
+
+        connectContext.getSessionVariable().setEnableMaterializedViewRewrite(false);
+        executeCommand.run(connectContext, executor);
+        Assertions.assertFalse(statementContext.getPlannerHooks().stream()
+                .anyMatch(InitMaterializationContextHook.class::isInstance));
     }
 
     @Test
