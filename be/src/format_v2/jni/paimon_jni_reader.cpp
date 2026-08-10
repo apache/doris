@@ -22,6 +22,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
+#include "util/uid_util.h"
 
 namespace doris::format::paimon {
 namespace {
@@ -31,6 +32,7 @@ constexpr std::string_view HADOOP_OPTION_PREFIX = "hadoop.";
 constexpr std::string_view DORIS_ENABLE_JNI_IO_MANAGER = "jni.enable_jni_io_manager";
 constexpr std::string_view DORIS_JNI_IO_MANAGER_TMP_DIR = "jni.io_manager.tmp_dir";
 constexpr std::string_view PAIMON_JNI_SCANNER_IO_TMP_DIR = "paimon_jni_scanner_io_tmp";
+constexpr std::string_view VARIANT_ACCESS_PATH_PREFIX = "variant_access_path.";
 
 const std::string* get_paimon_predicate(const TFileScanRangeParams* scan_params,
                                         const TPaimonFileDesc& paimon_params) {
@@ -94,6 +96,12 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
     (*params)["paimon_split"] = paimon_params.paimon_split;
     (*params)["paimon_predicate"] = *paimon_predicate;
     (*params)["serialized_table"] = _scan_params->serialized_table;
+    // if old Version FE not have set it, generate uuid in BE, so no need to compatible
+    (*params)["serialized_table_cache_key"] =
+            _scan_params->__isset.serialized_table_cache_key &&
+                            !_scan_params->serialized_table_cache_key.empty()
+                    ? _scan_params->serialized_table_cache_key
+                    : generate_uuid_string();
 
     if (_scan_params->__isset.paimon_options && !_scan_params->paimon_options.empty()) {
         for (const auto& kv : _scan_params->paimon_options) {
@@ -126,6 +134,18 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
     } else if (paimon_params.__isset.hadoop_conf) {
         for (const auto& kv : paimon_params.hadoop_conf) {
             (*params)[std::string(HADOOP_OPTION_PREFIX) + kv.first] = kv.second;
+        }
+    }
+    // Keep paths aligned with the required_fields order. Each path is encoded independently so
+    // object keys containing delimiters cannot alter either path or segment cardinality. The Java
+    // reader validates whether a complete column path set can use Paimon's Variant projection and
+    // falls back to the full Variant when it cannot.
+    for (size_t column_idx = 0; column_idx < _projected_columns.size(); ++column_idx) {
+        const auto& access_paths = _projected_columns[column_idx].variant_access_paths;
+        for (size_t path_idx = 0; path_idx < access_paths.size(); ++path_idx) {
+            (*params)[std::string(VARIANT_ACCESS_PATH_PREFIX) + std::to_string(column_idx) + "." +
+                      std::to_string(path_idx)] =
+                    JniDataBridge::encode_string_list(access_paths[path_idx]);
         }
     }
     // TODO: Remove legacy split-level paimon_predicate, paimon_options and hadoop_conf from thrift

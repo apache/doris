@@ -1390,6 +1390,10 @@ start_hive_stack() {
 start_iceberg() {
     # iceberg
     ICEBERG_DIR=${ROOT}/docker-compose/iceberg
+    LANCE_SPARK_VERSION=0.4.0
+    LANCE_SPARK_JAR="lance-spark-bundle-4.0_2.13-${LANCE_SPARK_VERSION}.jar"
+    LANCE_SPARK_JAR_PATH="${ICEBERG_DIR}/data/input/jars/${LANCE_SPARK_JAR}"
+    LANCE_SPARK_JAR_URL="${MAVEN_REPOSITORY_URL}/org/lance/lance-spark-bundle-4.0_2.13/${LANCE_SPARK_VERSION}/${LANCE_SPARK_JAR}"
     render_uid_template "${ROOT}/docker-compose/iceberg/iceberg.yaml.tpl" "${ROOT}/docker-compose/iceberg/iceberg.yaml"
     render_uid_template "${ROOT}/docker-compose/iceberg/entrypoint.sh.tpl" "${ROOT}/docker-compose/iceberg/entrypoint.sh"
     cp "${ROOT}/docker-compose/iceberg/entrypoint.sh" "${ROOT}/docker-compose/iceberg/scripts/entrypoint.sh"
@@ -1401,13 +1405,20 @@ start_iceberg() {
             (
                 cd "${ICEBERG_DIR}" || exit 1
                 rm -f iceberg_data*.zip
-                wget -P "${ROOT}/docker-compose/iceberg" "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40.zip"
-                sudo unzip iceberg_data_spark40.zip
+                wget -P "${ROOT}/docker-compose/iceberg" "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
+                sudo unzip iceberg_data_spark40_paimon142.zip
                 sudo mv iceberg_data data
-                sudo rm -rf iceberg_data_spark40.zip
+                sudo rm -rf iceberg_data_spark40_paimon142.zip
             )
         else
-            echo "${ICEBERG_DIR}/data exist, continue !"
+            echo "${ICEBERG_DIR}/data exists, continue !"
+        fi
+
+        if [[ ! -s "${LANCE_SPARK_JAR_PATH}" ]]; then
+            echo "Downloading ${LANCE_SPARK_JAR}"
+            sudo mkdir -p "$(dirname "${LANCE_SPARK_JAR_PATH}")"
+            sudo wget -O "${LANCE_SPARK_JAR_PATH}.tmp" "${LANCE_SPARK_JAR_URL}"
+            sudo mv "${LANCE_SPARK_JAR_PATH}.tmp" "${LANCE_SPARK_JAR_PATH}"
         fi
 
         compose_up_stack "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" -d --wait
@@ -1653,7 +1664,11 @@ start_polaris() {
     register_stack_metadata "polaris" "${POLARIS_DIR}/docker-compose.yaml" ""
     compose_cmd "${POLARIS_DIR}/docker-compose.yaml" "" down --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
-        compose_cmd "${POLARIS_DIR}/docker-compose.yaml" "" up -d --wait --remove-orphans
+        # polaris-init is a one-shot service. Keep it out of `up --wait`,
+        # otherwise Compose reports the successfully exited container as a
+        # failed stack startup.
+        compose_cmd "${POLARIS_DIR}/docker-compose.yaml" "" up -d --wait --remove-orphans polaris
+        compose_cmd "${POLARIS_DIR}/docker-compose.yaml" "" run --rm --no-deps polaris-init
     fi
 }
 

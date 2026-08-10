@@ -27,6 +27,12 @@
 #include <thread>
 #include <vector>
 
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
+#include "format/jni/jni_data_bridge.h"
 #include "io/io_common.h"
 
 namespace doris::format {
@@ -107,6 +113,40 @@ Status init_reader(FakeJniTableReader* reader, const std::shared_ptr<io::IOConte
             .runtime_state = nullptr,
             .scanner_profile = scanner_profile,
     });
+}
+
+TEST(JniTableReaderTest, RequiredFieldEncodingPreservesQuotedIdentifiers) {
+    EXPECT_EQ(JniDataBridge::encode_string_list({"region,code", "hash#name", "地区 名"}),
+              "$cmVnaW9uLGNvZGU=,$aGFzaCNuYW1l,$5Zyw5Yy6IOWQjQ==");
+    EXPECT_EQ(JniDataBridge::encode_string_list({}), "");
+    EXPECT_EQ(JniDataBridge::encode_string_list({""}), "$");
+}
+
+TEST(JniTableReaderTest, EncodedTypeDescriptorsPreserveNestedQuotedIdentifiers) {
+    auto type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                       std::make_shared<DataTypeString>()},
+            Strings {"hash#name", "region,code", "colon:name"});
+
+    // Keep standard Base64 padding in the wire-contract expectation; Java decodes these tokens
+    // verbatim, and field names whose length is not divisible by three require trailing '=' bytes.
+    EXPECT_EQ(JniDataBridge::get_jni_type_with_encoded_struct_fields(type),
+              "struct<$aGFzaCNuYW1l:string,$cmVnaW9uLGNvZGU=:string,$Y29sb246bmFtZQ==:string>");
+}
+
+TEST(JniTableReaderTest, GenericConnectorDoesNotPublishPaimonEncodedSchema) {
+    FakeJniTableReader reader;
+    reader._jni_columns = {JniTableReader::JniColumn {
+            .java_name = "region,code",
+            // Keep the aggregate complete because BE UT treats omitted JNI column fields as errors.
+            .output_type = std::make_shared<DataTypeString>(),
+            .transfer_type = std::make_shared<DataTypeString>(),
+    }};
+
+    reader._prepare_jni_scanner_schema();
+
+    EXPECT_FALSE(reader._scanner_params.contains("required_fields_base64"));
+    EXPECT_FALSE(reader._scanner_params.contains("columns_types_base64"));
 }
 
 TEST(JniTableReaderTest, CancellationStopsBeforeFetchingAnotherJavaBatch) {
@@ -199,6 +239,29 @@ TEST(JniTableReaderTest, AdaptiveProbeSetBeforePrepareControlsFirstJniOpen) {
 
     EXPECT_EQ(reader.open_batch_sizes, std::vector<size_t>({32}));
     EXPECT_TRUE(reader.TEST_scanner_opened());
+}
+
+TEST(JniTableReaderTest, RefreshedConjunctIsReadyBeforeFilteringOpenScanner) {
+    FakeJniTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, nullptr).ok());
+    ASSERT_TRUE(reader.prepare_split({
+                                             .partition_values = {},
+                                             .conjuncts = std::nullopt,
+                                             .partition_prune_conjuncts = {},
+                                             .all_runtime_filters_applied = true,
+                                             .condition_cache_digest = std::nullopt,
+                                             .cache = nullptr,
+                                             .current_range = {},
+                                             .current_split_format = FileFormat::JNI,
+                                             .global_rowid_context = std::nullopt,
+                                     })
+                        .ok());
+
+    auto refreshed = VExprContext::create_shared(
+            VSlotRef::create_shared(0, 0, 0, std::make_shared<DataTypeUInt8>(), "filter_column"));
+    ASSERT_FALSE(refreshed->root()->ready_status().ok());
+    ASSERT_TRUE(reader.refresh_conjuncts({refreshed}).ok());
+    EXPECT_TRUE(refreshed->root()->ready_status().ok());
 }
 
 TEST(JniTableReaderTest, CommonLifecycleTimersContainJniLifecycleWork) {

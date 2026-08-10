@@ -27,6 +27,8 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
+#include "common/config.h"
 #include "common/consts.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -35,6 +37,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
+#include "exec/scan/file_scan_io_context.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/split_source_connector.h"
 #include "exprs/create_predicate_function.h"
@@ -45,6 +48,7 @@
 #include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/expr/cast.h"
+#include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
 namespace {
@@ -114,6 +118,16 @@ TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
                                                 TPushAggOp::type::MINMAX, std::nullopt));
 }
 
+TEST(FileScannerTest, CountStarPlaceholderIsNotASemanticProjection) {
+    EXPECT_TRUE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
+                                                           std::vector<int32_t> {}));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
+                                                            std::vector<int32_t> {7}));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT, std::nullopt));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::MINMAX,
+                                                            std::vector<int32_t> {}));
+}
+
 TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
     EXPECT_TRUE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, false));
     EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, true));
@@ -139,6 +153,18 @@ public:
 
 private:
     std::shared_ptr<RetryableCloseState> _state;
+};
+
+class CapturingSplitTableReader final : public format::TableReader {
+public:
+    Status prepare_split(const format::SplitReadOptions& options) override {
+        conjunct_count = options.conjuncts.has_value() ? options.conjuncts->size() : 0;
+        partition_prune_conjunct_count = options.partition_prune_conjuncts.size();
+        return Status::OK();
+    }
+
+    size_t conjunct_count = 0;
+    size_t partition_prune_conjunct_count = 0;
 };
 
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
@@ -187,6 +213,36 @@ VExprContextSPtr runtime_filter_context(VExprSPtr impl, int filter_id) {
     const auto node = bool_in_pred_node();
     return VExprContext::create_shared(
             VRuntimeFilterWrapper::create_shared(node, std::move(impl), 0.4, false, filter_id));
+}
+
+class CloudFileCacheConfigGuard {
+public:
+    CloudFileCacheConfigGuard()
+            : _cloud_unique_id(config::cloud_unique_id),
+              _enable_file_cache(config::enable_file_cache) {}
+
+    ~CloudFileCacheConfigGuard() {
+        config::cloud_unique_id = _cloud_unique_id;
+        config::enable_file_cache = _enable_file_cache;
+    }
+
+private:
+    std::string _cloud_unique_id;
+    bool _enable_file_cache;
+};
+
+TUniqueId make_query_id() {
+    TUniqueId query_id;
+    query_id.hi = 100;
+    query_id.lo = 200;
+    return query_id;
+}
+
+TNetworkAddress make_fe_addr() {
+    TNetworkAddress fe_addr;
+    fe_addr.hostname = "127.0.0.1";
+    fe_addr.port = 9030;
+    return fe_addr;
 }
 
 TExprNode bool_in_pred_node() {
@@ -389,9 +445,10 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__set_format_type(TFileFormatType::FORMAT_LANCE);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 
-    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_ES_HTTP,
-                                                                  TFileFormatType::FORMAT_LANCE};
+    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_ES_HTTP};
     for (const auto format : unsupported_formats) {
         params.__set_format_type(format);
         EXPECT_FALSE(
@@ -409,6 +466,30 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
 
     query_options.__set_enable_file_scanner_v2(false);
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+}
+
+TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {
+    auto scan_range = [](std::optional<int64_t> row_count) {
+        TScanRangeParams params;
+        auto& file_range = params.scan_range.ext_scan_range.file_scan_range;
+        TFileRangeDesc range;
+        if (row_count.has_value()) {
+            TTableFormatFileDesc table_format;
+            table_format.__set_table_level_row_count(*row_count);
+            range.__set_table_format_params(table_format);
+        }
+        file_range.ranges.push_back(std::move(range));
+        return params;
+    };
+
+    LocalSplitSourceConnector proven({scan_range(4), scan_range(0)}, 2);
+    EXPECT_TRUE(proven.all_ranges_have_table_level_row_count());
+
+    LocalSplitSourceConnector missing({scan_range(4), scan_range(std::nullopt)}, 2);
+    EXPECT_FALSE(missing.all_ranges_have_table_level_row_count());
+
+    LocalSplitSourceConnector invalid({scan_range(4), scan_range(-1)}, 2);
+    EXPECT_FALSE(invalid.all_ranges_have_table_level_row_count());
 }
 
 TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
@@ -445,6 +526,56 @@ TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
     EXPECT_EQ(close_state->close_calls, 2);
 }
 
+TEST(FileScannerV2Test, PartitionPruningRemainsEnabledWhenSessionSwitchIsFalse) {
+    TQueryOptions query_options;
+    query_options.__set_enable_runtime_filter_partition_prune(false);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ObjectPool pool;
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple_descriptor;
+    tuple_descriptor.id = 0;
+    tuple_descriptor.byteSize = 0;
+    tuple_descriptor.numNullBytes = 0;
+    thrift_descriptors.tupleDescriptors.push_back(tuple_descriptor);
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    TPlanNode plan_node;
+    plan_node.node_id = 0;
+    plan_node.node_type = TPlanNodeType::FILE_SCAN_NODE;
+    plan_node.num_children = 0;
+    plan_node.limit = -1;
+    plan_node.row_tuples.push_back(0);
+    // RowDescriptor requires one nullability entry for every row tuple on branch-4.1.
+    plan_node.nullable_tuples.push_back(false);
+    plan_node.file_scan_node.tuple_id = 0;
+    plan_node.__isset.file_scan_node = true;
+    FileScanOperatorX parent(&pool, plan_node, 0, *descriptors, 1);
+    FileScanLocalState local_state(&state, &parent);
+    RuntimeProfile profile("file_scanner_v2_partition_prune");
+    auto table_reader = std::make_unique<CapturingSplitTableReader>();
+    auto* captured = table_reader.get();
+    FileScannerV2 scanner(&state, &profile, std::move(table_reader));
+    scanner._local_state = &local_state;
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scanner._params = &params;
+    scanner._slot_id_to_global_index.emplace(7, format::GlobalIndex(0));
+    scanner._conjuncts = {VExprContext::create_shared(
+            slot_ref(7, 7, std::make_shared<DataTypeInt32>(), "partition_col"))};
+
+    const auto range = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
+    ASSERT_TRUE(scanner._prepare_table_reader_split(range, {}).ok());
+    EXPECT_EQ(captured->conjunct_count, 1);
+    EXPECT_EQ(captured->partition_prune_conjunct_count, 0);
+
+    ASSERT_TRUE(scanner._prepare_table_reader_split(
+                               range, {{"partition_col", Field::create_field<TYPE_INT>(1)}})
+                        .ok());
+    EXPECT_EQ(captured->conjunct_count, 1);
+    EXPECT_EQ(captured->partition_prune_conjunct_count, 1);
+}
+
 // Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back
 // to FileScanner.
 TEST(FileScannerV2Test, ValidateScanRangeRejectsUnsupportedRange) {
@@ -458,6 +589,55 @@ TEST(FileScannerV2Test, ValidateScanRangeRejectsUnsupportedRange) {
     const auto status = FileScannerV2::TEST_validate_scan_range(params, unsupported);
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
     EXPECT_NE(status.to_string().find("lakesoul"), std::string::npos);
+}
+
+// Scenario: external file scan IO contexts are query readers for SELECT so the shared file-cache
+// gate can apply the query-level remote scan write limiter.
+TEST(FileScannerV2Test, FileScanIoContextPropagatesQueryLimiterForSelect) {
+    CloudFileCacheConfigGuard config_guard;
+    config::cloud_unique_id = "file_scanner_io_context_ut";
+    config::enable_file_cache = true;
+
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::SELECT);
+    query_options.__set_file_cache_query_limit_bytes(0);
+
+    const auto query_id = make_query_id();
+    const auto fe_addr = make_fe_addr();
+    auto query_ctx = MockQueryContext::create(query_id, ExecEnv::GetInstance(), query_options,
+                                              fe_addr, true, fe_addr);
+    ASSERT_NE(query_ctx->remote_scan_cache_write_limiter(), nullptr);
+
+    MockRuntimeState state;
+    state._query_id = query_id;
+    state.set_query_options(query_options);
+    state._query_ctx_uptr = query_ctx;
+    state._query_ctx = query_ctx.get();
+
+    auto io_ctx = create_file_scan_io_context(&state);
+
+    EXPECT_EQ(io_ctx->query_id, &state.query_id());
+    EXPECT_EQ(io_ctx->reader_type, ReaderType::READER_QUERY);
+    EXPECT_EQ(io_ctx->remote_scan_cache_write_limiter,
+              query_ctx->remote_scan_cache_write_limiter());
+}
+
+// Scenario: LOAD file scans keep non-query reader semantics even when the byte-limit option exists.
+TEST(FileScannerV2Test, FileScanIoContextDoesNotMarkLoadAsQueryReader) {
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::LOAD);
+    query_options.__set_file_cache_query_limit_bytes(0);
+
+    MockRuntimeState state;
+    state._query_id = make_query_id();
+    state.set_query_options(query_options);
+    state._query_ctx = nullptr;
+
+    auto io_ctx = create_file_scan_io_context(&state);
+
+    EXPECT_EQ(io_ctx->query_id, &state.query_id());
+    EXPECT_EQ(io_ctx->reader_type, ReaderType::UNKNOWN);
+    EXPECT_EQ(io_ctx->remote_scan_cache_write_limiter, nullptr);
 }
 
 // Scenario: FileScannerV2 converts only the file formats implemented by format_v2 readers and
@@ -484,6 +664,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_NATIVE, format::FileFormat::NATIVE},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
             {TFileFormatType::FORMAT_WAL, format::FileFormat::WAL},
+            {TFileFormatType::FORMAT_LANCE, format::FileFormat::LANCE},
             {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
     };
 

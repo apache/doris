@@ -82,6 +82,18 @@ public class IcebergMergeSinkTest {
     }
 
     @Test
+    public void testBindDataSinkMarksDeleteOnlyMerge() throws Exception {
+        IcebergMergeSink sink = new IcebergMergeSink(
+                mockIcebergExternalTable(3), new DeleteCommandContext(), false, true);
+
+        sink.bindDataSink(Optional.empty());
+
+        TIcebergMergeSink thriftSink = sink.tDataSink.getIcebergMergeSink();
+        Assertions.assertTrue(thriftSink.isSetWritesDataFiles());
+        Assertions.assertFalse(thriftSink.isWritesDataFiles());
+    }
+
+    @Test
     public void testBindDataSinkDisablesColumnStatsWhenAllMetricsAreNone() throws Exception {
         IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2, ImmutableMap.of(
                 TableProperties.DEFAULT_WRITE_METRICS_MODE, "none")), new DeleteCommandContext(), false);

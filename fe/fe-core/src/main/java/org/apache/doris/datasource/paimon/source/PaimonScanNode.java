@@ -35,6 +35,7 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonMvccSnapshot;
+import org.apache.doris.datasource.paimon.PaimonReaderOptions;
 import org.apache.doris.datasource.paimon.PaimonScanParams;
 import org.apache.doris.datasource.paimon.PaimonSnapshot;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
@@ -87,6 +88,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -109,6 +113,10 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_ENABLE_JNI_IO_MANAGER = "jni.enable_jni_io_manager";
     private static final String DORIS_JNI_IO_MANAGER_TMP_DIR = "jni.io_manager.tmp_dir";
     private static final String DORIS_JNI_IO_MANAGER_IMPL_CLASS = "jni.io_manager.impl_class";
+    private static final String DORIS_MANIFEST_PARALLELISM_CAP =
+            "doris.scan.manifest.parallelism-cap";
+    private static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
+    private static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
     private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
             DORIS_ENABLE_JNI_IO_MANAGER,
             DORIS_JNI_IO_MANAGER_TMP_DIR,
@@ -163,6 +171,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private int paimonSplitNum = 0;
     private List<SplitStat> splitStats = new ArrayList<>();
     private String serializedTable;
+    private final String serializedTableCacheKey = UUID.randomUUID().toString();
     // Store PropertiesMap, including vended credentials or static credentials
     // get them in doInitialize() to ensure internal consistency of ScanNode
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
@@ -189,9 +198,12 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
+        checkVariantV2Enabled(desc, sessionVariable.isEnableVariantV2());
         Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
-        if (desc.getTable() instanceof PaimonExternalTable) {
-            // Rebuild the source before applying query options so both layers use this relation's snapshot.
+        if (desc.getTable() instanceof PaimonExternalTable
+                || desc.getTable() instanceof PaimonSysExternalTable) {
+            // Rebuild from the logical scan's snapshot: system-table snapshots are keyed by their
+            // source table and cannot be recovered by looking up the synthetic descriptor table.
             source = new PaimonSource(desc, relationSnapshot);
         } else if (source == null) {
             source = new PaimonSource(desc);
@@ -213,9 +225,42 @@ public class PaimonScanNode extends FileQueryScanNode {
                 source.getPaimonTable()
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
-        backendPaimonOptions = getBackendPaimonOptions();
+        backendPaimonOptions = new HashMap<>(getBackendPaimonOptions());
+        OptionalInt manifestCap;
+        if (source.getExternalTable() instanceof PaimonSysExternalTable) {
+            manifestCap = source.runtimeSafeManifestParallelism(getScanParams());
+        } else {
+            manifestCap = PaimonReaderOptions.backendManifestParallelismCap(processedTable);
+        }
+        // The hidden planner's option is not visible on a serialized system wrapper.
+        manifestCap.ifPresent(cap -> backendPaimonOptions.put(
+                DORIS_MANIFEST_PARALLELISM_CAP, String.valueOf(cap)));
+        if (source.getExternalTable() instanceof PaimonSysExternalTable && manifestCap.isPresent()) {
+            PaimonSysExternalTable systemTable = (PaimonSysExternalTable) source.getExternalTable();
+            TableScanParams scanParams = getScanParams();
+            Map<String, String> incrementalOptions = scanParams != null && scanParams.incrementalRead()
+                    ? getIncrReadParams() : Collections.emptyMap();
+            FileStoreTable effectiveSource = source.runtimeSafeSystemDataTable(
+                    scanParams, incrementalOptions);
+            // A system wrapper can hide its physical option map. Ship the exact source so a smaller
+            // BE can cap it and rebuild without guessing through the wrapper.
+            backendPaimonOptions.put(DORIS_SERIALIZED_SYSTEM_SOURCE,
+                    PaimonUtil.encodeObjectToString(effectiveSource));
+            backendPaimonOptions.put(DORIS_SYSTEM_TABLE_TYPE, systemTable.getSysTableType());
+        }
         if (getSummaryProfile() != null) {
             getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
+        }
+    }
+
+    @VisibleForTesting
+    static void checkVariantV2Enabled(TupleDescriptor tuple, boolean enabled) throws UserException {
+        // Enforce the session switch here instead of during Paimon schema conversion. The cached
+        // external schema is shared by sessions, while this tuple contains only the slots projected
+        // by the current query and therefore does not reject scans of unrelated non-VARIANT columns.
+        if (!enabled && tuple.getSlots().stream().anyMatch(slot -> PaimonUtil.containsVariant(slot.getType()))) {
+            throw new UserException(
+                    "Paimon VARIANT columns require enable_variant_v2=true");
         }
     }
 
@@ -259,6 +304,11 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     protected Optional<String> getSerializedTable() {
         return Optional.of(serializedTable);
+    }
+
+    @Override
+    protected Optional<String> getSerializedTableCacheKey() {
+        return Optional.of(serializedTableCacheKey);
     }
 
     @Override
@@ -488,15 +538,20 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
-            if (applyCountPushdown && dataSplit.mergedRowCountAvailable()) {
-                splitStat.setMergedRowCount(dataSplit.mergedRowCount());
+            // Only evaluate merged row counts when COUNT(*) pushdown is active; ordinary scans
+            // must not pay the planning cost of merging Paimon manifest statistics.
+            OptionalLong mergedRowCount = applyCountPushdown
+                    ? dataSplit.mergedRowCount() : OptionalLong.empty();
+            if (applyCountPushdown && mergedRowCount.isPresent()) {
+                long count = mergedRowCount.getAsLong();
+                splitStat.setMergedRowCount(count);
                 PaimonSplit split = new PaimonSplit(dataSplit);
-                split.setRowCount(dataSplit.mergedRowCount());
+                split.setRowCount(count);
                 if (partitionInfoMap != null) {
                     split.setPaimonPartitionValues(partitionInfoMap);
                 }
                 pushDownCountSplits.add(split);
-                pushDownCountSum += dataSplit.mergedRowCount();
+                pushDownCountSum += count;
             } else if (!forceJniScanner && !forceJniForSystemTable && supportNativeReader(optRawFiles)) {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
@@ -673,11 +728,12 @@ public class PaimonScanNode extends FileQueryScanNode {
         long startTime = System.currentTimeMillis();
         try {
             Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
-            if (relationSnapshot.isPresent() && relationSnapshot.get() instanceof PaimonMvccSnapshot
+            if (!(source.getExternalTable() instanceof PaimonSysExternalTable)
+                    && relationSnapshot.isPresent() && relationSnapshot.get() instanceof PaimonMvccSnapshot
                     && ((PaimonMvccSnapshot) relationSnapshot.get()).getSnapshotCacheValue()
                             .getSnapshot().getSnapshotId() == PaimonSnapshot.INVALID_SNAPSHOT_ID) {
-                // An empty snapshot is a bound generation: consulting the live table here could
-                // expose the first commit made after analysis completed.
+                // An empty data snapshot is a bound generation, but metadata system tables such as
+                // $schemas can still contain rows and must plan their own independent row domain.
                 return Collections.emptyList();
             }
             Table paimonTable = getProcessedTable();
@@ -1023,10 +1079,11 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (processedTable != null) {
             return processedTable;
         }
-        Table baseTable = source.getPaimonTable();
         TableScanParams theScanParams = getScanParams();
+        Table baseTable = source.getPaimonTable();
+        PaimonSysExternalTable systemTable = null;
         if (source.getExternalTable() instanceof PaimonSysExternalTable) {
-            PaimonSysExternalTable systemTable = (PaimonSysExternalTable) source.getExternalTable();
+            systemTable = (PaimonSysExternalTable) source.getExternalTable();
             try {
                 PaimonScanParams.validateSystemTable(systemTable.getSysTableType(), theScanParams);
             } catch (IllegalArgumentException e) {
@@ -1040,18 +1097,37 @@ public class PaimonScanNode extends FileQueryScanNode {
             throw new UserException("Can not specify scan params and table snapshot at same time.");
         }
 
+        Table finalTable;
         if (theScanParams != null && theScanParams.incrementalRead()) {
+            if (systemTable != null) {
+                // System wrappers hide the manifest-planning data table. Start paths that copy the
+                // wrapper directly from a disposable CPU-capped handle.
+                baseTable = source.getPaimonTable(null);
+            }
             // System table handles are cached, so preserve query isolation by applying dynamic
             // options to a copied Paimon table instead of changing the shared handle.
-            return baseTable.copy(getIncrReadParams());
-        }
-        if (theScanParams != null && theScanParams.isOptions()) {
+            finalTable = baseTable.copy(getIncrReadParams());
+        } else if (theScanParams != null && theScanParams.isOptions()) {
             try {
-                return source.getPaimonTable(theScanParams);
+                finalTable = source.getPaimonTable(theScanParams);
             } catch (IllegalArgumentException e) {
                 throw new UserException(e.getMessage(), e);
             }
+        } else {
+            finalTable = systemTable == null ? baseTable : source.getPaimonTable(null);
         }
-        return baseTable;
+        try {
+            // This is the last common boundary before planning and serialization, including scans
+            // with no relation copy and incremental/system-table paths that bypass applyOptions.
+            finalTable = PaimonReaderOptions.runtimeSafeTable(finalTable);
+            PaimonReaderOptions.validateEffectiveTable(finalTable);
+            if (source.getExternalTable() instanceof PaimonSysExternalTable) {
+                // Read-only system wrappers hide the data table that performs manifest planning.
+                source.validateEffectiveSystemDataTable(theScanParams);
+            }
+        } catch (IllegalArgumentException e) {
+            throw new UserException(e.getMessage(), e);
+        }
+        return finalTable;
     }
 }

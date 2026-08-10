@@ -36,10 +36,12 @@ import org.apache.paimon.table.Table;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 public class PaimonSource {
     private final ExternalTable paimonExtTable;
     private final Table originTable;
+    private final FileStoreTable boundSystemDataTable;
     private final TupleDescriptor desc;
 
     @VisibleForTesting
@@ -47,6 +49,7 @@ public class PaimonSource {
         this.desc = null;
         this.paimonExtTable = null;
         this.originTable = null;
+        this.boundSystemDataTable = null;
     }
 
     public PaimonSource(TupleDescriptor desc) {
@@ -56,7 +59,14 @@ public class PaimonSource {
     public PaimonSource(TupleDescriptor desc, Optional<MvccSnapshot> snapshot) {
         this.desc = desc;
         this.paimonExtTable = (ExternalTable) desc.getTable();
-        this.originTable = resolvePaimonTable(paimonExtTable, snapshot);
+        if (paimonExtTable instanceof PaimonSysExternalTable) {
+            PaimonSysExternalTable systemTable = (PaimonSysExternalTable) paimonExtTable;
+            this.boundSystemDataTable = systemTable.getBoundDataTable(snapshot);
+            this.originTable = systemTable.getRawSysPaimonTable(boundSystemDataTable);
+        } else {
+            this.boundSystemDataTable = null;
+            this.originTable = resolvePaimonTable(paimonExtTable, snapshot);
+        }
     }
 
     public TupleDescriptor getDesc() {
@@ -81,7 +91,8 @@ public class PaimonSource {
             return ((PaimonExternalTable) paimonExtTable).getPaimonTable(scanParams);
         }
         if (paimonExtTable instanceof PaimonSysExternalTable) {
-            return ((PaimonSysExternalTable) paimonExtTable).getSysPaimonTable(scanParams);
+            return ((PaimonSysExternalTable) paimonExtTable)
+                    .getSysPaimonTable(boundSystemDataTable, scanParams);
         }
         throw new IllegalArgumentException(
                 "Expected Paimon table but got " + paimonExtTable.getClass().getSimpleName());
@@ -99,11 +110,24 @@ public class PaimonSource {
         if (table instanceof PaimonExternalTable) {
             return ((PaimonExternalTable) table).getPaimonTable(snapshot);
         }
-        if (table instanceof PaimonSysExternalTable) {
-            return ((PaimonSysExternalTable) table).getSysPaimonTable();
-        }
         throw new IllegalArgumentException(
                 "Expected Paimon table but got " + table.getClass().getSimpleName());
+    }
+
+    public OptionalInt runtimeSafeManifestParallelism(TableScanParams scanParams) {
+        return ((PaimonSysExternalTable) paimonExtTable)
+                .runtimeSafeManifestParallelism(boundSystemDataTable, scanParams);
+    }
+
+    public FileStoreTable runtimeSafeSystemDataTable(
+            TableScanParams scanParams, Map<String, String> incrementalOptions) {
+        return ((PaimonSysExternalTable) paimonExtTable)
+                .runtimeSafeDataTable(boundSystemDataTable, scanParams, incrementalOptions);
+    }
+
+    public void validateEffectiveSystemDataTable(TableScanParams scanParams) {
+        ((PaimonSysExternalTable) paimonExtTable)
+                .validateEffectiveDataTable(boundSystemDataTable, scanParams);
     }
 
     public TFileAttributes getFileAttributes() throws UserException {

@@ -521,6 +521,28 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
     return counter;
 }
 
+std::shared_ptr<RuntimeProfile::Counter> RuntimeProfile::add_shared_counter(
+        const std::string& name, TUnit::type type, const std::string& parent_counter_name,
+        int64_t level) {
+    std::lock_guard<std::mutex> l(_counter_map_lock);
+
+    if (auto it = _shared_counter_pool.find(name); it != _shared_counter_pool.end()) {
+        DCHECK_EQ(it->second->type(), type);
+        return it->second;
+    }
+
+    // A raw counter with the same name cannot be safely upgraded because external users may
+    // already hold its profile-owned address.
+    DCHECK(_counter_map.find(name) == _counter_map.end());
+    DCHECK(parent_counter_name == ROOT_COUNTER ||
+           _counter_map.find(parent_counter_name) != _counter_map.end());
+    auto counter = std::make_shared<Counter>(type, 0, level);
+    _shared_counter_pool.emplace(name, counter);
+    _counter_map[name] = counter.get();
+    _child_counter_map[parent_counter_name].insert(name);
+    return counter;
+}
+
 RuntimeProfile::NonZeroCounter* RuntimeProfile::add_nonzero_counter(
         const std::string& name, TUnit::type type, const std::string& parent_counter_name,
         int64_t level) {

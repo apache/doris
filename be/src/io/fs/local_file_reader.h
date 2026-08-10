@@ -68,6 +68,8 @@ public:
 private:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
+    Status read_at_iobuf_impl(size_t offset, size_t bytes_req, butil::IOBuf* out,
+                              size_t* bytes_read, const IOContext* io_ctx) override;
 
 private:
     int _fd = -1; // owned

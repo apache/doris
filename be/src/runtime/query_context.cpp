@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/operator/rec_cte_scan_operator.h"
@@ -37,6 +38,7 @@
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/spill/spill_file_manager.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/heap_profiler.h"
@@ -124,6 +126,16 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                 _query_id, query_options.file_cache_query_limit_percent);
     }
 
+    const bool initialize_remote_scan_cache_write_limiter =
+            config::is_cloud_mode() && config::enable_file_cache &&
+            query_options.__isset.file_cache_query_limit_bytes &&
+            query_options.file_cache_query_limit_bytes >= 0 &&
+            query_options.query_type == TQueryType::SELECT;
+    if (initialize_remote_scan_cache_write_limiter) {
+        _remote_scan_cache_write_limiter = std::make_unique<io::RemoteScanCacheWriteLimiter>(
+                _query_id, query_options.file_cache_query_limit_bytes);
+    }
+
     bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
                                query_options.query_type == TQueryType::LOAD ||
                                query_options.query_type == TQueryType::EXTERNAL;
@@ -143,33 +155,38 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 }
 
 void QueryContext::_init_query_mem_tracker() {
+    // If user not set query limit, will use default 1TB memory limit. It is large enough to cover most cases.
+    constexpr int64_t DEFAULT_QUERY_MEM_LIMIT = 1LL << 60;
     bool has_query_mem_limit = _query_options.__isset.mem_limit && (_query_options.mem_limit > 0);
-    int64_t bytes_limit = has_query_mem_limit ? _query_options.mem_limit : -1;
-    if (bytes_limit > MemInfo::mem_limit() || bytes_limit == -1) {
-        VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
+    int64_t user_set_mem_limit =
+            has_query_mem_limit ? _query_options.mem_limit : DEFAULT_QUERY_MEM_LIMIT;
+    int64_t adjusted_mem_limit = user_set_mem_limit;
+    if (adjusted_mem_limit > MemInfo::mem_limit()) {
+        VLOG_NOTICE << "Query memory limit "
+                    << PrettyPrinter::print(user_set_mem_limit, TUnit::BYTES)
                     << " exceeds process memory limit of "
                     << PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES)
-                    << " OR is -1. Using process memory limit instead.";
-        bytes_limit = MemInfo::mem_limit();
+                    << ". Using process memory limit instead.";
+        adjusted_mem_limit = MemInfo::mem_limit();
     }
     // If the query is a pure load task(streamload, routine load, group commit), then it should not use
     // memlimit per query to limit their memory usage.
     if (is_pure_load_task()) {
-        bytes_limit = MemInfo::mem_limit();
+        adjusted_mem_limit = MemInfo::mem_limit();
     }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
     if (_query_options.query_type == TQueryType::SELECT) {
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::QUERY, fmt::format("Query#Id={}", print_id(_query_id)),
-                bytes_limit);
+                adjusted_mem_limit);
     } else if (_query_options.query_type == TQueryType::LOAD) {
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::LOAD, fmt::format("Load#Id={}", print_id(_query_id)),
-                bytes_limit);
+                adjusted_mem_limit);
     } else if (_query_options.query_type == TQueryType::EXTERNAL) { // spark/flink/etc..
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::QUERY, fmt::format("External#Id={}", print_id(_query_id)),
-                bytes_limit);
+                adjusted_mem_limit);
     } else {
         LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
@@ -187,6 +204,7 @@ void QueryContext::_init_query_mem_tracker() {
     query_mem_tracker->set_enable_check_limit(!(_query_options.__isset.enable_reserve_memory &&
                                                 _query_options.enable_reserve_memory));
     _resource_ctx->memory_context()->set_mem_tracker(query_mem_tracker);
+    _resource_ctx->memory_context()->set_user_set_mem_limit(user_set_mem_limit);
 }
 
 void QueryContext::_init_resource_context() {
@@ -203,6 +221,11 @@ void QueryContext::init_query_task_controller() {
     _exec_env->runtime_query_statistics_mgr()->register_resource_context(print_id(_query_id),
                                                                          _resource_ctx);
 #endif
+}
+
+void QueryContext::record_spill_data_dir(SpillDataDir* data_dir) {
+    std::lock_guard lock(_spill_data_dirs_mutex);
+    _spill_data_dirs.emplace(data_dir);
 }
 
 QueryContext::~QueryContext() {
@@ -246,6 +269,12 @@ QueryContext::~QueryContext() {
     file_scan_range_params_map.clear();
     obj_pool.clear();
     _merge_controller_handler.reset();
+
+    if (auto* spill_file_mgr = _exec_env->spill_file_mgr()) {
+        for (auto* data_dir : _spill_data_dirs) {
+            spill_file_mgr->delete_query_spill_directory(print_id(_query_id), data_dir);
+        }
+    }
 
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     // fragment_mgr is nullptr in unittest

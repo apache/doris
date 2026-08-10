@@ -477,6 +477,8 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
                 targetSchema,
                 outputExprs,
                 deleteCtx,
+                matchedClauses.stream().anyMatch(clause -> !clause.isDelete())
+                        || !notMatchedClauses.isEmpty(),
                 true,
                 Optional.empty(),
                 Optional.empty(),

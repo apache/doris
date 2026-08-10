@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
@@ -65,11 +66,12 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
         }
         Set<String> names = Sets.newHashSet();
         for (int i = 0; i < arity(); i = i + 2) {
-            if (!(child(i) instanceof StringLikeLiteral)) {
+            Expression nameArgument = getArgument(i);
+            if (!(nameArgument instanceof StringLikeLiteral)) {
                 throw new AnalysisException("named_struct only allows"
                         + " constant string parameter in odd position: " + this);
             } else {
-                String name = ((StringLikeLiteral) child(i)).getStringValue().toLowerCase();
+                String name = ((StringLikeLiteral) nameArgument).getStringValue().toLowerCase();
                 if (names.contains(name)) {
                     throw new AnalysisException("The name of the struct field cannot be repeated."
                             + " same name fields are " + name);
@@ -77,8 +79,8 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
                     names.add(name);
                 }
             }
-            // i+1 is value, check if it is not jsonb/variant type
-            if (child(i + 1).getDataType().isJsonType() || child(i + 1).getDataType().isVariantType()) {
+            DataType valueType = getArgument(i + 1).getDataType();
+            if (valueType.isJsonType() || VariantType.isLegacyVariant(valueType)) {
                 throw new AnalysisException("named_struct does not support jsonb/variant type");
             }
         }

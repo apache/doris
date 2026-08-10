@@ -539,6 +539,8 @@ struct TIcebergMergeSink {
     14: optional bool collect_column_stats;
     // Unset preserves old-FE UPDATE behavior; execution version gates SQL MERGE validation.
     15: optional bool require_merge_cardinality_check;
+    // Unset preserves old-FE UPDATE behavior, which always writes replacement data rows.
+    16: optional bool writes_data_files;
 
     // delete side (position delete only)
     20: optional TFileContent delete_type

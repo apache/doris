@@ -82,6 +82,7 @@ using DeleteRows = std::vector<int64_t>;
 struct TableFilter {
     VExprContextSPtr conjunct;
     std::vector<GlobalIndex> global_indices;
+    bool metadata_pruning_safe = true;
 };
 
 struct ScanTask {
@@ -116,6 +117,7 @@ struct ReadProfile {
     RuntimeProfile::Counter* create_reader_timer = nullptr;
     RuntimeProfile::Counter* pushdown_agg_timer = nullptr;
     RuntimeProfile::Counter* open_reader_timer = nullptr;
+    RuntimeProfile::Counter* refresh_conjuncts_timer = nullptr;
     RuntimeProfile::Counter* runtime_filter_partition_prune_timer = nullptr;
     RuntimeProfile::Counter* runtime_filter_partition_pruned_range_counter = nullptr;
     RuntimeProfile::Counter* close_timer = nullptr;
@@ -124,6 +126,7 @@ struct ReadProfile {
     RuntimeProfile::Counter* file_reader_schema_timer = nullptr;
     RuntimeProfile::Counter* file_reader_mapper_timer = nullptr;
     RuntimeProfile::Counter* file_reader_open_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_refresh_timer = nullptr;
     RuntimeProfile::Counter* file_reader_get_block_timer = nullptr;
     RuntimeProfile::Counter* file_reader_aggregate_timer = nullptr;
     RuntimeProfile::Counter* file_reader_close_timer = nullptr;
@@ -216,12 +219,17 @@ public:
                     _current_file_description->is_immutable);
         return _current_task->data_file->is_immutable;
     }
+    bool TEST_conjuncts_empty() const { return _conjuncts.empty(); }
 #endif
 
     // Prepare for reading a new split/task.
     // 1. Pass a new split/task to reader, which will be used in subsequent open_reader() to initialize the underlying file reader.
     // 2. Parse delete predicates from split/task information, which will be used for later dynamic filtering and delete handling.
     virtual Status prepare_split(const SplitReadOptions& options);
+
+    // Refresh row-level predicates for an already prepared split. Physical readers that support
+    // this operation decide the safe boundary at which the new immutable request becomes active.
+    virtual Status refresh_conjuncts(VExprContextSPtrs conjuncts);
 
     virtual bool current_split_pruned() const { return _current_split_pruned; }
     virtual bool current_split_uses_metadata_count() const {
@@ -404,6 +412,9 @@ protected:
         DORIS_CHECK(file_schema != nullptr);
         return Status::OK();
     }
+    static Status validate_variant_file_mappings(FileFormat format,
+                                                 const std::vector<ColumnMapping>& mappings);
+    virtual Status validate_file_mapping(const TableColumnMapper& mapper) const;
 
     // Open the concrete reader for the current split/task and build the file-local scan request.
     virtual Status open_reader() {
@@ -441,20 +452,27 @@ protected:
         auto file_request = std::make_shared<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
                 _table_filters, _projected_columns, file_request.get(), _runtime_state));
+        _constant_pruning_safe_filter_count =
+                std::min(_constant_pruning_safe_filter_count,
+                         file_request->constant_pruning_safe_table_filter_count);
         bool constant_filter_pruned_split = false;
         RETURN_IF_ERROR(_evaluate_constant_filters(&constant_filter_pruned_split));
         if (constant_filter_pruned_split) {
             RETURN_IF_ERROR(close_current_reader());
             return Status::OK();
         }
+        RETURN_IF_ERROR(validate_file_mapping(*_data_reader.column_mapper));
         // COUNT(*) has no semantic column argument, but Nereids retains a minimum-width scan slot
         // so the scan node still has an output tuple. Record only the current non-predicate file
         // columns before table-format hooks add row-position or equality-delete dependencies. This
         // marker is independent of aggregate eligibility: with position deletes, for example,
         // metadata COUNT must fall back to reading rows, but an arbitrary unsupported TIME_MILLIS
         // placeholder still must not be validated or decoded merely to carry the surviving count.
+        // Pending runtime filters may later target this retained slot, so placeholder values are
+        // safe only after every filter for the split has arrived.
         if (_push_down_agg_type == TPushAggOp::type::COUNT &&
-            _push_down_count_columns.has_value() && _push_down_count_columns->empty()) {
+            _push_down_count_columns.has_value() && _push_down_count_columns->empty() &&
+            _all_runtime_filters_applied_for_split) {
             file_request->count_star_placeholder_columns.reserve(
                     file_request->non_predicate_columns.size());
             for (const auto& column : file_request->non_predicate_columns) {
@@ -465,40 +483,35 @@ protected:
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
-        _data_reader.file_block_layout.resize(file_request->local_positions.size());
+        _file_scan_request.reset();
+        _data_reader.file_block_layout.resize(file_request->block_column_count());
 
         // 4. Build file block layout from file schema and column mapping. The layout describes
         // the block returned by file reader before table-column materialization.
-        for (const auto& [file_column_id, block_position] : file_request->local_positions) {
+        auto add_file_block_column = [&](const LocalColumnIndex& projection,
+                                         LocalIndex block_position) -> Status {
             DORIS_CHECK(block_position.value() < _data_reader.file_block_layout.size());
+            const auto file_column_id = projection.column_id();
             const auto* field = _find_column_definition(_data_reader.file_schema, file_column_id);
             DORIS_CHECK(field != nullptr);
 
             ColumnDefinition projected_field;
-            {
-                auto it = std::find_if(
-                        file_request->non_predicate_columns.begin(),
-                        file_request->non_predicate_columns.end(),
-                        [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
-                if (it != file_request->non_predicate_columns.end()) {
-                    RETURN_IF_ERROR(project_column_definition(*field, *it, &projected_field));
-                }
-            }
-            {
-                auto it = std::find_if(
-                        file_request->predicate_columns.begin(),
-                        file_request->predicate_columns.end(),
-                        [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
-                if (it != file_request->predicate_columns.end()) {
-                    RETURN_IF_ERROR(project_column_definition(*field, *it, &projected_field));
-                }
-            }
+            RETURN_IF_ERROR(project_column_definition(*field, projection, &projected_field));
             _data_reader.file_block_layout[block_position.value()] = {
                     .file_column_id = file_column_id,
                     .name = projected_field.name,
                     .type = projected_field.type,
             };
             DORIS_CHECK(_data_reader.file_block_layout[block_position.value()].type != nullptr);
+            return Status::OK();
+        };
+        for (const auto& projection : file_request->predicate_columns) {
+            RETURN_IF_ERROR(add_file_block_column(
+                    projection, file_request->local_positions.at(projection.column_id())));
+        }
+        for (const auto& projection : file_request->non_predicate_columns) {
+            RETURN_IF_ERROR(add_file_block_column(
+                    projection, file_request->non_predicate_position(projection.column_id())));
         }
 
         // 5. Prepare block template from file block layout. The block template stores the block
@@ -517,7 +530,8 @@ protected:
             SCOPED_TIMER(_profile.file_reader_open_timer);
             RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         }
-        RETURN_IF_ERROR(_init_reader_condition_cache(*file_request));
+        _file_scan_request = std::move(file_request);
+        RETURN_IF_ERROR(_init_reader_condition_cache(*_file_scan_request));
         return Status::OK();
     }
 
@@ -763,6 +777,7 @@ protected:
         _data_reader.file_schema.clear();
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
+        _file_scan_request.reset();
         _current_task.reset();
         _current_file_description.reset();
         _current_reader_reached_eof = false;
@@ -1877,6 +1892,9 @@ protected:
         Block block_template;
     };
     DataReader _data_reader;
+    // Latest immutable request queued to the physical reader. The file-block layout remains fixed
+    // for the split even while predicates are refreshed at a reader-defined granule boundary.
+    std::shared_ptr<FileScanRequest> _file_scan_request;
     std::vector<ColumnDefinition> _projected_columns;
     std::unique_ptr<ScanTask> _current_task;
     std::optional<io::FileDescription> _current_file_description;

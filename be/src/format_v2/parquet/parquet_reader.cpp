@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -56,6 +57,120 @@ struct ParquetReaderScanState {
     bool enable_page_cache = false;
     bool enable_strict_mode = false;
 };
+
+const ParquetColumnSchema* projected_schema_child(const ParquetColumnSchema& schema,
+                                                  int32_t local_id) {
+    const auto child_it = std::ranges::find_if(
+            schema.children, [local_id](const auto& child) { return child->local_id == local_id; });
+    return child_it == schema.children.end() ? nullptr : child_it->get();
+}
+
+const ParquetColumnSchema* schema_child_by_name(const ParquetColumnSchema& schema,
+                                                std::string_view name) {
+    const auto child_it = std::ranges::find_if(
+            schema.children, [name](const auto& child) { return child->name == name; });
+    return child_it == schema.children.end() ? nullptr : child_it->get();
+}
+
+bool collect_variant_residual_leaf_ids(const ParquetColumnSchema& schema,
+                                       const format::LocalColumnIndex& projection,
+                                       std::vector<int>* residual_leaf_ids) {
+    DORIS_CHECK(residual_leaf_ids != nullptr);
+    const auto* value = schema_child_by_name(schema, "value");
+    const auto* typed_value = schema_child_by_name(schema, "typed_value");
+    if (value != nullptr && typed_value != nullptr) {
+        if (value->kind != ParquetColumnSchemaKind::PRIMITIVE || value->leaf_column_id < 0) {
+            return false;
+        }
+        residual_leaf_ids->push_back(value->leaf_column_id);
+    }
+    for (const auto& child_projection : projection.children) {
+        const auto* child = projected_schema_child(schema, child_projection.local_id());
+        if (child == nullptr ||
+            !collect_variant_residual_leaf_ids(*child, child_projection, residual_leaf_ids)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool detail::variant_projection_is_fully_shredded(const tparquet::FileMetaData& metadata,
+                                                  const ParquetColumnSchema& schema,
+                                                  const format::LocalColumnIndex& projection) {
+    if (schema.kind != ParquetColumnSchemaKind::VARIANT || schema.max_repetition_level != 0 ||
+        !format::is_partial_projection(&projection)) {
+        return false;
+    }
+    std::vector<int> residual_leaf_ids;
+    if (!collect_variant_residual_leaf_ids(schema, projection, &residual_leaf_ids)) {
+        return false;
+    }
+    std::ranges::sort(residual_leaf_ids);
+    residual_leaf_ids.erase(std::unique(residual_leaf_ids.begin(), residual_leaf_ids.end()),
+                            residual_leaf_ids.end());
+    for (const auto& row_group : metadata.row_groups) {
+        for (const int leaf_id : residual_leaf_ids) {
+            if (leaf_id < 0 || leaf_id >= static_cast<int>(row_group.columns.size())) {
+                return false;
+            }
+            const auto& chunk = row_group.columns[leaf_id];
+            if (!chunk.__isset.meta_data || !chunk.meta_data.__isset.statistics ||
+                !chunk.meta_data.statistics.__isset.null_count ||
+                chunk.meta_data.statistics.null_count != row_group.num_rows) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+size_t detail::finalize_variant_leaf_projection(const tparquet::FileMetaData& metadata,
+                                                const ParquetColumnSchema& schema,
+                                                format::LocalColumnIndex* projection) {
+    DORIS_CHECK(projection != nullptr);
+    if (!format::is_partial_projection(projection)) {
+        return 0;
+    }
+    if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
+        if (variant_projection_is_fully_shredded(metadata, schema, *projection)) {
+            return 1;
+        }
+        // Unknown residual completeness must restore this Variant wrapper atomically. For a
+        // repeated ancestor, footer null_count is in the leaf-value domain rather than Variant
+        // instances, so variant_projection_is_fully_shredded() deliberately takes this fallback.
+        projection->project_all_children = true;
+        projection->children.clear();
+        return 0;
+    }
+
+    size_t retained = 0;
+    for (auto& child_projection : projection->children) {
+        const auto* child_schema = projected_schema_child(schema, child_projection.local_id());
+        DORIS_CHECK(child_schema != nullptr);
+        retained += finalize_variant_leaf_projection(metadata, *child_schema, &child_projection);
+    }
+    return retained;
+}
+
+size_t finalize_variant_leaf_projections(
+        const NativeParquetMetadata& metadata,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        std::vector<format::LocalColumnIndex>* projections) {
+    DORIS_CHECK(projections != nullptr);
+    size_t retained = 0;
+    for (auto& projection : *projections) {
+        const int32_t local_id = projection.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
+            continue;
+        }
+        if (!file_schema[local_id]->contains_variant) {
+            continue;
+        }
+        retained += detail::finalize_variant_leaf_projection(metadata.to_thrift(),
+                                                             *file_schema[local_id], &projection);
+    }
+    return retained;
+}
 
 Status validate_all_projected_leaves_supported(const ParquetColumnSchema& column_schema) {
     if (column_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
@@ -217,8 +332,30 @@ DataTypePtr apply_timestamp_tz_mapping(ParquetColumnSchema* column_schema) {
         }
         column_schema->type = nullable_like_original(
                 column_schema->type, std::make_shared<DataTypeStruct>(child_types, child_names));
+    } else if (column_schema->kind == ParquetColumnSchemaKind::VARIANT) {
+        Strings child_names;
+        child_names.reserve(column_schema->children.size());
+        for (const auto& child : column_schema->children) {
+            child_names.push_back(child->name);
+        }
+        column_schema->variant_physical_type =
+                nullable_like_original(column_schema->variant_physical_type,
+                                       std::make_shared<DataTypeStruct>(child_types, child_names));
     }
     return column_schema->type;
+}
+
+void apply_timestamp_tz_mapping_in_variants(ParquetColumnSchema* column_schema) {
+    DORIS_CHECK(column_schema != nullptr);
+    if (column_schema->kind == ParquetColumnSchemaKind::VARIANT) {
+        // Shredded Variant timestamps always represent instants, even when the surrounding table
+        // did not request catalog-level TIMESTAMPTZ mapping for ordinary Parquet columns.
+        apply_timestamp_tz_mapping(column_schema);
+        return;
+    }
+    for (auto& child : column_schema->children) {
+        apply_timestamp_tz_mapping_in_variants(child.get());
+    }
 }
 
 static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schema,
@@ -355,6 +492,11 @@ Status ParquetReader::init(RuntimeState* state) {
         SCOPED_TIMER(_parquet_profile.parse_meta_time);
         RETURN_IF_ERROR(build_parquet_column_schema(_state->file_context.native_metadata->schema(),
                                                     &_state->file_schema));
+        _state->file_context.contains_variant =
+                std::ranges::any_of(_state->file_schema, [](const auto& column) {
+                    DORIS_CHECK(column != nullptr);
+                    return column->contains_variant;
+                });
         if (_enable_mapping_timestamp_tz) {
             for (auto& column_schema : _state->file_schema) {
                 apply_timestamp_tz_mapping(column_schema.get());
@@ -406,6 +548,35 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     }
     auto request_snapshot = request;
     DORIS_CHECK(request_snapshot != nullptr);
+    if (!request_snapshot->variant_schema_overrides.empty()) {
+        // Apply table-format semantics before Variant projection planning. The override is the
+        // explicit proof that an otherwise ordinary Parquet group is a Variant carrier.
+        RETURN_IF_ERROR(apply_variant_schema_overrides(
+                _state->file_context.native_metadata->schema(),
+                request_snapshot->variant_schema_overrides, &_state->file_schema));
+        for (auto& column_schema : _state->file_schema) {
+            apply_timestamp_tz_mapping_in_variants(column_schema.get());
+        }
+        _state->file_context.contains_variant =
+                std::ranges::any_of(_state->file_schema, [](const auto& column) {
+                    DORIS_CHECK(column != nullptr);
+                    return column->contains_variant;
+                });
+    }
+    size_t retained_variant_leaf_projections = 0;
+    if (_state->file_context.contains_variant) {
+        retained_variant_leaf_projections =
+                finalize_variant_leaf_projections(*_state->file_context.native_metadata,
+                                                  _state->file_schema,
+                                                  &request_snapshot->predicate_columns) +
+                finalize_variant_leaf_projections(*_state->file_context.native_metadata,
+                                                  _state->file_schema,
+                                                  &request_snapshot->non_predicate_columns);
+    }
+    if (_parquet_profile.variant_leaf_projections != nullptr) {
+        COUNTER_UPDATE(_parquet_profile.variant_leaf_projections,
+                       retained_variant_leaf_projections);
+    }
     RETURN_IF_ERROR(format::FileReader::open(std::move(request)));
 
     // `local_positions.empty()` means all columns are needed by table reader
@@ -471,7 +642,21 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     _state->scheduler.set_global_rowid_context(_global_rowid_context);
     _state->scheduler.set_scan_profile(_parquet_profile.scan_profile());
     _state->scheduler.set_plan(std::move(row_group_plan));
+    _state->scheduler.set_scan_request(request_snapshot);
     _eof = _state->scheduler.empty();
+    return Status::OK();
+}
+
+Status ParquetReader::queue_scan_request(std::shared_ptr<format::FileScanRequest> request) {
+    SCOPED_TIMER(_parquet_profile.total_time);
+    SCOPED_TIMER(_parquet_profile.refresh_scan_request_time);
+    if (_state == nullptr || _state->file_context.native_metadata == nullptr) {
+        return Status::Uninitialized("ParquetReader is not open");
+    }
+    DORIS_CHECK(request != nullptr);
+    RETURN_IF_ERROR(validate_requested_columns_supported(_state->file_schema, *request));
+    _state->scheduler.queue_scan_request(request);
+    _request = std::move(request);
     return Status::OK();
 }
 
@@ -489,15 +674,14 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         *eof = true;
         return Status::OK();
     }
-    auto request_snapshot = _request;
-    if (request_snapshot == nullptr) {
+    if (_request == nullptr) {
         return Status::Cancelled("ParquetReader is closed");
     }
 
     const auto predicate_filtered_rows_before = _state->scheduler.predicate_filtered_rows();
     const auto raw_rows_read_before = _state->scheduler.raw_rows_read();
     Status st = _state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
-                                                  *request_snapshot, file_block, rows, eof);
+                                                  file_block, rows, eof);
     if (!st.ok()) {
         if (_io_ctx != nullptr && _io_ctx->should_stop) {
             *rows = 0;

@@ -343,6 +343,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return Optional.empty();
     }
 
+    // Identify scanner instances that may share the deserialized JNI table.
+    protected Optional<String> getSerializedTableCacheKey() {
+        return Optional.empty();
+    }
+
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
@@ -473,6 +478,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
 
         getSerializedTable().ifPresent(params::setSerializedTable);
+        getSerializedTableCacheKey().ifPresent(params::setSerializedTableCacheKey);
 
         if (executor != null) {
             executor.getSummaryProfile().setCreateScanRangeFinishTime();
@@ -501,11 +507,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
             HiveSplit hiveSplit = (HiveSplit) fileSplit;
             isACID = hiveSplit.isACID();
         }
-        List<String> rawPartitionValues = fileSplit.getPartitionValues() == null
-                ? BrokerUtil.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
-                false, isACID) : fileSplit.getPartitionValues();
         BrokerUtil.ParsedColumnsFromPath partitionValues =
-                BrokerUtil.normalizeColumnsFromPath(rawPartitionValues);
+                fileSplit.getPartitionValues() == null
+                        ? BrokerUtil.parseColumnsFromPathWithNullInfo(
+                                fileSplit.getPathString(), pathPartitionKeys, false, isACID)
+                        : BrokerUtil.normalizeColumnsFromPath(fileSplit.getPartitionValues());
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValues.getValues(),
                 pathPartitionKeys, partitionValues.getIsNull());

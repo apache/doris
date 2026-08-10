@@ -128,6 +128,8 @@ struct ColumnMapping {
     // schema, not table child order. TableReader uses this to map table-output children back to the
     // file-local block layout when projection, predicate-only children, and schema evolution mix.
     std::vector<ColumnDefinition> projected_file_children;
+    // Table-side Variant object-key paths retained until the physical shredding schema is known.
+    std::vector<std::vector<std::string>> variant_access_paths;
     // Split/file-local constant entry when this mapping is produced from partition/default/virtual
     // expression instead of physical file data.
     std::optional<ConstantIndex> constant_index;
@@ -193,10 +195,11 @@ public:
     // Convert a table-level scan request into a file-local scan request. table_filters preserve
     // row-level filtering semantics and are rewritten as file-local conjuncts. File-layer pruning
     // such as ZoneMap, dictionary, and bloom filter derives from those localized VExpr conjuncts.
-    virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
-                                       const std::vector<ColumnDefinition>& projected_columns,
-                                       FileScanRequest* file_request,
-                                       RuntimeState* runtime_state = nullptr);
+    virtual Status create_scan_request(
+            const std::vector<TableFilter>& table_filters,
+            const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request,
+            RuntimeState* runtime_state = nullptr,
+            const std::map<LocalColumnId, LocalIndex>* fixed_local_positions = nullptr);
 
     // Localize table-level filters to the file schema.
     // Trivial mappings can copy structured predicates directly. Type changes may be localized with
@@ -207,6 +210,7 @@ public:
                                     RuntimeState* runtime_state = nullptr);
     void clear() {
         _mappings.clear();
+        _predicate_mappings.clear();
         _hidden_mappings.clear();
         _constant_map.clear();
         _filter_entries.clear();
@@ -227,6 +231,12 @@ protected:
     // delimited text field. They must scan the whole complex top-level field and let TableReader
     // rematerialize the requested table child after row-level filters have run.
     virtual bool force_full_complex_scan_projection() const { return false; }
+    // Only Parquet currently has a Variant physical shredding schema and a reader that can
+    // validate residual-value completeness before honoring a typed-leaf projection.
+    virtual bool enable_variant_leaf_projection() const { return false; }
+    // Parquet can keep two independent readers/cursors for the same complex root: a narrow eager
+    // predicate subtree and the final output subtree materialized only for surviving rows.
+    virtual bool enable_independent_predicate_projection() const { return false; }
 
     const ColumnDefinition* _find_file_field(
             const ColumnDefinition& table_column,
@@ -249,6 +259,7 @@ protected:
     std::vector<ColumnMapping> _filter_visible_mappings() const;
 
     ColumnMapping* _find_mapping(GlobalIndex global_index);
+    ColumnMapping* _find_predicate_mapping(GlobalIndex global_index);
     ColumnMapping* _find_filter_mapping(GlobalIndex global_index);
 
     TableColumnMapperOptions _options;
@@ -256,6 +267,9 @@ protected:
     // describes how to get one table/global column from file-local sources, and carries metadata
     // for filter localization and result finalize.
     std::vector<ColumnMapping> _mappings;
+    // Optional mappings built from SlotDescriptor::predicate_access_paths. They deliberately keep
+    // a different file type/projection shape from the final output mappings above.
+    std::vector<ColumnMapping> _predicate_mappings;
     // Predicate-only top-level columns are not output projection columns, so keep their mappings
     // here. They are visible only to filter localization and file-reader predicate construction.
     std::vector<ColumnMapping> _hidden_mappings;
@@ -272,6 +286,10 @@ protected:
 class ParquetColumnMapper final : public TableColumnMapper {
 public:
     using TableColumnMapper::TableColumnMapper;
+
+protected:
+    bool enable_variant_leaf_projection() const override { return true; }
+    bool enable_independent_predicate_projection() const override { return true; }
 };
 
 // Mapper for readers that always materialize every required file column before filtering. The

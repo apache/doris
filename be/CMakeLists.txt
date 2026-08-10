@@ -149,9 +149,19 @@ message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
 option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
 set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
+option(ENABLE_TDE "Enable TDE feature module" OFF)
+set(TDE_MODULE_DIR "" CACHE STRING "TDE feature module directory under be/src")
+option(ENABLE_TLS "Enable TLS feature module" OFF)
+set(TLS_MODULE_DIR "" CACHE STRING "TLS feature module directory under be/src")
 option(ENABLE_VARIANT_NESTED_GROUP "Enable Variant NestedGroup feature module" OFF)
 set(VARIANT_NESTED_GROUP_MODULE_DIR "" CACHE STRING "Variant NestedGroup feature module directory under be/src")
 
+if (ENABLE_TDE AND "${TDE_MODULE_DIR}" STREQUAL "")
+    message(FATAL_ERROR "ENABLE_TDE requires TDE_MODULE_DIR")
+endif()
+if (ENABLE_TLS AND "${TLS_MODULE_DIR}" STREQUAL "")
+    message(FATAL_ERROR "ENABLE_TLS requires TLS_MODULE_DIR")
+endif()
 if (ENABLE_VARIANT_NESTED_GROUP AND "${VARIANT_NESTED_GROUP_MODULE_DIR}" STREQUAL "")
     message(FATAL_ERROR "ENABLE_VARIANT_NESTED_GROUP requires VARIANT_NESTED_GROUP_MODULE_DIR")
 endif()
@@ -221,6 +231,16 @@ find_package(ZLIB)
 SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
 SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
+
+set(BUILD_TESTS OFF)
+add_subdirectory(
+    ${CONTRIB_PATH}/datasketches-cpp
+    ${PROJECT_BINARY_DIR}/datasketches-cpp
+    EXCLUDE_FROM_ALL)
+target_include_directories(
+    hll SYSTEM INTERFACE $<BUILD_INTERFACE:${CONTRIB_PATH}/datasketches-cpp/hll/include>)
+target_include_directories(
+    common SYSTEM INTERFACE $<BUILD_INTERFACE:${CONTRIB_PATH}/datasketches-cpp/common/include>)
 
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
@@ -643,7 +663,7 @@ endif()
 set(PAIMON_FACTORY_REGISTRY_LIBS)
 if (ENABLE_PAIMON_CPP)
     # Plan B: Doris Arrow is now built with COMPUTE/DATASET/ACERO/FILESYSTEM,
-    # so arrow, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
+    # so arrow, arrow_compute, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
     # thirdparty.cmake.  paimon-cpp reuses the same Arrow (no paimon_deps).
     # No dual-stack selection needed — single Arrow for everything.
 

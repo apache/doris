@@ -51,7 +51,10 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
         CREATE TABLE paimon.${dbName}.t_overwrite_part (
             id INT, name STRING, region STRING
         ) USING paimon
-        PARTITIONED BY (region);
+        PARTITIONED BY (region)
+        TBLPROPERTIES (
+            'dynamic-partition-overwrite' = 'true'
+        );
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_overwrite_part_case;
         CREATE TABLE paimon.${dbName}.t_overwrite_part_case (

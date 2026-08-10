@@ -31,6 +31,7 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -45,6 +46,7 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
@@ -53,6 +55,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -133,6 +136,10 @@ public class TVFScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
+        if (tableValuedFunction.isLanceFormat()) {
+            return getLanceSplits();
+        }
+
         List<Split> splits = Lists.newArrayList();
         if (tableValuedFunction.getTFileType() == TFileType.FILE_STREAM) {
             return splits;
@@ -169,6 +176,29 @@ public class TVFScanNode extends FileQueryScanNode {
         return splits;
     }
 
+    private List<Split> getLanceSplits() throws UserException {
+        if (!sessionVariable.enableFileScannerV2) {
+            throw new UserException("Lance TVF requires enable_file_scanner_v2=true");
+        }
+        if (tableValuedFunction.getTFileType() == TFileType.FILE_LOCAL) {
+            // A local dataset is visible to its selected BE, not to FE. Keep exactly one
+            // whole-dataset split; BE resolves version zero to latest when it opens the dataset.
+            return Collections.singletonList(
+                    LanceSplit.wholeDatasetAtLatest(tableValuedFunction.getFilePath()));
+        }
+
+        long version = tableValuedFunction.getLanceDatasetVersion();
+        if (version <= 0) {
+            throw new UserException(
+                    "S3 Lance TVF metadata was not initialized with a fixed dataset version");
+        }
+        List<Split> splits = new ArrayList<>(tableValuedFunction.getLanceFragmentIds().size());
+        for (Long fragmentId : tableValuedFunction.getLanceFragmentIds()) {
+            splits.add(new LanceSplit(tableValuedFunction.getFilePath(), version, fragmentId, 1));
+        }
+        return splits;
+    }
+
     private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) {
         if (sessionVariable.getFileSplitSize() > 0) {
             return sessionVariable.getFileSplitSize();
@@ -190,6 +220,24 @@ public class TVFScanNode extends FileQueryScanNode {
 
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        if (tableValuedFunction.isLanceFormat()) {
+            if (!(split instanceof LanceSplit)) {
+                throw new IllegalArgumentException("Expected LanceSplit but got " + split.getClass().getName());
+            }
+            LanceSplit lanceSplit = (LanceSplit) split;
+            TLanceFileDesc lanceParams = new TLanceFileDesc();
+            lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
+            lanceParams.setVersion(lanceSplit.getVersion());
+            if (lanceSplit.hasFragmentId()) {
+                lanceParams.setFragmentIds(Collections.singletonList(lanceSplit.getFragmentId()));
+            }
+
+            TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+            tableFormatFileDesc.setTableFormatType(TableFormatType.LANCE.value());
+            tableFormatFileDesc.setLanceParams(lanceParams);
+            rangeDesc.setTableFormatParams(tableFormatFileDesc);
+            return;
+        }
         if (split instanceof FileSplit) {
             TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
             tableFormatFileDesc.setTableFormatType(TableFormatType.TVF.value());

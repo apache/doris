@@ -155,7 +155,8 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-eval "${TP_DIR}/download-thirdparty.sh ${packages[*]}"
+prepare_arrow_paimon_download_packages "${packages[@]}"
+bash "${TP_DIR}/download-thirdparty.sh" "${ARROW_PAIMON_DOWNLOAD_PACKAGES[@]}"
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
@@ -1064,6 +1065,7 @@ build_grpc() {
 # arrow
 build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
+    invalidate_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
 
     mkdir -p release
@@ -1088,9 +1090,7 @@ build_arrow() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="${ldflags}" \
+    LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
@@ -1125,6 +1125,7 @@ build_arrow() {
         -Dxsimd_SOURCE=BUNDLED \
         -DBrotli_SOURCE=BUNDLED \
         -DARROW_LZ4_USE_SHARED=OFF \
+        -DLZ4_ROOT="${TP_INSTALL_DIR};${TP_INSTALL_DIR}/include/lz4" \
         -DLZ4_LIB="${TP_INSTALL_DIR}/lib/liblz4.a" -DLZ4_INCLUDE_DIR="${TP_INSTALL_DIR}/include/lz4" \
         -DLz4_SOURCE=SYSTEM \
         -DARROW_ZSTD_USE_SHARED=OFF \
@@ -1147,9 +1148,12 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
+    strip_lib libarrow_compute.a
     strip_lib libparquet.a
     strip_lib libarrow_dataset.a
     strip_lib libarrow_acero.a
+
+    publish_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
 }
 
 # abseil
@@ -2042,6 +2046,8 @@ build_pugixml() {
 # paimon-cpp
 build_paimon_cpp() {
     check_if_source_exist "${PAIMON_CPP_SOURCE}"
+    require_arrow_prebuilt_for_paimon "${TP_INSTALL_DIR}"
+    invalidate_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
     cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
 
     rm -rf "${BUILD_DIR}"
@@ -2088,6 +2094,7 @@ build_paimon_cpp() {
         mkdir -p "${paimon_deps_dir}"
         for paimon_arrow_dep in \
             libarrow.a \
+            libarrow_compute.a \
             libarrow_filesystem.a \
             libarrow_dataset.a \
             libarrow_acero.a \
@@ -2121,6 +2128,7 @@ build_paimon_cpp() {
     fi
 
     echo "Paimon-cpp internal dependencies installed successfully"
+    publish_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
 }
 
 # lance-c
@@ -2141,37 +2149,26 @@ build_lance_c() {
         exit 1
     fi
 
+    local required_rust_version="1.91.0"
     local cargo_env=(
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
         "PROTOC=${TP_INSTALL_DIR}/bin/protoc"
     )
     if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
-        if rustup toolchain list | grep -q '^1.91.0'; then
-            cargo_env+=("RUSTUP_TOOLCHAIN=1.91.0")
+        if ! rustup toolchain list | grep -Eq '^1\.91\.0([[:space:]-]|$)'; then
+            rustup toolchain install "${required_rust_version}" --profile minimal
         fi
+        cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
     fi
 
-    local required_rust_version="1.91.0"
     local cargo_version
     if ! cargo_version="$(env "${cargo_env[@]}" "${cargo_bin}" --version | awk '{print $2}')"; then
         echo "failed to get cargo version for lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
-            split(required, r, ".");
-            split(actual, a, ".");
-            for (i = 1; i <= 3; i++) {
-                if ((a[i] + 0) > (r[i] + 0)) {
-                    exit 0;
-                }
-                if ((a[i] + 0) < (r[i] + 0)) {
-                    exit 1;
-                }
-            }
-            exit 0;
-        }'; then
-        echo "lance-c requires Rust/Cargo ${required_rust_version} or newer, but found ${cargo_version}."
+    if [[ "${cargo_version}" != "${required_rust_version}" ]]; then
+        echo "lance-c requires Rust/Cargo ${required_rust_version}, but found ${cargo_version}."
         echo "Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi

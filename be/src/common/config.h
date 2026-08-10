@@ -474,6 +474,7 @@ DECLARE_String(storage_page_cache_limit);
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
 DECLARE_Int32(storage_page_cache_shard_size);
+DECLARE_mInt32(file_cache_mem_storage_shard_num);
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DECLARE_Int32(index_page_cache_percentage);
@@ -655,6 +656,26 @@ DECLARE_Int64(migration_lock_timeout_ms);
 
 // Port to start debug webserver on
 DECLARE_Int32(webserver_port);
+// TLS module enable flag
+DECLARE_Bool(enable_tls);
+// Path of TLS certificate
+DECLARE_String(tls_certificate_path);
+// Path of TLS private key
+DECLARE_String(tls_private_key_path);
+// Password for encrypted TLS private key
+DECLARE_String(tls_private_key_password);
+// TLS peer verification mode
+DECLARE_String(tls_verify_mode);
+// Path of TLS CA certificate
+DECLARE_String(tls_ca_certificate_path);
+// TLS certificate reload interval, in seconds
+DECLARE_Int32(tls_cert_refresh_interval_seconds);
+// Comma-separated excluded server protocols: brpc,thrift,http,arrowflight
+DECLARE_String(tls_excluded_protocols);
+// Required peer certificate DNS SAN allowlist for private protocols, syntax: brpc=a.com;thrift=b.com.
+// Empty means allow all peers. Once configured, the list acts as an allowlist and only peers whose
+// DNS SAN matches at least one configured entry for that protocol are allowed.
+DECLARE_String(tls_peer_cert_required_san_dns);
 // Https enable flag
 DECLARE_Bool(enable_https);
 // Path of certificate
@@ -681,9 +702,11 @@ DECLARE_mInt64(load_error_log_limit_bytes);
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_block etc
 DECLARE_Int32(brpc_heavy_work_pool_threads);
+DECLARE_Int32(brpc_peer_fetch_pool_threads);
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
+DECLARE_Int32(brpc_peer_fetch_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
 DECLARE_mBool(enable_bthread_transmit_block);
 DECLARE_Int32(brpc_arrow_flight_work_pool_threads);
@@ -1134,6 +1157,11 @@ DECLARE_mInt32(cold_data_compaction_score_threshold);
 DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
 
+// Thread pool for S3 reads in cross-CG peer winner race.
+// Max should match max_concurrent_peer_races so the pool never fills up under normal operation.
+DECLARE_Int32(min_peer_race_s3_thread_num);
+DECLARE_Int32(max_peer_race_s3_thread_num);
+
 DECLARE_Bool(enable_time_lut);
 DECLARE_mBool(enable_simdjson_reader);
 
@@ -1240,6 +1268,7 @@ DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_mBool(enable_file_cache_query_limit);
+DECLARE_mBool(enable_file_cache_query_limit_segment_meta);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_evict_file_cache_in_advance);

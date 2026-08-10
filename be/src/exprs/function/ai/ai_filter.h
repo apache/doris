@@ -38,7 +38,7 @@ public:
 
     static constexpr size_t number_of_arguments = 2;
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+    DataTypePtr get_nested_return_type_impl(const DataTypes& /*arguments*/) const {
         return std::make_shared<DataTypeBool>();
     }
 
@@ -47,6 +47,8 @@ public:
 private:
     MutableColumnPtr create_result_column() const { return ColumnUInt8::create(); }
 
+    // AI_FILTER-private helper.
+    // Converts one parsed batch of string flags into BOOL results.
     Status append_batch_results(const std::vector<std::string>& batch_results,
                                 IColumn& col_result) const {
         auto& bool_col = assert_cast<ColumnUInt8&>(col_result);

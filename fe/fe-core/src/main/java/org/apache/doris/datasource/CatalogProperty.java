@@ -33,6 +33,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -281,10 +282,13 @@ public class CatalogProperty {
      * Get Hadoop properties with lazy loading, using double-check locking to ensure thread safety
      */
     public Map<String, String> getHadoopProperties() {
-        if (hadoopProperties == null) {
+        // Retain the observed snapshot because invalidation may clear the volatile cache concurrently.
+        Map<String, String> cachedProperties = hadoopProperties;
+        if (cachedProperties == null) {
             synchronized (this) {
-                if (hadoopProperties == null) {
-                    hadoopProperties = new HashMap<>();
+                cachedProperties = hadoopProperties;
+                if (cachedProperties == null) {
+                    Map<String, String> result = new HashMap<>();
                     Map<StorageProperties.Type, StorageProperties> storageMap = getStoragePropertiesMap();
 
                     for (StorageProperties sp : storageMap.values()) {
@@ -294,15 +298,19 @@ public class CatalogProperty {
                                 String key = entry.getKey();
                                 String value = entry.getValue();
                                 if (value != null) {
-                                    hadoopProperties.put(key, value);
+                                    result.put(key, value);
                                 }
                             });
                         }
                     }
-                    StorageProperties.setCombinedFsCacheKey(hadoopProperties, storageMap.values());
+                    StorageProperties.setCombinedFsCacheKey(result, storageMap.values());
+                    // Readers share this snapshot without locking, so publish it only when complete
+                    // and keep caller-specific mutations out of the catalog cache.
+                    cachedProperties = Collections.unmodifiableMap(result);
+                    hadoopProperties = cachedProperties;
                 }
             }
         }
-        return hadoopProperties;
+        return cachedProperties;
     }
 }

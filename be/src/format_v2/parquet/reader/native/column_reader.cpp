@@ -800,6 +800,8 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::release_batch_scratch(
     release_selection |= release_vector_if_oversized(&_materialization_state.selection.ranges,
                                                      max_retained_bytes);
     release_selection |=
+            release_filter_if_oversized(&_fused_nullable_selection_nulls, max_retained_bytes);
+    release_selection |=
             release_filter_if_oversized(&_fixed_width_predicate_nulls, max_retained_bytes);
     release_selection |=
             release_filter_if_oversized(&_fixed_width_predicate_matches, max_retained_bytes);
@@ -832,6 +834,7 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::release_batch_scratch(
     release_selection |= release_vector_for_aggregate(&_nested_filter_map_data);
     release_selection |= release_vector_for_aggregate(&_materialization_state.dictionary_indices);
     release_selection |= release_vector_for_aggregate(&_materialization_state.selection.ranges);
+    release_selection |= release_filter_for_aggregate(&_fused_nullable_selection_nulls);
     release_selection |= release_filter_for_aggregate(&_fixed_width_predicate_nulls);
     release_selection |= release_filter_for_aggregate(&_fixed_width_predicate_matches);
     release_selection |= release_filter_for_aggregate(&_fixed_width_predicate_conversion_nulls);
@@ -860,7 +863,8 @@ size_t ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::retained_batch_scratch_b
            _def_levels.capacity() * sizeof(level_t) +
            _null_run_lengths.capacity() * sizeof(uint16_t) +
            _nested_filter_map_data.capacity() * sizeof(uint8_t) +
-           _fixed_width_predicate_nulls.capacity() + _fixed_width_predicate_matches.capacity() +
+           _fused_nullable_selection_nulls.capacity() + _fixed_width_predicate_nulls.capacity() +
+           _fixed_width_predicate_matches.capacity() +
            _fixed_width_predicate_conversion_nulls.capacity() +
            _materialization_state.dictionary_indices.capacity() * sizeof(uint32_t) +
            _materialization_state.selection.ranges.capacity() * sizeof(ParquetSelectionRange) +
@@ -875,7 +879,8 @@ size_t ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::active_batch_scratch_byt
             _serde == nullptr ? 0 : _serde->active_parquet_raw_predicate_scratch_bytes();
     return decoder_bytes + serde_bytes + _rep_levels.size() * sizeof(level_t) +
            _def_levels.size() * sizeof(level_t) + _null_run_lengths.size() * sizeof(uint16_t) +
-           _nested_filter_map_data.size() * sizeof(uint8_t) + _fixed_width_predicate_nulls.size() +
+           _nested_filter_map_data.size() * sizeof(uint8_t) +
+           _fused_nullable_selection_nulls.size() + _fixed_width_predicate_nulls.size() +
            _fixed_width_predicate_matches.size() + _fixed_width_predicate_conversion_nulls.size() +
            _materialization_state.dictionary_indices.size() * sizeof(uint32_t) +
            _materialization_state.selection.ranges.size() * sizeof(ParquetSelectionRange) +
@@ -892,6 +897,7 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::reserve_batch_scratch_for_
     _nested_filter_map_data.reserve(elements);
     _materialization_state.dictionary_indices.reserve(elements);
     _materialization_state.selection.ranges.reserve(elements);
+    _fused_nullable_selection_nulls.reserve(elements);
     _ancestor_null_indices.reserve(elements);
 }
 
@@ -955,6 +961,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
     }
     MutableColumnPtr data_column;
     _null_run_lengths.clear();
+    size_t num_nulls = 0;
     NullMap* map_data_column = nullptr;
     doris_column = IColumn::mutate(std::move(doris_column));
     if (is_column_nullable(*doris_column)) {
@@ -977,6 +984,9 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
                 }
 
                 bool is_null = def_level < _field_schema->definition_level;
+                if (is_null) {
+                    num_nulls += loop_read;
+                }
                 if (!(prev_is_null ^ is_null)) {
                     _null_run_lengths.emplace_back(0);
                 }
@@ -1006,10 +1016,26 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
         }
         _null_run_lengths.emplace_back((u_short)remaining);
     }
+    const bool use_fused_nullable_selection =
+            map_data_column != nullptr && filter_map.has_filter() && num_nulls > 0 &&
+            should_use_fused_nullable_selection(num_values, num_nulls, _null_run_lengths.size()) &&
+            _chunk_reader->supports_fused_nullable_selection(*data_column);
     {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
-        RETURN_IF_ERROR(_select_vector.init(_null_run_lengths, num_values, map_data_column,
-                                            &filter_map, _filter_map_index));
+        if (use_fused_nullable_selection) {
+            size_t num_filtered = 0;
+            // The fused path owns both the physical ranges and selected NULL layout. Restrict it
+            // to fragmented, materially nullable level plans: clustered, low-NULL, and no-NULL
+            // pages already collapse into a few cheap legacy runs, while fusing them adds planning
+            // branches without removing enough work to guarantee a win.
+            RETURN_IF_ERROR(build_filtered_nullable_selection(
+                    _null_run_lengths, num_values, num_nulls, map_data_column, &filter_map,
+                    _filter_map_index, &_materialization_state.selection,
+                    &_fused_nullable_selection_nulls, &num_filtered));
+        } else {
+            RETURN_IF_ERROR(_select_vector.init(_null_run_lengths, num_values, map_data_column,
+                                                &filter_map, _filter_map_index));
+        }
         _filter_map_index += num_values;
     }
     DORIS_CHECK(_serde != nullptr);
@@ -1020,8 +1046,13 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
             conversion_failure_map(*_field_schema, type, _materialization_state.enable_strict_mode,
                                    map_data_column, &compatibility_scratch);
     const size_t materialization_start_row = data_column->size();
-    const auto status = _chunk_reader->materialize_values(data_column, *_serde, _decode_context,
-                                                          _materialization_state, _select_vector);
+    const auto status =
+            use_fused_nullable_selection
+                    ? _chunk_reader->materialize_fused_nullable_values(
+                              data_column, *_serde, _decode_context, _materialization_state,
+                              num_values, num_nulls, _fused_nullable_selection_nulls)
+                    : _chunk_reader->materialize_values(data_column, *_serde, _decode_context,
+                                                        _materialization_state, _select_vector);
     _materialization_state.conversion_failure_null_map = nullptr;
     if (status.ok()) {
         mark_local_timestamp_defaults(*_field_schema, type,
@@ -1066,7 +1097,15 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
 
     auto read_and_fill_data = [&](size_t before_rep_level_sz, size_t filter_map_index) {
         RETURN_IF_ERROR(_chunk_reader->fill_def(_def_levels));
-        if (filter_map.has_filter()) {
+        const bool fuse_nested_selection = filter_map.has_filter() && !filter_map.filter_all();
+        size_t ancestor_null_count = 0;
+        if (fuse_nested_selection) {
+            SCOPED_RAW_TIMER(&_decode_null_map_time);
+            RETURN_IF_ERROR(_select_vector.init_nested(
+                    &_rep_levels, &_def_levels, before_rep_level_sz,
+                    _field_schema->repeated_parent_def_level, _field_schema->definition_level,
+                    map_data_column, &filter_map, filter_map_index, &ancestor_null_count));
+        } else if (filter_map.has_filter()) {
             RETURN_IF_ERROR(gen_filter_map(filter_map, filter_map_index, before_rep_level_sz,
                                            _rep_levels.size(), _nested_filter_map_data,
                                            &_nested_filter_map));
@@ -1075,17 +1114,20 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
                     nullptr, _rep_levels.size() - before_rep_level_sz, false));
         }
 
-        _null_run_lengths.clear();
-        _ancestor_null_indices.clear();
-        RETURN_IF_ERROR(gen_nested_null_map(before_rep_level_sz, _rep_levels.size(),
-                                            _null_run_lengths, _ancestor_null_indices));
+        if (!fuse_nested_selection) {
+            _null_run_lengths.clear();
+            _ancestor_null_indices.clear();
+            RETURN_IF_ERROR(gen_nested_null_map(before_rep_level_sz, _rep_levels.size(),
+                                                _null_run_lengths, _ancestor_null_indices));
+            ancestor_null_count = _ancestor_null_indices.size();
 
-        {
-            SCOPED_RAW_TIMER(&_decode_null_map_time);
-            RETURN_IF_ERROR(_select_vector.init(
-                    _null_run_lengths,
-                    _rep_levels.size() - before_rep_level_sz - _ancestor_null_indices.size(),
-                    map_data_column, &_nested_filter_map, 0, &_ancestor_null_indices));
+            {
+                SCOPED_RAW_TIMER(&_decode_null_map_time);
+                RETURN_IF_ERROR(_select_vector.init(
+                        _null_run_lengths,
+                        _rep_levels.size() - before_rep_level_sz - ancestor_null_count,
+                        map_data_column, &_nested_filter_map, 0, &_ancestor_null_indices));
+            }
         }
 
         DORIS_CHECK(_serde != nullptr);
@@ -1104,10 +1146,10 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
                                           map_data_column, materialization_start_row);
         }
         RETURN_IF_ERROR(status);
-        if (!_ancestor_null_indices.empty()) {
-            RETURN_IF_ERROR(_chunk_reader->skip_values(_ancestor_null_indices.size(), false));
+        if (ancestor_null_count != 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(ancestor_null_count, false));
         }
-        if (filter_map.has_filter()) {
+        if (filter_map.has_filter() && !fuse_nested_selection) {
             auto new_rep_sz = before_rep_level_sz;
             for (size_t idx = before_rep_level_sz; idx < _rep_levels.size(); idx++) {
                 if (_nested_filter_map_data[idx - before_rep_level_sz]) {

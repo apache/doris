@@ -44,19 +44,23 @@ public final class PaimonScanParams {
     private static final String PINNED_FILE_CREATION_TIME =
             "doris.internal.paimon.file-creation-time-millis";
     private static final String PINNED_EMPTY_SCAN = "doris.internal.paimon.empty-scan";
+    private static final String PRESERVE_BOUND_SCHEMA =
+            "doris.internal.paimon.preserve-bound-schema";
 
-    private static final Set<String> QUERY_OPTION_KEYS = ImmutableSet.of(
-            CoreOptions.SCAN_MODE.key(),
-            CoreOptions.SCAN_TIMESTAMP.key(),
-            CoreOptions.SCAN_TIMESTAMP_MILLIS.key(),
-            CoreOptions.SCAN_WATERMARK.key(),
-            CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(),
-            CoreOptions.SCAN_CREATION_TIME_MILLIS.key(),
-            CoreOptions.SCAN_SNAPSHOT_ID.key(),
-            CoreOptions.SCAN_TAG_NAME.key(),
-            CoreOptions.SCAN_VERSION.key(),
-            CoreOptions.SCAN_MANIFEST_PARALLELISM.key(),
-            CoreOptions.SCAN_PLAN_SORT_PARTITION.key());
+    private static final Set<String> QUERY_OPTION_KEYS = ImmutableSet.<String>builder()
+            .add(CoreOptions.SCAN_MODE.key())
+            .add(CoreOptions.SCAN_TIMESTAMP.key())
+            .add(CoreOptions.SCAN_TIMESTAMP_MILLIS.key())
+            .add(CoreOptions.SCAN_WATERMARK.key())
+            .add(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key())
+            .add(CoreOptions.SCAN_CREATION_TIME_MILLIS.key())
+            .add(CoreOptions.SCAN_SNAPSHOT_ID.key())
+            .add(CoreOptions.SCAN_TAG_NAME.key())
+            .add(CoreOptions.SCAN_VERSION.key())
+            .add(CoreOptions.SCAN_MANIFEST_PARALLELISM.key())
+            .add(CoreOptions.SCAN_PLAN_SORT_PARTITION.key())
+            .addAll(PaimonReaderOptions.supportedOptions())
+            .build();
 
     private static final Set<String> STARTUP_POSITION_KEYS = ImmutableSet.of(
             CoreOptions.SCAN_TIMESTAMP.key(),
@@ -101,10 +105,12 @@ public final class PaimonScanParams {
             throw new IllegalArgumentException("Unsupported Paimon query option(s): " + unsupported);
         }
 
+        PaimonReaderOptions.validateReaderOptions(options);
+
         String scanMode = options.get(CoreOptions.SCAN_MODE.key());
         if ("from-creation-timestamp".equalsIgnoreCase(scanMode)
                 && options.get(CoreOptions.SCAN_CREATION_TIME_MILLIS.key()) == null) {
-            // Paimon 1.3.1 does not validate this newer mode, but its starting scanner
+            // Paimon 1.4.2 does not validate this mode, but its starting scanner
             // requires the creation timestamp and otherwise fails after analysis.
             throw new IllegalArgumentException("Paimon scan mode 'from-creation-timestamp' requires query option '"
                     + CoreOptions.SCAN_CREATION_TIME_MILLIS.key() + "'.");
@@ -140,7 +146,38 @@ public final class PaimonScanParams {
                     .filter(key -> !tableOptions.containsKey(key))
                     .forEach(key -> isolatedOptions.put(key, null));
         }
-        return table.copy(isolatedOptions);
+        Table effectiveTable = PaimonReaderOptions.runtimeSafeTable(table, isolatedOptions);
+        // Validate after every copy so relation options participate in the documented
+        // relation > catalog > physical precedence before the effective value is judged.
+        PaimonReaderOptions.validateEffectiveTable(effectiveTable);
+        return effectiveTable;
+    }
+
+    public static FileStoreTable applyOptionsWithoutTimeTravel(
+            FileStoreTable table, Map<String, String> options) {
+        Map<String, String> tableOptions = userOptions(options);
+        validateOptions(tableOptions);
+        Map<String, String> isolatedOptions = new HashMap<>(tableOptions);
+        if (hasStartupOptions(tableOptions)) {
+            INHERITED_READ_STATE_KEYS.stream()
+                    .filter(key -> !tableOptions.containsKey(key))
+                    .forEach(key -> isolatedOptions.put(key, null));
+        }
+        // The captured fence already selected the schema generation; only carry the resolved reader
+        // selector and runtime limits without asking Paimon to rewind that schema again.
+        FileStoreTable effectiveTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(
+                table.copyWithoutTimeTravel(isolatedOptions));
+        PaimonReaderOptions.validateEffectiveTable(effectiveTable);
+        return effectiveTable;
+    }
+
+    public static FileStoreTable applyOptionsToBoundTable(
+            FileStoreTable table, Map<String, String> options) {
+        // Only an internal statement fence already owns its schema generation. Explicit user tags
+        // and snapshots must time-travel so system-table binding and scanning use the same schema.
+        return preservesBoundSchema(options)
+                ? applyOptionsWithoutTimeTravel(table, options)
+                : (FileStoreTable) applyOptions(table, options);
     }
 
     private static Set<String> inheritedReadStateKeys() {
@@ -175,6 +212,12 @@ public final class PaimonScanParams {
 
     public static boolean selectsSchema(Map<String, String> options) {
         return hasStartupOptions(options);
+    }
+
+    public static boolean hasOnlyReaderOptions(Map<String, String> options) {
+        Map<String, String> tableOptions = userOptions(options);
+        return !tableOptions.isEmpty()
+                && PaimonReaderOptions.metadataNeutralOptions().containsAll(tableOptions.keySet());
     }
 
     public static boolean usesStatementSnapshot(Map<String, String> options) {
@@ -296,6 +339,24 @@ public final class PaimonScanParams {
         return resolved;
     }
 
+    public static Map<String, String> pinOptionsToSnapshot(
+            Map<String, String> options, long snapshotId) {
+        // Statement-fence pinning removes inherited selectors, so validate the raw map first;
+        // otherwise an unsupported inherited key can disappear before the common validation path.
+        validateOptions(options);
+        Map<String, String> pinned = snapshotId == PaimonSnapshot.INVALID_SNAPSHOT_ID
+                ? resolvedEmptyOptions(options)
+                : resolvedSnapshotOptions(options, String.valueOf(snapshotId));
+        // This snapshot selector comes from the statement fence, whose table already owns the
+        // bound schema generation. Explicit user selectors must not carry this provenance marker.
+        pinned.put(PRESERVE_BOUND_SCHEMA, Boolean.TRUE.toString());
+        return pinned;
+    }
+
+    public static boolean preservesBoundSchema(Map<String, String> options) {
+        return options != null && Boolean.parseBoolean(options.get(PRESERVE_BOUND_SCHEMA));
+    }
+
     private static Map<String, String> resolvedTagOptions(Map<String, String> options, String tagName) {
         Map<String, String> resolved = new HashMap<>(options);
         INHERITED_READ_STATE_KEYS.forEach(resolved::remove);
@@ -330,6 +391,15 @@ public final class PaimonScanParams {
         Map<String, String> isolatedOptions = new HashMap<>();
         INHERITED_READ_STATE_KEYS.forEach(key -> isolatedOptions.put(key, null));
         isolatedOptions.putAll(incrementalOptions);
+        return isolatedOptions;
+    }
+
+    public static Map<String, String> isolateSnapshotRead(long snapshotId) {
+        Map<String, String> isolatedOptions = new HashMap<>();
+        // A repinned MVCC projection must carry exactly one selector; inherited tag or watermark
+        // state would make Paimon reject the table before snapshot planning starts.
+        INHERITED_READ_STATE_KEYS.forEach(key -> isolatedOptions.put(key, null));
+        isolatedOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshotId));
         return isolatedOptions;
     }
 

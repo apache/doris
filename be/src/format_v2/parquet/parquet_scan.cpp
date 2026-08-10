@@ -46,6 +46,7 @@
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
 #include "format_v2/parquet/reader/row_position_column_reader.h"
+#include "runtime/runtime_state.h"
 #include "util/defer_op.h"
 #include "util/time.h"
 
@@ -258,7 +259,7 @@ void materialize_count_star_placeholders(const format::FileScanRequest& request,
         if (!request.is_count_star_placeholder(column.column_id())) {
             continue;
         }
-        const auto block_position = request.local_positions.at(column.column_id()).value();
+        const auto block_position = request.non_predicate_position(column.column_id()).value();
         auto placeholder = file_block->get_by_position(block_position).column->assert_mutable();
         DCHECK(placeholder->empty());
         placeholder->insert_many_defaults(rows);
@@ -474,8 +475,9 @@ Status finalize_native_row_group_read_plan(
     std::vector<RowRange> page_selected_ranges;
     std::map<int, ParquetPageSkipPlan> page_skip_plans;
     RETURN_IF_ERROR(select_row_group_ranges_by_native_page_index(
-            thrift, page_indexes, file_schema, request, row_group_plan->row_group_rows,
-            &page_selected_ranges, &page_skip_plans, pruning_stats, timezone, runtime_state));
+            thrift, thrift.row_groups[row_group_plan->row_group_id], page_indexes, file_schema,
+            request, row_group_plan->row_group_rows, &page_selected_ranges, &page_skip_plans,
+            pruning_stats, timezone, runtime_state));
     row_group_plan->selected_ranges =
             intersect_row_ranges(row_group_plan->selected_ranges, page_selected_ranges);
     row_group_plan->page_skip_plans = std::move(page_skip_plans);
@@ -587,14 +589,7 @@ void update_counter_if_not_null(RuntimeProfile::Counter* counter, int64_t value)
 
 uint16_t apply_filter_to_selection(const IColumn::Filter& filter, SelectionVector* selection,
                                    uint16_t selected_rows) {
-    uint16_t new_selected_rows = 0;
-    for (uint16_t selection_idx = 0; selection_idx < selected_rows; ++selection_idx) {
-        const auto row_idx = selection->get_index(selection_idx);
-        if (filter[row_idx] != 0) {
-            selection->set_index(new_selected_rows++, static_cast<SelectionVector::Index>(row_idx));
-        }
-    }
-    return new_selected_rows;
+    return cast_set<uint16_t>(selection->compact_with_row_filter(filter.data(), selected_rows));
 }
 
 Status execute_compact_filter_conjuncts(const VExprContextSPtrs& conjuncts, size_t rows,
@@ -752,14 +747,8 @@ uint16_t apply_compact_filter_to_selection(const IColumn::Filter& filter,
                                            SelectionVector* selection, uint16_t selected_rows) {
     DORIS_CHECK(selection != nullptr);
     DORIS_CHECK(filter.size() == selected_rows);
-    uint16_t new_selected_rows = 0;
-    for (uint16_t selection_idx = 0; selection_idx < selected_rows; ++selection_idx) {
-        if (filter[selection_idx] != 0) {
-            selection->set_index(new_selected_rows++, static_cast<SelectionVector::Index>(
-                                                              selection->get_index(selection_idx)));
-        }
-    }
-    return new_selected_rows;
+    return cast_set<uint16_t>(
+            selection->compact_with_selection_filter(filter.data(), selected_rows));
 }
 
 IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
@@ -855,6 +844,7 @@ void ParquetScanScheduler::set_plan(RowGroupScanPlan plan) {
     _row_group_plans = std::move(plan.row_groups);
     _condition_cache_filtered_rows = 0;
     _predicate_filtered_rows = 0;
+    _remaining_plans_need_replanning = false;
     reset();
 }
 
@@ -906,6 +896,40 @@ void ParquetScanScheduler::reset() {
     _ordered_predicate_positions_scratch.clear();
     _predicate_batch_sequence = 0;
     reset_current_row_group();
+}
+
+void ParquetScanScheduler::set_scan_request(std::shared_ptr<format::FileScanRequest> request) {
+    DORIS_CHECK(request != nullptr);
+    _active_request = std::move(request);
+    _pending_request.reset();
+    _predicate_schedule_request = nullptr;
+}
+
+void ParquetScanScheduler::queue_scan_request(std::shared_ptr<format::FileScanRequest> request) {
+    DORIS_CHECK(request != nullptr);
+    _pending_request = std::move(request);
+}
+
+void ParquetScanScheduler::activate_pending_scan_request_at_row_group_boundary() {
+    if (_has_current_row_group || !_pending_predicate_selection.empty() ||
+        _pending_request == nullptr) {
+        return;
+    }
+    // Column readers and predicate schedules retain request-derived state for one row group. Swap
+    // only after they are gone; the refreshed request may promote a lazy column to a predicate.
+    _active_request = std::move(_pending_request);
+    _predicate_schedule_request = nullptr;
+    // Footer plans and adaptive ordering describe the previous predicate snapshot. Reusing either
+    // after a late runtime filter would miss pruning or bias the new predicate order with stale data.
+    _remaining_plans_need_replanning = true;
+    _predicate_schedule = {};
+    _predicate_positions_scratch.clear();
+    _predicate_indices_by_position_scratch.clear();
+    _materialized_predicate_positions_scratch.clear();
+    _ordered_predicate_positions_scratch.clear();
+    _predicate_runtime_stats.clear();
+    _predicate_batch_sequence = 0;
+    _predicate_survival_ratio = -1;
 }
 
 void ParquetScanScheduler::reset_current_row_group() {
@@ -1053,6 +1077,27 @@ Status ParquetScanScheduler::open_next_row_group(
         file_context.reset_random_access_ranges();
         _current_merge_range_active = false;
         ParquetPruningStats deferred_stats;
+        if (_remaining_plans_need_replanning) {
+            // A refreshed projection may require different dictionary, Bloom, or page-index
+            // metadata. Preserve already-safe selected ranges, but rebuild every request-shaped
+            // artifact before opening this row group.
+            candidate_plan.expensive_pruning_pending = true;
+            candidate_plan.page_skip_plans.clear();
+            candidate_plan.offset_indexes.clear();
+            const std::vector<int> candidate {candidate_plan.row_group_id};
+            std::vector<int> footer_selected;
+            RETURN_IF_ERROR(select_row_groups_by_metadata(
+                    file_context.native_metadata->to_thrift(), file_schema, request, &candidate,
+                    &footer_selected, _enable_bloom_filter, &deferred_stats, _timezone,
+                    _runtime_state, &file_context, _scan_profile.column_reader_profile,
+                    ParquetMetadataProbeMode::FOOTER_ONLY));
+            if (footer_selected.empty()) {
+                if (_parquet_profile != nullptr) {
+                    _parquet_profile->update_deferred_pruning_stats(deferred_stats, false);
+                }
+                continue;
+            }
+        }
         bool selected = false;
         RETURN_IF_ERROR(finalize_native_row_group_read_plan(
                 *file_context.native_metadata, file_schema, request, _enable_bloom_filter,
@@ -1132,9 +1177,17 @@ Status ParquetScanScheduler::open_next_row_group(
     RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
             thrift_metadata, file_schema, request_scan_columns(request), row_group_idx,
             file_context.native_file->size(), compat.parquet_816_padding, &native_ranges));
-    _current_merge_range_active = file_context.set_native_random_access_ranges(
-            native_ranges, detail::average_prefetch_range_size(native_ranges), _profile,
-            _merge_read_slice_size);
+    if (request.non_predicate_positions.empty()) {
+        _current_merge_range_active = file_context.set_native_random_access_ranges(
+                native_ranges, detail::average_prefetch_range_size(native_ranges), _profile,
+                _merge_read_slice_size);
+    } else {
+        // Independent predicate/output readers may revisit the same physical leaf at different
+        // cursors. MergeRangeFileReader has one consumptive cache per range, so use the random
+        // access reader for this layout instead of sharing one sequential range cache.
+        _current_merge_range_active = file_context.set_native_random_access_ranges(
+                {}, 0, _profile, _merge_read_slice_size);
+    }
 
     for (const auto& col : request.predicate_columns) {
         const auto local_id = col.column_id();
@@ -2580,9 +2633,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
         // selection vector. This also merges pending range gaps with fully filtered batches.
         RETURN_IF_ERROR(flush_pending_non_predicate_skip_rows());
         for (const auto& [fid, column_reader] : _current_non_predicate_columns) {
-            auto position_it = request.local_positions.find(fid);
-            DORIS_CHECK(position_it != request.local_positions.end());
-            const auto block_position = position_it->second.value();
+            const auto block_position = request.non_predicate_position(fid).value();
             auto column = file_block->get_by_position(block_position).column->assert_mutable();
             DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
                       column_reader->type()->get_primitive_type())
@@ -2650,9 +2701,7 @@ Status ParquetScanScheduler::materialize_pending_predicate_batch(
         SCOPED_TIMER(_scan_profile.column_read_time);
         RETURN_IF_ERROR(flush_pending_non_predicate_skip_rows());
         for (const auto& [fid, column_reader] : _current_non_predicate_columns) {
-            auto position_it = request.local_positions.find(fid);
-            DORIS_CHECK(position_it != request.local_positions.end());
-            const auto block_position = position_it->second.value();
+            const auto block_position = request.non_predicate_position(fid).value();
             auto column = file_block->get_by_position(block_position).column->assert_mutable();
             [[maybe_unused]] const auto old_size = column->size();
             RETURN_IF_ERROR(column_reader->select(_pending_output_selection,
@@ -2706,11 +2755,12 @@ void ParquetScanScheduler::mark_condition_cache_granules(const SelectionVector& 
 
 Status ParquetScanScheduler::read_next_batch(
         ParquetFileContext& file_context,
-        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request, Block* file_block, size_t* rows, bool* eof) {
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema, Block* file_block,
+        size_t* rows, bool* eof) {
+    DORIS_CHECK(_active_request != nullptr);
     *rows = 0;
     if (!_pending_predicate_selection.empty()) {
-        RETURN_IF_ERROR(materialize_pending_predicate_batch(request, file_block, rows));
+        RETURN_IF_ERROR(materialize_pending_predicate_batch(*_active_request, file_block, rows));
         *eof = false;
         return Status::OK();
     }
@@ -2731,9 +2781,10 @@ Status ParquetScanScheduler::read_next_batch(
     };
     while (true) {
         if (!_has_current_row_group) {
+            activate_pending_scan_request_at_row_group_boundary();
             bool has_row_group = false;
-            RETURN_IF_ERROR(
-                    open_next_row_group(file_context, file_schema, request, &has_row_group));
+            RETURN_IF_ERROR(open_next_row_group(file_context, file_schema, *_active_request,
+                                                &has_row_group));
             if (!has_row_group) {
                 *eof = true;
                 return Status::OK();
@@ -2769,8 +2820,9 @@ Status ParquetScanScheduler::read_next_batch(
         const int64_t physical_rows_read = batch_rows;
         const int64_t batch_first_file_row =
                 _current_row_group_first_row + _current_row_group_rows_read;
-        RETURN_IF_ERROR(read_current_row_group_batch(file_context, file_schema, batch_rows, request,
-                                                     batch_first_file_row, file_block, rows));
+        RETURN_IF_ERROR(read_current_row_group_batch(file_context, file_schema, batch_rows,
+                                                     *_active_request, batch_first_file_row,
+                                                     file_block, rows));
         _current_row_group_rows_read += physical_rows_read;
         _current_range_rows_read += physical_rows_read;
         if (_current_range_rows_read >= current_range.length) {

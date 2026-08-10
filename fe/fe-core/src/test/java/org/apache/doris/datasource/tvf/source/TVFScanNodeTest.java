@@ -23,12 +23,14 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPushAggOp;
 
@@ -38,6 +40,7 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -112,5 +115,65 @@ public class TVFScanNodeTest {
         java.lang.reflect.Field field = FileQueryScanNode.class.getDeclaredField("fileSplitter");
         field.setAccessible(true);
         field.set(node, splitter);
+    }
+
+    @Test
+    public void testLanceSplitsPinVersionAndFragments() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        Mockito.when(tvf.isLanceFormat()).thenReturn(true);
+        Mockito.when(tvf.getFilePath()).thenReturn("s3://bucket/table.lance");
+        Mockito.when(tvf.getLanceDatasetVersion()).thenReturn(42L);
+        Mockito.when(tvf.getLanceFragmentIds()).thenReturn(Arrays.asList(7L, 11L));
+        desc.setTable(table);
+
+        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+        List<Split> splits = node.getSplits(3);
+        Assert.assertEquals(2, splits.size());
+
+        LanceSplit first = (LanceSplit) splits.get(0);
+        Assert.assertEquals("s3://bucket/table.lance", first.getDatasetUri());
+        Assert.assertEquals(42L, first.getVersion());
+        Assert.assertEquals(7L, first.getFragmentId());
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        node.setScanParams(range, first);
+        Assert.assertTrue(range.isSetTableFormatParams());
+        Assert.assertEquals("lance", range.getTableFormatParams().getTableFormatType());
+        Assert.assertEquals("s3://bucket/table.lance",
+                range.getTableFormatParams().getLanceParams().getDatasetUri());
+        Assert.assertEquals(42L, range.getTableFormatParams().getLanceParams().getVersion());
+        Assert.assertEquals(Collections.singletonList(7L),
+                range.getTableFormatParams().getLanceParams().getFragmentIds());
+    }
+
+    @Test
+    public void testLocalLanceUsesOneLatestWholeDatasetSplit() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        Mockito.when(tvf.isLanceFormat()).thenReturn(true);
+        Mockito.when(tvf.getTFileType()).thenReturn(TFileType.FILE_LOCAL);
+        Mockito.when(tvf.getFilePath()).thenReturn("/data/table.lance");
+        desc.setTable(table);
+
+        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+        List<Split> splits = node.getSplits(3);
+        Assert.assertEquals(1, splits.size());
+
+        LanceSplit split = (LanceSplit) splits.get(0);
+        Assert.assertEquals("/data/table.lance", split.getDatasetUri());
+        Assert.assertEquals(0L, split.getVersion());
+        Assert.assertFalse(split.hasFragmentId());
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        node.setScanParams(range, split);
+        Assert.assertEquals(0L, range.getTableFormatParams().getLanceParams().getVersion());
+        Assert.assertFalse(range.getTableFormatParams().getLanceParams().isSetFragmentIds());
     }
 }

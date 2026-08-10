@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/common/endian.h"
+#include "exec/scan/file_scan_io_context.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
@@ -223,12 +224,7 @@ IcebergDeleteFileIOContext::IcebergDeleteFileIOContext(RuntimeState* state) {
     io_ctx.file_cache_stats = &file_cache_stats;
     io_ctx.file_reader_stats = &file_reader_stats;
     if (state != nullptr) {
-        // branch-4.1 has no shared FileScanIOContext helper; keep delete-file reads attributed to
-        // the parent query and classified identically to ordinary external scans.
-        io_ctx.query_id = &state->query_id();
-        if (state->query_options().query_type == TQueryType::SELECT) {
-            io_ctx.reader_type = ReaderType::READER_QUERY;
-        }
+        init_file_scan_io_context(state, &io_ctx);
     }
 }
 

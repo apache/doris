@@ -81,6 +81,7 @@ bvar::LatencyRecorder g_stream_load_commit_and_publish_latency_ms("stream_load",
                                                                   "commit_and_publish_ms");
 
 static constexpr size_t MIN_CHUNK_SIZE = 64 * 1024;
+static constexpr size_t MEBIBYTE = 1024 * 1024;
 static const std::string CHUNK = "chunked";
 static const std::string OFF_MODE = "off_mode";
 static const std::string SYNC_MODE = "sync_mode";
@@ -290,8 +291,10 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
 
     // check content length
     ctx->body_bytes = 0;
-    size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
-    size_t json_max_body_bytes = config::streaming_load_json_max_mb * 1024 * 1024;
+    const auto csv_max_body_mb = config::streaming_load_max_mb;
+    size_t csv_max_body_bytes = csv_max_body_mb * MEBIBYTE;
+    const auto json_max_body_mb = config::streaming_load_json_max_mb;
+    size_t json_max_body_bytes = json_max_body_mb * MEBIBYTE;
     bool read_json_by_line = false;
     if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
         if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
@@ -309,17 +312,21 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
             (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
             return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
-                    "json body size {} exceed BE's conf `streaming_load_json_max_mb` {}. increase "
-                    "it if you are sure this load is reasonable",
-                    ctx->body_bytes, json_max_body_bytes);
+                    "json body size {} bytes ({:.2f} MiB) exceeds the limit of {} bytes ({} MiB) "
+                    "set by BE's conf streaming_load_json_max_mb. Increase it if you are sure "
+                    "this load is reasonable",
+                    ctx->body_bytes, static_cast<double>(ctx->body_bytes) / MEBIBYTE,
+                    json_max_body_bytes, json_max_body_mb);
         }
         // csv max body size
         else if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
             return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
-                    "body size {} exceed BE's conf `streaming_load_max_mb` {}. increase it if you "
-                    "are sure this load is reasonable",
-                    ctx->body_bytes, csv_max_body_bytes);
+                    "body size {} bytes ({:.2f} MiB) exceeds the limit of {} bytes ({} MiB) set "
+                    "by BE's conf streaming_load_max_mb. Increase it if you are sure this load is "
+                    "reasonable",
+                    ctx->body_bytes, static_cast<double>(ctx->body_bytes) / MEBIBYTE,
+                    csv_max_body_bytes, csv_max_body_mb);
         }
     } else {
 #ifndef BE_TEST

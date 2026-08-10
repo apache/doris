@@ -102,7 +102,7 @@ public class CloudInstanceStatusCheckerTest {
 
         new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
 
-        ComputeGroup virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
+        CloudComputeGroupMeta virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
         Assertions.assertNotNull(virtualComputeGroup);
         Assertions.assertTrue(virtualComputeGroup.isVirtual());
         Assertions.assertEquals("vcg", virtualComputeGroup.getName());
@@ -129,17 +129,17 @@ public class CloudInstanceStatusCheckerTest {
         try (MockedStatic<CloudSystemInfoService> mockedCloudSystemInfoService =
                      Mockito.mockStatic(CloudSystemInfoService.class, Mockito.CALLS_REAL_METHODS)) {
             mockedCloudSystemInfoService.when(() -> CloudSystemInfoService.updateFileCacheJobIds(
-                    Mockito.any(ComputeGroup.class), Mockito.anyList())).thenReturn(true);
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList())).thenReturn(true);
 
             new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
             mockedCloudSystemInfoService.verify(() -> CloudSystemInfoService.updateFileCacheJobIds(
-                    Mockito.any(ComputeGroup.class), Mockito.anyList()));
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList()));
         } finally {
             logger.removeAppender(appender);
             appender.stop();
         }
 
-        ComputeGroup virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
+        CloudComputeGroupMeta virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
         Assertions.assertNotNull(virtualComputeGroup);
         Assertions.assertTrue(virtualComputeGroup.isVirtual());
         Assertions.assertFalse(virtualComputeGroup.isNeedRebuildFileCache());
@@ -181,9 +181,10 @@ public class CloudInstanceStatusCheckerTest {
         long oldEventJobId = cacheHotspotManager.createJob(
                 buildEventDrivenStmt("active_cg", "standby_cg"));
 
-        ComputeGroup virtualComputeGroup = new ComputeGroup("vcg_id", "vcg", ComputeGroup.ComputeTypeEnum.VIRTUAL);
+        CloudComputeGroupMeta virtualComputeGroup = new CloudComputeGroupMeta(
+                "vcg_id", "vcg", CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
         virtualComputeGroup.setSubComputeGroups(Arrays.asList("active_cg", "standby_cg"));
-        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
         policy.setActiveComputeGroup("active_cg");
         policy.setStandbyComputeGroup("standby_cg");
         policy.setCacheWarmupJobIds(Arrays.asList(
@@ -199,7 +200,7 @@ public class CloudInstanceStatusCheckerTest {
         try (MockedStatic<CloudSystemInfoService> mockedCloudSystemInfoService =
                      Mockito.mockStatic(CloudSystemInfoService.class, Mockito.CALLS_REAL_METHODS)) {
             mockedCloudSystemInfoService.when(() -> CloudSystemInfoService.updateFileCacheJobIds(
-                    Mockito.any(ComputeGroup.class), Mockito.anyList())).thenReturn(true);
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList())).thenReturn(true);
 
             CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
             checker.runAfterCatalogReady();
@@ -231,14 +232,14 @@ public class CloudInstanceStatusCheckerTest {
         try (MockedStatic<CloudSystemInfoService> mockedCloudSystemInfoService =
                      Mockito.mockStatic(CloudSystemInfoService.class, Mockito.CALLS_REAL_METHODS)) {
             mockedCloudSystemInfoService.when(() -> CloudSystemInfoService.updateFileCacheJobIds(
-                    Mockito.any(ComputeGroup.class), Mockito.anyList())).thenReturn(false);
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList())).thenReturn(false);
 
             new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
             mockedCloudSystemInfoService.verify(() -> CloudSystemInfoService.updateFileCacheJobIds(
-                    Mockito.any(ComputeGroup.class), Mockito.anyList()));
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList()));
         }
 
-        ComputeGroup virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
+        CloudComputeGroupMeta virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
         Assertions.assertNotNull(virtualComputeGroup);
         Assertions.assertTrue(virtualComputeGroup.isNeedRebuildFileCache());
         Assertions.assertTrue(virtualComputeGroup.getPolicy().getCacheWarmupJobIds().isEmpty());
@@ -256,7 +257,7 @@ public class CloudInstanceStatusCheckerTest {
 
     private void addComputeGroup(String computeGroupId, String computeGroupName) {
         cloudSystemInfoService.addComputeGroup(computeGroupId,
-                new ComputeGroup(computeGroupId, computeGroupName, ComputeGroup.ComputeTypeEnum.COMPUTE));
+                new CloudComputeGroupMeta(computeGroupId, computeGroupName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE));
     }
 
     private Cloud.GetInstanceResponse instanceResponseWithVirtualComputeGroup() {

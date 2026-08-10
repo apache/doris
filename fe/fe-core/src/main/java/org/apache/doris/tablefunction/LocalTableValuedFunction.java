@@ -87,11 +87,15 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
             throw new AnalysisException("'backend_id' is required when 'shared_storage' is false.");
         }
 
-        // 3. parse file
-        getFileListFromBackend();
+        initializeBackendForRequest();
+        if (!isLanceFormat()) {
+            // A Lance path identifies a dataset directory and is opened directly by Lance-C.
+            // Globbing it would incorrectly turn its internal files into independent splits.
+            getFileListFromBackend();
+        }
     }
 
-    private void getFileListFromBackend() throws AnalysisException {
+    private void initializeBackendForRequest() throws AnalysisException {
         Backend be = null;
         if (backendId != -1) {
             be = Env.getCurrentSystemInfo().getBackend(backendId);
@@ -109,7 +113,11 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         if (be == null) {
             throw new AnalysisException("backend not found with backend_id = " + backendId);
         }
+    }
 
+    private void getFileListFromBackend() throws AnalysisException {
+        Backend be = Env.getCurrentSystemInfo().getBackend(backendIdForRequest);
+        Preconditions.checkNotNull(be);
         BackendServiceProxy proxy = BackendServiceProxy.getInstance();
         TNetworkAddress address = be.getBrpcAddress();
         InternalService.PGlobRequest.Builder requestBuilder = InternalService.PGlobRequest.newBuilder();

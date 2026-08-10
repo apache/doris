@@ -32,12 +32,14 @@ import org.apache.thrift.protocol.TProtocol;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TTransportException;
-import org.apache.thrift.transport.layered.TFramedTransport;
 
 import java.lang.reflect.Constructor;
 
 public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
     private static final Logger LOG = LogManager.getLogger(GenericPool.class);
+    private static final ThriftClientTransportProvider TRANSPORT_PROVIDER =
+            ThriftClientTransportProviderFactory.create();
+
     private GenericKeyedObjectPool<TNetworkAddress, VALUE> pool;
     private String className;
     private int timeoutMs;
@@ -207,10 +209,10 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
                 LOG.debug("before create socket hostname={} key.port={} timeoutMs={}",
                         key.hostname, key.port, timeoutMs);
             }
-            TTransport transport = isNonBlockingIO
-                    ? new TFramedTransport(new TSocket(key.hostname, key.port, timeoutMs))
-                    : new TSocket(key.hostname, key.port, timeoutMs);
-            transport.open();
+            TTransport transport = TRANSPORT_PROVIDER.createTransport(key, timeoutMs, isNonBlockingIO);
+            if (!transport.isOpen()) {
+                transport.open();
+            }
             TProtocol protocol = new TBinaryProtocol(transport);
             VALUE client = (VALUE) newInstance(className, protocol);
             return client;

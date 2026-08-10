@@ -115,6 +115,7 @@ public:
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
+    bool _can_merge_padding_blocks(const Block& left, const Block& right) const override;
     Status _filter_output_block(Block* block) override;
     void _collect_profile_before_close() override;
     bool _should_update_load_counters() const override;
@@ -178,11 +179,13 @@ private:
     std::shared_ptr<SplitSourceConnector> _split_source;
     bool _first_scan_range = false;
     bool _has_prepared_split = false;
+    int _table_reader_rf_num = 0;
     TFileRangeDesc _current_range;
     std::string _current_range_path;
 
     std::unique_ptr<format::TableReader> _table_reader;
     std::vector<format::ColumnDefinition> _projected_columns;
+    bool _has_variant_projection = false;
     // File formats without embedded schema, such as CSV, still need the FE slot descriptors in
     // file-column order. This mirrors old FileScanner::_file_slot_descs and is passed only to
     // readers that cannot derive their schema from file metadata.

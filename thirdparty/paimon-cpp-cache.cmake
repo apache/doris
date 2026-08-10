@@ -65,7 +65,7 @@ set(LZ4_INCLUDE_DIR "${DORIS_INCLUDE_DIR}" CACHE PATH "LZ4 include directory")
 
 # ============================================================================
 # Arrow - Reuse from Doris (Doris Arrow now includes COMPUTE/DATASET/ACERO/FILESYSTEM)
-# Doris's Arrow 17.0.0 is built with the full module set that paimon-cpp
+# Doris's Arrow 24.0.0 is built with the full module set that paimon-cpp
 # needs, so we skip paimon-cpp's internal externalproject_add(arrow_ep ...).
 # ============================================================================
 set(PAIMON_USE_EXTERNAL_ARROW ON CACHE BOOL "Use pre-built Arrow from Doris instead of building from source")
@@ -74,6 +74,7 @@ set(DORIS_LIB64_DIR "${DORIS_THIRDPARTY_DIR}/lib64" CACHE PATH "Doris lib64 dire
 
 set(PAIMON_EXTERNAL_ARROW_INCLUDE_DIR "${DORIS_INCLUDE_DIR}" CACHE PATH "Arrow include directory")
 set(PAIMON_EXTERNAL_ARROW_LIB "${DORIS_LIB64_DIR}/libarrow.a" CACHE FILEPATH "Arrow core library")
+set(PAIMON_EXTERNAL_ARROW_COMPUTE_LIB "${DORIS_LIB64_DIR}/libarrow_compute.a" CACHE FILEPATH "Arrow Compute library")
 set(PAIMON_EXTERNAL_ARROW_DATASET_LIB "${DORIS_LIB64_DIR}/libarrow_dataset.a" CACHE FILEPATH "Arrow Dataset library")
 set(PAIMON_EXTERNAL_ARROW_ACERO_LIB "${DORIS_LIB64_DIR}/libarrow_acero.a" CACHE FILEPATH "Arrow Acero library")
 set(PAIMON_EXTERNAL_PARQUET_LIB "${DORIS_LIB64_DIR}/libparquet.a" CACHE FILEPATH "Parquet library")

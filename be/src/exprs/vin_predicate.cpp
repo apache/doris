@@ -158,13 +158,20 @@ Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t seg
 Status VInPredicate::_materialize_for_zonemap_filter(VExprContext* context) {
     _seg_filter_values.clear();
     _seg_filter_contains_null = false;
+    _seg_filter_contains_nan = false;
     _zonemap_materialized = false;
     _direct_filter_set.reset();
-    if (_children.size() < 2 || !_children[0]->is_slot_ref()) {
+    if (_children.size() < 2) {
         return Status::OK();
     }
 
-    const auto data_type = remove_nullable(_children[0]->data_type());
+    auto bloom_probe = expr_zonemap::extract_bloom_filter_probe(_children[0]);
+    if (!bloom_probe.has_value()) {
+        return Status::OK();
+    }
+    // Materialization is shared by all pruning paths. Their capability checks keep ZoneMap,
+    // dictionary, and raw evaluation direct-slot-only while Bloom may consume a nested leaf.
+    const auto data_type = remove_nullable(bloom_probe->value_type);
     DORIS_CHECK(data_type != nullptr);
     if (is_complex_type(data_type->get_primitive_type())) {
         return Status::OK();
@@ -184,6 +191,7 @@ Status VInPredicate::_materialize_for_zonemap_filter(VExprContext* context) {
     RETURN_IF_ERROR(expr_zonemap::materialize_hybrid_set_for_zonemap_filter(
             *in_state->hybrid_set, data_type, &materialized));
     _seg_filter_contains_null = materialized.contains_null;
+    _seg_filter_contains_nan = materialized.contains_nan;
     _seg_filter_values = std::move(materialized.values);
     _seg_filter_min = std::move(materialized.min_value);
     _seg_filter_max = std::move(materialized.max_value);
@@ -196,7 +204,8 @@ ZoneMapFilterResult VInPredicate::evaluate_zonemap_filter(const ZoneMapEvalConte
         return ZoneMapFilterResult::kNoMatch;
     }
     return expr_zonemap::eval_in_zonemap(ctx, get_child(0), _is_not_in, _seg_filter_values,
-                                         _seg_filter_min, _seg_filter_max);
+                                         _seg_filter_contains_nan, _seg_filter_min,
+                                         _seg_filter_max);
 }
 
 bool VInPredicate::can_evaluate_zonemap_filter() const {
@@ -218,8 +227,9 @@ ZoneMapFilterResult VInPredicate::evaluate_bloom_filter(const BloomFilterEvalCon
 }
 
 bool VInPredicate::can_evaluate_bloom_filter() const {
-    return _zonemap_materialized && !_is_not_in &&
-           std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
+    // A NaN member forces conservative retention regardless of the remaining finite probes.
+    return _zonemap_materialized && !_is_not_in && !_seg_filter_contains_nan &&
+           expr_zonemap::extract_bloom_filter_probe(get_child(0)).has_value();
 }
 
 bool VInPredicate::can_execute_on_raw_fixed_values(const DataTypePtr& data_type,

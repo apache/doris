@@ -17,11 +17,18 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
@@ -33,6 +40,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonMvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonPartitionInfo;
+import org.apache.doris.datasource.paimon.PaimonReaderOptions;
 import org.apache.doris.datasource.paimon.PaimonScanParams;
 import org.apache.doris.datasource.paimon.PaimonSnapshot;
 import org.apache.doris.datasource.paimon.PaimonSnapshotCacheValue;
@@ -67,11 +75,14 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
+import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.ScanMode;
+import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.Assert;
 import org.junit.Test;
@@ -91,6 +102,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 @RunWith(MockitoJUnitRunner.class)
 public class PaimonScanNodeTest {
@@ -99,6 +111,57 @@ public class PaimonScanNodeTest {
 
     @Mock
     private PaimonFileExternalCatalog paimonFileExternalCatalog;
+
+    @Test
+    public void testVariantProjectionRequiresVariantV2Recursively() throws UserException {
+        List<Type> variantTypes = Arrays.asList(
+                VariantType.COMPUTE_V2_INSTANCE,
+                new ArrayType(VariantType.COMPUTE_V2_INSTANCE),
+                new MapType(Type.STRING, VariantType.COMPUTE_V2_INSTANCE),
+                new StructType(new StructField("payload", VariantType.COMPUTE_V2_INSTANCE)));
+
+        for (Type variantType : variantTypes) {
+            assertVariantProjectionRequiresVariantV2(variantType);
+        }
+    }
+
+    private void assertVariantProjectionRequiresVariantV2(Type variantType) throws UserException {
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(0), desc);
+        slot.setColumn(new Column("payload", variantType));
+        desc.addSlot(slot);
+
+        ExceptionChecker.expectThrowsWithMsg(UserException.class,
+                "Paimon VARIANT columns require enable_variant_v2=true",
+                () -> PaimonScanNode.checkVariantV2Enabled(desc, false));
+        PaimonScanNode.checkVariantV2Enabled(desc, true);
+    }
+
+    @Test
+    public void testSerializedTableCacheKeyIsStablePerScanNode() {
+        PaimonScanNode first = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonScanNode second = newTestNode(new PlanNodeId(1), new TupleId(1), sv);
+
+        String firstKey = first.getSerializedTableCacheKey().orElse("");
+        Assert.assertFalse(firstKey.isEmpty());
+        Assert.assertEquals(firstKey, first.getSerializedTableCacheKey().orElse(""));
+        Assert.assertNotEquals(firstKey, second.getSerializedTableCacheKey().orElse(""));
+    }
+
+    @Test
+    public void testRegularScanDoesNotComputeMergedRowCount() throws UserException {
+        PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), sv));
+        node.setSource(mockPaimonSourceWithPartitionKeys(Collections.emptyList()));
+        DataSplit dataSplit = Mockito.spy(createDataSplit("regular.parquet"));
+        Mockito.doReturn(Collections.singletonList(dataSplit)).when(node).getPaimonSplitFromAPI();
+        Mockito.when(sv.isForceJniScanner()).thenReturn(true);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+
+        List<org.apache.doris.spi.Split> splits = node.getSplits(1);
+
+        Assert.assertEquals(1, splits.size());
+        Mockito.verify(dataSplit, Mockito.never()).mergedRowCount();
+    }
 
     @Test
     public void testCountColumnKeepsAllSplitsWhileCountStarUsesMergedRowCount() throws UserException {
@@ -130,6 +193,22 @@ public class PaimonScanNodeTest {
         List<org.apache.doris.spi.Split> countStarSplits = node.getSplits(1);
         Assert.assertEquals(1, countStarSplits.size());
         Assert.assertEquals(Optional.of(15_000L), ((PaimonSplit) countStarSplits.get(0)).getRowCount());
+    }
+
+    @Test
+    public void testNonCountScanDoesNotComputeMergedRowCount() throws UserException {
+        PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), sv));
+        node.setSource(mockPaimonSourceWithPartitionKeys(Collections.<String>emptyList()));
+        DataSplit dataSplit = mockCountDataSplit("ordinary.parquet", 1_000);
+        Mockito.clearInvocations(dataSplit);
+        Mockito.doReturn(Collections.singletonList(dataSplit)).when(node).getPaimonSplitFromAPI();
+        Mockito.when(sv.isForceJniScanner()).thenReturn(true);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+
+        List<org.apache.doris.spi.Split> splits = node.getSplits(1);
+
+        Assert.assertEquals(1, splits.size());
+        Mockito.verify(dataSplit, Mockito.never()).mergedRowCount();
     }
 
     @Test
@@ -619,6 +698,7 @@ public class PaimonScanNodeTest {
         Table copiedTable = Mockito.mock(Table.class);
         Mockito.when(source.getExternalTable()).thenReturn(systemTable);
         Mockito.when(source.getPaimonTable()).thenReturn(baseTable);
+        Mockito.when(source.getPaimonTable((TableScanParams) null)).thenReturn(baseTable);
         node.setSource(source);
 
         Map<String, String> params = new HashMap<>();
@@ -645,6 +725,7 @@ public class PaimonScanNodeTest {
         expectedOptions.put("incremental-to-auto-tag", null);
         expectedOptions.put("incremental-between", "1,2");
         Mockito.when(baseTable.copy(expectedOptions)).thenReturn(copiedTable);
+        Mockito.when(copiedTable.options()).thenReturn(Collections.emptyMap());
 
         try {
             Assert.assertSame(copiedTable, invokePrivateMethod(node, "getProcessedTable"));
@@ -721,6 +802,62 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testBoundEmptyDataSnapshotStillPlansMetadataSystemTable() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
+        Table paimonTable = Mockito.mock(Table.class);
+        ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class);
+        TableScan scan = Mockito.mock(TableScan.class);
+        TableScan.Plan plan = Mockito.mock(TableScan.Plan.class);
+        org.apache.paimon.table.source.Split schemaSplit =
+                Mockito.mock(org.apache.paimon.table.source.Split.class);
+
+        Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);
+        Mockito.when(systemTable.getSysTableType()).thenReturn("schemas");
+        Mockito.when(source.getPaimonTable((TableScanParams) null)).thenReturn(paimonTable);
+        Mockito.when(paimonTable.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(paimonTable.rowType()).thenReturn(RowType.of());
+        Mockito.when(paimonTable.newReadBuilder()).thenReturn(readBuilder);
+        Mockito.when(readBuilder.withFilter(ArgumentMatchers.anyList())).thenReturn(readBuilder);
+        Mockito.when(readBuilder.withProjection(ArgumentMatchers.any(int[].class))).thenReturn(readBuilder);
+        Mockito.when(readBuilder.newScan()).thenReturn(scan);
+        Mockito.when(scan.plan()).thenReturn(plan);
+        Mockito.when(plan.splits()).thenReturn(Collections.singletonList(schemaSplit));
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "predicates", Collections.emptyList());
+        node.setRelationSnapshot(Optional.of(new PaimonMvccSnapshot(
+                new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
+                        new PaimonSnapshot(PaimonSnapshot.INVALID_SNAPSHOT_ID, 1L, paimonTable)))));
+
+        Assert.assertEquals(Collections.singletonList(schemaSplit), node.getPaimonSplitFromAPI());
+        Mockito.verify(paimonTable).newReadBuilder();
+    }
+
+    @Test
+    public void testSystemWrapperIsNotRecappedAfterItsHiddenSource() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
+        Table rawSource = Mockito.mock(Table.class);
+        Table safeWrapper = Mockito.mock(Table.class);
+
+        Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(rawSource);
+        Mockito.when(systemTable.getSysTableType()).thenReturn("partitions");
+        Mockito.when(source.getPaimonTable((TableScanParams) null)).thenReturn(safeWrapper);
+        Mockito.when(safeWrapper.options()).thenReturn(Collections.emptyMap());
+        node.setSource(source);
+
+        // The system-table factory has already normalized each hidden fallback leaf. Copying the
+        // outer wrapper with one cap would broadcast it and erase a smaller sibling preference.
+        Assert.assertSame(safeWrapper, invokePrivateMethod(node, "getProcessedTable"));
+        Mockito.verify(safeWrapper, Mockito.never()).copy(ArgumentMatchers.anyMap());
+        Mockito.verify(source).validateEffectiveSystemDataTable(null);
+    }
+
+    @Test
     public void testSystemTableRejectsIncrementalReadWhenReaderIgnoresRange() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
@@ -764,6 +901,7 @@ public class PaimonScanNodeTest {
         node.setScanParams(new TableScanParams(
                 TableScanParams.OPTIONS, options, Collections.emptyList()));
         Mockito.when(baseTable.copy(ArgumentMatchers.anyMap())).thenReturn(copiedTable);
+        Mockito.when(copiedTable.options()).thenReturn(options);
 
         try {
             Assert.assertSame(copiedTable, invokePrivateMethod(node, "getProcessedTable"));
@@ -819,6 +957,49 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testRejectsUnsafePhysicalOptionsAtFinalPlanningBoundary() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Table unsafePhysicalTable = Mockito.mock(Table.class);
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(unsafePhysicalTable);
+        Mockito.when(unsafePhysicalTable.options()).thenReturn(ImmutableMap.of("read.batch-size", "0"));
+        node.setSource(source);
+
+        try {
+            invokePrivateMethod(node, "getProcessedTable");
+            Assert.fail("The final planning boundary must reject an effective zero batch size");
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Assert.assertTrue(e.getTargetException().getMessage().contains("read.batch-size"));
+        }
+    }
+
+    @Test
+    public void testFinalPlanningBoundaryCapsAcceptedManifestParallelism() throws Exception {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        org.junit.Assume.assumeTrue(localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        FileStoreTable rawTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable safeTable = Mockito.mock(FileStoreTable.class);
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(rawTable);
+        Mockito.when(rawTable.options()).thenReturn(ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity + 1)));
+        Mockito.when(rawTable.copyWithoutTimeTravel(ArgumentMatchers.anyMap())).thenReturn(safeTable);
+        Mockito.when(safeTable.options()).thenReturn(ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity)));
+        node.setSource(source);
+
+        Assert.assertSame(safeTable, invokePrivateMethod(node, "getProcessedTable"));
+        Mockito.verify(rawTable).copyWithoutTimeTravel(ArgumentMatchers.argThat(options ->
+                String.valueOf(localCapacity)
+                        .equals(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))));
+    }
+
+    @Test
     public void testDataTableOptionsUseRelationScopedCatalogHandle() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
@@ -835,6 +1016,7 @@ public class PaimonScanNodeTest {
                 Collections.emptyList());
         node.setScanParams(scanParams);
         Mockito.when(source.getPaimonTable(scanParams)).thenReturn(relationScopedTable);
+        Mockito.when(relationScopedTable.options()).thenReturn(Collections.emptyMap());
 
         Assert.assertSame(relationScopedTable, invokePrivateMethod(node, "getProcessedTable"));
         Mockito.verify(source).getPaimonTable(scanParams);
@@ -931,6 +1113,7 @@ public class PaimonScanNodeTest {
         node.setScanParams(new TableScanParams(
                 TableScanParams.OPTIONS, options, Collections.emptyList()));
         Mockito.when(baseTable.copy(ArgumentMatchers.anyMap())).thenReturn(copiedTable);
+        Mockito.when(copiedTable.options()).thenReturn(options);
 
         try {
             invokePrivateMethod(node, "serializeProcessedTable");
@@ -1319,8 +1502,7 @@ public class PaimonScanNodeTest {
                 Collections.<String>emptyList());
         DataSplit dataSplit = Mockito.mock(DataSplit.class);
         Mockito.when(dataSplit.rowCount()).thenReturn(rowCount);
-        Mockito.when(dataSplit.mergedRowCountAvailable()).thenReturn(true);
-        Mockito.when(dataSplit.mergedRowCount()).thenReturn(rowCount);
+        Mockito.when(dataSplit.mergedRowCount()).thenReturn(OptionalLong.of(rowCount));
         Mockito.when(dataSplit.partition()).thenReturn(BinaryRow.singleColumn(1));
         Mockito.when(dataSplit.dataFiles()).thenReturn(Collections.singletonList(dataFileMeta));
         Mockito.when(dataSplit.convertToRawFiles()).thenReturn(Optional.empty());

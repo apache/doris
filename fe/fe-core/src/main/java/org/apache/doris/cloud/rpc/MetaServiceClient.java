@@ -24,11 +24,20 @@ import org.apache.doris.common.Config;
 import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
+import com.google.protobuf.Descriptors;
+import com.google.protobuf.Message;
+import io.grpc.CallOptions;
+import io.grpc.Channel;
+import io.grpc.ClientCall;
+import io.grpc.ClientInterceptor;
+import io.grpc.ClientInterceptors;
 import io.grpc.ConnectivityState;
+import io.grpc.ForwardingClientCall;
+import io.grpc.ForwardingClientCallListener;
 import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
 import io.grpc.NameResolverRegistry;
-import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
-import io.grpc.netty.shaded.io.netty.channel.ChannelOption;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -42,12 +51,15 @@ import java.util.concurrent.TimeUnit;
 public class MetaServiceClient {
     public static final Logger LOG = LogManager.getLogger(MetaServiceClient.class);
     private static final Map<String, ?> serviceConfig;
+    private static final MetaServiceClientChannelProvider CHANNEL_PROVIDER =
+            MetaServiceClientChannelProviderFactory.create();
 
     private final String address;
     private final MetaServiceGrpc.MetaServiceFutureStub stub;
     private final MetaServiceGrpc.MetaServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
     private final long expiredAt;
+    private final long channelConfigVersion;
     private Random random = new Random();
 
     static {
@@ -69,17 +81,66 @@ public class MetaServiceClient {
         }
 
         Preconditions.checkNotNull(serviceConfig, "serviceConfig is null");
-        channel = NettyChannelBuilder.forTarget(target)
-                .flowControlWindow(Config.grpc_max_message_size_bytes)
-                .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
-                .defaultServiceConfig(serviceConfig)
-                .defaultLoadBalancingPolicy("round_robin")
-                .enableRetry()
-                .usePlaintext()
-                .withOption(ChannelOption.CONNECT_TIMEOUT_MILLIS, Config.meta_service_brpc_connect_timeout_ms).build();
-        stub = MetaServiceGrpc.newFutureStub(channel);
-        blockingStub = MetaServiceGrpc.newBlockingStub(channel);
+        channelConfigVersion = CHANNEL_PROVIDER.currentConfigVersion();
+        channel = CHANNEL_PROVIDER.createChannel(target);
+        Channel intercepted = ClientInterceptors.intercept(channel, new MetaServiceResponseStatusInterceptor());
+        stub = MetaServiceGrpc.newFutureStub(intercepted);
+        blockingStub = MetaServiceGrpc.newBlockingStub(intercepted);
         expiredAt = connectionAgeExpiredAt();
+    }
+
+    private static final class MetaServiceResponseStatusInterceptor implements ClientInterceptor {
+        @Override
+        public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
+                MethodDescriptor<ReqT, RespT> method, CallOptions callOptions, Channel next) {
+            ClientCall<ReqT, RespT> call = next.newCall(method, callOptions);
+            return new ForwardingClientCall.SimpleForwardingClientCall<ReqT, RespT>(call) {
+                @Override
+                public void start(Listener<RespT> listener, Metadata headers) {
+                    Listener<RespT> normalizingListener =
+                            new ForwardingClientCallListener.SimpleForwardingClientCallListener<RespT>(listener) {
+                                @Override
+                                public void onMessage(RespT response) {
+                                    super.onMessage(restoreActualCode(response));
+                                }
+                            };
+                    super.start(normalizingListener, headers);
+                }
+            };
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    // Restore the exact status code from actual_code when this FE recognizes it.
+    // Otherwise, keep
+    // the legacy-compatible value in code so responses from a newer Meta Service
+    // remain readable.
+    private static <Response> Response restoreActualCode(Response response) {
+        if (!(response instanceof Message)) {
+            return response;
+        }
+        Message message = (Message) response;
+        Descriptors.FieldDescriptor statusField = message.getDescriptorForType().findFieldByName("status");
+        if (statusField == null || !message.hasField(statusField)) {
+            return response;
+        }
+        Object statusObject = message.getField(statusField);
+        if (!(statusObject instanceof Cloud.MetaServiceResponseStatus)) {
+            return response;
+        }
+        Cloud.MetaServiceResponseStatus status = (Cloud.MetaServiceResponseStatus) statusObject;
+
+        if (!status.hasActualCode()) {
+            return response;
+        }
+        Cloud.MetaServiceCode code = Cloud.MetaServiceCode.forNumber(status.getActualCode());
+        if (code == null || code == status.getCode()) {
+            return response;
+        }
+        Cloud.MetaServiceResponseStatus restoredStatus = status.toBuilder().setCode(code).build();
+        Message.Builder builder = message.toBuilder();
+        builder.setField(statusField, restoredStatus);
+        return (Response) builder.build();
     }
 
     private long connectionAgeExpiredAt() {
@@ -106,6 +167,14 @@ public class MetaServiceClient {
         return state == ConnectivityState.CONNECTING
                 || state == ConnectivityState.IDLE
                 || state == ConnectivityState.READY;
+    }
+
+    public boolean isUsingLatestChannelConfig() {
+        return channelConfigVersion == CHANNEL_PROVIDER.currentConfigVersion();
+    }
+
+    public static Map<String, ?> serviceConfig() {
+        return serviceConfig;
     }
 
     public void shutdown(boolean debugLog) {

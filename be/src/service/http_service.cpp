@@ -61,6 +61,7 @@
 #include "service/http/action/meta_action.h"
 #include "service/http/action/metrics_action.h"
 #include "service/http/action/pad_rowset_action.h"
+#include "service/http/action/peer_cache_action.h"
 #include "service/http/action/pipeline_task_action.h"
 #include "service/http/action/pprof_actions.h"
 #include "service/http/action/reload_tablet_action.h"
@@ -115,6 +116,11 @@ std::shared_ptr<bufferevent_rate_limit_group> get_rate_limit_group(event_base* e
 HttpService::HttpService(ExecEnv* env, int port, int num_threads)
         : _env(env),
           _ev_http_server(new EvHttpServer(port, num_threads)),
+          _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
+
+HttpService::HttpService(ExecEnv* env, std::unique_ptr<EvHttpServer> http_server)
+        : _env(env),
+          _ev_http_server(std::move(http_server)),
           _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
 
 HttpService::~HttpService() {
@@ -535,6 +541,12 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
             _pool.add(new CheckEncryptionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ALL));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/check_tablet_encryption",
                                       check_encryption_action);
+
+    // Peer cache admin/debug endpoints
+    PeerCacheAction* peer_cache_get = _pool.add(new PeerCacheAction(_env, engine));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/peer_cache", peer_cache_get);
+    PeerCacheAction* peer_cache_post = _pool.add(new PeerCacheAction(_env, engine));
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/peer_cache", peer_cache_post);
 }
 // NOLINTEND(readability-function-size)
 

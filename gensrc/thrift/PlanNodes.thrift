@@ -441,6 +441,94 @@ struct TRemoteDorisFileDesc {
     6: optional string password
 }
 
+// Element type and byte layout of a vector search query. The encoded values use little-endian
+// byte order and contain exactly `dimension` elements of `element_type`.
+enum TVectorElementType {
+    FLOAT16,
+    FLOAT32,
+    FLOAT64,
+    UINT8,
+    INT8
+}
+
+enum TVectorMetric {
+    DEFAULT,
+    L2,
+    COSINE,
+    DOT_PRODUCT,
+    HAMMING
+}
+
+struct TSearchVector {
+    1: optional TVectorElementType element_type
+    2: optional i32 dimension
+    3: optional binary values
+}
+
+// Logical result parameters for one vector query. `top_k` is the number of rows returned after
+// skipping `offset`; an adapter may fetch more physical candidates to implement that contract.
+struct TVectorSearchParams {
+    1: optional string column
+    2: optional TSearchVector query_vector
+    3: optional i64 top_k
+    4: optional i64 offset
+    5: optional TVectorMetric metric
+}
+
+// Logical parameters for one full-text query. `query` initially carries the backend query string;
+// richer structured query forms can be added as new fields without changing this basic contract.
+struct TFullTextSearchParams {
+    1: optional string column
+    2: optional string query
+    3: optional i64 top_k
+    4: optional i64 offset
+}
+
+enum TSearchFilterFormat {
+    SQL,
+    SUBSTRAIT
+}
+
+// A search filter is evaluated before candidate selection. A normal SQL predicate above the search
+// relation remains a post-search filter and is not serialized here.
+struct TSearchFilter {
+    1: optional TSearchFilterFormat format
+    2: optional binary payload
+}
+
+// Lance-only vector search tuning. Logical query fields stay in TVectorSearchParams so another
+// provider, such as Paimon, can reuse the same request without depending on Lance options.
+struct TLanceVectorSearchOptions {
+    1: optional i32 nprobes
+    2: optional i32 refine_factor
+    3: optional i32 ef
+    4: optional bool use_index
+}
+
+// The active union field identifies the logical search kind. A future hybrid field can contain both
+// vector and full-text subqueries plus its fusion parameters without changing either existing field.
+union TExternalSearchQuery {
+    1: TVectorSearchParams vector
+    2: TFullTextSearchParams full_text
+}
+
+// A provider-independent logical search request. Physical target information remains in the
+// provider FileDesc (for example, dataset_uri/version/fragment_ids in TLanceFileDesc).
+struct TExternalSearchRequest {
+    1: optional i32 schema_version = 1
+    2: optional TExternalSearchQuery query
+    3: optional TSearchFilter filter
+    4: optional TLanceVectorSearchOptions lance_options
+}
+
+// A catalog/S3 range reads fragments from a fixed snapshot. A local TVF range uses version zero
+// without fragment_ids to open the latest snapshot and scan the whole dataset on its selected BE.
+struct TLanceFileDesc {
+    1: optional string dataset_uri
+    2: optional list<i64> fragment_ids
+    3: optional i64 version
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -454,6 +542,7 @@ struct TTableFormatFileDesc {
     10: optional TRemoteDorisFileDesc remote_doris_params
     // JDBC connection parameters (used when table_format_type == "jdbc")
     11: optional map<string, string> jdbc_params
+    12: optional TLanceFileDesc lance_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -534,6 +623,14 @@ struct TFileScanRangeParams {
     // behavior during a BE-first rolling upgrade; version 1 enables file-wide ID projection and
     // logical initial-default materialization.
     34: optional i32 iceberg_scan_semantics_version
+    // FE-generated identity for sharing a deserialized table across JNI scanners in one scan node.
+    35: optional string serialized_table_cache_key
+    // Serialized Substrait ExtendedExpression executed by the native Lance scanner. Set at
+    // ScanNode level so it is not serialized once per fragment split.
+    36: optional binary lance_substrait_filter
+    // Provider-independent search request. Set at ScanNode level so all ranges use the same logical
+    // query. The first implementation uses one whole-dataset range for Lance vector search.
+    37: optional TExternalSearchRequest external_search_request
 }
 
 struct TFileRangeDesc {

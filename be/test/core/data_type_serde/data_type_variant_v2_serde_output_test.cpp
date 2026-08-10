@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/array/array_nested.h>
 #include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_nested.h>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -198,6 +200,50 @@ std::vector<std::optional<std::string>> orc_values(const DataTypeVariantV2SerDe&
     return result;
 }
 
+std::shared_ptr<arrow::DataType> binary_variant_arrow_type() {
+    return arrow::struct_({arrow::field("value", arrow::binary(), false),
+                           arrow::field("metadata", arrow::binary(), false)});
+}
+
+std::unique_ptr<arrow::StructBuilder> binary_variant_arrow_builder() {
+    return std::make_unique<arrow::StructBuilder>(
+            binary_variant_arrow_type(), arrow::default_memory_pool(),
+            std::vector<std::shared_ptr<arrow::ArrayBuilder>> {
+                    std::make_shared<arrow::BinaryBuilder>(arrow::default_memory_pool()),
+                    std::make_shared<arrow::BinaryBuilder>(arrow::default_memory_pool())});
+}
+
+void expect_binary_variant_bytes(const DataTypeVariantV2SerDe& serde, const IColumn& column,
+                                 const ColumnVariantV2& encoded,
+                                 const NullMap* null_map = nullptr) {
+    auto builder = binary_variant_arrow_builder();
+    const Status status = serde.write_column_to_arrow(column, null_map, builder.get(), 0,
+                                                      column.size(), cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+
+    std::shared_ptr<arrow::Array> output;
+    ASSERT_TRUE(builder->Finish(&output).ok());
+    const auto& array = assert_cast<const arrow::StructArray&>(*output);
+    const auto& values = assert_cast<const arrow::BinaryArray&>(*array.field(0));
+    const auto& metadata = assert_cast<const arrow::BinaryArray&>(*array.field(1));
+    ASSERT_EQ(array.length(), static_cast<int64_t>(column.size()));
+    const auto view = encoded.read_view();
+    for (size_t row = 0; row < column.size(); ++row) {
+        const bool expected_null = null_map != nullptr && (*null_map)[row] != 0;
+        EXPECT_EQ(array.IsNull(row), expected_null);
+        if (expected_null) {
+            continue;
+        }
+        const VariantRef expected = view.value_at(row);
+        const auto actual_value = values.GetView(row);
+        const auto actual_metadata = metadata.GetView(row);
+        EXPECT_EQ(std::string_view(actual_value.data(), actual_value.size()),
+                  std::string_view(expected.value.data, expected.value.size));
+        EXPECT_EQ(std::string_view(actual_metadata.data(), actual_metadata.size()),
+                  std::string_view(expected.metadata.data, expected.metadata.size));
+    }
+}
+
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros inflate the matrix.
 void expect_text_surfaces(const DataTypeVariantV2SerDe& serde, const IColumn& encoded,
                           const ColumnVariantV2& typed,
@@ -377,6 +423,36 @@ TEST(DataTypeVariantV2SerdeOutputTest, ConstNullableAndOuterMasksPreserveBoundar
     EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
     EXPECT_EQ(reversed_builder.length(), 0);
     EXPECT_TRUE(invalid_dates->is_typed());
+}
+
+TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructPreservesEncodedAndTypedBytesAndOuterNulls) {
+    DataTypeVariantV2SerDe serde;
+    auto documents = encoded_json({R"({"a":[1,null,"x"]})", R"({"hidden":true})", "null"});
+    NullMap mask {0, 1, 0};
+    expect_binary_variant_bytes(serde, *documents, *documents, &mask);
+
+    auto typed = typed_strings(
+            {std::string_view("plain"), std::nullopt, std::string_view(R"({"text":"value"})")});
+    ColumnPtr encoded = encoded_copy(*typed);
+    expect_binary_variant_bytes(serde, *typed, assert_cast<const ColumnVariantV2&>(*encoded));
+    EXPECT_TRUE(typed->is_typed());
+}
+
+TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructRejectsUnsupportedPaimonPrimitive) {
+    DataTypeVariantV2SerDe serde;
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
+    auto row = builder.begin_row();
+    row.add_time_ntz_micros(1'500'000);
+    row.finish();
+    auto encoded = ColumnVariantV2::create();
+    encoded->insert_encoded_batch(builder.finish_batch());
+    auto arrow_builder = binary_variant_arrow_builder();
+    const Status status = serde.write_column_to_arrow(*encoded, nullptr, arrow_builder.get(), 0,
+                                                      encoded->size(), cctz::utc_time_zone());
+    EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
+    EXPECT_NE(status.to_string().find("Paimon does not support Variant primitive id 17"),
+              std::string::npos);
+    EXPECT_EQ(arrow_builder->length(), 0);
 }
 
 } // namespace doris

@@ -18,6 +18,10 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataTypes;
@@ -34,8 +38,24 @@ public class PaimonWriteTargetTest {
         PaimonWriteTarget target = createTarget(
                 DataTypes.FIELD(0, "payload", DataTypes.VARIANT()));
 
-        Assert.assertTrue(target.getColumn("payload").getType().isVariantType());
-        Assert.assertTrue(target.getColumnTypes().get("payload").isVariantType());
+        DataType type = DataType.fromCatalogType(target.getColumnTypes().get("payload"));
+        Assert.assertTrue(type instanceof VariantType);
+        Assert.assertTrue(((VariantType) type).isComputeV2());
+    }
+
+    @Test
+    public void testNestedVariantUsesComputeV2() throws Exception {
+        PaimonWriteTarget target = createTarget(
+                DataTypes.FIELD(0, "items", DataTypes.ARRAY(DataTypes.VARIANT())),
+                DataTypes.FIELD(1, "record", DataTypes.ROW(
+                        DataTypes.FIELD(2, "payload", DataTypes.VARIANT()))));
+
+        ArrayType arrayType = (ArrayType) DataType.fromCatalogType(
+                target.getColumnTypes().get("items"));
+        StructType structType = (StructType) DataType.fromCatalogType(
+                target.getColumnTypes().get("record"));
+        Assert.assertTrue(((VariantType) arrayType.getItemType()).isComputeV2());
+        Assert.assertTrue(((VariantType) structType.getFields().get(0).getDataType()).isComputeV2());
     }
 
     @Test

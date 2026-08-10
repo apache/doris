@@ -17,14 +17,15 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import org.apache.paimon.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -93,40 +94,42 @@ public class AbstractPaimonPropertiesTest {
         input.put("warehouse", "s3://tmp/warehouse");
         input.put("paimon.jni.enable_jni_io_manager", "true");
         input.put("paimon.table-option.read.batch-size", "4096");
-        input.put("paimon.table-option.file.compression.per.level", "0:lz4,1:zstd");
+        input.put("paimon.table-option.file-reader-async-threshold", "16 MB");
+        input.put("paimon.table-option.file-index.read.enabled", "false");
+        input.put("paimon.table-option.source.split.target-size", "64 MB");
+        input.put("paimon.table-option.source.split.open-file-cost", "1 MB");
+        input.put("paimon.table-option.scan.manifest.parallelism", "1");
+        input.put("paimon.table-option.scan.plan-sort-partition", "true");
         TestPaimonProperties testProps = new TestPaimonProperties(input);
 
         testProps.initNormalizeAndCheckProps();
         testProps.buildCatalogOptions();
 
         Assertions.assertEquals("4096", testProps.getTableOptionsMap().get("read.batch-size"));
-        Assertions.assertEquals(
-                "0:lz4,1:zstd", testProps.getTableOptionsMap().get("file.compression.per.level"));
+        Assertions.assertEquals("16 MB",
+                testProps.getTableOptionsMap().get("file-reader-async-threshold"));
+        Assertions.assertEquals("false", testProps.getTableOptionsMap().get("file-index.read.enabled"));
+        Assertions.assertEquals("64 MB", testProps.getTableOptionsMap().get("source.split.target-size"));
+        Assertions.assertEquals("1 MB", testProps.getTableOptionsMap().get("source.split.open-file-cost"));
+        Assertions.assertEquals("1", testProps.getTableOptionsMap().get("scan.manifest.parallelism"));
+        Assertions.assertEquals("true", testProps.getTableOptionsMap().get("scan.plan-sort-partition"));
         Assertions.assertFalse(testProps.getCatalogOptionsMap().containsKey("table-option.read.batch-size"));
         Assertions.assertFalse(testProps.getCatalogOptionsMap().containsKey("jni.enable_jni_io_manager"));
     }
 
     @Test
-    void testPaimonTableOptionsTakePrecedenceOverCatalogOptions() {
+    void testCatalogReaderOptionsTakePrecedenceOverPhysicalTableOptions() {
         Map<String, String> input = new HashMap<>();
         input.put("warehouse", "s3://tmp/warehouse");
         input.put("paimon.table-option.read.batch-size", "4096");
-        input.put("paimon.table-option.write.batch-size", "2048");
-        input.put("paimon.table-option.file.compression.per.level", "0:lz4,1:zstd");
+        input.put("paimon.table-option.file-reader-async-threshold", "16 MB");
         TestPaimonProperties testProps = new TestPaimonProperties(input);
         testProps.initNormalizeAndCheckProps();
 
-        Map<String, String> currentTableOptions = new HashMap<>();
-        currentTableOptions.put("read.batch-size", "1024");
-        currentTableOptions.put("orc.write.batch-size", "512");
-        currentTableOptions.put("file.compression.per.level", "0:snappy");
+        Map<String, String> optionsForCopy = testProps.getTableOptionsForCopy();
 
-        Map<String, String> optionsForCopy =
-                testProps.getTableOptionsForCopy(currentTableOptions);
-
-        Assertions.assertFalse(optionsForCopy.containsKey("read.batch-size"));
-        Assertions.assertFalse(optionsForCopy.containsKey("write.batch-size"));
-        Assertions.assertFalse(optionsForCopy.containsKey("file.compression.per.level"));
+        Assertions.assertEquals("4096", optionsForCopy.get("read.batch-size"));
+        Assertions.assertEquals("16 MB", optionsForCopy.get("file-reader-async-threshold"));
     }
 
     @Test
@@ -137,50 +140,99 @@ public class AbstractPaimonPropertiesTest {
         TestPaimonProperties testProps = new TestPaimonProperties(input);
         testProps.initNormalizeAndCheckProps();
 
-        Map<String, String> optionsForCopy =
-                testProps.getTableOptionsForCopy(Collections.singletonMap(
-                        "path", "s3://tmp/warehouse/test.db/test"));
+        Map<String, String> optionsForCopy = testProps.getTableOptionsForCopy();
 
         Assertions.assertEquals("4096", optionsForCopy.get("read.batch-size"));
     }
 
     @Test
-    void testRejectUnknownTableOption() {
+    void testPersistedUnknownTableOptionDoesNotPreventCatalogLoading() {
         Map<String, String> input = new HashMap<>();
         input.put("warehouse", "s3://tmp/warehouse");
         input.put("paimon.table-option.option-does-not-exist", "value");
         TestPaimonProperties testProps = new TestPaimonProperties(input);
 
-        IllegalArgumentException exception = Assertions.assertThrows(
-                IllegalArgumentException.class, testProps::initNormalizeAndCheckProps);
+        testProps.initNormalizeAndCheckProps();
 
-        Assertions.assertTrue(exception.getMessage().contains("option-does-not-exist"));
+        Assertions.assertTrue(testProps.getTableOptionsMap().isEmpty());
     }
 
     @Test
-    void testRejectPrefixMapTableOption() {
+    void testPersistedPrefixMapTableOptionDoesNotPreventCatalogLoading() {
         Map<String, String> input = new HashMap<>();
         input.put("warehouse", "s3://tmp/warehouse");
         input.put("paimon.table-option.file.compression.per.level.0", "lz4");
         TestPaimonProperties testProps = new TestPaimonProperties(input);
 
-        IllegalArgumentException exception = Assertions.assertThrows(
-                IllegalArgumentException.class, testProps::initNormalizeAndCheckProps);
+        testProps.initNormalizeAndCheckProps();
 
-        Assertions.assertTrue(exception.getMessage().contains("file.compression.per.level.0"));
+        Assertions.assertTrue(testProps.getTableOptionsMap().isEmpty());
     }
 
     @Test
-    void testRejectInvalidTableOptionValue() {
+    void testPersistedInvalidReaderOptionIsIgnoredDuringCatalogLoading() {
         Map<String, String> input = new HashMap<>();
         input.put("warehouse", "s3://tmp/warehouse");
         input.put("paimon.table-option.read.batch-size", "not-an-integer");
         TestPaimonProperties testProps = new TestPaimonProperties(input);
 
-        IllegalArgumentException exception = Assertions.assertThrows(
-                IllegalArgumentException.class, testProps::initNormalizeAndCheckProps);
+        testProps.initNormalizeAndCheckProps();
 
-        Assertions.assertTrue(exception.getMessage().contains("read.batch-size"));
+        Assertions.assertTrue(testProps.getTableOptionsMap().isEmpty());
+    }
+
+    @Test
+    void testPersistedUnsafeTableOptionsAreIgnoredDuringCatalogLoading() {
+        for (String option : new String[] {
+                "branch", "path", "scan.tag-name", "scan.snapshot-id",
+                "write.batch-size", "file.compression.per.level"
+        }) {
+            Map<String, String> input = new HashMap<>();
+            input.put("warehouse", "s3://tmp/warehouse");
+            input.put("paimon.table-option." + option, "1");
+
+            TestPaimonProperties testProps = new TestPaimonProperties(input);
+            testProps.initNormalizeAndCheckProps();
+            Assertions.assertTrue(testProps.getTableOptionsMap().isEmpty(), option);
+        }
+    }
+
+    @Test
+    void testPersistedOutOfRangeReaderOptionsAreIgnoredDuringCatalogLoading() {
+        Map<String, String> invalidOptions = new HashMap<>();
+        invalidOptions.put("read.batch-size", "0");
+        invalidOptions.put("read.batch-size-negative", "-1");
+        invalidOptions.put("read.batch-size-too-large", "65537");
+        invalidOptions.put("file-reader-async-threshold", "0 B");
+        invalidOptions.put("file-reader-async-threshold-too-small", "512 KB");
+        invalidOptions.put("file-reader-async-threshold-too-large", "2 GB");
+
+        invalidOptions.forEach((caseName, value) -> {
+            String option = caseName.startsWith("read.batch-size")
+                    ? "read.batch-size" : "file-reader-async-threshold";
+            Map<String, String> input = new HashMap<>();
+            input.put("warehouse", "s3://tmp/warehouse");
+            input.put("paimon.table-option." + option, value);
+
+            TestPaimonProperties testProps = new TestPaimonProperties(input);
+            testProps.initNormalizeAndCheckProps();
+            Assertions.assertTrue(testProps.getTableOptionsMap().isEmpty(), caseName);
+        });
+    }
+
+    @Test
+    void testImageRoundTripKeepsLegacyCatalogLoadableButDoesNotApplyUnsafeOption() {
+        Map<String, String> input = new HashMap<>();
+        input.put("warehouse", "s3://tmp/warehouse");
+        input.put("paimon.table-option.write.batch-size", "2048");
+        CatalogProperty persisted = new CatalogProperty(null, input);
+
+        CatalogProperty restored = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(persisted), CatalogProperty.class);
+        TestPaimonProperties testProps = new TestPaimonProperties(restored.getProperties());
+        testProps.initNormalizeAndCheckProps();
+
+        Assertions.assertTrue(testProps.getTableOptionsMap().isEmpty());
     }
 
     @Test

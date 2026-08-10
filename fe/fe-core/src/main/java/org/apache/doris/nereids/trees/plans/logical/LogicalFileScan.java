@@ -165,7 +165,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             }
             if (table instanceof PaimonSysExternalTable) {
                 return Optional.of(ImmutableList.copyOf(
-                        ((PaimonSysExternalTable) table).getFullSchema(scanParams.get())));
+                        ((PaimonSysExternalTable) table).getFullSchema(
+                                scanParams.get(), relationSnapshot)));
             }
         }
         return captureRelationSchema(table, relationSnapshot);
@@ -328,7 +329,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     @Override
     public boolean supportPruneNestedColumn() {
         ExternalTable table = getTable();
-        if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable) {
+        if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable
+                || table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable) {
             return true;
         } else if (table instanceof HMSExternalTable) {
             HMSExternalTable hmsTable = (HMSExternalTable) table;

@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.catalog.ComputeGroup;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -52,7 +52,7 @@ public class AlterComputeGroupCommandTest {
     @Mocked
     private CloudSystemInfoService cloudSystemInfoService;
     @Mocked
-    private ComputeGroup computeGroup;
+    private CloudComputeGroupMeta computeGroup;
     private Database db;
 
     private void runBefore() throws Exception {

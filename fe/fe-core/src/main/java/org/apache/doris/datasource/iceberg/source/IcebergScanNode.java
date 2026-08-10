@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
@@ -153,8 +154,13 @@ public class IcebergScanNode extends FileQueryScanNode {
     private long countFromSnapshot;
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     private long targetSplitSize = 0;
-    // This is used to avoid repeatedly calculating partition info map for the same partition data.
-    private Map<PartitionData, Map<String, String>> partitionMapInfos;
+    // Used to avoid repeatedly calculating partition info map for the same
+    // partition data and spec.
+    private Map<Pair<Integer, PartitionData>, Map<String, String>> partitionMapInfos;
+    private List<String> orderedPathPartitionKeys;
+    private List<String> orderedPartitionMetadataKeys;
+    private boolean enableMappingVarbinaryForPartitionMetadata;
+    private boolean enableMappingTimestampTzForPartitionMetadata;
     private boolean isPartitionedTable;
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
@@ -251,6 +257,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             icebergTable = source.getIcebergTable();
             icebergTable = useFrozenTableGeneration(icebergTable);
             partitionMapInfos = new HashMap<>();
+            initializePartitionMetadata();
             isPartitionedTable = icebergTable.spec().isPartitioned();
             // Metadata tables (system tables) are not BaseTable instances, so we need to handle this case
             if (icebergTable instanceof BaseTable) {
@@ -273,6 +280,22 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         super.doInitialize();
+        // This gate must run during shared initialization: batch split assignment bypasses
+        // doGetSplits(), but it must never assign a semantic Variant projection to an old BE.
+        checkVariantBackendCompatibilityForCurrentScan(backendPolicy.getBackends());
+    }
+
+    void checkVariantBackendCompatibilityForCurrentScan(Iterable<Backend> backends)
+            throws UserException {
+        boolean metadataCountProven = false;
+        if (isTableLevelCountStarPushdown()) {
+            // COUNT(*) is metadata-only only after isBatchMode() has obtained a nonnegative snapshot
+            // count. Missing summaries or delete semantics fall back to real Variant file reads.
+            isBatchMode();
+            metadataCountProven = tableLevelPushDownCount;
+        }
+        boolean projectsVariant = !metadataCountProven && projectsVariant(desc);
+        checkVariantBackendCompatibility(projectsVariant, backends);
     }
 
     private Optional<Map<Integer, List<String>>> extractNameMapping() {
@@ -393,21 +416,75 @@ public class IcebergScanNode extends FileQueryScanNode {
             deleteFilesDescByReferencedDataFile.put(icebergSplit.getOriginalPath(), nonEqualityDeleteFileDesc);
         }
         tableFormatFileDesc.setIcebergParams(fileDesc);
-        Map<String, String> partitionValues = icebergSplit.getIcebergPartitionValues();
-        if (partitionValues != null) {
-            List<String> fromPathKeys = new ArrayList<>();
-            List<String> fromPathValues = new ArrayList<>();
-            List<Boolean> fromPathIsNull = new ArrayList<>();
-            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
-                fromPathKeys.add(entry.getKey());
-                fromPathValues.add(entry.getValue() != null ? entry.getValue() : "");
-                fromPathIsNull.add(entry.getValue() == null);
-            }
-            rangeDesc.setColumnsFromPathKeys(fromPathKeys);
-            rangeDesc.setColumnsFromPath(fromPathValues);
-            rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
-        }
+        setPartitionValues(rangeDesc, icebergSplit.getIcebergPartitionValues());
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
+    }
+
+    private List<String> getOrderedPathPartitionKeys() {
+        if (orderedPathPartitionKeys == null) {
+            initializePartitionMetadata();
+        }
+        return orderedPathPartitionKeys;
+    }
+
+    private List<String> getOrderedPartitionMetadataKeys() {
+        if (orderedPartitionMetadataKeys == null) {
+            initializePartitionMetadata();
+        }
+        return orderedPartitionMetadataKeys;
+    }
+
+    private void initializePartitionMetadata() {
+        if (isSystemTable || icebergTable == null) {
+            orderedPathPartitionKeys = Collections.emptyList();
+            orderedPartitionMetadataKeys = Collections.emptyList();
+            return;
+        }
+        enableMappingVarbinaryForPartitionMetadata = getEnableMappingVarbinary();
+        enableMappingTimestampTzForPartitionMetadata = getEnableMappingTimestampTz();
+        orderedPathPartitionKeys = Collections.unmodifiableList(
+                IcebergUtils.getCommonIdentityPartitionColumns(icebergTable,
+                        enableMappingVarbinaryForPartitionMetadata,
+                        enableMappingTimestampTzForPartitionMetadata));
+        if (sessionVariable.enableFileScannerV2) {
+            orderedPartitionMetadataKeys = Collections.unmodifiableList(
+                    IcebergUtils.getIdentityPartitionColumns(icebergTable,
+                            enableMappingVarbinaryForPartitionMetadata,
+                            enableMappingTimestampTzForPartitionMetadata));
+        } else {
+            orderedPartitionMetadataKeys = orderedPathPartitionKeys;
+        }
+    }
+
+    @VisibleForTesting
+    void setPartitionValues(TFileRangeDesc rangeDesc, Map<String, String> partitionValues) {
+        rangeDesc.unsetColumnsFromPathKeys();
+        rangeDesc.unsetColumnsFromPath();
+        rangeDesc.unsetColumnsFromPathIsNull();
+
+        List<String> orderedPartitionKeys = getOrderedPartitionMetadataKeys();
+        if (orderedPartitionKeys.isEmpty() || partitionValues == null || partitionValues.isEmpty()) {
+            return;
+        }
+
+        List<String> fromPathKeys = new ArrayList<>(orderedPartitionKeys.size());
+        List<String> fromPathValues = new ArrayList<>(orderedPartitionKeys.size());
+        List<Boolean> fromPathIsNull = new ArrayList<>(orderedPartitionKeys.size());
+        for (String partitionKey : orderedPartitionKeys) {
+            if (!partitionValues.containsKey(partitionKey)) {
+                continue;
+            }
+            String partitionValue = partitionValues.get(partitionKey);
+            fromPathKeys.add(partitionKey);
+            fromPathValues.add(partitionValue == null ? "" : partitionValue);
+            fromPathIsNull.add(partitionValue == null);
+        }
+        if (fromPathKeys.isEmpty()) {
+            return;
+        }
+        rangeDesc.setColumnsFromPathKeys(fromPathKeys);
+        rangeDesc.setColumnsFromPath(fromPathValues);
+        rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
     }
 
     private void setIcebergPositionDeleteSysTableParams(TFileRangeDesc rangeDesc, IcebergSplit icebergSplit,
@@ -1066,11 +1143,11 @@ public class IcebergScanNode extends FileQueryScanNode {
                 split.setPartitionSpecId(specId);
                 split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
                         partitionData, partitionSpec, sessionVariable.getTimeZone()));
-            }
-            if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
-                        partitionData, k -> IcebergUtils.getIdentityPartitionInfoMap(
-                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone()));
+                        Pair.of(specId, partitionData), k -> IcebergUtils.getIdentityPartitionInfoMap(
+                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone(),
+                                enableMappingVarbinaryForPartitionMetadata,
+                                enableMappingTimestampTzForPartitionMetadata));
                 // A spec may mix identity and transformed fields. Keep its identity values so a
                 // runtime filter can prune that split without treating source columns as constants
                 // for files written under another evolved spec.
@@ -1078,7 +1155,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                     split.setIcebergPartitionValues(partitionInfoMap);
                 }
             } else {
-                partitionMapInfos.put(partitionData, null);
+                partitionMapInfos.put(Pair.of(specId, null), Collections.emptyMap());
             }
         }
         return split;
@@ -1373,6 +1450,30 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
     }
 
+    @VisibleForTesting
+    static boolean projectsVariant(TupleDescriptor tuple) {
+        // SlotTypeReplacer updates the effective pruned slot type but intentionally retains the
+        // original Column metadata; compatibility must follow what this scan actually projects.
+        return tuple.getSlots().stream()
+                .anyMatch(slot -> IcebergUtils.containsVariant(slot.getType()));
+    }
+
+    @VisibleForTesting
+    static void checkVariantBackendCompatibility(boolean projectsVariant, Iterable<Backend> backends)
+            throws UserException {
+        if (!projectsVariant) {
+            return;
+        }
+        for (Backend backend : backends) {
+            if (backend.isSmoothUpgradeSrc()) {
+                // Old backends cannot distinguish the logical Variant from its physical carrier,
+                // so scheduling a semantic projection there could corrupt the result shape.
+                throw new UserException("Iceberg Variant is unavailable while backend "
+                        + backend.getId() + " is a smooth upgrade source");
+            }
+        }
+    }
+
     @Override
     public boolean isBatchMode() {
         if (isSystemTable) {
@@ -1498,20 +1599,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public List<String> getPathPartitionKeys() throws UserException {
-        // return icebergTable.spec().fields().stream().map(PartitionField::name).map(String::toLowerCase)
-        //         .collect(Collectors.toList());
-        /**First, iceberg partition columns are based on existing fields, which will be stored in the actual data file.
-         * Second, iceberg partition columns support Partition transforms. In this case, the path partition key is not
-         * equal to the column name of the partition column, so remove this code and get all the columns you want to
-         * read from the file.
-         * Related code:
-         *  be/src/vec/exec/scan/vfile_scanner.cpp:
-         *      VFileScanner::_init_expr_ctxes()
-         *          if (slot_info.is_file_slot) {
-         *              xxxx
-         *          }
-         */
-        return new ArrayList<>();
+        return getOrderedPathPartitionKeys();
     }
 
     private void recordManifestCacheAccess(boolean cacheHit) {

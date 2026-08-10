@@ -29,6 +29,8 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
@@ -88,7 +90,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -113,15 +118,28 @@ public class IcebergScanNodeTest {
 
     private static class TestIcebergScanNode extends IcebergScanNode {
         private final boolean enableMappingVarbinary;
+        private final boolean batchMode;
+        private final boolean enableMappingTimestampTz;
         private TableScan tableScan;
 
         TestIcebergScanNode(SessionVariable sv) {
-            this(sv, false);
+            this(sv, false, false, false);
         }
 
         TestIcebergScanNode(SessionVariable sv, boolean enableMappingVarbinary) {
+            this(sv, enableMappingVarbinary, false, false);
+        }
+
+        TestIcebergScanNode(SessionVariable sv, boolean enableMappingVarbinary, boolean batchMode) {
+            this(sv, enableMappingVarbinary, false, batchMode);
+        }
+
+        TestIcebergScanNode(SessionVariable sv, boolean enableMappingVarbinary,
+                boolean enableMappingTimestampTz, boolean batchMode) {
             super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv, ScanContext.EMPTY);
             this.enableMappingVarbinary = enableMappingVarbinary;
+            this.enableMappingTimestampTz = enableMappingTimestampTz;
+            this.batchMode = batchMode;
         }
 
         void setTableScan(TableScan tableScan) {
@@ -139,7 +157,7 @@ public class IcebergScanNodeTest {
 
         @Override
         public boolean isBatchMode() {
-            return false;
+            return batchMode;
         }
 
         @Override
@@ -148,14 +166,24 @@ public class IcebergScanNodeTest {
         }
 
         @Override
+        protected boolean getEnableMappingTimestampTz() {
+            return enableMappingTimestampTz;
+        }
+
+        @Override
         public List<String> getPathPartitionKeys() {
             return Collections.emptyList();
         }
 
-        void addSlot(int slotId, Column column) {
+        SlotDescriptor addSlot(int slotId, Column column) {
             SlotDescriptor slot = new SlotDescriptor(new SlotId(slotId), desc);
             slot.setColumn(column);
             desc.addSlot(slot);
+            return slot;
+        }
+
+        boolean projectsVariant() {
+            return IcebergScanNode.projectsVariant(desc);
         }
 
         @Override
@@ -215,6 +243,153 @@ public class IcebergScanNodeTest {
                 .getFields().get(0).getFieldPtr().getName());
         Assert.assertEquals("payload", scanParams.getHistorySchemaInfo().get(0).getRootField()
                 .getFields().get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void testSetPartitionValuesBuildsStableAlignedMetadata() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Region", Types.StringType.get()),
+                Types.NestedField.required(2, "Dt", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("Region")
+                .identity("Dt")
+                .build();
+        Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
+        specs.put(spec.specId(), spec);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(spec);
+        Mockito.when(table.specs()).thenReturn(specs);
+        setIcebergTable(node, table);
+
+        Map<String, String> partitionValues = new HashMap<>();
+        partitionValues.put("Dt", null);
+        partitionValues.put("Region", "cn");
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        node.setPartitionValues(rangeDesc, partitionValues);
+
+        Assert.assertEquals(Arrays.asList("Region", "Dt"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(Arrays.asList("cn", ""), rangeDesc.getColumnsFromPath());
+        Assert.assertEquals(Arrays.asList(false, true), rangeDesc.getColumnsFromPathIsNull());
+    }
+
+    @Test
+    public void testSetPartitionValuesUsesPerSpecMetadataWithFileScannerV2() throws Exception {
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableFileScannerV2 = true;
+        TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable);
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Region", Types.StringType.get()),
+                Types.NestedField.required(2, "Dt", Types.StringType.get()),
+                Types.NestedField.required(3, "Category", Types.StringType.get()));
+        PartitionSpec oldSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(1)
+                .identity("Region")
+                .identity("Dt")
+                .build();
+        PartitionSpec currentSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(2)
+                .identity("Dt")
+                .identity("Category")
+                .build();
+        Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
+        specs.put(oldSpec.specId(), oldSpec);
+        specs.put(currentSpec.specId(), currentSpec);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(currentSpec);
+        Mockito.when(table.specs()).thenReturn(specs);
+        setIcebergTable(node, table);
+
+        Map<String, String> partitionValues = new HashMap<>();
+        partitionValues.put("Category", "books");
+        partitionValues.put("Dt", null);
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        node.setPartitionValues(rangeDesc, partitionValues);
+
+        Assert.assertEquals(Arrays.asList("Dt", "Category"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(Arrays.asList("", "books"), rangeDesc.getColumnsFromPath());
+        Assert.assertEquals(Arrays.asList(true, false), rangeDesc.getColumnsFromPathIsNull());
+    }
+
+    @Test
+    public void testSetPartitionValuesKeepsCommonMetadataWithLegacyFileScanner() throws Exception {
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableFileScannerV2 = false;
+        TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable);
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Region", Types.StringType.get()),
+                Types.NestedField.required(2, "Dt", Types.StringType.get()),
+                Types.NestedField.required(3, "Category", Types.StringType.get()));
+        PartitionSpec oldSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(1)
+                .identity("Region")
+                .identity("Dt")
+                .build();
+        PartitionSpec currentSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(2)
+                .identity("Dt")
+                .identity("Category")
+                .build();
+        Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
+        specs.put(oldSpec.specId(), oldSpec);
+        specs.put(currentSpec.specId(), currentSpec);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(currentSpec);
+        Mockito.when(table.specs()).thenReturn(specs);
+        setIcebergTable(node, table);
+
+        Map<String, String> partitionValues = new HashMap<>();
+        partitionValues.put("Region", "cn");
+        partitionValues.put("Dt", "2026-07-31");
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        node.setPartitionValues(rangeDesc, partitionValues);
+
+        Assert.assertEquals(Collections.singletonList("Dt"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(Collections.singletonList("2026-07-31"), rangeDesc.getColumnsFromPath());
+        Assert.assertEquals(Collections.singletonList(false), rangeDesc.getColumnsFromPathIsNull());
+    }
+
+    @Test
+    public void testSetPartitionValuesSkipsValuesUnsupportedByMappedTypes() throws Exception {
+        for (boolean enableFileScannerV2 : Arrays.asList(false, true)) {
+            SessionVariable sessionVariable = new SessionVariable();
+            sessionVariable.enableFileScannerV2 = enableFileScannerV2;
+            sessionVariable.setTimeZone("Asia/Shanghai");
+            TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable, true, true, false);
+            Schema schema = new Schema(
+                    Types.NestedField.required(1, "Dt", Types.StringType.get()),
+                    Types.NestedField.required(2, "uuid_col", Types.UUIDType.get()),
+                    Types.NestedField.required(3, "ts_tz", Types.TimestampType.withZone()));
+            PartitionSpec spec = PartitionSpec.builderFor(schema)
+                    .identity("Dt")
+                    .identity("uuid_col")
+                    .identity("ts_tz")
+                    .build();
+            Table table = Mockito.mock(Table.class);
+            Mockito.when(table.schema()).thenReturn(schema);
+            Mockito.when(table.spec()).thenReturn(spec);
+            Mockito.when(table.specs()).thenReturn(Collections.singletonMap(spec.specId(), spec));
+            setIcebergTable(node, table);
+
+            Map<String, String> partitionValues = new LinkedHashMap<>();
+            partitionValues.put("Dt", "2026-08-03");
+            partitionValues.put("uuid_col", "123e4567-e89b-12d3-a456-426614174000");
+            partitionValues.put("ts_tz", "2026-08-03T16:00:00");
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            node.setPartitionValues(rangeDesc, partitionValues);
+
+            Assert.assertEquals(Collections.singletonList("Dt"), rangeDesc.getColumnsFromPathKeys());
+            Assert.assertEquals(Collections.singletonList("2026-08-03"), rangeDesc.getColumnsFromPath());
+            Assert.assertEquals(Collections.singletonList(false), rangeDesc.getColumnsFromPathIsNull());
+
+            Mockito.clearInvocations(table);
+            node.setPartitionValues(new TFileRangeDesc(), partitionValues);
+            Mockito.verify(table, Mockito.never()).specs();
+            Mockito.verify(table, Mockito.never()).schema();
+        }
     }
 
     @Test
@@ -314,6 +489,12 @@ public class IcebergScanNodeTest {
             ++snapshotCountCalls;
             return snapshotCount;
         }
+
+        void addSlot(int slotId, Column column) {
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(slotId), desc);
+            slot.setColumn(column);
+            desc.addSlot(slot);
+        }
     }
 
     @Test
@@ -341,6 +522,38 @@ public class IcebergScanNodeTest {
         countStarNode.setPushDownCountSlotIds(Collections.emptyList());
         Assert.assertFalse(countStarNode.isBatchMode());
         Assert.assertEquals(1, countStarNode.snapshotCountCalls);
+    }
+
+    @Test
+    public void testCountStarVariantCompatibilityExemptionRequiresSnapshotCount() throws Exception {
+        SessionVariable sv = Mockito.mock(SessionVariable.class);
+        Mockito.when(sv.getEnableExternalTableBatchMode()).thenReturn(false);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(Mockito.mock(Snapshot.class));
+        Backend oldBackend = Mockito.mock(Backend.class);
+        Mockito.when(oldBackend.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(oldBackend.getId()).thenReturn(10004L);
+
+        CountPlanningIcebergScanNode metadataCount =
+                new CountPlanningIcebergScanNode(sv, tableScan, 12);
+        metadataCount.addSlot(1, new Column("payload", Type.VARIANT));
+        metadataCount.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        metadataCount.setPushDownCountSlotIds(Collections.emptyList());
+        metadataCount.checkVariantBackendCompatibilityForCurrentScan(
+                Collections.singletonList(oldBackend));
+
+        CountPlanningIcebergScanNode scanFallback =
+                new CountPlanningIcebergScanNode(sv, tableScan, -1);
+        scanFallback.addSlot(1, new Column("payload", Type.VARIANT));
+        scanFallback.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        scanFallback.setPushDownCountSlotIds(Collections.emptyList());
+        try {
+            scanFallback.checkVariantBackendCompatibilityForCurrentScan(
+                    Collections.singletonList(oldBackend));
+            Assert.fail("COUNT(*) data fallback must retain the Variant backend gate");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10004"));
+        }
     }
 
     @Test
@@ -828,6 +1041,11 @@ public class IcebergScanNodeTest {
         Field icebergTableField = IcebergScanNode.class.getDeclaredField("icebergTable");
         icebergTableField.setAccessible(true);
         icebergTableField.set(node, table);
+        for (String fieldName : Arrays.asList("orderedPathPartitionKeys", "orderedPartitionMetadataKeys")) {
+            Field field = IcebergScanNode.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            field.set(node, null);
+        }
     }
 
     private static void setIcebergSource(IcebergScanNode node, IcebergSource source) throws Exception {
@@ -1069,5 +1287,62 @@ public class IcebergScanNodeTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("backend 10001 is a smooth upgrade source"));
         }
+    }
+
+    @Test
+    public void testRejectSmoothUpgradeSourceBackendForVariantProjection() throws Exception {
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isSmoothUpgradeSrc()).thenReturn(false);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10002L);
+        List<Backend> backends = ImmutableList.of(currentBackend, smoothUpgradeSource);
+
+        IcebergScanNode.checkVariantBackendCompatibility(false, backends);
+        try {
+            IcebergScanNode.checkVariantBackendCompatibility(true, backends);
+            Assert.fail("semantic Variant projection must not be assigned to an old backend");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10002 is a smooth upgrade source"));
+            Assert.assertTrue(e.getMessage().contains("Variant"));
+        }
+    }
+
+    @Test
+    public void testBatchVariantProjectionUsesSharedCompatibilityGate() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable(), false, true);
+        node.addSlot(1, new Column("payload", Type.VARIANT));
+
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isSmoothUpgradeSrc()).thenReturn(false);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10003L);
+
+        Assert.assertTrue(node.isBatchMode());
+        try {
+            node.checkVariantBackendCompatibilityForCurrentScan(
+                    ImmutableList.of(currentBackend, smoothUpgradeSource));
+            Assert.fail("batch Variant projection must use the shared backend compatibility gate");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10003 is a smooth upgrade source"));
+        }
+    }
+
+    @Test
+    public void testVariantUpgradeGateUsesEffectiveProjectedSlotType() {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        StructType fullType = new StructType(
+                new StructField("label", Type.STRING),
+                new StructField("payload", Type.VARIANT));
+        SlotDescriptor slot = node.addSlot(1, new Column("info", fullType));
+
+        // Nested-column pruning keeps the original Column for identity but replaces the slot type
+        // with the actual payload serialized to BE.
+        slot.setType(new StructType(new StructField("label", Type.STRING)));
+        Assert.assertFalse(node.projectsVariant());
+
+        slot.setType(fullType);
+        Assert.assertTrue(node.projectsVariant());
     }
 }

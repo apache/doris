@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
+import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
 
 import com.google.common.collect.ImmutableList;
 
@@ -75,7 +76,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(ParquetFileMetadata.class, "parquet_file_metadata"),
             tableValued(ParquetKvMetadata.class, "parquet_kv_metadata"),
             tableValued(ParquetBloomProbe.class, "parquet_bloom_probe"),
-            tableValued(CdcStream.class, "cdc_stream")
+            tableValued(CdcStream.class, "cdc_stream"),
+            tableValued(VectorSearch.class, "vector_search")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

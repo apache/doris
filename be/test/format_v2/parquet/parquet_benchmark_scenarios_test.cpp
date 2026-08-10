@@ -66,7 +66,7 @@ TEST(ParquetBenchmarkScenariosTest, DecoderMatrixCoversNativeEncodingAndTypeFami
 
 TEST(ParquetBenchmarkScenariosTest, KernelMatrixCoversEverySimdStageAndBoundaryShape) {
     const auto scenarios = kernel_scenarios();
-    EXPECT_EQ(scenarios.size(), size_t {80});
+    EXPECT_EQ(scenarios.size(), size_t {92});
     const std::map<Kernel, std::vector<ValueType>> expected_types {
             {Kernel::BYTE_STREAM_SPLIT, {ValueType::FLOAT, ValueType::DOUBLE}},
             {Kernel::DELTA_PREFIX_SUM, {ValueType::INT32, ValueType::INT64}},
@@ -76,6 +76,7 @@ TEST(ParquetBenchmarkScenariosTest, KernelMatrixCoversEverySimdStageAndBoundaryS
              {ValueType::INT32, ValueType::INT64, ValueType::FLOAT, ValueType::DOUBLE}},
             {Kernel::RAW_PREDICATE,
              {ValueType::INT32, ValueType::INT64, ValueType::FLOAT, ValueType::DOUBLE}},
+            {Kernel::NESTED_SELECTION, {ValueType::INT32}},
     };
     for (const auto& [kernel, value_types] : expected_types) {
         for (const auto value_type : value_types) {
@@ -106,6 +107,69 @@ TEST(ParquetBenchmarkScenariosTest, KernelMatrixCoversEverySimdStageAndBoundaryS
             return scenario.kernel == Kernel::DICTIONARY_GATHER &&
                    scenario.dictionary_entries == dictionary_entries;
         })) << "missing dictionary working-set size";
+    }
+}
+
+TEST(ParquetBenchmarkScenariosTest, NestedSelectionCoversSparseParentSurvivors) {
+    const auto scenarios = kernel_scenarios();
+    for (const int selectivity : {1, 10, 50}) {
+        for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+            for (const auto implementation :
+                 {NestedSelectionImplementation::LEGACY, NestedSelectionImplementation::FUSED}) {
+                EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const KernelScenario& scenario) {
+                    return scenario.kernel == Kernel::NESTED_SELECTION &&
+                           scenario.selectivity_percent == selectivity &&
+                           scenario.null_percent == 10 && scenario.pattern == pattern &&
+                           scenario.nested_implementation == implementation;
+                })) << "missing nested sparse-selection implementation";
+            }
+        }
+    }
+}
+
+TEST(ParquetBenchmarkScenariosTest, NullableSelectionPairsLegacyAndFusedAcrossRowShapes) {
+    const auto scenarios = nullable_selection_scenarios();
+    EXPECT_EQ(scenarios.size(), size_t {200});
+    for (const int selectivity : {1, 10, 50, 90, 99}) {
+        for (const int null_percent : {0, 1, 10, 50, 90}) {
+            for (const auto selection_pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                for (const auto null_pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                    for (const auto implementation : {NullableSelectionImplementation::LEGACY,
+                                                      NullableSelectionImplementation::FUSED}) {
+                        EXPECT_TRUE(std::ranges::any_of(
+                                scenarios,
+                                [&](const NullableSelectionScenario& scenario) {
+                                    return scenario.selectivity_percent == selectivity &&
+                                           scenario.null_percent == null_percent &&
+                                           scenario.selection_pattern == selection_pattern &&
+                                           scenario.null_pattern == null_pattern &&
+                                           scenario.implementation == implementation;
+                                }))
+                                << "missing nullable selection comparison shape";
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST(ParquetBenchmarkScenariosTest, SelectionMatrixCoversIdentityAndSuccessiveCompaction) {
+    const auto scenarios = selection_scenarios();
+    EXPECT_EQ(scenarios.size(), size_t {25});
+    EXPECT_TRUE(std::ranges::any_of(scenarios, [](const SelectionScenario& scenario) {
+        return scenario.operation == SelectionOperation::RESIZE_IDENTITY;
+    }));
+    for (const auto operation :
+         {SelectionOperation::ROW_FILTER, SelectionOperation::CASCADE_FILTER}) {
+        for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
+            for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const SelectionScenario& scenario) {
+                    return scenario.operation == operation &&
+                           scenario.selectivity_percent == selectivity &&
+                           scenario.pattern == pattern;
+                })) << "missing selection compaction shape";
+            }
+        }
     }
 }
 

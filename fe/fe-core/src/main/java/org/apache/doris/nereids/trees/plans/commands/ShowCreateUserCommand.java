@@ -99,8 +99,8 @@ public class ShowCreateUserCommand extends ShowCommand {
         sb.append(" IDENTIFIED BY *** ");
 
         // tls requirements
-        if (user.getSan() != null) {
-            sb.append(" REQUIRE SAN '").append(user.getSan()).append("'");
+        if (user.hasSanRequirement()) {
+            sb.append(" REQUIRE SAN '").append(user.getSanRequirementSql()).append("'");
         }
 
         // password policy

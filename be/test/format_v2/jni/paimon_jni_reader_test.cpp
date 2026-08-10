@@ -23,6 +23,8 @@
 #include <string>
 #include <utility>
 
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
@@ -49,9 +51,10 @@ TFileScanRangeParams make_scan_params() {
 }
 
 Status init_reader(PaimonJniReader* reader, TFileScanRangeParams* scan_params,
-                   RuntimeState* runtime_state = nullptr) {
+                   RuntimeState* runtime_state = nullptr,
+                   std::vector<ColumnDefinition> projected_columns = {}) {
     return reader->init({
-            .projected_columns = {},
+            .projected_columns = std::move(projected_columns),
             .conjuncts = {},
             .format = FileFormat::JNI,
             .scan_params = scan_params,
@@ -65,6 +68,29 @@ Status build_params(PaimonJniReader* reader, const TFileRangeDesc& range,
                     std::map<std::string, std::string>* params) {
     reader->_current_range = range;
     return reader->build_scanner_params(params);
+}
+
+TEST(PaimonJniReaderTest, PublishesVariantAccessPathsByProjectedColumnPosition) {
+    auto range = make_paimon_jni_range();
+    range.table_format_params.paimon_params.__set_paimon_predicate("serialized-predicate");
+    auto scan_params = make_scan_params();
+
+    ColumnDefinition id;
+    id.name = "id";
+    id.type = std::make_shared<DataTypeString>();
+    ColumnDefinition payload;
+    payload.name = "payload";
+    payload.type = std::make_shared<DataTypeVariantV2>();
+    payload.variant_access_paths = {{"name"}, {"profile", "city"}};
+
+    PaimonJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params, nullptr, {id, payload}).ok());
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_FALSE(params.contains("variant_access_path.0.0"));
+    EXPECT_EQ(params.at("variant_access_path.1.0"), "$bmFtZQ==");
+    EXPECT_EQ(params.at("variant_access_path.1.1"), "$cHJvZmlsZQ==,$Y2l0eQ==");
 }
 
 TEST(PaimonJniReaderTest, UsesScanLevelPredicateBeforeLegacySplitPredicate) {
@@ -81,6 +107,43 @@ TEST(PaimonJniReaderTest, UsesScanLevelPredicateBeforeLegacySplitPredicate) {
     std::map<std::string, std::string> params;
     ASSERT_TRUE(build_params(&reader, range, &params).ok());
     EXPECT_EQ(params["paimon_predicate"], "scan-predicate");
+}
+
+TEST(PaimonJniReaderTest, ForwardsSerializedTableCacheKey) {
+    auto range = make_paimon_jni_range();
+    range.table_format_params.paimon_params.__set_paimon_predicate("serialized-predicate");
+
+    auto scan_params = make_scan_params();
+    scan_params.__set_serialized_table_cache_key("table-cache-key");
+
+    PaimonJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_EQ(params["serialized_table_cache_key"], "table-cache-key");
+}
+
+TEST(PaimonJniReaderTest, GeneratesMissingOrEmptySerializedTableCacheKey) {
+    auto range = make_paimon_jni_range();
+    range.table_format_params.paimon_params.__set_paimon_predicate("serialized-predicate");
+    auto scan_params = make_scan_params();
+
+    PaimonJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_EQ(params["serialized_table"], "serialized-table");
+    const std::string missing_key = params["serialized_table_cache_key"];
+    EXPECT_FALSE(missing_key.empty());
+
+    scan_params.__set_serialized_table_cache_key("");
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_EQ(params["serialized_table"], "serialized-table");
+    const std::string empty_key = params["serialized_table_cache_key"];
+    EXPECT_FALSE(empty_key.empty());
+    EXPECT_NE(missing_key, empty_key);
 }
 
 TEST(PaimonJniReaderTest, FallsBackToLegacySplitPredicateWhenScanPredicateIsMissing) {
@@ -159,6 +222,21 @@ TEST(PaimonJniReaderTest, ScanLevelOptionsOverrideLegacySplitFallbacks) {
     ASSERT_TRUE(build_params(&reader, range, &params).ok());
     EXPECT_EQ(params["paimon.source"], "scan");
     EXPECT_EQ(params["hadoop.source"], "scan");
+}
+
+TEST(PaimonJniReaderTest, PublishesEncodedSchemaForQuotedIdentifiers) {
+    PaimonJniReader reader;
+    reader._jni_columns = {JniTableReader::JniColumn {
+            .java_name = "region,code",
+            // Keep the aggregate complete because BE UT treats omitted JNI column fields as errors.
+            .output_type = std::make_shared<DataTypeString>(),
+            .transfer_type = std::make_shared<DataTypeString>(),
+    }};
+
+    reader._prepare_jni_scanner_schema();
+
+    EXPECT_EQ(reader._scanner_params.at("required_fields_base64"), "$cmVnaW9uLGNvZGU=");
+    EXPECT_TRUE(reader._scanner_params.contains("columns_types_base64"));
 }
 
 TEST(PaimonJniReaderTest, UsesStableRuntimeBatchSizeBeforeAndAfterOpen) {

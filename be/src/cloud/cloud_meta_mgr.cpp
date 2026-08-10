@@ -65,6 +65,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/client_cache.h"
+#include "util/client_connection_provider.h"
 #include "util/network_util.h"
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
@@ -153,8 +154,19 @@ Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concu
     return Status::OK();
 }
 
+MetaServiceCode get_response_code(const MetaServiceResponseStatus& status) {
+    if (status.has_actual_code() && MetaServiceCode_IsValid(status.actual_code())) {
+        return static_cast<MetaServiceCode>(status.actual_code());
+    }
+    return status.code();
+}
+
 namespace {
 constexpr int kBrpcRetryTimes = 3;
+
+void restore_actual_code(MetaServiceResponseStatus* status) {
+    status->set_code(get_response_code(*status));
+}
 
 bvar::LatencyRecorder _get_rowset_latency("doris_cloud_meta_mgr_get_rowset");
 bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stats_report_latency");
@@ -310,6 +322,7 @@ private:
         }
 
         brpc::ChannelOptions options;
+        RETURN_IF_ERROR(doris::client::configure_brpc_channel_options(&options));
         options.connection_group =
                 fmt::format("ms_{}", index.fetch_add(1, std::memory_order_relaxed));
         if (channel->Init(endpoint.c_str(), load_balancer_name, &options) != 0) {
@@ -417,6 +430,16 @@ using MetaServiceMethod = void (MetaService_Stub::*)(::google::protobuf::RpcCont
                                                      const Request*, Response*,
                                                      ::google::protobuf::Closure*);
 
+template <typename Request, typename Response>
+void call_ms(MetaService_Stub* stub, MetaServiceMethod<Request, Response> method,
+             brpc::Controller* cntl, const Request& req, Response* res) {
+    (stub->*method)(cntl, &req, res, nullptr);
+    if (!cntl->Failed()) {
+        // Meta Service may downgrade code for wire compatibility; restore the exact value.
+        restore_actual_code(res->mutable_status());
+    }
+}
+
 // Rate limiting context for retry_rpc
 struct RpcRateLimitCtx {
     HostLevelMSRpcRateLimiters* host_limiters {nullptr};
@@ -502,7 +525,7 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
         cntl.set_max_retry(kBrpcRetryTimes);
         res->Clear();
         int error_code = 0;
-        (stub.get()->*method)(&cntl, &req, res, nullptr);
+        call_ms(stub.get(), method, &cntl, req, res);
 
         // Record QPS statistics for all RPCs sent to MS (success or failure)
         record_rpc_qps(rpc, rate_limit_ctx);
@@ -728,7 +751,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         }
 
         auto start = std::chrono::steady_clock::now();
-        stub->get_rowset(&cntl, &req, &resp, nullptr);
+        call_ms(stub.get(), &MetaService_Stub::get_rowset, &cntl, req, &resp);
         auto end = std::chrono::steady_clock::now();
         int64_t latency = cntl.latency_us();
         _get_rowset_latency << latency;
@@ -1647,6 +1670,9 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
                         });
 
     if (st.ok()) {
+        VLOG_DEBUG << "commit txn succeeded, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
+                   << ", label: " << ctx.label << ", is_lazy_commit: " << res.is_lazy_commit()
+                   << ", is_lazy_commit_incomplete: " << res.is_lazy_commit_incomplete();
         std::vector<int64_t> tablet_ids;
         for (auto& commit_info : ctx.commit_infos) {
             tablet_ids.emplace_back(commit_info.tabletId);

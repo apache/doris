@@ -88,6 +88,11 @@ Status rebuild_semantic_projected_type(const DataTypePtr& original_type,
         nested_projected_type = std::make_shared<DataTypeMap>(key_type, value_type);
         break;
     }
+    case TYPE_VARIANT:
+        // Variant children describe a format-specific physical shredding carrier, not the public
+        // logical type. Pruning those children must keep the file block exposed as Variant.
+        *projected_type = original_type;
+        return Status::OK();
     default:
         return Status::InvalidArgument("Cannot project children from non-complex type {}",
                                        original_type->get_name());

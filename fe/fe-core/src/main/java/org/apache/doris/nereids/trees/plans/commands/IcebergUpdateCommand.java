@@ -255,6 +255,7 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
                 targetSchema,
                 outputExprs,
                 deleteCtx,
+                true,
                 false,
                 Optional.empty(),
                 Optional.empty(),

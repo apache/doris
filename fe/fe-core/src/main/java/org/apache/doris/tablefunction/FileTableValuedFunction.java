@@ -90,6 +90,21 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
     }
 
     @Override
+    public boolean isLanceFormat() {
+        return delegateTvf.isLanceFormat();
+    }
+
+    @Override
+    public long getLanceDatasetVersion() {
+        return delegateTvf.getLanceDatasetVersion();
+    }
+
+    @Override
+    public List<Long> getLanceFragmentIds() {
+        return delegateTvf.getLanceFragmentIds();
+    }
+
+    @Override
     public Map<String, String> getBackendConnectProperties() {
         return delegateTvf.getBackendConnectProperties();
     }

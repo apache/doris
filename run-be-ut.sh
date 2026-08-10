@@ -45,9 +45,93 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
 fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
-export TP_INSTALLED_DIR="${DORIS_THIRDPARTY}/installed"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 . "${DORIS_HOME}/env.sh"
+# shellcheck source=thirdparty/arrow-paimon-vars.sh
+. "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
+
+prepare_build_image_arrow_paimon_prebuilt() {
+    local selected_thirdparty_root
+    local checkout_thirdparty_root
+
+    selected_thirdparty_root="$(cd "${DORIS_THIRDPARTY}" && pwd -P)"
+    checkout_thirdparty_root="$(cd "${DORIS_HOME}/thirdparty" && pwd -P)"
+    if [[ "${selected_thirdparty_root}" == "${checkout_thirdparty_root}" ]]; then
+        return 0
+    fi
+
+    # The official Linux x86_64 build image carries an install-only thirdparty
+    # tree. Refresh it from the shared automation asset when the image predates
+    # the Arrow/Paimon closure selected by this checkout.
+    if [[ "${selected_thirdparty_root}" != "/var/local/thirdparty" ||
+        "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
+        return 0
+    fi
+    ensure_arrow_paimon_prebuilt_from_url "${selected_thirdparty_root}" \
+        "${ARROW_PAIMON_SHARED_PREBUILT_LINUX_X86_64_URL}"
+}
+
+trim_whitespace() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "${value}"
+}
+
+is_valid_extra_module_feature() {
+    local feature="$1"
+    [[ "${feature}" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]
+}
+
+feature_to_cmake_name() {
+    local feature="$1"
+    printf '%s' "${feature}" | tr '[:lower:]-' '[:upper:]_'
+}
+
+parse_extra_be_modules() {
+    local spec_value="$1"
+    local entry feature module_path existing
+    local -a feature_keys=()
+
+    BE_EXTRA_FEATURE_KEYS=()
+    BE_EXTRA_MODULE_PATHS=()
+    if [[ -z "${spec_value}" ]]; then
+        return
+    fi
+
+    IFS=',' read -r -a entries <<<"${spec_value}"
+    for entry in "${entries[@]}"; do
+        entry="$(trim_whitespace "${entry}")"
+        if [[ -z "${entry}" || "${entry}" != *=* ]]; then
+            echo "Invalid EXTRA_BE_MODULES entry '${entry}': expected feature=module_path"
+            exit 1
+        fi
+
+        feature="$(trim_whitespace "${entry%%=*}")"
+        module_path="$(trim_whitespace "${entry#*=}")"
+        if [[ -z "${feature}" || -z "${module_path}" ]]; then
+            echo "Invalid EXTRA_BE_MODULES entry '${entry}': feature and module_path must be non-empty"
+            exit 1
+        fi
+        if ! is_valid_extra_module_feature "${feature}"; then
+            echo "Invalid EXTRA_BE_MODULES feature '${feature}'"
+            exit 1
+        fi
+        for existing in "${feature_keys[@]}"; do
+            if [[ "${existing}" == "${feature}" ]]; then
+                echo "Duplicate EXTRA_BE_MODULES feature '${feature}'"
+                exit 1
+            fi
+        done
+        if [[ ! -d "${DORIS_HOME}/be/src/${module_path}" ]]; then
+            echo "Missing EXTRA_BE_MODULES module directory: ${DORIS_HOME}/be/src/${module_path}"
+            exit 1
+        fi
+        feature_keys+=("${feature}")
+        BE_EXTRA_FEATURE_KEYS+=("${feature}")
+        BE_EXTRA_MODULE_PATHS+=("${module_path}")
+    done
+}
 
 # Check args
 usage() {
@@ -148,13 +232,25 @@ fi
 CMAKE_BUILD_TYPE="${BUILD_TYPE_UT:-ASAN}"
 CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 
+EXTRA_BE_MODULES="${EXTRA_BE_MODULES:-}"
+parse_extra_be_modules "${EXTRA_BE_MODULES}"
+
+BE_EXTRA_CMAKE_ARGS=()
+for ((i = 0; i < ${#BE_EXTRA_FEATURE_KEYS[@]}; i++)); do
+    feature_name="$(feature_to_cmake_name "${BE_EXTRA_FEATURE_KEYS[i]}")"
+    BE_EXTRA_CMAKE_ARGS+=("-DENABLE_${feature_name}=ON")
+    BE_EXTRA_CMAKE_ARGS+=("-D${feature_name}_MODULE_DIR=${BE_EXTRA_MODULE_PATHS[i]}")
+done
+
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
     ENABLE_PCH          -- ${ENABLE_PCH}
-    WITH_TDE_DIR        -- ${WITH_TDE_DIR}
+    EXTRA_BE_MODULES    -- ${EXTRA_BE_MODULES}
 "
 echo "Build Backend UT"
+
+prepare_build_image_arrow_paimon_prebuilt
 
 update_submodule() {
     local submodule_path=$1
@@ -179,13 +275,7 @@ update_submodule() {
     fi
 }
 
-echo "install datasketches-cpp to thirdparty path before build backend ut"
 update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
-cd "${DORIS_HOME}/contrib/datasketches-cpp"
-"${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR -DBUILD_TESTS=OFF
-"${CMAKE_CMD}" --build build/Release -t install
-cd "${DORIS_HOME}"
-
 update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
 update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
 
@@ -271,7 +361,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DENABLE_PCH="${ENABLE_PCH}" \
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \
     -DBUILD_AZURE="${BUILD_AZURE}" \
-    -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
+    "${BE_EXTRA_CMAKE_ARGS[@]}" \
     "${DORIS_HOME}/be"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 
@@ -472,6 +562,7 @@ export ORC_EXAMPLE_DIR="${DORIS_HOME}/contrib/apache-orc/examples"
 
 # set asan and ubsan env to generate core file
 export DORIS_HOME="${DORIS_TEST_BINARY_DIR}/"
+export LSAN_OPTIONS="suppressions=${ROOT}/conf/lsan_suppr.conf"
 ## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0
 export UBSAN_OPTIONS=print_stacktrace=1

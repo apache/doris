@@ -28,6 +28,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.tls.server.TlsProtocolSet;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -40,7 +41,9 @@ import java.util.Optional;
 // MySQL protocol util
 public class MysqlProto {
     private static final Logger LOG = LogManager.getLogger(MysqlProto.class);
-    public static final boolean SERVER_USE_SSL = Config.enable_ssl;
+    public static final boolean SERVER_USE_SSL =
+            (Config.enable_tls && TlsProtocolSet.isProtocolIncluded(TlsProtocolSet.Protocol.MYSQL))
+                    || Config.enable_ssl;
     private static final String CLIENT_CLOSED_CONNECTION_DURING_HANDSHAKE =
             "Client closed connection during handshake";
 

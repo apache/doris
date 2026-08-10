@@ -204,17 +204,59 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
         check_arrow_no_offset(*arrow_array);
     }
     auto& col_data = static_cast<ColumnDateV2&>(column).get_data();
-    const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
-    const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
-    const size_t element_size = sizeof(int32_t);
-    for (auto value_i = start; value_i < end; ++value_i) {
-        int32_t date_value = 0;
-        const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
-        memcpy(&date_value, raw_byte_ptr, element_size);
+    if (arrow_array->type_id() == arrow::Type::DATE64) {
+        static constexpr int64_t MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+        const auto* concrete_array = dynamic_cast<const arrow::Date64Array*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow Date64Array, got {}",
+                                           arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_fixed_width_buffer(*concrete_array, sizeof(arrow::Date64Array::value_type));
+        }
+        for (int64_t value_i = start; value_i < end; ++value_i) {
+            if (concrete_array->IsNull(value_i)) {
+                col_data.emplace_back(DateV2Value<DateV2ValueType>());
+                continue;
+            }
+            const int64_t milliseconds = concrete_array->Value(value_i);
+            if (milliseconds % MILLISECONDS_PER_DAY != 0) {
+                return Status::InvalidArgument(
+                        "Arrow Date64 value must contain whole days: row={}, milliseconds={}",
+                        value_i, milliseconds);
+            }
+            const int64_t daynr = milliseconds / MILLISECONDS_PER_DAY + date_threshold;
+            DateV2Value<DateV2ValueType> value;
+            if (daynr <= 0 || daynr > DATE_MAX_DAYNR ||
+                !value.get_date_from_daynr(static_cast<uint64_t>(daynr))) {
+                return Status::InvalidArgument(
+                        "Arrow Date64 value is outside the Doris DATE range: "
+                        "row={}, milliseconds={}",
+                        value_i, milliseconds);
+            }
+            col_data.emplace_back(value);
+        }
+    } else if (arrow_array->type_id() == arrow::Type::DATE32) {
+        const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow Date32Array, got {}",
+                                           arrow_array->type()->name());
+        }
+        const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
+        const size_t element_size = sizeof(int32_t);
+        for (auto value_i = start; value_i < end; ++value_i) {
+            int32_t date_value = 0;
+            const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
+            memcpy(&date_value, raw_byte_ptr, element_size);
 
-        DateV2Value<DateV2ValueType> v;
-        v.get_date_from_daynr(date_value + date_threshold);
-        col_data.emplace_back(v);
+            DateV2Value<DateV2ValueType> v;
+            v.get_date_from_daynr(date_value + date_threshold);
+            col_data.emplace_back(v);
+        }
+    } else {
+        return Status::InvalidArgument("Expected Arrow Date32Array or Date64Array, got {}",
+                                       arrow_array->type()->name());
     }
     return Status::OK();
 }
