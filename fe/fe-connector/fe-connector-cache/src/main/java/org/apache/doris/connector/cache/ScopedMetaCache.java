@@ -29,6 +29,8 @@ import com.github.benmanes.caffeine.cache.Ticker;
 
 import java.math.BigInteger;
 import java.time.Duration;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -54,6 +56,7 @@ import java.util.function.Function;
  * scope bucket and key node, so delayed callbacks cannot delete a replacement.
  */
 public final class ScopedMetaCache<K, V> implements AutoCloseable {
+    private static final System.Logger LOG = System.getLogger(ScopedMetaCache.class.getName());
     private static final Runnable NO_OP = () -> {
     };
 
@@ -63,13 +66,15 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     private final Cache<K, VersionedValue<K, V>> data;
     private final ConcurrentMap<K, KeyNode<K, V>> keyNodes = new ConcurrentHashMap<>();
     private final ConcurrentMap<LoadAddress<K>, CompletableFuture<V>> inFlightLoads = new ConcurrentHashMap<>();
-    private final Object bulkInvalidationLock = new Object();
+    private final StripedPhaseGate bulkInvalidationGate = new StripedPhaseGate();
     private final Map<K, BigInteger> exactInvalidations = new HashMap<>();
     private final NavigableMap<BigInteger, Integer> activeBulkStarts = new TreeMap<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final BiConsumer<K, V> beforeRemoval;
     private final Runnable afterLoadElection;
     private final Runnable afterBulkStage;
+    private final ThreadLocal<RemovalDeferral<K, V>> removalDeferrals =
+            ThreadLocal.withInitial(RemovalDeferral::new);
     private BigInteger exactInvalidationSequence = BigInteger.ZERO;
 
     ScopedMetaCache(
@@ -208,31 +213,31 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         Objects.requireNonNull(afterStateReplacement, "afterStateReplacement can not be null");
         checkOpen();
         beforeInvalidationLock.run();
-        KeyNode<K, V> node;
-        KeyState invalidatedState = null;
-        synchronized (bulkInvalidationLock) {
+        InvalidatedKey<K, V> invalidated = bulkInvalidationGate.write(() -> {
             if (closed.get()) {
-                return;
+                return null;
             }
             exactInvalidationSequence = exactInvalidationSequence.add(BigInteger.ONE);
             if (!activeBulkStarts.isEmpty()) {
                 exactInvalidations.put(key, exactInvalidationSequence);
             }
-            node = keyNodes.get(key);
+            KeyNode<K, V> node = keyNodes.get(key);
+            KeyState invalidatedState = null;
             if (node != null) {
                 invalidatedState = replaceKeyState(node);
             }
-        }
-        if (node == null) {
+            return new InvalidatedKey<>(node, invalidatedState);
+        });
+        if (invalidated == null || invalidated.node == null) {
             return;
         }
         afterStateReplacement.run();
-        VersionedValue<K, V> registered = node.registration.get();
-        if (registered != null && registered.keyState == invalidatedState) {
+        VersionedValue<K, V> registered = invalidated.node.registration.get();
+        if (registered != null && registered.keyState == invalidated.keyState) {
             data.asMap().remove(key, registered);
-            node.registration.compareAndSet(registered, null);
+            invalidated.node.registration.compareAndSet(registered, null);
         }
-        tryPruneKey(key, node);
+        tryPruneKey(key, invalidated.node);
     }
 
     public BulkLoadHandle beginBulkLoad(ScopePath parentScope) {
@@ -242,15 +247,15 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return BulkLoadHandle.disabled(this, parentScope);
         }
         ScopeLease scopeLease = registry.acquire(parentScope);
-        BigInteger exactSequence;
-        synchronized (bulkInvalidationLock) {
+        BigInteger exactSequence = bulkInvalidationGate.write(() -> {
             if (closed.get()) {
                 scopeLease.close();
                 throw new IllegalStateException("Scoped meta cache '" + name + "' is closed");
             }
-            exactSequence = exactInvalidationSequence;
-            activeBulkStarts.merge(exactSequence, 1, Integer::sum);
-        }
+            BigInteger sequence = exactInvalidationSequence;
+            activeBulkStarts.merge(sequence, 1, Integer::sum);
+            return sequence;
+        });
         return new BulkLoadHandle(
                 this,
                 parentScope,
@@ -287,14 +292,12 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     }
 
     public CacheMetrics metrics() {
-        synchronized (bulkInvalidationLock) {
-            return new CacheMetrics(
+        return bulkInvalidationGate.read(() -> new CacheMetrics(
                     data.estimatedSize(),
                     keyNodes.size(),
                     inFlightLoads.size(),
                     activeBulkStarts.values().stream().mapToInt(Integer::intValue).sum(),
-                    exactInvalidations.size());
-        }
+                    exactInvalidations.size()));
     }
 
     public void cleanUp() {
@@ -384,19 +387,28 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         PublicationLease<K, V> lease = (PublicationLease<K, V>) rawLease;
         @SuppressWarnings("unchecked")
         VersionedValue<K, V> staged = (VersionedValue<K, V>) rawStaged;
-        synchronized (bulkInvalidationLock) {
-            if (!isBulkKeyCurrent(handle, key)) {
-                return false;
+        RemovalDeferral<K, V> removalDeferral = removalDeferrals.get();
+        removalDeferral.depth++;
+        try {
+            return bulkInvalidationGate.readBoolean(() -> {
+                if (!isBulkKeyCurrent(handle, key)) {
+                    return false;
+                }
+                return handle.scopeLease.commitIfPublicationCurrent(
+                        handle.scopePublicationState, () -> {
+                            if (!lease.isCurrent()) {
+                                return false;
+                            }
+                            lease.keyNode.loadPublicationState.set(new Object());
+                            install(staged, lease);
+                            return true;
+                        });
+            });
+        } finally {
+            removalDeferral.depth--;
+            if (removalDeferral.depth == 0 && !removalDeferral.draining) {
+                drainDeferredRemovals(removalDeferral);
             }
-            return handle.scopeLease.commitIfPublicationCurrent(
-                    handle.scopePublicationState, () -> {
-                        if (!lease.isCurrent()) {
-                            return false;
-                        }
-                        lease.keyNode.loadPublicationState.set(new Object());
-                        install(staged, lease);
-                        return true;
-                    });
         }
     }
 
@@ -408,10 +420,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     }
 
     private void closeBulkHandle(BulkLoadHandle handle) {
-        ScopeLease leaseToClose = null;
-        synchronized (bulkInvalidationLock) {
+        ScopeLease leaseToClose = bulkInvalidationGate.write(() -> {
             if (!handle.closed.compareAndSet(false, true)) {
-                return;
+                return null;
             }
             if (handle.scopeLease != null) {
                 Integer count = activeBulkStarts.get(handle.exactInvalidationSequence);
@@ -424,9 +435,10 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                     activeBulkStarts.put(handle.exactInvalidationSequence, count - 1);
                 }
                 pruneExactInvalidations();
-                leaseToClose = handle.scopeLease;
+                return handle.scopeLease;
             }
-        }
+            return null;
+        });
         if (leaseToClose != null) {
             leaseToClose.close();
         }
@@ -457,9 +469,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     }
 
     private void closePhysicalState() {
-        synchronized (bulkInvalidationLock) {
-            exactInvalidations.clear();
-        }
+        bulkInvalidationGate.write(exactInvalidations::clear);
         keyNodes.forEach((key, node) -> {
             replaceKeyState(node);
             VersionedValue<K, V> versioned = node.registration.get();
@@ -478,15 +488,72 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         Objects.requireNonNull(rawKey, "removed cache key can not be null");
         Objects.requireNonNull(rawValue, "removed cache value can not be null");
         @SuppressWarnings("unchecked")
-        K key = (K) rawKey;
-        @SuppressWarnings("unchecked")
         VersionedValue<K, V> versioned = (VersionedValue<K, V>) rawValue;
+        RemovalDeferral<K, V> removalDeferral = removalDeferrals.get();
+        removalDeferral.removals.addLast(versioned);
+        if (removalDeferral.depth > 0 || removalDeferral.draining) {
+            return;
+        }
+        drainDeferredRemovals(removalDeferral);
+    }
+
+    private void drainDeferredRemovals(RemovalDeferral<K, V> removalDeferral) {
+        removalDeferral.draining = true;
+        Throwable failure = null;
+        try {
+            VersionedValue<K, V> versioned;
+            while ((versioned = removalDeferral.removals.pollFirst()) != null) {
+                try {
+                    completeRemoval(versioned);
+                } catch (RuntimeException | Error e) {
+                    if (failure == null) {
+                        failure = e;
+                    } else {
+                        failure.addSuppressed(e);
+                    }
+                }
+            }
+        } finally {
+            removalDeferral.draining = false;
+            removalDeferral.removals.clear();
+            removalDeferrals.remove();
+        }
+        if (failure instanceof RuntimeException) {
+            throw (RuntimeException) failure;
+        }
+        if (failure != null) {
+            throw (Error) failure;
+        }
+    }
+
+    private void completeRemoval(VersionedValue<K, V> versioned) {
+        K key = versioned.key;
         if (beforeRemoval != null) {
-            beforeRemoval.accept(key, versioned.value);
+            try {
+                beforeRemoval.accept(key, versioned.value);
+            } catch (Throwable t) {
+                LOG.log(System.Logger.Level.WARNING, "Scoped metadata cache removal callback failed", t);
+            }
         }
         registry.unregister(versioned.address, versioned, versioned.scopeSnapshot);
         versioned.keyNode.registration.compareAndSet(versioned, null);
         tryPruneKey(key, versioned.keyNode);
+    }
+
+    private static final class RemovalDeferral<K, V> {
+        private final Deque<VersionedValue<K, V>> removals = new ArrayDeque<>();
+        private int depth;
+        private boolean draining;
+    }
+
+    private static final class InvalidatedKey<K, V> {
+        private final KeyNode<K, V> node;
+        private final KeyState keyState;
+
+        private InvalidatedKey(KeyNode<K, V> node, KeyState keyState) {
+            this.node = node;
+            this.keyState = keyState;
+        }
     }
 
     private KeyState replaceKeyState(KeyNode<K, V> node) {

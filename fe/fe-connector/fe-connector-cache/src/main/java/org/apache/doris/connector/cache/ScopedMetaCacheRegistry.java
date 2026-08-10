@@ -28,8 +28,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 
@@ -44,13 +44,30 @@ import java.util.function.BooleanSupplier;
 public final class ScopedMetaCacheRegistry implements AutoCloseable {
     private static final Runnable NO_OP = () -> {
     };
+    private static final BiConsumer<ScopePath.Level, Object> NO_OP_SCOPE = (level, key) -> {
+    };
 
     private final ScopeNode root = new ScopeNode(null, null, ScopePath.Level.CATALOG);
     private final Set<ScopedMetaCache<?, ?>> caches = ConcurrentHashMap.newKeySet();
-    private final Object publicationLock = new Object();
+    private final StripedPhaseGate publicationGate = new StripedPhaseGate();
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    private final AtomicIntegerArray retainedActiveLoads =
-            new AtomicIntegerArray(ScopePath.Level.values().length);
+    private final LongAdder[] retainedActiveLoads = newCounters(ScopePath.Level.values().length);
+    private final BiConsumer<ScopePath.Level, Object> afterParentPin;
+    private final BiConsumer<ScopePath.Level, Object> beforePruneMark;
+    private final BiConsumer<ScopePath.Level, Object> afterPruneMark;
+
+    public ScopedMetaCacheRegistry() {
+        this(NO_OP_SCOPE, NO_OP_SCOPE, NO_OP_SCOPE);
+    }
+
+    ScopedMetaCacheRegistry(
+            BiConsumer<ScopePath.Level, Object> afterParentPin,
+            BiConsumer<ScopePath.Level, Object> beforePruneMark,
+            BiConsumer<ScopePath.Level, Object> afterPruneMark) {
+        this.afterParentPin = Objects.requireNonNull(afterParentPin, "afterParentPin can not be null");
+        this.beforePruneMark = Objects.requireNonNull(beforePruneMark, "beforePruneMark can not be null");
+        this.afterPruneMark = Objects.requireNonNull(afterPruneMark, "afterPruneMark can not be null");
+    }
 
     public <K, V> ScopedMetaCache<K, V> createCache(String name, CacheSpec cacheSpec) {
         return createCache(name, cacheSpec, null, null, NO_OP, NO_OP);
@@ -106,27 +123,28 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         Objects.requireNonNull(path, "path can not be null");
         Objects.requireNonNull(afterStateReplacement, "afterStateReplacement can not be null");
         checkOpen();
-        List<ScopeNode> existing;
-        ScopeState oldState;
-        synchronized (publicationLock) {
-            existing = resolveExisting(path);
+        InvalidatedScope invalidated = publicationGate.write(() -> {
+            List<ScopeNode> existing = resolveExisting(path);
             bumpPublicationStates(existing);
             if (existing.size() != path.level().ordinal() + 1) {
-                return;
+                return null;
             }
             ScopeNode target = existing.get(existing.size() - 1);
-            oldState = replaceState(target);
+            return new InvalidatedScope(existing, replaceState(target));
+        });
+        if (invalidated == null) {
+            return;
         }
         afterStateReplacement.run();
-        cleanDetachedState(oldState);
-        tryPrune(existing);
+        cleanDetachedState(invalidated.oldState);
+        tryPrune(invalidated.existing);
     }
 
     public ScopeMetrics metrics() {
         ScopeMetricsAccumulator accumulator = new ScopeMetricsAccumulator();
         collectMetrics(root, accumulator);
         for (ScopePath.Level level : ScopePath.Level.values()) {
-            accumulator.retainedActiveLoads[level.ordinal()] = retainedActiveLoads.get(level.ordinal());
+            accumulator.retainedActiveLoads[level.ordinal()] = retainedActiveLoads[level.ordinal()].intValue();
         }
         return accumulator.snapshot();
     }
@@ -136,11 +154,10 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        ScopeState oldState;
-        synchronized (publicationLock) {
+        ScopeState oldState = publicationGate.write(() -> {
             bumpPublicationStates(Collections.singletonList(root));
-            oldState = replaceState(root);
-        }
+            return replaceState(root);
+        });
         cleanDetachedState(oldState);
         List<ScopedMetaCache<?, ?>> snapshot = new ArrayList<>(caches);
         caches.clear();
@@ -152,7 +169,9 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         while (true) {
             checkOpen();
             ScopeSnapshot snapshot = resolveOrCreateSnapshot(path);
-            retain(snapshot);
+            if (snapshot == null || !retain(snapshot)) {
+                continue;
+            }
             if (snapshot.isCurrent(this)) {
                 return new ScopeLease(this, snapshot);
             }
@@ -196,17 +215,26 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         }
         ScopeState catalogState = catalogNode.current.get();
         ScopeNode dbNode = child(catalogNode, catalogState, path.database(), ScopePath.Level.DATABASE);
+        if (dbNode == null) {
+            return null;
+        }
         if (path.level() == ScopePath.Level.DATABASE) {
             return ScopeSnapshot.capture(path, catalogNode, dbNode, null, null);
         }
         ScopeState dbState = dbNode.current.get();
         ScopeNode tableNode = child(dbNode, dbState, path.table(), ScopePath.Level.TABLE);
+        if (tableNode == null) {
+            return null;
+        }
         if (path.level() == ScopePath.Level.TABLE) {
             return ScopeSnapshot.capture(path, catalogNode, dbNode, tableNode, null);
         }
         ScopeState tableState = tableNode.current.get();
         ScopeNode partitionNode = child(
                 tableNode, tableState, path.partition(), ScopePath.Level.PARTITION);
+        if (partitionNode == null) {
+            return null;
+        }
         return ScopeSnapshot.capture(path, catalogNode, dbNode, tableNode, partitionNode);
     }
 
@@ -246,9 +274,29 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         if (existing != null) {
             return existing;
         }
-        ScopeNode created = new ScopeNode(parent, childKey, childLevel);
-        ScopeNode raced = parentState.children.putIfAbsent(childKey, created);
-        return raced == null ? created : raced;
+        if (!parent.tryRetain()) {
+            return null;
+        }
+        try {
+            if (parent.current.get() != parentState) {
+                return null;
+            }
+            afterParentPin.accept(childLevel, childKey);
+            existing = parentState.children.get(childKey);
+            if (existing != null) {
+                return existing;
+            }
+            ScopeNode created = new ScopeNode(parent, childKey, childLevel);
+            ScopeNode raced = parentState.children.putIfAbsent(childKey, created);
+            ScopeNode child = raced == null ? created : raced;
+            if (parent.current.get() != parentState) {
+                parentState.children.remove(childKey, child);
+                return null;
+            }
+            return child;
+        } finally {
+            parent.releaseRetain();
+        }
     }
 
     private void bumpPublicationStates(List<ScopeNode> nodes) {
@@ -274,47 +322,36 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         state.children.clear();
     }
 
-    private void retain(ScopeSnapshot snapshot) {
-        retain(snapshot.catalogNode);
+    private boolean retain(ScopeSnapshot snapshot) {
+        if (!snapshot.leafNode().tryRetain()) {
+            return false;
+        }
+        retainedActiveLoads[ScopePath.Level.CATALOG.ordinal()].increment();
         if (snapshot.databaseNode != null) {
-            retain(snapshot.databaseNode);
+            retainedActiveLoads[ScopePath.Level.DATABASE.ordinal()].increment();
         }
         if (snapshot.tableNode != null) {
-            retain(snapshot.tableNode);
+            retainedActiveLoads[ScopePath.Level.TABLE.ordinal()].increment();
         }
         if (snapshot.partitionNode != null) {
-            retain(snapshot.partitionNode);
+            retainedActiveLoads[ScopePath.Level.PARTITION.ordinal()].increment();
         }
-    }
-
-    private void retain(ScopeNode node) {
-        node.activeLoads.incrementAndGet();
-        retainedActiveLoads.incrementAndGet(node.level.ordinal());
+        return true;
     }
 
     private void release(ScopeSnapshot snapshot) {
-        release(snapshot.catalogNode);
+        snapshot.leafNode().releaseRetain();
+        retainedActiveLoads[ScopePath.Level.CATALOG.ordinal()].decrement();
         if (snapshot.databaseNode != null) {
-            release(snapshot.databaseNode);
+            retainedActiveLoads[ScopePath.Level.DATABASE.ordinal()].decrement();
         }
         if (snapshot.tableNode != null) {
-            release(snapshot.tableNode);
+            retainedActiveLoads[ScopePath.Level.TABLE.ordinal()].decrement();
         }
         if (snapshot.partitionNode != null) {
-            release(snapshot.partitionNode);
+            retainedActiveLoads[ScopePath.Level.PARTITION.ordinal()].decrement();
         }
         tryPrune(snapshot);
-    }
-
-    private void release(ScopeNode node) {
-        int remaining = node.activeLoads.decrementAndGet();
-        int retainedRemaining = retainedActiveLoads.decrementAndGet(node.level.ordinal());
-        if (remaining < 0) {
-            throw new IllegalStateException("Scope active-load count became negative");
-        }
-        if (retainedRemaining < 0) {
-            throw new IllegalStateException("Retained scope active-load count became negative");
-        }
     }
 
     private void tryPrune(List<ScopeNode> nodes) {
@@ -339,12 +376,28 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         if (node.parent == null) {
             return false;
         }
-        ScopeState state = node.current.get();
-        if (node.activeLoads.get() != 0 || !state.entries.isEmpty() || !state.children.isEmpty()) {
-            return false;
+        while (true) {
+            ScopeState state = node.current.get();
+            if (!state.entries.isEmpty() || !state.children.isEmpty()) {
+                return false;
+            }
+            beforePruneMark.accept(node.level, node.childKey);
+            if (!node.tryBeginPrune()) {
+                return false;
+            }
+            try {
+                afterPruneMark.accept(node.level, node.childKey);
+            } catch (RuntimeException | Error e) {
+                node.cancelPrune();
+                throw e;
+            }
+            if (node.current.get() != state || !state.entries.isEmpty() || !state.children.isEmpty()) {
+                node.cancelPrune();
+                continue;
+            }
+            ScopeState parentState = node.parent.current.get();
+            return parentState.children.remove(node.childKey, node);
         }
-        ScopeState parentState = node.parent.current.get();
-        return parentState.children.remove(node.childKey, node);
     }
 
     private void collectMetrics(ScopeNode node, ScopeMetricsAccumulator accumulator) {
@@ -366,6 +419,14 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             }
             collectMetrics(child, accumulator);
         });
+    }
+
+    private static LongAdder[] newCounters(int count) {
+        LongAdder[] counters = new LongAdder[count];
+        for (int index = 0; index < count; index++) {
+            counters[index] = new LongAdder();
+        }
+        return counters;
     }
 
     void forceGenerationForTest(ScopePath path, long generation) {
@@ -421,9 +482,8 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
 
         boolean commitIfPublicationCurrent(
                 PublicationState publicationState, BooleanSupplier commitAction) {
-            synchronized (registry.publicationLock) {
-                return isPublicationCurrent(publicationState) && commitAction.getAsBoolean();
-            }
+            return registry.publicationGate.readBoolean(
+                    () -> isPublicationCurrent(publicationState) && commitAction.getAsBoolean());
         }
 
         @Override
@@ -431,6 +491,16 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             if (released.compareAndSet(false, true)) {
                 registry.release(snapshot);
             }
+        }
+    }
+
+    private static final class InvalidatedScope {
+        private final List<ScopeNode> existing;
+        private final ScopeState oldState;
+
+        private InvalidatedScope(List<ScopeNode> existing, ScopeState oldState) {
+            this.existing = existing;
+            this.oldState = oldState;
         }
     }
 
@@ -655,6 +725,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         private final AtomicReference<ScopeState> current = new AtomicReference<>(new ScopeState(0L));
         private final AtomicReference<PublicationState> descendantPublication =
                 new AtomicReference<>(new PublicationState());
+        // -1 reserves the node for pruning. A canceled prune restores zero; a detached node keeps the marker.
         private final AtomicInteger activeLoads = new AtomicInteger();
 
         private ScopeNode(
@@ -662,6 +733,35 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             this.parent = parent;
             this.childKey = childKey;
             this.level = level;
+        }
+
+        private boolean tryRetain() {
+            while (true) {
+                int active = activeLoads.get();
+                if (active < 0) {
+                    return false;
+                }
+                if (activeLoads.compareAndSet(active, active + 1)) {
+                    return true;
+                }
+            }
+        }
+
+        private void releaseRetain() {
+            int active = activeLoads.decrementAndGet();
+            if (active < 0) {
+                throw new IllegalStateException("Scope node retain count became negative");
+            }
+        }
+
+        private boolean tryBeginPrune() {
+            return activeLoads.compareAndSet(0, -1);
+        }
+
+        private void cancelPrune() {
+            if (!activeLoads.compareAndSet(-1, 0)) {
+                throw new IllegalStateException("Scope node prune marker changed unexpectedly");
+            }
         }
     }
 

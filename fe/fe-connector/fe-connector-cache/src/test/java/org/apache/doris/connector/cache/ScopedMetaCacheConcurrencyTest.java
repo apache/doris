@@ -29,7 +29,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class ScopedMetaCacheConcurrencyTest {
     private static final long TIMEOUT_SECONDS = 10L;
@@ -520,6 +522,264 @@ public class ScopedMetaCacheConcurrencyTest {
             Assertions.assertNull(cache.getIfPresent("candidate", PARTITION));
         } finally {
             allowCommit.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void bulkReplacementRemovalCanReenterInvalidation() {
+        AtomicBoolean reentered = new AtomicBoolean(false);
+        AtomicReference<ScopedMetaCache<String, String>> cacheReference = new AtomicReference<>();
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCache(
+                    "test",
+                    ENABLED,
+                    null,
+                    (key, value) -> {
+                        if ("old".equals(value) && reentered.compareAndSet(false, true)) {
+                            cacheReference.get().invalidateKey(key);
+                            registry.invalidate(TABLE);
+                        }
+                    });
+            cacheReference.set(cache);
+            cache.put("key", TABLE, "old");
+
+            try (BulkLoadHandle handle = cache.beginBulkLoad(TABLE)) {
+                Assertions.assertTrue(cache.publish(handle, "key", TABLE, "new"));
+            }
+
+            Assertions.assertTrue(reentered.get());
+            Assertions.assertNull(cache.getIfPresent("key", TABLE));
+            assertEmpty(registry, cache);
+        }
+    }
+
+    @Test
+    public void bulkReplacementRemovalCanReenterBulkPublication() {
+        AtomicBoolean reentered = new AtomicBoolean(false);
+        AtomicBoolean nestedPublished = new AtomicBoolean(false);
+        AtomicInteger removalCallbacks = new AtomicInteger();
+        AtomicReference<ScopedMetaCache<String, String>> cacheReference = new AtomicReference<>();
+        AtomicReference<BulkLoadHandle> handleReference = new AtomicReference<>();
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCache(
+                    "test",
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 1L),
+                    null,
+                    (key, value) -> {
+                        removalCallbacks.incrementAndGet();
+                        if ("old".equals(value) && reentered.compareAndSet(false, true)) {
+                            nestedPublished.set(cacheReference.get().publish(
+                                    handleReference.get(), "nested", TABLE, "nested"));
+                            throw new AssertionError("injected removal callback error");
+                        }
+                    });
+            cacheReference.set(cache);
+            cache.put("key", TABLE, "old");
+
+            try (BulkLoadHandle handle = cache.beginBulkLoad(TABLE)) {
+                handleReference.set(handle);
+                Assertions.assertTrue(cache.publish(handle, "key", TABLE, "new"));
+            }
+
+            Assertions.assertTrue(reentered.get());
+            Assertions.assertTrue(nestedPublished.get());
+            Assertions.assertNull(cache.getIfPresent("key", TABLE));
+            Assertions.assertEquals("nested", cache.getIfPresent("nested", TABLE));
+            Assertions.assertEquals(2, removalCallbacks.get());
+            Assertions.assertEquals(1, registry.metrics().getRegistrationCount());
+            Assertions.assertEquals(1, cache.metrics().getKeyNodeCount());
+        }
+    }
+
+    @Test
+    public void bulkRemovalFailureDoesNotChangeCommittedPublication() {
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCache(
+                    "test",
+                    ENABLED,
+                    null,
+                    (key, value) -> {
+                        throw new IllegalStateException("injected removal callback failure");
+                    });
+            cache.put("key", TABLE, "old");
+
+            try (BulkLoadHandle handle = cache.beginBulkLoad(TABLE)) {
+                Assertions.assertTrue(cache.publish(handle, "key", TABLE, "new"));
+            }
+
+            Assertions.assertEquals("new", cache.getIfPresent("key", TABLE));
+            Assertions.assertEquals(1, registry.metrics().getRegistrationCount());
+            Assertions.assertEquals(1, cache.metrics().getKeyNodeCount());
+        }
+    }
+
+    @Test
+    public void childCreationPinPreventsParentPrune() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch parentPinned = new CountDownLatch(1);
+        CountDownLatch allowChildInsert = new CountDownLatch(1);
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry(
+                (level, key) -> {
+                    if (level == ScopePath.Level.TABLE) {
+                        parentPinned.countDown();
+                        await(allowChildInsert);
+                    }
+                },
+                (level, key) -> {
+                },
+                (level, key) -> {
+                })) {
+            ScopedMetaCache<String, String> cache = registry.createCache("test", ENABLED);
+            BulkLoadHandle databaseHandle = cache.beginBulkLoad(ScopePath.database("db"));
+            Future<BulkLoadHandle> tableHandleFuture = executor.submit(() -> cache.beginBulkLoad(TABLE));
+            await(parentPinned);
+
+            databaseHandle.close();
+            allowChildInsert.countDown();
+            try (BulkLoadHandle tableHandle = tableHandleFuture.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                Assertions.assertTrue(cache.publish(tableHandle, "key", TABLE, "value"));
+            }
+            Assertions.assertEquals("value", cache.getIfPresent("key", TABLE));
+        } finally {
+            allowChildInsert.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void parentPruneMarkerMakesChildCreationRetry() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch parentMarked = new CountDownLatch(1);
+        CountDownLatch allowParentRemoval = new CountDownLatch(1);
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry(
+                (level, key) -> {
+                },
+                (level, key) -> {
+                },
+                (level, key) -> {
+                    if (level == ScopePath.Level.DATABASE) {
+                        parentMarked.countDown();
+                        await(allowParentRemoval);
+                    }
+                })) {
+            ScopedMetaCache<String, String> cache = registry.createCache("test", ENABLED);
+            BulkLoadHandle databaseHandle = cache.beginBulkLoad(ScopePath.database("db"));
+            Future<?> prune = executor.submit(databaseHandle::close);
+            await(parentMarked);
+
+            Future<BulkLoadHandle> tableHandleFuture = executor.submit(() -> cache.beginBulkLoad(TABLE));
+            Assertions.assertFalse(tableHandleFuture.isDone());
+            allowParentRemoval.countDown();
+            prune.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            try (BulkLoadHandle tableHandle = tableHandleFuture.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                Assertions.assertTrue(cache.publish(tableHandle, "key", TABLE, "value"));
+            }
+            Assertions.assertEquals("value", cache.getIfPresent("key", TABLE));
+        } finally {
+            allowParentRemoval.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void parentPruneRechecksChildInsertedAfterFastCheck() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch parentObservedEmpty = new CountDownLatch(1);
+        CountDownLatch allowParentMark = new CountDownLatch(1);
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry(
+                (level, key) -> {
+                },
+                (level, key) -> {
+                    if (level == ScopePath.Level.DATABASE) {
+                        parentObservedEmpty.countDown();
+                        await(allowParentMark);
+                    }
+                },
+                (level, key) -> {
+                })) {
+            ScopedMetaCache<String, String> cache = registry.createCache("test", ENABLED);
+            BulkLoadHandle databaseHandle = cache.beginBulkLoad(ScopePath.database("db"));
+            Future<?> prune = executor.submit(databaseHandle::close);
+            await(parentObservedEmpty);
+
+            try (BulkLoadHandle tableHandle = cache.beginBulkLoad(TABLE)) {
+                allowParentMark.countDown();
+                prune.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                Assertions.assertTrue(cache.publish(tableHandle, "key", TABLE, "value"));
+            }
+            Assertions.assertEquals("value", cache.getIfPresent("key", TABLE));
+        } finally {
+            allowParentMark.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void parentPruneRetriesAfterConcurrentStateReplacement() throws Exception {
+        assertScopePruneRetriesAfterConcurrentStateReplacement(
+                ScopePath.database("db"), ScopePath.Level.DATABASE);
+        assertScopePruneRetriesAfterConcurrentStateReplacement(TABLE, ScopePath.Level.TABLE);
+        assertScopePruneRetriesAfterConcurrentStateReplacement(PARTITION, ScopePath.Level.PARTITION);
+    }
+
+    @Test
+    public void pruneMarkerIsReleasedWhenPostMarkActionFails() {
+        AtomicBoolean failOnce = new AtomicBoolean(true);
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry(
+                (level, key) -> {
+                },
+                (level, key) -> {
+                },
+                (level, key) -> {
+                    if (level == ScopePath.Level.DATABASE && failOnce.compareAndSet(true, false)) {
+                        throw new IllegalStateException("injected post-mark failure");
+                    }
+                })) {
+            ScopedMetaCache<String, String> cache = registry.createCache("test", ENABLED);
+            BulkLoadHandle failedHandle = cache.beginBulkLoad(ScopePath.database("db"));
+            IllegalStateException failure = Assertions.assertThrows(
+                    IllegalStateException.class, failedHandle::close);
+            Assertions.assertEquals("injected post-mark failure", failure.getMessage());
+            Assertions.assertFalse(failOnce.get());
+
+            try (BulkLoadHandle recoveredHandle = cache.beginBulkLoad(ScopePath.database("db"))) {
+                Assertions.assertTrue(cache.publish(
+                        recoveredHandle, "key", ScopePath.database("db"), "value"));
+            }
+            Assertions.assertEquals("value", cache.getIfPresent("key", ScopePath.database("db")));
+            registry.invalidate(ScopePath.database("db"));
+            assertEmpty(registry, cache);
+        }
+    }
+
+    private static void assertScopePruneRetriesAfterConcurrentStateReplacement(
+            ScopePath scope, ScopePath.Level level) throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch scopeMarked = new CountDownLatch(1);
+        CountDownLatch allowPruneRecheck = new CountDownLatch(1);
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry(
+                (ignoredLevel, key) -> {
+                },
+                (ignoredLevel, key) -> {
+                },
+                (markedLevel, key) -> {
+                    if (markedLevel == level) {
+                        scopeMarked.countDown();
+                        await(allowPruneRecheck);
+                    }
+                })) {
+            ScopedMetaCache<String, String> cache = registry.createCache("test", ENABLED);
+            BulkLoadHandle handle = cache.beginBulkLoad(scope);
+            Future<?> prune = executor.submit(handle::close);
+            await(scopeMarked);
+
+            registry.invalidate(scope);
+            allowPruneRecheck.countDown();
+            prune.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            assertEmpty(registry, cache);
+        } finally {
+            allowPruneRecheck.countDown();
             executor.shutdownNow();
         }
     }
