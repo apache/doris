@@ -280,11 +280,12 @@ struct AggregateFunctionArrayAggData<T> {
 
     void read(BufferReadable& buf) {
         DORIS_CHECK(column_data->empty());
-        std::string serialized_buffer;
-        buf.read_binary(serialized_buffer);
-        const auto* end =
-                column_type->deserialize(serialized_buffer.data(), &column_data, be_exec_version);
-        DORIS_CHECK_EQ(end, serialized_buffer.data() + serialized_buffer.size());
+        UInt64 serialized_bytes = 0;
+        buf.read_var_uint(serialized_bytes);
+        const auto* serialized_data = buf.data();
+        const auto* end = column_type->deserialize(serialized_data, &column_data, be_exec_version);
+        DORIS_CHECK_EQ(end, serialized_data + serialized_bytes);
+        buf.add_offset(serialized_bytes);
     }
 
     void merge(const Self& rhs) {

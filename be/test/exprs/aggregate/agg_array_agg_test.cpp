@@ -275,6 +275,14 @@ TEST_F(AggregateFunctionArrayAggTest, complex_type_state_serialize_deserialize_a
     auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
     auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
 
+    Array streamvbyte_values;
+    for (int32_t value = 0; value < 65; ++value) {
+        streamvbyte_values.emplace_back(Field::create_field<TYPE_INT>(value));
+    }
+    check_complex_array_agg_state(std::make_shared<DataTypeArray>(nullable_int),
+                                  {Field::create_field<TYPE_ARRAY>(std::move(streamvbyte_values))},
+                                  {});
+
     check_complex_array_agg_state(
             std::make_shared<DataTypeArray>(nullable_int),
             {array_field({Field::create_field<TYPE_INT>(1), Field()}), Field()},
