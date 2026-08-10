@@ -242,8 +242,13 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
 
     private ScopeNode child(
             ScopeNode parent, ScopeState parentState, Object childKey, ScopePath.Level childLevel) {
-        return parentState.children.computeIfAbsent(
-                childKey, ignored -> new ScopeNode(parent, childKey, childLevel));
+        ScopeNode existing = parentState.children.get(childKey);
+        if (existing != null) {
+            return existing;
+        }
+        ScopeNode created = new ScopeNode(parent, childKey, childLevel);
+        ScopeNode raced = parentState.children.putIfAbsent(childKey, created);
+        return raced == null ? created : raced;
     }
 
     private void bumpPublicationStates(List<ScopeNode> nodes) {
@@ -439,7 +444,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         private final ScopeState tableState;
         private final ScopeNode partitionNode;
         private final ScopeState partitionState;
-        private final int generationHashCode;
+        private final int pathHashCode;
 
         private ScopeSnapshot(
                 ScopePath path,
@@ -460,17 +465,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             this.tableState = tableState;
             this.partitionNode = partitionNode;
             this.partitionState = partitionState;
-            int hashCode = generationHashCode(1, catalogNode, catalogState);
-            if (databaseNode != null) {
-                hashCode = generationHashCode(hashCode, databaseNode, databaseState);
-            }
-            if (tableNode != null) {
-                hashCode = generationHashCode(hashCode, tableNode, tableState);
-            }
-            if (partitionNode != null) {
-                hashCode = generationHashCode(hashCode, partitionNode, partitionState);
-            }
-            this.generationHashCode = hashCode;
+            this.pathHashCode = path.hashCode();
         }
 
         static ScopeSnapshot capture(
@@ -593,14 +588,8 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
                     other.partitionState);
         }
 
-        int generationHashCode() {
-            return generationHashCode;
-        }
-
-        private static int generationHashCode(
-                int currentHashCode, ScopeNode node, ScopeState state) {
-            int hashCode = 31 * currentHashCode + System.identityHashCode(node);
-            return 31 * hashCode + System.identityHashCode(state);
+        int pathHashCode() {
+            return pathHashCode;
         }
 
         private boolean matches(
@@ -629,10 +618,12 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
     static final class CacheAddress {
         private final ScopedMetaCache<?, ?> owner;
         private final Object key;
+        private final int hashCode;
 
         CacheAddress(ScopedMetaCache<?, ?> owner, Object key) {
             this.owner = owner;
             this.key = key;
+            this.hashCode = 31 * System.identityHashCode(owner) + key.hashCode();
         }
 
         void removeExpected(Object expectedValue) {
@@ -653,7 +644,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
 
         @Override
         public int hashCode() {
-            return 31 * System.identityHashCode(owner) + key.hashCode();
+            return hashCode;
         }
     }
 

@@ -404,7 +404,6 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         BigInteger invalidation = exactInvalidations.get(rawKey);
         return !closed.get()
                 && !handle.closed.get()
-                && handle.scopeLease.isPublicationCurrent(handle.scopePublicationState)
                 && (invalidation == null || invalidation.compareTo(handle.exactInvalidationSequence) <= 0);
     }
 
@@ -708,11 +707,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             this.keyNode = lease.keyNode;
             this.keyState = lease.keyState;
             this.loadPublicationState = lease.loadPublicationState;
-            int addressHashCode = 31 * key.hashCode() + path.hashCode();
-            addressHashCode = 31 * addressHashCode + scopeSnapshot.generationHashCode();
-            addressHashCode = 31 * addressHashCode + System.identityHashCode(keyNode);
-            addressHashCode = 31 * addressHashCode + System.identityHashCode(keyState);
-            this.hashCode = 31 * addressHashCode + System.identityHashCode(loadPublicationState);
+            this.hashCode = 31 * key.hashCode() + scopeSnapshot.pathHashCode();
         }
 
         @Override
