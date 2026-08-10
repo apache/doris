@@ -21,6 +21,7 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -97,6 +98,18 @@ public class ConfigTest {
         ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "a,b,c");
         ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "");
         Assert.assertEquals("array length should be 0", 0, Config.mysql_compat_var_whitelist.length);
+    }
+
+    @Test
+    public void testConfFieldDescriptionsAreEnglishStrings() throws Exception {
+        for (Field field : Config.class.getFields()) {
+            ConfigBase.ConfField confField = field.getAnnotation(ConfigBase.ConfField.class);
+            if (confField == null) {
+                continue;
+            }
+            Assert.assertFalse("Chinese description found in config: " + field.getName(),
+                    confField.description().matches(".*[\\u4e00-\\u9fff].*"));
+        }
     }
 
     // File-path and jdbc-driver security configs must only be settable in fe.conf (ops), never at runtime

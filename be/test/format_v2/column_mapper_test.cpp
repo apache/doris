@@ -311,10 +311,15 @@ TEST(ColumnMapperTest, ParquetRetainsRecursiveIdlessWrapperWithNestedFieldId) {
     EXPECT_TRUE(inner_mapping.child_mappings[0].file_local_id.has_value());
 }
 
-TEST(ColumnMapperTest, MissingNestedChildRetainsBinaryInitialDefault) {
+TEST(ColumnMapperTest, MissingNestedChildRetainsTypedBinaryInitialDefault) {
     auto defaulted_child = field_id_col("data", 2, varbinary());
     defaulted_child.initial_default_value = "Ej5FZ+ibEtOkVkJmFBdAAA==";
     defaulted_child.initial_default_value_is_base64 = true;
+    const std::string binary_value(
+            "\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16);
+    const auto default_expr = VExprContext::create_shared(VLiteral::create_shared(
+            defaulted_child.type, Field::create_field<TYPE_VARBINARY>(StringView(binary_value))));
+    defaulted_child.default_expr = default_expr;
     auto table_struct = struct_col("s", 10, {field_id_col("a", 1, i32()), defaulted_child});
     auto file_struct = struct_col("s", 10, {field_id_col("a", 1, i32(), 0)}, 0);
 
@@ -322,12 +327,7 @@ TEST(ColumnMapperTest, MissingNestedChildRetainsBinaryInitialDefault) {
     ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
     ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
     const auto& missing = mapper.mappings()[0].child_mappings[1];
-    ASSERT_TRUE(missing.initial_default_column);
-    Field value;
-    missing.initial_default_column->get(0, value);
-    EXPECT_EQ(value.get_type(), TYPE_VARBINARY);
-    EXPECT_EQ(std::string(value.get<TYPE_VARBINARY>()),
-              std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16));
+    EXPECT_EQ(missing.default_expr, default_expr);
 }
 
 void expect_mapping(const ColumnMapping& mapping, size_t global_index,
@@ -1223,6 +1223,38 @@ TEST(ColumnMapperScanRequestTest, MaterializedMapperScansFullComplexRootForOutpu
     EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
     EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
     EXPECT_TRUE(request.predicate_columns.empty());
+}
+
+TEST(ColumnMapperScanRequestTest, FullProjectionRetainsOnlyTimestampSemanticPaths) {
+    auto table_timestamp = field_id_col("ts", 2, timestamptz(6));
+    auto table_payload = field_id_col("payload", 3, i32());
+    auto table_event = struct_col("event", 1, {table_timestamp, table_payload});
+    auto table_other = field_id_col("other", 4, i32());
+    auto table_root = struct_col("root", 0, {table_event, table_other});
+
+    auto file_timestamp = field_id_col("ts", 2, timestamptz(6), 0);
+    file_timestamp.timestamp_is_adjusted_to_utc = true;
+    auto file_payload = field_id_col("payload", 3, i32(), 1);
+    auto file_event = struct_col("event", 1, {file_timestamp, file_payload}, 0);
+    auto file_other = field_id_col("other", 4, i32(), 1);
+    auto file_root = struct_col("root", 0, {file_event, file_other}, 10);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_root}, {}, {file_root}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_root}, &request).ok());
+
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& root_projection = request.non_predicate_columns[0];
+    EXPECT_TRUE(root_projection.project_all_children);
+    ASSERT_EQ(root_projection.children.size(), 1);
+    EXPECT_EQ(root_projection.children[0].local_id(), 0);
+    ASSERT_EQ(root_projection.children[0].children.size(), 1);
+    const auto& timestamp_projection = root_projection.children[0].children[0];
+    EXPECT_EQ(timestamp_projection.local_id(), 0);
+    ASSERT_TRUE(timestamp_projection.timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*timestamp_projection.timestamp_is_adjusted_to_utc);
 }
 
 // Scenario: array/map nested projections also scan the full top-level complex root for
@@ -3030,6 +3062,43 @@ TEST(ColumnMapperScanRequestTest, PredicateProjectionRebuildsProjectedStructFile
     EXPECT_FALSE(mapper.mappings()[0].is_trivial);
 }
 
+// Scenario: Paimon projects one struct child but filters on an unprojected TIMESTAMP_LTZ(9)
+// child. The filter-only file projection must retain the history-schema timestamp semantic so an
+// unannotated INT96 leaf is materialized as TIMESTAMPTZ instead of DATETIMEV2.
+TEST(ColumnMapperScanRequestTest, FilterOnlyNestedTimestampRetainsTableFormatSemantic) {
+    const auto int_type = i32();
+    const auto ltz_type = timestamptz(9);
+
+    auto table_payload = field_id_col("payload", 1, int_type);
+    auto projected_table_struct = struct_col("s", 10, {table_payload});
+    auto table_ltz = field_id_col("ltz", 2, ltz_type);
+    auto full_table_struct = struct_col("s", 10, {table_payload, table_ltz});
+
+    auto file_payload = field_id_col("payload", 1, int_type, 0);
+    auto file_ltz = field_id_col("ltz", 2, ltz_type, 1);
+    file_ltz.timestamp_is_adjusted_to_utc = true;
+    auto file_struct = struct_col("s", 10, {file_payload, file_ltz}, 5);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({projected_table_struct}, {}, {file_struct}).ok());
+
+    auto filter_expr = null_predicate(
+            struct_element(table_slot(0, 0, full_table_struct.type, "s"), ltz_type, "ltz"), false);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {projected_table_struct}, &request).ok());
+
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    const auto& root_projection = request.predicate_columns[0];
+    ASSERT_EQ(projection_ids(root_projection.children), std::vector<int32_t>({0, 1}));
+    const auto* ltz_projection = find_child_projection(&root_projection, 1);
+    ASSERT_NE(ltz_projection, nullptr);
+    ASSERT_TRUE(ltz_projection->timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*ltz_projection->timestamp_is_adjusted_to_utc);
+}
+
 // Scenario: a filter references a top-level column that is not projected by the query; the mapper
 // creates a hidden filter mapping without adding that hidden column to visible table mappings.
 TEST(ColumnMapperScanRequestTest, PredicateOnlyTopLevelColumnUsesHiddenMapping) {
@@ -3711,6 +3780,60 @@ TEST(ColumnMapperSchemaEvolutionTest, DroppedStructChildrenAreNotRead) {
     EXPECT_EQ(projection.column_id(), LocalColumnId(5));
     ASSERT_FALSE(projection.project_all_children);
     EXPECT_EQ(projection_ids(projection.children), std::vector<int32_t>({0}));
+}
+
+TEST(ColumnMapperSchemaEvolutionTest, MissingRequiredFieldPolicyIsOptIn) {
+    auto required = field_id_col("required_added", 2, i32());
+    required.is_optional = false;
+
+    TableColumnMapper permissive_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(permissive_mapper.create_mapping({required}, {}, {}).ok());
+
+    TableColumnMapper strict_mapper(
+            {.mode = TableColumnMappingMode::BY_FIELD_ID, .reject_missing_required_field = true});
+    const auto status = strict_mapper.create_mapping({required}, {}, {});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Missing required field: required_added"), std::string::npos);
+
+    const auto default_expr =
+            VExprContext::create_shared(literal(required.type, Field::create_field<TYPE_INT>(7)));
+    required.default_expr = default_expr;
+    TableColumnMapper default_mapper(
+            {.mode = TableColumnMappingMode::BY_FIELD_ID, .reject_missing_required_field = true});
+    ASSERT_TRUE(default_mapper.create_mapping({required}, {}, {}).ok());
+    ASSERT_EQ(default_mapper.mappings().size(), 1);
+    expect_constant(default_mapper, default_mapper.mappings()[0], 0, required.type);
+    EXPECT_EQ(default_mapper.mappings()[0].default_expr, default_expr);
+}
+
+TEST(ColumnMapperSchemaEvolutionTest, MissingNestedDefaultIsPropagatedAndRequiredIsRejected) {
+    auto present = field_id_col("present", 1, i32());
+    auto required_added = field_id_col("required_added", 2, str());
+    required_added.is_optional = false;
+    const auto table_struct = struct_col("s", 10, {present, required_added});
+
+    auto file_present = field_id_col("present", 1, i32(), 0);
+    const auto file_struct = struct_col("s", 10, {file_present}, 0);
+    TableColumnMapper strict_mapper(
+            {.mode = TableColumnMappingMode::BY_FIELD_ID, .reject_missing_required_field = true});
+    const auto status = strict_mapper.create_mapping({table_struct}, {}, {file_struct});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Missing required field: required_added"), std::string::npos);
+
+    const auto default_expr = VExprContext::create_shared(
+            literal(required_added.type, Field::create_field<TYPE_STRING>("nested-default")));
+    required_added.default_expr = default_expr;
+    const auto table_struct_with_default = struct_col("s", 10, {present, required_added});
+    TableColumnMapper default_mapper(
+            {.mode = TableColumnMappingMode::BY_FIELD_ID, .reject_missing_required_field = true});
+    ASSERT_TRUE(default_mapper.create_mapping({table_struct_with_default}, {}, {file_struct}).ok());
+    ASSERT_EQ(default_mapper.mappings().size(), 1);
+    ASSERT_EQ(default_mapper.mappings()[0].child_mappings.size(), 2);
+    const auto& added_mapping = default_mapper.mappings()[0].child_mappings[1];
+    EXPECT_FALSE(added_mapping.file_local_id.has_value());
+    EXPECT_FALSE(added_mapping.constant_index.has_value());
+    EXPECT_EQ(added_mapping.default_expr, default_expr);
+    EXPECT_EQ(added_mapping.filter_conversion, FilterConversionType::FINALIZE_ONLY);
 }
 
 TEST(ColumnMapperSchemaEvolutionTest, ReusedMapperClearsSplitLocalConstantsAndFileIds) {

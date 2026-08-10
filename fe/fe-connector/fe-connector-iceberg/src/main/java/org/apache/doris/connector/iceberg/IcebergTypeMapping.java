@@ -63,7 +63,7 @@ public final class IcebergTypeMapping {
                 Types.ListType list = (Types.ListType) icebergType;
                 ConnectorType elemType = fromIcebergType(
                         list.elementType(), enableMappingVarbinary, enableMappingTimestampTz);
-                return ConnectorType.arrayOf(elemType)
+                return ConnectorType.arrayOf(elemType, list.isElementOptional())
                         .withChildrenFieldIds(Collections.singletonList(list.elementId()));
             case MAP:
                 // Carry key + value field-ids (legacy recurses into both via MapType.fields()).
@@ -72,7 +72,7 @@ public final class IcebergTypeMapping {
                         map.keyType(), enableMappingVarbinary, enableMappingTimestampTz);
                 ConnectorType valType = fromIcebergType(
                         map.valueType(), enableMappingVarbinary, enableMappingTimestampTz);
-                return ConnectorType.mapOf(keyType, valType)
+                return ConnectorType.mapOf(keyType, valType, map.isValueOptional())
                         .withChildrenFieldIds(Arrays.asList(map.keyId(), map.valueId()));
             case STRUCT:
                 // Carry each field's field-id, parallel to the field types (legacy recurses field-by-field).

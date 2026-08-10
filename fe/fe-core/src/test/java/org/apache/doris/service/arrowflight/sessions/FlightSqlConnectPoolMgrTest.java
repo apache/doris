@@ -18,6 +18,7 @@
 package org.apache.doris.service.arrowflight.sessions;
 
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -34,11 +35,14 @@ public class FlightSqlConnectPoolMgrTest {
     public void testUnregisterConnectionFinalizesDeferredExecutors() {
         FlightSqlConnectPoolMgr poolMgr = new FlightSqlConnectPoolMgr(100);
         ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        FlightSqlChannel channel = Mockito.mock(FlightSqlChannel.class);
+        Mockito.when(ctx.getFlightSqlChannel()).thenReturn(channel);
 
         poolMgr.unregisterConnection(ctx);
 
         // The deferred coordinators must be released on teardown even though this connection was
         // never registered in the pool (an abandoned connection is still cleaned up, not leaked).
+        Mockito.verify(channel).close();
         Mockito.verify(ctx).closeFlightSqlDeferredExecutors();
     }
 
@@ -49,6 +53,8 @@ public class FlightSqlConnectPoolMgrTest {
     public void testUnregisterRegisteredConnectionFinalizesDeferredExecutors() {
         FlightSqlConnectPoolMgr poolMgr = new FlightSqlConnectPoolMgr(100);
         ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        FlightSqlChannel channel = Mockito.mock(FlightSqlChannel.class);
+        Mockito.when(ctx.getFlightSqlChannel()).thenReturn(channel);
         Mockito.when(ctx.getConnectionId()).thenReturn(7);
         Mockito.when(ctx.getConnectType()).thenReturn(ConnectContext.ConnectType.ARROW_FLIGHT_SQL);
         Mockito.when(ctx.getPeerIdentity()).thenReturn("token-7");
@@ -56,6 +62,7 @@ public class FlightSqlConnectPoolMgrTest {
 
         poolMgr.unregisterConnection(ctx);
 
+        Mockito.verify(channel).close();
         Mockito.verify(ctx).closeFlightSqlDeferredExecutors();
         Assert.assertNull(poolMgr.getConnectionMap().get(7));
     }

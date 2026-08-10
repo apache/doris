@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -85,6 +86,10 @@ public class ExternalRowLevelDeletePlanBuilder {
     // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here.
     LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery,
                                          ExternalTable icebergTable) {
+        // The row shape and conflict fence must come from one cache generation; otherwise a replacement
+        // between planning and beginWrite could become the new baseline instead of aborting the stale DELETE.
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                ((PluginDrivenExternalTable) icebergTable).getWriteSchemaSnapshot();
         LogicalPlan queryPlan = buildPositionDeletePlan(ctx, logicalQuery, icebergTable);
 
         // Convert output to NamedExpression list
@@ -103,7 +108,8 @@ public class ExternalRowLevelDeletePlanBuilder {
         LogicalExternalRowLevelDeleteSink<LogicalPlan> deleteSink = new LogicalExternalRowLevelDeleteSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
-                icebergTable.getBaseSchema(true),  // cols
+                writeSchema.getWriteMetadataIdentity(),
+                ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable),  // cols
                 outputExprs,  // outputExprs
                 Optional.empty(),  // groupExpression
                 Optional.empty(),  // logicalProperties

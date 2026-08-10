@@ -28,6 +28,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "common/config.h"
 #include "common/factory_creator.h"
@@ -39,7 +40,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "runtime/workload_management/resource_context.h"
 #include "util/hash_util.hpp"
 #include "util/threadpool.h"
@@ -55,6 +56,7 @@ class PipelineTask;
 class QueryTaskController;
 class Dependency;
 class RecCTEScanLocalState;
+class SpillDataDir;
 
 struct ReportStatusRequest {
     const Status status;
@@ -203,6 +205,10 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
+    // Record a spill data directory before opening the first spill part so teardown only visits
+    // touched roots.
+    void record_spill_data_dir(SpillDataDir* data_dir);
+
     // Expose task-level query progress counters for runtime statistics reporting.
     void add_total_task_num(int delta);
     void inc_finished_task_num();
@@ -328,6 +334,9 @@ private:
     ExecEnv* _exec_env = nullptr;
     MonotonicStopWatch _query_watcher;
     bool _is_nereids = false;
+
+    std::mutex _spill_data_dirs_mutex;
+    std::unordered_set<SpillDataDir*> _spill_data_dirs;
 
     std::shared_ptr<ResourceContext> _resource_ctx;
 

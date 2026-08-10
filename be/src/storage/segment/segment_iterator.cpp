@@ -76,6 +76,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "storage/binlog.h"
 #include "storage/compaction/collection_similarity.h"
 #include "storage/id_manager.h"
@@ -2459,8 +2460,7 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
         return;
     }
 
-    if (_opts.io_ctx.reader_type != ReaderType::READER_BINLOG &&
-        _opts.io_ctx.reader_type != ReaderType::READER_BINLOG_COMPACTION) {
+    if (!_opts.read_row_binlog) {
         return;
     }
 

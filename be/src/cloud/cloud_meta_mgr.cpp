@@ -57,7 +57,9 @@
 #include "cpp/sync_point.h"
 #include "io/fs/obj_storage_client.h"
 #include "load/stream_load/stream_load_context.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
+#include "service/backend_options.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
@@ -822,9 +824,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             sync_stats->get_remote_rowsets_num += resp.rowset_meta().size();
         }
 
-        // If is mow, the tablet has no delete bitmap in base rowsets.
-        // So dont need to sync it.
-        if (options.sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
+        // MOW and row-binlog tablets need delete bitmap from meta-service.
+        if (options.sync_delete_bitmap && tablet->need_read_delete_bitmap() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.sync_tablet_delete_bitmap.block",
                             DBUG_BLOCK);
@@ -1497,8 +1498,8 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
-                                   RowsetMetaSharedPtr* existed_rs_meta) {
+Status CloudMetaMgr::do_commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
+                                      int64_t table_id, RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
     {
@@ -1551,6 +1552,26 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     return st;
 }
 
+Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
+                                   RowsetMetaSharedPtr* existed_rs_meta,
+                                   RowsetMeta* attach_row_binlog,
+                                   RowsetMetaSharedPtr* existed_attach_row_binlog) {
+    if (attach_row_binlog == nullptr) {
+        return do_commit_rowset(rs_meta, job_id, table_id, existed_rs_meta);
+    }
+
+    VLOG_DEBUG << "commit rowset with row binlog, tablet_id: " << rs_meta.tablet_id()
+               << ", rowset_id: " << rs_meta.rowset_id()
+               << ", attach_row_binlog_tablet_id: " << attach_row_binlog->tablet_id()
+               << ", attach_row_binlog_rowset_id: " << attach_row_binlog->rowset_id()
+               << " txn_id: " << rs_meta.txn_id();
+    Status st = do_commit_rowset(*attach_row_binlog, job_id, table_id, existed_attach_row_binlog);
+    if (!st.ok() && !st.is<ALREADY_EXIST>()) {
+        return st;
+    }
+    return do_commit_rowset(rs_meta, job_id, table_id, existed_rs_meta);
+}
+
 void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time) {
     // For load-generated rowsets (job_id is empty), add to pending rowset manager
     // so FE can notify BE to promote them later
@@ -1562,7 +1583,7 @@ void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t e
             txn_id, tablet_id, std::move(rs_meta), expiration_time);
 }
 
-Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id) {
+Status CloudMetaMgr::do_update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id) {
     VLOG_DEBUG << "update committed rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id();
     CreateRowsetRequest req;
@@ -1587,6 +1608,22 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_
         return Status::InternalError("failed to update committed rowset: {}", resp.status().msg());
     }
     return st;
+}
+
+Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id,
+                                       const RowsetMeta* attach_row_binlog) {
+    if (attach_row_binlog == nullptr) {
+        return do_update_tmp_rowset(rs_meta, table_id);
+    }
+
+    VLOG_DEBUG << "update committed rowset with row binlog, tablet_id: " << rs_meta.tablet_id()
+               << ", rowset_id: " << rs_meta.rowset_id()
+               << ", attach_row_binlog_tablet_id: " << attach_row_binlog->tablet_id()
+               << ", attach_row_binlog_rowset_id: " << attach_row_binlog->rowset_id();
+    DCHECK_EQ(rs_meta.tablet_schema()->num_variant_columns(),
+              attach_row_binlog->tablet_schema()->num_variant_columns());
+    RETURN_IF_ERROR(do_update_tmp_rowset(*attach_row_binlog, table_id));
+    return do_update_tmp_rowset(rs_meta, table_id);
 }
 
 // async send TableStats(in res) to FE coz we are in streamload ctx, response to the user ASAP

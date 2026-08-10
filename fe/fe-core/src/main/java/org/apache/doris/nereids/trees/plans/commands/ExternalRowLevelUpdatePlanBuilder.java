@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -111,8 +112,20 @@ public class ExternalRowLevelUpdatePlanBuilder {
         String tableName = tableAlias != null
                 ? tableAlias
                 : Util.getTempTableDisplayName(icebergTable.getName());
-        LogicalPlan queryPlan = buildMergeProjectPlan(ctx, logicalQuery, assignments,
-                icebergTable.getBaseSchema(true), tableName);
+        List<Column> writeColumns = ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable);
+        // pinAndGet records the identity paired with these request-scoped columns. Capture the sink snapshot
+        // afterwards so a cached identity can never fence output bound from a newer connector generation.
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                ((PluginDrivenExternalTable) icebergTable).getWriteSchemaSnapshot();
+        List<EqualTo> resolvedAssignments = assignments.stream()
+                .map(assignment -> (EqualTo) assignment.withChildren(ImmutableList.of(
+                        assignment.left(),
+                        ConnectorWriteSchemaUtils.resolveDefaultReferences(
+                                assignment.right(), writeColumns, icebergTable,
+                                ctx, nameParts, tableAlias))))
+                .collect(Collectors.toList());
+        LogicalPlan queryPlan = buildMergeProjectPlan(
+                ctx, logicalQuery, resolvedAssignments, writeColumns, tableName);
 
         List<NamedExpression> outputExprs;
         if (!RowLevelDmlRowIdUtils.hasUnboundPlan(queryPlan)) {
@@ -128,7 +141,8 @@ public class ExternalRowLevelUpdatePlanBuilder {
         return new LogicalExternalRowLevelMergeSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
-                icebergTable.getBaseSchema(true),
+                writeSchema.getWriteMetadataIdentity(),
+                writeColumns,
                 outputExprs,
                 false,
                 Optional.empty(),

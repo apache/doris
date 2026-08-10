@@ -240,6 +240,16 @@ SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
 SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
 
+set(BUILD_TESTS OFF)
+add_subdirectory(
+    ${CONTRIB_PATH}/datasketches-cpp
+    ${PROJECT_BINARY_DIR}/datasketches-cpp
+    EXCLUDE_FROM_ALL)
+target_include_directories(
+    hll SYSTEM INTERFACE $<BUILD_INTERFACE:${CONTRIB_PATH}/datasketches-cpp/hll/include>)
+target_include_directories(
+    common SYSTEM INTERFACE $<BUILD_INTERFACE:${CONTRIB_PATH}/datasketches-cpp/common/include>)
+
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
 target_compile_options(orc PRIVATE -fno-omit-frame-pointer -Wno-implicit-fallthrough -w)
@@ -666,7 +676,7 @@ endif()
 set(PAIMON_FACTORY_REGISTRY_LIBS)
 if (ENABLE_PAIMON_CPP)
     # Plan B: Doris Arrow is now built with COMPUTE/DATASET/ACERO/FILESYSTEM,
-    # so arrow, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
+    # so arrow, arrow_compute, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
     # thirdparty.cmake.  paimon-cpp reuses the same Arrow (no paimon_deps).
     # No dual-stack selection needed — single Arrow for everything.
 

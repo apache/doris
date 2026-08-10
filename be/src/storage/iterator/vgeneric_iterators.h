@@ -185,6 +185,12 @@ private:
     // Load next block into _block
     Status _load_next_block();
 
+    // Validate that every block position compare() may touch actually exists in _block
+    // and, for the default key-prefix comparison, that the projection really starts with
+    // the full ordered key prefix. Returns an error instead of letting compare() perform
+    // an out-of-bounds or semantically wrong positional access (issue #66390).
+    Status _validate_compare_contract(const StorageReadOptions& opts) const;
+
     RowwiseIteratorUPtr _iter;
 
     int _sequence_id_idx = -1;

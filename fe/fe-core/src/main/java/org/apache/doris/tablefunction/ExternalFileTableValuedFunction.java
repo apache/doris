@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -131,6 +132,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected Optional<String> resourceName = Optional.empty();
 
     public FileFormatProperties fileFormatProperties;
+    private String hiveParquetTimeZone = "";
     private long tableId;
 
     public abstract TFileType getTFileType();
@@ -229,6 +231,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, "false");
         fileFormatProperties.enableMappingTimestampTz = Boolean.parseBoolean(enableMappingTimestampTzStr);
 
+        String hiveParquetTimeZone = getOrDefaultAndRemove(copiedProps,
+                FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "");
+        try {
+            this.hiveParquetTimeZone = FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
         if (fileFormatProperties instanceof CsvFileFormatProperties
@@ -258,6 +268,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public List<TBrokerFileStatus> getFileStatuses() {
         return fileStatuses;
+    }
+
+    @Override
+    public String getHiveParquetTimeZone() {
+        return hiveParquetTimeZone;
     }
 
     public TFileAttributes getFileAttributes() {
@@ -483,6 +498,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // table function fetch schema, whether to enable mapping varbinary
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
         fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
+        String hiveParquetTimeZone = getHiveParquetTimeZone();
+        if (!hiveParquetTimeZone.isEmpty()) {
+            fileScanRangeParams.setHiveParquetTimeZone(hiveParquetTimeZone);
+        }
 
         if (getTFileType() == TFileType.FILE_STREAM) {
             fileStatuses.add(new TBrokerFileStatus("", false, -1, true));

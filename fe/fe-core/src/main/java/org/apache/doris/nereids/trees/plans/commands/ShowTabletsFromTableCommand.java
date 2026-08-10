@@ -228,7 +228,7 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
                 if (stop) {
                     break;
                 }
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                     TabletsProcDir procDir = new TabletsProcDir(olapTable, index);
                     tabletInfos.addAll(procDir.fetchComparableResult(
                             version, backendId, replicaState));

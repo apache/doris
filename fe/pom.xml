@@ -351,6 +351,10 @@ under the License.
         <maxcompute.version>0.53.2-public</maxcompute.version>
         <!-- FE-only POC: validate whether Arrow Java 19.0.0 can compile before touching BE/C++ thirdparty. -->
         <arrow.version>19.0.0</arrow.version>
+        <!-- ADBC Java. Its own release line is independent of the C/Go one (this tag pairs with C/Go
+             1.12.0), and its parent pom pins Arrow Java 19.0.0 — the same version as arrow.version above,
+             so the fe-connector-adbc plugin introduces no second Arrow. -->
+        <adbc.version>0.24.0</adbc.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
@@ -1045,6 +1049,15 @@ under the License.
                     <exclusion>
                         <groupId>org.checkerframework</groupId>
                         <artifactId>checker</artifactId>
+                    </exclusion>
+                    <!-- BDB JE only references javax.resource in its optional JCA resource
+                         adapter (com.sleepycat.je.jca.ra), which embedded FE never uses.
+                         javax.resource:connector:1.0 has no jar in Maven Central (only a pom)
+                         and its historical host (repo.grails.org) is unreliable, so pulling it
+                         breaks the build in many environments. Exclude it. -->
+                    <exclusion>
+                        <groupId>javax.resource</groupId>
+                        <artifactId>connector</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -1851,6 +1864,31 @@ under the License.
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>arrow-jdbc</artifactId>
                 <version>${arrow.version}</version>
+            </dependency>
+            <!-- Arrow C Data Interface: how the ADBC JNI bridge hands Arrow arrays across the native
+                 boundary. Pulled in by adbc-driver-jni; declared here because nothing else in FE used it. -->
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-c-data</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <!-- ADBC. adbc-driver-jni is the JNI wrapper around the same C driver manager BE links
+                 statically, so FE and BE dlopen the very same driver .so; adbc-driver-manager comes with it
+                 (JniDriverFactory implements its factory SPI). -->
+            <dependency>
+                <groupId>org.apache.arrow.adbc</groupId>
+                <artifactId>adbc-core</artifactId>
+                <version>${adbc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow.adbc</groupId>
+                <artifactId>adbc-driver-manager</artifactId>
+                <version>${adbc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow.adbc</groupId>
+                <artifactId>adbc-driver-jni</artifactId>
+                <version>${adbc.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.immutables</groupId>

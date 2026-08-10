@@ -226,6 +226,25 @@ TEST(HudiReaderTest, FallsBackToByNameWhenSplitHistorySchemaIsMissing) {
     EXPECT_TRUE(file_schema[0].name_mapping.empty());
 }
 
+TEST(HudiReaderTest, NativeInt96KeepsSessionTimezone) {
+    TFileScanRangeParams scan_params;
+    scan_params.__set_hive_parquet_time_zone("Asia/Shanghai");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/Los_Angeles");
+
+    hudi::HudiReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::PARQUET,
+                             .scan_params = &scan_params,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr})
+                        .ok());
+
+    EXPECT_EQ(reader.TEST_parquet_int96_time_zone(), "America/Los_Angeles");
+}
+
 // Scenario: HudiReader must reset the previous split schema id before each split. Otherwise a
 // BY_FIELD_ID split could leak its schema id into the next split that carries no schema id.
 TEST(HudiReaderTest, ResetsSplitSchemaIdBeforePreparingNextSplit) {

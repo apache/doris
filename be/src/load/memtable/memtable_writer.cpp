@@ -35,6 +35,8 @@
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_management/resource_context.h"
 #include "service/backend_options.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/group_rowset_writer.h"
@@ -62,6 +64,14 @@ MemTableWriter::~MemTableWriter() {
         _flush_token->cancel();
     }
     _mem_table.reset();
+}
+
+uint64_t MemTableWriter::workload_group_id() const {
+    auto wg = _resource_ctx->workload_group();
+    if (wg != nullptr) {
+        return wg->id();
+    }
+    return 0;
 }
 
 Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,

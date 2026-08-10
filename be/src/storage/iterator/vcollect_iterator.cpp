@@ -76,7 +76,7 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         _merge = false;
     }
 
-    if (_reader->_reader_type == ReaderType::READER_BINLOG) {
+    if (_reader->_reader_context.read_row_binlog) {
         _merge = false;
     }
 
@@ -709,6 +709,8 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
             }
         }
 
+        RETURN_IF_ERROR(_validate_merge_compare_contract(sequence_loc));
+
         _heap = std::make_unique<MergeHeap>(LevelIteratorComparator(
                 sequence_loc, _is_reverse, _reader->_reader_context.use_insert_order_when_same,
                 tso_col_id >= 0));
@@ -764,6 +766,61 @@ void VCollectIterator::Level1Iterator::init_level0_iterators_for_union() {
         have_multiple_child = true;
         ++iter;
     }
+}
+
+// LevelIteratorComparator reads block positions that carry no bounds checks in release
+// builds: either the explicit compare-column positions, or positions
+// [0, tablet_schema().num_key_columns()) plus the sequence tie-break position. A read
+// projection that omits or reorders the leading key columns would turn the first heap
+// comparison into an out-of-bounds or semantically wrong positional access (issue #66390).
+// Validate the contract against every child's first block before anything enters _heap.
+Status VCollectIterator::Level1Iterator::_validate_merge_compare_contract(int sequence_loc) const {
+    const auto& return_columns = _reader->_return_columns;
+    const size_t num_key_columns = _schema.num_key_columns();
+    for (const auto& child : _children) {
+        const IteratorRowRef* ref = child->current_row_ref();
+        if (ref->block == nullptr) {
+            continue;
+        }
+        const size_t block_columns = ref->block->columns();
+        auto contract_error = [&](const std::string& detail) {
+            std::string projected_ids;
+            for (auto cid : return_columns) {
+                if (!projected_ids.empty()) {
+                    projected_ids += ',';
+                }
+                projected_ids += std::to_string(cid);
+            }
+            return Status::InternalError(
+                    "merge heap compare contract violated: {}, tablet_id={}, block_columns={}, "
+                    "num_key_columns={}, sequence_loc={}, return_columns=[{}]",
+                    detail, _reader->_tablet->tablet_id(), block_columns, num_key_columns,
+                    sequence_loc, projected_ids);
+        };
+        if (_compare_columns != nullptr) {
+            for (uint32_t pos : *_compare_columns) {
+                if (pos >= block_columns) {
+                    return contract_error(
+                            fmt::format("compare column position {} out of range", pos));
+                }
+            }
+        } else {
+            if (num_key_columns > return_columns.size() || num_key_columns > block_columns) {
+                return contract_error("projection has fewer columns than the key prefix");
+            }
+            for (size_t i = 0; i < num_key_columns; ++i) {
+                if (return_columns[i] != i) {
+                    return contract_error(
+                            fmt::format("position {} holds column id {} instead of key column {}",
+                                        i, return_columns[i], i));
+                }
+            }
+        }
+        if (sequence_loc != -1 && static_cast<size_t>(sequence_loc) >= block_columns) {
+            return contract_error("sequence column position out of range");
+        }
+    }
+    return Status::OK();
 }
 
 Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {

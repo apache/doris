@@ -49,6 +49,7 @@ DEFINE_mInt32(lease_compaction_interval_seconds, "20");
 DEFINE_mBool(enable_parallel_cumu_compaction, "false");
 DEFINE_mDouble(base_compaction_thread_num_factor, "0.25");
 DEFINE_mDouble(cumu_compaction_thread_num_factor, "0.5");
+DEFINE_mDouble(binlog_compaction_thread_num_factor, "0.25");
 DEFINE_mInt32(check_auto_compaction_interval_seconds, "5");
 DEFINE_mInt32(max_base_compaction_task_num_per_disk, "2");
 DEFINE_mBool(prioritize_query_perf_in_compaction, "false");

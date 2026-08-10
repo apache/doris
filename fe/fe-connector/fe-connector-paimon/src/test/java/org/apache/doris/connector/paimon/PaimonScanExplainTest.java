@@ -48,7 +48,7 @@ import java.util.Map;
 public class PaimonScanExplainTest {
 
     private static PaimonScanPlanProvider provider() {
-        return new PaimonScanPlanProvider(new HashMap<>(), null);
+        return new PaimonScanPlanProvider(PaimonCatalogProperties.of(new HashMap<>()), null);
     }
 
     // ==================== appendExplainInfo: paimonNativeReadSplits ====================

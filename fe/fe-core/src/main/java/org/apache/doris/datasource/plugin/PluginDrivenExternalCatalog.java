@@ -33,6 +33,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
@@ -217,6 +219,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
+        checkHiveParquetTimeZone(catalogProperty);
         String catalogType = getType();
         try {
             ConnectorFactory.validateProperties(catalogType, catalogProperty.getProperties());
@@ -236,6 +239,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         candidate.putAll(updatedProperties);
         CatalogProperty candidateProperty = new CatalogProperty(null, candidate);
         super.checkProperties(candidateProperty);
+        // Validate the detached candidate before journaling so every accepted ALTER remains
+        // readable by the scan-planning path that parses the same catalog property later.
+        checkHiveParquetTimeZone(candidateProperty);
         try {
             // Connector validation must observe the complete candidate without making it visible
             // to concurrent catalog initialization; the provider handles legacy-value compatibility.
@@ -245,6 +251,17 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
         return true;
+    }
+
+    private void checkHiveParquetTimeZone(CatalogProperty property) throws DdlException {
+        String catalogType = getType();
+        if ("hms".equalsIgnoreCase(catalogType) || "hudi".equalsIgnoreCase(catalogType)) {
+            String hiveParquetTimeZone = property.getOrDefault(
+                    FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, null);
+            if (hiveParquetTimeZone != null) {
+                FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
+            }
+        }
     }
 
     @Override
@@ -1513,21 +1530,29 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         try {
             context.close();
-        } catch (IOException e) {
+        } catch (Throwable e) {
             LOG.warn("Failed to close connector context filesystem for catalog {}", name, e);
         }
     }
 
     @Override
-    public void onClose() {
-        super.onClose();
-        if (connector != null) {
+    protected void closeResources() {
+        try {
+            super.closeResources();
+        } catch (Throwable e) {
+            LOG.warn("Failed to close common resources for plugin-driven catalog {}", name, e);
+        }
+
+        // Detach every stage before invoking external code. A throwing connector must not remain reachable
+        // for another close attempt or prevent the connector-context stage from running.
+        Connector connectorToClose = connector;
+        connector = null;
+        if (connectorToClose != null) {
             try {
-                connector.close();
-            } catch (IOException e) {
+                connectorToClose.close();
+            } catch (Throwable e) {
                 LOG.warn("Failed to close connector for catalog {}", name, e);
             }
-            connector = null;
         }
         // Close the shared context's cached engine FileSystem AFTER the connector(s) release their borrowed
         // reference to it. No-op when no FS was ever built (e.g. non-hive plugin catalogs never call

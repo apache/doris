@@ -111,7 +111,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
      * is pinned by {@code HiveConnectorThreeWayRoutingTest}.
      */
     private HiveConnectorMetadata withSibling() {
-        return new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
+        return new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> new SiblingOwner(siblingConnector, SiblingOwner.ICEBERG_LABEL));
     }
@@ -223,7 +223,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
     public void foreignHandleFailsLoudWhenNoSiblingConfigured() {
         // The 3-arg constructor (hive-only construction) installs a fail-loud supplier: a foreign handle must
         // raise a clear error, not NPE deep in a forward.
-        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(),
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(),
                 new FakeConnectorContext());
         Assertions.assertThrows(DorisConnectorException.class, () -> md.getTableSchema(session, foreignHandle),
                 "a foreign handle with no sibling configured must fail loud");
@@ -351,7 +351,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // is the per-handle guard routes a hive handle to the connector's OWN transaction, a foreign one to the
         // sibling. The selection must be symmetric — hive and iceberg write plans downcast to different types.
         ConnectorTransaction hiveTxn = new NoOpConnectorTransaction(70099L, "HIVE");
-        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> new SiblingOwner(siblingConnector, SiblingOwner.ICEBERG_LABEL)) {
             @Override
@@ -379,7 +379,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                 ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
-        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(siblingCaps),
                         SiblingOwner.ICEBERG_LABEL));
@@ -392,6 +392,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "Top-N lazy must survive the delegation as a per-table capability");
         Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
                 "nested-column prune must survive the delegation as a per-table capability");
+        Assertions.assertEquals("sibling-generation", schema.getWriteMetadataIdentity(),
+                "capability reflection must not discard the sibling's write-generation fence");
     }
 
     @Test
@@ -407,7 +409,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
                 ConnectorCapability.SUPPORTS_SORT_ORDER,
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
-        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(siblingCaps),
                         SiblingOwner.ICEBERG_LABEL));
@@ -418,7 +420,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "only the per-table-resolved subset may be reflected onto a delegated table");
 
         // A NON-empty sibling declaring none of the subset must inherit nothing.
-        HiveConnectorMetadata noneInheritable = new HiveConnectorMetadata(null, Collections.emptyMap(),
+        HiveConnectorMetadata noneInheritable = new HiveConnectorMetadata(null, HiveTestProperties.minimal(),
                 new FakeConnectorContext(), SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(
                         EnumSet.of(ConnectorCapability.SUPPORTS_VIEW, ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT)),
@@ -485,7 +487,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // by-TYPE literal label == the by-HANDLE resolver-arm label), or the statement would hold two sibling
         // metadata instances. Wire the iceberg by-TYPE supplier to the SAME recording connector the resolver
         // returns, then drive both paths under one live scope. MUTATION: mismatched labels -> two builds -> red.
-        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 () -> siblingConnector, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> new SiblingOwner(siblingConnector, SiblingOwner.ICEBERG_LABEL));
         ConnectorSession live = new ScopeSession(1L, "q1", new TestStatementScope());
@@ -519,7 +521,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // the other -> a count is 0 while the other is 2 -> red.
         RecordingSiblingConnector hudiConnector = new RecordingSiblingConnector(new RecordingSiblingMetadata());
         ForeignHandle hudiHandle = new ForeignHandle();
-        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> handle == hudiHandle
                         ? new SiblingOwner(hudiConnector, SiblingOwner.HUDI_LABEL)
@@ -615,14 +617,16 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         @Override
         public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle) {
             calls.add("getTableSchema");
-            return new ConnectorTableSchema("sibling", Collections.emptyList(), "iceberg", Collections.emptyMap());
+            return new ConnectorTableSchema("sibling", Collections.emptyList(), "iceberg", Collections.emptyMap(),
+                    Collections.emptySet(), "sibling-generation");
         }
 
         @Override
         public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle,
                 ConnectorMvccSnapshot snapshot) {
             calls.add("getTableSchemaAtSnapshot");
-            return new ConnectorTableSchema("sibling", Collections.emptyList(), "iceberg", Collections.emptyMap());
+            return new ConnectorTableSchema("sibling", Collections.emptyList(), "iceberg", Collections.emptyMap(),
+                    Collections.emptySet(), "sibling-generation");
         }
 
         @Override

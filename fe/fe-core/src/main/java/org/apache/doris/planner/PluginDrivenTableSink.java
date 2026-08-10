@@ -33,6 +33,8 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TSortInfo;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
@@ -58,11 +60,14 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     private final ConnectorSession connectorSession;
     private final ConnectorTableHandle tableHandle;
     private final List<ConnectorColumn> connectorColumns;
+    private final List<ConnectorColumn> boundTargetColumns;
     // The engine-built BE sort instruction for a connector that declares write-sort columns (iceberg
     // WRITE ORDERED BY); null when the target needs no write sort. The connector cannot build it (the
     // bound output exprs live only here), so the translator resolves the connector's declared sort
     // columns against the sink output and hands the TSortInfo here to thread onto the write handle.
     private final TSortInfo writeSortInfo;
+    // Opaque connector metadata generation captured before the engine shaped the physical write.
+    private final String boundWriteMetadataIdentity;
     // The DML write operation this sink performs. A plain INSERT sink keeps the default INSERT (the
     // connector promotes it to OVERWRITE from the handle's isOverwrite() flag); the row-level DML
     // translator arms (DELETE / UPDATE / MERGE) pass the operation here so the connector's planWrite
@@ -121,13 +126,42 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
             ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
             TSortInfo writeSortInfo, WriteOperation writeOperation, boolean requireMergeCardinalityCheck) {
+        this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
+                connectorColumns, writeSortInfo, writeOperation, requireMergeCardinalityCheck);
+    }
+
+    /**
+     * Plan-provider mode with the write subset and complete bind-time target schema carried separately.
+     */
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
+            List<ConnectorColumn> boundTargetColumns, TSortInfo writeSortInfo,
+            WriteOperation writeOperation, boolean requireMergeCardinalityCheck) {
+        this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
+                boundTargetColumns, writeSortInfo, writeOperation, requireMergeCardinalityCheck, null);
+    }
+
+    /**
+     * Plan-provider mode with the connector metadata generation that shaped this physical write.
+     */
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
+            List<ConnectorColumn> boundTargetColumns, TSortInfo writeSortInfo,
+            WriteOperation writeOperation, boolean requireMergeCardinalityCheck,
+            String boundWriteMetadataIdentity) {
         super();
         this.targetTable = targetTable;
         this.writePlanProvider = writePlanProvider;
         this.connectorSession = connectorSession;
         this.tableHandle = tableHandle;
         this.connectorColumns = connectorColumns;
+        // Keep this immutable bind-time snapshot distinct from the write subset. Re-reading the live
+        // table here would move the conflict-detection baseline and could miss ordinal schema drift.
+        this.boundTargetColumns = ImmutableList.copyOf(boundTargetColumns);
         this.writeSortInfo = writeSortInfo;
+        this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
         this.writeOperation = writeOperation == null ? WriteOperation.INSERT : writeOperation;
         this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
     }
@@ -161,8 +195,8 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         // source-agnostic. This runs before the write plan is bound (planWrite has not run yet for an
         // EXPLAIN), so the connector derives the detail from the write handle.
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                tableHandle, connectorColumns, false, Collections.emptyMap(), null, Optional.empty(),
-                writeOperation, requireMergeCardinalityCheck);
+                tableHandle, connectorColumns, boundTargetColumns, false, Collections.emptyMap(), null,
+                null, Optional.empty(), writeOperation, requireMergeCardinalityCheck);
         writePlanProvider.appendExplainInfo(sb, prefix, connectorSession, handle);
         return sb.toString();
     }
@@ -188,8 +222,8 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             branchName = ctx.getBranchName();
         }
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                tableHandle, connectorColumns, overwrite, writeContext, writeSortInfo, branchName,
-                writeOperation, requireMergeCardinalityCheck);
+                tableHandle, connectorColumns, boundTargetColumns, overwrite, writeContext, writeSortInfo,
+                boundWriteMetadataIdentity, branchName, writeOperation, requireMergeCardinalityCheck);
         ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
         this.tDataSink = sinkPlan.getDataSink();
     }
@@ -205,22 +239,27 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     private static final class PluginDrivenWriteHandle implements ConnectorWriteHandle {
         private final ConnectorTableHandle tableHandle;
         private final List<ConnectorColumn> columns;
+        private final List<ConnectorColumn> boundTargetColumns;
         private final boolean overwrite;
         private final Map<String, String> writeContext;
         private final TSortInfo sortInfo;
+        private final String boundWriteMetadataIdentity;
         private final Optional<String> branchName;
         private final WriteOperation writeOperation;
         private final boolean requireMergeCardinalityCheck;
 
         private PluginDrivenWriteHandle(ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
-                boolean overwrite, Map<String, String> writeContext, TSortInfo sortInfo,
+                List<ConnectorColumn> boundTargetColumns, boolean overwrite,
+                Map<String, String> writeContext, TSortInfo sortInfo, String boundWriteMetadataIdentity,
                 Optional<String> branchName, WriteOperation writeOperation,
                 boolean requireMergeCardinalityCheck) {
             this.tableHandle = tableHandle;
             this.columns = columns;
+            this.boundTargetColumns = boundTargetColumns;
             this.overwrite = overwrite;
             this.writeContext = writeContext;
             this.sortInfo = sortInfo;
+            this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
             this.branchName = branchName == null ? Optional.empty() : branchName;
             this.writeOperation = writeOperation == null ? WriteOperation.INSERT : writeOperation;
             this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
@@ -237,6 +276,11 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         }
 
         @Override
+        public String getBoundWriteMetadataIdentity() {
+            return boundWriteMetadataIdentity;
+        }
+
+        @Override
         public Optional<String> getBranchName() {
             return branchName;
         }
@@ -249,6 +293,11 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         @Override
         public List<ConnectorColumn> getColumns() {
             return columns;
+        }
+
+        @Override
+        public List<ConnectorColumn> getBoundTargetColumns() {
+            return boundTargetColumns;
         }
 
         @Override

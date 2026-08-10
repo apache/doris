@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -72,6 +73,7 @@ public class RowLevelDmlCommand {
     public void run(ConnectContext ctx, StmtExecutor stmtExecutor) throws Exception {
         TableIf table = args.getTable();
         transform.checkMode(table, op);
+        ConnectorWriteSchemaUtils.pinAndGet(ctx, (ExternalTable) table);
         long previousTargetTableId = ctx.getSyntheticWriteColTargetTableId();
         ctx.setSyntheticWriteColTargetTableId(table.getId());
         try {
@@ -112,6 +114,7 @@ public class RowLevelDmlCommand {
     public Plan getExplainPlan(ConnectContext ctx) {
         TableIf table = args.getTable();
         transform.checkMode(table, op);
+        ConnectorWriteSchemaUtils.pinAndGet(ctx, (ExternalTable) table);
         long previousTargetTableId = ctx.getSyntheticWriteColTargetTableId();
         ctx.setSyntheticWriteColTargetTableId(table.getId());
         try {

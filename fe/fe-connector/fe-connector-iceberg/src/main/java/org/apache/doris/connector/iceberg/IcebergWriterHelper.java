@@ -99,8 +99,6 @@ final class IcebergWriterHelper {
      * file; {@code "null"} partition tokens map to a real {@code null}.
      */
     static WriteResult convertToWriterResult(Table table, List<TIcebergCommitData> commitDataList, ZoneId zone) {
-        List<DataFile> dataFiles = new ArrayList<>();
-
         PartitionSpec spec = table.spec();
         FileFormat fileFormat = getFileFormat(table);
         MetricsConfig metricsConfig = MetricsConfig.forTable(table);
@@ -109,7 +107,21 @@ final class IcebergWriterHelper {
             // Rewrite and merge writers emit v3 lineage columns that are absent from the table schema.
             schema = appendRowLineageFieldsForV3(schema);
         }
+        return convertToWriterResult(
+                spec, fileFormat, metricsConfig, schema, table.sortOrder(), commitDataList, zone);
+    }
 
+    static WriteResult convertToWriterResult(
+            IcebergWriteSchemaContext context, List<TIcebergCommitData> commitDataList, ZoneId zone) {
+        return convertToWriterResult(
+                context.getPartitionSpec(), context.getFileFormat(), context.getMetricsConfig(),
+                context.getMergeSchema(), context.getSortOrder(), commitDataList, zone);
+    }
+
+    private static WriteResult convertToWriterResult(
+            PartitionSpec spec, FileFormat fileFormat, MetricsConfig metricsConfig,
+            Schema schema, SortOrder sortOrder, List<TIcebergCommitData> commitDataList, ZoneId zone) {
+        List<DataFile> dataFiles = new ArrayList<>();
         for (TIcebergCommitData commitData : commitDataList) {
             String location = commitData.getFilePath();
             long fileSize = commitData.getFileSize();
@@ -126,7 +138,7 @@ final class IcebergWriterHelper {
                 partitionData = Optional.of(convertToPartitionData(partitionValues, spec, zone));
             }
             DataFile dataFile = genDataFile(fileFormat, location, spec, partitionData, recordCount, fileSize,
-                    metrics, table.sortOrder());
+                    metrics, sortOrder);
             dataFiles.add(dataFile);
         }
         return WriteResult.builder()
@@ -522,8 +534,18 @@ final class IcebergWriterHelper {
      * {@code collect_column_stats} flag so a fully-disabled table skips BE-side collection entirely.
      */
     static boolean shouldCollectColumnStats(Table table, Schema writerSchema) {
-        MetricsConfig metricsConfig = MetricsConfig.forTable(table);
-        if (getFileFormat(table) == FileFormat.ORC) {
+        return shouldCollectColumnStats(
+                MetricsConfig.forTable(table), getFileFormat(table), writerSchema);
+    }
+
+    static boolean shouldCollectColumnStats(IcebergWriteSchemaContext context, Schema writerSchema) {
+        return shouldCollectColumnStats(
+                context.getMetricsConfig(), context.getFileFormat(), writerSchema);
+    }
+
+    private static boolean shouldCollectColumnStats(
+            MetricsConfig metricsConfig, FileFormat fileFormat, Schema writerSchema) {
+        if (fileFormat == FileFormat.ORC) {
             // Match the footer collectors: ORC reports top-level collection counts, while Parquet reports leaf fields.
             return writerSchema.columns().stream()
                     .anyMatch(field -> MetricsUtil.metricsMode(writerSchema, metricsConfig, field.fieldId())

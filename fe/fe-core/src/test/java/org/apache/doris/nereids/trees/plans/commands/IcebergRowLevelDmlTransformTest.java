@@ -32,6 +32,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -210,20 +212,29 @@ public class IcebergRowLevelDmlTransformTest {
         // re-parameterization; the full plan execution is flip-e2e-gated. (Reverting the cast/param back to
         // IcebergExternalTable would not even compile against this plugin-typed argument.)
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                Mockito.mock(PluginDrivenExternalTable.WriteSchemaSnapshot.class);
         ExternalDatabase database = Mockito.mock(ExternalDatabase.class);
         Mockito.when(table.getDatabase()).thenReturn(database);
-        Mockito.when(table.getBaseSchema(true))
-                .thenReturn(ImmutableList.of(new Column("id", ScalarType.INT)));
+        // The DELETE projection and conflict fence must be bound to the same metadata generation.
+        Mockito.doReturn(ImmutableList.of(new Column("id", ScalarType.INT))).when(writeSchema).getBaseSchema();
+        Mockito.doReturn("uuid-u0/schema-1").when(writeSchema).getWriteMetadataIdentity();
+        Mockito.doReturn(writeSchema).when(table).getWriteSchemaSnapshot();
         Mockito.when(table.getId()).thenReturn(TARGET_ID);
 
         LogicalPlan query = (LogicalPlan) filterOver(table, "id");
         RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(table, ImmutableList.of("db", "t"), null,
                 false, ImmutableList.of(), query);
 
-        LogicalPlan plan = transform.synthesize(null, args, RowLevelDmlOp.DELETE);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.when(context.getStatementContext()).thenReturn(new StatementContext());
+        LogicalPlan plan = transform.synthesize(context, args, RowLevelDmlOp.DELETE);
 
         Assertions.assertTrue(plan instanceof LogicalExternalRowLevelDeleteSink, plan.getClass().getName());
         Assertions.assertSame(table, ((LogicalExternalRowLevelDeleteSink<?>) plan).getTargetTable());
+        Assertions.assertEquals("uuid-u0/schema-1",
+                ((LogicalExternalRowLevelDeleteSink<?>) plan).getBoundWriteMetadataIdentity());
+        Mockito.verify(table, Mockito.times(1)).getWriteSchemaSnapshot();
     }
 
     @Test

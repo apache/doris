@@ -52,53 +52,10 @@
 #include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
-#include "util/url_coding.h"
 
 namespace doris::format {
 
 namespace {
-
-Status build_initial_default_column(const ColumnDefinition& column, ColumnPtr* value) {
-    DORIS_CHECK(value != nullptr);
-    *value = nullptr;
-    if (!column.initial_default_value.has_value()) {
-        return Status::OK();
-    }
-    const auto nested_type = remove_nullable(column.type);
-    Field parsed;
-    if (column.initial_default_value_is_base64 ||
-        nested_type->get_primitive_type() == TYPE_VARBINARY) {
-        std::string decoded;
-        if (!base64_decode(*column.initial_default_value, &decoded)) {
-            return Status::InvalidArgument("Invalid Base64 Iceberg initial default for field {}",
-                                           column.name);
-        }
-        parsed = nested_type->get_primitive_type() == TYPE_VARBINARY
-                         ? Field::create_field<TYPE_VARBINARY>(StringView(decoded))
-                         : Field::create_field<TYPE_STRING>(decoded);
-        // Variable-width Fields borrow their input. Materialize while decoded is alive so the
-        // resulting column owns the payload before it crosses a mapping/literal boundary.
-        *value = column.type->create_column_const(1, parsed);
-        return Status::OK();
-    } else {
-        RETURN_IF_ERROR(
-                nested_type->get_serde()->from_fe_string(*column.initial_default_value, parsed));
-    }
-    *value = column.type->create_column_const(1, parsed);
-    return Status::OK();
-}
-
-Status build_initial_default_literal(const ColumnDefinition& column, VExprContextSPtr* literal) {
-    DORIS_CHECK(literal != nullptr);
-    ColumnPtr owned_value;
-    RETURN_IF_ERROR(build_initial_default_column(column, &owned_value));
-    DORIS_CHECK(static_cast<bool>(owned_value));
-    Field value;
-    owned_value->get(0, value);
-    // VLiteral copies the borrowed Field into its own column while owned_value is still alive.
-    *literal = VExprContext::create_shared(VLiteral::create_shared(column.type, value));
-    return Status::OK();
-}
 
 bool has_shared_descendant_field_id(const ColumnDefinition& table, const ColumnDefinition& file) {
     const auto& table_children =
@@ -306,6 +263,31 @@ const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column
     return matcher_for_mode(TableColumnMappingMode::BY_NAME).find(table_column, file_schema);
 }
 
+const ColumnDefinition* find_column_by_field_id(const ColumnDefinition& table_column,
+                                                const std::vector<ColumnDefinition>& file_schema,
+                                                bool allow_idless_complex_wrapper_projection) {
+    const auto* matched =
+            matcher_for_mode(TableColumnMappingMode::BY_FIELD_ID).find(table_column, file_schema);
+    if (matched != nullptr || !allow_idless_complex_wrapper_projection ||
+        table_column.children.empty()) {
+        return matched;
+    }
+    const ColumnDefinition* wrapper = nullptr;
+    for (const auto& candidate : file_schema) {
+        if (candidate.has_identifier_field_id() || candidate.children.empty() ||
+            !has_shared_descendant_field_id(table_column, candidate)) {
+            continue;
+        }
+        if (wrapper != nullptr) {
+            return nullptr;
+        }
+        wrapper = &candidate;
+    }
+    // Iceberg Parquet's PruneColumns retains an ID-less complex wrapper when a nested field ID is
+    // selected. Descendant IDs, not aliases, identify that wrapper; ambiguity remains unmapped.
+    return wrapper;
+}
+
 const Field* find_partition_value(const ColumnDefinition& table_column,
                                   const std::map<std::string, Field>& partition_values) {
     const auto find_by_name = [&](const std::string& name) -> const Field* {
@@ -394,6 +376,7 @@ static bool is_binary_comparison_predicate(const VExprSPtr& expr) {
 std::string TableColumnMapperOptions::debug_string() const {
     std::ostringstream out;
     out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode)
+        << ", reject_missing_required_field=" << reject_missing_required_field
         << ", allow_idless_complex_wrapper_projection=" << allow_idless_complex_wrapper_projection
         << ", enable_row_lineage_virtual_columns=" << enable_row_lineage_virtual_columns << "}";
     return out.str();
@@ -405,6 +388,10 @@ std::string ColumnDefinition::debug_string() const {
         << ", name_mapping="
         << join_debug_strings(name_mapping, [](const std::string& name) { return name; })
         << ", has_name_mapping=" << has_name_mapping << ", local_id=" << local_id
+        << ", timestamp_is_adjusted_to_utc="
+        << (timestamp_is_adjusted_to_utc.has_value()
+                    ? (*timestamp_is_adjusted_to_utc ? "true" : "false")
+                    : "unset")
         << ", type=" << data_type_debug_string(type) << ", children="
         << join_debug_strings(children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
@@ -412,13 +399,23 @@ std::string ColumnDefinition::debug_string() const {
         << join_debug_strings(identity_children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
         << ", has_default_expr=" << (default_expr != nullptr)
-        << ", is_partition_key=" << is_partition_key << "}";
+        << ", has_initial_default=" << initial_default_value.has_value() << ", is_optional=";
+    if (is_optional.has_value()) {
+        out << *is_optional;
+    } else {
+        out << "unknown";
+    }
+    out << ", is_partition_key=" << is_partition_key << "}";
     return out.str();
 }
 
 std::string LocalColumnIndex::debug_string() const {
     std::ostringstream out;
     out << "LocalColumnIndex{index=" << index << ", project_all_children=" << project_all_children
+        << ", timestamp_is_adjusted_to_utc="
+        << (timestamp_is_adjusted_to_utc.has_value()
+                    ? (*timestamp_is_adjusted_to_utc ? "true" : "false")
+                    : "unset")
         << ", children="
         << join_debug_strings(children,
                               [](const LocalColumnIndex& child) { return child.debug_string(); })
@@ -441,7 +438,10 @@ std::string ColumnMapping::debug_string() const {
     } else {
         out << "null";
     }
-    out << ", file_column_name=" << file_column_name
+    out << ", file_column_name=" << file_column_name << ", timestamp_is_adjusted_to_utc="
+        << (timestamp_is_adjusted_to_utc.has_value()
+                    ? (*timestamp_is_adjusted_to_utc ? "true" : "false")
+                    : "unset")
         << ", original_file_type=" << data_type_debug_string(original_file_type)
         << ", original_file_children="
         << join_debug_strings(original_file_children,
@@ -1711,6 +1711,7 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     }
     DORIS_CHECK(mapping.file_local_id.has_value());
     *projection = LocalColumnIndex::local(*mapping.file_local_id);
+    projection->timestamp_is_adjusted_to_utc = mapping.timestamp_is_adjusted_to_utc;
     projection->project_all_children = mapping.child_mappings.empty();
     projection->children.clear();
     const auto present_children = present_child_mappings_in_file_order(mapping.child_mappings);
@@ -1731,6 +1732,32 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
                                     mapping.file_column_name);
     }
     return Status::OK();
+}
+
+static bool has_timestamp_semantics(const ColumnMapping& mapping) {
+    return mapping.timestamp_is_adjusted_to_utc.has_value() ||
+           std::ranges::any_of(mapping.child_mappings, has_timestamp_semantics);
+}
+
+static void attach_timestamp_semantics(const ColumnMapping& mapping, LocalColumnIndex* projection) {
+    DORIS_CHECK(projection != nullptr);
+    projection->timestamp_is_adjusted_to_utc = mapping.timestamp_is_adjusted_to_utc;
+    for (const auto& child_mapping : mapping.child_mappings) {
+        // A full projection represents ordinary children implicitly; materialize only paths that
+        // carry an override so existing readers still observe an empty children list.
+        if (!child_mapping.file_local_id.has_value() || !has_timestamp_semantics(child_mapping)) {
+            continue;
+        }
+        auto child_it =
+                std::ranges::find_if(projection->children, [&](const LocalColumnIndex& child) {
+                    return child.local_id() == *child_mapping.file_local_id;
+                });
+        if (child_it == projection->children.end()) {
+            projection->children.push_back(LocalColumnIndex::local(*child_mapping.file_local_id));
+            child_it = std::prev(projection->children.end());
+        }
+        attach_timestamp_semantics(child_mapping, &*child_it);
+    }
 }
 
 using FilterProjectionMap = std::map<LocalColumnId, LocalColumnIndex>;
@@ -1789,6 +1816,7 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
                               const FilterProjectionMap* filter_projections = nullptr) {
     const auto file_column_id = LocalColumnId(mapping->file_local_id.value());
     LocalColumnIndex projection = LocalColumnIndex::top_level(file_column_id);
+    projection.timestamp_is_adjusted_to_utc = mapping->timestamp_is_adjusted_to_utc;
     // Columnar readers can turn a complex mapping into a nested file projection, but
     // row-oriented readers must scan the full top-level complex field because all children are
     // encoded in the same text cell.
@@ -1803,6 +1831,7 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
         // merge_filter_projection() adds `s -> b`, so the predicate column reads both children.
         RETURN_IF_ERROR(merge_filter_projection(filter_projections, &projection));
     }
+    attach_timestamp_semantics(*mapping, &projection);
     FileScanRequestBuilder builder(file_request);
     if (is_predicate_column) {
         return builder.add_predicate_column(std::move(projection));
@@ -2041,15 +2070,17 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
         // Doris internal Iceberg row locator is never a physical Iceberg data column. It is built
         // from file path, row position and partition metadata for delete/update/merge.
         mapping->virtual_column_type = TableVirtualColumnType::ICEBERG_ROWID;
-    } else if (table_column.initial_default_value.has_value()) {
-        VExprContextSPtr initial_default;
-        RETURN_IF_ERROR(build_initial_default_literal(table_column, &initial_default));
-        // Iceberg metadata is the authoritative logical value for files written before the field
-        // existed; the generic FE expression may still contain its Base64 transport text.
-        _set_constant_mapping(mapping, std::move(initial_default));
     } else if (table_column.default_expr != nullptr) {
-        // Missing schema-evolution column with an explicit default expression.
+        // Table-format readers build typed default expressions before mapping. Keep that typed
+        // expression authoritative over the raw transport metadata, which cannot represent complex
+        // defaults safely in this table-format-neutral layer.
         _set_constant_mapping(mapping, table_column.default_expr);
+    } else if (table_column.initial_default_value.has_value()) {
+        return Status::InvalidArgument(
+                "Missing typed initial-default expression for table field '{}'", table_column.name);
+    } else if (_options.reject_missing_required_field && table_column.is_optional.has_value() &&
+               !*table_column.is_optional) {
+        return Status::InvalidArgument("Missing required field: {}", table_column.name);
     } else {
         if (table_column.is_partition_key) {
             return Status::InvalidArgument(
@@ -2409,25 +2440,11 @@ const ColumnDefinition* TableColumnMapper::_find_file_field(
         });
         return field_it == file_schema.end() ? nullptr : &*field_it;
     }
-    const auto* matched = matcher_for_mode(_options.mode).find(table_column, file_schema);
-    if (matched != nullptr || _options.mode != TableColumnMappingMode::BY_FIELD_ID ||
-        !_options.allow_idless_complex_wrapper_projection || table_column.children.empty()) {
-        return matched;
+    if (_options.mode == TableColumnMappingMode::BY_FIELD_ID) {
+        return find_column_by_field_id(table_column, file_schema,
+                                       _options.allow_idless_complex_wrapper_projection);
     }
-    const ColumnDefinition* wrapper = nullptr;
-    for (const auto& candidate : file_schema) {
-        if (candidate.has_identifier_field_id() || candidate.children.empty() ||
-            !has_shared_descendant_field_id(table_column, candidate)) {
-            continue;
-        }
-        if (wrapper != nullptr) {
-            return nullptr;
-        }
-        wrapper = &candidate;
-    }
-    // Iceberg Parquet's PruneColumns retains an ID-less complex wrapper when a nested field ID is
-    // selected. Descendant IDs, not aliases, identify that wrapper; ambiguity remains unmapped.
-    return wrapper;
+    return matcher_for_mode(_options.mode).find(table_column, file_schema);
 }
 
 Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_column,
@@ -2441,6 +2458,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->original_file_type = file_field.type;
     mapping->original_file_children = file_field.children;
     mapping->projected_file_children = file_field.children;
+    mapping->timestamp_is_adjusted_to_utc = file_field.timestamp_is_adjusted_to_utc;
     mapping->file_type = file_field.type;
     mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
     mapping->filter_conversion = direct_filter_conversion(*mapping);
@@ -2491,16 +2509,23 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 }
             }
             if (file_child == nullptr) {
+                if (table_child.default_expr == nullptr &&
+                    table_child.initial_default_value.has_value()) {
+                    return Status::InvalidArgument(
+                            "Missing typed initial-default expression for table field '{}'",
+                            table_child.name);
+                }
+                if (_options.reject_missing_required_field && table_child.is_optional.has_value() &&
+                    !*table_child.is_optional && table_child.default_expr == nullptr) {
+                    return Status::InvalidArgument("Missing required field: {}", table_child.name);
+                }
                 ColumnMapping child_mapping;
                 child_mapping.table_column_name = table_child.name;
                 child_mapping.file_column_name = table_child.name;
                 child_mapping.table_type = table_child.type;
                 child_mapping.file_type = table_child.type;
+                child_mapping.default_expr = table_child.default_expr;
                 child_mapping.filter_conversion = FilterConversionType::FINALIZE_ONLY;
-                // A missing nested field still has its Iceberg initial-default value in every row
-                // written before the field was added; carry it into recursive materialization.
-                RETURN_IF_ERROR(build_initial_default_column(
-                        table_child, &child_mapping.initial_default_column));
                 mapping->child_mappings.push_back(std::move(child_mapping));
                 continue;
             }

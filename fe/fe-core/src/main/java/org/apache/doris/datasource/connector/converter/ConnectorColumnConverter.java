@@ -67,6 +67,7 @@ public final class ConnectorColumnConverter {
         Column column = new Column(cc.getName(), dorisType, cc.isKey(), null,
                 cc.isNullable(), cc.getDefaultValue(),
                 cc.getComment() != null ? cc.getComment() : "");
+        column.setConnectorDefaultValueSql(cc.getDefaultValueSql());
         // Re-apply the WITH_TIMEZONE "Extra" marker the connector carried across the SPI boundary
         // (ConnectorColumn.withTimeZone()), matching legacy PaimonExternalTable/IcebergUtils which set it
         // via setWithTZExtraInfo() from the source TZ type. Independent of the mapped Doris type, so it is
@@ -97,11 +98,10 @@ public final class ConnectorColumnConverter {
         if (cc.isReservedPassthrough()) {
             column.setReservedPassthrough(true);
         }
-        // Stamp the nested (STRUCT/ARRAY/MAP) child column tree with the per-field ids the connector carried
-        // on the ConnectorType (iceberg), mirroring legacy IcebergUtils.updateIcebergColumnUniqueId's
-        // recursive set. The BE field-id scan path matches a pruned nested leaf by id; a -1 leaf is skipped
-        // and returns NULL. Inert for connectors that don't carry field ids (getChildFieldId returns -1).
-        applyNestedFieldIds(column, cc.getType());
+        // Stamp the nested (STRUCT/ARRAY/MAP) child column tree with connector field metadata. ArrayType
+        // cannot retain required element semantics itself, so the child Column is the canonical round-trip
+        // carrier; field ids are also needed by the BE nested-field scan path.
+        applyNestedFieldMetadata(column, cc.getType());
         return column;
     }
 
@@ -110,9 +110,10 @@ public final class ConnectorColumnConverter {
      * per-child field ids carried on {@code type} ({@link ConnectorType#getChildFieldId(int)}). The Doris
      * child column order built by {@code Column.createChildrenColumn} matches the {@link ConnectorType}
      * children order (array element / map key,value / struct fields-in-order), so a parallel walk aligns them.
-     * Only sets a child whose carried id is {@code >= 0}, leaving others at the default -1.
+     * Nullability is always copied because ARRAY/MAP type objects cannot consistently retain it. A field id is
+     * set only when the connector carries one ({@code >= 0}), leaving other ids at the default -1.
      */
-    private static void applyNestedFieldIds(Column column, ConnectorType type) {
+    private static void applyNestedFieldMetadata(Column column, ConnectorType type) {
         List<Column> childColumns = column.getChildren();
         if (childColumns == null || childColumns.isEmpty()) {
             return;
@@ -121,11 +122,12 @@ public final class ConnectorColumnConverter {
         int n = Math.min(childColumns.size(), childTypes.size());
         for (int i = 0; i < n; i++) {
             Column childColumn = childColumns.get(i);
+            childColumn.setIsAllowNull(type.isChildNullable(i));
             int childFieldId = type.getChildFieldId(i);
             if (childFieldId >= 0) {
                 childColumn.setUniqueId(childFieldId);
             }
-            applyNestedFieldIds(childColumn, childTypes.get(i));
+            applyNestedFieldMetadata(childColumn, childTypes.get(i));
         }
     }
 
@@ -148,8 +150,10 @@ public final class ConnectorColumnConverter {
      * and the connector could not tell an aggregated/auto-inc column apart from a plain one.</p>
      */
     public static ConnectorColumn toConnectorColumn(Column col) {
-        ConnectorType connectorType = toConnectorType(col.getType());
-        return new ConnectorColumn(
+        // Preserve the complete field-id tree when a bound write schema crosses the connector boundary.
+        // Iceberg field ids, rather than nested names, are the stable identity across schema evolution.
+        ConnectorType connectorType = toConnectorType(col);
+        ConnectorColumn result = new ConnectorColumn(
                 col.getName(),
                 connectorType,
                 col.getComment(),
@@ -161,7 +165,43 @@ public final class ConnectorColumnConverter {
                 // Thread the #65329 "specified" markers so a connector's nested MODIFY COLUMN can honor
                 // omit-preserves-metadata (an omitted NULL/NOT NULL never widens the field; an omitted COMMENT
                 // keeps the current doc). Inert for connectors / paths that don't read them.
-                .withSpecified(col.isNullableSpecified(), col.isCommentSpecified());
+                .withSpecified(col.isNullableSpecified(), col.isCommentSpecified())
+                // The connector SQL is transient write metadata, distinct from Column.defaultValue. Losing it
+                // on the return trip makes an unchanged remote default look like concurrent schema evolution.
+                .withDefaultValueSql(col.getConnectorDefaultValueSql());
+        if (!col.isVisible()) {
+            result = result.invisible();
+        }
+        if (col.getUniqueId() >= 0) {
+            result = result.withUniqueId(col.getUniqueId());
+        }
+        if (col.isReservedPassthrough()) {
+            result = result.reservedPassthrough();
+        }
+        return result;
+    }
+
+    private static ConnectorType toConnectorType(Column column) {
+        ConnectorType type = toConnectorType(column.getType());
+        List<Column> childColumns = column.getChildren();
+        if (childColumns == null || childColumns.size() != type.getChildren().size()) {
+            return type;
+        }
+        List<ConnectorType> childTypes = new ArrayList<>(childColumns.size());
+        List<Integer> childIds = new ArrayList<>(childColumns.size());
+        List<Boolean> childNullable = new ArrayList<>(childColumns.size());
+        List<String> childComments = new ArrayList<>(childColumns.size());
+        List<Boolean> childCommentSpecified = new ArrayList<>(childColumns.size());
+        for (int i = 0; i < childColumns.size(); i++) {
+            Column child = childColumns.get(i);
+            childTypes.add(toConnectorType(child));
+            childIds.add(child.getUniqueId());
+            childNullable.add(child.isAllowNull());
+            childComments.add(type.getChildComment(i));
+            childCommentSpecified.add(type.isChildCommentSpecified(i));
+        }
+        return new ConnectorType(type.getTypeName(), type.getPrecision(), type.getScale(), childTypes,
+                type.getFieldNames(), childNullable, childComments, childIds, childCommentSpecified);
     }
 
     /**
@@ -207,15 +247,28 @@ public final class ConnectorColumnConverter {
             // CHAR/VARCHAR store their length in `len`, not `precision`; encode it
             // into the ConnectorType precision field (matching convertScalarType and
             // the connector type convention) so CREATE TABLE requests keep the length.
+            if (primitiveType == PrimitiveType.VARBINARY
+                    && scalar.getLength() == ScalarType.MAX_VARBINARY_LENGTH) {
+                // Doris materializes an unbounded connector VARBINARY with the maximum internal length.
+                // Collapse it on the reverse path so an unchanged Iceberg BINARY schema compares equal.
+                return ConnectorType.of(primitiveType.toString());
+            }
             if (primitiveType == PrimitiveType.CHAR
-                    || primitiveType == PrimitiveType.VARCHAR) {
+                    || primitiveType == PrimitiveType.VARCHAR
+                    || primitiveType == PrimitiveType.VARBINARY) {
                 return ConnectorType.of(primitiveType.toString(),
                         scalar.getLength(), 0);
             }
-            return ConnectorType.of(
-                    primitiveType.toString(),
-                    scalar.getScalarPrecision(),
-                    scalar.getScalarScale());
+            if (primitiveType.isDecimalV3Type() || primitiveType == PrimitiveType.DECIMALV2) {
+                return ConnectorType.of(primitiveType.toString(),
+                        scalar.getScalarPrecision(), scalar.getScalarScale());
+            }
+            if (primitiveType == PrimitiveType.DATETIMEV2 || primitiveType == PrimitiveType.TIMESTAMPTZ) {
+                return ConnectorType.of(primitiveType.toString(), scalar.getScalarScale(), 0);
+            }
+            // Parameterless Doris scalars expose 0/0 through ScalarType, while connector schemas use -1/-1.
+            // Canonicalizing them prevents an unchanged schema from being mistaken for concurrent drift.
+            return ConnectorType.of(primitiveType.toString());
         } else {
             return ConnectorType.of(dorisType.toString(), -1, -1);
         }
@@ -252,7 +305,8 @@ public final class ConnectorColumnConverter {
         if (children.size() < 2) {
             return new MapType(Type.NULL, Type.NULL);
         }
-        return new MapType(convertType(children.get(0)), convertType(children.get(1)));
+        return new MapType(convertType(children.get(0)), convertType(children.get(1)),
+                ct.isChildNullable(0), ct.isChildNullable(1));
     }
 
     private static Type convertStructType(ConnectorType ct) {

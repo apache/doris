@@ -670,10 +670,6 @@ public class DorisFE {
     }
 
     public static void overwriteConfigs() {
-        if (Config.isCloudMode() && Config.enable_feature_binlog) {
-            Config.enable_feature_binlog = false;
-            LOG.warn("Force set enable_feature_binlog=false because it is not supported in the cloud mode yet");
-        }
     }
 
     private static void fuzzyConfigs() {

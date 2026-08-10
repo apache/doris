@@ -21,6 +21,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.storage.CloudObjectStoreAdapter;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -194,7 +195,9 @@ public class S3ResourceTest {
         Assert.assertEquals("s3_1", rS3Resource1.getName());
         Assert.assertEquals("s3_2", rS3Resource2.getName());
 
-        Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.ENDPOINT), "http://aaa");
+        Assert.assertEquals("aaa", rS3Resource2.getProperty(S3ResourceCompat.ENDPOINT));
+        Assert.assertEquals("aaa",
+                CloudObjectStoreAdapter.getObjStoreInfoPB(rS3Resource2.getCopiedProperties()).getEndpoint());
         Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.REGION), "bbb");
         Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.ROOT_PATH), "/path/to/root");
         Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.ACCESS_KEY), "xxx");
@@ -226,11 +229,24 @@ public class S3ResourceTest {
         Map<String, String> modify = new HashMap<>();
         modify.put("s3.access_key", "aaa");
         s3Resource.modifyProperties(modify);
+
+        modify.clear();
+        modify.put(S3ResourceCompat.ENDPOINT, "new-endpoint");
+        s3Resource.modifyProperties(modify);
+        Assert.assertEquals("new-endpoint", s3Resource.getProperty(S3ResourceCompat.ENDPOINT));
+        Assert.assertEquals("new-endpoint", s3Resource.getProperty(S3ResourceCompat.Env.ENDPOINT));
+        Assert.assertEquals("new-endpoint",
+                CloudObjectStoreAdapter.getObjStoreInfoPB(s3Resource.getCopiedProperties()).getEndpoint());
+
+        modify.clear();
+        modify.put(S3ResourceCompat.Env.ENDPOINT, "http://other-endpoint");
+        s3Resource.modifyProperties(modify);
+        Assert.assertEquals("http://other-endpoint", s3Resource.getProperty(S3ResourceCompat.ENDPOINT));
+        Assert.assertEquals("http://other-endpoint", s3Resource.getProperty(S3ResourceCompat.Env.ENDPOINT));
     }
 
     @Test
-    public void testHttpScheme() throws DdlException {
-        // if https:// is set, it should be replaced with http://
+    public void testExplicitSchemeIsPreserved() throws DdlException {
         ImmutableMap<String, String> properties = ImmutableMap.of(
                 "AWS_ENDPOINT", "https://aaa",
                 "AWS_REGION", "bbb",

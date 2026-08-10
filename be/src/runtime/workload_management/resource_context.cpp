@@ -17,9 +17,11 @@
 
 #include "runtime/workload_management/resource_context.h"
 
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
 
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/query_task_controller.h"
 #include "util/time.h"
 

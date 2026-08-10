@@ -588,7 +588,6 @@ DECLARE_mInt32(binlog_compaction_task_num_per_disk);
 DECLARE_mInt32(binlog_compaction_file_count_threshold);
 DECLARE_mInt32(binlog_level_compaction_max_deltas);
 DECLARE_mInt64(binlog_compaction_time_threshold_seconds);
-DECLARE_mInt32(binlog_compaction_permits_percent);
 DECLARE_mInt32(max_binlog_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
@@ -1714,7 +1713,7 @@ DECLARE_Strings(paimon_file_system_scheme_mappings);
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
 DECLARE_mInt32(thrift_client_open_num_tries);
 
-// http scheme in S3Client to use. E.g. http or https
+// Default HTTP scheme used by S3Client when the endpoint has no scheme.
 DECLARE_String(s3_client_http_scheme);
 
 DECLARE_mBool(ignore_schema_change_check);

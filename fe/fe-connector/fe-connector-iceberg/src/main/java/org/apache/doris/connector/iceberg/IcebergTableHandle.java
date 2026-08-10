@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -34,11 +35,16 @@ import java.util.Set;
  * iceberg SDK applies time-travel through {@code TableScan.useSnapshot(id)} / {@code useRef(name)} rather
  * than a {@code Table.copy(properties)} option map:
  * <ul>
- *   <li>{@code snapshotId} ({@code -1} = none) — {@code FOR VERSION AS OF <id>} / {@code FOR TIME AS OF}.</li>
+ *   <li>{@code snapshotId} ({@code -1} = no concrete snapshot) — {@code FOR VERSION AS OF <id>} /
+ *       {@code FOR TIME AS OF}.</li>
  *   <li>{@code ref} ({@code null} = none) — a tag/branch name; the scan pins by REF ({@code useRef}) so a
  *       later commit to the tag/branch is honored (legacy parity).</li>
  *   <li>{@code schemaId} ({@code -1} = latest) — the schema version AS OF the pin, so the field-id dictionary
  *       and {@code getTableSchema(@snapshot)} read the historical schema.</li>
+ *   <li>{@code snapshotResolved} distinguishes an unresolved latest read from a query-begin read that
+ *       resolved to an empty table; both have {@code snapshotId=-1}, but only the latter is an MVCC boundary.</li>
+ *   <li>{@code resolvedEmptyPartitionStyle} preserves the RANGE eligibility observed with that empty boundary,
+ *       so a later partition-spec commit cannot change its metadata view.</li>
  * </ul>
  * The handle is immutable: {@link #withSnapshot} returns a NEW handle (the pin is part of the handle
  * identity, so {@link #equals}/{@link #hashCode}/{@link #toString} include it).
@@ -61,6 +67,8 @@ public class IcebergTableHandle implements ConnectorTableHandle {
     private final long snapshotId;
     private final String ref;
     private final long schemaId;
+    private final boolean snapshotResolved;
+    private final ConnectorMvccPartitionView.Style resolvedEmptyPartitionStyle;
 
     /**
      * Bare system-table name (no {@code "$"}), lower-cased by the caller
@@ -97,16 +105,20 @@ public class IcebergTableHandle implements ConnectorTableHandle {
     private final boolean topnLazyMaterialize;
 
     public IcebergTableHandle(String dbName, String tableName) {
-        this(dbName, tableName, NO_PIN, null, NO_PIN, null, null, false);
+        this(dbName, tableName, NO_PIN, null, NO_PIN, false,
+                ConnectorMvccPartitionView.Style.UNPARTITIONED, null, null, false);
     }
 
     private IcebergTableHandle(String dbName, String tableName, long snapshotId, String ref, long schemaId,
+            boolean snapshotResolved, ConnectorMvccPartitionView.Style resolvedEmptyPartitionStyle,
             String sysTableName, Set<String> rewriteFileScope, boolean topnLazyMaterialize) {
         this.dbName = dbName;
         this.tableName = tableName;
         this.snapshotId = snapshotId;
         this.ref = ref;
         this.schemaId = schemaId;
+        this.snapshotResolved = snapshotResolved;
+        this.resolvedEmptyPartitionStyle = resolvedEmptyPartitionStyle;
         this.sysTableName = sysTableName;
         this.rewriteFileScope = rewriteFileScope;
         this.topnLazyMaterialize = topnLazyMaterialize;
@@ -121,7 +133,14 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      */
     public static IcebergTableHandle forSystemTable(String dbName, String tableName, String sysName,
             long snapshotId, String ref, long schemaId) {
-        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysName, null, false);
+        return forSystemTable(dbName, tableName, sysName, snapshotId, ref, schemaId,
+                snapshotId >= 0 || ref != null);
+    }
+
+    static IcebergTableHandle forSystemTable(String dbName, String tableName, String sysName,
+            long snapshotId, String ref, long schemaId, boolean snapshotResolved) {
+        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId,
+                snapshotResolved, ConnectorMvccPartitionView.Style.UNPARTITIONED, sysName, null, false);
     }
 
     public String getDbName() {
@@ -147,6 +166,11 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         return schemaId;
     }
 
+    /** Whether query-begin snapshot resolution ran, including an explicitly empty table ({@code -1}). */
+    public boolean isSnapshotResolved() {
+        return snapshotResolved;
+    }
+
     /** Bare system-table name (no {@code "$"}), or {@code null} for a normal data-table handle. */
     public String getSysTableName() {
         return sysTableName;
@@ -160,6 +184,16 @@ public class IcebergTableHandle implements ConnectorTableHandle {
     /** Whether this handle carries an explicit MVCC / time-travel pin (a snapshot id or a tag/branch ref). */
     public boolean hasSnapshotPin() {
         return snapshotId >= 0 || ref != null;
+    }
+
+    /** Whether snapshot resolution observed a table before its first snapshot was committed. */
+    public boolean isResolvedEmptySnapshot() {
+        return snapshotResolved && snapshotId < 0 && ref == null;
+    }
+
+    /** Partition style captured atomically with a resolved-empty query-begin snapshot. */
+    ConnectorMvccPartitionView.Style getResolvedEmptyPartitionStyle() {
+        return resolvedEmptyPartitionStyle;
     }
 
     /**
@@ -180,11 +214,17 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      * {@code PaimonTableHandle.withScanOptions}/{@code withBranch} but with iceberg's typed carriers.
      */
     public IcebergTableHandle withSnapshot(long snapshotId, String ref, long schemaId) {
+        return withSnapshot(snapshotId, ref, schemaId, ConnectorMvccPartitionView.Style.UNPARTITIONED);
+    }
+
+    IcebergTableHandle withSnapshot(long snapshotId, String ref, long schemaId,
+            ConnectorMvccPartitionView.Style resolvedEmptyPartitionStyle) {
         // sysTableName, rewriteFileScope and topnLazyMaterialize are preserved: threading a resolved
         // time-travel pin in must not degrade a sys handle (t$snapshots) into a normal data-table handle,
         // drop a rewrite scope, or drop the lazy-materialization signal.
-        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
-                rewriteFileScope, topnLazyMaterialize);
+        // A resolved empty table still needs a marker even though useSnapshot(-1) is invalid.
+        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, true,
+                resolvedEmptyPartitionStyle, sysTableName, rewriteFileScope, topnLazyMaterialize);
     }
 
     /**
@@ -196,8 +236,9 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      * The other carriers (snapshot/ref/schema/sys) are preserved.
      */
     public IcebergTableHandle withRewriteFileScope(Set<String> rawDataFilePaths) {
-        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
-                ImmutableSet.copyOf(rawDataFilePaths), topnLazyMaterialize);
+        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, snapshotResolved,
+                resolvedEmptyPartitionStyle, sysTableName, ImmutableSet.copyOf(rawDataFilePaths),
+                topnLazyMaterialize);
     }
 
     /**
@@ -205,8 +246,8 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      * {@link #topnLazyMaterialize}). The other carriers (snapshot/ref/schema/sys/rewriteScope) are preserved.
      */
     public IcebergTableHandle withTopnLazyMaterialize(boolean topnLazyMaterialize) {
-        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
-                rewriteFileScope, topnLazyMaterialize);
+        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, snapshotResolved,
+                resolvedEmptyPartitionStyle, sysTableName, rewriteFileScope, topnLazyMaterialize);
     }
 
     @Override
@@ -220,6 +261,8 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         IcebergTableHandle that = (IcebergTableHandle) o;
         return snapshotId == that.snapshotId
                 && schemaId == that.schemaId
+                && snapshotResolved == that.snapshotResolved
+                && resolvedEmptyPartitionStyle == that.resolvedEmptyPartitionStyle
                 && topnLazyMaterialize == that.topnLazyMaterialize
                 && Objects.equals(dbName, that.dbName)
                 && Objects.equals(tableName, that.tableName)
@@ -230,8 +273,8 @@ public class IcebergTableHandle implements ConnectorTableHandle {
 
     @Override
     public int hashCode() {
-        return Objects.hash(dbName, tableName, snapshotId, ref, schemaId, sysTableName, rewriteFileScope,
-                topnLazyMaterialize);
+        return Objects.hash(dbName, tableName, snapshotId, ref, schemaId, snapshotResolved,
+                resolvedEmptyPartitionStyle, sysTableName, rewriteFileScope, topnLazyMaterialize);
     }
 
     @Override
@@ -243,6 +286,8 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         if (hasSnapshotPin()) {
             sb.append(", snapshotId=").append(snapshotId).append(", ref=").append(ref)
                     .append(", schemaId=").append(schemaId);
+        } else if (snapshotResolved) {
+            sb.append(", snapshot=empty");
         }
         if (rewriteFileScope != null) {
             sb.append(", rewriteFileScope=").append(rewriteFileScope.size()).append(" files");

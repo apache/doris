@@ -206,6 +206,7 @@ private:
 
     TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,
                                                      const bool is_schema_change,
+                                                     const bool is_colocated_row_binlog,
                                                      const Tablet* base_tablet,
                                                      const std::vector<DataDir*>& data_dirs,
                                                      RuntimeProfile* profile);

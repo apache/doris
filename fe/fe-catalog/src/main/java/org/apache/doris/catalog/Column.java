@@ -153,6 +153,9 @@ public class Column implements GsonPostProcessable {
     private long autoIncInitValue;
     @SerializedName(value = "defaultValue")
     private String defaultValue;
+    // Request-scoped connector write-default expression. It is intentionally not persisted or rendered by
+    // DESCRIBE/SHOW CREATE; ConnectorColumnConverter sets it only on the pinned columns used by write analysis.
+    private transient String connectorDefaultValueSql;
     @SerializedName(value = "comment")
     private String comment;
     @SerializedName(value = "children")
@@ -385,6 +388,7 @@ public class Column implements GsonPostProcessable {
         this.commentSpecified = column.isCommentSpecified();
         this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
+        this.connectorDefaultValueSql = column.connectorDefaultValueSql;
         this.realDefaultValue = column.realDefaultValue;
         this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
@@ -636,6 +640,9 @@ public class Column implements GsonPostProcessable {
     }
 
     public String getDefaultValueSql() {
+        if (connectorDefaultValueSql != null) {
+            return connectorDefaultValueSql;
+        }
         if (defaultValue == null) {
             return null;
         }
@@ -647,6 +654,14 @@ public class Column implements GsonPostProcessable {
         } else {
             return "'" + defaultValue.replace("'", "''") + "'";
         }
+    }
+
+    public String getConnectorDefaultValueSql() {
+        return connectorDefaultValueSql;
+    }
+
+    public void setConnectorDefaultValueSql(String connectorDefaultValueSql) {
+        this.connectorDefaultValueSql = connectorDefaultValueSql;
     }
 
     public void setComment(String comment) {

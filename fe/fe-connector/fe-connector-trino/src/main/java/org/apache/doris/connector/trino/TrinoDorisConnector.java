@@ -18,14 +18,12 @@
 package org.apache.doris.connector.trino;
 
 import org.apache.doris.connector.spi.Connector;
-import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 
-import com.google.common.collect.ImmutableMap;
 import io.trino.Session;
 import io.trino.connector.ConnectorName;
 import io.trino.spi.classloader.ThreadContextClassLoader;
@@ -35,7 +33,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Doris Connector SPI implementation that bridges to a Trino Connector.
@@ -46,19 +43,19 @@ import java.util.stream.Collectors;
 public class TrinoDorisConnector implements Connector {
 
     private static final Logger LOG = LogManager.getLogger(TrinoDorisConnector.class);
-    private static final String TRINO_PROPERTIES_PREFIX = "trino.";
 
-    private final Map<String, String> properties;
+    // Bound + validated once here: an existing TrinoDorisConnector always has usable catalog
+    // properties. The heavyweight half (plugin loading, connector factory) stays in doInitialize().
+    private final TrinoCatalogProperties props;
     private final ConnectorContext context;
 
     private volatile io.trino.spi.connector.Connector trinoConnector;
     private volatile Session trinoSession;
     private volatile CatalogHandle trinoCatalogHandle;
     private volatile ConnectorName trinoConnectorName;
-    private volatile ImmutableMap<String, String> trinoProperties;
 
     public TrinoDorisConnector(Map<String, String> properties, ConnectorContext context) {
-        this.properties = properties;
+        this.props = TrinoCatalogProperties.of(properties);
         this.context = context;
     }
 
@@ -103,12 +100,11 @@ public class TrinoDorisConnector implements Connector {
     }
 
     /**
-     * Returns all Trino-specific properties (with "trino." prefix stripped).
-     * Used by fe-core for backward compatibility (e.g., BE needs create_time key).
+     * All Trino-specific properties, with the {@code trino.} prefix stripped. Consumed by
+     * {@link TrinoScanPlanProvider}, which serializes them into the BE scan payload.
      */
     public Map<String, String> getTrinoProperties() {
-        ensureInitialized();
-        return trinoProperties;
+        return props.getTrinoProperties();
     }
 
     public io.trino.spi.connector.Connector getTrinoConnector() {
@@ -142,40 +138,22 @@ public class TrinoDorisConnector implements Connector {
     }
 
     private void doInitialize() {
-        // 1. Extract Trino properties (strip "trino." prefix)
-        trinoProperties = ImmutableMap.copyOf(
-                properties.entrySet().stream()
-                        .filter(e -> e.getKey().startsWith(TRINO_PROPERTIES_PREFIX))
-                        .collect(Collectors.toMap(
-                                e -> e.getKey().substring(TRINO_PROPERTIES_PREFIX.length()),
-                                Map.Entry::getValue)));
+        // The stripped trino.* map, the connector name and its deprecated-spelling correction are all
+        // the holder's, computed once when this connector was built.
+        String connectorNameStr = props.getConnectorName();
 
-        String connectorNameStr = trinoProperties.get("connector.name");
-        if (connectorNameStr == null || connectorNameStr.isEmpty()) {
-            throw new RuntimeException(
-                    "Cannot find trino.connector.name property. "
-                    + "Please specify a connector name in catalog properties.");
-        }
-
-        if (connectorNameStr.indexOf('-') >= 0) {
-            String deprecated = connectorNameStr;
-            connectorNameStr = connectorNameStr.replace('-', '_');
-            LOG.warn("Using deprecated connector name '{}', corrected to '{}'",
-                    deprecated, connectorNameStr);
-        }
-
-        // 2. Initialize Trino plugin infrastructure (singleton).
+        // 1. Initialize Trino plugin infrastructure (singleton).
         // The plugin dir is a deployment-level setting: this plugin's classloader cannot see FE Config
         // directly, so it arrives either in this plugin's own trino-connector.conf or, for a deployment
-        // that has not moved to that file, from fe.conf through the engine environment.
-        String pluginDir = TrinoBootstrap.resolvePluginDir(properties,
-                ConnectorConf.get(context, TrinoConnectorProvider.CONF_PLUGIN_DIR,
-                        TrinoConnectorProvider.ENV_PLUGIN_DIR, null));
+        // that has not moved to that file, from fe.conf through the engine environment. A catalog may
+        // override it for itself.
+        String pluginDir = TrinoBootstrap.resolvePluginDir(props.getPluginDirOverride(),
+                TrinoConf.pluginDir(context));
         TrinoBootstrap bootstrap = TrinoBootstrap.getInstance(pluginDir);
 
-        // 3. Create Trino Connector + Session for this catalog
+        // 2. Create Trino Connector + Session for this catalog
         TrinoBootstrap.TrinoConnectionResult result = bootstrap.createConnection(
-                context.getCatalogName(), connectorNameStr, trinoProperties);
+                context.getCatalogName(), connectorNameStr, props.getTrinoProperties());
 
         // Publish the guard field (trinoConnector) LAST. ensureInitialized() and the other readers use
         // `trinoConnector != null` as the initialized flag and then read trinoSession/trinoCatalogHandle.

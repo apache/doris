@@ -65,6 +65,7 @@
 #include "exec/sink/vtablet_finder.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_fwd.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/memory_reclamation.h"
@@ -72,6 +73,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "service/backend_options.h"
 #include "storage/binlog.h"
 #include "storage/tablet_info.h"
@@ -772,6 +774,12 @@ void VNodeChannel::_open_internal(bool is_incremental) {
         auto* ptablet = request->add_tablets();
         ptablet->set_partition_id(tablet.partition_id);
         ptablet->set_tablet_id(tablet.tablet_id);
+        // only write binlog on backends that also own the binlog tablet.
+        int64_t binlog_tablet_id =
+                _parent->_location->get_binlog_tablet_id(tablet.tablet_id, _node_id);
+        if (binlog_tablet_id > 0) {
+            ptablet->set_binlog_tablet_id(binlog_tablet_id);
+        }
         deduper.insert(tablet.tablet_id);
         _all_tablets.push_back(std::move(tablet));
     }

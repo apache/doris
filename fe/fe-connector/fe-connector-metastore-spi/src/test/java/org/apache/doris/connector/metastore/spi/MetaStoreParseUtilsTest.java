@@ -84,11 +84,4 @@ public class MetaStoreParseUtilsTest {
         Assertions.assertEquals("from-props", out.get("fs.s3a.endpoint"));
         Assertions.assertEquals("us-west-2", out.get("fs.s3a.region"));
     }
-
-    @Test
-    public void firstNonBlankSkipsBlanksAndHonoursAliasOrder() {
-        Assertions.assertEquals("x", MetaStoreParseUtils.firstNonBlank(raw("a", "  ", "b", "x"), "a", "b"));
-        Assertions.assertEquals("y", MetaStoreParseUtils.firstNonBlank(raw("a", "y", "b", "x"), "a", "b"));
-        Assertions.assertNull(MetaStoreParseUtils.firstNonBlank(raw(), "a", "b"));
-    }
 }

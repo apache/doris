@@ -59,6 +59,7 @@ class FileSystem;
 } // namespace io
 namespace segment_v2 {
 class IndexFileWriter;
+class MowKeyProbe;
 
 struct VerticalSegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
@@ -147,21 +148,24 @@ private:
     Status _write_primary_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
-    void _maybe_invalid_row_cache(const std::string& key) const;
     void _set_min_max_key(const Slice& key);
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
     Status _append_row_store_column(const Block& block, size_t row_pos, size_t num_rows,
                                     uint32_t cid);
-    Status _probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
-                              bool have_delete_sign,
-                              const std::vector<RowsetSharedPtr>& specified_rowsets,
-                              std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                              bool& has_default_or_nullable,
-                              std::vector<bool>& use_default_or_null_flag,
-                              const std::function<void(const RowLocation& loc)>& found_cb,
-                              const std::function<Status()>& not_found_cb,
-                              PartialUpdateStats& stats);
+    // Thin wrapper over MowKeyProbe that translates a ProbeOutcome back into the out-parameters the
+    // partial update fill loops use. `found_cb` receives the rowset that holds `loc`: the fixed
+    // path pins it in its HistoricalRowFetcher, the flexible path in `_rsid_to_rowset`, which its
+    // fill still reads from.
+    Status _probe_key_for_mow(
+            const MowKeyProbe& probe, std::string key, std::size_t segment_pos,
+            bool have_input_seq_column, bool have_delete_sign,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
+            const std::function<void(const RowLocation& loc, const RowsetSharedPtr& rowset)>&
+                    found_cb,
+            const std::function<Status()>& not_found_cb, PartialUpdateStats& stats);
     Status _partial_update_preconditions_check(size_t row_pos, bool is_flexible_update);
     Status _append_block_with_partial_content(RowsInBlock& data, Block& full_block);
     Status _append_block_with_flexible_partial_content(RowsInBlock& data, Block& full_block);

@@ -55,7 +55,7 @@ under the License.
           of the latter two means bumping this property as well (and fe-extension-spi means bumping
           all four families).
         -->
-        <connector.plugin.api.version>3.0</connector.plugin.api.version>
+        <connector.plugin.api.version>5.0</connector.plugin.api.version>
     </properties>
 
     <modules>
@@ -72,6 +72,7 @@ under the License.
         <module>fe-connector-trino</module>
         <module>fe-connector-maxcompute</module>
         <module>fe-connector-jdbc</module>
+        <module>fe-connector-adbc</module>
         <!-- Slim HMS metastore-client shade (relocates org.apache.thrift to
              shade.doris.hive.org.apache.thrift); MUST build before fe-connector-hms which depends on
              it. Replaces the fat org.apache.doris:hive-catalog-shade for the fe-connector closure. -->

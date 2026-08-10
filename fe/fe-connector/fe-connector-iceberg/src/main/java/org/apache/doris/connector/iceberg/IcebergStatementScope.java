@@ -29,6 +29,7 @@ import org.apache.iceberg.TableOperations;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
@@ -65,6 +66,8 @@ final class IcebergStatementScope {
      * with the connector type ("iceberg").
      */
     static final String REWRITABLE_DELETE_SUPPLY_NAMESPACE = "iceberg.rewritable-delete-supply";
+    static final String WRITE_SCHEMA_NAMESPACE = "iceberg.write-schema";
+    static final String ACTIVE_WRITE_SCHEMA_NAMESPACE = "iceberg.active-write-schema";
 
     private IcebergStatementScope() {}
 
@@ -113,5 +116,37 @@ final class IcebergStatementScope {
         }
         String key = REWRITABLE_DELETE_SUPPLY_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         return session.getStatementScope().computeIfAbsent(key, ConcurrentHashMap::new);
+    }
+
+    static IcebergWriteSchemaContext writeSchema(ConnectorSession session, String dbName,
+            String tableName, Optional<String> branchName, Supplier<IcebergWriteSchemaContext> loader) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return loader.get();
+        }
+        String key = WRITE_SCHEMA_NAMESPACE + ":" + session.getCatalogId() + ":"
+                + session.getQueryId() + ":" + dbName + ":" + tableName + ":"
+                + branchName.orElse("");
+        IcebergWriteSchemaContext context =
+                session.getStatementScope().computeIfAbsent(key, loader);
+        activeWriteSchemas(session).put(tableKey(dbName, tableName), context);
+        return context;
+    }
+
+    static Optional<IcebergWriteSchemaContext> activeWriteSchema(
+            ConnectorSession session, String dbName, String tableName) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(activeWriteSchemas(session).get(tableKey(dbName, tableName)));
+    }
+
+    private static Map<String, IcebergWriteSchemaContext> activeWriteSchemas(ConnectorSession session) {
+        String key = ACTIVE_WRITE_SCHEMA_NAMESPACE + ":" + session.getCatalogId() + ":"
+                + session.getQueryId();
+        return session.getStatementScope().computeIfAbsent(key, ConcurrentHashMap::new);
+    }
+
+    private static String tableKey(String dbName, String tableName) {
+        return dbName + "\u0000" + tableName;
     }
 }

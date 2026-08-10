@@ -478,6 +478,11 @@ struct TTableFormatFileDesc {
     // ES per-shard parameters (used when table_format_type == "es")
     // Contains: index, type, shard_id, host_port, es_hosts
     13: optional map<string, string> es_params
+    // ADBC connection and query parameters (used when table_format_type == "adbc").
+    // Keys: driver_path, driver_entrypoint, uri, username, password,
+    //       adbc.<option> passthrough, and either query_sql or partition_b64.
+    // The partition descriptor is opaque binary, so it travels base64-encoded.
+    14: optional map<string, string> adbc_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -566,6 +571,9 @@ struct TFileScanRangeParams {
     34: optional i32 iceberg_scan_semantics_version
     // FE-generated identity for sharing a deserialized table across JNI scanners in one scan node.
     35: optional string serialized_table_cache_key
+    // HMS catalog property hive.parquet.time-zone. When absent, format_v2 keeps INT96 wall-clock
+    // values unchanged. When present, only INT96 TIMESTAMP values are converted with this zone.
+    36: optional string hive_parquet_time_zone
 }
 
 struct TFileRangeDesc {

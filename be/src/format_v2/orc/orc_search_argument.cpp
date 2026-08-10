@@ -50,6 +50,7 @@
 #ifdef BE_TEST
 #include "util/debug_points.h"
 #endif
+#include "util/timezone_utils.h"
 
 namespace doris::format::orc {
 namespace {
@@ -722,6 +723,8 @@ std::optional<::orc::Literal> make_orc_literal(const OrcSargColumn& sarg_column,
     case ::orc::PredicateDataType::TIMESTAMP: {
         DORIS_CHECK(sarg_column.orc_type != nullptr);
         static const cctz::time_zone utc0 = cctz::utc_time_zone();
+        // Plain TIMESTAMP statistics use UTC coordinates for wall-clock values. TIMESTAMP_INSTANT
+        // literals instead represent instants derived from the session-local DATETIMEV2 value.
         const auto& literal_timezone =
                 sarg_column.orc_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT ? timezone
                                                                                       : utc0;
@@ -978,6 +981,15 @@ std::optional<OrcSargComparisonLiteral> make_comparison_literal_for_sarg(
     if (!literal.has_value()) {
         return std::nullopt;
     }
+    if (column.predicate_type == ::orc::PredicateDataType::TIMESTAMP) {
+        const auto timestamp = literal->getTimestamp();
+        // ORC reconstructs negative timestamp statistics with truncating division, which can
+        // produce a non-canonical nanos component. The exact epoch is unsafe too because its
+        // half-up lower bound is -500ns. Leave these predicates to Doris row filtering.
+        if (timestamp.second < 0 || (timestamp.second == 0 && timestamp.nanos == 0)) {
+            return std::nullopt;
+        }
+    }
     return OrcSargComparisonLiteral {
             .literal = *literal,
             .normalized_op = normalized_op,
@@ -1051,6 +1063,12 @@ std::optional<std::vector<::orc::Literal>> make_in_literals_for_sarg(
         auto literal = make_orc_literal(column, *child_it, timezone);
         if (!literal.has_value()) {
             return std::nullopt;
+        }
+        if (column.predicate_type == ::orc::PredicateDataType::TIMESTAMP) {
+            const auto timestamp = literal->getTimestamp();
+            if (timestamp.second < 0 || (timestamp.second == 0 && timestamp.nanos == 0)) {
+                return std::nullopt;
+            }
         }
         literals.push_back(*literal);
     }
@@ -1177,6 +1195,145 @@ OrcSargNode make_not_node(OrcSargNode child) {
     };
 }
 
+OrcSargNode make_literal_node(OrcSargNodeKind kind, const OrcSargColumn& column,
+                              ::orc::Literal literal) {
+    std::vector<::orc::Literal> literals;
+    literals.push_back(std::move(literal));
+    return OrcSargNode {
+            .kind = kind,
+            .column = column,
+            .literals = std::move(literals),
+            .children = {},
+    };
+}
+
+OrcSargNode make_and_node(std::vector<OrcSargNode> children) {
+    DORIS_CHECK(!children.empty());
+    return OrcSargNode {
+            .kind = OrcSargNodeKind::AND,
+            .column = std::nullopt,
+            .literals = {},
+            .children = std::move(children),
+    };
+}
+
+::orc::Literal shift_timestamp_literal(const ::orc::Literal& literal, int32_t nanos_delta) {
+    constexpr int64_t NANOS_PER_SECOND = 1000000000;
+    const auto timestamp = literal.getTimestamp();
+    int64_t seconds = timestamp.second;
+    int64_t nanos = timestamp.nanos + nanos_delta;
+    if (nanos < 0) {
+        --seconds;
+        nanos += NANOS_PER_SECOND;
+    } else if (nanos >= NANOS_PER_SECOND) {
+        ++seconds;
+        nanos -= NANOS_PER_SECOND;
+    }
+    return {seconds, cast_set<int32_t>(nanos)};
+}
+
+::orc::Literal floor_timestamp_literal_to_millis(const ::orc::Literal& literal) {
+    constexpr int32_t NANOS_PER_MILLISECOND = 1000000;
+    const auto timestamp = literal.getTimestamp();
+    return {timestamp.second, timestamp.nanos / NANOS_PER_MILLISECOND * NANOS_PER_MILLISECOND};
+}
+
+::orc::Literal ceil_timestamp_literal_to_millis(const ::orc::Literal& literal) {
+    constexpr int32_t NANOS_PER_MILLISECOND = 1000000;
+    const auto timestamp = literal.getTimestamp();
+    const auto remainder = timestamp.nanos % NANOS_PER_MILLISECOND;
+    if (remainder == 0) {
+        return literal;
+    }
+    return shift_timestamp_literal(literal, NANOS_PER_MILLISECOND - remainder);
+}
+
+std::pair<::orc::Literal, ::orc::Literal> timestamp_rounding_bounds(const ::orc::Literal& literal) {
+    constexpr int32_t HALF_MICROSECOND_NANOS = 500;
+    // All raw ORC values in [lower, upper) round half-up to this Doris microsecond. Round these
+    // boundaries toward the side that enlarges the SARG match set because ORC statistics retain
+    // only millisecond precision.
+    return {shift_timestamp_literal(literal, -HALF_MICROSECOND_NANOS),
+            shift_timestamp_literal(literal, HALF_MICROSECOND_NANOS)};
+}
+
+OrcSargNode make_timestamp_equals_node(const OrcSargColumn& column, const ::orc::Literal& literal) {
+    const auto [lower_bound, upper_bound] = timestamp_rounding_bounds(literal);
+    std::vector<OrcSargNode> children;
+    children.push_back(make_not_node(make_literal_node(
+            OrcSargNodeKind::LESS_THAN, column, floor_timestamp_literal_to_millis(lower_bound))));
+    children.push_back(make_literal_node(OrcSargNodeKind::LESS_THAN, column,
+                                         ceil_timestamp_literal_to_millis(upper_bound)));
+    return make_and_node(std::move(children));
+}
+
+std::optional<OrcSargNode> make_timestamp_comparison_node(const OrcSargComparison& comparison) {
+    const auto [lower_bound, upper_bound] = timestamp_rounding_bounds(comparison.literal);
+    switch (comparison.normalized_op) {
+    case TExprOpcode::GE:
+        return make_not_node(make_literal_node(OrcSargNodeKind::LESS_THAN, comparison.column,
+                                               floor_timestamp_literal_to_millis(lower_bound)));
+    case TExprOpcode::GT:
+        return make_not_node(make_literal_node(OrcSargNodeKind::LESS_THAN, comparison.column,
+                                               floor_timestamp_literal_to_millis(upper_bound)));
+    case TExprOpcode::LE:
+        return make_literal_node(OrcSargNodeKind::LESS_THAN, comparison.column,
+                                 ceil_timestamp_literal_to_millis(upper_bound));
+    case TExprOpcode::LT:
+        return make_literal_node(OrcSargNodeKind::LESS_THAN, comparison.column,
+                                 ceil_timestamp_literal_to_millis(lower_bound));
+    case TExprOpcode::EQ:
+        return make_timestamp_equals_node(comparison.column, comparison.literal);
+    case TExprOpcode::NE:
+        return std::nullopt;
+    default:
+        DORIS_CHECK(false) << "Unsupported normalized ORC timestamp SARG comparison op "
+                           << comparison.normalized_op;
+        __builtin_unreachable();
+    }
+}
+
+OrcSargNode make_timestamp_in_node(const OrcSargColumn& column,
+                                   const std::vector<::orc::Literal>& literals) {
+    DORIS_CHECK(!literals.empty());
+    if (literals.size() == 1) {
+        return make_timestamp_equals_node(column, literals.front());
+    }
+    auto min_literal = literals.front();
+    auto max_literal = literals.front();
+    for (const auto& literal : literals) {
+        if (literal.getTimestamp() < min_literal.getTimestamp()) {
+            min_literal = literal;
+        }
+        if (max_literal.getTimestamp() < literal.getTimestamp()) {
+            max_literal = literal;
+        }
+    }
+    const auto lower_bound =
+            floor_timestamp_literal_to_millis(timestamp_rounding_bounds(min_literal).first);
+    const auto upper_bound =
+            ceil_timestamp_literal_to_millis(timestamp_rounding_bounds(max_literal).second);
+    std::vector<OrcSargNode> children;
+    children.push_back(
+            make_not_node(make_literal_node(OrcSargNodeKind::LESS_THAN, column, lower_bound)));
+    children.push_back(make_literal_node(OrcSargNodeKind::LESS_THAN, column, upper_bound));
+    return make_and_node(std::move(children));
+}
+
+bool can_emit_timestamp_sarg(const OrcSargColumn& column, const cctz::time_zone& timezone) {
+    if (column.predicate_type != ::orc::PredicateDataType::TIMESTAMP) {
+        return true;
+    }
+    DORIS_CHECK(column.orc_type != nullptr);
+    if (column.orc_type->getKind() == ::orc::TypeKind::TIMESTAMP) {
+        return true;
+    }
+    // An unmapped TIMESTAMP_INSTANT is decoded to a local DATETIMEV2. A named timezone may map
+    // that local timestamp to multiple instants during a DST fold.
+    int32_t offset_seconds = 0;
+    return TimezoneUtils::try_get_fixed_offset_seconds(timezone, &offset_seconds);
+}
+
 OrcSargNode make_comparison_node(OrcSargComparison comparison) {
     OrcSargNodeKind kind;
     bool negate = false;
@@ -1208,14 +1365,7 @@ OrcSargNode make_comparison_node(OrcSargComparison comparison) {
         __builtin_unreachable();
     }
 
-    std::vector<::orc::Literal> literals;
-    literals.push_back(std::move(comparison.literal));
-    OrcSargNode node {
-            .kind = kind,
-            .column = comparison.column,
-            .literals = std::move(literals),
-            .children = {},
-    };
+    auto node = make_literal_node(kind, comparison.column, std::move(comparison.literal));
     if (negate) {
         return make_not_node(std::move(node));
     }
@@ -1308,12 +1458,12 @@ private:
         case TExprOpcode::LT:
         case TExprOpcode::EQ:
         case TExprOpcode::NE:
-            return compile_comparison(*normalized);
+            return compile_comparison(*normalized, is_negated);
         case TExprOpcode::EQ_FOR_NULL:
             return compile_null_safe_equal(*normalized);
         case TExprOpcode::FILTER_IN:
         case TExprOpcode::FILTER_NOT_IN:
-            return compile_in(*normalized);
+            return compile_in(*normalized, is_negated);
         case TExprOpcode::INVALID_OPCODE:
             return compile_is_null(*normalized);
         default:
@@ -1383,13 +1533,21 @@ private:
         return make_not_node(std::move(*child));
     }
 
-    std::optional<OrcSargNode> compile_comparison(const VExprSPtr& expr) const {
+    std::optional<OrcSargNode> compile_comparison(const VExprSPtr& expr, bool is_negated) const {
         if (expr->node_type() == TExprNodeType::NULL_AWARE_BINARY_PRED) {
             return std::nullopt;
         }
         auto comparison = sarg_comparison_for_expr(_request, _root_type, _timezone, expr);
         if (!comparison.has_value()) {
             return std::nullopt;
+        }
+        if (comparison->column.predicate_type == ::orc::PredicateDataType::TIMESTAMP) {
+            // Timestamp comparisons use a conservative millisecond envelope. Negating it turns
+            // false-positive margin into false negatives, so leave exact negation to Doris.
+            if (is_negated || !can_emit_timestamp_sarg(comparison->column, _timezone)) {
+                return std::nullopt;
+            }
+            return make_timestamp_comparison_node(*comparison);
         }
         return make_comparison_node(std::move(*comparison));
     }
@@ -1404,10 +1562,16 @@ private:
         if (!comparison.has_value()) {
             return std::nullopt;
         }
+        if (comparison->column.predicate_type == ::orc::PredicateDataType::TIMESTAMP) {
+            if (!can_emit_timestamp_sarg(comparison->column, _timezone)) {
+                return std::nullopt;
+            }
+            return make_timestamp_equals_node(comparison->column, comparison->literal);
+        }
         return make_comparison_node(std::move(*comparison));
     }
 
-    std::optional<OrcSargNode> compile_in(const VExprSPtr& expr) const {
+    std::optional<OrcSargNode> compile_in(const VExprSPtr& expr, bool is_negated) const {
         if (expr->node_type() == TExprNodeType::NULL_AWARE_IN_PRED || expr->children().size() < 2) {
             return std::nullopt;
         }
@@ -1420,6 +1584,14 @@ private:
                                                   _timezone);
         if (!literals.has_value()) {
             return std::nullopt;
+        }
+        if (column->predicate_type == ::orc::PredicateDataType::TIMESTAMP) {
+            // NOT IN negates the conservative equality envelopes and is unsafe for pruning.
+            if (is_negated || expr->op() == TExprOpcode::FILTER_NOT_IN ||
+                !can_emit_timestamp_sarg(*column, _timezone)) {
+                return std::nullopt;
+            }
+            return make_timestamp_in_node(*column, *literals);
         }
         auto node = make_in_node(*column, std::move(*literals));
         if (expr->op() == TExprOpcode::FILTER_NOT_IN) {
