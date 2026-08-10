@@ -45,6 +45,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -93,6 +94,7 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
      * engine supplies the {@code $}.
      */
     private static final String LAKE_SYS_TABLE = "lake";
+    private static final String LOG_SYS_TABLE = "log";
 
     /** The only lake format that can be delegated today; fluss also defines iceberg / lance / hudi. */
     private static final String PAIMON_LAKE_FORMAT = "paimon";
@@ -156,13 +158,19 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Reports the {@code lake} system table for a table that has a lake side, so {@code tbl$lake} resolves.
+     * Reports the {@code lake} and {@code log} system tables for a table that has a lake side, so
+     * {@code tbl$lake} and {@code tbl$log} resolve. The two name complementary halves of the same table —
+     * what has been tiered, and what has not — so they are offered together, behind one gate.
      *
      * <p>Gated on {@code table.datalake.enabled} alone, not on the lake FORMAT: a table with an unsupported
-     * lake format still advertises {@code $lake} so that reading it produces
-     * {@link #getSysTableHandle}'s precise "this format is not supported" error rather than fe-core's
-     * generic "no such table". A table with no lake at all advertises nothing — announcing a sub-table that
-     * can only fail would be worse than not offering it.
+     * lake format still advertises them so that reading one produces {@link #getSysTableHandle}'s precise
+     * "this format is not supported" error rather than fe-core's generic "no such table". A table with no
+     * lake at all advertises nothing — announcing a sub-table that can only fail would be worse than not
+     * offering it, and without a lake there is no boundary to split the table at in the first place.
+     *
+     * <p>A handle that IS already one of those halves advertises nothing: a half has no halves of its own,
+     * and {@code tbl$log$lake} could not be resolved anyway (fe-core splits a table name at its LAST
+     * {@code $}, so the base name it would look up is {@code tbl$log}, which is not a table).
      */
     @Override
     public List<String> listSupportedSysTables(ConnectorSession session,
@@ -172,19 +180,23 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
             return forward(session, owner, m -> m.listSupportedSysTables(session, baseTableHandle));
         }
         FlussTableHandle flussHandle = (FlussTableHandle) baseTableHandle;
-        return flussHandle.isDataLakeEnabled()
-                ? Collections.singletonList(LAKE_SYS_TABLE)
+        return flussHandle.isDataLakeEnabled() && !flussHandle.isLogOnly()
+                ? Arrays.asList(LAKE_SYS_TABLE, LOG_SYS_TABLE)
                 : Collections.emptyList();
     }
 
     /**
-     * Resolves {@code tbl$lake} to the paimon sibling's handle for the same {@code db.table} name — which is
-     * the name fluss's tiering service writes the lake table under. From here on the table IS a paimon
-     * table: the engine routes its scan by handle to the sibling's plan provider, and this metadata's
-     * guarded methods forward the rest.
+     * Resolves the two halves of a tiered table.
      *
-     * <p>The sibling is configured from THIS table's properties, where the fluss coordinator puts the
-     * cluster's lake settings; see {@link PaimonSiblingProperties}.
+     * <p>{@code tbl$lake} resolves to the paimon sibling's handle for the same {@code db.table} name — which
+     * is the name fluss's tiering service writes the lake table under. From here on that table IS a paimon
+     * table: the engine routes its scan by handle to the sibling's plan provider, and this metadata's
+     * guarded methods forward the rest. The sibling is configured from THIS table's properties, where the
+     * fluss coordinator puts the cluster's lake settings; see {@link PaimonSiblingProperties}.
+     *
+     * <p>{@code tbl$log} stays on this side: it is the same fluss table read from where the lake snapshot
+     * ends, so it resolves to this handle re-read at {@link FlussTableHandle.ReadMode#LOG_ONLY} and is
+     * planned by the fluss plan provider.
      */
     @Override
     public Optional<ConnectorTableHandle> getSysTableHandle(ConnectorSession session,
@@ -193,17 +205,26 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
         if (owner != null) {
             return forward(session, owner, m -> m.getSysTableHandle(session, baseTableHandle, sysName));
         }
-        if (!LAKE_SYS_TABLE.equals(sysName)) {
+        boolean lake = LAKE_SYS_TABLE.equals(sysName);
+        if (!lake && !LOG_SYS_TABLE.equals(sysName)) {
             return Optional.empty();
         }
 
         FlussTableHandle flussHandle = (FlussTableHandle) baseTableHandle;
+        if (flussHandle.isLogOnly()) {
+            // A half has no halves; see listSupportedSysTables. Empty, not an exception: nothing announced
+            // this name, so fe-core's "no such table" is the honest answer.
+            return Optional.empty();
+        }
         // Re-checked rather than assumed from listSupportedSysTables: discovery and resolution are two
         // round trips, and the table could have had its lake turned off in between.
         if (!flussHandle.isDataLakeEnabled()) {
             throw new DorisConnectorException("Table '" + flussHandle.getDatabaseName() + "."
                     + flussHandle.getTableName() + "' has no lake table: it is not created with"
                     + " table.datalake.enabled = true");
+        }
+        if (!lake) {
+            return Optional.of(logOnlyHandle(flussHandle));
         }
         String lakeFormat = flussHandle.getDataLakeFormat();
         if (lakeFormat == null || !PAIMON_LAKE_FORMAT.equalsIgnoreCase(lakeFormat)) {
@@ -230,6 +251,26 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
         // route it by asking the sibling whether it is its own. Checked once, here, where a failure still
         // has a cause attached to it.
         return Optional.of(LakeSibling.requireOwned(sibling, lakeHandle.get()));
+    }
+
+    /**
+     * {@code tbl$log} for a log table: the same handle, read from where the lake stops.
+     *
+     * <p>Refused for a primary-key table. What such a table's log holds past the lake snapshot is a change
+     * stream — inserts, updates and deletes against keys the lake already has — not a set of rows, so
+     * "the part of the table that is not in the lake" is not something it can return. The base table
+     * answers that by merging the two halves; reading fluss alone answers it by replaying the whole log.
+     */
+    private static ConnectorTableHandle logOnlyHandle(FlussTableHandle flussHandle) {
+        if (flussHandle.hasPrimaryKey()) {
+            throw new DorisConnectorException("Table '" + flussHandle.getDatabaseName() + "."
+                    + flussHandle.getTableName() + "' has a primary key, so its log past the lake snapshot"
+                    + " is a change stream rather than a set of rows and cannot be read as '$log'. Query '"
+                    + flussHandle.getTableName() + "' itself for the merged view, or set '"
+                    + FlussCatalogProperties.UNION_READ_MODE + "' to disabled to read the whole table from"
+                    + " fluss alone.");
+        }
+        return flussHandle.asLogOnly();
     }
 
     @Override
@@ -396,6 +437,11 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
      * unknown rather than as "the table is empty". Statistics are best effort by contract: a failure
      * degrades to unknown instead of failing the statement, because this runs in background analysis
      * and in SHOW, where a transient coordinator error must not surface as a query error.
+     *
+     * <p>Unknown for {@code tbl$log}: what fluss reports is the WHOLE table's row count, and the log tail
+     * is the small end of a table that has been tiering for a while — off by orders of magnitude, in the
+     * direction that makes the optimizer treat the cheap half as the expensive one. Unknown is an answer
+     * the optimizer already handles; a confidently wrong number is not.
      */
     @Override
     public Optional<ConnectorTableStatistics> getTableStatistics(
@@ -405,6 +451,9 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
             return forward(session, owner, m -> m.getTableStatistics(session, handle));
         }
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
+        if (flussHandle.isLogOnly()) {
+            return Optional.empty();
+        }
         long rowCount;
         try {
             rowCount = adminOps.getTableStats(flussHandle.toTablePath()).getRowCount();

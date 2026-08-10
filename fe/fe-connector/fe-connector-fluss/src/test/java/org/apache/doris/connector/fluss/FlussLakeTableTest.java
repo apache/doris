@@ -24,11 +24,13 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.apache.fluss.metadata.TablePath;
+import org.apache.fluss.metadata.TableStats;
 import org.apache.fluss.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -112,10 +114,12 @@ public class FlussLakeTableTest {
     }
 
     @Test
-    public void datalakeTableOffersTheLakeSystemTable() {
+    public void datalakeTableOffersBothHalvesAsSystemTables() {
         FlussConnectorMetadata metadata = metadata(withLakeTable());
-        // This listing is what makes fe-core resolve the name "lake_table$lake" at all.
-        Assertions.assertEquals(Collections.singletonList("lake"),
+        // This listing is what makes fe-core resolve the names "lake_table$lake" and "lake_table$log" at
+        // all. Both or neither: they are complementary halves of one table, so a table that can offer one
+        // can always offer the other.
+        Assertions.assertEquals(Arrays.asList("lake", "log"),
                 metadata.listSupportedSysTables(session, baseHandle(metadata, LAKE_TABLE)));
     }
 
@@ -126,6 +130,108 @@ public class FlussLakeTableTest {
         // is an error; fe-core's "no such table" is the honest answer.
         Assertions.assertTrue(
                 metadata.listSupportedSysTables(session, baseHandle(metadata, PLAIN_TABLE)).isEmpty());
+    }
+
+    /**
+     * {@code $log} stays on this side of the gateway. It is the SAME fluss table, only read from where the
+     * lake snapshot ends, so it resolves to a fluss handle and no sibling is built at all — asking paimon
+     * for a table Doris is about to read out of fluss would be a round trip for nothing.
+     */
+    @Test
+    public void theLogHandleIsThisTableReadAsItsLogTail() {
+        FlussConnectorMetadata metadata = metadata(withLakeTable());
+        ConnectorTableHandle base = baseHandle(metadata, LAKE_TABLE);
+
+        ConnectorTableHandle handle = metadata.getSysTableHandle(session, base, "log")
+                .orElseThrow(AssertionError::new);
+
+        Assertions.assertTrue(handle instanceof FlussTableHandle);
+        FlussTableHandle logHandle = (FlussTableHandle) handle;
+        Assertions.assertTrue(logHandle.isLogOnly());
+        // Same table, different segment: the name has to match (the scan reads it out of fluss under that
+        // name) while the handle must not compare equal to the base one.
+        Assertions.assertEquals(((FlussTableHandle) base).toTablePath(), logHandle.toTablePath());
+        Assertions.assertNotEquals(base, logHandle);
+        Assertions.assertFalse(((FlussTableHandle) base).isLogOnly(), "the base handle is unchanged");
+        Assertions.assertTrue(builtSiblings.isEmpty(), "reading the log needs no paimon sibling");
+    }
+
+    /**
+     * A half has no halves. Left unguarded, {@code tbl$log} would advertise a {@code $lake} of its own —
+     * a name fe-core could not resolve anyway, because it splits a table name at its LAST {@code $}.
+     */
+    @Test
+    public void theLogHandleOffersNoSystemTablesOfItsOwn() {
+        FlussConnectorMetadata metadata = metadata(withLakeTable());
+        ConnectorTableHandle logHandle = metadata
+                .getSysTableHandle(session, baseHandle(metadata, LAKE_TABLE), "log")
+                .orElseThrow(AssertionError::new);
+
+        Assertions.assertTrue(metadata.listSupportedSysTables(session, logHandle).isEmpty());
+        Assertions.assertFalse(metadata.getSysTableHandle(session, logHandle, "lake").isPresent());
+        Assertions.assertFalse(metadata.getSysTableHandle(session, logHandle, "log").isPresent());
+    }
+
+    /**
+     * Fluss reports one row count, for the whole table. Handing it to {@code tbl$log} would describe the
+     * small half with the big half's number — and in the direction that makes the optimizer avoid the
+     * cheap scan. Unknown is a state the optimizer already has a plan for.
+     */
+    @Test
+    public void theLogHandleReportsUnknownStatistics() {
+        RecordingFlussAdminOps adminOps = withLakeTable();
+        adminOps.statsByTable.put(LAKE_TABLE, new TableStats(1_000_000L));
+        FlussConnectorMetadata metadata = metadata(adminOps);
+        ConnectorTableHandle base = baseHandle(metadata, LAKE_TABLE);
+
+        Assertions.assertEquals(1_000_000L,
+                metadata.getTableStatistics(session, base).orElseThrow(AssertionError::new).getRowCount());
+        Assertions.assertFalse(metadata.getTableStatistics(session,
+                metadata.getSysTableHandle(session, base, "log").orElseThrow(AssertionError::new))
+                .isPresent());
+    }
+
+    /**
+     * A primary-key table's log past the lake snapshot is a change stream — inserts, updates and deletes
+     * against keys the lake already holds — so "the rows not yet in the lake" is not a thing it can
+     * return. Serving it anyway would answer with change records dressed as rows.
+     */
+    @Test
+    public void primaryKeyTableRefusesTheLogSystemTable() {
+        RecordingFlussAdminOps adminOps = withLakeTable();
+        TablePath pkTable = TablePath.of("db", "pk_table");
+        adminOps.tableInfos.put(pkTable, FlussTestTables.builder(pkTable)
+                .column("id", DataTypes.BIGINT())
+                .column("name", DataTypes.STRING())
+                .primaryKey("id")
+                .buckets(2)
+                .property("table.datalake.enabled", "true")
+                .property("table.datalake.format", "paimon")
+                .property("table.datalake.paimon.warehouse", "/lake/warehouse")
+                .build());
+        FlussConnectorMetadata metadata = metadata(adminOps);
+        ConnectorTableHandle base = baseHandle(metadata, pkTable);
+
+        // Still offered, so the failure below is what the user meets rather than "no such table".
+        Assertions.assertEquals(Arrays.asList("lake", "log"),
+                metadata.listSupportedSysTables(session, base));
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata.getSysTableHandle(session, base, "log"));
+        // The message has to carry both ways out, or the user is left with a refusal and no alternative.
+        Assertions.assertTrue(e.getMessage().contains("primary key"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("pk_table"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains(FlussCatalogProperties.UNION_READ_MODE),
+                e.getMessage());
+    }
+
+    @Test
+    public void tableWithoutALakeRefusesTheLogSystemTable() {
+        FlussConnectorMetadata metadata = metadata(withLakeTable());
+        ConnectorTableHandle base = baseHandle(metadata, PLAIN_TABLE);
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata.getSysTableHandle(session, base, "log"));
+        Assertions.assertTrue(e.getMessage().contains("table.datalake.enabled"), e.getMessage());
     }
 
     @Test
