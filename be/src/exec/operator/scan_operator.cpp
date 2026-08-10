@@ -51,6 +51,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_profile_counter_names.h"
+#include "storage/predicate/like_column_predicate.h"
 #include "storage/predicate/null_predicate.h"
 #include "storage/predicate/predicate_creator.h"
 
@@ -483,8 +484,10 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
                     }
                     // `node_type` of function filter is FUNCTION_CALL or COMPOUND_PRED
                     if (state()->enable_function_pushdown()) {
-                        RETURN_IF_PUSH_DOWN(_normalize_function_filters(context, slot, &pdt),
-                                            status);
+                        RETURN_IF_PUSH_DOWN(
+                                _normalize_function_filters(
+                                        context, slot, _slot_id_to_predicates[slot->id()], &pdt),
+                                status);
                     }
                 },
                 *range);
@@ -564,8 +567,9 @@ Status ScanLocalStateBase::_normalize_topn_filter(
     return Status::OK();
 }
 
-Status ScanLocalStateBase::_normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
-                                                       PushDownType* pdt) {
+Status ScanLocalStateBase::_normalize_function_filters(
+        VExprContext* expr_ctx, SlotDescriptor* slot,
+        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
     auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
     bool opposite = false;
     VExpr* fn_expr = expr.get();
@@ -582,8 +586,10 @@ Status ScanLocalStateBase::_normalize_function_filters(VExprContext* expr_ctx, S
         RETURN_IF_ERROR(_should_push_down_function_filter(assert_cast<VectorizedFnCall*>(fn_expr),
                                                           expr_ctx, &val, &fn_ctx, temp_pdt));
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
-            int column_id = _parent->intermediate_row_desc().get_column_id(slot->id());
-            _push_down_functions.emplace_back(opposite, cast_set<uint32_t>(column_id), fn_ctx, val);
+            const auto column_id = cast_set<uint32_t>(
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()));
+            predicates.emplace_back(LikeColumnPredicate::create_shared(
+                    opposite, column_id, slot->col_name(), fn_ctx, val));
             *pdt = temp_pdt;
         }
     }
@@ -1289,7 +1295,7 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
                                                    .slot_ref.slot_id];
             DCHECK(s != nullptr);
             if (can_push_down_column_predicate(s)) {
-                cid = this->intermediate_row_desc().get_column_id(s->id());
+                cid = _output_tuple_desc->get_column_id(s->id());
             }
         }
         RETURN_IF_ERROR(state->get_query_ctx()->get_runtime_predicate(id).init_target(

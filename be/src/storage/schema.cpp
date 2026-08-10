@@ -100,6 +100,27 @@ Block ReadSchema::create_read_block() const {
     return block;
 }
 
+std::string ReadSchema::read_columns_to_string() const {
+    // Avoid lines that are too long to display in SHOW PROFILE.
+    constexpr int columns_per_line = 10;
+    int column_index = 0;
+    std::string result = "[";
+    for (auto it = _read_columns.cbegin(); it != _read_columns.cend(); ++it) {
+        if (it != _read_columns.cbegin()) {
+            result += ", ";
+        }
+        result += (*it)->name();
+        if (column_index >= columns_per_line) {
+            result += "\n";
+            column_index = 0;
+        } else {
+            ++column_index;
+        }
+    }
+    result += "]";
+    return result;
+}
+
 Status ReadSchema::init_sequence_map(const TabletSchema& tablet_schema) {
     if (tablet_schema.has_sequence_col()) {
         auto msg = "sequence columns conflict, both seq_col and seq_map are true!";

@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -523,7 +524,8 @@ DeleteHandler::ConditionParseResult DeleteHandler::parse_condition(
 template <typename SubPredType>
     requires(std::is_same_v<SubPredType, DeleteSubPredicatePB> or
              std::is_same_v<SubPredType, std::string>)
-Status DeleteHandler::_parse_column_pred(ReadSchema& read_schema,
+Status DeleteHandler::_parse_column_pred(const ReadSchema& read_schema,
+                                         std::vector<TabletColumn>& dropped_columns,
                                          const TabletSchemaSPtr& delete_pred_related_schema,
                                          const RepeatedPtrField<SubPredType>& sub_pred_list,
                                          DeleteConditions* delete_conditions) {
@@ -536,12 +538,13 @@ Status DeleteHandler::_parse_column_pred(ReadSchema& read_schema,
             }
         }
         ColumnId column_id;
-        RETURN_IF_ERROR(_resolve_column(read_schema, col_unique_id, condition.column_name,
-                                        delete_pred_related_schema, &column_id));
-        const auto& column = *read_schema.column(column_id);
-        condition.col_unique_id = column.unique_id();
+        const TabletColumn* column;
+        RETURN_IF_ERROR(_resolve_column(read_schema, dropped_columns, col_unique_id,
+                                        condition.column_name, delete_pred_related_schema,
+                                        &column_id, &column));
+        condition.col_unique_id = column->unique_id();
         std::shared_ptr<ColumnPredicate> predicate;
-        RETURN_IF_ERROR(parse_to_predicate(column_id, column.name(), column.get_vec_type(),
+        RETURN_IF_ERROR(parse_to_predicate(column_id, column->name(), column->get_vec_type(),
                                            condition, _predicate_arena, predicate));
         if (predicate != nullptr) {
             delete_conditions->column_predicate_vec.push_back(predicate);
@@ -550,16 +553,18 @@ Status DeleteHandler::_parse_column_pred(ReadSchema& read_schema,
     return Status::OK();
 }
 
-Status DeleteHandler::_resolve_column(ReadSchema& read_schema, int32_t col_unique_id,
-                                      const std::string& column_name,
+Status DeleteHandler::_resolve_column(const ReadSchema& read_schema,
+                                      std::vector<TabletColumn>& dropped_columns,
+                                      int32_t col_unique_id, const std::string& column_name,
                                       const TabletSchemaSPtr& delete_pred_related_schema,
-                                      ColumnId* column_id) {
+                                      ColumnId* column_id, const TabletColumn** column) {
     // A valid UID is the complete identity. A dropped column and a later
     // same-name replacement must remain distinct.
     if (col_unique_id >= 0) {
         int32_t ordinal = read_schema.ordinal_by_uid(col_unique_id);
         if (ordinal >= 0) {
             *column_id = ordinal;
+            *column = read_schema.column(ordinal);
             return Status::OK();
         }
     }
@@ -580,35 +585,55 @@ Status DeleteHandler::_resolve_column(ReadSchema& read_schema, int32_t col_uniqu
     int32_t ordinal = read_schema.ordinal_by_column(*historical_column);
     if (ordinal >= 0) {
         *column_id = ordinal;
+        *column = read_schema.column(ordinal);
         return Status::OK();
     }
 
-    *column_id = read_schema.append_column(historical_column);
+    for (size_t i = 0; i < dropped_columns.size(); ++i) {
+        const auto& dropped_column = dropped_columns[i];
+        bool same_column = historical_column->unique_id() >= 0
+                                   ? dropped_column.unique_id() == historical_column->unique_id()
+                                   : dropped_column.name() == historical_column->name();
+        if (same_column) {
+            *column_id = cast_set<ColumnId>(read_schema.num_read_columns() + i);
+            *column = &dropped_column;
+            return Status::OK();
+        }
+    }
+
+    dropped_columns.emplace_back(*historical_column);
+    *column_id = cast_set<ColumnId>(read_schema.num_read_columns() + dropped_columns.size() - 1);
+    *column = &dropped_columns.back();
     return Status::OK();
 }
 
-Status DeleteHandler::init(ReadSchemaSPtr& read_schema,
-                           const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
+Status DeleteHandler::init(const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version,
+                           const ReadSchemaSPtr& read_schema,
+                           std::vector<TabletColumn>& dropped_columns) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
-    ReadSchema extended_read_schema = *read_schema;
+    std::vector<TabletColumn> resolved_dropped_columns;
 
     for (const auto& delete_pred : delete_preds) {
         // Skip the delete condition with large version
         if (delete_pred->version().first > version) {
             continue;
         }
-        // Need the tablet schema at the delete condition to resolve the accurate column.
+        // Resolve against the rowset schema that created this predicate. The current schema may
+        // have dropped the column and added a same-name column with a different UID or type, while
+        // legacy predicates without UIDs must still bind by name within this historical schema.
         const auto& delete_pred_related_schema = delete_pred->tablet_schema();
         const auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;
         if (!delete_condition.sub_predicates_v2().empty()) {
-            RETURN_IF_ERROR(_parse_column_pred(extended_read_schema, delete_pred_related_schema,
+            RETURN_IF_ERROR(_parse_column_pred(*read_schema, resolved_dropped_columns,
+                                               delete_pred_related_schema,
                                                delete_condition.sub_predicates_v2(), &temp));
         } else {
             // make it compatible with the former versions
-            RETURN_IF_ERROR(_parse_column_pred(extended_read_schema, delete_pred_related_schema,
+            RETURN_IF_ERROR(_parse_column_pred(*read_schema, resolved_dropped_columns,
+                                               delete_pred_related_schema,
                                                delete_condition.sub_predicates(), &temp));
         }
         for (const auto& in_predicate : delete_condition.in_predicates()) {
@@ -626,13 +651,13 @@ Status DeleteHandler::init(ReadSchemaSPtr& read_schema,
                 condition.value_str.push_back(value);
             }
             ColumnId column_id;
-            RETURN_IF_ERROR(_resolve_column(extended_read_schema, col_unique_id,
+            const TabletColumn* column;
+            RETURN_IF_ERROR(_resolve_column(*read_schema, resolved_dropped_columns, col_unique_id,
                                             condition.column_name, delete_pred_related_schema,
-                                            &column_id));
-            const auto& column = *extended_read_schema.column(column_id);
-            condition.col_unique_id = column.unique_id();
+                                            &column_id, &column));
+            condition.col_unique_id = column->unique_id();
             std::shared_ptr<ColumnPredicate> predicate;
-            RETURN_IF_ERROR(parse_to_in_predicate(column_id, column.name(), column.get_vec_type(),
+            RETURN_IF_ERROR(parse_to_in_predicate(column_id, column->name(), column->get_vec_type(),
                                                   condition, _predicate_arena, predicate));
             temp.column_predicate_vec.push_back(predicate);
         }
@@ -640,9 +665,7 @@ Status DeleteHandler::init(ReadSchemaSPtr& read_schema,
         _del_conds.emplace_back(std::move(temp));
     }
 
-    if (extended_read_schema.num_read_columns() != read_schema->num_read_columns()) {
-        read_schema = std::make_shared<ReadSchema>(std::move(extended_read_schema));
-    }
+    dropped_columns = std::move(resolved_dropped_columns);
     _is_inited = true;
 
     return Status::OK();

@@ -41,7 +41,7 @@ namespace doris {
 
 class ReadSchema;
 class Block;
-using ReadSchemaSPtr = std::shared_ptr<const ReadSchema>;
+using ReadSchemaSPtr = std::shared_ptr<ReadSchema>;
 class ReadSchema {
 public:
     using SequenceMap = std::unordered_map<ColumnId, std::vector<ColumnId>>;
@@ -79,6 +79,8 @@ public:
 
     // Create caller-visible Blocks from the FE-slot prefix.
     Block create_read_block() const;
+
+    std::string read_columns_to_string() const;
 
     Status init_sequence_map(const TabletSchema& tablet_schema);
 

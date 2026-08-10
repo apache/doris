@@ -26,7 +26,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <iterator>
 #include <ostream>
 #include <set>
 
@@ -43,7 +42,6 @@
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/scan/scan_node.h"
-#include "exprs/function_filter.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "io/cache/block_file_cache_profile.h"
@@ -88,7 +86,6 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .start_key {},
                                  .end_key {},
                                  .predicates {},
-                                 .function_filters {},
                                  .delete_predicates {},
                                  .target_cast_type_for_variants {},
                                  .all_access_paths {},
@@ -113,29 +110,6 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                           _state->skip_delete_bitmap());
     _has_prepared = false;
     _vector_search_params = params.state->get_vector_search_params();
-}
-
-static std::string read_columns_to_string(const ReadSchema& read_schema) {
-    // avoid too long for one line,
-    // it is hard to display in `show profile` stmt if one line is too long.
-    const int col_per_line = 10;
-    int i = 0;
-    std::string read_columns_string;
-    read_columns_string += "[";
-    for (auto it = read_schema.columns().cbegin(); it != read_schema.columns().cend(); ++it) {
-        if (it != read_schema.columns().cbegin()) {
-            read_columns_string += ", ";
-        }
-        read_columns_string += (*it)->name();
-        if (i >= col_per_line) {
-            read_columns_string += "\n";
-            i = 0;
-        } else {
-            ++i;
-        }
-    }
-    read_columns_string += "]";
-    return read_columns_string;
 }
 
 static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
@@ -201,16 +175,16 @@ Status OlapScanner::_prepare_impl() {
         context->prepare_ann_range_search(_vector_search_params);
     }
 
-    for (uint32_t ordinal = 0; auto* slot : _output_tuple_desc->slots()) {
+    for (auto* slot : _output_tuple_desc->slots()) {
         if (slot->get_virtual_column_expr()) {
             auto expr_it = local_state->_slot_id_to_virtual_column_expr.find(slot->id());
             DORIS_CHECK(expr_it != local_state->_slot_id_to_virtual_column_expr.end());
             // Scanner will be executed in a different thread, so we need to clone the context.
             VExprContextSPtr context;
             RETURN_IF_ERROR(expr_it->second->clone(_state, context));
-            _virtual_column_exprs[ordinal] = std::move(context);
+            _virtual_column_exprs[_output_tuple_desc->get_column_id(slot->id())] =
+                    std::move(context);
         }
-        ++ordinal;
     }
 
     _score_runtime = local_state->_score_runtime;
@@ -290,14 +264,14 @@ Status OlapScanner::_prepare_impl() {
         }
 
         // Initialize tablet_reader_params
-        RETURN_IF_ERROR(_init_tablet_reader_params(_key_ranges, local_state->_slot_id_to_predicates,
-                                                   local_state->_push_down_functions));
+        RETURN_IF_ERROR(
+                _init_tablet_reader_params(_key_ranges, local_state->_slot_id_to_predicates));
     }
 
     // Add the read schema in profile.
     if (_state->enable_profile()) {
-        _profile->add_info_string("ReadSchema",
-                                  read_columns_to_string(*_tablet_reader_params.read_schema));
+        _profile->add_info_string("ReadColumns",
+                                  _tablet_reader_params.read_schema->read_columns_to_string());
     }
 
     if (_tablet_reader_params.score_runtime) {
@@ -383,8 +357,7 @@ Status OlapScanner::_init_tso_predicates() {
 Status OlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges,
         const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                slot_to_predicates,
-        const std::vector<FunctionFilter>& function_filters) {
+                slot_to_predicates) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     const bool single_version = _tablet_reader_params.has_single_version();
 
@@ -432,11 +405,6 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.predicates.push_back(predicate->clone(predicate->column_id()));
         }
     }
-
-    std::copy(function_filters.cbegin(), function_filters.cend(),
-              std::inserter(_tablet_reader_params.function_filters,
-                            _tablet_reader_params.function_filters.begin()));
-
     // Push key ranges to the tablet reader.
     // Skip the "full scan" placeholder (has_lower_bound == false) — when no key
     // predicates exist, start_key/end_key remain empty and the reader does a full scan.

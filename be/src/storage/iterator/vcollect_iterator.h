@@ -156,7 +156,7 @@ private:
         virtual void update_profile(RuntimeProfile* profile) = 0;
 
     protected:
-        ReadSchemaSPtr _schema;
+        const ReadSchemaSPtr _schema;
         IteratorRowRef _ref;
         std::vector<uint32_t>* _compare_columns = nullptr;
     };

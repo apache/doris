@@ -32,7 +32,6 @@
 #include "exec/runtime_filter/runtime_filter_partition_pruner.h"
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner_context.h"
-#include "exprs/function_filter.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vin_predicate.h"
 #include "runtime/descriptors.h"
@@ -167,9 +166,6 @@ protected:
     // Moved from ScanLocalState<Derived> to avoid re-instantiation for each Derived type.
     std::atomic<bool> _eos = false;
     int _max_pushdown_conditions_per_column = 1024;
-    // Save all function predicates which may be pushed down to data source.
-    std::vector<FunctionFilter> _push_down_functions;
-
     // Virtual methods with default implementations; overridden by subclasses when supported.
     // Declared here so that the normalize methods below (non-Derived-template) can call them.
     virtual bool _push_down_topn(const RuntimePredicate& predicate) { return false; }
@@ -210,6 +206,7 @@ protected:
                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                   PushDownType* pdt);
     Status _normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
+                                       std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                        PushDownType* pdt);
 
     // Inner PrimitiveType-template methods. Moved to base to avoid N(Derived)×M(PrimitiveType)

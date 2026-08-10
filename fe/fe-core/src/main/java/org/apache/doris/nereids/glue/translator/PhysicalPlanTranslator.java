@@ -2875,7 +2875,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toSet());
 
         olapScanNode.updateRequiredSlots(context, scanIds);
-        preserveMergeSequenceSlots(olapScanNode, scanIds);
+        preserveStorageSemanticSlots(olapScanNode, scanIds, true);
+        preserveExtraStorageKeySlots(olapScanNode, scanIds);
         olapScanNode.getTupleDesc().getSlots().removeIf(slot -> !scanIds.contains(slot.getId()));
         context.createSlotDesc(olapScanNode.getTupleDesc(), lazyScan.getRowId());
         for (Slot slot : lazyScan.getOutput()) {
@@ -2959,7 +2960,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             requiredWithVirtualColumns.addAll(virtualColumnInputSlotIds);
         }
         if (scanNode instanceof OlapScanNode) {
-            preserveStorageSemanticSlots((OlapScanNode) scanNode, requiredWithVirtualColumns);
+            preserveStorageSemanticSlots((OlapScanNode) scanNode, requiredWithVirtualColumns, false);
             preserveExtraStorageKeySlots((OlapScanNode) scanNode, requiredWithVirtualColumns);
         } else if (scanNode instanceof PluginDrivenScanNode) {
             preserveConnectorMustReadSlots((PluginDrivenScanNode) scanNode, requiredWithVirtualColumns);
@@ -2983,6 +2984,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
     }
 
+    /**
+     * AGG and UNIQUE-without-MoW readers merge rows by key, so the keys must stay in the scan tuple
+     * even when the query selects none of them: {@code SELECT v1 FROM agg_table} still has to group
+     * by (k1, k2). They go through {@code extra_key_column_slot_ids} because direct readers may
+     * synthesize placeholders for them instead of reading them.
+     */
     private void preserveExtraStorageKeySlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
         if (!shouldPreserveStorageKeySlots(scanNode)) {
             return;
@@ -3038,11 +3045,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     /**
-     * Add columns required by storage merge semantics to the physical scan tuple. These slots are
-     * deliberately separate from {@code extra_key_column_slot_ids}: storage semantic dependencies
-     * must always read their real values.
+     * Adds the columns the storage reader needs beyond the query's projection, routing to the one
+     * case the table and read mode call for: row-binlog bookkeeping, the snapshot commit TSO, or
+     * the merge sequence column. No SQL statement names any of them.
      */
-    private void preserveStorageSemanticSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
+    private void preserveStorageSemanticSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds,
+            boolean requireSequenceForLazyMaterialization) {
         if (scanNode.getOlapTable() instanceof RowBinlogTableWrapper
                 && scanNode.getScanParams() != null
                 && scanNode.getScanParams().incrementalRead()) {
@@ -3053,9 +3061,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 && !(scanNode.getOlapTable() instanceof RowBinlogTableWrapper)) {
             preserveSnapshotCommitTsoSlot(scanNode, requiredSlotIds);
         }
-        preserveMergeSequenceSlots(scanNode, requiredSlotIds);
+        preserveMergeSequenceSlots(scanNode, requiredSlotIds, requireSequenceForLazyMaterialization);
     }
 
+    /**
+     * A snapshot read keeps only the rows committed at or before the stream's snapshot TSO, and BE
+     * builds that predicate on the commit-TSO column ({@code OlapScanner::_init_tso_predicates}
+     * fails the scan outright when it is absent), yet {@code SELECT id, v FROM s@snapshot()} never
+     * names it.
+     */
     private void preserveSnapshotCommitTsoSlot(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
         SlotDescriptor commitTsoSlot = scanNode.getTupleDesc().getSlots().stream()
                 .filter(slot -> slot.getColumn() != null
@@ -3067,6 +3081,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         preserveStorageSlot(commitTsoSlot, requiredSlotIds);
     }
 
+    /**
+     * An {@code @incr} read folds all changes to a row into one record: TSO is the tie-break column
+     * ordering them, and the folded result is written back into OP as the change kind the user
+     * sees, so every scan type needs both slots present. {@code SELECT k, v FROM
+     * t@incr("incrementType" = "DETAIL")} also needs the keys to group by and, when the table keeps
+     * historical values, {@code __BEFORE__v__} to report what v was before the change; APPEND_ONLY
+     * never groups and needs neither.
+     */
     private void preserveRowBinlogSemanticSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
         RowBinlogTableWrapper wrapper = (RowBinlogTableWrapper) scanNode.getOlapTable();
         TBinlogScanType scanType = OlapScanNode.parseBinlogScanType(
@@ -3087,7 +3109,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return;
         }
 
-        Set<SlotId> requestedSlots = Sets.newHashSet(requiredSlotIds);
         for (SlotDescriptor slot : scanSlots) {
             Column column = slot.getColumn();
             if (column != null && column.isKey()) {
@@ -3102,7 +3123,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         for (SlotDescriptor slot : scanSlots) {
             Column column = slot.getColumn();
-            if (column == null || column.isKey() || !requestedSlots.contains(slot.getId())
+            if (column == null || column.isKey() || !requiredSlotIds.contains(slot.getId())
                     || isRowBinlogInternalColumn(column)) {
                 continue;
             }
@@ -3119,14 +3140,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 || columnName.equals(Column.BINLOG_TSO_COL);
     }
 
-    private void preserveMergeSequenceSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
+    /**
+     * When rows share a key the sequence column decides the winner, so {@code SELECT v1 FROM
+     * mor_table} without it can hand back the losing row's value. Key-only projections are exempt:
+     * the key reads the same whichever row wins. {@code getColumnSeqMapping()} covers tables where
+     * value columns carry their own sequence column rather than one table-wide column.
+     */
+    private void preserveMergeSequenceSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds,
+            boolean requireSequenceForLazyMaterialization) {
         if (!shouldPreserveStorageKeySlots(scanNode)) {
             return;
         }
 
         List<SlotDescriptor> scanSlots = scanNode.getTupleDesc().getSlots();
         Set<String> sequenceColumnNames = Sets.newHashSet();
-        boolean requiresSequenceColumn = false;
+        boolean requiresSequenceColumn = requireSequenceForLazyMaterialization;
         Map<String, List<String>> columnSeqMapping = getStorageSemanticTable(scanNode).getColumnSeqMapping();
         for (SlotDescriptor slot : scanSlots) {
             Column column = slot.getColumn();

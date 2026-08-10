@@ -319,7 +319,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         connectContext.getSessionVariable().topNLazyMaterializationThreshold = 1024;
         try {
             Planner planner = getSQLPlanner(
-                    "select * from test_db.sequence_scan_schema_t order by v1 limit 1");
+                    "select v2 from test_db.sequence_scan_schema_t order by k1 limit 1");
             Set<MaterializationNode> materializationNodes = Sets.newHashSet();
             Set<OlapScanNode> scanNodes = Sets.newHashSet();
             for (PlanFragment fragment : planner.getFragments()) {
@@ -333,6 +333,8 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
             Assertions.assertEquals(1, materializationNodes.size());
             Assertions.assertEquals(1, scanNodes.size());
             OlapScanNode scanNode = scanNodes.iterator().next();
+            Assertions.assertTrue(scanNode.getTupleDesc().getSlots().stream()
+                    .noneMatch(slot -> slot.getColumn().getName().equals("v2")));
             Set<Integer> dependencyUniqueIds = scanNode.getTupleDesc().getSlots().stream()
                     .filter(slot -> slot.getColumn().getName().equals(Column.SEQUENCE_COL))
                     .map(slot -> slot.getColumn().getUniqueId())

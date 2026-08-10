@@ -106,17 +106,18 @@ public:
     //
     // Delete-condition columns that are absent from `read_schema` are resolved
     // against the schema stored in the corresponding delete-predicate rowset and
-    // appended to `read_schema` as storage-only columns.
+    // returned through `dropped_columns`.
     // NOTE: You should lock the tablet's header file before calling this function.
-    // input/output:
-    //     * read_schema: its visible prefix is preserved and missing delete
-    //       columns are appended as a storage-only suffix
+    // input:
     //     * version: maximum version
+    //     * read_schema: schema used to bind delete-predicate column ordinals
+    // output:
+    //     * dropped_columns: missing delete-predicate columns in append order
     // return:
     //     * Status::Error<DELETE_INVALID_PARAMETERS>(): input parameters are not valid
     //     * Status::Error<MEM_ALLOC_FAILED>(): alloc memory failed
-    Status init(ReadSchemaSPtr& read_schema, const std::vector<RowsetMetaSharedPtr>& delete_preds,
-                int64_t version);
+    Status init(const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version,
+                const ReadSchemaSPtr& read_schema, std::vector<TabletColumn>& dropped_columns);
 
     [[nodiscard]] bool empty() const { return _del_conds.empty(); }
 
@@ -130,14 +131,16 @@ private:
         requires(std::is_same_v<SubPredType, DeleteSubPredicatePB> or
                  std::is_same_v<SubPredType, std::string>)
     Status _parse_column_pred(
-            ReadSchema& read_schema, const TabletSchemaSPtr& delete_pred_related_schema,
+            const ReadSchema& read_schema, std::vector<TabletColumn>& dropped_columns,
+            const TabletSchemaSPtr& delete_pred_related_schema,
             const ::google::protobuf::RepeatedPtrField<SubPredType>& sub_pred_list,
             DeleteConditions* delete_conditions);
 
-    static Status _resolve_column(ReadSchema& read_schema, int32_t col_unique_id,
+    static Status _resolve_column(const ReadSchema& read_schema,
+                                  std::vector<TabletColumn>& dropped_columns, int32_t col_unique_id,
                                   const std::string& column_name,
                                   const TabletSchemaSPtr& delete_pred_related_schema,
-                                  ColumnId* column_id);
+                                  ColumnId* column_id, const TabletColumn** column);
 
     bool _is_inited = false;
     // DeleteConditions in _del_conds are in 'OR' relationship

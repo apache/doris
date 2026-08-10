@@ -32,9 +32,11 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/config.h"
+#include "core/block/block.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
@@ -43,6 +45,7 @@
 #include "storage/olap_define.h"
 #include "storage/olap_tuple.h"
 #include "storage/options.h"
+#include "storage/predicate/block_column_predicate.h"
 #include "storage/row_cursor.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
@@ -1060,7 +1063,38 @@ protected:
 
     Status init_delete_handler(int64_t version) {
         auto read_schema = create_read_schema();
-        return _delete_handler.init(read_schema, get_delete_predicates(), version);
+        std::vector<TabletColumn> dropped_columns;
+        return _delete_handler.init(get_delete_predicates(), version, read_schema, dropped_columns);
+    }
+
+    TabletSchemaSPtr create_single_column_schema(int32_t unique_id, const std::string& name,
+                                                 const std::string& type) {
+        TabletSchemaPB schema_pb;
+        auto* column = schema_pb.add_column();
+        column->set_unique_id(unique_id);
+        column->set_name(name);
+        column->set_type(type);
+        column->set_is_nullable(false);
+        if (type == "INT") {
+            column->set_length(4);
+            column->set_index_length(4);
+        } else {
+            column->set_length(65535);
+            column->set_index_length(0);
+        }
+
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(schema_pb);
+        return schema;
+    }
+
+    RowsetMetaSharedPtr create_delete_predicate_meta(const DeletePredicatePB& delete_predicate,
+                                                     const TabletSchemaSPtr& historical_schema) {
+        auto rowset_meta = std::make_shared<RowsetMeta>();
+        init_rs_meta(rowset_meta, 2, 2);
+        rowset_meta->set_delete_predicate(delete_predicate);
+        rowset_meta->set_tablet_schema(historical_schema);
+        return rowset_meta;
     }
 
     std::string _tablet_path;
@@ -1069,6 +1103,91 @@ protected:
     DeleteHandler _delete_handler;
     std::string _json_rowset_meta;
 };
+
+TEST_F(TestDeleteHandler, ReturnsHistoricalInPredicateColumnByUid) {
+    constexpr int32_t old_unique_id = 100;
+    constexpr int32_t new_unique_id = 200;
+    constexpr auto column_name = "dropped_column";
+
+    auto historical_schema = create_single_column_schema(old_unique_id, column_name, "INT");
+    auto current_schema = create_single_column_schema(new_unique_id, column_name, "STRING");
+    ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(current_schema->columns());
+
+    DeletePredicatePB delete_predicate;
+    delete_predicate.set_version(-1);
+    auto* in_predicate = delete_predicate.add_in_predicates();
+    in_predicate->set_column_name(column_name);
+    in_predicate->set_column_unique_id(old_unique_id);
+    in_predicate->add_values("1");
+    in_predicate->add_values("2");
+
+    auto rowset_meta = create_delete_predicate_meta(delete_predicate, historical_schema);
+    std::vector<TabletColumn> dropped_columns;
+    auto status = _delete_handler.init({rowset_meta}, 2, read_schema, dropped_columns);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(1, read_schema->num_block_columns());
+    ASSERT_EQ(1, read_schema->num_read_columns());
+    EXPECT_EQ(0, read_schema->ordinal_by_uid(new_unique_id));
+    EXPECT_EQ(-1, read_schema->ordinal_by_uid(old_unique_id));
+    ASSERT_EQ(1, dropped_columns.size());
+    EXPECT_EQ(old_unique_id, dropped_columns[0].unique_id());
+    EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_INT, dropped_columns[0].type());
+    EXPECT_EQ(1, read_schema->create_read_block().columns());
+
+    AndBlockColumnPredicate delete_conditions;
+    std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+            predicates_for_zone_map;
+    _delete_handler.get_delete_conditions_after_version(0, &delete_conditions,
+                                                        &predicates_for_zone_map);
+    ASSERT_EQ(1, predicates_for_zone_map.size());
+    ASSERT_TRUE(predicates_for_zone_map.contains(1));
+    ASSERT_EQ(1, predicates_for_zone_map.at(1).size());
+    const auto& predicate = predicates_for_zone_map.at(1)[0];
+    EXPECT_EQ(1, predicate->column_id());
+    EXPECT_EQ(PredicateType::IN_LIST, predicate->type());
+}
+
+TEST_F(TestDeleteHandler, ReturnsHistoricalLegacyPredicateColumnAfterSecondDrop) {
+    constexpr int32_t old_unique_id = 101;
+    constexpr int32_t retained_unique_id = 201;
+    constexpr auto column_name = "dropped_column";
+
+    auto historical_schema = create_single_column_schema(old_unique_id, column_name, "INT");
+    auto current_schema =
+            create_single_column_schema(retained_unique_id, "retained_column", "STRING");
+    ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(current_schema->columns());
+
+    DeletePredicatePB delete_predicate;
+    // Doris 2.0 stored delete conditions in sub_predicates without a column UID.
+    delete_predicate.set_version(-1);
+    delete_predicate.add_sub_predicates(fmt::format("{}='7'", column_name));
+    auto rowset_meta = create_delete_predicate_meta(delete_predicate, historical_schema);
+    std::vector<TabletColumn> dropped_columns;
+    auto status = _delete_handler.init({rowset_meta}, 2, read_schema, dropped_columns);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(1, read_schema->num_block_columns());
+    ASSERT_EQ(1, read_schema->num_read_columns());
+    EXPECT_EQ(0, read_schema->ordinal_by_uid(retained_unique_id));
+    EXPECT_EQ(-1, read_schema->ordinal_by_uid(old_unique_id));
+    ASSERT_EQ(1, dropped_columns.size());
+    EXPECT_EQ(old_unique_id, dropped_columns[0].unique_id());
+    EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_INT, dropped_columns[0].type());
+    EXPECT_EQ(1, read_schema->create_read_block().columns());
+
+    AndBlockColumnPredicate delete_conditions;
+    std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+            predicates_for_zone_map;
+    _delete_handler.get_delete_conditions_after_version(0, &delete_conditions,
+                                                        &predicates_for_zone_map);
+    ASSERT_EQ(1, predicates_for_zone_map.size());
+    ASSERT_TRUE(predicates_for_zone_map.contains(1));
+    ASSERT_EQ(1, predicates_for_zone_map.at(1).size());
+    const auto& predicate = predicates_for_zone_map.at(1)[0];
+    EXPECT_EQ(1, predicate->column_id());
+    EXPECT_EQ(PredicateType::EQ, predicate->type());
+}
 
 TEST_F(TestDeleteHandler, ValueWithQuote) {
     DeletePredicatePB del_predicate;
