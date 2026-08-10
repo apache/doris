@@ -120,13 +120,45 @@ FileScannerV2ReaderLocalCache::FileScannerV2ReaderLocalCache(
           _memory_tracker(std::make_shared<doris::MemTracker>("FileScannerV2ReaderLocalCache")) {}
 
 FileScannerV2ReaderLocalCache::~FileScannerV2ReaderLocalCache() {
-    auto files = _file_caches();
-    for (const auto& file : files) {
-        file->_drain(this);
+    // Destructors are noexcept; drain the registry in place so teardown cannot allocate a snapshot
+    // vector and terminate the query process under memory pressure.
+    try {
+        std::lock_guard registry_lock(_registry_mutex);
+        for (const auto& file : _files) {
+            if (auto live_file = file.lock(); live_file != nullptr) {
+                live_file->_drain(this);
+            }
+        }
+        for (const auto& [_, file] : _file_cache_by_key) {
+            file->_drain(this);
+        }
+    } catch (...) {
+        return;
     }
     std::lock_guard lock(_budget_mutex);
     DORIS_CHECK(_memory_bytes == 0);
     DORIS_CHECK(_reserved_bytes == 0);
+}
+
+std::shared_ptr<FileScannerV2ReaderLocalFileCache>
+FileScannerV2ReaderLocalCache::get_or_create_file_cache(const std::string& file_key) {
+    if (_capacity == 0 || file_key.empty()) {
+        return nullptr;
+    }
+    std::lock_guard lock(_registry_mutex);
+    if (auto it = _file_cache_by_key.find(file_key); it != _file_cache_by_key.end()) {
+        return it->second;
+    }
+    try {
+        auto file_cache = std::shared_ptr<FileScannerV2ReaderLocalFileCache>(
+                new FileScannerV2ReaderLocalFileCache(shared_from_this()));
+        _file_cache_by_key.emplace(file_key, file_cache);
+        return file_cache;
+    } catch (const doris::Exception&) {
+        return nullptr;
+    } catch (const std::bad_alloc&) {
+        return nullptr;
+    }
 }
 
 std::shared_ptr<FileScannerV2ReaderLocalFileCache>
@@ -178,6 +210,23 @@ bool FileScannerV2ReaderLocalCache::_try_reserve(size_t bytes) {
     return true;
 }
 
+bool FileScannerV2ReaderLocalCache::_evict_idle_file_cache(
+        FileScannerV2ReaderLocalFileCache* requester, size_t* evicted) {
+    DORIS_CHECK(evicted != nullptr);
+    std::lock_guard lock(_registry_mutex);
+    for (auto it = _file_cache_by_key.begin(); it != _file_cache_by_key.end(); ++it) {
+        if (it->second.get() != requester && it->second.use_count() == 1) {
+            // The registry is the last owner only after every row-group reader for that file has
+            // closed. Reclaiming it preserves active-file isolation while letting the bounded
+            // scan-node budget move on to later physical files.
+            *evicted = it->second->entry_count();
+            _file_cache_by_key.erase(it);
+            return true;
+        }
+    }
+    return false;
+}
+
 bool FileScannerV2ReaderLocalCache::_reserve(size_t bytes,
                                              FileScannerV2ReaderLocalFileCache* requester,
                                              size_t* evicted) {
@@ -188,6 +237,13 @@ bool FileScannerV2ReaderLocalCache::_reserve(size_t bytes,
     // block map. StarRocks gets the same isolation from CacheInputStream::_block_map ownership.
     while (requester->_evict_one()) {
         ++*evicted;
+        if (_try_reserve(bytes)) {
+            return true;
+        }
+    }
+    size_t idle_file_evicted = 0;
+    while (_evict_idle_file_cache(requester, &idle_file_evicted)) {
+        *evicted += idle_file_evicted;
         if (_try_reserve(bytes)) {
             return true;
         }
@@ -229,6 +285,9 @@ FileScannerV2ReaderLocalCache::_file_caches() const {
         if (auto live_file = file.lock(); live_file != nullptr) {
             files.push_back(std::move(live_file));
         }
+    }
+    for (const auto& [_, file] : _file_cache_by_key) {
+        files.push_back(file);
     }
     return files;
 }
@@ -422,6 +481,7 @@ Status FileScannerV2ReaderLocalFileCache::get_or_load(size_t block_offset, size_
         return Status::OK();
     }
     std::shared_ptr<Entry> entry;
+    std::shared_ptr<std::vector<char>> retired_data;
     bool load = false;
     {
         std::unique_lock lock(_mutex);
@@ -456,14 +516,43 @@ Status FileScannerV2ReaderLocalFileCache::get_or_load(size_t block_offset, size_
             RETURN_IF_ERROR(entry->load_status);
             if (entry->data == nullptr || entry->data->size() < block_size) {
                 // FileCache ranges can end at different boundaries for the same aligned offset.
-                // Never reuse a shorter promotion for a later, wider range.
-                lookup->admitted = false;
-                return Status::OK();
+                // Replace an unpinned short promotion so a stable wider cell does not miss forever.
+                if (entry->data == nullptr || entry->data.use_count() > 1) {
+                    lookup->admitted = false;
+                    return Status::OK();
+                }
+                retired_data = std::move(entry->data);
+                if (entry->in_lru) {
+                    _lru.erase(entry->lru_position);
+                }
+                _entries.erase(it);
+                try {
+                    entry = std::make_shared<Entry>();
+                    _entries.emplace(block_offset, entry);
+                    load = true;
+                    lookup->admitted = false;
+                } catch (const doris::Exception&) {
+                    entry.reset();
+                } catch (const std::bad_alloc&) {
+                    entry.reset();
+                }
+                if (!load) {
+                    lock.unlock();
+                    owner->_release(retired_data->size());
+                    return Status::OK();
+                }
+            } else {
+                lookup->hit = true;
+                lookup->data = entry->data;
+                _touch_locked(entry);
             }
-            lookup->hit = true;
-            lookup->data = entry->data;
-            _touch_locked(entry);
         }
+    }
+
+    if (retired_data != nullptr) {
+        const size_t retired_size = retired_data->size();
+        retired_data.reset();
+        owner->_release(retired_size);
     }
 
     if (!load) {
@@ -474,6 +563,9 @@ Status FileScannerV2ReaderLocalFileCache::get_or_load(size_t block_offset, size_
     std::optional<SwitchThreadMemTrackerLimiter> switch_query_tracker;
     try {
         if (!owner->_reserve(block_size, this, &lookup->evicted)) {
+            // Allocation failures remain best-effort misses; this flag records policy admission
+            // rejection from cache/query/global memory limits.
+            lookup->admission_rejected = true;
             _abort_load(block_offset, entry);
             return Status::OK();
         }
@@ -559,8 +651,10 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         _init_external_table_cache(opts);
     }
     if (_enable_reader_local_cache) {
-        // The block map follows this physical reader rather than surviving in a query registry.
-        _reader_local_file_cache = _reader_local_cache->create_file_cache();
+        // Path, version, and size form a stable physical-file identity across the row-group
+        // readers created from one parent task without extending the aggregate reader options.
+        _reader_local_file_cache = _reader_local_cache->get_or_create_file_cache(
+                fmt::format("{}:{}:{}", path().native(), opts.mtime, opts.file_size));
         _enable_reader_local_cache = _reader_local_file_cache != nullptr;
     }
 }
@@ -1429,6 +1523,11 @@ Status CachedRemoteFileReader::_read_remote_blocks_into_cache(
 
     RETURN_IF_ERROR(_execute_remote_read(empty_blocks, empty_start, span_read_size, buffer,
                                          &peer_result, stats, io_ctx));
+    if (stats.from_peer_cache) {
+        ++source_read_breakdown.peer_requests;
+    } else {
+        ++source_read_breakdown.remote_requests;
+    }
 
     std::vector<std::vector<const PeerFetchChunk*>> peer_chunks_by_block;
     if (stats.from_peer_cache) {
@@ -1601,6 +1700,7 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
                     &remote_bytes_read, io_ctx));
             indirect_read_bytes += read_size;
             source_read_breakdown.remote_bytes += remote_bytes_read;
+            ++source_read_breakdown.remote_requests;
             DCHECK(remote_bytes_read == read_size);
         }
 
@@ -1661,7 +1761,6 @@ Status CachedRemoteFileReader::read_at_from_cache(size_t offset, Slice result, s
         *cache_hit = true;
         stats.bytes_read = cast_set<int64_t>(bytes_req);
         SourceReadBreakdown source_read_breakdown;
-        source_read_breakdown.local_bytes = cast_set<int64_t>(bytes_req);
         stats.num_exact_cache_probe_hit = 1;
         stats.exact_cache_probe_timer = exact_cache_probe_watch.elapsed_time();
         publish_stats(stats, source_read_breakdown);
@@ -1799,6 +1898,7 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
         *bytes_read = remote_bytes_read;
         DCHECK_EQ(*bytes_read, bytes_req);
         source_read_breakdown.remote_bytes += remote_bytes_read;
+        ++source_read_breakdown.remote_requests;
         g_read_cache_indirect_bytes << remote_bytes_read;
         g_read_cache_indirect_total_bytes << remote_bytes_read;
         return Status::OK();
@@ -1838,8 +1938,11 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
             g_skip_local_cache_io_sum_bytes << read_size;
         } else {
             SCOPED_RAW_TIMER(&stats.local_read_timer);
-            Status st = block->read(Slice(result.data + (read_left - offset), read_size),
-                                    read_left - block_range.left);
+            // Remote-only governs misses, not downloaded hits. Promote the full cache cell so
+            // repeated Parquet page/header reads can reuse memory without another disk read.
+            Status st =
+                    _read_local_block(block, read_left - block_range.left, read_left,
+                                      Slice(result.data + (read_left - offset), read_size), stats);
             if (!st.ok()) {
                 if (st.is<ErrorCode::NOT_FOUND>()) {
                     _cache->remove_if_cached_async(_cache_hash);
@@ -1944,7 +2047,6 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         // A resident file-local block is authoritative for this immutable file identity; avoid
         // taking FileCache metadata locks again on the hot path.
         *bytes_read = bytes_req;
-        source_read_breakdown.local_bytes += cast_set<int64_t>(bytes_req);
         return Status::OK();
     }
 
@@ -2020,30 +2122,40 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     const bool has_source_bytes = source_read_breakdown.local_bytes != 0 ||
                                   source_read_breakdown.remote_bytes != 0 ||
                                   source_read_breakdown.peer_bytes != 0;
+    const bool has_source_activity = has_source_bytes ||
+                                     source_read_breakdown.remote_requests != 0 ||
+                                     source_read_breakdown.peer_requests != 0;
     const bool exact_probe_miss_without_io =
             read_stats.num_exact_cache_probe_miss != 0 && !has_source_bytes;
-    if (has_source_bytes) {
+    const bool reader_local_only =
+            read_stats.bytes_read != 0 &&
+            read_stats.bytes_read_from_reader_local_cache == read_stats.bytes_read;
+    if (has_source_activity) {
         if (source_read_breakdown.local_bytes != 0) {
             statis->num_local_io_total++;
             statis->bytes_read_from_local += source_read_breakdown.local_bytes;
         }
-        if (source_read_breakdown.peer_bytes != 0 || read_stats.from_peer_cache) {
+        if (source_read_breakdown.peer_bytes != 0 || source_read_breakdown.peer_requests != 0 ||
+            read_stats.from_peer_cache) {
             // Count peer IO whenever peer was used, even if its fetched blocks were entirely
             // outside the copy range (e.g., backward-aligned prefetch block before
             // offset+already_read).  In that case peer_bytes==0 but the peer RPC did happen
             // and wrote data into the local file cache.
-            statis->num_peer_io_total++;
+            statis->num_peer_io_total += std::max<int64_t>(source_read_breakdown.peer_requests, 1);
             statis->bytes_read_from_peer += source_read_breakdown.peer_bytes;
             statis->peer_io_timer += read_stats.peer_read_timer;
         }
-        if (source_read_breakdown.remote_bytes != 0) {
-            statis->num_remote_io_total++;
+        if (source_read_breakdown.remote_bytes != 0 || source_read_breakdown.remote_requests != 0) {
+            statis->num_remote_io_total +=
+                    std::max<int64_t>(source_read_breakdown.remote_requests, 1);
             statis->bytes_read_from_remote += source_read_breakdown.remote_bytes;
             statis->remote_io_timer += read_stats.remote_read_timer;
         }
     } else if (exact_probe_miss_without_io) {
         // A cache-only miss is a lookup result, not physical remote IO. MergeRange will account
         // the subsequent fallback read independently.
+    } else if (reader_local_only) {
+        // Reader-local memory hits have dedicated counters and must not inflate physical disk IO.
     } else if (read_stats.hit_cache) {
         statis->num_local_io_total++;
         statis->bytes_read_from_local += read_stats.bytes_read;

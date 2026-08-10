@@ -505,7 +505,6 @@ void MergeRangeFileReader::_record_merged_read(int range_index, size_t start_off
     }
     const size_t read_end = start_offset + bytes_read;
     size_t useful_bytes = 0;
-    size_t future_predicate_bytes = 0;
     for (size_t index = static_cast<size_t>(range_index);
          index < _random_access_ranges.size() &&
          _random_access_ranges[index].start_offset < read_end;
@@ -518,13 +517,10 @@ void MergeRangeFileReader::_record_merged_read(int range_index, size_t start_off
         }
         const size_t overlap = overlap_end - overlap_start;
         useful_bytes += overlap;
-        if (_range_stages[index] > _range_stages[range_index]) {
-            future_predicate_bytes += overlap;
-        }
     }
     _statistics.merged_useful_bytes += useful_bytes;
+    DORIS_CHECK(useful_bytes <= bytes_read);
     _statistics.merged_gap_bytes += bytes_read - useful_bytes;
-    _statistics.future_predicate_prefetch_bytes += future_predicate_bytes;
 }
 
 // there exists occasions where the buffer is already closed but

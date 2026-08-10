@@ -2780,6 +2780,11 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             }
             const auto reader_it = _current_predicate_columns.find(col.column_id());
             DORIS_CHECK(reader_it != _current_predicate_columns.end());
+            if (_current_merge_range_reader != nullptr) {
+                // A zero-survivor predicate can bypass the normal activation point, but physical
+                // skip still reads page headers and must retain the planned merged IO range.
+                RETURN_IF_ERROR(activate_merge_ranges_for_columns({col.column_id()}));
+            }
             RETURN_IF_ERROR(reader_it->second->skip(batch_rows));
         }
         // Every skipped column has an empty payload in the block. Suppress the caller's

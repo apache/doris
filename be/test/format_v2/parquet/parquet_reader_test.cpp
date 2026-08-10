@@ -1775,7 +1775,8 @@ protected:
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
             bool is_immutable = false, bool enable_mapping_varbinary = false,
-            std::string fs_name = {}, int64_t mtime = 0) const {
+            std::string fs_name = {}, int64_t mtime = 0,
+            std::shared_ptr<const FileScanSplitContext> split_context = nullptr) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1788,7 +1789,8 @@ protected:
         file_description->mtime = mtime;
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
-                global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
+                global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
+                std::move(split_context));
     }
 
     std::filesystem::path _test_dir;
@@ -3334,6 +3336,72 @@ TEST_F(NewParquetReaderTest, ReadMultipleRowGroups) {
 
     EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 3, 4, 5}));
     EXPECT_EQ(values, std::vector<std::string>({"one", "two", "three", "four", "five"}));
+}
+
+TEST_F(NewParquetReaderTest, FileParentBuildsRowGroupTasksWithSharedFooterMetadata) {
+    write_parquet_file(_file_path, 2);
+    auto parent_reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(parent_reader->init(&state).ok());
+    EXPECT_EQ(parent_reader->TEST_footer_read_calls(), 1);
+
+    TFileRangeDesc parent;
+    parent.__set_path(_file_path);
+    parent.__set_start_offset(0);
+    parent.__set_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
+    parent.__set_file_size(parent.size);
+    parent.__set_is_file_parent(true);
+    TPaimonDeletionFileDesc deletion_file;
+    deletion_file.__set_path("s3://bucket/delete-vector");
+    deletion_file.__set_offset(17);
+    deletion_file.__set_length(23);
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_deletion_file(std::move(deletion_file));
+    TTableFormatFileDesc table_format_params;
+    table_format_params.__set_paimon_params(std::move(paimon_params));
+    parent.__set_table_format_params(std::move(table_format_params));
+    std::vector<FileScanSplitTask> children;
+    ASSERT_TRUE(parent_reader->build_split_tasks(parent, &children).ok());
+    ASSERT_EQ(children.size(), 3);
+    ASSERT_NE(children.front().context, nullptr);
+    for (const auto& child : children) {
+        EXPECT_FALSE(child.range.is_file_parent);
+        EXPECT_GT(child.range.size, 0);
+        EXPECT_EQ(child.context, children.front().context);
+        ASSERT_TRUE(child.range.table_format_params.paimon_params.__isset.deletion_file);
+        EXPECT_EQ(child.range.table_format_params.paimon_params.deletion_file.path,
+                  "s3://bucket/delete-vector");
+    }
+
+    ASSERT_TRUE(parent_reader->close().ok());
+    parent_reader.reset();
+
+    std::vector<int32_t> ids;
+    for (const auto& child : children) {
+        auto child_reader =
+                create_reader(child.range.start_offset, child.range.size, nullptr, false, nullptr,
+                              std::nullopt, false, false, {}, 0, child.context);
+        ASSERT_TRUE(child_reader->init(&state).ok());
+        EXPECT_EQ(child_reader->TEST_footer_read_calls(), 0);
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(child_reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {field_projection(0), field_projection(1)};
+        ASSERT_TRUE(child_reader->open(request).ok());
+
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            ASSERT_TRUE(child_reader->get_block(&block, &rows, &eof).ok());
+            const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+            for (size_t row = 0; row < rows; ++row) {
+                ids.push_back(id_column.get_element(row));
+            }
+        }
+        ASSERT_TRUE(child_reader->close().ok());
+    }
+    EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 3, 4, 5}));
 }
 
 TEST_F(NewParquetReaderTest, UnknownMtimeSkipsPageCacheForMutableFile) {

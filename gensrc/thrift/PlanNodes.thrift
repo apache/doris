@@ -663,6 +663,8 @@ struct TFileRangeDesc {
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
     16: optional bool file_cache_admission;
+    // FileScannerV2 parses this physical-file task once and publishes row-group child tasks.
+    17: optional bool is_file_parent;
 }
 
 struct TSplitSource {

@@ -20,6 +20,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gtest/gtest.h>
 
+#include <future>
 #include <memory>
 #include <optional>
 #include <string>
@@ -512,6 +513,49 @@ TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {
 
     LocalSplitSourceConnector invalid({scan_range(4), scan_range(-1)}, 2);
     EXPECT_FALSE(invalid.all_ranges_have_table_level_row_count());
+}
+
+TEST(FileScannerV2Test, FileParentPublishesSharedChildTasksBeforeSourceFinishes) {
+    TScanRangeParams params;
+    auto& ranges = params.scan_range.ext_scan_range.file_scan_range.ranges;
+    TFileRangeDesc parent;
+    parent.__set_path("file.parquet");
+    parent.__set_is_file_parent(true);
+    ranges.push_back(parent);
+
+    LocalSplitSourceConnector source({params}, 2);
+    FileScanSplitTask claimed_parent;
+    bool has_next = false;
+    ASSERT_TRUE(source.get_next_split(&has_next, &claimed_parent).ok());
+    ASSERT_TRUE(has_next);
+    EXPECT_TRUE(claimed_parent.range.is_file_parent);
+
+    auto waiting_scanner = std::async(std::launch::async, [&]() {
+        FileScanSplitTask child;
+        bool child_available = false;
+        const auto status = source.get_next_split(&child_available, &child);
+        return std::make_tuple(status, child_available, std::move(child));
+    });
+    EXPECT_EQ(waiting_scanner.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+
+    auto context = std::make_shared<FileScanSplitContext>();
+    TFileRangeDesc child_range = parent;
+    child_range.__set_start_offset(128);
+    child_range.__set_size(256);
+    child_range.__set_is_file_parent(false);
+    ASSERT_TRUE(source.finish_file_parent({{.range = std::move(child_range), .context = context}})
+                        .ok());
+
+    auto [status, child_available, child] = waiting_scanner.get();
+    ASSERT_TRUE(status.ok());
+    ASSERT_TRUE(child_available);
+    EXPECT_EQ(child.range.start_offset, 128);
+    EXPECT_EQ(child.range.size, 256);
+    EXPECT_EQ(child.context, context);
+
+    FileScanSplitTask exhausted;
+    ASSERT_TRUE(source.get_next_split(&has_next, &exhausted).ok());
+    EXPECT_FALSE(has_next);
 }
 
 TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {

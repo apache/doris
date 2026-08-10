@@ -181,6 +181,7 @@ struct SplitReadOptions {
     std::optional<uint64_t> condition_cache_digest;
     ShardedKVCache* cache = nullptr;
     TFileRangeDesc current_range;
+    std::shared_ptr<const FileScanSplitContext> split_context = nullptr;
     FileFormat current_split_format = FileFormat::PARQUET;
     std::optional<GlobalRowIdContext> global_rowid_context;
 };
@@ -226,6 +227,8 @@ public:
     // 1. Pass a new split/task to reader, which will be used in subsequent open_reader() to initialize the underlying file reader.
     // 2. Parse delete predicates from split/task information, which will be used for later dynamic filtering and delete handling.
     virtual Status prepare_split(const SplitReadOptions& options);
+
+    virtual Status build_file_split_tasks(std::vector<FileScanSplitTask>* children);
 
     // Refresh row-level predicates for an already prepared split. Physical readers that support
     // this operation decide the safe boundary at which the new immutable request becomes active.
@@ -1904,6 +1907,7 @@ protected:
     TFileCompressType::type _current_range_compress_type = TFileCompressType::UNKNOWN;
     std::optional<TUniqueId> _current_range_load_id;
     TFileRangeDesc _current_file_range_desc;
+    std::shared_ptr<const FileScanSplitContext> _current_split_context;
     std::shared_ptr<io::FileSystemProperties> _system_properties;
     // partition key -> value
     std::map<std::string, Field> _partition_values;

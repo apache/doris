@@ -267,6 +267,11 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
     // cache when the scan range does not carry an mtime, without extending V1's path::0 behavior to
     // mutable Hive/local files.
     mark_current_data_file_immutable();
+    if (options.current_range.__isset.is_file_parent && options.current_range.is_file_parent) {
+        // Child readers share decoded delete artifacts through the split cache; the footer-only
+        // parent must not eagerly build mutable equality/position delete state of its own.
+        return Status::OK();
+    }
     if (_is_table_level_count_active()) {
         return Status::OK();
     }

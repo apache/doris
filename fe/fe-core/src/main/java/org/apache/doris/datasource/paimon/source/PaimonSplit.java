@@ -42,6 +42,7 @@ public class PaimonSplit extends FileSplit {
     private Optional<Long> optRowCount = Optional.empty();
     private Optional<Long> schemaId = Optional.empty();
     private Map<String, String> paimonPartitionValues = null;
+    private boolean fileParent = false;
 
     /**
      * Constructor for Paimon splits.
@@ -135,6 +136,14 @@ public class PaimonSplit extends FileSplit {
 
     public Map<String, String> getPaimonPartitionValues() {
         return paimonPartitionValues;
+    }
+
+    public boolean isFileParent() {
+        return fileParent;
+    }
+
+    public void setFileParent(boolean fileParent) {
+        this.fileParent = fileParent;
     }
 
     public static class PaimonSplitCreator implements SplitCreator {

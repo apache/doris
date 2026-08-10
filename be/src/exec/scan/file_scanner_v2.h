@@ -134,6 +134,7 @@ private:
     static Status _validate_scan_range(const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range);
     Status _get_next_scan_range(bool* has_next);
+    Status _finish_current_file_parent(std::vector<FileScanSplitTask> children);
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();
     Status _init_expr_ctxes();
@@ -192,6 +193,8 @@ private:
     bool _has_prepared_split = false;
     int _table_reader_rf_num = 0;
     TFileRangeDesc _current_range;
+    std::shared_ptr<const FileScanSplitContext> _current_split_context;
+    bool _current_file_parent_claimed = false;
     std::string _current_range_path;
 
     std::unique_ptr<format::TableReader> _table_reader;
@@ -239,6 +242,8 @@ private:
     int64_t _last_bytes_read_from_remote = 0;
     int64_t _reported_io_read_time = 0;
     int64_t _reported_file_read_bytes = 0;
+    int64_t _reported_file_read_calls = 0;
+    int64_t _reported_file_read_time = 0;
 };
 
 } // namespace doris

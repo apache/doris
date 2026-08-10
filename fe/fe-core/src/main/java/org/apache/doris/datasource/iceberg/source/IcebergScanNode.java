@@ -343,6 +343,17 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         // update for every split file format
         rangeDesc.setFormatType(toTFileFormatType(icebergSplit.getSplitFileFormat()));
+        if (sessionVariable.enableFileScannerV2
+                && sessionVariable.getFileSplitSize() <= 0
+                && !tableLevelPushDownCount
+                && rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET
+                && rangeDesc.getStartOffset() == 0
+                && (rangeDesc.getSize() < 0
+                        || (rangeDesc.isSetFileSize()
+                                && rangeDesc.getFileSize() >= 0
+                                && rangeDesc.getSize() >= rangeDesc.getFileSize()))) {
+            rangeDesc.setIsFileParent(true);
+        }
         if (tableLevelPushDownCount) {
             tableFormatFileDesc.setTableLevelRowCount(icebergSplit.getTableLevelRowCount());
         } else {
@@ -871,6 +882,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                     sessionVariable.getFileSplitSize());
         }
         if (isBatchMode()) {
+            if (sessionVariable.enableFileScannerV2) {
+                return preserveParquetFileParents(scan.planFiles(), sessionVariable.getMaxSplitSize());
+            }
             // Currently iceberg batch split mode will use max split size.
             // TODO: dynamic split size in batch split mode need to customize iceberg splitter.
             return TableScanUtil.splitFiles(scan.planFiles(), sessionVariable.getMaxSplitSize());
@@ -889,7 +903,25 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         targetSplitSize = determineTargetFileSplitSize(fileScanTaskList);
+        if (sessionVariable.enableFileScannerV2) {
+            return preserveParquetFileParents(
+                    CloseableIterable.withNoopClose(fileScanTaskList), targetSplitSize);
+        }
         return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(fileScanTaskList), targetSplitSize);
+    }
+
+    private CloseableIterable<FileScanTask> preserveParquetFileParents(
+            CloseableIterable<FileScanTask> tasks, long fallbackSplitSize) {
+        CloseableIterable<CloseableIterable<FileScanTask>> taskGroups = CloseableIterable.transform(tasks, task -> {
+            if (task.file().format() == FileFormat.PARQUET) {
+                // Keep a physical Parquet file on one backend so BE can parse its footer once;
+                // other formats retain their existing FE split parallelism.
+                return CloseableIterable.withNoopClose(task);
+            }
+            return CloseableIterable.withNoopClose(task.split(fallbackSplitSize));
+        });
+        CloseableIterable<FileScanTask> flattened = CloseableIterable.concat(taskGroups);
+        return CloseableIterable.combine(flattened, taskGroups);
     }
 
     private long determineTargetFileSplitSize(Iterable<? extends ContentScanTask<?>> tasks) {
@@ -1035,8 +1067,11 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
 
-        // Split tasks into smaller chunks based on target split size for parallel processing
+        // Split tasks into smaller chunks based on target split size for parallel processing.
         targetSplitSize = determineTargetFileSplitSize(tasks);
+        if (sessionVariable.enableFileScannerV2 && sessionVariable.getFileSplitSize() <= 0) {
+            return preserveParquetFileParents(CloseableIterable.withNoopClose(tasks), targetSplitSize);
+        }
         return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
     }
 

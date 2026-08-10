@@ -234,7 +234,6 @@ public:
         int64_t cache_hit_bytes = 0;
         int64_t merged_useful_bytes = 0;
         int64_t merged_gap_bytes = 0;
-        int64_t future_predicate_prefetch_bytes = 0;
     };
 
     struct RangeCachedData {
@@ -289,11 +288,10 @@ public:
     MergeRangeFileReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
                          const std::vector<PrefetchRange>& random_access_ranges,
                          int64_t merge_read_slice_size = READ_SLICE_SIZE)
-            : _profile(profile),
-              _reader(std::move(reader)),
-              _random_access_ranges(random_access_ranges) {
-        _range_cached_data.resize(random_access_ranges.size());
-        _range_stages.resize(random_access_ranges.size(), 0);
+            : _profile(profile), _reader(std::move(reader)) {
+        // Eager plans can contain PARQUET-816 padding overlaps. Normalize them through the same
+        // path as staged ranges so useful-byte accounting always measures a union.
+        DORIS_CHECK(add_random_access_ranges(random_access_ranges, 0).ok());
         _size = _reader->size();
         io::FileReaderSPtr exact_cache_candidate = _reader;
         if (auto tracing_reader =
@@ -337,8 +335,6 @@ public:
                                                                 TUnit::BYTES, random_profile, 1);
             _merged_gap_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedGapBytes",
                                                              TUnit::BYTES, random_profile, 1);
-            _future_predicate_prefetch_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
-                    _profile, "FuturePredicatePrefetchBytes", TUnit::BYTES, random_profile, 1);
         }
     }
 
@@ -392,8 +388,6 @@ protected:
             COUNTER_UPDATE(_cache_hit_bytes, _statistics.cache_hit_bytes);
             COUNTER_UPDATE(_merged_useful_bytes, _statistics.merged_useful_bytes);
             COUNTER_UPDATE(_merged_gap_bytes, _statistics.merged_gap_bytes);
-            COUNTER_UPDATE(_future_predicate_prefetch_bytes,
-                           _statistics.future_predicate_prefetch_bytes);
             if (_reader != nullptr) {
                 _reader->collect_profile_before_close();
             }
@@ -411,7 +405,6 @@ private:
     RuntimeProfile::Counter* _cache_hit_bytes = nullptr;
     RuntimeProfile::Counter* _merged_useful_bytes = nullptr;
     RuntimeProfile::Counter* _merged_gap_bytes = nullptr;
-    RuntimeProfile::Counter* _future_predicate_prefetch_bytes = nullptr;
 
     int _search_read_range(size_t start_offset, size_t end_offset);
     void _clean_cached_data(RangeCachedData& cached_data);

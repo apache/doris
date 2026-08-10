@@ -449,6 +449,16 @@ Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjunc
 Status FileScannerV2::_open_impl(RuntimeState* state) {
     SCOPED_TIMER(_scanner_total_timer);
     SCOPED_TIMER(_open_timer);
+    bool open_complete = false;
+    Defer release_parent_on_error([&] {
+        if (!open_complete && _current_file_parent_claimed) {
+            const auto status = _finish_current_file_parent({});
+            if (!status.ok()) {
+                LOG(WARNING) << "Failed to release file parent after scanner open error: "
+                             << status;
+            }
+        }
+    });
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(Scanner::_open_impl(state));
     RETURN_IF_ERROR(_get_next_scan_range(&_first_scan_range));
@@ -458,17 +468,43 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
         RETURN_IF_ERROR(_init_expr_ctxes());
         RETURN_IF_ERROR(_init_table_reader(_current_range));
     }
+    open_complete = true;
     return Status::OK();
 }
 
 Status FileScannerV2::_get_next_scan_range(bool* has_next) {
     SCOPED_TIMER(_get_next_range_timer);
     DORIS_CHECK(has_next != nullptr);
-    RETURN_IF_ERROR(_split_source->get_next(has_next, &_current_range));
+    FileScanSplitTask task;
+    RETURN_IF_ERROR(_split_source->get_next_split(has_next, &task));
     if (*has_next) {
-        RETURN_IF_ERROR(_validate_scan_range(*_params, _current_range));
+        DORIS_CHECK(!_current_file_parent_claimed);
+        _current_range = std::move(task.range);
+        _current_split_context = std::move(task.context);
+        _current_file_parent_claimed =
+                _current_range.__isset.is_file_parent && _current_range.is_file_parent;
+        const auto status = _validate_scan_range(*_params, _current_range);
+        if (!status.ok() && _current_file_parent_claimed) {
+            // A claimed parent must always be released, even when validation fails before the
+            // normal parent-task guard is installed, or sibling scanners can wait forever.
+            const auto finish_status = _finish_current_file_parent({});
+            if (!finish_status.ok()) {
+                LOG(WARNING) << "Failed to release invalid file parent task: " << finish_status;
+            }
+        }
+        RETURN_IF_ERROR(status);
     }
     return Status::OK();
+}
+
+Status FileScannerV2::_finish_current_file_parent(std::vector<FileScanSplitTask> children) {
+    if (!_current_file_parent_claimed) {
+        return Status::InternalError("No file parent task is claimed by this scanner");
+    }
+    auto status = _split_source->finish_file_parent(std::move(children));
+    // A failed completion cannot be made safe by retrying after the children were moved.
+    _current_file_parent_claimed = false;
+    return status;
 }
 
 Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
@@ -560,6 +596,21 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             RETURN_IF_ERROR(_get_next_scan_range(&has_next));
         }
         _first_scan_range = false;
+        const bool is_file_parent = has_next && _current_file_parent_claimed;
+        bool file_parent_finished = false;
+        Defer finish_file_parent_on_exit([&] {
+            if (is_file_parent && !file_parent_finished) {
+                const auto finish_status = _finish_current_file_parent({});
+                if (!finish_status.ok()) {
+                    LOG(WARNING) << "Failed to release file parent task: " << finish_status;
+                }
+            }
+        });
+        auto finish_file_parent = [&](std::vector<FileScanSplitTask> children) {
+            auto finish_status = _finish_current_file_parent(std::move(children));
+            file_parent_finished = true;
+            return finish_status;
+        };
         if (!has_next || _should_stop) {
             *eos = true;
             return Status::OK();
@@ -583,6 +634,9 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
                 _prepare_table_reader_split(_current_range, std::move(partition_values));
         if (_should_skip_not_found(status, config::ignore_not_found_file_in_external_table)) {
             RETURN_IF_ERROR(_table_reader->abort_split());
+            if (is_file_parent) {
+                RETURN_IF_ERROR(finish_file_parent({}));
+            }
             COUNTER_UPDATE(_not_found_file_counter, 1);
             _state->update_num_finished_scan_range(1);
             continue;
@@ -593,12 +647,34 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             // get_block() follows the symmetric branch in _get_block_impl(). Both paths must
             // advance exactly one scan range and preserve later files in the same scan.
             RETURN_IF_ERROR(_table_reader->abort_split());
+            if (is_file_parent) {
+                RETURN_IF_ERROR(finish_file_parent({}));
+            }
             COUNTER_UPDATE(_empty_file_counter, 1);
             _state->update_num_finished_scan_range(1);
             continue;
         }
-        RETURN_IF_ERROR(status);
+        if (!status.ok()) {
+            if (is_file_parent) {
+                RETURN_IF_ERROR(finish_file_parent({}));
+            }
+            return status;
+        }
         if (_table_reader->current_split_pruned()) {
+            if (is_file_parent) {
+                RETURN_IF_ERROR(finish_file_parent({}));
+            }
+            _state->update_num_finished_scan_range(1);
+            continue;
+        }
+        if (is_file_parent) {
+            std::vector<FileScanSplitTask> children;
+            const auto build_status = _table_reader->build_file_split_tasks(&children);
+            if (!build_status.ok()) {
+                RETURN_IF_ERROR(finish_file_parent({}));
+                return build_status;
+            }
+            RETURN_IF_ERROR(finish_file_parent(std::move(children)));
             _state->update_num_finished_scan_range(1);
             continue;
         }
@@ -717,6 +793,7 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
             .condition_cache_digest = _current_condition_cache_digest(),
             .cache = _kv_cache,
             .current_range = range,
+            .split_context = _current_split_context,
             .current_split_format = current_split_format,
             .global_rowid_context = _create_global_rowid_context(range),
     }));
@@ -968,8 +1045,15 @@ Status FileScannerV2::_init_io_ctx() {
     if (config::enable_file_scanner_v2_reader_local_cache) {
         const size_t capacity = cast_set<size_t>(
                 std::max<int64_t>(0, config::file_scanner_v2_reader_local_cache_size));
-        _io_ctx->reader_local_cache = std::make_shared<io::FileScannerV2ReaderLocalCache>(
-                capacity, _state->query_mem_tracker());
+        if (_split_source != nullptr) {
+            _io_ctx->reader_local_cache = _split_source->get_or_create_reader_local_cache(
+                    capacity, _state->query_mem_tracker());
+        } else {
+            // Standalone scanners have no query-level owner, so they must retain the original
+            // scanner-local lifetime instead of dereferencing an absent split source.
+            _io_ctx->reader_local_cache = std::make_shared<io::FileScannerV2ReaderLocalCache>(
+                    capacity, _state->query_mem_tracker());
+        }
     }
     return Status::OK();
 }
@@ -1065,6 +1149,10 @@ Status FileScannerV2::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
+    Status parent_status;
+    if (_current_file_parent_claimed) {
+        parent_status = _finish_current_file_parent({});
+    }
     if (_table_reader != nullptr) {
         const auto close_status = _table_reader->close();
         if (!close_status.ok()) {
@@ -1073,7 +1161,8 @@ Status FileScannerV2::close(RuntimeState* state) {
         _report_condition_cache_profile();
         _table_reader.reset();
     }
-    return Scanner::close(state);
+    const auto close_status = Scanner::close(state);
+    return parent_status.ok() ? close_status : parent_status;
 }
 
 void FileScannerV2::try_stop() {
@@ -1110,12 +1199,16 @@ void FileScannerV2::update_realtime_counters() {
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
             deltas.scan_bytes_from_remote_storage);
 
-    // Scanner instances share the profile counter, so publishing an absolute value would erase
-    // bytes already reported by sibling scanners.
+    // Scanner instances share these profile counters, so each scanner publishes only its new
+    // additive delta instead of overwriting work already reported by siblings.
     COUNTER_UPDATE(_file_read_bytes_counter,
                    _cumulative_profile_delta(bytes_read, &_reported_file_read_bytes));
-    COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
-    COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
+    COUNTER_UPDATE(_file_read_calls_counter,
+                   _cumulative_profile_delta(cast_set<int64_t>(_file_reader_stats->read_calls),
+                                             &_reported_file_read_calls));
+    COUNTER_UPDATE(_file_read_time_counter,
+                   _cumulative_profile_delta(cast_set<int64_t>(_file_reader_stats->read_time_ns),
+                                             &_reported_file_read_time));
 
     DorisMetrics::instance()->query_scan_bytes->increment(deltas.scan_bytes);
     DorisMetrics::instance()->query_scan_rows->increment(deltas.scan_rows);
@@ -1213,8 +1306,13 @@ void FileScannerV2::_collect_profile_before_close() {
         COUNTER_UPDATE(_file_read_bytes_counter,
                        _cumulative_profile_delta(cast_set<int64_t>(_file_reader_stats->read_bytes),
                                                  &_reported_file_read_bytes));
-        COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
-        COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
+        COUNTER_UPDATE(_file_read_calls_counter,
+                       _cumulative_profile_delta(cast_set<int64_t>(_file_reader_stats->read_calls),
+                                                 &_reported_file_read_calls));
+        COUNTER_UPDATE(
+                _file_read_time_counter,
+                _cumulative_profile_delta(cast_set<int64_t>(_file_reader_stats->read_time_ns),
+                                          &_reported_file_read_time));
         const auto read_time = cast_set<int64_t>(_file_reader_stats->read_time_ns);
         DORIS_CHECK(read_time >= _reported_io_read_time);
         // Some transports (for example Arrow Flight) record directly into IO, while filesystem

@@ -74,6 +74,7 @@ public:
 
     Status init(format::TableReadOptions&& options) override;
     Status prepare_split(const format::SplitReadOptions& options) override;
+    Status build_file_split_tasks(std::vector<FileScanSplitTask>* children) override;
     Status refresh_conjuncts(VExprContextSPtrs conjuncts) override;
     Status get_block(Block* block, bool* eos) override;
     bool current_split_pruned() const override;

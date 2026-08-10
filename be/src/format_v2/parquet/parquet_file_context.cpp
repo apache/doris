@@ -299,23 +299,30 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
         meta_cache_key.push_back(static_cast<char>(enable_mapping_varbinary));
         meta_cache_key.push_back(static_cast<char>(enable_mapping_timestamp_tz));
     }
-    size_t native_footer_size = 0;
-    if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled() &&
-        meta_cache->lookup(meta_cache_key, &native_meta_cache_handle)) {
-        native_metadata = native_meta_cache_handle.data<NativeParquetMetadata>();
-        ++native_footer_cache_hits;
+    if (shared_metadata != nullptr) {
+        native_metadata = shared_metadata->metadata;
     } else {
-        RETURN_IF_ERROR(parse_native_parquet_footer(
-                native_file, &native_metadata_owner, &native_footer_size, io_ctx,
-                enable_mapping_varbinary, enable_mapping_timestamp_tz));
-        ++native_footer_read_calls;
-        if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled()) {
-            meta_cache->insert(meta_cache_key, native_metadata_owner.release(),
-                               &native_meta_cache_handle);
-            native_metadata = native_meta_cache_handle.data<NativeParquetMetadata>();
+        auto metadata = std::make_shared<SharedParquetMetadata>();
+        size_t native_footer_size = 0;
+        if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled() &&
+            meta_cache->lookup(meta_cache_key, &metadata->cache_handle)) {
+            metadata->metadata = metadata->cache_handle.data<NativeParquetMetadata>();
+            ++native_footer_cache_hits;
         } else {
-            native_metadata = native_metadata_owner.get();
+            RETURN_IF_ERROR(parse_native_parquet_footer(
+                    native_file, &metadata->owner, &native_footer_size, io_ctx,
+                    enable_mapping_varbinary, enable_mapping_timestamp_tz));
+            ++native_footer_read_calls;
+            if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled()) {
+                meta_cache->insert(meta_cache_key, metadata->owner.release(),
+                                   &metadata->cache_handle);
+                metadata->metadata = metadata->cache_handle.data<NativeParquetMetadata>();
+            } else {
+                metadata->metadata = metadata->owner.get();
+            }
         }
+        native_metadata = metadata->metadata;
+        shared_metadata = std::move(metadata);
     }
     DORIS_CHECK(native_metadata != nullptr);
 
@@ -608,8 +615,7 @@ Status ParquetFileContext::close() {
     }
     native_row_group_file.reset();
     native_metadata = nullptr;
-    native_metadata_owner.reset();
-    native_meta_cache_handle = {};
+    shared_metadata.reset();
     native_file.reset();
     native_io_ctx = nullptr;
     native_page_cache_enabled = false;

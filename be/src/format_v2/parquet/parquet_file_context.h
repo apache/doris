@@ -122,6 +122,12 @@ bool should_stage_small_http_file(std::string_view path, size_t file_size,
 
 } // namespace detail
 
+struct SharedParquetMetadata {
+    const NativeParquetMetadata* metadata = nullptr;
+    std::unique_ptr<NativeParquetMetadata> owner;
+    ObjLRUCache::CacheHandle cache_handle;
+};
+
 struct ParquetFileContext {
     // Native metadata, index, and data-page paths share Doris' FileReader without transferring
     // ownership to an external metadata tree.
@@ -130,11 +136,10 @@ struct ParquetFileContext {
     // large chunks and in-memory files keep native_file.
     io::FileReaderSPtr native_row_group_file;
     io::IOContext* native_io_ctx = nullptr;
-    // V2-owned Thrift footer/schema used to construct native page/encoding readers. A cache hit is
-    // owned by native_meta_cache_handle; a miss without cache is owned by native_metadata_owner.
+    // V2-owned Thrift footer/schema used to construct native page/encoding readers. Generated
+    // row-group tasks retain the same immutable owner after the parent reader closes.
     const NativeParquetMetadata* native_metadata = nullptr;
-    std::unique_ptr<NativeParquetMetadata> native_metadata_owner;
-    ObjLRUCache::CacheHandle native_meta_cache_handle;
+    std::shared_ptr<const SharedParquetMetadata> shared_metadata;
     int64_t native_footer_read_calls = 0;
     int64_t native_footer_cache_hits = 0;
     bool native_page_cache_enabled = false;
@@ -146,6 +151,9 @@ struct ParquetFileContext {
     Status open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx, bool enable_page_cache,
                 const io::FileDescription& file_description,
                 bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false);
+    void set_shared_metadata(std::shared_ptr<const SharedParquetMetadata> metadata) {
+        shared_metadata = std::move(metadata);
+    }
     Status load_native_offset_indexes(
             int row_group_id, const std::unordered_set<int>& leaf_column_ids,
             std::unordered_map<int, tparquet::OffsetIndex>* offset_indexes) const;

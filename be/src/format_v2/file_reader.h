@@ -31,6 +31,7 @@
 #include "core/field.h"
 #include "exprs/vexpr_fwd.h"
 #include "format_v2/column_data.h"
+#include "format_v2/file_scan_split.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -366,6 +367,11 @@ public:
     // This method can only be called after init() successfully, but does not require open() to be
     // called.
     virtual Status get_schema(std::vector<ColumnDefinition>* file_schema) const = 0;
+
+    virtual Status build_split_tasks(const TFileRangeDesc& parent,
+                                     std::vector<FileScanSplitTask>* children) {
+        return Status::NotSupported("File reader cannot expand a file parent task");
+    }
 
     // Create the mapper that matches this reader's scan-request capabilities. TableReader still
     // owns table-format semantics such as BY_NAME/BY_FIELD_ID/BY_INDEX, partition values and

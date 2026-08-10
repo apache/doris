@@ -353,6 +353,55 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testFileScannerV2KeepsNativeParquetAsPhysicalFileTask() throws Exception {
+        long fileSize = 128L * 1024 * 1024;
+        DataFileMeta file = DataFileMeta.forAppend("large.parquet", fileSize, 10L,
+                SimpleStats.EMPTY_STATS, 1L, 1L, 1L, Collections.<String>emptyList(), null,
+                FileSource.APPEND, Collections.<String>emptyList(), null, null,
+                Collections.<String>emptyList());
+        DataSplit dataSplit = DataSplit.builder()
+                .rawConvertible(true)
+                .withPartition(BinaryRow.singleColumn(1))
+                .withBucket(1)
+                .withBucketPath("file://bucket")
+                .withDataFiles(Collections.singletonList(file))
+                .build();
+
+        PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), sv));
+        node.setSource(mockPaimonSourceWithPartitionKeys(Collections.emptyList()));
+        Mockito.doReturn(Collections.singletonList(dataSplit)).when(node).getPaimonSplitFromAPI();
+        mockNativeReader(node);
+        setField(FileQueryScanNode.class, node, "fileSplitter",
+                new FileSplitter(32L * 1024 * 1024, 64L * 1024 * 1024, 0));
+        setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+        sv.enableFileScannerV2 = true;
+        Mockito.when(sv.isForceJniScanner()).thenReturn(false);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+        Mockito.when(sv.getFileSplitSize()).thenReturn(0L);
+        Mockito.when(sv.getMaxInitialSplitSize()).thenReturn(32L * 1024 * 1024);
+        Mockito.when(sv.getMaxSplitSize()).thenReturn(64L * 1024 * 1024);
+
+        List<org.apache.doris.spi.Split> splits = node.getSplits(1);
+
+        Assert.assertEquals(1, splits.size());
+        PaimonSplit parent = (PaimonSplit) splits.get(0);
+        Assert.assertEquals(0, parent.getStart());
+        Assert.assertEquals(fileSize, parent.getLength());
+        Assert.assertEquals(fileSize, parent.getFileLength());
+        Assert.assertTrue(parent.isFileParent());
+
+        node.currentQuerySchema.put(parent.getSchemaId(), Boolean.TRUE);
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        rangeDesc.setStartOffset(parent.getStart());
+        rangeDesc.setSize(parent.getLength());
+        rangeDesc.setFileSize(parent.getFileLength());
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class}, rangeDesc, parent);
+        Assert.assertTrue(rangeDesc.isSetIsFileParent());
+        Assert.assertTrue(rangeDesc.isIsFileParent());
+    }
+
+    @Test
     public void testValidateIncrementalReadParams() throws UserException {
         // Test valid parameter combinations
 

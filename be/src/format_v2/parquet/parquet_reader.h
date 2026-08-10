@@ -36,6 +36,12 @@ namespace doris::format::parquet {
 
 struct ParquetReaderScanState;
 
+struct ParquetFileSplitContext final : FileScanSplitContext {
+    explicit ParquetFileSplitContext(std::shared_ptr<const SharedParquetMetadata> metadata_)
+            : metadata(std::move(metadata_)) {}
+
+    std::shared_ptr<const SharedParquetMetadata> metadata;
+};
 // ============================================================================
 // ============================================================================
 //   init() -> get_schema() -> open(request) -> get_block() [loop] -> close()
@@ -46,7 +52,8 @@ public:
                   std::unique_ptr<io::FileDescription>& file_description,
                   std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                   std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-                  bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false);
+                  bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
+                  std::shared_ptr<const FileScanSplitContext> split_context = nullptr);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
@@ -54,6 +61,9 @@ public:
     void set_batch_size(size_t batch_size) override;
 
     Status get_schema(std::vector<format::ColumnDefinition>* file_schema) const override;
+
+    Status build_split_tasks(const TFileRangeDesc& parent,
+                             std::vector<FileScanSplitTask>* children) override;
 
     std::unique_ptr<format::TableColumnMapper> create_column_mapper(
             format::TableColumnMapperOptions options) const override;
@@ -75,6 +85,10 @@ public:
 
     Status close() override;
 
+#ifdef BE_TEST
+    int64_t TEST_footer_read_calls() const;
+#endif
+
 protected:
     void _init_profile() override;
     bool _supports_reader_local_cache() const override { return true; }
@@ -95,6 +109,7 @@ private:
     size_t _batch_size = ParquetScanScheduler::DEFAULT_READ_BATCH_SIZE;
     bool _enable_mapping_timestamp_tz = false; // whether UTC timestamps are mapped to TIMESTAMPTZ
     bool _enable_mapping_varbinary = false;    // whether raw BYTE_ARRAY is mapped to VARBINARY
+    std::shared_ptr<const FileScanSplitContext> _split_context;
 };
 
 } // namespace doris::format::parquet

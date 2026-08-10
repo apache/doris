@@ -425,6 +425,11 @@ public class PaimonScanNode extends FileQueryScanNode {
 
             putHistorySchemaInfo(paimonSplit.getSchemaId());
             fileDesc.setSchemaId(paimonSplit.getSchemaId());
+            if (paimonSplit.isFileParent()) {
+                // Keep a physical Paimon file indivisible until BE has parsed its footer once;
+                // row-group children inherit the schema and deletion-vector descriptors below.
+                rangeDesc.setIsFileParent(true);
+            }
         }
         fileDesc.setFileFormat(fileFormat);
         // Hadoop conf is set at ScanNode level via params.properties in createScanRangeLocations(),
@@ -569,17 +574,22 @@ public class PaimonScanNode extends FileQueryScanNode {
                     RawFile file = rawFiles.get(i);
                     LocationPath locationPath = LocationPath.of(file.path(), storagePropertiesMap);
                     try {
+                        boolean useFileParent = sessionVariable.enableFileScannerV2
+                                && sessionVariable.getFileSplitSize() <= 0
+                                && file.length() > 0
+                                && getFileFormat(file.path()).equals("parquet");
                         List<Split> dorisSplits = fileSplitter.splitFile(
                                 locationPath,
-                                targetFileSplitSize,
+                                useFileParent ? file.length() : targetFileSplitSize,
                                 null,
                                 file.length(),
                                 -1,
-                                !applyCountPushdown,
+                                !applyCountPushdown && !useFileParent,
                                 Collections.emptyList(),
                                 PaimonSplit.PaimonSplitCreator.DEFAULT);
                         for (Split dorisSplit : dorisSplits) {
                             PaimonSplit paimonSplit = (PaimonSplit) dorisSplit;
+                            paimonSplit.setFileParent(useFileParent);
                             paimonSplit.setSchemaId(file.schemaId());
                             paimonSplit.setPaimonPartitionValues(partitionInfoMap);
                             // try to set deletion file

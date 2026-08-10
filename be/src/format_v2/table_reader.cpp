@@ -1108,7 +1108,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         // match the table type.
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
+                _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
+                _current_split_context);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
@@ -1203,6 +1204,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _current_task.reset();
     _current_file_description.reset();
     _current_file_range_desc = options.current_range;
+    _current_split_context = options.split_context;
     _current_range_compress_type = options.current_range.__isset.compress_type
                                            ? options.current_range.compress_type
                                            : TFileCompressType::UNKNOWN;
@@ -1226,6 +1228,11 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
     _current_file_description = *_current_task->data_file;
+    if (options.current_range.__isset.is_file_parent && options.current_range.is_file_parent) {
+        // Delete state belongs to row-group children; parsing it on the metadata-only parent would
+        // duplicate IO and retain split-local mutable state across concurrent child readers.
+        return Status::OK();
+    }
     // A table-level row count is only equivalent to scanning the split when no row predicate is
     // active and no predicate can arrive later. The metadata path can return several batches for
     // one split; after its first synthetic batch there is no way to recover the real rows if a
@@ -1247,6 +1254,27 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
         return Status::OK();
     }
     return _parse_delete_predicates(options);
+}
+
+Status TableReader::build_file_split_tasks(std::vector<FileScanSplitTask>* children) {
+    DORIS_CHECK(children != nullptr);
+    if (!_current_file_range_desc.__isset.is_file_parent ||
+        !_current_file_range_desc.is_file_parent) {
+        return Status::InvalidArgument("Current split is not a file parent task");
+    }
+    RETURN_IF_ERROR(create_file_reader(&_data_reader.reader));
+    DORIS_CHECK(_data_reader.reader != nullptr);
+    Status status;
+    {
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        SCOPED_TIMER(_profile.file_reader_init_timer);
+        status = _data_reader.reader->init(_runtime_state);
+    }
+    if (status.ok()) {
+        status = _data_reader.reader->build_split_tasks(_current_file_range_desc, children);
+    }
+    const auto close_status = close_current_reader();
+    return status.ok() ? close_status : status;
 }
 
 Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,

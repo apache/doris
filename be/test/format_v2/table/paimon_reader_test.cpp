@@ -101,6 +101,22 @@ public:
     FileFormat prepared_format = FileFormat::JNI;
 };
 
+class SplitTaskTrackingTableReader final : public TableReader {
+public:
+    Status prepare_split(const SplitReadOptions&) override { return Status::OK(); }
+
+    Status build_file_split_tasks(std::vector<FileScanSplitTask>* children) override {
+        DORIS_CHECK(children != nullptr);
+        build_called = true;
+        FileScanSplitTask child;
+        child.range.__set_path("s3://bucket/native.parquet");
+        children->push_back(std::move(child));
+        return Status::OK();
+    }
+
+    bool build_called = false;
+};
+
 DataTypePtr table_type(const DataTypePtr& type) {
     return type->is_nullable() ? type : make_nullable(type);
 }
@@ -758,6 +774,43 @@ TEST(PaimonHybridReaderTest, AdaptiveBatchSizeReachesBothChildReaders) {
     const auto child_batch_sizes = reader.TEST_child_batch_sizes();
     EXPECT_EQ(child_batch_sizes.first, 321);
     EXPECT_EQ(child_batch_sizes.second, 321);
+}
+
+TEST(PaimonHybridReaderTest, FileParentExpansionIsForwardedToNativeChild) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    paimon::PaimonHybridReader reader;
+    SplitTaskTrackingTableReader* child = nullptr;
+    reader.TEST_set_child_reader_factories(
+            [&] {
+                auto tracking = std::make_unique<SplitTaskTrackingTableReader>();
+                child = tracking.get();
+                return tracking;
+            },
+            [] { return std::make_unique<TableReader>(); });
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split;
+    split.current_split_format = FileFormat::PARQUET;
+    split.current_range = make_paimon_native_range(TFileFormatType::FORMAT_PARQUET);
+    split.current_range.__set_is_file_parent(true);
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+
+    std::vector<FileScanSplitTask> children;
+    ASSERT_TRUE(reader.build_file_split_tasks(&children).ok());
+    ASSERT_NE(child, nullptr);
+    EXPECT_TRUE(child->build_called);
+    ASSERT_EQ(children.size(), 1);
+    EXPECT_EQ(children.front().range.path, "s3://bucket/native.parquet");
 }
 
 TEST(PaimonHybridReaderTest, AggregatesConditionCacheHitsFromBothChildren) {

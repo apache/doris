@@ -65,6 +65,7 @@ import org.apache.iceberg.BaseMetadataTable;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataTableType;
@@ -1079,6 +1080,79 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testBatchFileScannerV2KeepsPhysicalFileAsParentTask() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.enableFileScannerV2 = true;
+        TestIcebergScanNode node = new TestIcebergScanNode(sv, false, false, true);
+
+        FileScanTask parentTask = Mockito.mock(FileScanTask.class);
+        DataFile parentFile = Mockito.mock(DataFile.class);
+        Mockito.when(parentFile.format()).thenReturn(FileFormat.PARQUET);
+        Mockito.when(parentTask.file()).thenReturn(parentFile);
+        FileScanTask orcTask = Mockito.mock(FileScanTask.class);
+        DataFile orcFile = Mockito.mock(DataFile.class);
+        Mockito.when(orcFile.format()).thenReturn(FileFormat.ORC);
+        Mockito.when(orcTask.file()).thenReturn(orcFile);
+        FileScanTask firstChild = Mockito.mock(FileScanTask.class);
+        FileScanTask secondChild = Mockito.mock(FileScanTask.class);
+        Mockito.when(orcTask.split(Mockito.anyLong()))
+                .thenReturn(Arrays.asList(firstChild, secondChild));
+        TableScan scan = Mockito.mock(TableScan.class);
+        Mockito.when(scan.planFiles()).thenReturn(
+                org.apache.iceberg.io.CloseableIterable.withNoopClose(
+                        Arrays.asList(parentTask, orcTask)));
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("splitFiles", TableScan.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        org.apache.iceberg.io.CloseableIterable<FileScanTask> tasks =
+                (org.apache.iceberg.io.CloseableIterable<FileScanTask>) method.invoke(node, scan);
+        List<FileScanTask> plannedTasks = new ArrayList<>();
+        try (org.apache.iceberg.io.CloseableIterable<FileScanTask> closeableTasks = tasks) {
+            for (FileScanTask task : closeableTasks) {
+                plannedTasks.add(task);
+            }
+        }
+
+        Assert.assertEquals(Arrays.asList(parentTask, firstChild, secondChild), plannedTasks);
+        Mockito.verify(parentTask, Mockito.never()).split(Mockito.anyLong());
+        Mockito.verify(orcTask).split(sv.getMaxSplitSize());
+    }
+
+    @Test
+    public void testNonBatchFileScannerV2KeepsPhysicalFileAsParentTask() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.enableFileScannerV2 = true;
+        TestIcebergScanNode node = new TestIcebergScanNode(sv);
+
+        FileScanTask parentTask = Mockito.mock(FileScanTask.class);
+        DataFile parentFile = Mockito.mock(DataFile.class);
+        Mockito.when(parentFile.content()).thenReturn(FileContent.DATA);
+        Mockito.when(parentFile.fileSizeInBytes()).thenReturn(128L);
+        Mockito.when(parentFile.format()).thenReturn(FileFormat.PARQUET);
+        Mockito.when(parentTask.file()).thenReturn(parentFile);
+        TableScan scan = Mockito.mock(TableScan.class);
+        Mockito.when(scan.planFiles()).thenReturn(
+                org.apache.iceberg.io.CloseableIterable.withNoopClose(
+                        Collections.singletonList(parentTask)));
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("splitFiles", TableScan.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        org.apache.iceberg.io.CloseableIterable<FileScanTask> tasks =
+                (org.apache.iceberg.io.CloseableIterable<FileScanTask>) method.invoke(node, scan);
+        List<FileScanTask> plannedTasks = new ArrayList<>();
+        try (org.apache.iceberg.io.CloseableIterable<FileScanTask> closeableTasks = tasks) {
+            for (FileScanTask task : closeableTasks) {
+                plannedTasks.add(task);
+            }
+        }
+
+        Assert.assertEquals(Collections.singletonList(parentTask), plannedTasks);
+        Mockito.verify(parentTask, Mockito.never()).split(Mockito.anyLong());
+    }
+
+    @Test
     public void testSetIcebergParamsKeepsDeletionVectorOffsetAsLong() throws Exception {
         SessionVariable sv = new SessionVariable();
         TestIcebergScanNode node = new TestIcebergScanNode(sv);
@@ -1132,6 +1206,53 @@ public class IcebergScanNodeTest {
 
         // Iceberg tables may mix file formats, so each range must preserve its split format.
         Assert.assertEquals(TFileFormatType.FORMAT_ORC, rangeDesc.getFormatType());
+    }
+
+    @Test
+    public void testSetIcebergParamsMarksOnlyWholeParquetFileAsParent() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.enableFileScannerV2 = true;
+        TestIcebergScanNode node = new TestIcebergScanNode(sv, false, false, true);
+        String dataPath = "file:///tmp/data-file.parquet";
+        IcebergSplit split = new IcebergSplit(LocationPath.of(dataPath), 0, 128, 128,
+                new String[0], 2, Collections.emptyMap(), new ArrayList<>(), dataPath);
+        split.setTableFormatType(TableFormatType.ICEBERG);
+        split.setSplitFileFormat(FileFormat.PARQUET);
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("setIcebergParams",
+                TFileRangeDesc.class, IcebergSplit.class);
+        method.setAccessible(true);
+
+        TFileRangeDesc wholeFile = new TFileRangeDesc();
+        wholeFile.setStartOffset(0);
+        wholeFile.setSize(128);
+        wholeFile.setFileSize(128);
+        method.invoke(node, wholeFile, split);
+        Assert.assertTrue(wholeFile.isSetIsFileParent());
+        Assert.assertTrue(wholeFile.isIsFileParent());
+
+        TFileRangeDesc partialFile = new TFileRangeDesc();
+        partialFile.setStartOffset(64);
+        partialFile.setSize(64);
+        partialFile.setFileSize(128);
+        method.invoke(node, partialFile, split);
+        Assert.assertFalse(partialFile.isSetIsFileParent());
+
+        TFileRangeDesc unknownFileSize = new TFileRangeDesc();
+        unknownFileSize.setStartOffset(0);
+        unknownFileSize.setSize(128);
+        method.invoke(node, unknownFileSize, split);
+        Assert.assertFalse(unknownFileSize.isSetIsFileParent());
+
+        Field countPushdownField = IcebergScanNode.class.getDeclaredField("tableLevelPushDownCount");
+        countPushdownField.setAccessible(true);
+        countPushdownField.set(node, true);
+        TFileRangeDesc countPushdownFile = new TFileRangeDesc();
+        countPushdownFile.setStartOffset(0);
+        countPushdownFile.setSize(128);
+        countPushdownFile.setFileSize(128);
+        method.invoke(node, countPushdownFile, split);
+        Assert.assertFalse(countPushdownFile.isSetIsFileParent());
     }
 
     @Test

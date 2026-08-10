@@ -48,7 +48,7 @@ be/output/lib/benchmark_test --benchmark_list_tests \
   | grep '^FileScannerExpr/'
 
 be/output/lib/benchmark_test --benchmark_list_tests \
-  | grep -c '^ParquetDecoder/'  # currently 228
+  | grep -c '^ParquetDecoder/'  # currently 266
 
 be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetKernel/'   # currently 292
@@ -134,8 +134,8 @@ cache to manufacture a cold run.
 
 ## Current scenario matrix
 
-`ParquetDecoder` contains 19 encoding/type pairs. Each pair is run at 0%, 1%, 10%, 50%, 90%, and
-100% selection with clustered and alternating selection ranges, for 228 registered cases.
+`ParquetDecoder` contains 19 encoding/type pairs. Each pair is run at 0%, 1%, 5%, 10%, 50%, 90%,
+and 100% selection with clustered and alternating selection ranges, for 266 registered cases.
 
 | Encoding | Physical types |
 |---|---|
@@ -162,7 +162,7 @@ rows, at least 10% NULLs, and materially fragmented definition-level runs.
 
 `ParquetSelection` contains 25 cases that isolate the selection-vector work used by Parquet
 predicate evaluation. It measures identity initialization, one raw-row filter, and two successive
-filters. The filter matrix covers 0%, 1%, 10%, 50%, 90%, and 100% selectivity with clustered and
+filters. The filter matrix covers 0%, 1%, 5%, 10%, 50%, 90%, and 100% selectivity with clustered and
 alternating matches. These cases include `SelectionVector::resize()` in the timed region because
 initializing a new batch is part of the production predicate path.
 
@@ -180,7 +180,7 @@ deduplication it contains 167 cases covering:
 - file encodings: PLAIN, dictionary, BYTE_STREAM_SPLIT, and DELTA_BINARY_PACKED;
 - null ratios: 0%, 1%, 10%, 50%, and 90%;
 - null shapes: clustered and alternating;
-- predicate selectivities: 0%, 1%, 10%, 50%, 90%, and 100%;
+- predicate selectivities: 0%, 1%, 5%, 10%, 50%, 90%, and 100%;
 - projection shapes: predicate-only and predicate plus one lazy payload column;
 - schema widths: 4, 32, 128, and 512 columns;
 - predicate position: first or last column.
@@ -350,7 +350,7 @@ be simulated by silently changing the local reader benchmark.
 
 ## Current validation record
 
-The current expected registration counts are 228 decoder, 92 kernel, 25 selection, 169 reader, and
+The current expected registration counts are 266 decoder, 92 kernel, 25 selection, 169 reader, and
 8 expression-lifecycle cases. A smoke run is an execution record only, not a reviewed performance
 baseline, because repetitions, host isolation, warmups, cache control, `perf` data, variance, and
 before/after comparison are not collected.

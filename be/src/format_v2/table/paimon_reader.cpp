@@ -279,6 +279,13 @@ Status PaimonHybridReader::prepare_split(const format::SplitReadOptions& options
     return _current_split_reader->prepare_split(options);
 }
 
+Status PaimonHybridReader::build_file_split_tasks(std::vector<FileScanSplitTask>* children) {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    // The hybrid wrapper owns no physical reader; the native child that prepared the parent must
+    // also create its row-group children so they retain Paimon schema and delete semantics.
+    return _current_split_reader->build_file_split_tasks(children);
+}
+
 Status PaimonHybridReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(std::move(conjuncts)));
     if (_current_split_reader == nullptr) {

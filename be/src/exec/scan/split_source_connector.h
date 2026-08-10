@@ -18,14 +18,21 @@
 #pragma once
 
 #include <algorithm>
+#include <condition_variable>
+#include <deque>
 
 #include "common/config.h"
 #include "core/custom_allocator.h"
+#include "format_v2/file_scan_split.h"
 #include "runtime/runtime_state.h"
 #include "util/client_cache.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+namespace io {
+class FileScannerV2ReaderLocalCache;
+}
 
 /*
  * Multiple scanners within a scan node share a split source.
@@ -44,6 +51,13 @@ public:
      */
     virtual Status get_next(bool* has_next, TFileRangeDesc* range) = 0;
 
+    virtual Status get_next_split(bool* has_next, FileScanSplitTask* task);
+
+    Status finish_file_parent(std::vector<FileScanSplitTask> children);
+
+    std::shared_ptr<io::FileScannerV2ReaderLocalCache> get_or_create_reader_local_cache(
+            size_t capacity, std::shared_ptr<MemTrackerLimiter> query_mem_tracker);
+
     virtual int num_scan_ranges() = 0;
 
     virtual TFileScanRangeParams* get_params() = 0;
@@ -51,6 +65,9 @@ public:
     virtual bool all_ranges_have_table_level_row_count() const { return false; }
 
 protected:
+    bool _take_generated_split(FileScanSplitTask* task);
+    void _mark_parent_claimed(const TFileRangeDesc& range);
+
     template <typename T, typename V1 = std::vector<T>, typename V2 = std::vector<T>>
         requires(std::is_same_v<std::remove_cvref_t<V1>,
                                 std::vector<T, typename V1::allocator_type>> &&
@@ -96,6 +113,11 @@ protected:
 
 protected:
     int _max_scanners;
+    std::mutex _scan_range_lock;
+    std::condition_variable _range_ready;
+    std::deque<FileScanSplitTask> _generated_splits;
+    size_t _active_file_parents = 0;
+    std::shared_ptr<io::FileScannerV2ReaderLocalCache> _reader_local_cache;
 };
 
 /**
@@ -106,7 +128,6 @@ protected:
  */
 class LocalSplitSourceConnector : public SplitSourceConnector {
 private:
-    std::mutex _range_lock;
     DorisVector<TScanRangeParams> _scan_ranges;
     int _scan_index = 0;
     int _range_index = 0;
@@ -118,6 +139,7 @@ public:
     }
 
     Status get_next(bool* has_next, TFileRangeDesc* range) override;
+    Status get_next_split(bool* has_next, FileScanSplitTask* task) override;
 
     int num_scan_ranges() override { return static_cast<int>(_scan_ranges.size()); }
 
@@ -154,7 +176,6 @@ public:
  */
 class RemoteSplitSourceConnector : public SplitSourceConnector {
 private:
-    std::mutex _range_lock;
     RuntimeState* _state;
     RuntimeProfile::Counter* _get_split_timer;
     int64_t _split_source_id;
@@ -176,6 +197,7 @@ public:
     }
 
     Status get_next(bool* has_next, TFileRangeDesc* range) override;
+    Status get_next_split(bool* has_next, FileScanSplitTask* task) override;
 
     /*
      * Remote split source is fetched in batch mode, and the splits are generated while scanning,
