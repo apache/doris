@@ -36,6 +36,9 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.constraint.ConstraintManager;
+import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -47,6 +50,8 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.After;
@@ -349,5 +354,42 @@ public class RestoreJobTest {
 
         Assert.assertSame(replacementTable, db.getTableNullable(expectedRestoreTbl.getName()));
         Mockito.verifyNoInteractions(constraintManager);
+    }
+
+    @Test
+    public void testAtomicRestoreRejectsReferencedOriginBeforeReplacement() throws Exception {
+        ConstraintManager constraintManager = new ConstraintManager();
+        Database database = Mockito.mock(Database.class);
+        OlapTable restoredTable = Mockito.mock(OlapTable.class);
+        OlapTable originTable = Mockito.mock(OlapTable.class);
+        String originName = CatalogMocker.TEST_TBL2_NAME;
+        String aliasName = RestoreJob.tableAliasWithAtomicRestore(originName);
+        TableNameInfo originTableInfo = new TableNameInfo(
+                InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME, originName);
+        TableNameInfo referencingTableInfo = new TableNameInfo(
+                InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME, "referencing_table");
+        constraintManager.addConstraint(originTableInfo, "pk",
+                new PrimaryKeyConstraint("pk", ImmutableSet.of("k1")), true);
+        constraintManager.addConstraint(referencingTableInfo, "fk",
+                new ForeignKeyConstraint("fk", ImmutableList.of("k1"),
+                        originTableInfo, ImmutableList.of("k1")), true);
+
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(database.writeLockIfExist()).thenReturn(true);
+        Mockito.when(database.getFullName()).thenReturn(CatalogMocker.TEST_DB_NAME);
+        Mockito.when(database.getTableNullable(aliasName)).thenReturn(restoredTable);
+        Mockito.when(database.getTableNullable(originName)).thenReturn(originTable);
+        Mockito.when(restoredTable.getType()).thenReturn(Table.TableType.OLAP);
+        Mockito.when(originTable.getType()).thenReturn(Table.TableType.OLAP);
+        Deencapsulation.setField(job, "isAtomicRestore", true);
+
+        Status status = Deencapsulation.invoke(job, "atomicReplaceOlapTables", database, false);
+
+        Assert.assertFalse(status.ok());
+        Assert.assertNotNull(constraintManager.getConstraint(originTableInfo, "pk"));
+        Assert.assertNotNull(constraintManager.getConstraint(referencingTableInfo, "fk"));
+        Mockito.verify(database, Mockito.never()).unregisterTable(Mockito.anyString());
+        Mockito.verify(database, Mockito.never()).registerTable(Mockito.any());
     }
 }

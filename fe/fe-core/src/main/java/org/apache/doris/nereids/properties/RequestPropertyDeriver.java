@@ -304,7 +304,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     public Void visitPhysicalSetOperation(PhysicalSetOperation setOperation, PlanContext context) {
         // intersect and except need do distinct, so we must do distribution on it.
         DistributionSpec distributionRequestFromParent = requestPropertyFromParent.getDistributionSpec();
-        if (distributionRequestFromParent instanceof DistributionSpecHash) {
+        if (distributionRequestFromParent instanceof DistributionSpecHash
+                && ((DistributionSpecHash) distributionRequestFromParent).getShuffleType()
+                        != ShuffleType.COLOCATE_MAPPING_REQUIRE) {
             // shuffle according to parent require
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
             addRequestPropertyToChildren(downgradeRequireWhenBucketShuffleNotAllowed(

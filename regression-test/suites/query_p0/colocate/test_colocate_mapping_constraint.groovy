@@ -765,6 +765,37 @@ suite("test_colocate_mapping_constraint") {
                   ON l.d1 = r.d1 AND l.k2 = r.k2 """
         notContains "COLOCATE"
     }
+    // INTERSECT and EXCEPT require their own hash shuffle and cannot accept a hidden mapping request.
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT d1, k2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY d1, k2
+                    INTERSECT
+                    SELECT d1, k2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY d1, k2
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
+        notContains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT d1, k2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY d1, k2
+                    EXCEPT
+                    SELECT d1, k2, SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY d1, k2
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
+        notContains "COLOCATE"
+    }
 
     order_qt_colocate_mapping_result """
         SELECT l.k1, l.k2, l.d1, l.d2, l.extra_col,

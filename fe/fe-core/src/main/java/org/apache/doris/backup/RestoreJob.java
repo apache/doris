@@ -2644,6 +2644,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 OlapTable newOlapTbl = (OlapTable) newTbl;
                 newOlapTbl.writeLock();
                 try {
+                    TableNameInfo originTableInfo = new TableNameInfo(
+                            InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), originName);
+                    Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
+                            originTableInfo, !isForceReplace);
                     // rename new table name to origin table name and add the new table to database.
                     db.unregisterTable(aliasName);
                     newOlapTbl.checkAndSetName(originName, false);
@@ -2652,9 +2656,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     Env.getCurrentEnv().getConstraintManager().dropTableConstraints(
                             new TableNameInfo(
                                     InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), aliasName));
-                    TableNameInfo originTableInfo = new TableNameInfo(
-                            InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), originName);
-                    Env.getCurrentEnv().getConstraintManager().dropTableConstraints(originTableInfo);
                     Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
                             originTableInfo, newOlapTbl);
                     Env.getCurrentEnv().getSqlCacheManager()

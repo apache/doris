@@ -83,7 +83,8 @@ import org.apache.logging.log4j.Logger;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Collection;
-import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -99,6 +100,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class NereidsSqlCacheManager {
     private static final Logger LOG = LogManager.getLogger(NereidsSqlCacheManager.class);
+    private static final int MAX_TABLE_PUBLICATION_FENCES = 100_000;
     // key: <ctl.db>:<user>:<sql>
     // value: SqlCacheContext
     private volatile Cache<String, SqlCacheContext> sqlCaches;
@@ -107,10 +109,19 @@ public class NereidsSqlCacheManager {
     private final ReentrantReadWriteLock publicationLock = new ReentrantReadWriteLock();
     // Guarded by publicationLock.
     private long globalInvalidationSequence;
-    private final Map<Long, Long> tableIdInvalidationSequences = new HashMap<>();
-    private final Map<FullTableName, Long> tableNameInvalidationSequences = new HashMap<>();
+    private final int maxTablePublicationFences;
+    private final Map<Long, Long> tableIdInvalidationSequences;
+    private final Map<FullTableName, Long> tableNameInvalidationSequences;
 
     public NereidsSqlCacheManager() {
+        this(MAX_TABLE_PUBLICATION_FENCES);
+    }
+
+    @VisibleForTesting
+    NereidsSqlCacheManager(int maxTablePublicationFences) {
+        this.maxTablePublicationFences = maxTablePublicationFences;
+        tableIdInvalidationSequences = new LinkedHashMap<>();
+        tableNameInvalidationSequences = new LinkedHashMap<>();
         sqlCaches = buildSqlCaches(
                 Config.sql_cache_manage_num,
                 Config.expire_sql_cache_in_fe_second
@@ -157,10 +168,10 @@ public class NereidsSqlCacheManager {
             if (fencePublication) {
                 long invalidationSequence = publicationSequence.incrementAndGet();
                 if (tableId >= 0) {
-                    tableIdInvalidationSequences.put(tableId, invalidationSequence);
+                    recordTableInvalidation(tableIdInvalidationSequences, tableId, invalidationSequence);
                 }
                 if (invalidateTableName != null) {
-                    tableNameInvalidationSequences.put(invalidateTableName, invalidationSequence);
+                    recordTableInvalidation(tableNameInvalidationSequences, invalidateTableName, invalidationSequence);
                 }
             }
             Set<String> invalidateKeys = new LinkedHashSet<>();
@@ -190,6 +201,19 @@ public class NereidsSqlCacheManager {
         }
     }
 
+    private <K> void recordTableInvalidation(Map<K, Long> invalidationSequences, K table,
+            long invalidationSequence) {
+        invalidationSequences.remove(table);
+        invalidationSequences.put(table, invalidationSequence);
+        if (invalidationSequences.size() > maxTablePublicationFences) {
+            Iterator<Entry<K, Long>> iterator = invalidationSequences.entrySet().iterator();
+            Entry<K, Long> retiredFence = iterator.next();
+            // Preserve correctness for publishers that started before a bounded table fence was retired.
+            globalInvalidationSequence = Math.max(globalInvalidationSequence, retiredFence.getValue());
+            iterator.remove();
+        }
+    }
+
     public void invalidateAll() {
         publicationLock.writeLock().lock();
         try {
@@ -212,6 +236,26 @@ public class NereidsSqlCacheManager {
         try {
             return tableNameInvalidationSequences.getOrDefault(new FullTableName(
                     tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl()), 0L);
+        } finally {
+            publicationLock.readLock().unlock();
+        }
+    }
+
+    @VisibleForTesting
+    int getTableIdPublicationFenceCount() {
+        publicationLock.readLock().lock();
+        try {
+            return tableIdInvalidationSequences.size();
+        } finally {
+            publicationLock.readLock().unlock();
+        }
+    }
+
+    @VisibleForTesting
+    int getTableNamePublicationFenceCount() {
+        publicationLock.readLock().lock();
+        try {
+            return tableNameInvalidationSequences.size();
         } finally {
             publicationLock.readLock().unlock();
         }
