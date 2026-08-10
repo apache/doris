@@ -17,10 +17,14 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
+import org.apache.doris.mtmv.BaseTableInfo;
 
+import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
@@ -30,6 +34,8 @@ public class ExternalEqualsTest {
     private TestExternalCatalog ctl1;
     @Mocked
     private TestExternalCatalog ctl2;
+    @Mocked
+    private MetaCache<TestExternalTable> metaCache;
 
     @Test
     public void testEquals() {
@@ -48,5 +54,29 @@ public class ExternalEqualsTest {
         Assert.assertNotEquals(t1, t2);
         Assert.assertNotEquals(t1, t3);
         Assert.assertEquals(t1, t11);
+    }
+
+    @Test
+    public void testRegisterTableRestoresExternalTableOwnerReferences() {
+        new Expectations() {
+            {
+                ctl1.fromRemoteTableName("db1", "tbl_event");
+                result = "tbl_event";
+                ctl1.getName();
+                result = "test_catalog";
+            }
+        };
+        TestExternalDatabase db = new TestExternalDatabase(ctl1, 2L, "db1", "db1");
+        Deencapsulation.setField(db, "initialized", true);
+        Deencapsulation.setField(db, "metaCache", metaCache);
+        TestExternalTable table = new TestExternalTable(3L, "tbl_event", "tbl_event", ctl1, db);
+        table.setCatalog(null);
+        table.setDb(null);
+
+        db.registerTable(table);
+
+        Assert.assertSame(ctl1, table.getCatalog());
+        Assert.assertSame(db, table.getDatabase());
+        new BaseTableInfo(table);
     }
 }

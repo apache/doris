@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -239,6 +240,13 @@ public class CollectRelation implements AnalysisRuleFactory {
         boolean shouldCollect = MaterializedViewUtils.containMaterializedViewHook(
                 cascadesContext.getStatementContext());
         if (shouldCollect) {
+            DatabaseIf database = table.getDatabase();
+            // MTMV rewrite is optional, so incomplete replayed ownership must not abort the query.
+            if (database == null || database.getCatalog() == null) {
+                LOG.warn("Skip collecting MTMV candidates for table {} because its owner metadata is incomplete",
+                        table.getName());
+                return;
+            }
             boolean isDebugEnabled = LOG.isDebugEnabled();
             Set<MTMV> mtmvSet = Env.getCurrentEnv().getMtmvService().getRelationManager()
                     .getCandidateMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
