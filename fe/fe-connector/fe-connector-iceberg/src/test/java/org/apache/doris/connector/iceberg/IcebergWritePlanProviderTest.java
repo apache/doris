@@ -352,6 +352,20 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void writeSchemaAllowsNestedPrimitivePartitionSource() {
+        InMemoryCatalog catalog = freshCatalog();
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "part", Types.IntegerType.get()))));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "nested_partition"), schema,
+                PartitionSpec.builderFor(schema).identity("payload.part").build());
+
+        Assertions.assertDoesNotThrow(() -> IcebergWriteSchemaContext.create(
+                table, "db1.nested_partition", Optional.empty(), false, false));
+    }
+
+    @Test
     public void branchWriteRejectsCurrentRequiredFieldAbsentWithoutDefault() {
         InMemoryCatalog catalog = freshCatalog();
         Table table = unpartitionedUnsortedTable(catalog);
@@ -1290,6 +1304,26 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals("id", f.getSourceColumnName(), "source column is the base column, not the partition field");
         Assertions.assertEquals("id_bucket", f.getFieldName(), "partition field name is iceberg's derived 'id_bucket'");
         Assertions.assertEquals(table.schema().findField("id").fieldId(), f.getSourceId());
+    }
+
+    @Test
+    public void getWritePartitioningRoutesNestedSourceByItsTopLevelColumn() {
+        InMemoryCatalog catalog = freshCatalog();
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "part", Types.IntegerType.get()))));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "nested_partition"), schema,
+                PartitionSpec.builderFor(schema).bucket("payload.part", 8).build());
+
+        ConnectorWritePartitionField field = providerFor(table, contextWithStorage())
+                .getWritePartitioning(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "nested_partition"))
+                .getFields().get(0);
+
+        Assertions.assertEquals("payload", field.getSourceColumnName(),
+                "merge exchange must route a nested source through its bound top-level struct slot");
+        Assertions.assertEquals(Integer.valueOf(3), field.getSourceId());
     }
 
     // ───────────────────── getSyntheticWriteColumns (connector declares the row-id STRUCT, ③ C3b-core) ─────────────────────

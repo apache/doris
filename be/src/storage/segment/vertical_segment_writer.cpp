@@ -78,6 +78,7 @@
 #include "storage/segment/variant/variant_ext_meta_writer.h"
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/transform/block_transform.h"
 #include "storage/utils.h"
 #include "util/coding.h"
 #include "util/debug_points.h"
@@ -348,6 +349,39 @@ Status VerticalSegmentWriter::_append_row_store_column(const Block& block, size_
 
         auto typed_column = block.get_by_position(cid);
         typed_column.column = std::move(row_column);
+        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
+                typed_column, 0, rows, cid));
+        auto [status, column] = _olap_data_convertor->convert_column_data(cid);
+        RETURN_IF_ERROR(status);
+        RETURN_IF_ERROR(
+                _column_writers[cid]->append(column->get_nullmap(), column->get_data(), rows));
+        _olap_data_convertor->clear_source_content(cid);
+        pos += rows;
+    }
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_append_generated_column(const DerivedColumnGenerator& generator,
+                                                       const Block& block, size_t row_pos,
+                                                       size_t num_rows, uint32_t cid) {
+    if (num_rows == 0) {
+        return Status::OK();
+    }
+    DCHECK_LE(row_pos + num_rows, block.rows());
+
+    size_t end_pos = row_pos + num_rows;
+    size_t batch_rows = _opts.num_rows_per_block;
+    static constexpr size_t kDerivedColumnBatchBytes = 4 * 1024 * 1024;
+    DCHECK_GT(batch_rows, 0);
+    for (size_t pos = row_pos; pos < end_pos;) {
+        size_t max_rows = std::min(batch_rows, end_pos - pos);
+        auto generated_column = block.get_by_position(cid).column->clone_empty();
+        size_t rows = generator.generate(block, pos, max_rows, kDerivedColumnBatchBytes,
+                                         generated_column.get());
+        DCHECK_GT(rows, 0);
+
+        auto typed_column = block.get_by_position(cid);
+        typed_column.column = std::move(generated_column);
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
                 typed_column, 0, rows, cid));
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
@@ -966,36 +1000,17 @@ Status VerticalSegmentWriter::write_batch() {
         }
         return Status::OK();
     }
-    // Row column should be filled here when it's a directly write from memtable
-    // or it's schema change write(since column data type maybe changed, so we should reubild)
-    bool should_write_row_store_column = _opts.write_type == DataWriteType::TYPE_DIRECT ||
-                                         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE;
-    if (should_write_row_store_column) {
-        for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
-            if (!_tablet_schema->column(cid).is_row_store_column()) {
-                continue;
-            }
-            RETURN_IF_ERROR(
-                    _create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
-            for (auto& data : _batched_blocks) {
-                RETURN_IF_ERROR(
-                        _append_row_store_column(*data.block, data.row_pos, data.num_rows, cid));
-            }
-            RETURN_IF_ERROR(_check_column_writer_disk_capacity(cid));
-            RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
-        }
-    }
-
-    std::vector<uint32_t> column_ids;
-    for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
-        column_ids.emplace_back(i);
-    }
-    if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
-        _tablet_schema->num_variant_columns() > 0) {
+    // The transform chain already validated, parsed variants and decided the derived
+    // (row-store) column; this writer only pumps the generator in bounded batches.
+    if (_derived_column.second) {
+        const auto& [cid, generator] = _derived_column;
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         for (auto& data : _batched_blocks) {
-            RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
-                    const_cast<Block&>(*data.block), *_tablet_schema, column_ids));
+            RETURN_IF_ERROR(_append_generated_column(*generator, *data.block, data.row_pos,
+                                                     data.num_rows, cid));
         }
+        RETURN_IF_ERROR(_check_column_writer_disk_capacity(cid));
+        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
     }
 
     std::vector<IOlapColumnDataAccessor*> key_columns;
@@ -1003,7 +1018,7 @@ Status VerticalSegmentWriter::write_batch() {
     // the key is cluster key column unique id
     std::map<uint32_t, IOlapColumnDataAccessor*> cid_to_column;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
-        if (should_write_row_store_column && _tablet_schema->column(cid).is_row_store_column()) {
+        if (_derived_column.second && _derived_column.first == cid) {
             continue;
         }
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
@@ -1045,6 +1060,8 @@ Status VerticalSegmentWriter::write_batch() {
     }
 
     _batched_blocks.clear();
+    // The generator snapshots the batched blocks' rows; it must not survive them.
+    _derived_column = {};
     return Status::OK();
 }
 

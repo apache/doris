@@ -139,6 +139,103 @@ protected:
         return schema;
     }
 
+    // (k INT key, v VARIANT, delete-sign) UNIQUE_KEYS MoW schema, for the variant parse stage.
+    TabletSchemaSPtr create_variant_schema() {
+        TabletSchemaPB pb;
+        pb.set_keys_type(UNIQUE_KEYS);
+        pb.set_num_short_key_columns(1);
+        pb.set_num_rows_per_row_block(1024);
+        pb.set_compress_kind(COMPRESS_LZ4);
+        pb.set_next_column_unique_id(10);
+        {
+            ColumnPB* c = pb.add_column();
+            c->set_unique_id(0);
+            c->set_name("k");
+            c->set_type("INT");
+            c->set_is_key(true);
+            c->set_length(4);
+            c->set_index_length(4);
+            c->set_is_nullable(false);
+            c->set_aggregation("NONE");
+        }
+        {
+            ColumnPB* c = pb.add_column();
+            c->set_unique_id(1);
+            c->set_name("v");
+            c->set_type("VARIANT");
+            c->set_is_key(false);
+            c->set_length(2147483643);
+            c->set_index_length(4);
+            c->set_is_nullable(false);
+            c->set_aggregation("NONE");
+            c->set_variant_max_subcolumns_count(3);
+        }
+        {
+            ColumnPB* c = pb.add_column();
+            c->set_unique_id(2);
+            c->set_name(DELETE_SIGN);
+            c->set_type("TINYINT");
+            c->set_is_key(false);
+            c->set_length(1);
+            c->set_index_length(1);
+            c->set_is_nullable(false);
+            c->set_aggregation("NONE");
+            c->set_default_value(std::to_string(0));
+        }
+        pb.set_delete_sign_idx(2);
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        return schema;
+    }
+
+    // (k INT key, v INT, delete-sign, __DORIS_SKIP_BITMAP_COL__) flexible partial update MoW
+    // schema: flexible loads carry a full-width block plus the per-row skip bitmap.
+    TabletSchemaSPtr create_flexible_mow_schema() {
+        TabletSchemaPB pb;
+        pb.set_keys_type(UNIQUE_KEYS);
+        pb.set_num_short_key_columns(1);
+        pb.set_num_rows_per_row_block(1024);
+        pb.set_compress_kind(COMPRESS_LZ4);
+        pb.set_next_column_unique_id(10);
+
+        auto type_length = [](const std::string& type) -> int32_t {
+            if (type == "TINYINT") {
+                return 1;
+            }
+            if (type == "BITMAP") {
+                return 16;
+            }
+            return 4;
+        };
+        auto add_col = [&](int uid, const std::string& name, const std::string& type, bool is_key,
+                           bool nullable, const std::string& def = "") {
+            ColumnPB* c = pb.add_column();
+            c->set_unique_id(uid);
+            c->set_name(name);
+            c->set_type(type);
+            c->set_is_key(is_key);
+            c->set_length(type_length(type));
+            c->set_index_length(type_length(type));
+            c->set_is_nullable(nullable);
+            c->set_aggregation("NONE");
+            if (!def.empty()) {
+                c->set_default_value(def);
+            }
+        };
+        add_col(0, "k", "INT", true, false);
+        add_col(1, "v", "INT", false, true, std::to_string(0));
+        add_col(2, DELETE_SIGN, "TINYINT", false, false, std::to_string(0));
+        add_col(3, SKIP_BITMAP_COL, "BITMAP", false, false);
+        // init_from_pb reads these hidden-column indices straight from the PB
+        // fields (it does not scan by name), so they must be set explicitly.
+        pb.set_delete_sign_idx(2);
+        pb.set_skip_bitmap_col_idx(3);
+
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        return schema;
+    }
+
     // (k INT key, v INT, [seq INT], delete-sign, __DORIS_ROW_STORE_COL__ STRING) with the hidden
     // full row-store column enabled -- the only shape for which the write path touches the row
     // cache.
@@ -187,6 +284,16 @@ protected:
         return schema;
     }
 
+    // A MoW tablet over the engine's data dir; no rowsets are registered with it.
+    TabletSharedPtr make_tablet(const TabletSchemaSPtr& schema, int64_t tablet_id) {
+        TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->_tablet_id = tablet_id;
+        static_cast<void>(tablet_meta->set_partition_id(10));
+        tablet_meta->_schema = schema;
+        tablet_meta->_enable_unique_key_merge_on_write = true;
+        return std::make_shared<Tablet>(*_engine, tablet_meta, _data_dir.get(), "mow_ut");
+    }
+
     void make_rowset_ctx(const TabletSchemaSPtr& schema, int64_t rowset_numeric_id, int64_t version,
                          RowsetWriterContext* ctx, TabletSharedPtr* out_tablet) {
         RowsetId rid;
@@ -203,12 +310,7 @@ protected:
         ctx->enable_unique_key_merge_on_write = true;
         ctx->write_type = DataWriteType::TYPE_DIRECT;
 
-        TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
-        tablet_meta->_tablet_id = kTabletId;
-        static_cast<void>(tablet_meta->set_partition_id(10));
-        tablet_meta->_schema = schema;
-        tablet_meta->_enable_unique_key_merge_on_write = true;
-        auto tablet = std::make_shared<Tablet>(*_engine, tablet_meta, _data_dir.get(), "mow_ut");
+        auto tablet = make_tablet(schema, kTabletId);
         ctx->tablet = tablet;
         *out_tablet = tablet;
     }
@@ -321,6 +423,15 @@ protected:
             col = &assert_cast<const ColumnNullable&>(*col).get_nested_column();
         }
         return assert_cast<const ColumnInt32&>(*col).get_data()[row];
+    }
+
+    // Reads an int8 cell from a (possibly nullable) TINYINT column of `block`.
+    static int8_t read_tinyint(const Block& block, size_t col_pos, size_t row) {
+        const IColumn* col = block.get_by_position(col_pos).column.get();
+        if (col->is_nullable()) {
+            col = &assert_cast<const ColumnNullable&>(*col).get_nested_column();
+        }
+        return assert_cast<const ColumnInt8&>(*col).get_data()[row];
     }
 
     // True iff the cell is SQL NULL. A non-nullable column is never null. Use alongside read_int to

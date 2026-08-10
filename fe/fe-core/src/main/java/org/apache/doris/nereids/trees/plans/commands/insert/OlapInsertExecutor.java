@@ -239,7 +239,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 database, Lists.newArrayList((Table) table),
                 txnId,
                 TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
-                ctx.getSessionVariable().getInsertVisibleTimeoutMs(), txnCommitAttachment)) {
+                ctx.getSessionVariable().getInsertVisibleTimeoutMs(), txnCommitAttachment,
+                streamUpdateInfos)) {
             txnStatus = TransactionStatus.VISIBLE;
         } else {
             // Keep the committed status so load accounting and insert result bookkeeping stay aligned.

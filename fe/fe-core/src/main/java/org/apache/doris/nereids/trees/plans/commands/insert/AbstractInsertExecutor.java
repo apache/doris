@@ -46,6 +46,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -74,7 +75,7 @@ public abstract class AbstractInsertExecutor {
     protected Optional<InsertCommandContext> insertCtx;
     protected final boolean emptyInsert;
     protected long txnId = INVALID_TXN_ID;
-    protected List<TableStreamUpdateInfo> streamUpdateInfos;
+    protected List<TableStreamUpdateInfo> streamUpdateInfos = Collections.emptyList();
 
     /**
      * Insert executor listener

@@ -28,6 +28,8 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.proto.Cloud.AbortSubTxnRequest;
@@ -431,6 +433,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
+        commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos,
+                txnCommitAttachment, Collections.emptyList());
+    }
+
+    private void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment,
+            List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
         try {
             LOG.info("try to commit transaction, transactionId: {}, tableIds: {}", transactionId,
@@ -452,7 +462,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 backendToPartitionInfos = getCalcDeleteBitmapInfo(lockContext, null);
             }
             commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
-                    mowTableList, backendToPartitionInfos, commitTSO);
+                    mowTableList, backendToPartitionInfos, commitTSO, streamUpdateInfos);
             // clear signature after commit succeeds
             clearTxnLastSignature(dbId, transactionId);
         } catch (Exception e) {
@@ -693,6 +703,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             List<OlapTable> mowTableList, Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos,
             long commitTSO)
             throws UserException {
+        commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment,
+                is2PC, mowTableList, backendToPartitionInfos, commitTSO, Collections.emptyList());
+    }
+
+    private void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC,
+            List<OlapTable> mowTableList, Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos,
+            long commitTSO, List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
         if (Config.disable_load_job) {
             throw new TransactionCommitFailedException(
                     "disable_load_job is set to true, all load jobs are not allowed");
@@ -716,6 +735,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit);
         for (OlapTable olapTable : mowTableList) {
             builder.addMowTableIds(olapTable.getId());
+        }
+        for (TableStreamUpdateInfo updateInfo : streamUpdateInfos) {
+            if (!(updateInfo.getUpdate() instanceof CloudOlapTableStreamUpdate)) {
+                throw new UserException("Cloud transaction received a local Table Stream update");
+            }
+            CloudOlapTableStreamUpdate update = (CloudOlapTableStreamUpdate) updateInfo.getUpdate();
+            Preconditions.checkArgument(updateInfo.getDbId() == update.getIdentity().getStreamDbId()
+                            && updateInfo.getStreamId() == update.getIdentity().getStreamId(),
+                    "Cloud Table Stream update identity does not match its catalog entry");
+            builder.addTableStreamUpdates(update.toProto());
         }
 
         if (txnCommitAttachment != null) {
@@ -1824,11 +1853,21 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
                                                TxnCommitAttachment txnCommitAttachment) throws UserException {
+        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                txnCommitAttachment, Collections.emptyList());
+    }
+
+    @Override
+    public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+                                               List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+                                               TxnCommitAttachment txnCommitAttachment,
+                                               List<TableStreamUpdateInfo> streamUpdateInfos) throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
         try {
-            commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+            commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos,
+                    txnCommitAttachment, streamUpdateInfos);
             // Only clear signature after commit succeeds, as BE may retry on failure
             clearTxnLastSignature(db.getId(), transactionId);
         } finally {

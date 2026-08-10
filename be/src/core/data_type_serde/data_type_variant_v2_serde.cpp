@@ -251,9 +251,12 @@ const char* DataTypeVariantV2SerDe::deserialize(const char* buf, MutableColumnPt
             }
         }
         decoded = ColumnVariantV2::create();
-        static_cast<IColumn::Ptr&>(decoded->_metadatas) = std::move(metadatas);
-        static_cast<IColumn::Ptr&>(decoded->_meta_ids) = std::move(meta_ids);
-        static_cast<IColumn::Ptr&>(decoded->_values) = std::move(values);
+        static_cast<ColumnString::Ptr&>(decoded->_metadatas) =
+                ColumnString::cast_to_column_ptr(assert_cast<const ColumnString*>(metadatas.get()));
+        static_cast<MetaIdsColumn::Ptr&>(decoded->_meta_ids) = MetaIdsColumn::cast_to_column_ptr(
+                assert_cast<const MetaIdsColumn*>(meta_ids.get()));
+        static_cast<ColumnString::Ptr&>(decoded->_values) =
+                ColumnString::cast_to_column_ptr(assert_cast<const ColumnString*>(values.get()));
         decoded->sanity_check();
     }
     if (decoded->size() != saved_rows) {
