@@ -781,6 +781,24 @@ TEST(VariantColumnReaderTest, AppendsCompleteShreddedStatesWithDifferentSchemasA
     EXPECT_EQ(field.get_int(), 22);
 }
 
+TEST(VariantColumnReaderTest, CompleteShreddedRootSurvivesBlockSerialization) {
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    auto schema = shredded_named_object_schema("a");
+    ASSERT_TRUE(materialize_variant_rows(schema, complete_shredded_object_physical("left", 1, 11),
+                                         output)
+                        .ok());
+    const auto& source = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    ASSERT_TRUE(source.is_shredded());
+
+    MutableColumnPtr restored = binary_round_trip(source);
+    ASSERT_EQ(restored->size(), 1);
+    VariantRef field;
+    ASSERT_TRUE(assert_cast<const ColumnVariantV2&>(*restored).get_value_ref(0).object_find(
+            StringRef("left"), &field));
+    EXPECT_EQ(field.get_int(), 1);
+}
+
 TEST(VariantColumnReaderTest, ShreddedObjectFieldMayOmitResidualValueColumn) {
     const std::array<char, 1> ignored {0};
     const StringRef metadata(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size());

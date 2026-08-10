@@ -2312,14 +2312,50 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             ConnectorColumnHandle handle, SlotDescriptor slot) {
         Set<Integer> projectedFieldIds = new HashSet<>();
         for (ColumnAccessPath accessPath : slot.getAllAccessPaths()) {
-            for (String component : accessPath.getPath()) {
-                if (component.chars().allMatch(Character::isDigit)) {
-                    projectedFieldIds.add(Integer.parseInt(component));
-                }
-            }
+            collectProjectedFieldIds(accessPath.getPath(), slot.getColumn(), projectedFieldIds);
         }
         return projectedFieldIds.isEmpty()
                 ? handle : handle.withProjectedFieldIds(projectedFieldIds);
+    }
+
+    private static void collectProjectedFieldIds(
+            List<String> path, Column root, Set<Integer> projectedFieldIds) {
+        if (root == null) {
+            path.stream().filter(component -> component.chars().allMatch(Character::isDigit))
+                    .map(Integer::parseInt).forEach(projectedFieldIds::add);
+            return;
+        }
+        Column current = root;
+        for (String component : path) {
+            if (current.getType().isVariantType()) {
+                // Variant selectors are data tokens, so digit-only object keys and array indexes must
+                // never escape as stable Iceberg schema field IDs.
+                if (component.equals(String.valueOf(current.getUniqueId()))) {
+                    projectedFieldIds.add(current.getUniqueId());
+                }
+                break;
+            }
+            if (component.chars().allMatch(Character::isDigit)) {
+                int fieldId = Integer.parseInt(component);
+                if (fieldId == current.getUniqueId()) {
+                    projectedFieldIds.add(fieldId);
+                    continue;
+                }
+                Column child = current.getChildren() == null ? null : current.getChildren().stream()
+                        .filter(candidate -> candidate.getUniqueId() == fieldId)
+                        .findFirst().orElse(null);
+                if (child != null) {
+                    projectedFieldIds.add(fieldId);
+                    current = child;
+                }
+            } else if (current.getChildren() != null && !current.getChildren().isEmpty()) {
+                if (current.getType().isArrayType()) {
+                    current = current.getChildren().get(0);
+                } else if (current.getType().isMapType() && current.getChildren().size() > 1) {
+                    current = current.getChildren().get(1);
+                }
+            }
+        }
     }
 
     /**

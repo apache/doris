@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
@@ -280,9 +281,10 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     public void bindDataSink(Optional<InsertCommandContext> insertCtx)
             throws AnalysisException {
         if (writeOperation == WriteOperation.MERGE && !writesDataFiles
+                && containsVariant(boundTargetColumns)
                 && Config.be_exec_version < SUPPORT_ICEBERG_VARIANT_EXEC_VERSION) {
             // Older BEs ignore writes_data_files and instantiate the omitted data writer, so reject
-            // the all-or-nothing query before a Variant schema reaches any rolling-upgrade backend.
+            // only when the schema would make that legacy writer fail to parse Variant metadata.
             throw new AnalysisException("Delete-only Iceberg MERGE with Variant is unavailable "
                     + "during rolling upgrade");
         }
@@ -311,6 +313,19 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
                 requireMergeCardinalityCheck);
         ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
         this.tDataSink = sinkPlan.getDataSink();
+    }
+
+    private static boolean containsVariant(List<ConnectorColumn> columns) {
+        return columns.stream().anyMatch(column -> containsVariant(column.getType()));
+    }
+
+    private static boolean containsVariant(ConnectorType type) {
+        String typeName = type.getTypeName();
+        if ("VARIANT".equalsIgnoreCase(typeName)
+                || "VARIANT_COMPUTE_V2".equalsIgnoreCase(typeName)) {
+            return true;
+        }
+        return type.getChildren().stream().anyMatch(PluginDrivenTableSink::containsVariant);
     }
 
     /**

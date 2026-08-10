@@ -257,10 +257,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Reads the {@code force_jni_scanner} session flag from the SPI session properties (forwarded by the
      * engine via {@code VariableMgr.toMap}). When true the JNI escape
-     * hatch is engaged: every native-eligible DataSplit is routed to JNI (see
+     * hatch is engaged: native-eligible DataSplits are routed to JNI (see
      * {@link #shouldUseNativeReader}), bypassing the native ORC/Parquet readers to dodge native-reader
-     * bugs. Default false (legacy default), so normal reads are unaffected. Package-private static for
-     * offline unit testing.
+     * bugs. Variant projections remain native because JNI has no Variant carrier. Default false
+     * (legacy default), so normal reads are unaffected. Package-private static for offline unit testing.
      */
     static boolean isForceJniScannerEnabled(ConnectorSession session) {
         if (session == null) {
@@ -628,6 +628,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         ((PaimonColumnHandle) c).getName().toLowerCase()))
                 .filter(i -> optionsPin || i >= 0)
                 .toArray();
+        boolean hasVariantProjection = Arrays.stream(projected)
+                .filter(index -> index >= 0)
+                .anyMatch(index -> containsVariant(rowType.getTypeAt(index)));
         if (optionsPin && Arrays.stream(projected).anyMatch(index -> index < 0)) {
             // Only an @options read can bind against a schema the scan table does not have: its snapshot
             // is chosen per relation, so a column bound from one version may be absent from the version
@@ -703,6 +706,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         // Non-DataSplit → always JNI
         for (Split split : nonDataSplits) {
+            if (hasVariantProjection) {
+                throw new DorisConnectorException(
+                        "Paimon Variant columns require the native ORC/Parquet reader");
+            }
             if (ignoreJni) {
                 // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:401).
                 continue;
@@ -746,7 +753,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
 
             if (shouldUseNativeReader(paimonHandle.isForceJni(),
-                    isForceJniScannerEnabled(session), optRawFiles)) {
+                    isForceJniScannerEnabled(session), hasVariantProjection, optRawFiles)) {
                 if (ignoreNative) {
                     // FIX-L14: ignore_split_type=IGNORE_NATIVE drops native splits (legacy getSplits:443).
                     continue;
@@ -774,6 +781,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 }
             } else {
                 // JNI reader path
+                if (hasVariantProjection) {
+                    throw new DorisConnectorException(
+                            "Paimon Variant columns require native ORC/Parquet files");
+                }
                 if (ignoreJni) {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
@@ -1005,10 +1016,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // FIX-SCHEMA-EVOLUTION (B-1a): emit the native-reader schema dictionary so BE matches file<->table
         // columns BY FIELD ID across schema evolution (rename/reorder) instead of falling back to NAME
         // matching (which silently reads NULL/garbage for renamed columns). Only meaningful when the table
-        // can take the native path: skip it when the handle name-forces JNI (binlog/audit_log) OR the
-        // session forces JNI (force_jni_scanner) — in both cases every split goes JNI and never consults
-        // the dict (FIX-FORCE-JNI-SCANNER: honor the same session escape hatch the native router uses).
-        if (!paimonHandle.isForceJni() && !isForceJniScannerEnabled(session)) {
+        // can take the native path: skip it when the handle or session forces JNI, except for a Variant
+        // projection, which must override those debugging knobs because JNI has no Variant carrier.
+        boolean hasVariantProjection = projectsVariant(table.rowType(), columns);
+        if (hasVariantProjection
+                || (!paimonHandle.isForceJni() && !isForceJniScannerEnabled(session))) {
             // The schema dict must be built from a FileStoreTable. A normal data table IS one; a $ro
             // (read-optimized) system table is a ReadOptimizedTable that WRAPS a FileStoreTable and reads
             // its data files with its field ids, so resolve the underlying base FileStoreTable here.
@@ -1576,15 +1588,52 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * must still be allowed native.
      *
      * <p>{@code forceJniScanner} is the user/session escape hatch ({@code SET force_jni_scanner=true},
-     * read via {@link #isForceJniScannerEnabled}): when set, every native-eligible split is routed to
-     * JNI to dodge native-reader bugs. Default false, so normal reads are unaffected.
+     * read via {@link #isForceJniScannerEnabled}): when set, every native-eligible non-Variant split is
+     * routed to JNI to dodge native-reader bugs. Variant projections stay native because JNI cannot
+     * carry Variant columns. Default false, so normal reads are unaffected.
      *
      * <p>Extracted as a pure static so the correctness-critical routing decision is unit-testable
      * with real {@link RawFile}s, without driving a full Paimon {@code ReadBuilder}/{@code TableScan}.
      */
     static boolean shouldUseNativeReader(boolean forceJni, boolean forceJniScanner,
             Optional<List<RawFile>> optRawFiles) {
-        return !forceJni && !forceJniScanner && supportNativeReader(optRawFiles);
+        return shouldUseNativeReader(forceJni, forceJniScanner, false, optRawFiles);
+    }
+
+    static boolean shouldUseNativeReader(boolean forceJni, boolean forceJniScanner,
+            boolean hasVariantProjection, Optional<List<RawFile>> optRawFiles) {
+        // JNI has no Variant carrier, so Variant projections override the debugging force-JNI knobs
+        // while still requiring an ORC/Parquet split that the native reader can consume.
+        return supportNativeReader(optRawFiles)
+                && (hasVariantProjection || (!forceJni && !forceJniScanner));
+    }
+
+    private static boolean containsVariant(DataType type) {
+        switch (type.getTypeRoot()) {
+            case VARIANT:
+                return true;
+            case ARRAY:
+                return containsVariant(((ArrayType) type).getElementType());
+            case MAP:
+                MapType map = (MapType) type;
+                return containsVariant(map.getKeyType()) || containsVariant(map.getValueType());
+            case ROW:
+                return ((RowType) type).getFields().stream()
+                        .anyMatch(field -> containsVariant(field.type()));
+            default:
+                return false;
+        }
+    }
+
+    private static boolean projectsVariant(
+            RowType rowType, List<ConnectorColumnHandle> columns) {
+        List<String> fieldNames = rowType.getFieldNames().stream()
+                .map(String::toLowerCase).collect(Collectors.toList());
+        return columns.stream().filter(PaimonColumnHandle.class::isInstance)
+                .map(PaimonColumnHandle.class::cast)
+                .mapToInt(column -> fieldNames.indexOf(column.getName().toLowerCase()))
+                .filter(index -> index >= 0)
+                .anyMatch(index -> containsVariant(rowType.getTypeAt(index)));
     }
 
     private static boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {

@@ -119,6 +119,14 @@ public class IcebergWritePlanProviderTest {
                         Collections.singletonList(nestedVariant), true));
         Assertions.assertDoesNotThrow(() -> IcebergWritePlanProvider.validateWriteSchema(
                 Collections.singletonList(nestedVariant), false));
+
+        ConnectorColumn id = new ConnectorColumn(
+                "id", ConnectorType.of("INT"), null, true, null);
+        WriteHandle partialInsert = new WriteHandle(new IcebergTableHandle("db1", "t2"))
+                .columns(Collections.singletonList(id))
+                .boundTargetColumns(Arrays.asList(id, nestedVariant));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergWritePlanProvider.validateWriteSchema(partialInsert));
     }
 
     private static InMemoryCatalog freshCatalog() {

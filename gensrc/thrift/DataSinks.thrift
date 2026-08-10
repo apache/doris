@@ -542,6 +542,8 @@ struct TIcebergMergeSink {
     15: optional bool require_merge_cardinality_check;
     // Unset preserves old-FE UPDATE behavior, which always writes replacement data rows.
     16: optional bool writes_data_files;
+    // Whether the complete target schema contains Variant; used only to fence old-BE writer omission.
+    17: optional bool has_variant_schema;
 
     // delete side (position delete only)
     20: optional TFileContent delete_type

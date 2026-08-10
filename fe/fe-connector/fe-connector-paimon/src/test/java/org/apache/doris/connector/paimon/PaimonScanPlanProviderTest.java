@@ -339,6 +339,16 @@ public class PaimonScanPlanProviderTest {
                 "force_jni_scanner=true must route even native-eligible ORC/Parquet splits to JNI");
     }
 
+    @Test
+    public void variantProjectionOverridesForceJniWhenNativeFilesAreAvailable() {
+        Optional<List<RawFile>> rawFiles = Optional.of(
+                Arrays.asList(parquetRawFile("/data/part-0.parquet")));
+
+        Assertions.assertTrue(PaimonScanPlanProvider.shouldUseNativeReader(
+                        true, true, true, rawFiles),
+                "Variant has no JNI carrier, so a forced-JNI session must remain on the native reader");
+    }
+
     // ---- FIX-URI-NORMALIZE (B-7DF data file + B-7DV deletion vector) ----
 
     @Test

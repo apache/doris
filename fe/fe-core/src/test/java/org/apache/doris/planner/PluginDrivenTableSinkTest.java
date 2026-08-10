@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
@@ -274,20 +275,30 @@ public class PluginDrivenTableSinkTest {
     }
 
     @Test
-    public void deleteOnlyMergeRejectsOldQueryWideExecutionVersion() {
+    public void deleteOnlyMergeVersionFenceAppliesOnlyToVariantSchemas() throws AnalysisException {
         int original = Config.be_exec_version;
         try {
             Config.be_exec_version = 11;
             RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
                     new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK)));
-            PluginDrivenTableSink sink = new PluginDrivenTableSink(
+            ConnectorColumn id = new ConnectorColumn(
+                    "id", ConnectorType.of("INT"), null, true, null);
+            PluginDrivenTableSink nonVariantSink = new PluginDrivenTableSink(
                     null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
-                    null, WriteOperation.MERGE, false, true);
+                    Collections.singletonList(id), null, WriteOperation.MERGE, false, true, null);
+
+            nonVariantSink.bindDataSink(Optional.empty());
+            Assert.assertNotNull(provider.seenHandle);
+
+            ConnectorColumn payload = new ConnectorColumn(
+                    "payload", ConnectorType.of("VARIANT_COMPUTE_V2"), null, true, null);
+            PluginDrivenTableSink variantSink = new PluginDrivenTableSink(
+                    null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                    Collections.singletonList(payload), null, WriteOperation.MERGE, false, true, null);
 
             AnalysisException exception = Assert.assertThrows(AnalysisException.class,
-                    () -> sink.bindDataSink(Optional.empty()));
+                    () -> variantSink.bindDataSink(Optional.empty()));
             Assert.assertTrue(exception.getMessage().contains("rolling upgrade"));
-            Assert.assertNull(provider.seenHandle);
         } finally {
             Config.be_exec_version = original;
         }

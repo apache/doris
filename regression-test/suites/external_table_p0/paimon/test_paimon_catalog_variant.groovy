@@ -39,7 +39,13 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
 
         explain {
             sql "select * from variant_smoke order by id"
-            contains "paimonNativeReadSplits=0/1"
+            check { explainString ->
+                def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
+                // Variant has no JNI transfer carrier, so force_jni_scanner must keep it native.
+                return nativeSplits.find()
+                        && nativeSplits.group(1).toInteger() > 0
+                        && nativeSplits.group(1) == nativeSplits.group(2)
+            }
         }
 
         // Keep the complete DESC shape so the external column's Extra metadata remains covered.

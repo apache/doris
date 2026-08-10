@@ -89,6 +89,6 @@ public class PaimonTypeMappingReadTest {
                 new VariantType(), PaimonTypeMapping.Options.DEFAULT);
 
         Assertions.assertEquals("VARIANT_COMPUTE_V2", variant.getTypeName(),
-                "Paimon Variant must stay queryable in Nereids and both JNI and native readers");
+                "Paimon Variant must stay queryable in Nereids and the native reader");
     }
 }

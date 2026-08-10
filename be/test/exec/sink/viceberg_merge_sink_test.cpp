@@ -483,7 +483,7 @@ TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeSkipsCardinalityState) {
     EXPECT_TRUE(sink->_matched_row_positions.empty());
 }
 
-TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeRejectsDeleteOnlyWriterOmission) {
+TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeWriterOmissionFenceIsVariantOnly) {
     ObjectPool pool;
     MockRuntimeState state;
     state.set_be_exec_version(SUPPORT_ICEBERG_VARIANT_VERSION - 1);
@@ -497,11 +497,17 @@ TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeRejectsDeleteOnlyWriterOmission)
     auto output_exprs = build_output_exprs(&pool, &state, row_desc);
     auto t_sink = build_sink();
     t_sink.iceberg_merge_sink.__set_writes_data_files(false);
-    auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+    auto non_variant_sink =
+            std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
 
-    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    ASSERT_TRUE(non_variant_sink->init_properties(&pool, row_desc).ok());
     RuntimeProfile profile("rolling_upgrade_delete_only_iceberg_merge_sink");
-    const Status status = sink->open(&state, &profile);
+    EXPECT_TRUE(non_variant_sink->open(&state, &profile).ok());
+
+    t_sink.iceberg_merge_sink.__set_has_variant_schema(true);
+    auto variant_sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+    ASSERT_TRUE(variant_sink->init_properties(&pool, row_desc).ok());
+    const Status status = variant_sink->open(&state, &profile);
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
 }
 

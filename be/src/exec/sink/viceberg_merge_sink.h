@@ -79,6 +79,7 @@ private:
     std::map<std::string, roaring::Roaring64Map> _matched_row_positions;
     size_t _matched_row_id_state_size = sizeof(std::map<std::string, roaring::Roaring64Map>);
     bool _writes_data_files = true;
+    bool _has_variant_schema = false;
     bool _require_merge_cardinality_check = false;
 
     VExprContextSPtrs _table_output_expr_ctxs;

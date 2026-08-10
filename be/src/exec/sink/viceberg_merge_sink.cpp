@@ -71,9 +71,11 @@ Status VIcebergMergeSink::init_properties(ObjectPool* pool, const RowDescriptor&
 Status VIcebergMergeSink::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
 
-    if (!_writes_data_files && state->be_exec_version() < SUPPORT_ICEBERG_VARIANT_VERSION) {
+    if (!_writes_data_files && _has_variant_schema &&
+        state->be_exec_version() < SUPPORT_ICEBERG_VARIANT_VERSION) {
         // The query-wide version keeps delete-only writer omission all-or-nothing; an older BE
-        // would ignore writes_data_files and parse the unsupported Variant data-writer schema.
+        // would ignore writes_data_files and parse the unsupported Variant data-writer schema,
+        // while non-Variant delete-only MERGE remains compatible with that legacy writer.
         return Status::NotSupported(
                 "Delete-only Iceberg MERGE requires backend execution version {}",
                 SUPPORT_ICEBERG_VARIANT_VERSION);
@@ -360,6 +362,7 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     const auto& merge_sink = _t_sink.iceberg_merge_sink;
     // An old FE cannot produce delete-only plans, so an unset flag retains its data-writer path.
     _writes_data_files = !merge_sink.__isset.writes_data_files || merge_sink.writes_data_files;
+    _has_variant_schema = merge_sink.__isset.has_variant_schema && merge_sink.has_variant_schema;
     // Missing means an old FE plan, which predates SQL MERGE cardinality validation.
     _require_merge_cardinality_check = merge_sink.__isset.require_merge_cardinality_check &&
                                        merge_sink.require_merge_cardinality_check;
