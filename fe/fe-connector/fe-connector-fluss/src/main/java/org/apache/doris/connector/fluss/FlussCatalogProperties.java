@@ -212,7 +212,7 @@ public final class FlussCatalogProperties {
         checkBootstrapServerList(p.bootstrapServers);
         // Derived after the checks, so a catalog that fails validation fails on the property it got
         // wrong rather than on a value derived from it.
-        p.unionReadMode = parseUnionReadMode(p.unionRead);
+        p.unionReadMode = parseUnionReadMode(p.unionRead, "property '" + UNION_READ_MODE + "'");
         p.typeMappingOptions =
                 new FlussTypeMapping.Options(p.enableMappingVarbinary, p.enableMappingTimestampTz);
         p.flussClientConfig = deriveFlussClientConfig(properties, p.bootstrapServers);
@@ -220,23 +220,30 @@ public final class FlussCatalogProperties {
     }
 
     /**
-     * Reads {@link #UNION_READ_MODE}, defaulting to {@link UnionReadMode#AUTO}.
+     * Reads a union-read mode, defaulting to {@link UnionReadMode#AUTO} when nothing was set.
      *
      * <p>An unrecognized value fails rather than falling back to the default: the difference between
      * {@code auto} and {@code required} is only ever visible as "the query returned fewer rows than it
      * should", so a typo that silently meant {@code auto} would defeat the mode it was trying to ask for.
+     *
+     * <p>Shared with the session variable that overrides {@link #UNION_READ_MODE} for one statement, so
+     * that the two spell the same value set and refuse a typo the same way. Only the source differs, and
+     * {@code setting} is how the message names it. Blank counts as unset on both sides: the property gets
+     * that from the binder, which skips a blank value framework-wide, and the session variable gets it
+     * here, its default being the empty string that means "follow the catalog".
      */
-    private static UnionReadMode parseUnionReadMode(String value) {
-        if (value.isEmpty()) {
+    static UnionReadMode parseUnionReadMode(String value, String setting) {
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
             return UnionReadMode.AUTO;
         }
         for (UnionReadMode mode : UnionReadMode.values()) {
-            if (mode.name().equalsIgnoreCase(value)) {
+            if (mode.name().equalsIgnoreCase(trimmed)) {
                 return mode;
             }
         }
-        throw new IllegalArgumentException("Invalid value '" + value + "' for property '"
-                + UNION_READ_MODE + "'; expected one of auto, required, disabled");
+        throw new IllegalArgumentException("Invalid value '" + value + "' for " + setting
+                + "; expected one of auto, required, disabled");
     }
 
     /**

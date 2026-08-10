@@ -142,6 +142,20 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String PAIMON_LAKE_FORMAT = "paimon";
 
     /**
+     * The session variable that gives one statement its own union-read mode, overriding
+     * {@link FlussCatalogProperties#UNION_READ_MODE}. Byte-identical to
+     * {@code SessionVariable.FLUSS_UNION_READ_MODE}, where it is declared and from where the engine hands
+     * it to every connector through {@code ConnectorSession.getSessionProperties()} — a connector reads
+     * such a flag by name and registers nothing (see the SPI's package-info).
+     *
+     * <p>It is a session variable and not a name suffix because a suffix can only say which SEGMENT of a
+     * table is read. Which PATH a whole-table read takes is a property of the statement, and the value
+     * that matters most for checking one — {@code required}, which refuses to quietly read fluss alone —
+     * has no segment to name.
+     */
+    static final String SESSION_UNION_READ_MODE = "fluss_union_read_mode";
+
+    /**
      * The SCAN-LEVEL table format, read by BE's scanner selection before it fetches any range. Every reader
      * this connector needs lives in {@code FileScannerV2} only, so a scan planned here must use it whatever
      * {@code enable_file_scanner_v2} says; the legacy scanner's JNI dispatch has no fluss branch and would
@@ -183,6 +197,17 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     private UnionRead unionRead;
 
     /**
+     * The union-read mode this scan is planned under, and whether the statement rather than the catalog
+     * supplied it. Written where the lake half is resolved, so that every reader of the mode and the
+     * EXPLAIN line that reports it are the same answer by construction — a plan that says {@code required}
+     * while it was planned under {@code auto} would be worse than no line at all.
+     *
+     * <p>Starts at the catalog's value, which is what a scan that never resolved is planned under.
+     */
+    private FlussCatalogProperties.UnionReadMode plannedUnionReadMode;
+    private boolean unionReadModeFromSession;
+
+    /**
      * Why this scan gave up its lake half, or null when it did not. Only {@code auto} can get here — the
      * same conditions are errors under {@code required} — and the plan that results is the fluss-only read
      * {@code disabled} would have produced, which for a primary-key table is the whole table. It shows up
@@ -208,6 +233,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         this.adminOps = adminOps;
         this.catalogProperties = catalogProperties;
         this.lakeSiblingFactory = lakeSiblingFactory;
+        this.plannedUnionReadMode = catalogProperties.getUnionReadMode();
     }
 
     /**
@@ -331,13 +357,12 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
 
         String truncated = firstTruncatedTail(states, buckets);
         if (truncated != null) {
-            if (catalogProperties.getUnionReadMode()
-                    == FlussCatalogProperties.UnionReadMode.REQUIRED) {
+            if (plannedUnionReadMode == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                 throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
                         + handle.getTableName() + "' cannot be read as its lake plus its log: " + truncated
                         + ". Fluss has already deleted part of the log the lake snapshot stops before, and a"
-                        + " primary-key table's log cannot be re-read from the lake. Set '"
-                        + FlussCatalogProperties.UNION_READ_MODE + "' to auto or disabled to read the"
+                        + " primary-key table's log cannot be re-read from the lake. Set "
+                        + unionReadModeSetting() + " to auto or disabled to read the"
                         + " table from fluss alone, which still returns every row.");
             }
             degradeToFlussOnly(DEGRADED_TAIL_TRUNCATED);
@@ -351,11 +376,10 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         // instead of by whichever bucket happened to reach its limit first on some BE.
         String tooLarge = firstTailOverBudget(states, buckets);
         if (tooLarge != null) {
-            if (catalogProperties.getUnionReadMode()
-                    == FlussCatalogProperties.UnionReadMode.REQUIRED) {
+            if (plannedUnionReadMode == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                 throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
                         + handle.getTableName() + "' cannot be read as its lake plus its log: " + tooLarge
-                        + ". Set '" + FlussCatalogProperties.UNION_READ_MODE + "' to auto or disabled to"
+                        + ". Set " + unionReadModeSetting() + " to auto or disabled to"
                         + " read the table from fluss alone, wait for tiering to move the tail into the"
                         + " lake, or raise the ceiling.");
             }
@@ -698,6 +722,10 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private UnionRead resolveUnionReadUncached(ConnectorSession session, FlussTableHandle handle) {
+        // Resolved for every fluss scan, including the $log scans below that go on to ignore it, so that a
+        // statement is refused for a mode it cannot mean wherever it set one -- a value this connector
+        // cannot parse is a request it cannot honour, whichever table the statement then reads.
+        FlussCatalogProperties.UnionReadMode mode = resolveUnionReadMode(session);
         // A $log scan asks a different question of the same resolution, so it reads the mode differently.
         // The union-read mode chooses a PATH for reading a whole table, and $log is not a whole table: it
         // is defined AS "the part past the lake snapshot", so there is no path here to choose and the mode
@@ -707,7 +735,6 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         if (handle.isLogOnly()) {
             return resolveLakeBoundary(handle);
         }
-        FlussCatalogProperties.UnionReadMode mode = catalogProperties.getUnionReadMode();
         if (!handle.isDataLakeEnabled() || mode == FlussCatalogProperties.UnionReadMode.DISABLED) {
             // Not a lake table, or the user asked for the fluss-only read explicitly.
             return null;
@@ -728,8 +755,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 if (mode == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                     throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
                             + handle.getTableName() + "' cannot be read as its lake plus its change log: "
-                            + rejection + ". Reading it from fluss alone still returns every row, so set '"
-                            + FlussCatalogProperties.UNION_READ_MODE + "' to auto or disabled.");
+                            + rejection + ". Reading it from fluss alone still returns every row, so set "
+                            + unionReadModeSetting() + " to auto or disabled.");
                 }
                 degradedReason = reason;
                 return null;
@@ -741,9 +768,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         } catch (LakeTableSnapshotNotExistException e) {
             if (mode == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                 throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
-                        + handle.getTableName() + "' has no readable lake snapshot yet, and '"
-                        + FlussCatalogProperties.UNION_READ_MODE + "=required' forbids falling back to "
-                        + "a fluss-only read. Wait for the tiering service to commit, or set the property "
+                        + handle.getTableName() + "' has no readable lake snapshot yet, and "
+                        + unionReadModeSetting() + " = required forbids falling back to "
+                        + "a fluss-only read. Wait for the tiering service to commit, or set it "
                         + "to auto or disabled.", e);
             }
             // Nothing is in the lake, so the log holds everything: the fluss-only read is the whole table.
@@ -781,6 +808,54 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 () -> sibling.getScanPlanProvider(pinnedHandle));
         return new UnionRead(sibling, siblingProvider, pinnedHandle, snapshot.getSnapshotId(),
                 snapshot.getTableBucketsOffset());
+    }
+
+    /**
+     * The mode this scan reads under: the statement's, when it set one, and the catalog's otherwise.
+     *
+     * <p>A session variable overrides a catalog property rather than the other way round because it is the
+     * narrower statement of intent — the catalog says how its tables are read in general, and one query
+     * says how it wants to be answered. That is also the only order under which {@code required} is worth
+     * having: its use is to check a catalog's own setting from outside it.
+     *
+     * <p>Resolved once per scan node, with the lake half, which is what keeps the answer stable between
+     * plan translation and range planning (see {@link #getMustReadColumns}). The engine hands both the
+     * same session object, so the two would agree even without the memo; resolving here rather than
+     * separately is what makes that a property of this code and not of the engine's.
+     */
+    private FlussCatalogProperties.UnionReadMode resolveUnionReadMode(ConnectorSession session) {
+        String statementValue = sessionUnionReadMode(session);
+        unionReadModeFromSession = statementValue != null;
+        plannedUnionReadMode = unionReadModeFromSession
+                ? FlussCatalogProperties.parseUnionReadMode(statementValue,
+                        "session variable '" + SESSION_UNION_READ_MODE + "'")
+                : catalogProperties.getUnionReadMode();
+        return plannedUnionReadMode;
+    }
+
+    /**
+     * What this statement set {@link #SESSION_UNION_READ_MODE} to, or null when it set nothing.
+     *
+     * <p>Blank reads as unset, matching the variable's own default and the way the property binder treats
+     * a blank value, so {@code set fluss_union_read_mode = ''} is how a session gives the catalog back.
+     */
+    private static String sessionUnionReadMode(ConnectorSession session) {
+        if (session == null) {
+            return null;
+        }
+        String value = session.getSessionProperties().get(SESSION_UNION_READ_MODE);
+        return value == null || value.trim().isEmpty() ? null : value;
+    }
+
+    /**
+     * How to name the setting that put this scan in its mode, for a message that asks for it to be
+     * changed. Naming the catalog property while a statement is overriding it would send the user to edit
+     * a value their own session is already ignoring.
+     */
+    private String unionReadModeSetting() {
+        return unionReadModeFromSession
+                ? "session variable '" + SESSION_UNION_READ_MODE + "'"
+                : "property '" + FlussCatalogProperties.UNION_READ_MODE + "'";
     }
 
     /**
@@ -1189,6 +1264,12 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code readMode=log} with {@code unionRead=yes} and {@code lakeSplits=0}, so the one silent way it
      * could go wrong — reading the whole log instead of the part past the lake — shows up here as
      * {@code unionRead=no}, since the lake snapshot is exactly what supplies its starting offsets.
+     *
+     * <p>{@code mode} is the value this scan was PLANNED under, not the catalog's, and says {@code
+     * (session)} when a statement overrode it. Reporting the catalog's would make the line agree with the
+     * catalog and disagree with the plan, which is the one combination that cannot be caught by reading
+     * either alone. A {@code $log} scan reports its mode too, and ignores it: {@code readMode} is what
+     * says so.
      */
     @Override
     public void appendExplainInfo(StringBuilder output, String prefix, Map<String, String> nodeProperties) {
@@ -1201,7 +1282,10 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 .append(", pkRanges=").append(plannedPkRanges)
                 .append(", pkTailRanges=").append(plannedPkTailRanges)
                 .append(", mode=")
-                .append(catalogProperties.getUnionReadMode().propertyValue());
+                .append(plannedUnionReadMode.propertyValue());
+        if (unionReadModeFromSession) {
+            output.append("(session)");
+        }
         if (degradedReason != null) {
             // Only reachable under 'auto'. Without it, a table whose lake this query could not use looks
             // exactly like a table that has no lake at all.
