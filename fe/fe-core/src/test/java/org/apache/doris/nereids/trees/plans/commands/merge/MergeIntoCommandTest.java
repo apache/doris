@@ -85,11 +85,36 @@ public class MergeIntoCommandTest {
         Assertions.assertEquals(1, logicalJoin.getOtherJoinConjuncts().size());
         Expression onClause = logicalJoin.getOtherJoinConjuncts().get(0);
         Assertions.assertEquals(new NullLiteral(), onClause);
-        Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, logicalJoin.getJoinType());
-        Assertions.assertEquals(source, logicalJoin.left());
-        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, logicalJoin.right());
-        LogicalSubQueryAlias<?> alias = (LogicalSubQueryAlias<?>) logicalJoin.right();
+        // without WHEN NOT MATCHED clauses unmatched source rows are not needed, so the join
+        // is INNER, and the target stays on the left (probe) side
+        Assertions.assertEquals(JoinType.INNER_JOIN, logicalJoin.getJoinType());
+        Assertions.assertEquals(source, logicalJoin.right());
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, logicalJoin.left());
+        LogicalSubQueryAlias<?> alias = (LogicalSubQueryAlias<?>) logicalJoin.left();
         Assertions.assertEquals("alias", alias.getAlias());
+    }
+
+    @Test
+    public void testGenerateBasePlanWithNotMatchedClause() throws Exception {
+        LogicalPlan source = new LogicalEmptyRelation(new RelationId(1), ImmutableList.of());
+        MergeIntoCommand command = new MergeIntoCommand(
+                ImmutableList.of("ctl", "db", "tbl"), Optional.of("alias"), Optional.empty(),
+                source, new NullLiteral(),
+                ImmutableList.of(),
+                ImmutableList.of(new MergeNotMatchedClause(
+                        Optional.empty(), ImmutableList.of(), ImmutableList.of()))
+        );
+
+        Class<?> clazz = Class.forName("org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand");
+        Method generateBasePlan = clazz.getDeclaredMethod("generateBasePlan");
+        generateBasePlan.setAccessible(true);
+        LogicalPlan result = (LogicalPlan) generateBasePlan.invoke(command);
+        Assertions.assertInstanceOf(LogicalJoin.class, result);
+        LogicalJoin<?, ?> logicalJoin = (LogicalJoin<?, ?>) result;
+        // WHEN NOT MATCHED needs the unmatched source rows: source is the preserved right side
+        Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, logicalJoin.getJoinType());
+        Assertions.assertEquals(source, logicalJoin.right());
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, logicalJoin.left());
     }
 
     @Test
@@ -111,11 +136,11 @@ public class MergeIntoCommandTest {
         Assertions.assertEquals(1, logicalJoin.getOtherJoinConjuncts().size());
         Expression onClause = logicalJoin.getOtherJoinConjuncts().get(0);
         Assertions.assertEquals(new NullLiteral(), onClause);
-        Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, logicalJoin.getJoinType());
-        Assertions.assertEquals(source, logicalJoin.left());
-        Assertions.assertInstanceOf(LogicalCheckPolicy.class, logicalJoin.right());
-        Assertions.assertInstanceOf(UnboundRelation.class, logicalJoin.right().child(0));
-        UnboundRelation unboundRelation = (UnboundRelation) logicalJoin.right().child(0);
+        Assertions.assertEquals(JoinType.INNER_JOIN, logicalJoin.getJoinType());
+        Assertions.assertEquals(source, logicalJoin.right());
+        Assertions.assertInstanceOf(LogicalCheckPolicy.class, logicalJoin.left());
+        Assertions.assertInstanceOf(UnboundRelation.class, logicalJoin.left().child(0));
+        UnboundRelation unboundRelation = (UnboundRelation) logicalJoin.left().child(0);
         Assertions.assertEquals(nameParts, unboundRelation.getNameParts());
     }
 
