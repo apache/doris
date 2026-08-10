@@ -59,7 +59,11 @@ TEST(ColumnPtrWrapperTest, StoresSingleRowDataColumn) {
 
 TEST(ColumnPtrWrapperTest, RejectsNonConstMultiRowColumn) {
     auto column = ColumnHelper::create_column<DataTypeInt64>({7, 8});
-    EXPECT_DEATH(static_cast<void>(ColumnPtrWrapper(column)), "");
+#ifdef NDEBUG
+    EXPECT_THROW(static_cast<void>(ColumnPtrWrapper(column)), Exception);
+#elif DCHECK_IS_ON()
+    EXPECT_DEATH(static_cast<void>(ColumnPtrWrapper(column)), "Check failed");
+#endif
 }
 
 TEST(ColumnConstTest, IsExclusiveChecksNestedColumn) {

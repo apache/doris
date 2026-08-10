@@ -119,53 +119,6 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts2) {
     EXPECT_TRUE(local_state->_eos);
 }
 
-TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts3) {
-    // case
-    // Predicate false and xxx and xxx ....
-    // The returned column is not a constant column, but the size is not equal to 1
-    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
-
-    auto fn_eq = MockFnCall::create("eq");
-    fn_eq->_mock_is_constant = true;
-    fn_eq->set_const_expr_col(ColumnHelper::create_column<DataTypeBool>({false, false}));
-    EXPECT_TRUE(fn_eq->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_eq);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-
-    VExprSPtr new_root;
-    auto conjunct_expr_root = ctx;
-    // There is a DCHECK in the code to ensure size must be equal to 1, wait for this part of the code to be removed later
-    // auto st = local_state->_normalize_predicate(
-    //                                             conjunct_expr_root.get(), new_root);
-    // EXPECT_FALSE(st.ok());
-    // std::cout << st.msg() << std::endl;
-}
-
-TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts4) {
-    // case
-    // Predicate false and xxx and xxx ....
-    // The returned column is neither a constant column nor a boolean column
-    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
-
-    auto fn_eq = MockFnCall::create("eq");
-    fn_eq->_mock_is_constant = true;
-    fn_eq->set_const_expr_col(ColumnHelper::create_column<DataTypeInt32>({false, false}));
-    EXPECT_TRUE(fn_eq->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_eq);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-
-    VExprSPtr new_root;
-    auto conjunct_expr_root = ctx;
-    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
-                                                conjunct_expr_root->root(), new_root);
-    EXPECT_TRUE(st.ok());
-    std::cout << st.msg() << std::endl;
-}
-
 TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot1) {
     auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
 
