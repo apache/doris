@@ -179,4 +179,38 @@ public class FlussConnectorLakeSiblingTest {
         // A now-different lake configuration being accepted is what proves the slot is free again.
         Assertions.assertNotSame(sibling, connector.getOrCreateLakeSibling(lakeProperties("/other")));
     }
+
+    @Test
+    public void theLakesStorageIsHandedToTheEngineUnderDorisNames() {
+        Map<String, String> catalogProperties = new HashMap<>();
+        catalogProperties.put("fluss.bootstrap.servers", "127.0.0.1:9123");
+        catalogProperties.put("fluss.lake.paimon.warehouse", "s3://bucket/lake");
+        catalogProperties.put("fluss.lake.paimon.s3.access-key", "AK");
+        catalogProperties.put("fluss.lake.paimon.s3.endpoint", "s3.us-east-1.amazonaws.com");
+        FlussConnector connector = new FlussConnector(
+                FlussCatalogProperties.of(catalogProperties), new RecordingContext());
+
+        // The engine folds this into the catalog's storage properties before the FE binds a filesystem and
+        // before the BE storage map is built, so this is the one route that reaches both halves of a scan.
+        // The warehouse is not part of it: it tells paimon where the lake is, not how to reach the storage.
+        Map<String, String> expected = new HashMap<>();
+        expected.put("s3.access_key", "AK");
+        expected.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
+        Assertions.assertEquals(expected, connector.deriveStorageProperties(catalogProperties));
+    }
+
+    @Test
+    public void catalogWithoutLakeSettingsDerivesNoStorage() {
+        RecordingContext context = new RecordingContext();
+        FlussConnector connector = connector(context);
+
+        Map<String, String> catalogProperties = new HashMap<>();
+        catalogProperties.put("fluss.bootstrap.servers", "127.0.0.1:9123");
+        // Storage the user configured under Doris's own names is already in the catalog's storage map; a
+        // derived default that repeated it would be harmless but a derived one that CONTRADICTED it would
+        // not, so nothing is derived from anything but the lake settings.
+        catalogProperties.put("s3.access_key", "AK");
+        Assertions.assertEquals(Collections.emptyMap(),
+                connector.deriveStorageProperties(catalogProperties));
+    }
 }

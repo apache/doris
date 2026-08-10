@@ -170,6 +170,24 @@ public class FlussConnector implements Connector {
         return lakeSibling;
     }
 
+    /**
+     * The storage the lake sits on, as the catalog states it: the storage half of its
+     * {@code fluss.lake.paimon.*} settings, translated into the names Doris binds storage by.
+     *
+     * <p>This is the only route that reaches both halves of a scan. The engine folds what is returned here
+     * into the catalog's storage properties before the FE binds a filesystem and before the BE-side storage
+     * map is built, so the FE reads the lake's manifests and the BE reads its data files through the same
+     * configuration. Anything given to the paimon sibling instead would reach at most the FE.
+     *
+     * <p>Reads the argument rather than this connector's own bound properties: the engine calls this with
+     * the catalog's current persisted properties, which is what an {@code ALTER CATALOG} updates first.
+     */
+    @Override
+    public Map<String, String> deriveStorageProperties(Map<String, String> rawCatalogProps) {
+        return LakeStorageOptions.toStorageProperties(
+                FlussCatalogProperties.extractLakeOverrides(rawCatalogProps));
+    }
+
     @Override
     public ConnectorTestResult testConnection(ConnectorSession session) {
         try {
