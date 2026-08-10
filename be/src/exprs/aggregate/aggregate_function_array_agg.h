@@ -38,6 +38,7 @@ class Arena;
 template <PrimitiveType T>
 struct AggregateFunctionArrayAggData {
     static constexpr PrimitiveType PType = T;
+    static constexpr bool use_native_serde = false;
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Self = AggregateFunctionArrayAggData<T>;
@@ -137,6 +138,7 @@ template <PrimitiveType T>
     requires(is_string_type(T))
 struct AggregateFunctionArrayAggData<T> {
     static constexpr PrimitiveType PType = T;
+    static constexpr bool use_native_serde = false;
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     using Self = AggregateFunctionArrayAggData<T>;
@@ -232,16 +234,13 @@ template <PrimitiveType T>
              !is_date_type(T) && !is_ip(T))
 struct AggregateFunctionArrayAggData<T> {
     static constexpr PrimitiveType PType = T;
+    static constexpr bool use_native_serde = true;
     using ElementType = StringRef;
     using Self = AggregateFunctionArrayAggData<T>;
     MutableColumnPtr column_data;
-    DataTypePtr column_type;
-    int be_exec_version;
 
-    AggregateFunctionArrayAggData(const DataTypes& argument_types, int be_exec_version_ = 0)
-            : column_data(argument_types[0]->create_column()),
-              column_type(argument_types[0]),
-              be_exec_version(be_exec_version_) {}
+    AggregateFunctionArrayAggData(const DataTypes& argument_types)
+            : column_data(argument_types[0]->create_column()) {}
 
     void add(const IColumn& column, size_t row_num) { column_data->insert_from(column, row_num); }
 
@@ -267,23 +266,32 @@ struct AggregateFunctionArrayAggData<T> {
         to_arr.get_offsets().push_back(to_nested_col.size());
     }
 
-    void write(BufferWritable& buf) const {
-        const auto serialized_bytes =
-                column_type->get_uncompressed_serialized_bytes(*column_data, be_exec_version);
-        std::string serialized_buffer(serialized_bytes, '\0');
-        const auto* end =
-                column_type->serialize(*column_data, serialized_buffer.data(), be_exec_version);
-        DORIS_CHECK_LE(end, serialized_buffer.data() + serialized_bytes);
-        serialized_buffer.resize(end - serialized_buffer.data());
-        buf.write_binary(serialized_buffer);
+    void write(BufferWritable& buf, const IDataType& column_type, int be_exec_version) const {
+        const auto max_serialized_bytes = cast_set<size_t>(
+                column_type.get_uncompressed_serialized_bytes(*column_data, be_exec_version));
+        buf.resize(sizeof(UInt64) + max_serialized_bytes);
+        auto* serialized_data = buf.data() + sizeof(UInt64);
+        const char* end = nullptr;
+        try {
+            end = column_type.serialize(*column_data, serialized_data, be_exec_version);
+        } catch (...) {
+            buf.resize(0);
+            throw;
+        }
+        DORIS_CHECK_LE(end, serialized_data + max_serialized_bytes);
+        const auto serialized_bytes = static_cast<UInt64>(end - serialized_data);
+        memcpy(buf.data(), &serialized_bytes, sizeof(serialized_bytes));
+        const auto frame_bytes = sizeof(serialized_bytes) + cast_set<size_t>(serialized_bytes);
+        buf.resize(frame_bytes);
+        buf.add_offset(frame_bytes);
     }
 
-    void read(BufferReadable& buf) {
+    void read(BufferReadable& buf, const IDataType& column_type, int be_exec_version) {
         DORIS_CHECK(column_data->empty());
         UInt64 serialized_bytes = 0;
-        buf.read_var_uint(serialized_bytes);
+        buf.read_binary(serialized_bytes);
         const auto* serialized_data = buf.data();
-        const auto* end = column_type->deserialize(serialized_data, &column_data, be_exec_version);
+        const auto* end = column_type.deserialize(serialized_data, &column_data, be_exec_version);
         DORIS_CHECK_EQ(end, serialized_data + serialized_bytes);
         buf.add_offset(serialized_bytes);
     }
@@ -311,14 +319,6 @@ public:
 
     DataTypePtr get_return_type() const override { return return_type; }
 
-    void create(AggregateDataPtr __restrict place) const override {
-        if constexpr (Data::PType == INVALID_TYPE) {
-            new (place) Data(this->argument_types, this->version);
-        } else {
-            Base::create(place);
-        }
-    }
-
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
         this->data(place).add(*columns[0], row_num);
@@ -330,12 +330,20 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(place).write(buf);
+        if constexpr (Data::use_native_serde) {
+            this->data(place).write(buf, *this->argument_types[0], this->version);
+        } else {
+            this->data(place).write(buf);
+        }
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
-        this->data(place).read(buf);
+        if constexpr (Data::use_native_serde) {
+            this->data(place).read(buf, *this->argument_types[0], this->version);
+        } else {
+            this->data(place).read(buf);
+        }
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
