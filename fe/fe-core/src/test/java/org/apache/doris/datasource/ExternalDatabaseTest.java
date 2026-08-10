@@ -498,6 +498,31 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
+    public void testImageRestoreLazyLoadRebuildsTableOwnerReferences() {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("catalog_provider.class", DatabaseCatalogProvider.class.getName());
+        TestExternalCatalog catalog = new TestExternalCatalog(303L, "image_owner_test", "", props, "");
+        catalog.setInitializedForTest(true);
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 304L, "db1", "db1");
+        db.setInitializedForTest(true);
+        catalog.addDatabaseForTest(db);
+        db.addTableForTest(new TestExternalTable(305L, "tbl_base", "tbl_base", catalog, db));
+
+        String json = GsonUtils.GSON.toJson(catalog, CatalogIf.class);
+        Assertions.assertFalse(json.contains("tbl_base"));
+        TestExternalCatalog restored =
+                (TestExternalCatalog) GsonUtils.GSON.fromJson(json, CatalogIf.class);
+        restored.setInitializedForTest(true);
+
+        ExternalDatabase<? extends ExternalTable> restoredDb = restored.getDbNullable("db1");
+        ExternalTable restoredTable = restoredDb.getTableNullable("tbl_base");
+
+        Assertions.assertSame(restored, restoredTable.getCatalog());
+        Assertions.assertSame(restoredDb, restoredTable.getDatabase());
+        Assertions.assertDoesNotThrow(() -> new BaseTableInfo(restoredTable));
+    }
+
+    @Test
     public void testGetTableForReplayByIdReturnsEmptyWhenDatabaseIsUninitialized() {
         InspectableCatalog catalog = new InspectableCatalog();
         InspectableDatabase db = new InspectableDatabase(catalog, 302L, "db1", "db1");
@@ -654,22 +679,6 @@ public class ExternalDatabaseTest extends TestWithFeService {
         } finally {
             NameMissTableCatalogProvider.reset();
         }
-    }
-
-    @Test
-    public void testRegisterTableRestoresExternalTableOwnerReferences() {
-        InspectableCatalog catalog = new InspectableCatalog();
-        InspectableDatabase db = new InspectableDatabase(catalog, 560L, "db1", "db1");
-        db.setInitializedForTest(true);
-        TestExternalTable table = new TestExternalTable(561L, "tbl_event", "tbl_event", catalog, db);
-        table.setCatalog(null);
-        table.setDb(null);
-
-        db.registerTable(table);
-
-        Assertions.assertSame(catalog, table.getCatalog());
-        Assertions.assertSame(db, table.getDatabase());
-        Assertions.assertDoesNotThrow(() -> new BaseTableInfo(table));
     }
 
     @Test

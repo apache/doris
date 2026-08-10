@@ -263,7 +263,7 @@ public class CollectRelation implements AnalysisRuleFactory {
                 cascadesContext.getStatementContext());
         if (shouldCollect) {
             DatabaseIf database = table.getDatabase();
-            // MTMV rewrite is optional, so incomplete replayed ownership must not abort the query.
+            // MTMV rewrite is optional, so malformed ownership metadata must not abort the query.
             if (database == null || database.getCatalog() == null) {
                 LOG.warn("Skip collecting MTMV candidates for table {} because its owner metadata is incomplete",
                         table.getName());
