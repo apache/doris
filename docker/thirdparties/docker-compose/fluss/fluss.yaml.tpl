@@ -40,6 +40,43 @@ services:
     networks:
       - doris--fluss--network
 
+  # The object store the lake lives in. Part of this environment rather than
+  # borrowed from another component's: the fluss servers, the tiering job and
+  # Doris all have to name one endpoint, and an environment that only works when
+  # something else was started first is a failure mode nobody reads a compose
+  # file to discover.
+  doris--fluss-minio:
+    # The release the other object-store environments in this directory use, and
+    # the one whose server image still carries mc -- which is what creates the
+    # bucket below without a second container to do it.
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    container_name: doris--fluss-minio
+    hostname: doris--fluss-minio
+    restart: always
+    ports:
+      - ${DOCKER_FLUSS_MINIO_EXTERNAL_PORT}:9000
+    environment:
+      - MINIO_ROOT_USER=${FLUSS_LAKE_S3_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${FLUSS_LAKE_S3_SECRET_KEY}
+      # Paimon's S3 client signs with a region whether or not one was configured,
+      # and minio rejects a signature for a region it does not answer to.
+      - MINIO_REGION_NAME=us-east-1
+      - FLUSS_LAKE_S3_BUCKET=${FLUSS_LAKE_S3_BUCKET}
+    volumes:
+      - ./scripts:/opt/fluss-scripts:ro
+    # The server is started through a script that creates the lake bucket beside
+    # it, because the condition this service has to reach is "the bucket exists",
+    # not "the server answers" -- the coordinator writes into it as soon as the
+    # first lake table is created.
+    entrypoint: ["bash", "/opt/fluss-scripts/run-minio.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/fluss-minio/READY"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+    networks:
+      - doris--fluss--network
+
   doris--fluss-coordinator:
     image: ${FLUSS_SERVER_IMAGE}
     container_name: doris--fluss-coordinator
@@ -53,6 +90,10 @@ services:
     user: "9999:9999"
     depends_on:
       doris--fluss-zookeeper:
+        condition: service_healthy
+      # It creates the paimon table -- and therefore writes the warehouse -- the
+      # moment a datalake-enabled fluss table is created.
+      doris--fluss-minio:
         condition: service_healthy
     ports:
       - ${DOCKER_FLUSS_COORDINATOR_EXTERNAL_PORT}:9123
@@ -69,21 +110,36 @@ services:
         default.bucket.number: 3
         default.replication.factor: 1
         # Lakehouse storage. The coordinator creates the paimon table when a
-        # datalake-enabled fluss table is created, so it needs the warehouse
-        # too, not just the tiering job. The plugin jars are already in the
-        # image: fluss-dist ships plugins/paimon (fluss-lake-paimon +
-        # paimon-bundle + shaded hadoop).
+        # datalake-enabled fluss table is created, so it needs the warehouse and
+        # the credentials to reach it, not just the tiering job. The plugin jars
+        # are in the image: fluss-dist ships plugins/paimon (fluss-lake-paimon +
+        # paimon-bundle + shaded hadoop) and build-images.sh adds paimon-s3
+        # beside them, which is where the S3 FileIO comes from.
         #
-        # These three settings are also what makes the tables READABLE by Doris:
-        # the coordinator copies its datalake.paimon.* config into every lake
-        # table's properties under a table. prefix, and that copy is the only
-        # place the fluss connector learns where the warehouse is.
+        # This block is also most of what makes the tables READABLE by Doris: the
+        # coordinator copies its datalake.paimon.* config into every lake table's
+        # properties under a table. prefix, and that copy is the only place the
+        # fluss connector learns where the warehouse is.
+        #
+        # MOST of it, not all: fluss deletes every option whose name contains
+        # key, secret or password from that copy before answering a client
+        # (MetadataManager.removeSensitiveTableOptions), so the two lines below
+        # that carry credentials reach the lake table but never reach Doris.
+        # Doris has to be given them as catalog properties of its own -- which is
+        # exactly the path this environment exists to exercise.
         datalake.enabled: true
         datalake.format: paimon
         datalake.paimon.metastore: filesystem
         datalake.paimon.warehouse: ${FLUSS_PAIMON_WAREHOUSE}
+        datalake.paimon.s3.endpoint: ${FLUSS_LAKE_S3_ENDPOINT}
+        datalake.paimon.s3.path.style.access: true
+        datalake.paimon.s3.access-key: ${FLUSS_LAKE_S3_ACCESS_KEY}
+        datalake.paimon.s3.secret-key: ${FLUSS_LAKE_S3_SECRET_KEY}
     volumes:
       - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}
+      # Only used when the warehouse is switched back to a directory for
+      # debugging; see FLUSS_PAIMON_WAREHOUSE in fluss.env.tpl. Left in place so
+      # that the switch is one line and not four mounts.
       - ${FLUSS_PAIMON_WAREHOUSE_DIR}:${FLUSS_PAIMON_WAREHOUSE_DIR}
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9123' >/dev/null 2>&1"]
@@ -136,8 +192,13 @@ services:
         datalake.format: paimon
         datalake.paimon.metastore: filesystem
         datalake.paimon.warehouse: ${FLUSS_PAIMON_WAREHOUSE}
+        datalake.paimon.s3.endpoint: ${FLUSS_LAKE_S3_ENDPOINT}
+        datalake.paimon.s3.path.style.access: true
+        datalake.paimon.s3.access-key: ${FLUSS_LAKE_S3_ACCESS_KEY}
+        datalake.paimon.s3.secret-key: ${FLUSS_LAKE_S3_SECRET_KEY}
     volumes:
       - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}
+      # See the coordinator: kept for the directory warehouse, unused otherwise.
       - ${FLUSS_PAIMON_WAREHOUSE_DIR}:${FLUSS_PAIMON_WAREHOUSE_DIR}
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9123' >/dev/null 2>&1"]
@@ -161,7 +222,9 @@ services:
         rest.address: doris--fluss-jobmanager
         rest.bind-address: 0.0.0.0
     # The tiering job runs on this cluster and writes the paimon warehouse; the
-    # jobmanager builds the job graph, which opens the lake catalog.
+    # jobmanager builds the job graph, which opens the lake catalog. Reaching the
+    # warehouse itself needs no mount now that it is in the object store -- this
+    # one is kept for the directory warehouse; see the coordinator.
     volumes:
       - ${FLUSS_PAIMON_WAREHOUSE_DIR}:${FLUSS_PAIMON_WAREHOUSE_DIR}
       # Tiering a primary-key table reads the kv snapshot FILES rather than the
@@ -229,8 +292,14 @@ services:
       # written before declaring the environment ready.
       - FLUSS_REMOTE_DATA_DIR=${FLUSS_REMOTE_DATA_DIR}
       # This container also submits the tiering job and waits for it to commit,
-      # so it needs both the warehouse path and the paimon database naming.
+      # so it needs both the warehouse path and the paimon database naming. The
+      # tiering job is given its lake settings on the command line rather than
+      # reading the servers' -- see run-init-sql.sh -- so the credentials have to
+      # come this far too, and again when the wait counts the rows it committed.
       - FLUSS_PAIMON_WAREHOUSE=${FLUSS_PAIMON_WAREHOUSE}
+      - FLUSS_LAKE_S3_ENDPOINT=${FLUSS_LAKE_S3_ENDPOINT}
+      - FLUSS_LAKE_S3_ACCESS_KEY=${FLUSS_LAKE_S3_ACCESS_KEY}
+      - FLUSS_LAKE_S3_SECRET_KEY=${FLUSS_LAKE_S3_SECRET_KEY}
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: doris--fluss-jobmanager
