@@ -357,6 +357,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         }
         List<Column> columns = createTableInfo.getColumns();
+        if (columns.stream().anyMatch(column -> !column.getType().isVariantType()
+                && IcebergUtils.containsVariant(column.getType()))) {
+            throw new UserException("Iceberg VARIANT DDL currently supports only top-level columns");
+        }
         List<StructField> collect = columns.stream()
                 .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
                 .collect(Collectors.toList());
@@ -371,13 +375,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 && !IcebergUtils.hasIcebergCatalogFormatVersion(catalogProperties)) {
             properties.put(TableProperties.FORMAT_VERSION, "2");
         }
-        if (columns.stream().anyMatch(column -> !column.getType().isVariantType()
-                && IcebergUtils.containsVariant(column.getType()))) {
-            throw new UserException("Iceberg VARIANT DDL currently supports only top-level columns");
+        if (columns.stream().anyMatch(column -> IcebergUtils.containsVariant(column.getType()))) {
+            IcebergUtils.validateWriteSchema(columns,
+                    IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalogProperties),
+                    IcebergUtils.getEffectiveFileFormat(properties, catalogProperties));
         }
-        IcebergUtils.validateWriteSchema(columns,
-                IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalogProperties),
-                IcebergUtils.getEffectiveFileFormat(properties, catalogProperties));
         properties.putIfAbsent(TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         properties.putIfAbsent(TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         properties.putIfAbsent(TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
@@ -953,7 +955,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     private void modifyTopLevelColumn(ExternalTable dorisTable, ColumnPath columnPath, Column column,
             ColumnPosition position, long updateTime) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), false);
         validateRowLineageColumnMutation(icebergTable, columnPath.getTopLevelName(), "modify");
         NestedField currentCol = icebergTable.schema().asStruct()
                 .caseInsensitiveField(columnPath.getTopLevelName());
@@ -964,6 +965,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 currentCol.type(), currentCol);
 
         validateModifyColumnMetadata(column, resolvedPath.getFullPath(), true);
+        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), false);
         org.apache.iceberg.types.Type targetType;
         if (column.getType().isComplexType()) {
             validateForModifyComplexColumn(column, currentCol);
@@ -1010,7 +1012,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), true);
         ResolvedColumnPath resolvedPath = resolveColumnPath(icebergTable.schema(), columnPath, "modify");
         NestedField currentCol = resolvedPath.getField();
         validateCollectionPseudoFieldComment(
@@ -1020,6 +1021,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         validateNestedModifyColumnMetadata(column, resolvedPath.getFullPath());
+        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), true);
         org.apache.iceberg.types.Type targetType;
         if (column.getType().isComplexType()) {
             validateForModifyComplexColumn(column, currentCol, columnPath.getFullPath());

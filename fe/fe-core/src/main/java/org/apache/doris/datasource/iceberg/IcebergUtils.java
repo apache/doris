@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -732,6 +733,13 @@ public class IcebergUtils {
             return;
         }
         validateWriteSchema(columns, getFormatVersion(table), getFileFormat(table));
+        try {
+            validateVariantWriteBackendCompatibility(
+                    columns, Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values());
+        } catch (AnalysisException e) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Failed to check backend compatibility for Iceberg Variant writes", e);
+        }
     }
 
     @VisibleForTesting
@@ -746,6 +754,20 @@ public class IcebergUtils {
         if (fileFormat != FileFormat.PARQUET) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "Iceberg VARIANT writes require Parquet data files, but found " + fileFormat);
+        }
+    }
+
+    @VisibleForTesting
+    static void validateVariantWriteBackendCompatibility(List<Column> columns, Iterable<Backend> backends) {
+        if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
+            return;
+        }
+        for (Backend backend : backends) {
+            if (backend.isQueryAvailable() && backend.isSmoothUpgradeSrc()) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Iceberg Variant writes are unavailable while backend "
+                                + backend.getId() + " is a smooth upgrade source");
+            }
         }
     }
 
@@ -1426,16 +1448,31 @@ public class IcebergUtils {
 
     public static FileFormat getEffectiveFileFormat(Map<String, String> tableProperties,
             Map<String, String> catalogProperties) {
-        String fileFormatName = catalogProperties.get(CatalogProperties.TABLE_OVERRIDE_PREFIX
-                + TableProperties.DEFAULT_FILE_FORMAT);
-        if (fileFormatName == null) {
-            fileFormatName = configuredFileFormatName(tableProperties);
+        Map<String, String> effectiveProperties = new HashMap<>();
+        copyCatalogFileFormatProperty(effectiveProperties, catalogProperties,
+                CatalogProperties.TABLE_DEFAULT_PREFIX, WRITE_FORMAT);
+        copyCatalogFileFormatProperty(effectiveProperties, catalogProperties,
+                CatalogProperties.TABLE_DEFAULT_PREFIX, TableProperties.DEFAULT_FILE_FORMAT);
+        if (tableProperties.containsKey(WRITE_FORMAT)) {
+            effectiveProperties.put(WRITE_FORMAT, tableProperties.get(WRITE_FORMAT));
         }
-        if (fileFormatName == null) {
-            fileFormatName = catalogProperties.get(CatalogProperties.TABLE_DEFAULT_PREFIX
-                    + TableProperties.DEFAULT_FILE_FORMAT);
+        if (tableProperties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+            effectiveProperties.put(TableProperties.DEFAULT_FILE_FORMAT,
+                    tableProperties.get(TableProperties.DEFAULT_FILE_FORMAT));
         }
-        return parseFileFormatName(fileFormatName == null ? PARQUET_NAME : fileFormatName);
+        copyCatalogFileFormatProperty(effectiveProperties, catalogProperties,
+                CatalogProperties.TABLE_OVERRIDE_PREFIX, WRITE_FORMAT);
+        copyCatalogFileFormatProperty(effectiveProperties, catalogProperties,
+                CatalogProperties.TABLE_OVERRIDE_PREFIX, TableProperties.DEFAULT_FILE_FORMAT);
+        return parseFileFormatName(resolveFileFormatName(effectiveProperties));
+    }
+
+    private static void copyCatalogFileFormatProperty(Map<String, String> effectiveProperties,
+            Map<String, String> catalogProperties, String prefix, String property) {
+        String value = catalogProperties.get(prefix + property);
+        if (value != null) {
+            effectiveProperties.put(property, value);
+        }
     }
 
     private static FileFormat parseFileFormatName(String fileFormatName) {

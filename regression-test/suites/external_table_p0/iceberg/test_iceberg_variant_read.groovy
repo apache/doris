@@ -322,6 +322,22 @@ suite("test_iceberg_variant_read",
         CREATE TABLE demo.${dbName}.variant_write_guard (id INT) USING iceberg
         TBLPROPERTIES ('format-version'='3', 'write.format.default'='parquet');
         INSERT INTO demo.${dbName}.variant_write_guard VALUES (1);
+
+        DROP TABLE IF EXISTS demo.${dbName}.variant_operation_column;
+        CREATE TABLE demo.${dbName}.variant_operation_column (
+            id INT,
+            `operation` VARIANT
+        ) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='false',
+            'write.delete.mode'='merge-on-read',
+            'write.update.mode'='merge-on-read',
+            'write.merge.mode'='merge-on-read'
+        );
+        INSERT INTO demo.${dbName}.variant_operation_column
+            VALUES (1, parse_json('{"stage":"spark"}'));
     """
 
     List<List<Object>> multiFileDataFiles = spark_iceberg """
@@ -721,6 +737,38 @@ public class AppendVariantEqualityDelete {
         row.collect { value -> value == null ? null : value.toString().toLowerCase() }
     })
 
+    // The first operation slot is merge-routing metadata; a quoted user column with the same
+    // name remains an ordinary data column and must still receive Variant V2 validation/coercion.
+    sql """
+        UPDATE variant_operation_column
+        SET `operation` = PARSE_TO_VARIANT('{"stage":"doris-update","n":1}')
+        WHERE id = 1
+    """
+    sql """
+        MERGE INTO variant_operation_column t
+        USING (
+            SELECT 1 AS id, PARSE_TO_VARIANT('{"stage":"doris-merge","n":2}') AS payload
+            UNION ALL
+            SELECT 2 AS id, PARSE_TO_VARIANT('{"stage":"doris-insert","n":3}') AS payload
+        ) s
+        ON t.id = s.id
+        WHEN MATCHED THEN UPDATE SET `operation` = s.payload
+        WHEN NOT MATCHED THEN INSERT (id, `operation`) VALUES (s.id, s.payload)
+    """
+    List<List<Object>> sparkOperationRows = spark_iceberg """
+        SELECT id,
+               variant_get(`operation`, '\$.stage', 'string'),
+               variant_get(`operation`, '\$.n', 'int')
+        FROM demo.${dbName}.variant_operation_column
+        ORDER BY id
+    """
+    assertEquals([
+            ["1", "doris-merge", "2"],
+            ["2", "doris-insert", "3"]
+    ], sparkOperationRows.collect { row ->
+        row.collect { value -> value == null ? null : value.toString() }
+    })
+
     // An OLAP VARIANT column uses the legacy physical representation. Do not silently convert it
     // when the Iceberg sink requires the compute-only Variant V2 representation.
     sql """set enable_variant_v2=false"""
@@ -776,6 +824,22 @@ public class AppendVariantEqualityDelete {
             SELECT COUNT(*) FROM demo.${dbName}.variant_nested_legacy_guard
         """
         assertEquals("0", sparkLegacyNestedRows[0][0].toString())
+
+        test {
+            sql """
+                MERGE INTO variant_operation_column t
+                USING internal.${internalVariantDbName}.variant_source s
+                ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET `operation` = s.payload
+            """
+            exception "Writing legacy Doris VARIANT to Iceberg VARIANT column 'operation' is not supported"
+        }
+        List<List<Object>> sparkOperationAfterRejectedMerge = spark_iceberg """
+            SELECT variant_get(`operation`, '\$.stage', 'string')
+            FROM demo.${dbName}.variant_operation_column
+            WHERE id = 1
+        """
+        assertEquals("doris-merge", sparkOperationAfterRejectedMerge[0][0].toString())
     } finally {
         // The original read coverage in this suite runs with Variant V2 enabled.
         sql """set enable_variant_v2=true"""

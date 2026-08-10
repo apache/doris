@@ -39,6 +39,9 @@ public final class IcebergVariantWriteAnalyzer {
     /** Rejects legacy Variant leaves before sink coercion hides their physical representation. */
     public static void validate(
             List<Column> targetColumns, List<? extends NamedExpression> sourceColumns) {
+        if (targetColumns.size() != sourceColumns.size()) {
+            throw new AnalysisException("Iceberg Variant write target and source columns are not aligned");
+        }
         for (int i = 0; i < targetColumns.size(); ++i) {
             DataType targetType = DataType.fromCatalogType(targetColumns.get(i).getType());
             if (VariantType.containsVariant(targetType)) {

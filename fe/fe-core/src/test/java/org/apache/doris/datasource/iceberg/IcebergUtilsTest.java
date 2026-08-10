@@ -26,6 +26,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -398,6 +399,49 @@ public class IcebergUtilsTest {
                 ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "orc"), ImmutableMap.of(
                         CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.DEFAULT_FILE_FORMAT,
                         "parquet")));
+        // Iceberg persists catalog overrides under the standard key without removing the
+        // write-format alias. Match getFileFormat(Table): the alias still wins at runtime.
+        Assert.assertEquals(FileFormat.ORC, IcebergUtils.getEffectiveFileFormat(
+                ImmutableMap.of(IcebergUtils.WRITE_FORMAT, "orc"), ImmutableMap.of(
+                        CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.DEFAULT_FILE_FORMAT,
+                        "parquet")));
+        Assert.assertEquals(FileFormat.PARQUET, IcebergUtils.getEffectiveFileFormat(
+                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "orc"), ImmutableMap.of(
+                        CatalogProperties.TABLE_OVERRIDE_PREFIX + IcebergUtils.WRITE_FORMAT,
+                        "parquet")));
+        Assert.assertEquals(FileFormat.ORC, IcebergUtils.getEffectiveFileFormat(
+                Collections.emptyMap(), ImmutableMap.of(
+                        CatalogProperties.TABLE_DEFAULT_PREFIX + IcebergUtils.WRITE_FORMAT, "orc",
+                        CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.DEFAULT_FILE_FORMAT,
+                        "parquet")));
+    }
+
+    @Test
+    public void testRejectSmoothUpgradeSourceBackendForVariantWrite() {
+        Type variant = IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false);
+        List<Column> variantColumns = ImmutableList.of(new Column("payload", variant));
+
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isQueryAvailable()).thenReturn(true);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isQueryAvailable()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10004L);
+
+        IcebergUtils.validateVariantWriteBackendCompatibility(
+                variantColumns, ImmutableList.of(currentBackend));
+        try {
+            IcebergUtils.validateVariantWriteBackendCompatibility(
+                    variantColumns, ImmutableList.of(currentBackend, smoothUpgradeSource));
+            Assert.fail("Variant writes must not be scheduled while an old backend is eligible");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10004 is a smooth upgrade source"));
+        }
+
+        // Unavailable old backends cannot receive the sink fragment and must not block writes.
+        Mockito.when(smoothUpgradeSource.isQueryAvailable()).thenReturn(false);
+        IcebergUtils.validateVariantWriteBackendCompatibility(
+                variantColumns, ImmutableList.of(currentBackend, smoothUpgradeSource));
     }
 
     @Test
