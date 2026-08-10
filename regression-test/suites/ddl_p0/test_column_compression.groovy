@@ -16,11 +16,6 @@
 // under the License.
 
 suite("test_column_compression") {
-    // Per-column compression codec is only supported in non-cloud mode.
-    if (isCloudMode()) {
-        return
-    }
-
     sql "DROP TABLE IF EXISTS test_column_compression_tbl"
     sql "DROP TABLE IF EXISTS test_column_compression_bad"
     sql "DROP TABLE IF EXISTS test_column_compression_bad_complex"

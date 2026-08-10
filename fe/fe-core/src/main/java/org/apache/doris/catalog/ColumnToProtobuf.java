@@ -21,10 +21,12 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.PatternTypePB;
+import org.apache.doris.thrift.TCompressionType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
+import doris.segment_v2.SegmentV2;
 
 import java.util.List;
 import java.util.Set;
@@ -43,6 +45,12 @@ public class ColumnToProtobuf {
         builder.setUniqueId(column.getUniqueId());
         builder.setType(column.getDataType().toThrift().name());
         builder.setIsKey(column.isKey());
+        if (column.hasCompressionOverride()) {
+            builder.setCompressionType(toCompressionTypePb(column.getCompressionType()));
+            if (column.getCompressionLevel() > 0) {
+                builder.setCompressionLevel(column.getCompressionLevel());
+            }
+        }
         if (column.getFieldPatternType() != null) {
             switch (column.getFieldPatternType()) {
                 case MATCH_NAME:
@@ -122,6 +130,31 @@ public class ColumnToProtobuf {
         }
 
         return builder.build();
+    }
+
+    private static SegmentV2.CompressionTypePB toCompressionTypePb(TCompressionType compressionType) {
+        switch (compressionType) {
+            case UNKNOWN_COMPRESSION:
+                return SegmentV2.CompressionTypePB.UNKNOWN_COMPRESSION;
+            case DEFAULT_COMPRESSION:
+                return SegmentV2.CompressionTypePB.DEFAULT_COMPRESSION;
+            case NO_COMPRESSION:
+                return SegmentV2.CompressionTypePB.NO_COMPRESSION;
+            case SNAPPY:
+                return SegmentV2.CompressionTypePB.SNAPPY;
+            case LZ4:
+                return SegmentV2.CompressionTypePB.LZ4;
+            case LZ4F:
+                return SegmentV2.CompressionTypePB.LZ4F;
+            case ZLIB:
+                return SegmentV2.CompressionTypePB.ZLIB;
+            case ZSTD:
+                return SegmentV2.CompressionTypePB.ZSTD;
+            case LZ4HC:
+                return SegmentV2.CompressionTypePB.LZ4HC;
+            default:
+                throw new IllegalArgumentException("Unknown compression type: " + compressionType);
+        }
     }
 
     public static void addChildren(Column column, OlapFile.ColumnPB.Builder builder) throws DdlException {

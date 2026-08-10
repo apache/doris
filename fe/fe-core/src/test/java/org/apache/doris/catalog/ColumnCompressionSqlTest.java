@@ -17,11 +17,15 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 
+import doris.segment_v2.SegmentV2;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Collections;
 
 public class ColumnCompressionSqlTest {
     @Test
@@ -54,6 +58,26 @@ public class ColumnCompressionSqlTest {
         Column c = new Column("c1", Type.INT, true, null, false, "", true);
         TColumn t = ColumnToThrift.toThrift(c);
         Assertions.assertFalse(t.isSetCompressionType());
+    }
+
+    @Test
+    public void testToProtobufSetsCompression() throws Exception {
+        Column c = new Column("c1", Type.INT, true, null, false, "", true);
+        c.setCompression(TCompressionType.ZSTD, 9);
+        OlapFile.ColumnPB columnPb = ColumnToProtobuf.toPb(
+                c, Collections.emptySet(), Collections.emptyList());
+        Assertions.assertTrue(columnPb.hasCompressionType());
+        Assertions.assertEquals(SegmentV2.CompressionTypePB.ZSTD, columnPb.getCompressionType());
+        Assertions.assertEquals(9, columnPb.getCompressionLevel());
+    }
+
+    @Test
+    public void testToProtobufNoCompressionWhenUnset() throws Exception {
+        Column c = new Column("c1", Type.INT, true, null, false, "", true);
+        OlapFile.ColumnPB columnPb = ColumnToProtobuf.toPb(
+                c, Collections.emptySet(), Collections.emptyList());
+        Assertions.assertFalse(columnPb.hasCompressionType());
+        Assertions.assertFalse(columnPb.hasCompressionLevel());
     }
 
     @Test

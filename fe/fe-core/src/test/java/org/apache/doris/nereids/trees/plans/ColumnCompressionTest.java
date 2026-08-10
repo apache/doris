@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
@@ -99,6 +100,21 @@ public class ColumnCompressionTest {
         col.setCompression(TCompressionType.ZSTD, 9);
         Assertions.assertDoesNotThrow(
                 () -> col.validate(true, Sets.newHashSet(), Sets.newHashSet(), false, KeysType.DUP_KEYS));
+    }
+
+    @Test
+    public void testCompressionAllowedInCloudMode() throws Exception {
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "column-compression-test";
+        try {
+            ColumnDefinition col = new ColumnDefinition("col1", IntegerType.INSTANCE, false, AggregateType.NONE,
+                    true, Optional.empty(), "");
+            col.setCompression(TCompressionType.ZSTD, 9);
+            Assertions.assertDoesNotThrow(
+                    () -> col.validate(true, Sets.newHashSet(), Sets.newHashSet(), false, KeysType.DUP_KEYS));
+        } finally {
+            Config.cloud_unique_id = previousCloudUniqueId;
+        }
     }
 
     @Test

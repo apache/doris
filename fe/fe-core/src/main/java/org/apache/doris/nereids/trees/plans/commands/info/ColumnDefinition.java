@@ -24,7 +24,6 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.CaseSensibility;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -429,13 +428,6 @@ public class ColumnDefinition {
         if (compressionType != null && !isOlap) {
             throw new AnalysisException(
                     "COMPRESSION is only supported for OLAP table columns, column: " + name);
-        }
-        // The per-column codec only reaches BE for non-cloud tablets: the cloud tablet-schema
-        // producer (ColumnToProtobuf.toPb) does not serialize the override, so accepting it in
-        // cloud mode would silently drop the requested codec. Reject it until cloud is wired up.
-        if (compressionType != null && Config.isCloudMode()) {
-            throw new AnalysisException(
-                    "COMPRESSION is not supported in cloud mode, column: " + name);
         }
         // A per-column codec only stamps the top-level column meta. For ARRAY/MAP/STRUCT/VARIANT
         // the bulk of the bytes live in child/sub-columns that never receive the override, so the
