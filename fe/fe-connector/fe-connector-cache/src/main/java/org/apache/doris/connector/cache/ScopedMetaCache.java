@@ -25,6 +25,7 @@ import org.apache.doris.connector.cache.ScopedMetaCacheRegistry.ScopeSnapshot;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
+import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.Ticker;
 
 import java.math.BigInteger;
@@ -41,9 +42,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
@@ -66,13 +70,29 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     private final Cache<K, VersionedValue<K, V>> data;
     private final ConcurrentMap<K, KeyNode<K, V>> keyNodes = new ConcurrentHashMap<>();
     private final ConcurrentMap<LoadAddress<K>, CompletableFuture<V>> inFlightLoads = new ConcurrentHashMap<>();
+    private final ConcurrentMap<K, VersionedValue<K, V>> refreshing = new ConcurrentHashMap<>();
     private final StripedPhaseGate bulkInvalidationGate = new StripedPhaseGate();
     private final Map<K, BigInteger> exactInvalidations = new HashMap<>();
     private final NavigableMap<BigInteger, Integer> activeBulkStarts = new TreeMap<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    private final BiConsumer<K, V> beforeRemoval;
+    private final LongAdder requestCount = new LongAdder();
+    private final LongAdder hitCount = new LongAdder();
+    private final LongAdder missCount = new LongAdder();
+    private final LongAdder loadSuccessCount = new LongAdder();
+    private final LongAdder loadFailureCount = new LongAdder();
+    private final LongAdder totalLoadTimeNanos = new LongAdder();
+    private final LongAdder evictionCount = new LongAdder();
+    private final LongAdder invalidateCount = new LongAdder();
+    private final AtomicReference<Long> lastLoadSuccessTimeMs = new AtomicReference<>(-1L);
+    private final AtomicReference<Long> lastLoadFailureTimeMs = new AtomicReference<>(-1L);
+    private final AtomicReference<String> lastError = new AtomicReference<>("");
+    private final RemovalListener<K, V> beforeRemoval;
+    private final Ticker ticker;
+    private final long refreshAfterWriteNanos;
+    private final Executor refreshExecutor;
     private final Runnable afterLoadElection;
     private final Runnable afterBulkStage;
+    private final Runnable afterRefreshRegistration;
     private final ThreadLocal<RemovalDeferral<K, V>> removalDeferrals =
             ThreadLocal.withInitial(RemovalDeferral::new);
     private BigInteger exactInvalidationSequence = BigInteger.ZERO;
@@ -82,16 +102,24 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             String name,
             CacheSpec cacheSpec,
             Ticker ticker,
-            BiConsumer<K, V> beforeRemoval,
+            RemovalListener<K, V> beforeRemoval,
+            Duration refreshAfterWrite,
+            Executor refreshExecutor,
             Runnable afterLoadElection,
-            Runnable afterBulkStage) {
+            Runnable afterBulkStage,
+            Runnable afterRefreshRegistration) {
         this.registry = Objects.requireNonNull(registry, "registry can not be null");
         this.name = Objects.requireNonNull(name, "name can not be null");
         Objects.requireNonNull(cacheSpec, "cacheSpec can not be null");
         this.beforeRemoval = beforeRemoval;
+        this.ticker = ticker == null ? Ticker.systemTicker() : ticker;
+        this.refreshAfterWriteNanos = refreshAfterWrite == null ? 0L : refreshAfterWrite.toNanos();
+        this.refreshExecutor = refreshExecutor;
         this.afterLoadElection =
                 Objects.requireNonNull(afterLoadElection, "afterLoadElection can not be null");
         this.afterBulkStage = Objects.requireNonNull(afterBulkStage, "afterBulkStage can not be null");
+        this.afterRefreshRegistration = Objects.requireNonNull(
+                afterRefreshRegistration, "afterRefreshRegistration can not be null");
         this.effectiveEnabled = CacheSpec.isCacheEnabled(
                 cacheSpec.isEnable(), cacheSpec.getTtlSecond(), cacheSpec.getCapacity());
 
@@ -106,7 +134,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             builder.expireAfterAccess(Duration.ofSeconds(expiry.getAsLong()));
         }
         if (ticker != null) {
-            builder.ticker(ticker);
+            builder.ticker(this.ticker);
         }
         this.data = builder.build();
     }
@@ -121,13 +149,17 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         Function<K, V> loadFunction = Objects.requireNonNull(loader, "loader can not be null");
         checkOpen();
         if (!effectiveEnabled) {
-            return loadFunction.apply(key);
+            recordAccess(false);
+            return loadAndRecord(key, loadFunction);
         }
 
-        V present = getIfPresent(key, path);
-        if (present != null) {
-            return present;
+        VersionedValue<K, V> presentVersioned = currentVersionedValue(key, path);
+        if (presentVersioned != null) {
+            recordAccess(true);
+            scheduleRefresh(key, path, loader, presentVersioned);
+            return presentVersioned.value;
         }
+        recordAccess(false);
         try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, true)) {
             LoadAddress<K> loadAddress = new LoadAddress<>(key, path, lease);
             CompletableFuture<V> ownLoad = new CompletableFuture<>();
@@ -138,13 +170,13 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             try {
                 afterLoadElection.run();
                 synchronized (lease.keyNode) {
-                    present = getIfPresent(key, path);
+                    VersionedValue<K, V> present = currentVersionedValue(key, path);
                     if (present != null) {
-                        ownLoad.complete(present);
-                        return present;
+                        ownLoad.complete(present.value);
+                        return present.value;
                     }
                 }
-                V loaded = loadFunction.apply(key);
+                V loaded = loadAndRecord(key, loadFunction);
                 if (loaded != null) {
                     synchronized (lease.keyNode) {
                         publishCommitted(lease, key, loaded);
@@ -166,8 +198,15 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         Objects.requireNonNull(path, "path can not be null");
         checkOpen();
         if (!effectiveEnabled) {
+            recordAccess(false);
             return null;
         }
+        VersionedValue<K, V> versioned = currentVersionedValue(key, path);
+        recordAccess(versioned != null);
+        return versioned == null ? null : versioned.value;
+    }
+
+    private VersionedValue<K, V> currentVersionedValue(K key, ScopePath path) {
         VersionedValue<K, V> versioned = data.getIfPresent(key);
         if (versioned == null) {
             return null;
@@ -179,7 +218,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             data.asMap().remove(key, versioned);
             return null;
         }
-        return versioned.value;
+        return versioned;
     }
 
     public void put(K key, ScopePath path, V value) {
@@ -297,7 +336,58 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                     keyNodes.size(),
                     inFlightLoads.size(),
                     activeBulkStarts.values().stream().mapToInt(Integer::intValue).sum(),
-                    exactInvalidations.size()));
+                    exactInvalidations.size(),
+                    effectiveEnabled,
+                    requestCount.sum(),
+                    hitCount.sum(),
+                    missCount.sum(),
+                    loadSuccessCount.sum(),
+                    loadFailureCount.sum(),
+                    totalLoadTimeNanos.sum(),
+                    evictionCount.sum(),
+                    invalidateCount.sum(),
+                    lastLoadSuccessTimeMs.get(),
+                    lastLoadFailureTimeMs.get(),
+                    lastError.get()));
+    }
+
+    int refreshingCountForTest() {
+        return refreshing.size();
+    }
+
+    public void forEach(BiConsumer<K, V> consumer) {
+        Objects.requireNonNull(consumer, "consumer can not be null");
+        data.asMap().forEach((key, versioned) -> {
+            if (versioned.isCurrent(registry, keyNodes)) {
+                consumer.accept(key, versioned.value);
+            }
+        });
+    }
+
+    private V loadAndRecord(K key, Function<K, V> loader) {
+        long startNanos = System.nanoTime();
+        try {
+            V loaded = loader.apply(key);
+            loadSuccessCount.increment();
+            lastLoadSuccessTimeMs.set(System.currentTimeMillis());
+            return loaded;
+        } catch (RuntimeException | Error throwable) {
+            loadFailureCount.increment();
+            lastLoadFailureTimeMs.set(System.currentTimeMillis());
+            lastError.set(throwable.toString());
+            throw throwable;
+        } finally {
+            totalLoadTimeNanos.add(System.nanoTime() - startNanos);
+        }
+    }
+
+    private void recordAccess(boolean hit) {
+        requestCount.increment();
+        if (hit) {
+            hitCount.increment();
+        } else {
+            missCount.increment();
+        }
     }
 
     public void cleanUp() {
@@ -366,7 +456,49 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             PublicationLease<K, V> lease, K key, V value) {
         CacheAddress address = new CacheAddress(this, key);
         return new VersionedValue<>(
-                key, value, address, lease.scopeLease.snapshot(), lease.keyNode, lease.keyState);
+                key, value, address, lease.scopeLease.snapshot(), lease.keyNode, lease.keyState, ticker.read());
+    }
+
+    private void scheduleRefresh(K key, ScopePath path, Function<K, V> loader, VersionedValue<K, V> current) {
+        if (refreshAfterWriteNanos == 0L || ticker.read() - current.writeTimeNanos < refreshAfterWriteNanos
+                || refreshing.putIfAbsent(key, current) != null) {
+            return;
+        }
+        PublicationLease<K, V> lease;
+        try {
+            afterRefreshRegistration.run();
+            lease = acquirePublicationLease(key, path, true);
+        } catch (RuntimeException | Error throwable) {
+            refreshing.remove(key, current);
+            throw throwable;
+        }
+        if (data.getIfPresent(key) != current || !current.isCurrent(registry, keyNodes)) {
+            lease.close();
+            refreshing.remove(key, current);
+            return;
+        }
+        try {
+            refreshExecutor.execute(() -> {
+                try (PublicationLease<K, V> ignored = lease) {
+                    if (closed.get()) {
+                        return;
+                    }
+                    V refreshed = loadAndRecord(key, loader);
+                    if (refreshed != null) {
+                        synchronized (lease.keyNode) {
+                            publishCommitted(lease, key, refreshed);
+                        }
+                    }
+                } catch (RuntimeException | Error throwable) {
+                    LOG.log(System.Logger.Level.WARNING, "Scoped metadata cache refresh failed", throwable);
+                } finally {
+                    refreshing.remove(key, current);
+                }
+            });
+        } catch (RejectedExecutionException exception) {
+            lease.close();
+            refreshing.remove(key, current);
+        }
     }
 
     private void install(
@@ -490,7 +622,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         @SuppressWarnings("unchecked")
         VersionedValue<K, V> versioned = (VersionedValue<K, V>) rawValue;
         RemovalDeferral<K, V> removalDeferral = removalDeferrals.get();
-        removalDeferral.removals.addLast(versioned);
+        removalDeferral.removals.addLast(new DeferredRemoval<>(versioned, cause));
         if (removalDeferral.depth > 0 || removalDeferral.draining) {
             return;
         }
@@ -501,10 +633,10 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         removalDeferral.draining = true;
         Throwable failure = null;
         try {
-            VersionedValue<K, V> versioned;
-            while ((versioned = removalDeferral.removals.pollFirst()) != null) {
+            DeferredRemoval<K, V> removal;
+            while ((removal = removalDeferral.removals.pollFirst()) != null) {
                 try {
-                    completeRemoval(versioned);
+                    completeRemoval(removal.versioned, removal.cause);
                 } catch (RuntimeException | Error e) {
                     if (failure == null) {
                         failure = e;
@@ -526,11 +658,16 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         }
     }
 
-    private void completeRemoval(VersionedValue<K, V> versioned) {
+    private void completeRemoval(VersionedValue<K, V> versioned, RemovalCause cause) {
+        if (cause.wasEvicted()) {
+            evictionCount.increment();
+        } else if (cause == RemovalCause.EXPLICIT) {
+            invalidateCount.increment();
+        }
         K key = versioned.key;
         if (beforeRemoval != null) {
             try {
-                beforeRemoval.accept(key, versioned.value);
+                beforeRemoval.onRemoval(key, versioned.value, cause);
             } catch (Throwable t) {
                 LOG.log(System.Logger.Level.WARNING, "Scoped metadata cache removal callback failed", t);
             }
@@ -541,9 +678,19 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     }
 
     private static final class RemovalDeferral<K, V> {
-        private final Deque<VersionedValue<K, V>> removals = new ArrayDeque<>();
+        private final Deque<DeferredRemoval<K, V>> removals = new ArrayDeque<>();
         private int depth;
         private boolean draining;
+    }
+
+    private static final class DeferredRemoval<K, V> {
+        private final VersionedValue<K, V> versioned;
+        private final RemovalCause cause;
+
+        private DeferredRemoval(VersionedValue<K, V> versioned, RemovalCause cause) {
+            this.versioned = versioned;
+            this.cause = cause;
+        }
     }
 
     private static final class InvalidatedKey<K, V> {
@@ -638,18 +785,54 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private final int inFlightLoadCount;
         private final int activeBulkHandleCount;
         private final int exactInvalidationTombstoneCount;
+        private final boolean effectiveEnabled;
+        private final long requestCount;
+        private final long hitCount;
+        private final long missCount;
+        private final long loadSuccessCount;
+        private final long loadFailureCount;
+        private final long totalLoadTimeNanos;
+        private final long evictionCount;
+        private final long invalidateCount;
+        private final long lastLoadSuccessTimeMs;
+        private final long lastLoadFailureTimeMs;
+        private final String lastError;
 
         private CacheMetrics(
                 long physicalEntryCount,
                 int keyNodeCount,
                 int inFlightLoadCount,
                 int activeBulkHandleCount,
-                int exactInvalidationTombstoneCount) {
+                int exactInvalidationTombstoneCount,
+                boolean effectiveEnabled,
+                long requestCount,
+                long hitCount,
+                long missCount,
+                long loadSuccessCount,
+                long loadFailureCount,
+                long totalLoadTimeNanos,
+                long evictionCount,
+                long invalidateCount,
+                long lastLoadSuccessTimeMs,
+                long lastLoadFailureTimeMs,
+                String lastError) {
             this.physicalEntryCount = physicalEntryCount;
             this.keyNodeCount = keyNodeCount;
             this.inFlightLoadCount = inFlightLoadCount;
             this.activeBulkHandleCount = activeBulkHandleCount;
             this.exactInvalidationTombstoneCount = exactInvalidationTombstoneCount;
+            this.effectiveEnabled = effectiveEnabled;
+            this.requestCount = requestCount;
+            this.hitCount = hitCount;
+            this.missCount = missCount;
+            this.loadSuccessCount = loadSuccessCount;
+            this.loadFailureCount = loadFailureCount;
+            this.totalLoadTimeNanos = totalLoadTimeNanos;
+            this.evictionCount = evictionCount;
+            this.invalidateCount = invalidateCount;
+            this.lastLoadSuccessTimeMs = lastLoadSuccessTimeMs;
+            this.lastLoadFailureTimeMs = lastLoadFailureTimeMs;
+            this.lastError = lastError;
         }
 
         public long getPhysicalEntryCount() {
@@ -670,6 +853,54 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
         public int getExactInvalidationTombstoneCount() {
             return exactInvalidationTombstoneCount;
+        }
+
+        public boolean isEffectiveEnabled() {
+            return effectiveEnabled;
+        }
+
+        public long getLoadSuccessCount() {
+            return loadSuccessCount;
+        }
+
+        public long getRequestCount() {
+            return requestCount;
+        }
+
+        public long getHitCount() {
+            return hitCount;
+        }
+
+        public long getMissCount() {
+            return missCount;
+        }
+
+        public long getLoadFailureCount() {
+            return loadFailureCount;
+        }
+
+        public long getTotalLoadTimeNanos() {
+            return totalLoadTimeNanos;
+        }
+
+        public long getEvictionCount() {
+            return evictionCount;
+        }
+
+        public long getInvalidateCount() {
+            return invalidateCount;
+        }
+
+        public long getLastLoadSuccessTimeMs() {
+            return lastLoadSuccessTimeMs;
+        }
+
+        public long getLastLoadFailureTimeMs() {
+            return lastLoadFailureTimeMs;
+        }
+
+        public String getLastError() {
+            return lastError;
         }
     }
 
@@ -722,6 +953,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private final ScopeSnapshot scopeSnapshot;
         private final KeyNode<K, V> keyNode;
         private final KeyState keyState;
+        private final long writeTimeNanos;
 
         private VersionedValue(
                 K key,
@@ -729,13 +961,15 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 CacheAddress address,
                 ScopeSnapshot scopeSnapshot,
                 KeyNode<K, V> keyNode,
-                KeyState keyState) {
+                KeyState keyState,
+                long writeTimeNanos) {
             this.key = key;
             this.value = value;
             this.address = address;
             this.scopeSnapshot = scopeSnapshot;
             this.keyNode = keyNode;
             this.keyState = keyState;
+            this.writeTimeNanos = writeTimeNanos;
         }
 
         private boolean isCurrent(

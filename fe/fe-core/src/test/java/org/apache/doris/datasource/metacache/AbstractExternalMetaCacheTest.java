@@ -19,6 +19,8 @@ package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -55,18 +57,16 @@ public class AbstractExternalMetaCacheTest {
         try {
             TestExternalMetaCache cache = new TestExternalMetaCache(refreshExecutor);
             cache.initCatalog(1L, Maps.newHashMap());
-            MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> enabledEntry = cache.entry(
+            MetaCache<SchemaCacheKey, SchemaCacheValue> enabledEntry = cache.entry(
                     1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
-            Assert.assertTrue(enabledEntry.stats().isEffectiveEnabled());
-            Assert.assertEquals(0, enabledEntry.initializedStripeCountForTest());
+            Assert.assertTrue(enabledEntry.isEnabled());
 
             Map<String, String> disabledProperties = Maps.newHashMap();
             disabledProperties.put("meta.cache.test_engine.schema.ttl-second", "0");
             cache.initCatalog(2L, disabledProperties);
-            MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> disabledEntry = cache.entry(
+            MetaCache<SchemaCacheKey, SchemaCacheValue> disabledEntry = cache.entry(
                     2L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
-            Assert.assertFalse(disabledEntry.stats().isEffectiveEnabled());
-            Assert.assertEquals(0, disabledEntry.initializedStripeCountForTest());
+            Assert.assertFalse(disabledEntry.isEnabled());
         } finally {
             refreshExecutor.shutdownNow();
         }
@@ -92,7 +92,7 @@ public class AbstractExternalMetaCacheTest {
             TestExternalMetaCache cache = new TestExternalMetaCache(refreshExecutor);
             cache.initCatalog(1L, Maps.newHashMap());
 
-            MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> schemaEntry = cache.entry(
+            MetaCache<SchemaCacheKey, SchemaCacheValue> schemaEntry = cache.entry(
                     1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
 
             IllegalArgumentException exception = Assert.assertThrows(
@@ -128,7 +128,7 @@ public class AbstractExternalMetaCacheTest {
             TestExternalMetaCache cache = new TestExternalMetaCache(refreshExecutor);
             cache.initCatalog(1L, Maps.newHashMap());
 
-            MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> schemaEntry = cache.entry(
+            MetaCache<SchemaCacheKey, SchemaCacheValue> schemaEntry = cache.entry(
                     1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
             SchemaCacheKey matched = new SchemaCacheKey(NameMapping.createForTest(1L, "db1", "tbl1"));
             SchemaCacheKey unmatched = new SchemaCacheKey(NameMapping.createForTest(1L, "db2", "tbl2"));

@@ -38,11 +38,11 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.log.InitCatalogLog;
-import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.IdNameIndex;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
@@ -1155,7 +1155,7 @@ public abstract class ExternalCatalog
         buildMetaCache();
         // Test helpers only seed object/id state and keep names cache cold unless the test fills it explicitly.
         dbIdNameIndex.checkCanPut(db.getId(), db.getFullName());
-        databases.computeAndRun(
+        databases.computeAfterValidation(
                 db.getFullName(),
                 (ignored, current) -> db,
                 () -> dbIdNameIndex.put(db.getId(), db.getFullName()));
@@ -1501,25 +1501,26 @@ public abstract class ExternalCatalog
         buildMetaCache();
         long dbId = db.getId();
         // Reject a pre-existing identity conflict before names/object caches can publish partial new state.
-        // The final put remains inside computeAndRun to keep the ID side effect ordered with object invalidation.
         dbIdNameIndex.checkCanPut(dbId, localDbName);
         // Runtime incremental events only maintain names and object entries that are already hot. The ID map is a
         // lightweight lookup index and must always track registered objects so normal by-ID lookup can load on demand.
         // By default, incremental updates keep cold names/object cache entries cold.
         // forceUpdateCacheState is only for paths that intentionally populate those cold entries.
-        if (forceUpdateCacheState) {
-            databaseNames.compute("", (ignored, current) ->
-                    (current == null ? NameCacheValue.empty() : current).withName(remoteDbName, localDbName));
-        } else {
-            // Keep a cold names entry cold, but still advance its generation so an in-flight pre-event load cannot
-            // publish a stale snapshot after this incremental update.
-            databaseNames.compute("", (ignored, current) ->
-                    current == null ? null : current.withName(remoteDbName, localDbName));
-        }
-        databases.computeAndRun(
-                localDbName,
-                (ignored, current) -> (forceUpdateCacheState || current != null) ? db : null,
-                () -> dbIdNameIndex.put(dbId, localDbName));
+        databaseNames.computeAfterValidation(
+                "",
+                (ignored, current) -> {
+                    if (forceUpdateCacheState) {
+                        return (current == null ? NameCacheValue.empty() : current)
+                                .withName(remoteDbName, localDbName);
+                    }
+                    // Keep a cold names entry cold, but still advance its generation so an in-flight pre-event load
+                    // can not publish a stale snapshot after this incremental update.
+                    return current == null ? null : current.withName(remoteDbName, localDbName);
+                },
+                () -> databases.computeAfterValidation(
+                        localDbName,
+                        (ignored, current) -> (forceUpdateCacheState || current != null) ? db : null,
+                        () -> dbIdNameIndex.put(dbId, localDbName)));
     }
 
     protected void invalidateDatabaseCache(String localDbName) {

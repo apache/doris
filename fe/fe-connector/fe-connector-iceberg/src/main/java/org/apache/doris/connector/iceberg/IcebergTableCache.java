@@ -18,13 +18,14 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.iceberg.Table;
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -39,7 +40,7 @@ import java.util.function.Supplier;
  * lets consecutive queries — and the analysis/planning phases of one query, whose handles have distinct memo
  * lineages — reuse a single loaded table, exactly as the legacy with-cache catalog did.
  *
- * <p><b>Backing.</b> Reuses the shared {@link MetaCacheEntry} framework identically to
+ * <p><b>Backing.</b> Reuses the shared {@link MetaCache} framework identically to
  * {@link IcebergLatestSnapshotCache}: a contextual, access-TTL entry whose per-key loader is supplied at
  * {@link #getOrLoad}, with manual miss-load on so the loader runs OUTSIDE Caffeine's compute lock
  * (single-flight per key) and propagates its exception verbatim (a concurrent-drop
@@ -61,33 +62,41 @@ import java.util.function.Supplier;
  */
 final class IcebergTableCache {
 
-    private final MetaCacheEntry<TableIdentifier, TableOwner> entry;
+    private final CatalogMetaCache owner;
+    private final MetaCache<TableIdentifier, TableOwner> entry;
     private final Function<Table, Runnable> cleanupFactory;
     private final IcebergCatalogResourceTracker resourceTracker;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     IcebergTableCache(long ttlSeconds, int maxSize) {
-        this(ttlSeconds, maxSize, table -> () -> { }, null);
+        this(new CatalogMetaCache(), ttlSeconds, maxSize, table -> () -> { }, null);
     }
 
     IcebergTableCache(long ttlSeconds, int maxSize, Function<Table, Runnable> cleanupFactory) {
-        this(ttlSeconds, maxSize, cleanupFactory, null);
+        this(new CatalogMetaCache(), ttlSeconds, maxSize, cleanupFactory, null);
     }
 
     IcebergTableCache(long ttlSeconds, int maxSize, Function<Table, Runnable> cleanupFactory,
             IcebergCatalogResourceTracker resourceTracker) {
+        this(new CatalogMetaCache(), ttlSeconds, maxSize, cleanupFactory, resourceTracker);
+    }
+
+    IcebergTableCache(CatalogMetaCache owner, long ttlSeconds, int maxSize,
+            Function<Table, Runnable> cleanupFactory, IcebergCatalogResourceTracker resourceTracker) {
+        this.owner = owner;
         this.cleanupFactory = cleanupFactory;
         this.resourceTracker = resourceTracker;
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
         CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
-        this.entry = new MetaCacheEntry<>("iceberg-table", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true,
-                (identifier, owner) -> owner.release());
+        this.entry = owner.create(MetaCacheDefinition
+                .<TableIdentifier, TableOwner>builder("iceberg-table", spec, IcebergTableCache::scope)
+                .removalListener((identifier, tableOwner, reason) -> tableOwner.release())
+                .build());
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read live". */
     boolean isEnabled() {
-        return entry.stats().isEffectiveEnabled();
+        return entry.isEnabled();
     }
 
     /**
@@ -158,7 +167,7 @@ final class IcebergTableCache {
 
     /** Drops the cached entry for one table so the next read goes live (REFRESH TABLE). */
     void invalidate(TableIdentifier identifier) {
-        entry.invalidateKey(identifier);
+        owner.invalidateTable(identifier.namespace().toString(), identifier.name());
     }
 
     /**
@@ -168,27 +177,28 @@ final class IcebergTableCache {
      * namespace equality — mirroring {@link IcebergLatestSnapshotCache#invalidateDb}.
      */
     void invalidateDb(String dbName) {
-        Namespace ns = Namespace.of(dbName);
-        entry.invalidateIf(id -> id.namespace().equals(ns));
+        owner.invalidateDatabase(dbName);
     }
 
     /** Drops all cached entries. */
     void invalidateAll() {
-        entry.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     /** Seals new borrows and retires every cache owner, including loaders that publish after invalidation. */
     void close() {
         if (closed.compareAndSet(false, true)) {
-            entry.invalidateAll();
+            owner.invalidateCatalog();
         }
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
-        int[] count = {0};
-        entry.forEach((key, value) -> count[0]++);
-        return count[0];
+        return Math.toIntExact(entry.size());
+    }
+
+    private static ScopePath scope(TableIdentifier identifier) {
+        return ScopePath.table(identifier.namespace().toString(), identifier.name());
     }
 
     static final class TableLease implements AutoCloseable {

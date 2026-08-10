@@ -29,6 +29,10 @@ import java.util.Objects;
  * {@link Object#equals(Object)} and {@link Object#hashCode()} semantics while registered.
  */
 public final class ScopePath {
+    private enum SyntheticPartition {
+        COLLECTION
+    }
+
     public enum Level {
         CATALOG,
         DATABASE,
@@ -73,6 +77,15 @@ public final class ScopePath {
                 Objects.requireNonNull(database, "database can not be null"),
                 Objects.requireNonNull(table, "table can not be null"),
                 Objects.requireNonNull(partition, "partition can not be null"));
+    }
+
+    /**
+     * Scope for a value describing the table's partition collection as a whole, such as a partition-name list.
+     * It is a child of the table but distinct from every connector partition identity, allowing a partition
+     * change to invalidate membership views without also dropping unrelated table metadata.
+     */
+    public static ScopePath partitionCollection(String database, String table) {
+        return partition(database, table, SyntheticPartition.COLLECTION);
     }
 
     public Level level() {

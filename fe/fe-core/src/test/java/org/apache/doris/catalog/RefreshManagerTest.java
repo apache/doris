@@ -21,6 +21,8 @@ import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
@@ -509,7 +511,7 @@ public class RefreshManagerTest {
         }
 
         @Override
-        public <K, V> MetaCacheEntry<K, V> entry(
+        public <K, V> MetaCache<K, V> entry(
                 long catalogId, String entryName, Class<K> keyType, Class<V> valueType) {
             throw new UnsupportedOperationException();
         }

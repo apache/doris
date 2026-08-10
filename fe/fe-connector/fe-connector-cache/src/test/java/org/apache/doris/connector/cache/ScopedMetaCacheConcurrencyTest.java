@@ -22,6 +22,7 @@ import org.apache.doris.connector.cache.ScopedMetaCache.BulkLoadHandle;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -66,6 +67,39 @@ public class ScopedMetaCacheConcurrencyTest {
             Assertions.assertEquals(7, second.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
             Assertions.assertEquals(1, loads.get());
         } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void closeDuringRefreshAdmissionDoesNotRetainRefreshMarker() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch refreshRegistered = new CountDownLatch(1);
+        CountDownLatch continueAdmission = new CountDownLatch(1);
+        ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry();
+        try {
+            ScopedMetaCache<String, String> cache = registry.createCacheWithRefresh(
+                    "test", ENABLED, Duration.ofNanos(1L), Runnable::run, () -> {
+                        refreshRegistered.countDown();
+                        await(continueAdmission);
+                    });
+            Assertions.assertEquals("v1", cache.get("key", TABLE, ignored -> "v1"));
+
+            Future<String> refresh = executor.submit(
+                    () -> cache.get("key", TABLE, ignored -> "v2"));
+            await(refreshRegistered);
+            registry.close();
+            continueAdmission.countDown();
+
+            Exception failure = Assertions.assertThrows(
+                    Exception.class, () -> refresh.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            Assertions.assertTrue(failure.getCause() instanceof IllegalStateException);
+            Assertions.assertEquals(0, cache.refreshingCountForTest());
+            Assertions.assertEquals(0, registry.metrics().getRegistrationCount());
+            Assertions.assertEquals(0, registry.metrics().getActiveLoadCount());
+        } finally {
+            continueAdmission.countDown();
+            registry.close();
             executor.shutdownNow();
         }
     }

@@ -26,9 +26,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
-import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.IdNameIndex;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
@@ -379,7 +379,8 @@ public class ExternalDatabaseTest extends TestWithFeService {
             releaseLoader.countDown();
 
             Assertions.assertSame(table, lookup.get(3L, TimeUnit.SECONDS));
-            Assertions.assertNull(objectEntry.getIfPresent(table.getName()));
+            // Exact-key generations do not reject this load merely because an unrelated key shares its FE stripe.
+            Assertions.assertSame(table, objectEntry.getIfPresent(table.getName()));
             Assertions.assertEquals(table.getName(), db.getCachedTableNameByIdForTest(table.getId()));
         } finally {
             releaseLoader.countDown();

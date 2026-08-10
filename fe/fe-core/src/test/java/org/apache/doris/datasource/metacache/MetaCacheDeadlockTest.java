@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.connector.cache.CacheSpec;
 
 import org.junit.Assert;
 import org.junit.Test;
