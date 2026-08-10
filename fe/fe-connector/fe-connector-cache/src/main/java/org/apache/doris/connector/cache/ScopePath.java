@@ -128,7 +128,11 @@ public final class ScopePath {
 
     @Override
     public int hashCode() {
-        return Objects.hash(level, database, table, partition);
+        int pathHashCode = 1;
+        pathHashCode = 31 * pathHashCode + Objects.hashCode(level);
+        pathHashCode = 31 * pathHashCode + Objects.hashCode(database);
+        pathHashCode = 31 * pathHashCode + Objects.hashCode(table);
+        return 31 * pathHashCode + Objects.hashCode(partition);
     }
 
     @Override
