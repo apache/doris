@@ -30,6 +30,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.paimon.PaimonVariantWriteAnalyzer;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -407,6 +408,9 @@ public class InsertUtils {
         }
 
         ConnectContext context = ConnectContext.get();
+        boolean enableVariantV2 = context != null
+                && context.getSessionVariable().isEnableVariantV2();
+        boolean isPaimonSink = unboundLogicalSink instanceof UnboundPaimonTableSink;
         ExpressionRewriteContext rewriteContext = null;
         if (context != null && context.getStatementContext() != null) {
             rewriteContext = new ExpressionRewriteContext(
@@ -460,7 +464,8 @@ public class InsertUtils {
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
-                            DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
+                            DataType targetType = targetTypeForInlineValue(
+                                    sameNameColumn, values.get(i), isPaimonSink, enableVariantV2);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
                                     targetType, rewriteContext, strictCast);
                         }
@@ -481,7 +486,8 @@ public class InsertUtils {
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
-                            DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
+                            DataType targetType = targetTypeForInlineValue(
+                                    columns.get(i), values.get(i), isPaimonSink, enableVariantV2);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType,
                                     rewriteContext, strictCast);
                         }
@@ -491,6 +497,15 @@ public class InsertUtils {
             optimizedRowConstructors.add(optimizedRowConstructor.build());
         }
         return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build()));
+    }
+
+    private static DataType targetTypeForInlineValue(
+            Column column, NamedExpression value, boolean isPaimonSink, boolean enableVariantV2) {
+        DataType targetType = DataType.fromCatalogType(column.getType());
+        return isPaimonSink
+                ? PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
+                        targetType, value, enableVariantV2).orElse(null)
+                : targetType;
     }
 
     /** buildAnalyzer */

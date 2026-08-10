@@ -637,7 +637,7 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
                 """,
                 "ORDER BY id")
 
-        // Paimon 1.3.1 has no partition-key evolution in SchemaChange.
+        // Paimon 1.4.2 has no partition-key evolution in SchemaChange.
         // Doris therefore rejects ADD, DROP and REPLACE before catalog mutation.
         test {
             sql """

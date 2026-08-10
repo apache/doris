@@ -20,6 +20,8 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.paimon.table.FileStoreTable;
@@ -66,6 +68,10 @@ public final class PaimonWriteTarget {
             }
             Type type = PaimonUtil.paimonTypeToDorisType(
                     field.type(), catalog.getEnableMappingVarbinary(), false);
+            // A Paimon schema has one logical VARIANT type. Doris uses the compute-V2
+            // representation for the Paimon write protocol, including nested VARIANT nodes.
+            DataType writeType = VariantType.toComputeV2(DataType.fromCatalogType(type));
+            type = writeType.toCatalogDataType();
             // Doris exposes external-table columns as nullable. The real Paimon nullability and
             // defaults remain in the pinned FileStoreTable and are enforced by the Paimon writer.
             Column column = new Column(field.name(), type, true, null, true,

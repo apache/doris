@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.utils.TypeUtils;
@@ -41,6 +42,44 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class PaimonWriteBindingTest {
+
+    @Test
+    public void testFullOverwriteUsesStaticSemanticsByDefault() {
+        FileStoreTable table = Mockito.mock(FileStoreTable.class);
+        FileStoreTable configuredTable = Mockito.mock(FileStoreTable.class);
+        Mockito.when(table.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(table.copy(Collections.singletonMap(
+                CoreOptions.DYNAMIC_PARTITION_OVERWRITE.key(), Boolean.FALSE.toString())))
+                .thenReturn(configuredTable);
+
+        Assert.assertSame(configuredTable, PaimonWriteBinding.configureTableForWrite(
+                table, true, Collections.emptyMap()));
+    }
+
+    @Test
+    public void testFullOverwriteHonorsExplicitDynamicSemantics() {
+        FileStoreTable table = Mockito.mock(FileStoreTable.class);
+        Mockito.when(table.options()).thenReturn(Collections.singletonMap(
+                CoreOptions.DYNAMIC_PARTITION_OVERWRITE.key(), Boolean.TRUE.toString()));
+
+        Assert.assertSame(table, PaimonWriteBinding.configureTableForWrite(
+                table, true, Collections.emptyMap()));
+        Mockito.verify(table, Mockito.never()).copy(Mockito.anyMap());
+    }
+
+    @Test
+    public void testStaticPartitionAlwaysUsesStaticSemantics() {
+        FileStoreTable table = Mockito.mock(FileStoreTable.class);
+        FileStoreTable configuredTable = Mockito.mock(FileStoreTable.class);
+        Mockito.when(table.options()).thenReturn(Collections.singletonMap(
+                CoreOptions.DYNAMIC_PARTITION_OVERWRITE.key(), Boolean.TRUE.toString()));
+        Mockito.when(table.copy(Collections.singletonMap(
+                CoreOptions.DYNAMIC_PARTITION_OVERWRITE.key(), Boolean.FALSE.toString())))
+                .thenReturn(configuredTable);
+
+        Assert.assertSame(configuredTable, PaimonWriteBinding.configureTableForWrite(
+                table, true, Collections.singletonMap("pt", "1")));
+    }
 
     @Test
     public void testStaticPartitionUsesValueAfterTargetTypeCast()

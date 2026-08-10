@@ -110,7 +110,7 @@ public final class PaimonScanParams {
         String scanMode = options.get(CoreOptions.SCAN_MODE.key());
         if ("from-creation-timestamp".equalsIgnoreCase(scanMode)
                 && options.get(CoreOptions.SCAN_CREATION_TIME_MILLIS.key()) == null) {
-            // Paimon 1.3.1 does not validate this newer mode, but its starting scanner
+            // Paimon 1.4.2 does not validate this mode, but its starting scanner
             // requires the creation timestamp and otherwise fails after analysis.
             throw new IllegalArgumentException("Paimon scan mode 'from-creation-timestamp' requires query option '"
                     + CoreOptions.SCAN_CREATION_TIME_MILLIS.key() + "'.");

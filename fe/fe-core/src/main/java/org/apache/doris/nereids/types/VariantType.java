@@ -336,6 +336,42 @@ public class VariantType extends PrimitiveType {
         return false;
     }
 
+    /** Whether this is a legacy Variant leaf rather than the compute-only V2 representation. */
+    public static boolean isLegacyVariant(DataType dataType) {
+        return dataType instanceof VariantType && !((VariantType) dataType).isComputeV2();
+    }
+
+    /**
+     * Whether the Variant V2 execution kernel can convert this source type.
+     *
+     * <p>This mirrors the BE {@code execute_to_variant} contract: encoded JSON, nested arrays,
+     * compute V2 values, and the scalar types supported by the typed Variant representation.
+     * MAP, STRUCT, TIMEV2 and DECIMAL256 are intentionally excluded until their BE conversions
+     * are implemented.</p>
+     */
+    public static boolean isSupportedComputeV2CastSource(DataType dataType) {
+        if (dataType.isNullType() || dataType.isJsonType()) {
+            return true;
+        }
+        if (dataType instanceof VariantType) {
+            return ((VariantType) dataType).isComputeV2();
+        }
+        if (dataType instanceof ArrayType) {
+            return isSupportedComputeV2CastSource(((ArrayType) dataType).getItemType());
+        }
+        if (dataType instanceof DecimalV3Type) {
+            return ((DecimalV3Type) dataType).getPrecision()
+                    <= DecimalV3Type.MAX_DECIMAL128_PRECISION;
+        }
+        return dataType.isBooleanType()
+                || dataType.isIntegralType()
+                || dataType.isFloatLikeType()
+                || dataType.isDecimalV2Type()
+                || dataType.isDateLikeType()
+                || dataType.isStringLikeType()
+                || dataType.isIPType();
+    }
+
     /** Selects the compute-only Variant representation in a possibly nested type. */
     public static DataType toComputeV2(DataType dataType) {
         if (dataType instanceof VariantType) {
@@ -359,8 +395,19 @@ public class VariantType extends PrimitiveType {
      * <p>Legacy Variant values retain their existing common-type behavior. Compute-only Variant
      * V2 values share one physical representation, independent of source layout properties.</p>
      */
-    public boolean isExecutionCompatibleWith(VariantType other) {
+    public boolean hasCommonExecutionTypeWith(VariantType other) {
         return computeV2 == other.computeV2;
+    }
+
+    /**
+     * Whether a cast between two Variant types is safe.
+     *
+     * <p>Variant V1 embeds layout properties in its execution type, so V1 casts still require
+     * exact type equality. All compute-only V2 types share the same physical value/metadata
+     * representation, therefore layout-property differences do not require conversion.</p>
+     */
+    public boolean isCastCompatibleWith(VariantType other) {
+        return (computeV2 && other.computeV2) || equals(other);
     }
 
     /** Returns this Variant type with the requested compute-only physical representation. */

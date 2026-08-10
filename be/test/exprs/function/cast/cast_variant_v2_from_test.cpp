@@ -29,6 +29,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_jsonb.h"
+#include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -482,6 +483,29 @@ TEST(CastVariantV2FromTest, NestedArrayRoundTripPreservesNullAndEmptyArray) {
     EXPECT_EQ(values.get_null_map_data()[0], 0);
     EXPECT_EQ(values.get_null_map_data()[1], 1);
     EXPECT_EQ(assert_cast<const ColumnInt32&>(values.get_nested_column()).get_data()[0], 1);
+}
+
+TEST(CastVariantV2FromTest, NullOnlyArrayEncodesNonEmptyElements) {
+    auto array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeNothing>());
+    MutableColumnPtr source = array_type->create_column();
+    Array values {Field::create_field<TYPE_NULL>(Null()), Field::create_field<TYPE_NULL>(Null())};
+    source->insert(Field::create_field<TYPE_ARRAY>(std::move(values)));
+
+    auto variant_type = std::make_shared<DataTypeVariantV2>();
+    Block block {{source->get_ptr(), array_type, "source"},
+                 {variant_type->create_column(), variant_type, "result"}};
+    RuntimeState state;
+    auto context = FunctionContext::create_context(&state, {}, {});
+    Status status =
+            create_cast_to_variant_v2_wrapper(array_type)(context.get(), block, {0}, 1, 1, nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+
+    VariantRef encoded =
+            assert_cast<const ColumnVariantV2&>(*block.get_by_position(1).column).get_value_ref(0);
+    ASSERT_EQ(encoded.basic_type(), VariantBasicType::ARRAY);
+    ASSERT_EQ(encoded.num_elements(), 2);
+    EXPECT_TRUE(encoded.array_at(0).is_null());
+    EXPECT_TRUE(encoded.array_at(1).is_null());
 }
 
 TEST(CastVariantV2FromTest, DecimalScale38CastsAndScale39IsRejectedAtEncodingBoundary) {

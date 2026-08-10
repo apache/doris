@@ -149,6 +149,21 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testRegularScanDoesNotComputeMergedRowCount() throws UserException {
+        PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), sv));
+        node.setSource(mockPaimonSourceWithPartitionKeys(Collections.emptyList()));
+        DataSplit dataSplit = Mockito.spy(createDataSplit("regular.parquet"));
+        Mockito.doReturn(Collections.singletonList(dataSplit)).when(node).getPaimonSplitFromAPI();
+        Mockito.when(sv.isForceJniScanner()).thenReturn(true);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+
+        List<org.apache.doris.spi.Split> splits = node.getSplits(1);
+
+        Assert.assertEquals(1, splits.size());
+        Mockito.verify(dataSplit, Mockito.never()).mergedRowCount();
+    }
+
+    @Test
     public void testCountColumnKeepsAllSplitsWhileCountStarUsesMergedRowCount() throws UserException {
         PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), sv));
         node.setSource(mockPaimonSourceWithPartitionKeys(Collections.<String>emptyList()));

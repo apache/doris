@@ -42,6 +42,7 @@ under the License.
                     <!-- ServiceLoader also consults parent resources. Do not retain service
                          descriptors whose providers were removed with the embedded SDK. -->
                     <exclude>META-INF/services/org.apache.paimon*</exclude>
+                    <exclude>META-INF/services/java.time.chrono.Chronology</exclude>
                 </excludes>
             </unpackOptions>
         </dependencySet>

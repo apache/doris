@@ -538,6 +538,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
+            // Only evaluate merged row counts when COUNT(*) pushdown is active; ordinary scans
+            // must not pay the planning cost of merging Paimon manifest statistics.
             OptionalLong mergedRowCount = applyCountPushdown
                     ? dataSplit.mergedRowCount() : OptionalLong.empty();
             if (applyCountPushdown && mergedRowCount.isPresent()) {

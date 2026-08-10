@@ -79,12 +79,34 @@ public class PaimonWriteBinding {
                 writeTarget.getColumnTypes(),
                 typedStaticPartition,
                 context.isOverwrite());
+        table = configureTableForWrite(table, context.isOverwrite(), staticPartition);
         return new PaimonWriteBinding(
                 dorisTable,
                 table,
                 buildHadoopConfig(catalog),
                 context.isOverwrite(),
                 staticPartition);
+    }
+
+    static FileStoreTable configureTableForWrite(FileStoreTable table, boolean overwrite,
+            Map<String, String> staticPartition) {
+        if (!overwrite) {
+            return table;
+        }
+
+        String dynamicOverwriteKey = CoreOptions.DYNAMIC_PARTITION_OVERWRITE.key();
+        boolean explicitlyDynamic = staticPartition.isEmpty()
+                && Boolean.parseBoolean(table.options().get(dynamicOverwriteKey));
+        if (explicitlyDynamic) {
+            return table;
+        }
+
+        // Doris INSERT OVERWRITE without PARTITION replaces the whole table by default,
+        // whereas Paimon's default is dynamic partition overwrite. Read the raw table option
+        // above so only an explicit "true" opts into Paimon's dynamic behavior. A static
+        // PARTITION clause always requires static overwrite, regardless of the table option.
+        return table.copy(Collections.singletonMap(
+                dynamicOverwriteKey, Boolean.FALSE.toString()));
     }
 
     public FileStoreTable getTable() {

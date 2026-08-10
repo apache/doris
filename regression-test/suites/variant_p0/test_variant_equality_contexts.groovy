@@ -165,7 +165,7 @@ suite("test_variant_equality_contexts", "p0,nonConcurrent") {
 
     test {
         sql "SELECT CAST(CAST(1.23 AS DECIMAL(76, 2)) AS VARIANT)"
-        exception "to Variant V2 is not supported"
+        exception "cannot cast DECIMALV3(76, 2) to variant"
     }
 
     order_qt_intersect_encoded_canonical_numeric """

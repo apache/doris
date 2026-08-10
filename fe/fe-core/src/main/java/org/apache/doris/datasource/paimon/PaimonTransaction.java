@@ -26,9 +26,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.CoreOptions;
 import org.apache.paimon.io.DataInputDeserializer;
-import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.sink.CommitMessageSerializer;
 import org.apache.paimon.table.sink.InnerTableCommit;
@@ -234,7 +232,7 @@ public class PaimonTransaction implements Transaction {
     private void doCommit(PaimonWriteBinding writeBinding, List<CommitMessage> messages)
             throws Exception {
         ops.dorisCatalog.getExecutionAuthenticator().execute(() -> {
-            InnerTableCommit committer = getCommitTable(writeBinding).newCommit(commitUser);
+            InnerTableCommit committer = writeBinding.getTable().newCommit(commitUser);
             Exception commitFailure = null;
             try {
                 if (writeBinding.isOverwrite()) {
@@ -330,15 +328,6 @@ public class PaimonTransaction implements Transaction {
                 committer.close();
             }
         });
-    }
-
-    private FileStoreTable getCommitTable(PaimonWriteBinding writeBinding) {
-        FileStoreTable paimonTable = writeBinding.getTable();
-        if (!writeBinding.isOverwrite() || writeBinding.getStaticPartition().isEmpty()) {
-            return paimonTable;
-        }
-        return paimonTable.copy(Collections.singletonMap(
-                CoreOptions.DYNAMIC_PARTITION_OVERWRITE.key(), Boolean.FALSE.toString()));
     }
 
     private synchronized void markPreparedTransactionCommitted() {
