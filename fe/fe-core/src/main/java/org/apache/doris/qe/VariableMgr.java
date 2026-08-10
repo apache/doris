@@ -1083,6 +1083,9 @@ public class VariableMgr {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.ENABLE_SQL_CACHE,
                     String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.ENABLE_NEREIDS_DISTRIBUTE_PLANNER,
+                    String.valueOf(true));
         }
         if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
