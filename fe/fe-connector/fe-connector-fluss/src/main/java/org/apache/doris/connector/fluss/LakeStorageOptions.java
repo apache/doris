@@ -63,6 +63,12 @@ final class LakeStorageOptions {
         names.put("s3.secret.key", "s3.secret_key");
         names.put("s3.endpoint", "s3.endpoint");
         names.put("s3.region", "s3.region");
+        // How a bucket is addressed, which is storage for the same reason the endpoint is: a lake the
+        // FE reaches by one addressing mode and the BE by another is read by neither consistently. Both
+        // spellings appear because paimon mirrors them onto each other (S3FileIO.MIRRORED_CONFIG_KEYS),
+        // so a fluss cluster may be configured with either.
+        names.put("s3.path-style-access", "use_path_style");
+        names.put("s3.path.style.access", "use_path_style");
         // OSS (org.apache.paimon.oss.OSSLoader). Doris: OssFileSystemProperties.
         names.put("fs.oss.accessKeyId", "oss.access_key");
         names.put("fs.oss.accessKeySecret", "oss.secret_key");
