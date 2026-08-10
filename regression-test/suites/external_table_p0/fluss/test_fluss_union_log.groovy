@@ -79,7 +79,8 @@ suite("test_fluss_union_log", "p0,external") {
 
     // --- both halves are planned, and the plan says which is which -----------
     def logPlan = planOf("""select * from lake_log""")
-    assertTrue(logPlan.contains("flussScan: unionRead=yes"), "not a union read: ${logPlan}")
+    assertTrue(logPlan.contains("flussScan: readMode=default, unionRead=yes"),
+            "not a union read: ${logPlan}")
     assertTrue(logPlan.contains("mode=required"), "unexpected mode: ${logPlan}")
     assertTrue(countIn(logPlan, "lakeSplits") >= 1, "no lake splits: ${logPlan}")
     // Four rows were tiered across three buckets and two written after, so at
@@ -178,7 +179,8 @@ suite("test_fluss_union_log", "p0,external") {
     // nothing to fall back FROM. Only a lake table whose snapshot cannot be read
     // is.
     def plainPlan = planOf("""select * from log_basic""")
-    assertTrue(plainPlan.contains("flussScan: unionRead=no"), "unexpected union read: ${plainPlan}")
+    assertTrue(plainPlan.contains("flussScan: readMode=default, unionRead=no"),
+            "unexpected union read: ${plainPlan}")
     assertEquals(0, countIn(plainPlan, "lakeSplits"))
     order_qt_plain_count """select count(*) from log_basic"""
 

@@ -113,8 +113,8 @@ suite("test_fluss_lake_pk", "p0,external") {
     // bucket, and one range replaying the tail itself.
     def plan = planOf("""select * from lake_pk""")
     assertTrue(
-            plan.contains("flussScan: unionRead=yes, lakeSplits=1, suppressedLakeSplits=1, "
-                    + "logRanges=0, pkRanges=0, pkTailRanges=1, mode=auto"),
+            plan.contains("flussScan: readMode=default, unionRead=yes, lakeSplits=1, "
+                    + "suppressedLakeSplits=1, logRanges=0, pkRanges=0, pkTailRanges=1, mode=auto"),
             "not planned as a lake+tail merge of one bucket: ${plan}")
 
     // --- required merges rather than refusing --------------------------------
