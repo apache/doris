@@ -53,7 +53,7 @@ public class UnboundDictionarySink<CHILD_TYPE extends Plan> extends UnboundLogic
      */
     public UnboundDictionarySink(Dictionary dictionary, CHILD_TYPE child, boolean adaptiveLoad) {
         // all the empty arguments is like UnboundTableSink
-        super(ImmutableList.copyOf(dictionary.getNameWithFullQualifiers().split("\\.")), // nameParts
+        super(ImmutableList.copyOf(dictionary.getFullQualifiers()), // nameParts
                 PlanType.LOGICAL_UNBOUND_DICTIONARY_SINK, // type
                 ImmutableList.of(), // outputExprs
                 Optional.empty(), // groupExpression

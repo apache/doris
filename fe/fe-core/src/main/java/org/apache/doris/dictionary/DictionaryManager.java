@@ -35,6 +35,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateDictionaryInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.persist.CreateDictionaryPersistInfo;
 import org.apache.doris.persist.DictionaryDecreaseVersionInfo;
 import org.apache.doris.persist.DictionaryIncreaseVersionInfo;
@@ -412,31 +413,30 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                     + dictionary.getStatus().name());
         }
 
-        if (ctx == null) { // for run with scheduler, not by command.
-            // priv check is done in relative(caller) command. so use ADMIN here is ok.
-            ctx = InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName());
-        }
-
-        // not use rerfresh command's executor to avoid potential problems.
-        String insertSql = "insert into " + dictionary.getDbName() + "." + dictionary.getName() + " select * from "
-                + dictionary.getSourceCtlName() + "." + dictionary.getSourceDbName() + "."
-                + dictionary.getSourceTableName();
-        StmtExecutor executor = new StmtExecutor(ctx, insertSql);
-        NereidsParser parser = new NereidsParser();
-        InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser.parseSingle(insertSql);
-        LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
-                adaptiveLoad);
-        if (!baseCommand.getLabelName().isPresent()) {
-            baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + ctx.queryId().toString()));
-        }
-        if (baseCommand.getJobId() == 0) {
-            baseCommand.setJobId(DICTIONARY_JOB_ID);
-        }
-
-        InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(baseCommand, dictionary, adaptiveLoad);
-
-        // run with sync by status.
         try {
+            if (ctx == null) { // for run with scheduler, not by command.
+                // priv check is done in relative(caller) command. so use ADMIN here is ok.
+                ctx = InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName());
+            }
+
+            // not use rerfresh command's executor to avoid potential problems.
+            String insertSql = buildDataLoadSql(dictionary);
+            StmtExecutor executor = new StmtExecutor(ctx, insertSql);
+            NereidsParser parser = new NereidsParser();
+            InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser.parseSingle(insertSql);
+            LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
+                    adaptiveLoad);
+            if (!baseCommand.getLabelName().isPresent()) {
+                baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + ctx.queryId().toString()));
+            }
+            if (baseCommand.getJobId() == 0) {
+                baseCommand.setJobId(DICTIONARY_JOB_ID);
+            }
+
+            InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(baseCommand, dictionary,
+                    adaptiveLoad);
+
+            // run with sync by status.
             // avoid to generate EmptySetNode making us not able to get base table version.
             ctx.getSessionVariable().setVarOnce(SessionVariable.DISABLE_NEREIDS_RULES,
                     "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
@@ -522,6 +522,12 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
         LOG.info("Dictionary {} refresh succeed. now version is {}. used src version {}", dictionary.getName(),
                 dictionary.getVersion(), ctx.getStatementContext().getDictionaryUsedSrcVersion());
+    }
+
+    static String buildDataLoadSql(Dictionary dictionary) {
+        String targetName = Utils.qualifiedNameWithBackquote(dictionary.getFullQualifiers());
+        String sourceName = Utils.qualifiedNameWithBackquote(dictionary.getSourceQualifiedName());
+        return "insert into " + targetName + " select * from " + sourceName;
     }
 
     private boolean commitNowVersion(ConnectContext ctx, Dictionary dictionary) {
