@@ -20,6 +20,10 @@ package org.apache.doris.datasource.lance;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -89,5 +93,90 @@ public class LanceFilesystemCatalogTest {
         Assert.assertEquals("\\default", rootCollision);
         Assert.assertEquals(Collections.singletonList("default"),
                 LanceNamespaceName.dorisDatabaseNameToNamespace(rootCollision, ".", "default"));
+    }
+
+    @Test
+    public void testIndexMetadataErrorSanitization() {
+        String bearerToken = "sentinel-bearer-token";
+        String apiKey = "sentinel-api-key";
+        String accessKey = "sentinel-access-key";
+        String secretKey = "sentinel-secret-key";
+        String sessionToken = "sentinel-session-token";
+        String datasetUri = "s3://sentinel-user:sentinel-password@bucket/private/table.lance";
+
+        Map<String, String> catalogProperties = new HashMap<>();
+        catalogProperties.put(LanceExternalCatalog.REST_BEARER_TOKEN, bearerToken);
+        catalogProperties.put(LanceExternalCatalog.REST_API_KEY, apiKey);
+        LanceExternalCatalog catalog = new LanceExternalCatalog(
+                1, "lance_filesystem", null, catalogProperties, "");
+
+        Map<String, String> runtimeStorageOptions = new HashMap<>();
+        runtimeStorageOptions.put("aws_access_key_id", accessKey);
+        runtimeStorageOptions.put("aws_secret_access_key", secretKey);
+        runtimeStorageOptions.put("aws_session_token", sessionToken);
+        String providerMessage = "provider failure\nuri=" + datasetUri
+                + " bearer=" + bearerToken + " api-key=" + apiKey
+                + " access=" + accessKey + " secret=" + secretKey + " session=" + sessionToken;
+
+        RuntimeException providerFailure = new RuntimeException(providerMessage);
+        RuntimeException exposed = catalog.indexMetadataLoadFailure(
+                "db", "table", providerFailure, datasetUri, runtimeStorageOptions);
+        StringWriter stackTrace = new StringWriter();
+        exposed.printStackTrace(new PrintWriter(stackTrace));
+
+        for (String sentinel : Arrays.asList(bearerToken, apiKey, accessKey, secretKey,
+                sessionToken, datasetUri)) {
+            Assert.assertFalse(exposed.getMessage().contains(sentinel));
+            Assert.assertFalse(exposed.getCause().getMessage().contains(sentinel));
+            Assert.assertFalse(stackTrace.toString().contains(sentinel));
+        }
+        Assert.assertNotSame(providerFailure, exposed.getCause());
+        Assert.assertTrue(exposed.getCause().getMessage().contains("***"));
+        Assert.assertFalse(exposed.getCause().getMessage().contains("\n"));
+        Assert.assertTrue(exposed.getCause().getMessage().getBytes(StandardCharsets.UTF_8).length <= 1024);
+    }
+
+    @Test
+    public void testIndexMetadataErrorSanitizationUsesUtf8ByteLimit() {
+        LanceExternalCatalog catalog = new LanceExternalCatalog(
+                2, "lance_filesystem", null, Collections.emptyMap(), "");
+        char[] multibyteCharacters = new char[1024];
+        Arrays.fill(multibyteCharacters, '界');
+
+        String sanitized = catalog.sanitizedRootCauseMessage(
+                new RuntimeException(new String(multibyteCharacters)), null, Collections.emptyMap());
+
+        Assert.assertTrue(sanitized.getBytes(StandardCharsets.UTF_8).length <= 1024);
+    }
+
+    @Test
+    public void testIndexMetadataErrorSanitizationReplacesOverlappingSecrets() {
+        Map<String, String> catalogProperties = new HashMap<>();
+        catalogProperties.put(LanceExternalCatalog.REST_BEARER_TOKEN, "overlapping-secret");
+        LanceExternalCatalog catalog = new LanceExternalCatalog(
+                3, "lance_filesystem", null, catalogProperties, "");
+        Map<String, String> runtimeStorageOptions = Collections.singletonMap(
+                "aws_secret_access_key", "overlapping-secret-with-suffix");
+
+        String sanitized = catalog.sanitizedRootCauseMessage(
+                new RuntimeException("overlapping-secret-with-suffix"),
+                null, runtimeStorageOptions);
+
+        Assert.assertEquals("RuntimeException: ***", sanitized);
+    }
+
+    @Test
+    public void testIndexMetadataFailurePreservesSanitizedMetadataErrorType() {
+        LanceExternalCatalog catalog = new LanceExternalCatalog(
+                4, "lance_filesystem", null, Collections.emptyMap(), "");
+        IllegalArgumentException metadataFailure = new IllegalArgumentException("invalid metadata");
+
+        RuntimeException exposed = catalog.indexMetadataLoadFailure(
+                "db", "table", metadataFailure, null, null);
+
+        Assert.assertTrue(exposed.getCause() instanceof IllegalArgumentException);
+        Assert.assertNotSame(metadataFailure, exposed.getCause());
+        Assert.assertEquals("IllegalArgumentException: invalid metadata",
+                exposed.getCause().getMessage());
     }
 }
