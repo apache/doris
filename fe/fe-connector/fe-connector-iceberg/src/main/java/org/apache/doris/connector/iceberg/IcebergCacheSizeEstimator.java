@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.JvmSizeUtils;
+import org.apache.doris.connector.cache.ReflectiveObjectSizeEstimator;
 import org.apache.doris.connector.iceberg.IcebergPartitionCache.CachedPartitions;
 import org.apache.doris.connector.iceberg.IcebergPartitionCache.Key;
 import org.apache.doris.connector.iceberg.IcebergPartitionUtils.IcebergRawPartition;
@@ -131,7 +132,8 @@ final class IcebergCacheSizeEstimator {
     static long estimateManifestValue(ManifestCacheValue value) {
         long bytes = MANIFEST_VALUE_SHALLOW_BYTES;
         bytes = add(bytes, estimateContentFileList(value.getDataFiles()));
-        return add(bytes, estimateContentFileList(value.getDeleteFiles()));
+        bytes = add(bytes, estimateContentFileList(value.getDeleteFiles()));
+        return Math.max(bytes, ReflectiveObjectSizeEstimator.estimate(value));
     }
 
     /** Caffeine callback: key and manifest payload sizes are precomputed during construction. */
@@ -194,7 +196,8 @@ final class IcebergCacheSizeEstimator {
         bytes = add(bytes, estimateMetadataUpdates(metadata.changes()));
         bytes = add(bytes, estimateShallowList(metadata.encryptionKeys()));
         // TableMetadata retains a serializable snapshot supplier after the immutable snapshot list is loaded.
-        return add(bytes, JvmSizeUtils.objectArraySize(1));
+        bytes = add(bytes, JvmSizeUtils.objectArraySize(1));
+        return Math.max(bytes, ReflectiveObjectSizeEstimator.estimate(metadata));
     }
 
     private static long estimateSchema(Schema schema) {

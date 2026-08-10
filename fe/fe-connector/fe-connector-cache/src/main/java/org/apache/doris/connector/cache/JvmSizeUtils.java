@@ -76,6 +76,14 @@ public final class JvmSizeUtils {
         return arraySize(length, Long.BYTES);
     }
 
+    /** Estimate an array whose component is a primitive type. */
+    public static long primitiveArraySize(Class<?> componentType, int length) {
+        if (!componentType.isPrimitive() || componentType == void.class) {
+            throw new IllegalArgumentException("Not an array component primitive: " + componentType);
+        }
+        return arraySize(length, Math.toIntExact(fieldSize(componentType)));
+    }
+
     public static long arrayListSize(int backingArrayCapacity) {
         return saturatedAdd(ARRAY_LIST_SHALLOW_BYTES, objectArraySize(backingArrayCapacity));
     }
