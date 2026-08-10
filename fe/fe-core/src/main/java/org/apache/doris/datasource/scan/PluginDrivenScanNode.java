@@ -65,6 +65,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -215,16 +216,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         Connector connector = catalog.getConnector();
         ConnectorSession session = catalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        String dbName = table.getDb() != null ? table.getDb().getRemoteName() : "";
         // Resolve through the table's sys-aware seam (NOT raw metadata.getTableHandle): for a normal
         // table this is identical to getTableHandle(session, dbName, remoteName), but for a
         // PluginDrivenSysExternalTable the override returns the connector's SYSTEM handle (carrying
         // sysTableName + forceJni), so the scan path threads force-JNI correctly for binlog/audit_log.
         ConnectorTableHandle handle = table.resolveConnectorTableHandle(session, metadata)
-                // A missing handle means the remotely resolved table disappeared; keep connector internals out
-                // of the user-facing error so redirected tables retain the normal table-not-found contract.
-                .orElseThrow(() -> new RuntimeException(
-                        "Table '" + catalog.getName() + "." + dbName + "." + table.getRemoteName()
+                // Use analysis semantics and local names: mapped remote identifiers are connector internals and
+                // a generic RuntimeException would be reported as ERR_UNKNOWN_ERROR by EXPLAIN.
+                .orElseThrow(() -> new AnalysisException(
+                        "Table '" + catalog.getName() + "."
+                                + (table.getDb() == null ? "" : table.getDb().getFullName()) + "." + table.getName()
                                 + "' does not exist"));
         return new PluginDrivenScanNode(id, desc, needCheckColumnPriv, sv,
                 scanContext, connector, session, handle);
@@ -1311,11 +1312,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     private String connectorDisplayName() throws UserException {
         String engine = getTargetTable().getEngine();
-        // The connector identity is part of the user-facing compatibility contract; the generic plugin layer
-        // must not make equivalent connector errors differ according to which execution path rejected a scan.
+        // The engine is already the connector-owned display name; changing its case corrupts identities such
+        // as iRODS and makes equivalent connector errors differ by execution path.
         return engine == null || engine.isEmpty()
                 ? "Plugin"
-                : engine.substring(0, 1).toUpperCase(Locale.ROOT) + engine.substring(1);
+                : engine;
     }
 
     /**

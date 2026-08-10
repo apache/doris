@@ -412,7 +412,15 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         try {
             exists = context.executeAuthenticated(() -> catalogOps.tableExists(dbName, tableName));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to check table exist, error message is:" + e.getMessage(), e);
+            // Preserve Optional.empty even when an auth/catalog layer wraps NoSuchTableException.
+            if (ExceptionUtils.getThrowableList(e).stream()
+                    .anyMatch(NoSuchTableException.class::isInstance)) {
+                return Optional.empty();
+            }
+            // Existence checks in several catalogs load metadata internally, so normalize them at the shared
+            // handle boundary just like explicit table loads.
+            throw IcebergExceptionUtils.wrapTableLoadFailure(new IcebergTableHandle(dbName, tableName), e,
+                    "Failed to check table exist, error message is:");
         }
         if (!exists) {
             return Optional.empty();
@@ -1921,8 +1929,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                         () -> buildMvccPartitionViewUncached(session, iceHandle)));
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to build iceberg MVCC partition view, error message is:"
-                    + e.getMessage(), e);
+            throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
+                    "Failed to build iceberg MVCC partition view, error message is:");
         }
     }
 
@@ -1969,8 +1977,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                         TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to list iceberg partition names, error message is:"
-                    + e.getMessage(), e);
+            throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
+                    "Failed to list iceberg partition names, error message is:");
         }
     }
 
@@ -2006,8 +2014,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 return listPartitionsViewCache.get(key, () -> listPartitionsUncached(session, iceHandle));
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to list iceberg partitions, error message is:"
-                    + e.getMessage(), e);
+            throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
+                    "Failed to list iceberg partitions, error message is:");
         }
     }
 

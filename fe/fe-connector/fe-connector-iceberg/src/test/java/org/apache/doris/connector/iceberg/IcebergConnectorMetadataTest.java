@@ -35,6 +35,8 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.view.ImmutableSQLViewRepresentation;
@@ -604,6 +606,27 @@ public class IcebergConnectorMetadataTest {
         // present handle that later fails on load. MUTATION: returning a present handle when
         // tableExists==false -> red.
         Assertions.assertFalse(handleOpt.isPresent());
+    }
+
+    @Test
+    public void getTableHandleNormalizesDeepMetadataNotFoundFailure() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.tableExistsFailure = new RuntimeException("catalog wrapper",
+                new RuntimeException("storage wrapper", new NotFoundException("metadata is missing")));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadataWith(ops).getTableHandle(null, "db1", "missing_table"));
+        Assertions.assertEquals(
+                "Metadata not found in metadata location for table db1.missing_table", ex.getMessage());
+    }
+
+    @Test
+    public void getTableHandlePreservesMissingTableAsEmpty() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.tableExistsFailure = new RuntimeException("catalog wrapper",
+                new NoSuchTableException("table disappeared"));
+
+        Assertions.assertTrue(metadataWith(ops).getTableHandle(null, "db1", "missing_table").isEmpty());
     }
 
     // ---------------------------------------------------------------------
