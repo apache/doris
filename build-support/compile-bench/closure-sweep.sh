@@ -74,8 +74,12 @@ if [ ! -f "$basef" ]; then
     echo "ERROR: baseline '$base' not found at $basef" >&2
     exit 2
 fi
-regressions=$(comm -13 <(sort "$basef") <(sort "$out/fails.list"))
-fixed=$(comm -23 <(sort "$basef") <(sort "$out/fails.list"))
+# temp files instead of process substitution: keeps the script correct even
+# when invoked as `sh closure-sweep.sh` (POSIX mode has no <(...))
+sort "$basef" >"$out/.base.sorted"
+sort "$out/fails.list" >"$out/.cur.sorted"
+regressions=$(comm -13 "$out/.base.sorted" "$out/.cur.sorted")
+fixed=$(comm -23 "$out/.base.sorted" "$out/.cur.sorted")
 if [ -n "$fixed" ]; then
     echo "-- fixed vs '$base':"
     echo "$fixed" | sed 's/^/     /'
