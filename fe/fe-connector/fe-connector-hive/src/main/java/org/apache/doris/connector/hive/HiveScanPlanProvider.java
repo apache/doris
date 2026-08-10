@@ -50,9 +50,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.UnaryOperator;
-
-
 /**
  * Scan plan provider for Hive tables.
  *
@@ -72,6 +71,7 @@ import java.util.function.UnaryOperator;
  *       non-transactional tables (see {@link #supportsBatchScan})</li>
  * </ul>
  */
+
 public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
     private static final Logger LOG = LogManager.getLogger(HiveScanPlanProvider.class);
@@ -146,10 +146,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         // partition set, same formats) plans once and every duplicated relation shares the result.
         // The scope is NONE for offline planning and tests, in which case the loader runs on every
         // call. Session variables are constant within a statement and deliberately absent.
-        HiveScanReuseKey reuseKey = new HiveScanReuseKey(session.getCatalogId(), session.getQueryId(),
-                hiveHandle);
-        return session.getStatementScope().computeIfAbsent(reuseKey,
-                () -> Collections.unmodifiableList(doPlanScan(session, request)));
+        String memoKey = "hive.scan-reuse:" + session.getCatalogId() + ":" + session.getQueryId();
+        Map<HiveScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
+                memoKey, () -> new ConcurrentHashMap<>());
+        HiveScanReuseKey reuseKey = new HiveScanReuseKey(hiveHandle);
+        return scanReuse.computeIfAbsent(reuseKey,
+                key -> Collections.unmodifiableList(doPlanScan(session, request)));
     }
 
     private List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request) {
@@ -257,6 +259,16 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public List<ConnectorScanRange> planScanForPartitionBatch(
+            ConnectorSession session,
+            ConnectorScanRequest request,
+            List<String> partitionBatch) {
+        // Batch mode deliberately does not retain completed ranges in the statement scope: its
+        // purpose is to bound FE memory while splits are streamed to the coordinator. Caching every
+        // batch until statement close would materialize the full scan again and defeat that bound.
+        return doPlanScanForPartitionBatch(session, request, partitionBatch);
+    }
+
+    private List<ConnectorScanRange> doPlanScanForPartitionBatch(
             ConnectorSession session,
             ConnectorScanRequest request,
             List<String> partitionBatch) {
@@ -757,8 +769,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * upstream, and session variables are statement-constant, so both stay out of the key.
      */
     private static final class HiveScanReuseKey {
-        private final long catalogId;
-        private final String queryId;
         private final String dbName;
         private final String tableName;
         private final String location;
@@ -768,13 +778,10 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private final List<String> partitionKeyNames;
         private final List<HmsPartitionInfo> prunedPartitions;
 
-        private HiveScanReuseKey(long catalogId, String queryId, HiveTableHandle handle) {
-            // The catalog id and query id isolate same-named tables across a cross-catalog
-            // statement and executions of a reused prepared statement (see
-            // ConnectorStatementScopes.resolveInStatement); the table location identifies the data
-            // source of unpartitioned tables, whose prunedPartitions is null.
-            this.catalogId = catalogId;
-            this.queryId = queryId;
+        private HiveScanReuseKey(HiveTableHandle handle) {
+            // Catalog and query isolation are provided by the statement-scope memo key. The table
+            // location identifies the data source of unpartitioned tables, whose prunedPartitions
+            // is null.
             this.dbName = handle.getDbName();
             this.tableName = handle.getTableName();
             this.location = handle.getLocation();
@@ -798,9 +805,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 return false;
             }
             HiveScanReuseKey that = (HiveScanReuseKey) object;
-            return catalogId == that.catalogId
-                    && firstColumnIsString == that.firstColumnIsString
-                    && Objects.equals(queryId, that.queryId)
+            return firstColumnIsString == that.firstColumnIsString
                     && Objects.equals(dbName, that.dbName)
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(location, that.location)
@@ -812,15 +817,14 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
         @Override
         public int hashCode() {
-            return Objects.hash(catalogId, queryId, dbName, tableName, location,
+            return Objects.hash(dbName, tableName, location,
                     inputFormat, serializationLib, firstColumnIsString,
                     partitionKeyNames, prunedPartitions);
         }
 
         @Override
         public String toString() {
-            return "HiveScanReuseKey{catalog=" + catalogId + ", query=" + queryId
-                    + ", table=" + dbName + "." + tableName + "}";
+            return "HiveScanReuseKey{table=" + dbName + "." + tableName + "}";
         }
     }
 }

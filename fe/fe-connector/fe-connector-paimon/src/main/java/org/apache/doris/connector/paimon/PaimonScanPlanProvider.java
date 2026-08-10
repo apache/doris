@@ -20,7 +20,6 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
-import org.apache.doris.connector.spi.ConnectorScanKeyUtils;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -501,10 +500,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // every duplicated relation shares the result. The scope is NONE for offline planning and
         // tests, in which case the loader runs on every call. Session variables are constant within
         // a statement and deliberately absent from the key.
-        PaimonScanReuseKey reuseKey = new PaimonScanReuseKey(session.getCatalogId(), session.getQueryId(),
-                paimonHandle, request);
-        return session.getStatementScope().computeIfAbsent(reuseKey,
-                () -> Collections.unmodifiableList(planScanInternal(session,
+        String memoKey = "paimon.scan-reuse:" + session.getCatalogId() + ":" + session.getQueryId();
+        Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
+                memoKey, () -> new ConcurrentHashMap<>());
+        PaimonScanReuseKey reuseKey = new PaimonScanReuseKey(paimonHandle, request);
+        return scanReuse.computeIfAbsent(reuseKey,
+                key -> Collections.unmodifiableList(planScanInternal(session,
                         request.getTableHandle(), request.getColumns(), request.getFilter(),
                         request.getLimit(), request.isCountPushdown())));
     }
@@ -2435,26 +2436,19 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * upstream, and session variables are statement-constant, so both stay out of the key.
      */
     private static final class PaimonScanReuseKey {
-        private final long catalogId;
-        private final String queryId;
         private final String databaseName;
         private final String tableName;
         private final String branchName;
         private final Map<String, String> scanOptions;
         private final List<String> columnNames;
-        private final List<ConnectorExpression> filterConjuncts;
+        private final Optional<ConnectorExpression> filter;
         private final long limit;
         private final boolean countPushdown;
 
-        private PaimonScanReuseKey(long catalogId, String queryId, PaimonTableHandle handle,
-                ConnectorScanRequest request) {
-            // The catalog id and query id isolate same-named tables across a cross-catalog
-            // statement and executions of a reused prepared statement (see
-            // ConnectorStatementScopes.resolveInStatement). System tables are bypassed in planScan
-            // before this key is built, so sysTableName is always null here; if the system-table
-            // bypass is ever relaxed, add it back.
-            this.catalogId = catalogId;
-            this.queryId = queryId;
+        private PaimonScanReuseKey(PaimonTableHandle handle, ConnectorScanRequest request) {
+            // Catalog and query isolation are provided by the statement-scope memo key. System
+            // tables are bypassed in planScan before this key is built, so sysTableName is always
+            // null here; if the system-table bypass is ever relaxed, add it back.
             this.databaseName = handle.getDatabaseName();
             this.tableName = handle.getTableName();
             this.branchName = handle.getBranchName();
@@ -2462,11 +2456,19 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     ? Collections.emptyMap()
                     : Collections.unmodifiableMap(new HashMap<>(handle.getScanOptions()));
             this.columnNames = request.getColumns().stream()
-                    .map(column -> ((PaimonColumnHandle) column).getName().toLowerCase(Locale.ROOT))
+                    .map(PaimonScanReuseKey::toPaimonColumnName)
                     .collect(Collectors.toList());
-            this.filterConjuncts = ConnectorScanKeyUtils.canonicalFilterConjuncts(request.getFilter());
+            this.filter = request.getFilter();
             this.limit = request.getLimit();
             this.countPushdown = request.isCountPushdown();
+        }
+
+        private static String toPaimonColumnName(ConnectorColumnHandle column) {
+            if (!(column instanceof PaimonColumnHandle)) {
+                throw new IllegalArgumentException(
+                        "Paimon scan reuse key requires PaimonColumnHandle, got: " + column.getClass().getName());
+            }
+            return ((PaimonColumnHandle) column).getName().toLowerCase(Locale.ROOT);
         }
 
         @Override
@@ -2478,28 +2480,25 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 return false;
             }
             PaimonScanReuseKey that = (PaimonScanReuseKey) object;
-            return catalogId == that.catalogId
-                    && limit == that.limit
+            return limit == that.limit
                     && countPushdown == that.countPushdown
-                    && Objects.equals(queryId, that.queryId)
                     && Objects.equals(databaseName, that.databaseName)
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(branchName, that.branchName)
                     && Objects.equals(scanOptions, that.scanOptions)
                     && Objects.equals(columnNames, that.columnNames)
-                    && Objects.equals(filterConjuncts, that.filterConjuncts);
+                    && Objects.equals(filter, that.filter);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(catalogId, queryId, databaseName, tableName, branchName,
-                    scanOptions, columnNames, filterConjuncts, limit, countPushdown);
+            return Objects.hash(databaseName, tableName, branchName,
+                    scanOptions, columnNames, filter, limit, countPushdown);
         }
 
         @Override
         public String toString() {
-            return "PaimonScanReuseKey{catalog=" + catalogId + ", query=" + queryId
-                    + ", table=" + databaseName + "." + tableName + "}";
+            return "PaimonScanReuseKey{table=" + databaseName + "." + tableName + "}";
         }
     }
 }
