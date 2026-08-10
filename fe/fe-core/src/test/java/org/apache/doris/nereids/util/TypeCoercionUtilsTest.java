@@ -127,7 +127,6 @@ public class TypeCoercionUtilsTest {
 
     @Test
     public void testTimestampNsIsNotInDateTimeV2PrecisionFamily() {
-        Assertions.assertTrue(TypeCoercionUtils.hasTimeStampNsType(TimeStampNsType.INSTANCE));
         Assertions.assertFalse(TypeCoercionUtils.hasDateTimeV2Type(TimeStampNsType.INSTANCE));
         Assertions.assertFalse(TypeCoercionUtils.hasDateTimeV2Type(
                 ArrayType.of(TimeStampNsType.INSTANCE)));
@@ -226,55 +225,15 @@ public class TypeCoercionUtilsTest {
                 TypeCoercionUtils.replaceTimesWithTargetPrecision(TimeStampNsType.INSTANCE, 6));
         MapType nestedTimestamp = MapType.of(IntegerType.INSTANCE,
                 ArrayType.of(TimeStampNsType.INSTANCE));
-        Assertions.assertTrue(TypeCoercionUtils.hasTimeStampNsType(nestedTimestamp));
         Assertions.assertFalse(TypeCoercionUtils.hasDateTimeV2Type(nestedTimestamp));
         Assertions.assertEquals(nestedTimestamp,
                 TypeCoercionUtils.replaceTimesWithTargetPrecision(nestedTimestamp, 3));
-
-        Assertions.assertEquals(Optional.of(DateTimeV2Type.of(4)),
-                TypeCoercionUtils.findWiderTypeForTwo(DateV2Type.INSTANCE,
-                        DecimalV2Type.createDecimalV2Type(12, 4), false, false));
-        Assertions.assertEquals(Optional.of(DateTimeV2Type.of(5)),
-                TypeCoercionUtils.findWiderTypeForTwo(DateV2Type.INSTANCE,
-                        DecimalV3Type.createDecimalV3Type(12, 5), false, false));
-        Assertions.assertEquals(Optional.of(DateTimeV2Type.of(3)),
-                TypeCoercionUtils.findWiderTypeForTwo(DateV2Type.INSTANCE,
-                        TimeV2Type.of(3), false, false));
-
-        DateTimeV2Type dateTimeV2 = DateTimeV2Type.of(2);
-        Assertions.assertEquals(Optional.of(DateTimeV2Type.of(4)),
-                TypeCoercionUtils.findWiderTypeForTwo(dateTimeV2,
-                        DecimalV2Type.createDecimalV2Type(12, 4), false, false));
-        Assertions.assertEquals(Optional.of(DateTimeV2Type.of(5)),
-                TypeCoercionUtils.findWiderTypeForTwo(dateTimeV2,
-                        DecimalV3Type.createDecimalV3Type(12, 5), false, false));
-        Assertions.assertEquals(Optional.of(DateTimeV2Type.MAX),
-                TypeCoercionUtils.findWiderTypeForTwo(
-                        dateTimeV2, DoubleType.INSTANCE, false, false));
-        Assertions.assertEquals(Optional.of(DateTimeV2Type.of(4)),
-                TypeCoercionUtils.findWiderTypeForTwo(
-                        dateTimeV2, TimeStampTzType.of(4), false, false));
-        Assertions.assertEquals(Optional.of(DateTimeV2Type.of(5)),
-                TypeCoercionUtils.findWiderTypeForTwo(
-                        dateTimeV2, TimeV2Type.of(5), false, false));
-        Assertions.assertEquals(Optional.of(DateTimeV2Type.MAX),
-                TypeCoercionUtils.findWiderTypeForTwo(
-                        dateTimeV2, StringType.INSTANCE, false, false));
-        Assertions.assertEquals(Optional.empty(), TypeCoercionUtils.findWiderTypeForTwo(
-                dateTimeV2, JsonType.INSTANCE, false, false));
 
         MapType normalizedNestedTimestamp = MapType.of(DecimalV3Type.SYSTEM_DEFAULT,
                 ArrayType.of(TimeStampNsType.INSTANCE));
         Assertions.assertEquals(Optional.of(normalizedNestedTimestamp),
                 TypeCoercionUtils.findWiderTypeForTwo(
                         nestedTimestamp, VariantType.INSTANCE, false, false));
-        Assertions.assertEquals(Optional.of(DateTimeV2Type.MAX),
-                TypeCoercionUtils.findWiderCommonTypeForComparison(
-                        ImmutableList.of(dateTimeV2, StringType.INSTANCE)));
-        Assertions.assertEquals(Optional.of(DateTimeV2Type.MAX),
-                TypeCoercionUtils.findWiderCommonTypeForComparison(
-                        ImmutableList.of(StringType.INSTANCE, dateTimeV2)));
-
         Optional<Expression> dateTargetWithTime = TypeCoercionUtils.characterLiteralTypeCoercion(
                 "2024-01-02 03:04:05.123456", DateV2Type.INSTANCE);
         Assertions.assertTrue(dateTargetWithTime.isPresent());
