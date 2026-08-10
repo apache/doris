@@ -192,6 +192,7 @@ public class IcebergUtils {
     public static final int PARTITION_DATA_ID_START = 1000; // org.apache.iceberg.PartitionSpec
 
     public static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
+    public static final int ICEBERG_VARIANT_MIN_VERSION = 3;
     public static final String ICEBERG_ROW_ID_COL = "_row_id";
     public static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
 
@@ -726,12 +727,25 @@ public class IcebergUtils {
         return false;
     }
 
-    public static void validateWriteSchema(List<Column> columns) {
-        if (columns.stream().anyMatch(column -> containsVariant(column.getType()))) {
-            // Keep this table capability read-only until every Iceberg writer can preserve the
-            // Variant physical identity; rejecting only selected columns would allow data loss.
+    public static void validateWriteSchema(Table table, List<Column> columns) {
+        if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
+            return;
+        }
+        validateWriteSchema(columns, getFormatVersion(table), getFileFormat(table));
+    }
+
+    @VisibleForTesting
+    public static void validateWriteSchema(List<Column> columns, int formatVersion, FileFormat fileFormat) {
+        if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
+            return;
+        }
+        if (formatVersion < ICEBERG_VARIANT_MIN_VERSION) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "Iceberg VARIANT columns are read-only and cannot be written");
+                    "Iceberg VARIANT writes require table format-version 3, but found " + formatVersion);
+        }
+        if (fileFormat != FileFormat.PARQUET) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Iceberg VARIANT writes require Parquet data files, but found " + fileFormat);
         }
     }
 
@@ -1407,6 +1421,24 @@ public class IcebergUtils {
     public static FileFormat getFileFormat(Table icebergTable) {
         Map<String, String> properties = icebergTable.properties();
         String fileFormatName = resolveFileFormatName(properties);
+        return parseFileFormatName(fileFormatName);
+    }
+
+    public static FileFormat getEffectiveFileFormat(Map<String, String> tableProperties,
+            Map<String, String> catalogProperties) {
+        String fileFormatName = catalogProperties.get(CatalogProperties.TABLE_OVERRIDE_PREFIX
+                + TableProperties.DEFAULT_FILE_FORMAT);
+        if (fileFormatName == null) {
+            fileFormatName = configuredFileFormatName(tableProperties);
+        }
+        if (fileFormatName == null) {
+            fileFormatName = catalogProperties.get(CatalogProperties.TABLE_DEFAULT_PREFIX
+                    + TableProperties.DEFAULT_FILE_FORMAT);
+        }
+        return parseFileFormatName(fileFormatName == null ? PARQUET_NAME : fileFormatName);
+    }
+
+    private static FileFormat parseFileFormatName(String fileFormatName) {
         FileFormat fileFormat;
         if (fileFormatName.toLowerCase().contains(ORC_NAME)) {
             fileFormat = FileFormat.ORC;
@@ -1419,6 +1451,11 @@ public class IcebergUtils {
     }
 
     private static String resolveFileFormatName(Map<String, String> properties) {
+        String configured = configuredFileFormatName(properties);
+        return configured == null ? PARQUET_NAME : configured;
+    }
+
+    private static String configuredFileFormatName(Map<String, String> properties) {
         // 1. Check "write-format" (nickname in Flink and Spark)
         if (properties.containsKey(WRITE_FORMAT)) {
             return properties.get(WRITE_FORMAT);
@@ -1427,8 +1464,7 @@ public class IcebergUtils {
         if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
             return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
         }
-        // Iceberg defaults the write format to Parquet when the table does not declare one.
-        return PARQUET_NAME;
+        return null;
     }
 
 
@@ -2076,7 +2112,10 @@ public class IcebergUtils {
                             != MetricsModes.None.get());
         }
         return TypeUtil.indexById(writerSchema.asStruct()).values().stream()
-                .filter(field -> field.type().isPrimitiveType())
+                // Iceberg Variant is primitive-like for Parquet metrics, but deliberately does
+                // not implement Type.PrimitiveType. Its unshredded metadata leaf still provides
+                // logical value/null counts for the Variant field.
+                .filter(field -> field.type().isPrimitiveType() || field.type().isVariantType())
                 .anyMatch(field -> MetricsUtil.metricsMode(writerSchema, metricsConfig, field.fieldId())
                         != MetricsModes.None.get());
     }

@@ -134,6 +134,8 @@ public class DorisTypeToIcebergType extends DorisTypeVisitor<Type> {
             return Types.TimestampType.withoutZone();
         } else if (primitiveType.equals(PrimitiveType.TIMESTAMPTZ)) {
             return Types.TimestampType.withZone();
+        } else if (primitiveType.equals(PrimitiveType.VARIANT)) {
+            return Types.VariantType.get();
         }
         // unsupported type: PrimitiveType.HLL BITMAP BINARY
 

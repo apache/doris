@@ -39,6 +39,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
@@ -750,7 +751,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> targetSchema = table.getFullSchema(targetSnapshot);
         // Validate the same pinned generation used to bind the sink. A self-insert can pin an
         // older source snapshot in StatementContext before the latest write target is loaded.
-        IcebergUtils.validateWriteSchema(targetSchema);
+        IcebergUtils.validateWriteSchema(targetIcebergTable, targetSchema);
 
         // Get static partition columns if present
         Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
@@ -815,6 +816,8 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("insert into cols should be corresponding to the query output. "
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
+
+        IcebergVariantWriteAnalyzer.validate(bindColumns, child.getOutput());
 
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
                 boundSink, child, targetSchema);

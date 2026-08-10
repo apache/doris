@@ -22,6 +22,8 @@
 #include <arrow/array/builder_decimal.h>
 #include <arrow/array/builder_nested.h>
 #include <arrow/array/builder_primitive.h>
+#include <arrow/array/util.h>
+#include <arrow/extension_type.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
@@ -69,6 +71,98 @@ bool is_iceberg_uuid_field(const std::shared_ptr<arrow::Field>& field) {
     }
     const auto result = field->metadata()->Get(ICEBERG_ORIGINAL_TYPE_KEY);
     return result.ok() && result.ValueUnsafe() == ICEBERG_UUID_TYPE_VALUE;
+}
+
+bool contains_extension_type(const std::shared_ptr<arrow::DataType>& type) {
+    if (type->id() == arrow::Type::EXTENSION) {
+        return true;
+    }
+    for (const auto& field : type->fields()) {
+        if (contains_extension_type(field->type())) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::shared_ptr<arrow::DataType> extension_storage_type(
+        const std::shared_ptr<arrow::DataType>& type) {
+    switch (type->id()) {
+    case arrow::Type::EXTENSION: {
+        const auto& extension = static_cast<const arrow::ExtensionType&>(*type);
+        return extension_storage_type(extension.storage_type());
+    }
+    case arrow::Type::LIST: {
+        const auto& list = assert_cast<const arrow::ListType&>(*type);
+        return std::make_shared<arrow::ListType>(
+                list.value_field()->WithType(extension_storage_type(list.value_type())));
+    }
+    case arrow::Type::MAP: {
+        const auto& map = assert_cast<const arrow::MapType&>(*type);
+        return std::make_shared<arrow::MapType>(
+                map.key_field()->WithType(extension_storage_type(map.key_type())),
+                map.item_field()->WithType(extension_storage_type(map.item_type())),
+                map.keys_sorted());
+    }
+    case arrow::Type::STRUCT: {
+        std::vector<std::shared_ptr<arrow::Field>> fields;
+        fields.reserve(type->num_fields());
+        for (const auto& field : type->fields()) {
+            fields.push_back(field->WithType(extension_storage_type(field->type())));
+        }
+        return arrow::struct_(std::move(fields));
+    }
+    default:
+        return type;
+    }
+}
+
+Status wrap_extension_arrays(const std::shared_ptr<arrow::DataType>& target_type,
+                             const std::shared_ptr<arrow::Array>& storage_array,
+                             std::shared_ptr<arrow::Array>* result) {
+    if (target_type->id() == arrow::Type::EXTENSION) {
+        const auto& extension = static_cast<const arrow::ExtensionType&>(*target_type);
+        std::shared_ptr<arrow::Array> normalized_storage;
+        RETURN_IF_ERROR(wrap_extension_arrays(extension.storage_type(), storage_array,
+                                              &normalized_storage));
+        if (!extension.storage_type()->Equals(normalized_storage->type())) {
+            return Status::InvalidArgument(
+                    "Arrow extension storage type mismatch: expected {}, got {}",
+                    extension.storage_type()->ToString(), normalized_storage->type()->ToString());
+        }
+        *result = arrow::ExtensionType::WrapArray(target_type, normalized_storage);
+        return Status::OK();
+    }
+
+    if (target_type->num_fields() == 0) {
+        if (!target_type->Equals(storage_array->type())) {
+            return Status::InvalidArgument("Arrow storage type mismatch: expected {}, got {}",
+                                           target_type->ToString(),
+                                           storage_array->type()->ToString());
+        }
+        *result = storage_array;
+        return Status::OK();
+    }
+
+    const auto& storage_data = storage_array->data();
+    if (target_type->num_fields() != static_cast<int>(storage_data->child_data.size())) {
+        return Status::InvalidArgument(
+                "Arrow nested storage child count mismatch for {}: expected {}, got {}",
+                target_type->ToString(), target_type->num_fields(),
+                storage_data->child_data.size());
+    }
+
+    auto target_data = storage_data->Copy();
+    target_data->type = target_type;
+    for (int i = 0; i < target_type->num_fields(); ++i) {
+        std::shared_ptr<arrow::Array> child;
+        RETURN_IF_ERROR(wrap_extension_arrays(target_type->field(i)->type(),
+                                              arrow::MakeArray(storage_data->child_data[i]),
+                                              &child));
+        target_data->child_data[i] = child->data();
+    }
+    *result = arrow::MakeArray(std::move(target_data));
+    return Status::OK();
 }
 
 int hex_value(char c) {
@@ -194,15 +288,19 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         _cur_col = _block.get_by_position(idx).column;
         _cur_type = _block.get_by_position(idx).type;
         auto column = _cur_col->convert_to_full_column_if_const();
-        auto arrow_type = _schema->field(idx)->type();
-        if (arrow_type->id() == arrow::Type::STRING && column->byte_size() >= MAX_ARROW_UTF8) {
-            arrow_type = arrow::large_utf8();
-        } else if (arrow_type->id() == arrow::Type::BINARY &&
+        auto target_arrow_type = _schema->field(idx)->type();
+        const bool has_extension = contains_extension_type(target_arrow_type);
+        auto builder_arrow_type =
+                has_extension ? extension_storage_type(target_arrow_type) : target_arrow_type;
+        if (builder_arrow_type->id() == arrow::Type::STRING &&
+            column->byte_size() >= MAX_ARROW_UTF8) {
+            builder_arrow_type = arrow::large_utf8();
+        } else if (builder_arrow_type->id() == arrow::Type::BINARY &&
                    column->byte_size() >= MAX_ARROW_UTF8) {
-            arrow_type = arrow::large_binary();
+            builder_arrow_type = arrow::large_binary();
         }
         std::unique_ptr<arrow::ArrayBuilder> builder;
-        auto arrow_st = arrow::MakeBuilder(_pool, arrow_type, &builder);
+        auto arrow_st = arrow::MakeBuilder(_pool, builder_arrow_type, &builder);
         if (!arrow_st.ok()) {
             return to_doris_status(arrow_st);
         }
@@ -222,9 +320,16 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
                     "Fail to convert block data to arrow data, type: {}, name: {}, error: {}",
                     _cur_type->get_name(), _block.get_by_position(idx).name, e.what());
         }
-        arrow_st = _cur_builder->Finish(&_arrays[_cur_field_idx]);
+        std::shared_ptr<arrow::Array> storage_array;
+        arrow_st = _cur_builder->Finish(&storage_array);
         if (!arrow_st.ok()) {
             return to_doris_status(arrow_st);
+        }
+        if (has_extension) {
+            RETURN_IF_ERROR(wrap_extension_arrays(target_arrow_type, storage_array,
+                                                  &_arrays[_cur_field_idx]));
+        } else {
+            _arrays[_cur_field_idx] = std::move(storage_array);
         }
     }
     *out = arrow::RecordBatch::Make(_schema, actual_rows, std::move(_arrays));

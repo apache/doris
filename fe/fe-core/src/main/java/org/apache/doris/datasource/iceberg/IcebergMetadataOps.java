@@ -371,6 +371,13 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 && !IcebergUtils.hasIcebergCatalogFormatVersion(catalogProperties)) {
             properties.put(TableProperties.FORMAT_VERSION, "2");
         }
+        if (columns.stream().anyMatch(column -> !column.getType().isVariantType()
+                && IcebergUtils.containsVariant(column.getType()))) {
+            throw new UserException("Iceberg VARIANT DDL currently supports only top-level columns");
+        }
+        IcebergUtils.validateWriteSchema(columns,
+                IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalogProperties),
+                IcebergUtils.getEffectiveFileFormat(properties, catalogProperties));
         properties.putIfAbsent(TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         properties.putIfAbsent(TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         properties.putIfAbsent(TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
@@ -662,6 +669,24 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         updateSchema.addColumn(column.getName(), dorisType, column.getComment(), defaultValue);
     }
 
+    private void validateVariantSchema(Table icebergTable, org.apache.doris.catalog.Type dorisType,
+            String columnPath, boolean nestedColumn) throws UserException {
+        if (!IcebergUtils.containsVariant(dorisType)) {
+            return;
+        }
+        if (nestedColumn || !dorisType.isVariantType()) {
+            throw new UserException("Iceberg VARIANT DDL currently supports only top-level columns");
+        }
+        if (IcebergUtils.getFormatVersion(icebergTable) < IcebergUtils.ICEBERG_VARIANT_MIN_VERSION) {
+            throw new UserException("Iceberg VARIANT column " + columnPath
+                    + " requires table format-version 3");
+        }
+        if (IcebergUtils.getFileFormat(icebergTable) != org.apache.iceberg.FileFormat.PARQUET) {
+            throw new UserException("Iceberg VARIANT column " + columnPath
+                    + " requires Parquet data files");
+        }
+    }
+
     private void applyPosition(UpdateSchema updateSchema, ColumnPosition position, ColumnPath columnPath, Schema schema,
             String operation) throws UserException {
         String columnName = columnPath.getFullPath();
@@ -720,6 +745,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throws UserException {
         validateAddColumnMetadata(column, true);
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateVariantSchema(icebergTable, column.getType(), column.getName(), false);
         validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
         Schema schema = icebergTable.schema();
         validateNoCaseInsensitiveSiblingCollision(
@@ -750,6 +776,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("New nested field '" + columnPath.getFullPath() + "' must be nullable");
         }
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), true);
         ResolvedColumnPath parentPath = resolveColumnPath(icebergTable.schema(), columnPath.getParentPath(), "add");
         if (!parentPath.getType().isStructType()) {
             throw new UserException("Parent column path '" + columnPath.getParentPathString()
@@ -781,6 +808,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         for (Column column : columns) {
             validateAddColumnMetadata(column, true);
+            validateVariantSchema(icebergTable, column.getType(), column.getName(), false);
             validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
         }
         validateNoCaseInsensitiveTopLevelCollisions(icebergTable.schema(), columns);
@@ -925,6 +953,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     private void modifyTopLevelColumn(ExternalTable dorisTable, ColumnPath columnPath, Column column,
             ColumnPosition position, long updateTime) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), false);
         validateRowLineageColumnMutation(icebergTable, columnPath.getTopLevelName(), "modify");
         NestedField currentCol = icebergTable.schema().asStruct()
                 .caseInsensitiveField(columnPath.getTopLevelName());
@@ -981,6 +1010,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), true);
         ResolvedColumnPath resolvedPath = resolveColumnPath(icebergTable.schema(), columnPath, "modify");
         NestedField currentCol = resolvedPath.getField();
         validateCollectionPseudoFieldComment(

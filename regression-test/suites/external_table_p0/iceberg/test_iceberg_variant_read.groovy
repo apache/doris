@@ -268,6 +268,32 @@ suite("test_iceberg_variant_read",
             array(parse_json('null'), parse_json('{"kind":"close","score":202}')),
             map('primary', parse_json('{"enabled":false,"score":2002}'));
 
+        DROP TABLE IF EXISTS demo.${dbName}.variant_nested_deep;
+        CREATE TABLE demo.${dbName}.variant_nested_deep (
+            id INT,
+            deep STRUCT<
+                level1: ARRAY<
+                    MAP<STRING, STRUCT<note: STRING, payload: VARIANT>>
+                >
+            >
+        ) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='false'
+        );
+
+        DROP TABLE IF EXISTS demo.${dbName}.variant_nested_legacy_guard;
+        CREATE TABLE demo.${dbName}.variant_nested_legacy_guard (
+            id INT,
+            events ARRAY<VARIANT>
+        ) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='false'
+        );
+
         DROP TABLE IF EXISTS demo.${dbName}.variant_signed_selector;
         CREATE TABLE demo.${dbName}.variant_signed_selector (
             id INT,
@@ -448,6 +474,313 @@ public class AppendVariantEqualityDelete {
     sql """set enable_file_scanner_v2=true"""
     sql """set enable_profile=true"""
     sql """set profile_level=2"""
+
+    sql """DROP TABLE IF EXISTS variant_doris_write_v2"""
+    test {
+        sql """
+            CREATE TABLE variant_doris_write_v2 (
+                id INT,
+                payload VARIANT
+            ) ENGINE=ICEBERG
+            PROPERTIES ('format-version'='2', 'write.format.default'='parquet')
+        """
+        exception "Iceberg VARIANT writes require table format-version 3"
+    }
+    sql """DROP TABLE IF EXISTS variant_doris_write_orc"""
+    test {
+        sql """
+            CREATE TABLE variant_doris_write_orc (
+                id INT,
+                payload VARIANT
+            ) ENGINE=ICEBERG
+            PROPERTIES ('format-version'='3', 'write.format.default'='orc')
+        """
+        exception "Iceberg VARIANT writes require Parquet data files"
+    }
+    sql """DROP TABLE IF EXISTS variant_doris_nested_ddl_guard"""
+    test {
+        sql """
+            CREATE TABLE variant_doris_nested_ddl_guard (
+                id INT,
+                info STRUCT<label: STRING, payload: VARIANT>
+            ) ENGINE=ICEBERG
+            PROPERTIES ('format-version'='3', 'write.format.default'='parquet')
+        """
+        exception "Iceberg VARIANT DDL currently supports only top-level columns"
+    }
+
+    sql """DROP TABLE IF EXISTS variant_doris_write"""
+    sql """
+        CREATE TABLE variant_doris_write (
+            id INT,
+            payload VARIANT
+        ) ENGINE=ICEBERG
+        PROPERTIES ('format-version'='3', 'write.format.default'='parquet')
+    """
+    sql """set enable_variant_v2=true"""
+    sql """
+        INSERT INTO variant_doris_write VALUES
+            (1, PARSE_TO_VARIANT('{"name":"doris","n":20,"enabled":true,"ratio":1.25,"nested":{"city":"hangzhou"},"tags":["iceberg","spark"]}')),
+            (2, PARSE_TO_VARIANT('{"name":"second","n":-7,"enabled":false,"ratio":-3.5,"nested":{"city":"shanghai"},"tags":["doris","variant"]}')),
+            (3, PARSE_TO_VARIANT('{"name":"unicode-中文","n":0,"enabled":true,"ratio":0.0,"nested":{"city":null},"tags":[]}')),
+            (4, PARSE_TO_VARIANT('[1,"two",null,{"k":4}]')),
+            (5, PARSE_TO_VARIANT('42')),
+            (6, PARSE_TO_VARIANT('"root-string"')),
+            (7, PARSE_TO_VARIANT('true')),
+            (8, PARSE_TO_VARIANT('null')),
+            (9, NULL),
+            (10, PARSE_TO_VARIANT('"null"')),
+            (11, PARSE_TO_VARIANT('""')),
+            (12, PARSE_TO_VARIANT('{}')),
+            (13, PARSE_TO_VARIANT('[]'))
+    """
+    sql """set enable_variant_v2=false"""
+
+    List<List<Object>> sparkDorisVariantRows = spark_iceberg """
+        SELECT id,
+               variant_get(payload, '\$.name', 'string'),
+               variant_get(payload, '\$.n', 'int'),
+               variant_get(payload, '\$.enabled', 'boolean'),
+               variant_get(payload, '\$.ratio', 'double'),
+               variant_get(payload, '\$.nested.city', 'string'),
+               variant_get(payload, '\$.tags[1]', 'string'),
+               variant_get(payload, '\$[0]', 'int'),
+               variant_get(payload, '\$[1]', 'string'),
+               variant_get(payload, '\$[3].k', 'int'),
+               payload IS NULL
+        FROM demo.${dbName}.variant_doris_write
+        ORDER BY id
+    """
+    List<List<String>> sparkDorisVariantStrings = sparkDorisVariantRows.collect { row ->
+        row.collect { value -> value == null ? null : value.toString().toLowerCase() }
+    }
+    assertEquals([
+            ["1", "doris", "20", "true", "1.25", "hangzhou", "spark",
+                    null, null, null, "false"],
+            ["2", "second", "-7", "false", "-3.5", "shanghai", "variant",
+                    null, null, null, "false"],
+            ["3", "unicode-中文", "0", "true", "0.0", null, null,
+                    null, null, null, "false"],
+            ["4", null, null, null, null, null, null, "1", "two", "4", "false"],
+            ["5", null, null, null, null, null, null, null, null, null, "false"],
+            ["6", null, null, null, null, null, null, null, null, null, "false"],
+            ["7", null, null, null, null, null, null, null, null, null, "false"],
+            ["8", null, null, null, null, null, null, null, null, null, "false"],
+            ["9", null, null, null, null, null, null, null, null, null, "true"],
+            ["10", null, null, null, null, null, null, null, null, null, "false"],
+            ["11", null, null, null, null, null, null, null, null, null, "false"],
+            ["12", null, null, null, null, null, null, null, null, null, "false"],
+            ["13", null, null, null, null, null, null, null, null, null, "false"]
+    ], sparkDorisVariantStrings)
+
+    // Keep SQL NULL, Variant null, the string "null", and empty values distinct.
+    List<List<Object>> sparkDorisRootRows = spark_iceberg """
+        SELECT id, to_json(payload), payload IS NULL
+        FROM demo.${dbName}.variant_doris_write
+        WHERE id BETWEEN 5 AND 13
+        ORDER BY id
+    """
+    assertEquals([
+            ["5", "42", "false"],
+            ["6", '"root-string"', "false"],
+            ["7", "true", "false"],
+            ["8", "null", "false"],
+            ["9", null, "true"],
+            ["10", '"null"', "false"],
+            ["11", '""', "false"],
+            ["12", "{}", "false"],
+            ["13", "[]", "false"]
+    ], sparkDorisRootRows.collect { row ->
+        row.collect { value -> value == null ? null : value.toString() }
+    })
+
+    List<List<Object>> sparkDorisVariantFiles = spark_iceberg """
+        SELECT file_format, record_count,
+               value_counts[2], null_value_counts[2],
+               lower_bounds[2] IS NULL, upper_bounds[2] IS NULL
+        FROM demo.${dbName}.variant_doris_write.files
+        WHERE content = 0
+    """
+    assertTrue(!sparkDorisVariantFiles.isEmpty())
+    assertTrue(sparkDorisVariantFiles.every { row -> row[0].toString().equalsIgnoreCase("parquet") })
+    assertEquals(13L, sparkDorisVariantFiles.sum { row -> Long.parseLong(row[1].toString()) })
+    assertEquals(13L, sparkDorisVariantFiles.sum { row -> Long.parseLong(row[2].toString()) })
+    assertEquals(1L, sparkDorisVariantFiles.sum { row -> Long.parseLong(row[3].toString()) })
+    assertTrue(sparkDorisVariantFiles.every { row -> row[4].toString().equalsIgnoreCase("true") })
+    assertTrue(sparkDorisVariantFiles.every { row -> row[5].toString().equalsIgnoreCase("true") })
+
+    // Doris writes Variant V2 leaves nested in every Iceberg complex container. Spark validates
+    // the committed Parquet Variant values, including SQL NULL versus Variant null and empties.
+    sql """set enable_variant_v2=true"""
+    sql """
+        INSERT INTO variant_nested VALUES
+            (
+                3,
+                NAMED_STRUCT(
+                    'label', 'doris-nested',
+                    'payload', PARSE_TO_VARIANT('{"kind":"struct","n":3}')
+                ),
+                ARRAY(
+                    PARSE_TO_VARIANT('null'),
+                    CAST(NULL AS VARIANT),
+                    PARSE_TO_VARIANT('"null"'),
+                    PARSE_TO_VARIANT('{}')
+                ),
+                MAP(
+                    'object', PARSE_TO_VARIANT('{"kind":"map","n":30}'),
+                    'json_null', PARSE_TO_VARIANT('null'),
+                    'sql_null', CAST(NULL AS VARIANT)
+                )
+            ),
+            (4, NAMED_STRUCT('label', 'empty', 'payload', PARSE_TO_VARIANT('{}')),
+                    ARRAY(), MAP()),
+            (5, NULL, NULL, NULL)
+    """
+
+    List<List<Object>> sparkNestedVariantValues = spark_iceberg """
+        SELECT id,
+               info.label,
+               variant_get(info.payload, '\$.kind', 'string'),
+               variant_get(info.payload, '\$.n', 'int'),
+               to_json(events[0]),
+               events[1] IS NULL,
+               to_json(events[2]),
+               to_json(events[3]),
+               variant_get(attrs['object'], '\$.kind', 'string'),
+               variant_get(attrs['object'], '\$.n', 'int'),
+               to_json(attrs['json_null']),
+               attrs['sql_null'] IS NULL
+        FROM demo.${dbName}.variant_nested
+        WHERE id = 3
+    """
+    assertEquals([[
+            "3", "doris-nested", "struct", "3", "null", "true", '"null"', "{}",
+            "map", "30", "null", "true"
+    ]], sparkNestedVariantValues.collect { row ->
+        row.collect { value -> value == null ? null : value.toString().toLowerCase() }
+    })
+
+    List<List<Object>> sparkNestedContainers = spark_iceberg """
+        SELECT id,
+               info IS NULL,
+               events IS NULL, size(events),
+               attrs IS NULL, size(attrs)
+        FROM demo.${dbName}.variant_nested
+        WHERE id IN (4, 5)
+        ORDER BY id
+    """
+    assertEquals([
+            ["4", "false", "false", "0", "false", "0"],
+            ["5", "true", "true", null, "true", null]
+    ], sparkNestedContainers.collect { row ->
+        row.collect { value -> value == null ? null : value.toString().toLowerCase() }
+    })
+
+    sql """
+        INSERT INTO variant_nested_deep VALUES
+            (
+                1,
+                NAMED_STRUCT(
+                    'level1',
+                    ARRAY(
+                        MAP(
+                            'outer',
+                            NAMED_STRUCT(
+                                'note', 'from-doris',
+                                'payload', PARSE_TO_VARIANT(
+                                    '{"level2":{"level3":{"value":"deep-ok"}}}')
+                            )
+                        )
+                    )
+                )
+            ),
+            (
+                2,
+                NAMED_STRUCT(
+                    'level1',
+                    ARRAY(MAP(
+                        'outer',
+                        NAMED_STRUCT('note', 'sql-null', 'payload', CAST(NULL AS VARIANT))
+                    ))
+                )
+            )
+    """
+    List<List<Object>> sparkDeepVariantRows = spark_iceberg """
+        SELECT id,
+               deep.level1[0]['outer'].note,
+               variant_get(deep.level1[0]['outer'].payload,
+                       '\$.level2.level3.value', 'string'),
+               deep.level1[0]['outer'].payload IS NULL
+        FROM demo.${dbName}.variant_nested_deep
+        ORDER BY id
+    """
+    assertEquals([
+            ["1", "from-doris", "deep-ok", "false"],
+            ["2", "sql-null", null, "true"]
+    ], sparkDeepVariantRows.collect { row ->
+        row.collect { value -> value == null ? null : value.toString().toLowerCase() }
+    })
+
+    // An OLAP VARIANT column uses the legacy physical representation. Do not silently convert it
+    // when the Iceberg sink requires the compute-only Variant V2 representation.
+    sql """set enable_variant_v2=false"""
+    String internalVariantDbName = "iceberg_variant_write_internal_db"
+    sql """DROP DATABASE IF EXISTS internal.${internalVariantDbName} FORCE"""
+    sql """CREATE DATABASE internal.${internalVariantDbName}"""
+    try {
+        sql """
+            CREATE TABLE internal.${internalVariantDbName}.variant_source (
+                id INT,
+                payload VARIANT
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        sql """
+            INSERT INTO internal.${internalVariantDbName}.variant_source VALUES
+                (1, PARSE_TO_VARIANT('{"name":"legacy"}'))
+        """
+
+        sql """DROP TABLE IF EXISTS variant_doris_legacy_write"""
+        sql """
+            CREATE TABLE variant_doris_legacy_write (
+                id INT,
+                payload VARIANT
+            ) ENGINE=ICEBERG
+            PROPERTIES ('format-version'='3', 'write.format.default'='parquet')
+        """
+        test {
+            sql """
+                INSERT INTO variant_doris_legacy_write
+                SELECT id, payload
+                FROM internal.${internalVariantDbName}.variant_source
+            """
+            exception "Writing legacy Doris VARIANT to Iceberg VARIANT column 'payload' is not supported"
+        }
+
+        List<List<Object>> sparkLegacyVariantRows = spark_iceberg """
+            SELECT COUNT(*) FROM demo.${dbName}.variant_doris_legacy_write
+        """
+        assertEquals("0", sparkLegacyVariantRows[0][0].toString())
+
+        test {
+            sql """
+                INSERT INTO variant_nested_legacy_guard
+                SELECT id, ARRAY(payload)
+                FROM internal.${internalVariantDbName}.variant_source
+            """
+            exception "Writing legacy Doris VARIANT to Iceberg VARIANT column 'events[]' is not supported"
+        }
+        List<List<Object>> sparkLegacyNestedRows = spark_iceberg """
+            SELECT COUNT(*) FROM demo.${dbName}.variant_nested_legacy_guard
+        """
+        assertEquals("0", sparkLegacyNestedRows[0][0].toString())
+    } finally {
+        // The original read coverage in this suite runs with Variant V2 enabled.
+        sql """set enable_variant_v2=true"""
+        sql """DROP DATABASE IF EXISTS internal.${internalVariantDbName} FORCE"""
+    }
 
     def profileAction = new ProfileAction(context)
     def mergedProfile = { String profile ->
@@ -995,17 +1328,19 @@ public class AppendVariantEqualityDelete {
         exception "payload"
     }
 
-    test {
-        sql """
-            INSERT INTO variant_write_guard (id)
-            SELECT id
-            FROM variant_write_guard FOR VERSION AS OF ${writeGuardSourceSnapshot}
-        """
-        exception "Iceberg VARIANT columns are read-only and cannot be written"
-    }
+    sql """
+        INSERT INTO variant_write_guard (id)
+        SELECT id
+        FROM variant_write_guard FOR VERSION AS OF ${writeGuardSourceSnapshot}
+    """
+    List<List<Object>> sparkPartialVariantRows = spark_iceberg """
+        SELECT COUNT(*), COUNT(payload)
+        FROM demo.${dbName}.variant_write_guard
+    """
+    assertEquals("2", sparkPartialVariantRows[0][0].toString())
+    assertEquals("0", sparkPartialVariantRows[0][1].toString())
 
-    // A delete-only MERGE emits only position deletes. It must remain available even though
-    // update/insert actions would route the unchanged Variant through the unsupported data writer.
+    // A delete-only MERGE still emits only position deletes and does not create a data file.
     String beforePositionDeleteSnapshot = latestSnapshotId("variant_values")
     sql """
         MERGE INTO variant_values t
@@ -1045,6 +1380,10 @@ public class AppendVariantEqualityDelete {
     order_qt_variant_orc_missing_column """
         SELECT id, CAST(v AS STRING) FROM variant_orc ORDER BY id
     """
+    test {
+        sql """INSERT INTO variant_orc VALUES (2, CAST('{"format":"orc"}' AS VARIANT))"""
+        exception "Iceberg VARIANT writes require Parquet data files"
+    }
     qt_variant_orc_count_star "SELECT COUNT(*) FROM variant_orc"
     order_qt_variant_mixed_format """
         SELECT id, CAST(v AS STRING) FROM variant_mixed_format ORDER BY id

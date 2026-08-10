@@ -73,9 +73,9 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
         this.targetIcebergTable = Objects.requireNonNull(
                 targetIcebergTable, "targetIcebergTable != null in LogicalIcebergMergeSink");
         // Delete-only MERGE writes position deletes and never invokes the unsupported data writer.
-        // UPDATE and data-producing MERGE must still reject an unchanged Variant target column.
+        // UPDATE and data-producing MERGE must use the same Variant capability checks as INSERT.
         if (writesDataFiles) {
-            IcebergUtils.validateWriteSchema(cols);
+            IcebergUtils.validateWriteSchema(targetIcebergTable, cols);
         }
         this.deleteContext = Objects.requireNonNull(deleteContext, "deleteContext != null in LogicalIcebergMergeSink");
         this.writesDataFiles = writesDataFiles;
