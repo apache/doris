@@ -134,6 +134,8 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsData;
@@ -1151,13 +1153,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
-        validateForwardRequester(params);
+        Frontend requester = validateForwardRequester(params);
         TMasterOpResult shortcut = handleForwardShortcut(params);
         if (shortcut != null) {
             return shortcut;
         }
         logForwardRequest(params);
-        ConnectContext context = createForwardContext(params);
+        ConnectContext context = createForwardContext(params, requester);
         ConnectProcessor processor = createForwardProcessor(context);
         Runnable clearCallback = registerProxyQuery(params, context);
         try {
@@ -1168,10 +1170,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private void validateForwardRequester(TMasterOpRequest params) throws TException {
+    private Frontend validateForwardRequester(TMasterOpRequest params) throws TException {
         Frontend fe = Env.getCurrentEnv().checkFeExist(params.getClientNodeHost(), params.getClientNodePort());
         if (fe != null) {
-            return;
+            return fe;
         }
         LOG.warn("reject request from invalid host. client: {}", params.getClientNodeHost());
         throw new TException("request from invalid host was rejected.");
@@ -1215,11 +1217,27 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TMasterOpResult result = createForwardResultWithoutJournalSync();
         try {
             result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster));
+                    .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster,
+                            forwardedGroupCommitLoadSelectionHint(info)));
         } catch (LoadException | DdlException e) {
-            throw new TException(e.getMessage());
+            LOG.warn("failed to select backend for forwarded group commit load, tableId={}, cluster={}",
+                    info.groupCommitLoadTableId, info.cluster, e);
+            // Callers without the result-error capability interpret an unset backend id as 0.
+            if (!info.isSetSupportsSelectionErrorResult() || !info.isSupportsSelectionErrorResult()) {
+                throw new TException(e.getMessage() == null ? e.toString() : e.getMessage());
+            }
+            result.setStatusCode(1);
+            result.setErrMessage(e.getMessage() == null ? e.toString() : e.getMessage());
         }
         return result;
+    }
+
+    static BackendSelection.SelectionHint forwardedGroupCommitLoadSelectionHint(TGroupCommitInfo info) {
+        if (!info.isSetLoadSelectionPreferredKey() || !info.isSetLoadSelectionMode()) {
+            return null;
+        }
+        return BackendSelectionManager.getForwardedLoadSelectionHint(
+                info.getLoadSelectionPreferredKey(), info.getLoadSelectionMode());
     }
 
     private TMasterOpResult handleForwardCancel(TMasterOpRequest params) throws TException {
@@ -1241,11 +1259,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private ConnectContext createForwardContext(TMasterOpRequest params) {
+    private ConnectContext createForwardContext(TMasterOpRequest params, Frontend requester) {
         ConnectContext context = new ConnectContext(null, true, params.getSessionId());
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
+        context.setConnectingFeLocalResourceGroup(params.isSetConnectingFeLocalResourceGroup()
+                ? params.getConnectingFeLocalResourceGroup() : requester.getLocalResourceGroup());
         if (Config.isCloudMode() && !Strings.isNullOrEmpty(params.getCloudCluster())) {
             context.setCloudCluster(params.getCloudCluster());
         }
