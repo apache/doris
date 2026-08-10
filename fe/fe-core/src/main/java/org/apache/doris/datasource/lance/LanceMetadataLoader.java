@@ -86,7 +86,8 @@ public final class LanceMetadataLoader {
             List<LanceTableMetadata.LanceFragmentInfo> fragments = new ArrayList<>();
             for (Fragment fragment : dataset.getFragments()) {
                 fragments.add(new LanceTableMetadata.LanceFragmentInfo(
-                        fragment.getId(), fragment.metadata().getNumRows()));
+                        fragment.getId(), fragment.metadata().getNumRows(),
+                        fragment.metadata().getPhysicalRows()));
             }
             return new LanceTableMetadata(datasetUri, resolvedVersion, dataset.getSchema(), fragments,
                     backendStorageOptions);

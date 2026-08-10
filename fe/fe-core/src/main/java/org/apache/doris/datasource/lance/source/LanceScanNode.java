@@ -160,15 +160,16 @@ public class LanceScanNode extends FileQueryScanNode {
                     throw new UserException("Duplicate Lance fragment id " + fragment.getId()
                             + " at dataset version " + metadata.getVersion());
                 }
-                targetRows = Math.max(targetRows, Math.max(fragment.getRowCount(), 1));
+                targetRows = Math.max(targetRows, Math.max(fragment.getPhysicalRows(), 1));
             }
 
             // Use the largest fragment as one standard split so smaller fragments keep
-            // their relative row-count weight during backend assignment.
+            // their relative row-count weight during backend assignment. Physical rows drive
+            // the weight because the BE legacy reader scans physical batches before deletions.
             List<Split> splits = new ArrayList<>(plannedFragments);
             for (LanceTableMetadata.LanceFragmentInfo fragment : metadata.getFragments()) {
                 LanceSplit split = new LanceSplit(metadata.getDatasetUri(), metadata.getVersion(),
-                        fragment.getId(), fragment.getRowCount());
+                        fragment.getId(), fragment.getPhysicalRows());
                 split.setTargetSplitSize(targetRows);
                 splits.add(split);
             }

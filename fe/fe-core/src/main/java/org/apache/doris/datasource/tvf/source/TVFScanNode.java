@@ -31,6 +31,7 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -192,9 +193,19 @@ public class TVFScanNode extends FileQueryScanNode {
             throw new UserException(
                     "S3 Lance TVF metadata was not initialized with a fixed dataset version");
         }
-        List<Split> splits = new ArrayList<>(tableValuedFunction.getLanceFragmentIds().size());
-        for (Long fragmentId : tableValuedFunction.getLanceFragmentIds()) {
-            splits.add(new LanceSplit(tableValuedFunction.getFilePath(), version, fragmentId, 1));
+        List<LanceTableMetadata.LanceFragmentInfo> fragments = tableValuedFunction.getLanceFragments();
+        // Mirror LanceScanNode: use the largest fragment as one standard split so smaller fragments
+        // keep their relative physical-row weight, keeping the catalog and S3/file TVF paths in sync.
+        long targetRows = 1;
+        for (LanceTableMetadata.LanceFragmentInfo fragment : fragments) {
+            targetRows = Math.max(targetRows, Math.max(fragment.getPhysicalRows(), 1));
+        }
+        List<Split> splits = new ArrayList<>(fragments.size());
+        for (LanceTableMetadata.LanceFragmentInfo fragment : fragments) {
+            LanceSplit split = new LanceSplit(tableValuedFunction.getFilePath(), version,
+                    fragment.getId(), fragment.getPhysicalRows());
+            split.setTargetSplitSize(targetRows);
+            splits.add(split);
         }
         return splits;
     }

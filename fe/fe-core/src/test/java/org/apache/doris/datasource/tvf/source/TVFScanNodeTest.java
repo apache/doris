@@ -23,6 +23,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -127,7 +128,9 @@ public class TVFScanNodeTest {
         Mockito.when(tvf.isLanceFormat()).thenReturn(true);
         Mockito.when(tvf.getFilePath()).thenReturn("s3://bucket/table.lance");
         Mockito.when(tvf.getLanceDatasetVersion()).thenReturn(42L);
-        Mockito.when(tvf.getLanceFragmentIds()).thenReturn(Arrays.asList(7L, 11L));
+        Mockito.when(tvf.getLanceFragments()).thenReturn(Arrays.asList(
+                new LanceTableMetadata.LanceFragmentInfo(7, 1000, 1000),
+                new LanceTableMetadata.LanceFragmentInfo(11, 250, 250)));
         desc.setTable(table);
 
         TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
@@ -138,6 +141,9 @@ public class TVFScanNodeTest {
         Assert.assertEquals("s3://bucket/table.lance", first.getDatasetUri());
         Assert.assertEquals(42L, first.getVersion());
         Assert.assertEquals(7L, first.getFragmentId());
+        // The S3/file TVF path must weight fragments by physical rows, in sync with LanceScanNode.
+        Assert.assertEquals(100L, first.getSplitWeight().getRawValue());
+        Assert.assertEquals(25L, ((LanceSplit) splits.get(1)).getSplitWeight().getRawValue());
 
         TFileRangeDesc range = new TFileRangeDesc();
         node.setScanParams(range, first);
