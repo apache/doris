@@ -68,6 +68,13 @@ public class CloudMetrics {
     protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM;
     protected static AutoMappedMetric<LongCounterMetric> VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER;
 
+    protected static LongCounterMetric CLOUD_TABLET_REBALANCER_ROUND_TOTAL;
+    protected static LongCounterMetric CLOUD_TABLET_REBALANCER_ALLOCATED_BYTES_TOTAL;
+    protected static GaugeMetricImpl<Long> CLOUD_TABLET_REBALANCER_LAST_ROUND_ALLOCATED_BYTES;
+    protected static LongCounterMetric CLOUD_TABLET_REBALANCER_DURATION_MS_TOTAL;
+    protected static GaugeMetricImpl<Long> CLOUD_TABLET_REBALANCER_LAST_ROUND_DURATION_MS;
+    protected static LongCounterMetric CLOUD_TABLET_REBALANCER_TABLET_SCAN_TOTAL;
+
     protected static void init() {
         if (Config.isNotCloudMode()) {
             return;
@@ -184,5 +191,35 @@ public class CloudMetrics {
         VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER = new AutoMappedMetric<>(name -> new LongCounterMetric(
             "virtual_compute_group_switch_total", MetricUnit.NOUNIT,
             "virtual compute group active standby switch count"));
+
+        initCloudTabletRebalancerMetrics();
+    }
+
+    static void initCloudTabletRebalancerMetrics() {
+        CLOUD_TABLET_REBALANCER_ROUND_TOTAL = new LongCounterMetric(
+                "cloud_tablet_rebalancer_round_total", MetricUnit.OPERATIONS,
+                "total cloud tablet rebalancer rounds");
+        CLOUD_TABLET_REBALANCER_ALLOCATED_BYTES_TOTAL = new LongCounterMetric(
+                "cloud_tablet_rebalancer_allocated_bytes_total", MetricUnit.BYTES,
+                "total bytes allocated by cloud tablet rebalancer rounds");
+        CLOUD_TABLET_REBALANCER_LAST_ROUND_ALLOCATED_BYTES = new GaugeMetricImpl<>(
+                "cloud_tablet_rebalancer_last_round_allocated_bytes", MetricUnit.BYTES,
+                "bytes allocated by the last cloud tablet rebalancer round, or -1 when unavailable", -1L);
+        CLOUD_TABLET_REBALANCER_DURATION_MS_TOTAL = new LongCounterMetric(
+                "cloud_tablet_rebalancer_duration_ms_total", MetricUnit.MILLISECONDS,
+                "total cloud tablet rebalancer round duration in milliseconds");
+        CLOUD_TABLET_REBALANCER_LAST_ROUND_DURATION_MS = new GaugeMetricImpl<>(
+                "cloud_tablet_rebalancer_last_round_duration_ms", MetricUnit.MILLISECONDS,
+                "duration of the last cloud tablet rebalancer round in milliseconds", 0L);
+        CLOUD_TABLET_REBALANCER_TABLET_SCAN_TOTAL = new LongCounterMetric(
+                "cloud_tablet_rebalancer_tablet_scan_total", MetricUnit.OPERATIONS,
+                "total tablet route entries scanned by cloud tablet rebalancer rounds");
+
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(CLOUD_TABLET_REBALANCER_ROUND_TOTAL);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(CLOUD_TABLET_REBALANCER_ALLOCATED_BYTES_TOTAL);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(CLOUD_TABLET_REBALANCER_LAST_ROUND_ALLOCATED_BYTES);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(CLOUD_TABLET_REBALANCER_DURATION_MS_TOTAL);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(CLOUD_TABLET_REBALANCER_LAST_ROUND_DURATION_MS);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(CLOUD_TABLET_REBALANCER_TABLET_SCAN_TOTAL);
     }
 }

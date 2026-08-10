@@ -81,6 +81,9 @@ import java.util.stream.Collectors;
 public class CloudTabletRebalancer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudTabletRebalancer.class);
 
+    private final CloudTabletRebalancerMetrics rebalancerMetrics;
+    private long currentRoundTabletScanCount;
+
     private volatile ConcurrentHashMap<Long, Set<Tablet>> beToTabletsGlobal =
             new ConcurrentHashMap<Long, Set<Tablet>>();
 
@@ -242,8 +245,14 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     public CloudTabletRebalancer(CloudSystemInfoService cloudSystemInfoService) {
+        this(cloudSystemInfoService, CloudTabletRebalancerMetrics.create());
+    }
+
+    CloudTabletRebalancer(CloudSystemInfoService cloudSystemInfoService,
+                          CloudTabletRebalancerMetrics rebalancerMetrics) {
         super("cloud tablet rebalancer", Config.cloud_tablet_rebalancer_interval_second * 1000);
         this.cloudSystemInfoService = cloudSystemInfoService;
+        this.rebalancerMetrics = rebalancerMetrics;
     }
 
     private void initializeWarmupExecutorsIfNeeded() {
@@ -508,43 +517,49 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
 
         LOG.info("cloud tablet rebalance begin");
-        long start = System.currentTimeMillis();
-        activeTabletIds = getActiveTabletIds();
-        globalBalanceTypeEnum = BalanceTypeEnum.getCloudWarmUpForRebalanceTypeEnum();
+        CloudTabletRebalancerMetrics.Round metricRound = rebalancerMetrics.startRound();
+        currentRoundTabletScanCount = 0L;
+        try {
+            long start = System.currentTimeMillis();
+            activeTabletIds = getActiveTabletIds();
+            globalBalanceTypeEnum = BalanceTypeEnum.getCloudWarmUpForRebalanceTypeEnum();
 
-        buildClusterToBackendMap();
-        if (!completeRouteInfo()) {
-            return;
+            buildClusterToBackendMap();
+            if (!completeRouteInfo()) {
+                return;
+            }
+
+            statRouteInfo();
+            migrateTabletsForSmoothUpgrade();
+            statRouteInfo();
+
+            indexBalanced = true;
+            tableBalanced = true;
+
+            performBalancing();
+
+            checkDecommissionState(clusterToBes);
+            inited = true;
+            long sleepSeconds = Config.cloud_tablet_rebalancer_interval_second;
+            if (sleepSeconds < 0L) {
+                LOG.warn("cloud tablet rebalance interval second is negative, change it to default 1s");
+                sleepSeconds = 1L;
+            }
+            long balanceEnd = System.currentTimeMillis();
+            if (DebugPointUtil.isEnable("CloudTabletRebalancer.balanceEnd.tooLong")) {
+                LOG.info("debug pointCloudTabletRebalancer.balanceEnd.tooLong");
+                // slower the balance end time to trigger next balance immediately
+                balanceEnd += (Config.cloud_tablet_rebalancer_interval_second + 10L) * 1000L;
+            }
+            if (balanceEnd - start > Config.cloud_tablet_rebalancer_interval_second * 1000L) {
+                sleepSeconds = 1L;
+            }
+            setInterval(sleepSeconds * 1000L);
+            LOG.info("finished to rebalancer. cost: {} ms, rebalancer sche interval {} s",
+                    (System.currentTimeMillis() - start), sleepSeconds);
+        } finally {
+            rebalancerMetrics.finishRound(metricRound, currentRoundTabletScanCount);
         }
-
-        statRouteInfo();
-        migrateTabletsForSmoothUpgrade();
-        statRouteInfo();
-
-        indexBalanced = true;
-        tableBalanced = true;
-
-        performBalancing();
-
-        checkDecommissionState(clusterToBes);
-        inited = true;
-        long sleepSeconds = Config.cloud_tablet_rebalancer_interval_second;
-        if (sleepSeconds < 0L) {
-            LOG.warn("cloud tablet rebalance interval second is negative, change it to default 1s");
-            sleepSeconds = 1L;
-        }
-        long balanceEnd = System.currentTimeMillis();
-        if (DebugPointUtil.isEnable("CloudTabletRebalancer.balanceEnd.tooLong")) {
-            LOG.info("debug pointCloudTabletRebalancer.balanceEnd.tooLong");
-            // slower the balance end time to trigger next balance immediately
-            balanceEnd += (Config.cloud_tablet_rebalancer_interval_second + 10L) * 1000L;
-        }
-        if (balanceEnd - start > Config.cloud_tablet_rebalancer_interval_second * 1000L) {
-            sleepSeconds = 1L;
-        }
-        setInterval(sleepSeconds * 1000L);
-        LOG.info("finished to rebalancer. cost: {} ms, rebalancer sche interval {} s",
-                (System.currentTimeMillis() - start), sleepSeconds);
     }
 
     private void buildClusterToBackendMap() {
@@ -1245,6 +1260,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             for (Map.Entry<String, List<Long>> entry : clusterToBes.entrySet()) {
                                 String cluster = entry.getKey();
+                                currentRoundTabletScanCount += index.getTablets().size();
                                 operator.op(db, table, partition, index, cluster);
                             }
                         } // end for indices
