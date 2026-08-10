@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/check.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
@@ -234,11 +235,13 @@ struct AggregateFunctionArrayAggData<T> {
     using ElementType = StringRef;
     using Self = AggregateFunctionArrayAggData<T>;
     MutableColumnPtr column_data;
+    DataTypePtr column_type;
+    int be_exec_version;
 
-    AggregateFunctionArrayAggData(const DataTypes& argument_types) {
-        DataTypePtr column_type = argument_types[0];
-        column_data = column_type->create_column();
-    }
+    AggregateFunctionArrayAggData(const DataTypes& argument_types, int be_exec_version_ = 0)
+            : column_data(argument_types[0]->create_column()),
+              column_type(argument_types[0]),
+              be_exec_version(be_exec_version_) {}
 
     void add(const IColumn& column, size_t row_num) { column_data->insert_from(column, row_num); }
 
@@ -265,15 +268,27 @@ struct AggregateFunctionArrayAggData<T> {
     }
 
     void write(BufferWritable& buf) const {
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support write");
+        const auto serialized_bytes =
+                column_type->get_uncompressed_serialized_bytes(*column_data, be_exec_version);
+        std::string serialized_buffer(serialized_bytes, '\0');
+        const auto* end =
+                column_type->serialize(*column_data, serialized_buffer.data(), be_exec_version);
+        DORIS_CHECK_LE(end, serialized_buffer.data() + serialized_bytes);
+        serialized_buffer.resize(end - serialized_buffer.data());
+        buf.write_binary(serialized_buffer);
     }
 
     void read(BufferReadable& buf) {
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support read");
+        DORIS_CHECK(column_data->empty());
+        std::string serialized_buffer;
+        buf.read_binary(serialized_buffer);
+        const auto* end =
+                column_type->deserialize(serialized_buffer.data(), &column_data, be_exec_version);
+        DORIS_CHECK_EQ(end, serialized_buffer.data() + serialized_buffer.size());
     }
 
     void merge(const Self& rhs) {
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support merge");
+        column_data->insert_range_from(*rhs.column_data, 0, rhs.column_data->size());
     }
 };
 
@@ -285,14 +300,23 @@ class AggregateFunctionArrayAgg final
           UnaryExpression,
           NotNullableAggregateFunction {
 public:
+    using Base = IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>, true>;
+
     AggregateFunctionArrayAgg(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>, true>(
-                      {argument_types_}),
+            : Base({argument_types_}),
               return_type(std::make_shared<DataTypeArray>(make_nullable(argument_types_[0]))) {}
 
     std::string get_name() const override { return "array_agg"; }
 
     DataTypePtr get_return_type() const override { return return_type; }
+
+    void create(AggregateDataPtr __restrict place) const override {
+        if constexpr (Data::PType == INVALID_TYPE) {
+            new (place) Data(this->argument_types, this->version);
+        } else {
+            Base::create(place);
+        }
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
