@@ -646,7 +646,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         try {
             return context.executeAuthenticated(() -> resolveTableForRead(session, handle));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
+            throw IcebergExceptionUtils.wrapTableLoadFailure(
+                    handle, e, "Failed to load table, error message is:");
         }
     }
 
@@ -688,7 +689,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                         base, MetadataTableType.from(handle.getSysTableName()));
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
+            throw IcebergExceptionUtils.wrapTableLoadFailure(
+                    handle, e, "Failed to load table, error message is:");
         }
     }
 

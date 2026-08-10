@@ -148,6 +148,24 @@ public class PluginDrivenScanNodeSysHandleTest {
                 .getSysTableHandle(Mockito.any(), Mockito.any(), Mockito.anyString());
     }
 
+    @Test
+    public void createReportsMissingTableWhenHandleDisappears() {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        TestablePluginCatalog catalog = new TestablePluginCatalog("hms", metadata, session);
+        ExternalDatabase<PluginDrivenExternalTable> db = mockDb("default");
+        Mockito.when(metadata.getTableHandle(session, "default", "dropped_table"))
+                .thenReturn(Optional.empty());
+        PluginDrivenExternalTable table = bareTable(catalog, db, "dropped_table");
+
+        RuntimeException ex = Assertions.assertThrows(RuntimeException.class,
+                () -> PluginDrivenScanNode.create(new PlanNodeId(0),
+                        new TupleDescriptor(new TupleId(0)), false, new SessionVariable(),
+                        ScanContext.EMPTY, catalog, table));
+        Assertions.assertEquals("Table 'test-catalog.default.dropped_table' does not exist", ex.getMessage());
+    }
+
     // ==================== helpers (mirror PluginDrivenSysTableTest) ====================
 
     private static PluginDrivenExternalTable bareTable(PluginDrivenExternalCatalog catalog,

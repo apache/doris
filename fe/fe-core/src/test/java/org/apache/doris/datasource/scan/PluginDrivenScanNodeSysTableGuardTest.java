@@ -94,6 +94,34 @@ public class PluginDrivenScanNodeSysTableGuardTest {
     }
 
     @Test
+    public void sysTableTimeTravelErrorNamesConnector() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        PluginDrivenSysExternalTable sysTable = Mockito.mock(PluginDrivenSysExternalTable.class);
+        Mockito.doReturn("paimon").when(sysTable).getEngine();
+        Mockito.doReturn(sysTable).when(node).getTargetTable();
+        Mockito.doReturn(Mockito.mock(TableSnapshot.class)).when(node).getQueryTableSnapshot();
+
+        UserException ex = Assertions.assertThrows(UserException.class,
+                node::checkSysTableScanConstraints);
+        Assertions.assertTrue(ex.getMessage().contains("Paimon system tables do not support time travel."),
+                ex.getMessage());
+    }
+
+    @Test
+    public void sysTableScanParamsErrorNamesConnector() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        PluginDrivenSysExternalTable sysTable = Mockito.mock(PluginDrivenSysExternalTable.class);
+        Mockito.doReturn("paimon").when(sysTable).getEngine();
+        Mockito.doReturn(sysTable).when(node).getTargetTable();
+        Mockito.doReturn(Mockito.mock(TableScanParams.class)).when(node).getScanParams();
+
+        UserException ex = Assertions.assertThrows(UserException.class,
+                node::checkSysTableScanConstraints);
+        Assertions.assertTrue(ex.getMessage().contains("Paimon system tables do not support scan params."),
+                ex.getMessage());
+    }
+
+    @Test
     public void sysTableWithoutScanParamsOrSnapshotDoesNotThrow() throws Exception {
         PluginDrivenScanNode node = guardOnlyNode();
         Mockito.doReturn(Mockito.mock(PluginDrivenSysExternalTable.class)).when(node).getTargetTable();

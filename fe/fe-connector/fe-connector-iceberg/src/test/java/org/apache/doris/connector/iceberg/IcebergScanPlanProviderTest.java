@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
@@ -72,6 +73,7 @@ import org.apache.iceberg.util.SerializationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.ZoneId;
@@ -206,6 +208,21 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertTrue(ranges.isEmpty());
         Assertions.assertEquals("db1", ops.lastLoadDb);
         Assertions.assertEquals("t1", ops.lastLoadTable);
+    }
+
+    @Test
+    public void planScanMissingMetadataFileHasStableTableError() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.loadTableFailure = new RuntimeException(
+                "Failed to open input stream", new FileNotFoundException("missing metadata file"));
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), ops);
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(null, ConnectorScanRequest.builder(
+                        new IcebergTableHandle("default", "missing_table"), Collections.emptyList()).build()));
+        Assertions.assertTrue(ex.getMessage().contains(
+                "Metadata not found in metadata location for table default.missing_table"), ex.getMessage());
     }
 
     @Test

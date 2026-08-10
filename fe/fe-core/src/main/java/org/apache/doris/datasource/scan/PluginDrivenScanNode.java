@@ -221,9 +221,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // PluginDrivenSysExternalTable the override returns the connector's SYSTEM handle (carrying
         // sysTableName + forceJni), so the scan path threads force-JNI correctly for binlog/audit_log.
         ConnectorTableHandle handle = table.resolveConnectorTableHandle(session, metadata)
+                // A missing handle means the remotely resolved table disappeared; keep connector internals out
+                // of the user-facing error so redirected tables retain the normal table-not-found contract.
                 .orElseThrow(() -> new RuntimeException(
-                        "Table handle not found for plugin-driven table: " + dbName + "."
-                                + table.getRemoteName()));
+                        "Table '" + catalog.getName() + "." + dbName + "." + table.getRemoteName()
+                                + "' does not exist"));
         return new PluginDrivenScanNode(id, desc, needCheckColumnPriv, sv,
                 scanContext, connector, session, handle);
     }
@@ -1279,6 +1281,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (!(getTargetTable() instanceof PluginDrivenSysExternalTable)) {
             return;
         }
+        String connectorName = connectorDisplayName();
         boolean timeTravelSupported = sysTableSupportsTimeTravel();
         TableScanParams scanParams = getScanParams();
         if (scanParams != null) {
@@ -1289,21 +1292,30 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             String sysTableName = sysTableName();
             if (scanParams.incrementalRead()) {
                 if (!sysTableSupportsScanParam(p -> p.supportsSystemTableIncrementalRead(sysTableName))) {
-                    throw new UserException("Plugin system table '" + sysTableName
+                    throw new UserException(connectorName + " system table '" + sysTableName
                             + "' does not support INCR scan params.");
                 }
             } else if (scanParams.isOptions()) {
                 if (!sysTableSupportsScanParam(p -> p.supportsSystemTableOptions(sysTableName))) {
-                    throw new UserException("Plugin system table '" + sysTableName
+                    throw new UserException(connectorName + " system table '" + sysTableName
                             + "' does not support OPTIONS scan params.");
                 }
             } else if (!timeTravelSupported) {
-                throw new UserException("Plugin system tables do not support scan params.");
+                throw new UserException(connectorName + " system tables do not support scan params.");
             }
         }
         if (getQueryTableSnapshot() != null && !timeTravelSupported) {
-            throw new UserException("Plugin system tables do not support time travel.");
+            throw new UserException(connectorName + " system tables do not support time travel.");
         }
+    }
+
+    private String connectorDisplayName() throws UserException {
+        String engine = getTargetTable().getEngine();
+        // The connector identity is part of the user-facing compatibility contract; the generic plugin layer
+        // must not make equivalent connector errors differ according to which execution path rejected a scan.
+        return engine == null || engine.isEmpty()
+                ? "Plugin"
+                : engine.substring(0, 1).toUpperCase(Locale.ROOT) + engine.substring(1);
     }
 
     /**

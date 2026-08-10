@@ -2800,13 +2800,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // re-validates the credential even on a scope hit).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         Table raw = IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(), () -> {
-            if (context == null) {
-                return loadRawTable(ops, handle);
-            }
             try {
-                return context.executeAuthenticated(() -> loadRawTable(ops, handle));
+                return context == null
+                        ? loadRawTable(ops, handle)
+                        : context.executeAuthenticated(() -> loadRawTable(ops, handle));
             } catch (Exception e) {
-                throw new RuntimeException("Failed to load table for scan, error message is:" + e.getMessage(), e);
+                throw IcebergExceptionUtils.wrapTableLoadFailure(
+                        handle, e, "Failed to load table for scan, error message is:");
             }
         });
         return wrapTableForScan(raw);
