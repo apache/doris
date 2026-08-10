@@ -52,6 +52,10 @@ import java.util.Map;
  * request, so {@code s3.access-key} and its equivalents never leave the cluster. This is not a Doris-side
  * omission and there is no alias to fix: a lake on authenticated storage is readable only if the CATALOG
  * supplies those settings, which is what {@link FlussCatalogProperties#LAKE_OPTION_PREFIX} is for.
+ *
+ * <p><b>Storage settings do not appear in the result at all</b>, whichever side they came from: they
+ * configure the catalog's storage rather than its lake catalog, and go to the engine's storage layer
+ * instead ({@link LakeStorageOptions}).
  */
 final class PaimonSiblingProperties {
 
@@ -98,6 +102,10 @@ final class PaimonSiblingProperties {
             }
         }
         lakeOptions.putAll(catalogLakeOverrides);
+        // Storage is configured once per catalog and read by both the FE and the BE; the sibling gets the
+        // lake catalog's settings only. See LakeStorageOptions for why leaving these in would be worse
+        // than dropping them.
+        lakeOptions.keySet().removeIf(LakeStorageOptions::isStorageOption);
 
         String metastore = lakeOptions.remove(FLUSS_METASTORE);
         // Absent means paimon's own default, which is filesystem — the same thing this connector supports.
