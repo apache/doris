@@ -19,6 +19,7 @@ package org.apache.doris.job.extensions.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -26,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
@@ -67,8 +69,10 @@ import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshResult;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.qe.ConnectContext;
@@ -326,12 +330,12 @@ public class MTMVTask extends AbstractTask {
                         if (disablePartitionRefresh) {
                             break;
                         }
-                        if (executePartitionBasedRefresh(refreshContext, request)) {
+                        if (executePartitionBasedRefresh(refreshContext, request, ctx)) {
                             return;
                         }
                         break;
                     case COMPLETE:
-                        executeCompleteAttempt(refreshContext);
+                        executeCompleteAttempt(refreshContext, ctx);
                         return;
                     default:
                         throw new JobException("Unsupported refresh attempt type: " + attemptType);
@@ -513,14 +517,14 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    private void executeCompleteAttempt(MTMVRefreshContext context)
+    private void executeCompleteAttempt(MTMVRefreshContext context, ConnectContext ctx)
             throws JobException, AnalysisException {
         this.needRefreshPartitions = Lists.newArrayList(mtmv.getPartitionNames());
         this.refreshMode = generateRefreshMode(needRefreshPartitions);
         if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
             return;
         }
-        executePartitionBasedRefresh(context, RefreshMode.COMPLETE);
+        executePartitionBasedRefresh(context, RefreshMode.COMPLETE, ctx);
     }
 
     private AttemptResultType executeIvmAttempt(MTMVRefreshContext refreshContext,
@@ -652,7 +656,7 @@ public class MTMVTask extends AbstractTask {
     }
 
     private boolean executePartitionBasedRefresh(MTMVRefreshContext refreshContext,
-            RefreshRequest request) throws JobException, AnalysisException {
+            RefreshRequest request, ConnectContext ctx) throws JobException, AnalysisException {
         PartitionRefreshPlan partitionPlan = planPartitionRefresh(refreshContext, request);
         if (!partitionPlan.canRefreshByPartitions) {
             if (request.allowFallback) {
@@ -667,16 +671,20 @@ public class MTMVTask extends AbstractTask {
         if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
             return true;
         }
-        executePartitionBasedRefresh(partitionPlan.context, RefreshMode.PARTITIONS);
+        executePartitionBasedRefresh(partitionPlan.context, RefreshMode.PARTITIONS, ctx);
         return true;
     }
 
-    private void executePartitionBasedRefresh(MTMVRefreshContext context, RefreshMode refreshMode)
+    private void executePartitionBasedRefresh(MTMVRefreshContext context, RefreshMode refreshMode,
+            ConnectContext ctx)
             throws JobException, AnalysisException {
         boolean useIvmFallbackStreams = mtmv.isIvm();
         Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
         long baselineGeneration = useIvmFallbackStreams
                 ? IvmIncrRefreshManager.markIvmBaselineBroken(mtmv) : -1;
+        if (useIvmFallbackStreams && refreshMode == RefreshMode.COMPLETE) {
+            reconcileIvmStreams(ctx);
+        }
         this.completedPartitions = Lists.newCopyOnWriteArrayList();
         int refreshPartitionNum = mtmv.getRefreshPartitionNum();
         long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
@@ -728,6 +736,29 @@ public class MTMVTask extends AbstractTask {
         }
         LOG.info("MTMVTask refresh used snapshot: {}, mvDbName: {}, mvName: {}, taskId: {}", partitionSnapshots,
                 mtmv.getDatabase().getFullName(), mtmv.getName(), getTaskId());
+    }
+
+    private void reconcileIvmStreams(ConnectContext ctx) throws JobException {
+        try {
+            Database mvDb = (Database) mtmv.getDatabase();
+            Set<TableNameInfo> excluded = mtmv.getExcludedTriggerTables();
+            for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
+                OlapTable baseTable = (OlapTable) MTMVUtil.getTable(baseTableInfo);
+                if (MTMVPartitionUtil.isTableExcluded(excluded,
+                        new TableNameInfo(baseTable.getFullQualifiers()))) {
+                    continue;
+                }
+                String streamName = IvmUtil.streamName(mtmv.getId(), baseTable.getFullQualifiers());
+                TableIf stream = mvDb.getTableNullable(streamName);
+                if (stream instanceof BaseTableStream
+                        && IvmUtil.isIvmStreamUsable((BaseTableStream) stream, baseTable)) {
+                    continue;
+                }
+                CreateMTMVCommand.createTableStream(ctx, mvDb, mtmv, baseTable);
+            }
+        } catch (UserException e) {
+            throw new JobException("Failed to reconcile IVM streams for mv=" + mtmv.getName(), e);
+        }
     }
 
     private Map<BaseTableInfo, Set<Long>> collectPctResetPartitionIds(MTMVRefreshContext context,
