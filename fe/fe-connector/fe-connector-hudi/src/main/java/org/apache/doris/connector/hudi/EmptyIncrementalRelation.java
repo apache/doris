@@ -44,7 +44,8 @@ final class EmptyIncrementalRelation implements IncrementalRelation {
     }
 
     @Override
-    public List<HudiScanRange> collectSplits(UnaryOperator<String> nativePathNormalizer) {
+    public List<HudiScanRange> collectSplits(List<String> partitionFieldNames, boolean hiveStylePartitioning,
+            UnaryOperator<String> nativePathNormalizer) {
         return Collections.emptyList();
     }
 

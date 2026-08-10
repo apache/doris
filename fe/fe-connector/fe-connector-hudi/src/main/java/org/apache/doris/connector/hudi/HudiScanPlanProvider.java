@@ -260,6 +260,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
         String inputFormat = hudiHandle.getInputFormat();
         String serdeLib = hudiHandle.getSerdeLib();
+        boolean hiveStylePartitioning = hiveStylePartitioning(metaClient);
 
         // @incr incremental read: a non-null beginInstant is the marker (INC-1 stamped the resolved (begin, end]
         // window onto the handle). Select the files the window touches via the ported IncrementalRelation family
@@ -276,7 +277,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             IncrementalRelation relation = buildIncrementalRelation(metaClient, conf, hudiHandle, isCow);
             Optional<List<ConnectorScanRange>> incrementalRanges = incrementalRanges(relation, isCow, forceJni,
                     basePath, inputFormat, serdeLib, columnNames, columnTypes, partitionFieldNames(metaClient),
-                    this::normalizeNativeUri);
+                    hiveStylePartitioning, this::normalizeNativeUri);
             if (incrementalRanges.isPresent()) {
                 LOG.info("Hudi incremental scan planning: {}.{} window=({}, {}] splits={}",
                         hudiHandle.getDbName(), hudiHandle.getTableName(),
@@ -301,7 +302,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (String partitionPath : partitionPaths) {
             Map<String, String> partValues = parsePartitionValues(
-                    partitionPath, hudiHandle.getPartitionKeyNames());
+                    partitionPath, hudiHandle.getPartitionKeyNames(), hiveStylePartitioning);
 
             if (useNativeCowPath) {
                 collectCowSplits(fsView, partitionPath, queryInstant,
@@ -597,7 +598,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      * <ul>
      *   <li>{@code relation.fallbackFullTableScan()} (an archived instant / missing file) &rarr;
      *       {@link Optional#empty()} = degrade to the latest-snapshot scan (NOT an error), legacy {@code :470}.</li>
-     *   <li>COW &rarr; {@link IncrementalRelation#collectSplits()} yields native ranges directly.
+     *   <li>COW &rarr; {@link IncrementalRelation#collectSplits(List, boolean, UnaryOperator)} yields native ranges
+     *       directly.
      *       <b>{@code force_jni} is intentionally IGNORED for a COW incremental read</b> (it always reads native)
      *       &mdash; a signed, deliberate deviation from legacy, which routes {@code force_jni}+COW to the MOR-style
      *       branch and calls {@code collectFileSlices()} on a COW relation &rarr; {@code UnsupportedOperationException}
@@ -614,7 +616,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     static Optional<List<ConnectorScanRange>> incrementalRanges(IncrementalRelation relation, boolean isCow,
             boolean forceJni, String basePath, String inputFormat, String serdeLib,
             List<String> columnNames, List<String> columnTypes, List<String> partitionFieldNames,
-            UnaryOperator<String> nativePathNormalizer) {
+            boolean hiveStylePartitioning, UnaryOperator<String> nativePathNormalizer) {
         if (relation.fallbackFullTableScan()) {
             return Optional.empty();
         }
@@ -622,12 +624,14 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         if (isCow) {
             // COW @incr yields native ranges directly; normalize their scheme (s3a->s3) for BE's native reader
             // (COWIncrementalRelation.collectSplits builds .path() from the raw HMS base path).
-            ranges.addAll(relation.collectSplits(nativePathNormalizer));
+            ranges.addAll(relation.collectSplits(
+                    partitionFieldNames, hiveStylePartitioning, nativePathNormalizer));
             return Optional.of(ranges);
         }
         String endTs = relation.getEndTs();
         for (FileSlice fileSlice : relation.collectFileSlices()) {
-            Map<String, String> partValues = parsePartitionValues(fileSlice.getPartitionPath(), partitionFieldNames);
+            Map<String, String> partValues = parsePartitionValues(
+                    fileSlice.getPartitionPath(), partitionFieldNames, hiveStylePartitioning);
             // @incr lists the LATEST schema (no per-file schema_id dict on the incremental path) -> null resolver.
             ranges.add(buildMorRange(fileSlice, partValues, endTs, forceJni,
                     basePath, inputFormat, serdeLib, columnNames, columnTypes, null, nativePathNormalizer));
@@ -647,6 +651,11 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                         .map(name -> name.toLowerCase(Locale.ROOT))
                         .collect(Collectors.toList())
                 : Collections.emptyList();
+    }
+
+    /** Whether Hudi storage paths use {@code column=value} rather than positional fragments. */
+    static boolean hiveStylePartitioning(HoodieTableMetaClient metaClient) {
+        return Boolean.parseBoolean(metaClient.getTableConfig().getHiveStylePartitioningEnable());
     }
 
     /**
@@ -810,16 +819,15 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Parse a Hudi partition's relative path into a column&rarr;value map, byte-faithful to legacy
-     * {@code HudiPartitionUtils.parsePartitionValues}. Handles BOTH hive-style ("year=2024/month=01") and Hudi's
-     * DEFAULT non-hive-style POSITIONAL ("2024/01") layouts, and URL-unescapes every value:
+     * Parse a Hudi partition's relative path into a column&rarr;value map using the table's declared storage
+     * layout, and URL-unescape every value:
      * <ul>
-     *   <li>A fragment carrying the "col=" prefix contributes the suffix; a fragment WITHOUT it is mapped
-     *       POSITIONALLY to the i-th partition column. The old split-on-'=' logic silently DROPPED a
-     *       prefix-less fragment, so a non-hive-style partitioned table read NULL partition columns on a plain
-     *       snapshot read — this is the regression this fix closes.</li>
-     *   <li>Single partition column with a mismatched fragment count: the whole path (minus an optional "col="
-     *       prefix) is that column's value (legacy single-column-whole-path fallback).</li>
+     *   <li>Hive-style ({@code hiveStylePartitioning=true}): every fragment must carry its case-insensitive
+     *       {@code column=} prefix, which is stripped.</li>
+     *   <li>Positional ({@code false}): each fragment is the literal value. In particular, a value such as
+     *       {@code City=Beijing} retains the {@code =}; guessing the layout from that text would corrupt it.</li>
+     *   <li>Single positional partition column with a mismatched fragment count: the whole path is that column's
+     *       value. The equivalent hive-style path strips its one leading prefix.</li>
      *   <li>Fragment count != column count with &gt; 1 column: fail loud, exactly like legacy.</li>
      *   <li>Every value is unescaped via {@link #unescapePathName} (e.g. "%20" &rarr; space) — legacy delegated
      *       to Hive's {@code FileUtils.unescapePathName}; inlined here so the connector needs no hive-common
@@ -828,15 +836,11 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      *
      * <p>Static + package-private for direct unit testing (no live HoodieTableMetaClient needed).
      *
-     * <p>NOTE: this derives values from the partition path fed to the FileSystemView. On the UNPRUNED path that
-     * path is Hudi's own relative path (getAllPartitionPaths) = the shape the FileSystemView uses, so values are
-     * consistent. The PRUNED path (applyFilter) currently feeds HMS hive-style partition NAMES, which match the
-     * FileSystemView only for hive-sync'd tables; making the pruned partition SOURCE useHiveSyncPartition-aware
-     * for non-hive-style tables belongs to the partition-listing step (which ports that source once), and is
-     * likewise closed before the catalog flip.
+     * <p>NOTE: this derives values from the partition path fed to the FileSystemView. Callers must carry the
+     * path layout from the same partition source instead of inferring it from fragment contents.
      */
     static Map<String, String> parsePartitionValues(
-            String partitionPath, List<String> partKeyNames) {
+            String partitionPath, List<String> partKeyNames, boolean hiveStylePartitioning) {
         if (partKeyNames == null || partKeyNames.isEmpty()) {
             // Non-partitioned table (legacy returns an empty value list). The unpartitioned scan path always
             // reaches here with an empty key list, so an empty partitionPath needs no separate guard.
@@ -846,7 +850,9 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         String[] fragments = partitionPath.split("/");
         if (fragments.length != partKeyNames.size()) {
             if (partKeyNames.size() == 1) {
-                String value = stripPartitionColumnPrefix(partitionPath, partKeyNames.get(0));
+                String value = hiveStylePartitioning
+                        ? stripHiveStylePartitionColumnPrefix(partitionPath, partKeyNames.get(0))
+                        : partitionPath;
                 values.put(partKeyNames.get(0), unescapePathName(value));
                 return values;
             }
@@ -854,19 +860,23 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                     "Failed to parse partition values of path: " + partitionPath);
         }
         for (int i = 0; i < fragments.length; i++) {
-            String raw = stripPartitionColumnPrefix(fragments[i], partKeyNames.get(i));
+            String raw = hiveStylePartitioning
+                    ? stripHiveStylePartitionColumnPrefix(fragments[i], partKeyNames.get(i))
+                    : fragments[i];
             values.put(partKeyNames.get(i), unescapePathName(raw));
         }
         return values;
     }
 
-    /** Strips an optional Hive-style {@code column=} prefix using Hive/Hudi's case-insensitive identifiers. */
-    private static String stripPartitionColumnPrefix(String fragment, String columnName) {
+    /** Strips a required Hive-style {@code column=} prefix using Hive/Hudi's case-insensitive identifiers. */
+    private static String stripHiveStylePartitionColumnPrefix(String fragment, String columnName) {
         int separator = fragment.indexOf('=');
-        if (separator > 0 && fragment.substring(0, separator).equalsIgnoreCase(columnName)) {
-            return fragment.substring(separator + 1);
+        if (separator <= 0 || !fragment.substring(0, separator).equalsIgnoreCase(columnName)) {
+            throw new DorisConnectorException(
+                    "Invalid hive-style Hudi partition fragment '" + fragment
+                            + "' for column '" + columnName + "'");
         }
-        return fragment;
+        return fragment.substring(separator + 1);
     }
 
     /**

@@ -18,6 +18,8 @@
 package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
@@ -67,7 +69,7 @@ public class HudiIncrementalPlanScanTest {
         fallback.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 fallback, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, true, UnaryOperator.identity());
         Assertions.assertFalse(result.isPresent(),
                 "fallbackFullTableScan must signal degrade to the snapshot scan (Optional.empty)");
     }
@@ -85,10 +87,30 @@ public class HudiIncrementalPlanScanTest {
         cow.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 cow, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, true, UnaryOperator.identity());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(1, result.get().size());
         Assertions.assertSame(native1, result.get().get(0), "COW ranges must be the relation's collectSplits output");
+    }
+
+    @Test
+    public void cowIncrementalCanonicalPartitionKeyReachesBeRangeCarrier() {
+        // The real COW relation receives the canonical table-config field list through this interface. Model its
+        // write-stat path parse here and continue through populateRangeParams: a raw on-disk "City=" prefix must
+        // still produce the Doris/Hudi canonical "city" key that BE exact-matches against the tuple slot.
+        FakeRelation cow = new FakeRelation();
+        cow.rawCowPath = "s3://b/t/City=Beijing/f1.parquet";
+        cow.rawCowPartitionPath = "City=Beijing";
+        Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
+                cow, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
+                Collections.emptyList(), Collections.emptyList(), Collections.singletonList("city"), true,
+                UnaryOperator.identity());
+
+        HudiScanRange range = (HudiScanRange) result.orElseThrow(AssertionError::new).get(0);
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        range.populateRangeParams(new TTableFormatFileDesc(), rangeDesc);
+        Assertions.assertEquals(Collections.singletonList("city"), rangeDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("Beijing"), rangeDesc.getColumnsFromPath());
     }
 
     @Test
@@ -102,7 +124,7 @@ public class HudiIncrementalPlanScanTest {
         cow.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 cow, /*isCow*/ true, /*forceJni*/ true, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, true, UnaryOperator.identity());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertSame(native1, result.get().get(0),
                 "COW incremental must stay native even under force_jni (never call collectFileSlices)");
@@ -123,7 +145,7 @@ public class HudiIncrementalPlanScanTest {
         mor.collectSplitsThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 mor, /*isCow*/ false, /*forceJni*/ true, BASE_PATH, INPUT_FORMAT, SERDE,
-                Arrays.asList("c1"), Arrays.asList("int"), YEAR_MONTH, UnaryOperator.identity());
+                Arrays.asList("c1"), Arrays.asList("int"), YEAR_MONTH, true, UnaryOperator.identity());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(1, result.get().size());
         HudiScanRange range = (HudiScanRange) result.get().get(0);
@@ -145,7 +167,7 @@ public class HudiIncrementalPlanScanTest {
         mor.collectSplitsThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 mor, /*isCow*/ false, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, true, UnaryOperator.identity());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertTrue(result.get().isEmpty());
     }
@@ -159,7 +181,7 @@ public class HudiIncrementalPlanScanTest {
         FileSlice slice = baseOnlySlice("year=2024/month=01",
                 "s3://b/t/year=2024/month=01/fileid-1_0_20240101000000.parquet");
         Map<String, String> partValues = HudiScanPlanProvider.parsePartitionValues(
-                slice.getPartitionPath(), YEAR_MONTH);
+                slice.getPartitionPath(), YEAR_MONTH, true);
         HudiScanRange range = HudiScanPlanProvider.buildMorRange(slice, partValues, END_TS, /*forceJni*/ true,
                 BASE_PATH, INPUT_FORMAT, SERDE, Arrays.asList("c1"), Arrays.asList("int"), p -> 7L,
                 UnaryOperator.identity());
@@ -198,7 +220,7 @@ public class HudiIncrementalPlanScanTest {
         cow.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 cow, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH,
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, true,
                 s -> s.replace("s3a://", "s3://"));
         Assertions.assertTrue(result.isPresent());
         HudiScanRange range = (HudiScanRange) result.get().get(0);
@@ -242,6 +264,7 @@ public class HudiIncrementalPlanScanTest {
         // stands in for the real COWIncrementalRelation.collectSplits (which needs a live metaClient), letting the
         // test verify incrementalRanges THREADS its normalizer into the COW collectSplits call.
         private String rawCowPath;
+        private String rawCowPartitionPath;
 
         @Override
         public List<FileSlice> collectFileSlices() {
@@ -252,13 +275,19 @@ public class HudiIncrementalPlanScanTest {
         }
 
         @Override
-        public List<HudiScanRange> collectSplits(UnaryOperator<String> nativePathNormalizer) {
+        public List<HudiScanRange> collectSplits(List<String> partitionFieldNames, boolean hiveStylePartitioning,
+                UnaryOperator<String> nativePathNormalizer) {
             if (collectSplitsThrows) {
                 throw new UnsupportedOperationException("collectSplits must not be called on this route");
             }
             if (rawCowPath != null) {
-                return Collections.singletonList(new HudiScanRange.Builder()
-                        .path(nativePathNormalizer.apply(rawCowPath)).fileFormat("parquet").build());
+                HudiScanRange.Builder builder = new HudiScanRange.Builder()
+                        .path(nativePathNormalizer.apply(rawCowPath)).fileFormat("parquet");
+                if (rawCowPartitionPath != null) {
+                    builder.partitionValues(HudiScanPlanProvider.parsePartitionValues(
+                            rawCowPartitionPath, partitionFieldNames, hiveStylePartitioning));
+                }
+                return Collections.singletonList(builder.build());
             }
             return splits;
         }

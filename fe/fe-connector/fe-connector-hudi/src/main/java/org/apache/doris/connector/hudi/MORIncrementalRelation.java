@@ -50,7 +50,7 @@ import java.util.stream.Stream;
  * fired) is gone by construction — no sentinel re-resolution survives in the relation.
  *
  * <p>{@link #collectFileSlices()} yields the merged slices for the scan planner to turn into JNI ranges at
- * {@code endTs}; {@link #collectSplits()} is unsupported (the COW shape).
+ * {@code endTs}; {@link #collectSplits(List, boolean, UnaryOperator)} is unsupported (the COW shape).
  */
 final class MORIncrementalRelation implements IncrementalRelation {
 
@@ -172,7 +172,8 @@ final class MORIncrementalRelation implements IncrementalRelation {
     }
 
     @Override
-    public List<HudiScanRange> collectSplits(UnaryOperator<String> nativePathNormalizer) {
+    public List<HudiScanRange> collectSplits(List<String> partitionFieldNames, boolean hiveStylePartitioning,
+            UnaryOperator<String> nativePathNormalizer) {
         // MOR emits ranges via collectFileSlices()/buildMorRange, not here; the normalizer is irrelevant.
         throw new UnsupportedOperationException();
     }

@@ -504,9 +504,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         Table table = resolveTable(session, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
         int formatVersion = getFormatVersion(table);
-        List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        Schema scanSchema = pinnedSchema(table, iceHandle);
+        List<String> orderedPartitionKeys =
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, scanSchema);
         ZoneId zone = resolveSessionZone(session);
-        boolean partitioned = table.spec().isPartitioned();
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
         UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
@@ -516,7 +517,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         try {
             CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(
                     scan, session, table, filter, sliceSize);
-            return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
+            return new IcebergStreamingSplitSource(tasks, table, scanSchema, formatVersion,
                     orderedPartitionKeys, zone, uriNormalizer, sliceSize,
                     iceHandle.getRewriteFileScope(), iceHandle);
         } catch (RuntimeException e) {
@@ -575,8 +576,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private final class IcebergStreamingSplitSource implements ConnectorSplitSource {
         private final CloseableIterable<FileScanTask> tasks;
         private final Table table;
+        private final Schema scanSchema;
         private final int formatVersion;
-        private final boolean partitioned;
         private final List<String> orderedPartitionKeys;
         private final ZoneId zone;
         private final UnaryOperator<String> uriNormalizer;
@@ -595,14 +596,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // 1-entry cache stays O(1) memory (never accumulates), preserving the streaming path's OOM safety.
         private final PerFileScratch scratch = new PerFileScratch();
 
-        IcebergStreamingSplitSource(CloseableIterable<FileScanTask> tasks, Table table, int formatVersion,
-                boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+        IcebergStreamingSplitSource(CloseableIterable<FileScanTask> tasks, Table table, Schema scanSchema,
+                int formatVersion, List<String> orderedPartitionKeys, ZoneId zone,
                 UnaryOperator<String> uriNormalizer, long sliceSize, Set<String> rewriteScope,
                 IcebergTableHandle handle) {
             this.tasks = tasks;
             this.table = table;
+            this.scanSchema = scanSchema;
             this.formatVersion = formatVersion;
-            this.partitioned = partitioned;
             this.orderedPartitionKeys = orderedPartitionKeys;
             this.zone = zone;
             this.uriNormalizer = uriNormalizer;
@@ -621,7 +622,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     iterator = tasks.iterator();
                 }
                 while (iterator.hasNext()) {
-                    IcebergScanRange range = buildRangeForTask(iterator.next(), table, formatVersion, partitioned,
+                    IcebergScanRange range = buildRangeForTask(iterator.next(), table, scanSchema, formatVersion,
                             orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null, scratch);
                     if (range != null) {
                         buffered = range;
@@ -691,7 +692,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         int formatVersion = getFormatVersion(table);
-        List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        Schema scanSchema = pinnedSchema(table, iceHandle);
+        List<String> orderedPartitionKeys =
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, scanSchema);
         ZoneId zone = resolveSessionZone(session);
         boolean partitioned = table.spec().isPartitioned();
 
@@ -715,7 +718,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (countPushdown) {
             long realCount = getCountFromSnapshot(scan, session);
             if (realCount >= 0) {
-                return planCountPushdown(table, scan, realCount, formatVersion, partitioned,
+                return planCountPushdown(table, scan, scanSchema, realCount, formatVersion, partitioned,
                         orderedPartitionKeys, zone, uriNormalizer, session, filter);
             }
         }
@@ -753,9 +756,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             for (FileScanTask task : plan.tasks) {
                 // Shared per-task mapping (rewrite-scope skip + M-2 weight denominator + v3 stash side-effect),
                 // identical to the streaming path's IcebergStreamingSplitSource so both produce the same ranges.
-                IcebergScanRange range = buildRangeForTask(task, table, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, uriNormalizer, plan.targetSplitSize, rewriteScope,
-                        rewritableDeleteSupply, scratch);
+                IcebergScanRange range = buildRangeForTask(task, table, scanSchema, formatVersion,
+                        partitioned, orderedPartitionKeys, zone, uriNormalizer, plan.targetSplitSize,
+                        rewriteScope, rewritableDeleteSupply, scratch);
                 if (range != null) {
                     ranges.add(range);
                 }
@@ -811,8 +814,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * side-effect. The streaming path passes {@code rewritableDeleteSupply=null} (v3 is gated onto the eager
      * path — see {@link #streamingSplitEstimate}), so the accumulation is inert there.
      */
-    private IcebergScanRange buildRangeForTask(FileScanTask task, Table table, int formatVersion,
-            boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+    private IcebergScanRange buildRangeForTask(FileScanTask task, Table table, Schema scanSchema,
+            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, long targetSplitSize, Set<String> rewriteScope,
             Map<String, List<TIcebergDeleteFileDesc>> rewritableDeleteSupply, PerFileScratch scratch) {
         DataFile dataFile = task.file();
@@ -826,7 +829,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         boolean firstSliceOfFile = scratch.file != dataFile;
         // targetSplitSize is the scan-level weight denominator (M-2): each data-file range carries a
         // size-proportional BE scheduling weight (selfSplitWeight computed inside buildRange).
-        IcebergScanRange range = buildRange(table, dataFile, task, formatVersion, partitioned,
+        IcebergScanRange range = buildRange(table, scanSchema, dataFile, task, formatVersion, partitioned,
                 orderedPartitionKeys, zone, uriNormalizer, -1, targetSplitSize, scratch);
         if (rewritableDeleteSupply != null && firstSliceOfFile) {
             // Record this data file's non-equality delete supply keyed on its RAW path (the exact string the BE
@@ -1250,14 +1253,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * legacy's {@code >10000} parallel multi-split trim is the perf-only divergence we drop). An empty table
      * (no files) yields no range, so BE gets 0 ranges and COUNT returns 0 (legacy returns empty splits too).
      */
-    private List<ConnectorScanRange> planCountPushdown(Table table, TableScan scan, long realCount,
-            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+    private List<ConnectorScanRange> planCountPushdown(Table table, TableScan scan, Schema scanSchema,
+            long realCount, int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter) {
         try (CloseableIterable<FileScanTask> tasks = countPushdownFileScanTasks(scan, session, table, filter)) {
             for (FileScanTask task : tasks) {
                 // targetSplitSize = -1: the count-pushdown collapse emits a single range, so its scheduling
                 // weight is irrelevant → PluginDrivenSplit keeps SplitWeight.standard().
-                return Collections.singletonList(buildRange(table, task.file(), task, formatVersion,
+                return Collections.singletonList(buildRange(table, scanSchema, task.file(), task, formatVersion,
                         partitioned, orderedPartitionKeys, zone, uriNormalizer, realCount, -1, null));
             }
         } catch (IOException e) {
@@ -1326,13 +1329,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * size-proportional {@code selfSplitWeight} are per-slice. A {@code null} scratch (the single
      * count-pushdown range) computes without caching. Byte-identical to the former per-slice recompute.</p>
      */
-    private IcebergScanRange buildRange(Table table, DataFile dataFile, FileScanTask task, int formatVersion,
-            boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+    private IcebergScanRange buildRange(Table table, Schema scanSchema, DataFile dataFile, FileScanTask task,
+            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, long pushDownRowCount, long targetSplitSize,
             PerFileScratch scratch) {
         PerFileScratch file = (scratch != null && scratch.file == dataFile)
                 ? scratch
-                : computePerFileInvariants(table, dataFile, task, formatVersion, partitioned,
+                : computePerFileInvariants(table, scanSchema, dataFile, task, formatVersion, partitioned,
                         orderedPartitionKeys, zone, uriNormalizer, scratch);
         // M-2 size-proportional weight numerator = this split's byte length + the byte size of every
         // merge-on-read delete file applying to it, mirroring legacy IcebergSplit.selfSplitWeight (ctor sets
@@ -1374,8 +1377,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * so the memoized range is byte-identical to the per-slice recompute. The scratch fields are assigned only
      * after the fail-loud check, so a rejected file never leaves a half-populated scratch.
      */
-    private PerFileScratch computePerFileInvariants(Table table, DataFile dataFile, FileScanTask task,
-            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+    private PerFileScratch computePerFileInvariants(Table table, Schema scanSchema, DataFile dataFile,
+            FileScanTask task, int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, PerFileScratch scratch) {
         perFileInvariantComputeCount++;
         Integer partitionSpecId = null;
@@ -1390,7 +1393,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // Order the identity values as the path_partition_keys list (legacy getOrderedPathPartitionKeys),
             // filtered to keys this file carries — so columns-from-path matches legacy ordering exactly.
             Map<String, String> identityMap =
-                    IcebergPartitionUtils.getIdentityPartitionInfoMap(partitionData, spec, table, zone);
+                    IcebergPartitionUtils.getIdentityPartitionInfoMap(partitionData, spec, scanSchema, zone);
             Map<String, String> ordered = new LinkedHashMap<>();
             for (String key : orderedPartitionKeys) {
                 if (identityMap.containsKey(key)) {
@@ -1677,7 +1680,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // (empty partitionKeys + null schema-dict table). resolveTable still loads the base table here for
         // the credential overlay below (the metadata table shares the base table's FileIO).
         if (!systemTable) {
-            List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+            List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table, scanSchema);
             if (!partitionKeys.isEmpty()) {
                 props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partitionKeys));
             }

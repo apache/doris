@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -170,7 +171,8 @@ public class HudiPartitionPruningTest {
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS),                 // HMS hive-style names -- must NOT be used here
                 HudiTestProperties.minimal(),                  // use_hive_sync_partition=false -> non-hive-sync
-                new StubMetaClientExecutor(Arrays.asList("2024/01", "2024/02", "2023/12")));
+                new StubMetaClientExecutor(new AbstractMap.SimpleImmutableEntry<>(
+                        false, Arrays.asList("2024/01", "2024/02", "2023/12"))));
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyFilter(null, partitionedHandle(), new ConnectorFilterConstraint(eq("year", "2024")));
         Assertions.assertTrue(result.isPresent());
@@ -201,7 +203,7 @@ public class HudiPartitionPruningTest {
                 HudiConnectorMetadata.prunePartitionPaths(
                         Arrays.asList("2024/01", "2024/02", "2023/12"),
                         PART_KEYS,
-                        Collections.singletonMap("year", Collections.singletonList("2024"))));
+                        Collections.singletonMap("year", Collections.singletonList("2024")), false));
     }
 
     @Test
@@ -210,7 +212,8 @@ public class HudiPartitionPruningTest {
         // hiveDateTimeString -- String.valueOf(LocalDate) = "2024-01-01" already matches the stored DATE value.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
-                new StubMetaClientExecutor(Arrays.asList("2024-01-01", "2024-01-02")));
+                new StubMetaClientExecutor(new AbstractMap.SimpleImmutableEntry<>(
+                        false, Arrays.asList("2024-01-01", "2024-01-02"))));
         HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
                 .partitionKeyNames(Collections.singletonList("dt"))
                 .build();
@@ -236,7 +239,8 @@ public class HudiPartitionPruningTest {
         // empty -> red.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
-                new StubMetaClientExecutor(Arrays.asList("1", "2")));
+                new StubMetaClientExecutor(new AbstractMap.SimpleImmutableEntry<>(
+                        false, Arrays.asList("1", "2"))));
         HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
                 .partitionKeyNames(Collections.singletonList("d"))
                 .build();
@@ -258,7 +262,7 @@ public class HudiPartitionPruningTest {
         // hive-style names here parse the same via parsePartitionValues, so the pruning assertions are unchanged.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
-                new StubMetaClientExecutor(PARTITIONS));
+                new StubMetaClientExecutor(new AbstractMap.SimpleImmutableEntry<>(true, PARTITIONS)));
         return metadata.applyFilter(null, handle, new ConnectorFilterConstraint(expr));
     }
 

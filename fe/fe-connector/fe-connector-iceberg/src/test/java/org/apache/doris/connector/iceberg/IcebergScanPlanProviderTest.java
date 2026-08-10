@@ -1232,10 +1232,10 @@ public class IcebergScanPlanProviderTest {
 
     @Test
     public void getScanNodePropertiesUnderPinAlignsMixedCasePartitionWithFullSchemaDict() throws Exception {
-        // Every ordinary Iceberg scan is snapshot-pinned by the generic MVCC node. The pinned path builds a FULL
-        // dictionary by passing an empty requested-column list, while partition planning emits the Iceberg source
-        // name verbatim. Both carriers must therefore contain "City", not path_partition_keys="City" paired with
-        // a dictionary key "city" (the mismatch that made BE abort while checking partition fallback).
+        // S1 uses "City". The current schema later renames that SAME field id to "CITY". A scan pinned to S1
+        // must resolve every carrier from S1: full dictionary, path_partition_keys, and the eager/streaming
+        // per-file columns_from_path key. Otherwise BE exact-matches a "City" slot against a latest "CITY" key
+        // and drops the manifest value; an imported file without the physical partition column then yields NULL.
         Schema schema = new Schema(
                 Types.NestedField.required(1, "K1", Types.IntegerType.get()),
                 Types.NestedField.required(2, "City", Types.StringType.get()));
@@ -1246,10 +1246,13 @@ public class IcebergScanPlanProviderTest {
                         "s3://b/db/mixed_case_partition/City=Beijing/data.parquet",
                         1024, null, "City=Beijing"))
                 .commit();
+        long snapshotId = table.currentSnapshot().snapshotId();
+        long schemaId = table.currentSnapshot().schemaId();
+        table.updateSchema().renameColumn("City", "CITY").commit();
+        Assertions.assertNotNull(table.schema().findField("CITY"));
         IcebergScanPlanProvider provider = providerOver(table);
         IcebergTableHandle pinned = new IcebergTableHandle("db1", "mixed_case_partition")
-                .withSnapshot(table.currentSnapshot().snapshotId(), null,
-                        table.currentSnapshot().schemaId());
+                .withSnapshot(snapshotId, null, schemaId);
 
         Map<String, String> props = provider.getScanNodeProperties(
                 null, pinned, Collections.emptyList(), Optional.empty());
@@ -1264,6 +1267,19 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertTrue(fieldNames.contains("K1"));
         Assertions.assertTrue(fieldNames.contains("City"));
         Assertions.assertFalse(fieldNames.contains("city"));
+        Assertions.assertFalse(fieldNames.contains("CITY"));
+
+        List<ConnectorScanRange> eager = provider.planScan(emptySession(),
+                ConnectorScanRequest.builder(pinned, Collections.emptyList()).build());
+        TFileRangeDesc eagerDesc = populate(eager.get(0));
+        Assertions.assertEquals(Collections.singletonList("City"), eagerDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("Beijing"), eagerDesc.getColumnsFromPath());
+
+        List<ConnectorScanRange> streaming = drain(provider.streamSplits(
+                emptySession(), pinned, Collections.emptyList(), Optional.empty(), -1L));
+        TFileRangeDesc streamingDesc = populate(streaming.get(0));
+        Assertions.assertEquals(Collections.singletonList("City"), streamingDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("Beijing"), streamingDesc.getColumnsFromPath());
     }
 
     // --- T06 [D-065]: getScanNodeProperties sys-handle guard (skip dict + path_partition_keys) ---
