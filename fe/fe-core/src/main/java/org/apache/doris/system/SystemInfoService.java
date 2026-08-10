@@ -316,6 +316,10 @@ public class SystemInfoService {
         return getAllClusterBackendsNoException().get(backendId);
     }
 
+    public Backend getBackendByIdWithBoxedId(Long backendId) {
+        return getAllClusterBackendsNoException().get(backendId);
+    }
+
     public List<Backend> getBackends(List<Long> backendIds) {
         List<Backend> backends = Lists.newArrayList();
         for (long backendId : backendIds) {

@@ -294,6 +294,11 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         return -1L;
     }
 
+    Long getNonColocatedPrimaryBackendId(String clusterId) {
+        List<Long> backendIds = primaryClusterToBackends.get(clusterId);
+        return backendIds == null || backendIds.isEmpty() ? null : backendIds.get(0);
+    }
+
     @Override
     public Map<String, Long> getClusterToBackendForProcDisplay(
             Map<String, List<Backend>> computeGroupBackendCache) {
