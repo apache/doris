@@ -86,7 +86,7 @@ public class FlussConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new FlussConnectorMetadata(adminOps(), properties.getTypeMappingOptions(),
-                this::getOrCreateLakeSibling, this::lakeSiblingOwning);
+                properties.getLakeOverrides(), this::getOrCreateLakeSibling, this::lakeSiblingOwning);
     }
 
     /**
