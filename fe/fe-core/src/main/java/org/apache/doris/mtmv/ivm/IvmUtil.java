@@ -213,20 +213,23 @@ public class IvmUtil {
         return stream.getBaseTableFullQualifiers().equals(expectedBaseTableFullQualifiers);
     }
 
+    public static boolean isIvmStreamUsable(BaseTableStream stream, OlapTable expectedBaseTable) {
+        TableIf actualBaseTable = stream.getBaseTableNullable();
+        return isStreamOwnedBy(stream, expectedBaseTable.getFullQualifiers())
+                && !stream.isDisabled() && !stream.isStale()
+                && actualBaseTable != null && actualBaseTable.getId() == expectedBaseTable.getId();
+    }
+
     public static OlapTableStream getIvmStream(MTMV mtmv, OlapTable expectedBaseTable) {
         Database database = (Database) mtmv.getDatabase();
-        List<String> expectedBaseTableFullQualifiers = expectedBaseTable.getFullQualifiers();
-        String streamName = streamName(mtmv.getId(), expectedBaseTableFullQualifiers);
+        String streamName = streamName(mtmv.getId(), expectedBaseTable.getFullQualifiers());
         TableIf table = database.getTableNullable(streamName);
         if (!(table instanceof OlapTableStream)) {
             throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
                     "IVM stream not found: " + streamName);
         }
         OlapTableStream stream = (OlapTableStream) table;
-        TableIf actualBaseTable = stream.getBaseTableNullable();
-        if (!isStreamOwnedBy(stream, expectedBaseTableFullQualifiers)
-                || stream.isDisabled() || stream.isStale()
-                || actualBaseTable == null || actualBaseTable.getId() != expectedBaseTable.getId()) {
+        if (!isIvmStreamUsable(stream, expectedBaseTable)) {
             throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
                     "IVM stream is unavailable or references a different base table: " + streamName);
         }
