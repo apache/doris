@@ -66,7 +66,6 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -423,57 +422,42 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         Set<AggregateFunction> aggFunctions = new LinkedHashSet<>();
-        Map<AggregateFunction, AggregateFunction> aggFunctionsMap = new LinkedHashMap<>();
+        Map<AggregateFunction, AggregateFunction> aggFunctionsMap = new HashMap<>();
         Map<AggregateFunction, Alias> aliasMap = new HashMap<>();
-
+        boolean newContainsNullToNonNull = context.containsNullToNonNull;
         for (AggregateFunction aggFunc : context.getAggFunctions()) {
-            AggregateFunction newAggFunc = (AggregateFunction) project.pushDownExpressionPastProject(aggFunc);
+            AggregateFunction newAggFunc =
+                    (AggregateFunction) project.pushDownExpressionPastProject(aggFunc);
             aggFunctions.add(newAggFunc);
             aggFunctionsMap.put(aggFunc, newAggFunc);
-        }
-        boolean needDifferentExprId = aggFunctions.size() != context.getAliasMap().size();
-        if (needDifferentExprId) {
-            for (AggregateFunction aggFunc : context.getAggFunctions()) {
-                AggregateFunction newAggFunc = aggFunctionsMap.get(aggFunc);
-                Alias alias = context.getAliasMap().get(aggFunc);
-                Alias aliasForChild;
-                if (aliasMap.containsKey(newAggFunc)) {
-                    aliasForChild = aliasMap.get(newAggFunc);
-                } else {
-                    aliasForChild = new Alias(newAggFunc, newAggFunc.getName());
-                    aliasMap.put(newAggFunc, aliasForChild);
-                }
-                projectToChildExprIdMap.put(alias.getExprId(), aliasForChild.getExprId());
-            }
-        } else {
-            for (AggregateFunction aggFunc : context.getAggFunctions()) {
-                AggregateFunction newAggFunc = aggFunctionsMap.get(aggFunc);
-                Alias alias = context.getAliasMap().get(aggFunc);
-                aliasMap.put(newAggFunc, (Alias) alias.withChildren(newAggFunc));
+            Alias alias = context.getAliasMap().get(aggFunc);
+            aliasMap.put(newAggFunc, (Alias) alias.withChildren(newAggFunc));
+
+            if (!newContainsNullToNonNull
+                    && newAggFunc.children().stream().anyMatch(
+                            arg -> arg.anyMatch(e ->
+                            NullToNonNullFunction.canConvertNullToNonNull((Expression) e)))) {
+                newContainsNullToNonNull = true;
             }
         }
 
-        // After pushing expressions past the project, the agg functions may now
-        // contain NullToNonNull expressions that were hidden behind slot references before.
-        // e.g. count(#slot) where #slot = coalesce(a, 0) in the project.
-        // We must re-check and update containsNullToNonNull accordingly.
-        boolean newContainsNullToNonNull = context.containsNullToNonNull;
-        if (!newContainsNullToNonNull) {
-            for (AggregateFunction aggFunc : aggFunctions) {
-                if (aggFunc.children().stream().anyMatch(
-                        arg -> arg.anyMatch(e ->
-                                NullToNonNullFunction.canConvertNullToNonNull((Expression) e)))) {
-                    newContainsNullToNonNull = true;
-                    break;
-                }
+        boolean needDifferentExprId =
+                aggFunctions.size() != context.getAliasMap().size();
+        if (needDifferentExprId) {
+            aliasMap.clear();
+            for (AggregateFunction aggFunc : context.getAggFunctions()) {
+                AggregateFunction newAggFunc = aggFunctionsMap.get(aggFunc);
+                Alias aliasForChild = aliasMap.computeIfAbsent(
+                        newAggFunc, func -> new Alias(func, func.getName()));
+                Alias alias = context.getAliasMap().get(aggFunc);
+                projectToChildExprIdMap.put(alias.getExprId(), aliasForChild.getExprId());
             }
         }
-        PushDownAggContext newContext = new PushDownAggContext(ImmutableList.copyOf(aggFunctions), groupKeys, aliasMap,
+        return new PushDownAggContext(ImmutableList.copyOf(aggFunctions), groupKeys, aliasMap,
                 context.getCascadesContext(), context.isPassThroughHeavyJoin(),
                 context.hasDecomposedAggIf, newContainsNullToNonNull,
                 context.getBilateralState(), context.needOutputCount(), context.isPassThroughJoinOrUnion(),
                 context.isSmallBroadcastBottomJoin());
-        return newContext;
     }
 
     private boolean canPushThroughProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
