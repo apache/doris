@@ -27,6 +27,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -966,9 +967,9 @@ public class StatementContext implements Closeable {
         PriorityQueue<TableIf> tableIfs = new PriorityQueue<>(
                 tables.size() + mtmvRelatedTables.size() + insertTargetTables.size(),
                 Comparator.comparing(TableIf::getId));
-        tableIfs.addAll(tables.values());
-        tableIfs.addAll(mtmvRelatedTables.values());
-        tableIfs.addAll(insertTargetTables.values());
+        addTablesToLock(tableIfs, tables.values());
+        addTablesToLock(tableIfs, mtmvRelatedTables.values());
+        addTablesToLock(tableIfs, insertTargetTables.values());
         while (!tableIfs.isEmpty()) {
             TableIf tableIf = tableIfs.poll();
             if (!tableIf.needReadLockWhenPlan()) {
@@ -1292,8 +1293,23 @@ public class StatementContext implements Closeable {
             if (tableIf.needReadLockWhenPlan()) {
                 return true;
             }
+            if (tableIf instanceof BaseTableStream) {
+                TableIf baseTable = ((BaseTableStream) tableIf).getBaseTableNullable();
+                if (baseTable != null && baseTable.needReadLockWhenPlan()) {
+                    return true;
+                }
+            }
         }
         return false;
+    }
+
+    private void addTablesToLock(PriorityQueue<TableIf> tableIfs, Collection<TableIf> tables) {
+        tableIfs.addAll(tables);
+        for (TableIf tableIf : tables) {
+            if (tableIf instanceof BaseTableStream) {
+                tableIfs.add(((BaseTableStream) tableIf).getBaseTableOrNereidsAnalysisException());
+            }
+        }
     }
 
     private static class CloseableResource implements Closeable {

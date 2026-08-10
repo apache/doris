@@ -67,10 +67,16 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * UTs for table stream query plan, including
@@ -649,6 +655,69 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         for (Plan tmpPlan : tmpPlans) {
             Assertions.assertFalse(containsLogicalStreamScan(tmpPlan),
                     "tmp plan for mv pre rewrite should have normalized stream scans inside cte children");
+        }
+    }
+
+    @Test
+    public void testPreLockRenameDoesNotReplaceCachedExplicitTable() throws Exception {
+        String baseTableName = "stream_cache_base";
+        String streamName = "stream_cache_stream";
+        String explicitTableName = "stream_cache_explicit";
+        createTable("create table test_stream." + baseTableName + " (k1 int, k2 int) "
+                + "unique key(k1) distributed by hash(k1) buckets 1 "
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', "
+                + "'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true')");
+        createTable("create stream test_stream." + streamName + " on table test_stream." + baseTableName
+                + " properties('show_initial_rows' = 'true')");
+        createTable("create table test_stream." + explicitTableName + " (k1 int, k2 int) "
+                + "unique key(k1) distributed by hash(k1) buckets 1 "
+                + "properties('replication_num' = '1')");
+
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable baseTable = (OlapTable) db.getTableOrMetaException(baseTableName);
+        OlapTable explicitTable = (OlapTable) db.getTableOrMetaException(explicitTableName);
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException(streamName);
+        OlapTableStream blockingStream = Mockito.spy(stream);
+        CountDownLatch streamCollectionStarted = new CountDownLatch(1);
+        CountDownLatch renamesFinished = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            streamCollectionStarted.countDown();
+            Assertions.assertTrue(renamesFinished.await(10, TimeUnit.SECONDS));
+            return invocation.callRealMethod();
+        }).when(blockingStream).getBaseTableNullable();
+
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        String sql = "select b.k1, s.k1 from test_stream." + explicitTableName + " b join test_stream."
+                + streamName + " s on b.k1 = s.k1";
+        StatementContext statementContext = MemoTestUtils.createStatementContext(ctx, sql);
+        statementContext.getTables().put(List.of("internal", "test_stream", streamName), blockingStream);
+        ExecutorService plannerExecutor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> planFuture = plannerExecutor.submit(() -> {
+                ctx.setThreadLocalInfo();
+                new NereidsPlanner(statementContext).planWithLock(
+                        (LogicalPlan) parser.parseSingle(sql), PhysicalProperties.ANY);
+            });
+
+            Assertions.assertTrue(streamCollectionStarted.await(10, TimeUnit.SECONDS));
+            Assertions.assertSame(explicitTable,
+                    statementContext.getTables().get(List.of("internal", "test_stream", explicitTableName)));
+
+            connectContext.setThreadLocalInfo();
+            executeSql("alter table test_stream." + explicitTableName
+                    + " rename " + explicitTableName + "_renamed");
+            executeSql("alter table test_stream." + baseTableName + " rename " + explicitTableName);
+            renamesFinished.countDown();
+            planFuture.get(30, TimeUnit.SECONDS);
+
+            Assertions.assertSame(explicitTable,
+                    statementContext.getTables().get(List.of("internal", "test_stream", explicitTableName)));
+            Assertions.assertSame(baseTable, blockingStream.getBaseTableNullable());
+        } finally {
+            renamesFinished.countDown();
+            plannerExecutor.shutdownNow();
+            statementContext.close();
         }
     }
 
