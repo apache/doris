@@ -48,14 +48,12 @@ uint32_t load_le32(const uint8_t* p) {
            (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
 }
 
-bool cpu_has_avx2() {
 #if defined(SNII_BSBF_X86)
+bool cpu_has_avx2() {
     static const bool v = __builtin_cpu_supports("avx2");
     return v;
-#else
-    return false;
-#endif
 }
+#endif
 
 // --- scalar kernels ---
 inline void masks_scalar(uint32_t key, uint32_t m[8]) {
