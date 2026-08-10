@@ -263,7 +263,7 @@ public:
         }
 
         const size_t lambda_batch_rows =
-                _calculate_lambda_batch_size(children[0], data_types, lambda_datas, block,
+                _calculate_lambda_batch_size(children[0], lambda_datas, block,
                                              required_input_column_ids, has_row_dependent_captures);
 
         // Lambda arguments are already stored contiguously in the input arrays. When all nested
@@ -443,7 +443,7 @@ private:
     // Rule: use the external row budget if any lambda input, output, or intermediate column
     // is variable-length. Fixed-width columns have predictable memory usage, so also apply
     // the external byte budget to their estimated bytes per row.
-    size_t _calculate_lambda_batch_size(const VExprSPtr& lambda_expr, const DataTypes& data_types,
+    size_t _calculate_lambda_batch_size(const VExprSPtr& lambda_expr,
                                         const std::vector<ColumnPtr>& lambda_datas,
                                         const Block* block,
                                         const std::set<int>& required_input_column_ids,
@@ -454,10 +454,7 @@ private:
                                                                 : current_bytes + additional_bytes;
         };
 
-        if (std::ranges::any_of(
-                    data_types,
-                    [](const auto& type) { return !type->have_maximum_size_of_value(); }) ||
-            _has_variable_length_column(lambda_expr)) {
+        if (_has_variable_length_column(lambda_expr)) {
             return _lambda_block_budget.max_rows;
         }
 
