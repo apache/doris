@@ -35,6 +35,7 @@ import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -653,6 +654,22 @@ public class ExternalDatabaseTest extends TestWithFeService {
         } finally {
             NameMissTableCatalogProvider.reset();
         }
+    }
+
+    @Test
+    public void testRegisterTableRestoresExternalTableOwnerReferences() {
+        InspectableCatalog catalog = new InspectableCatalog();
+        InspectableDatabase db = new InspectableDatabase(catalog, 560L, "db1", "db1");
+        db.setInitializedForTest(true);
+        TestExternalTable table = new TestExternalTable(561L, "tbl_event", "tbl_event", catalog, db);
+        table.setCatalog(null);
+        table.setDb(null);
+
+        db.registerTable(table);
+
+        Assertions.assertSame(catalog, table.getCatalog());
+        Assertions.assertSame(db, table.getDatabase());
+        Assertions.assertDoesNotThrow(() -> new BaseTableInfo(table));
     }
 
     @Test

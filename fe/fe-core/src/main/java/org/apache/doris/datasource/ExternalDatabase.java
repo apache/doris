@@ -792,6 +792,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public boolean registerTable(TableIf tableIf) {
         makeSureInitialized();
         T table = (T) tableIf;
+        // Replayed metadata may lose these non-persistent owner references, so restore them before publication.
+        table.setCatalog(extCatalog);
+        table.setDb(this);
         if (LOG.isDebugEnabled()) {
             LOG.debug("create table [{}]", table.getName());
         }
