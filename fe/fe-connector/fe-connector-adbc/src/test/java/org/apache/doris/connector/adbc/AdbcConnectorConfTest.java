@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.adbc;
 
-import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -50,18 +49,24 @@ public class AdbcConnectorConfTest {
     @Test
     public void driversDirComesFromThePluginConfThenFromDorisHome() {
         Map<String, String> dorisHome = Collections.singletonMap(
-                AdbcConnectorProperties.ENV_DORIS_HOME, "/opt/doris");
+                AdbcConf.ENV_DORIS_HOME, "/opt/doris");
 
-        Assertions.assertEquals("/from/plugin/conf", ConnectorConf.get(
-                context(Collections.singletonMap(AdbcConnectorProperties.CONF_DRIVERS_DIR,
-                        "/from/plugin/conf"), dorisHome),
-                AdbcConnectorProperties.CONF_DRIVERS_DIR, null,
-                "/opt/doris" + AdbcConnectorProperties.DEFAULT_DRIVERS_SUBDIR));
+        Assertions.assertEquals("/from/plugin/conf", AdbcConf.driversDir(
+                context(Collections.singletonMap(AdbcConf.CONF_DRIVERS_DIR, "/from/plugin/conf"),
+                        dorisHome)));
 
-        Assertions.assertEquals("/opt/doris/plugins/adbc_drivers", ConnectorConf.get(
-                context(Collections.emptyMap(), dorisHome),
-                AdbcConnectorProperties.CONF_DRIVERS_DIR, null,
-                "/opt/doris" + AdbcConnectorProperties.DEFAULT_DRIVERS_SUBDIR));
+        Assertions.assertEquals("/opt/doris/plugins/adbc_drivers", AdbcConf.driversDir(
+                context(Collections.emptyMap(), dorisHome)));
+    }
+
+    @Test
+    public void driversDirIsNullWhenNothingConfiguresIt() {
+        // Null rather than a guess: AdbcDriverPathResolver then says a bare file name cannot be
+        // resolved, instead of quietly resolving it against whatever directory FE happens to run in --
+        // which would load a driver nobody pointed at, or fail with a path nothing in the catalog
+        // explains.
+        Assertions.assertNull(AdbcConf.driversDir(
+                context(Collections.emptyMap(), Collections.emptyMap())));
     }
 
     @Test
@@ -69,10 +74,9 @@ public class AdbcConnectorConfTest {
         // An operator who writes "drivers_dir=" means "I have not configured this", so the default has
         // to win. Reading it as the empty string would make the bare-name resolution fail with a
         // "not configured" message that the conf file appears to contradict.
-        Assertions.assertEquals("/default", ConnectorConf.get(
-                context(Collections.singletonMap(AdbcConnectorProperties.CONF_DRIVERS_DIR, "   "),
-                        Collections.emptyMap()),
-                AdbcConnectorProperties.CONF_DRIVERS_DIR, null, "/default"));
+        Assertions.assertEquals("/opt/doris/plugins/adbc_drivers", AdbcConf.driversDir(
+                context(Collections.singletonMap(AdbcConf.CONF_DRIVERS_DIR, "   "),
+                        Collections.singletonMap(AdbcConf.ENV_DORIS_HOME, "/opt/doris"))));
     }
 
     @Test
@@ -80,17 +84,24 @@ public class AdbcConnectorConfTest {
         // The pre-plugin-conf shape of this connector read fe.conf's adbc_drivers_dir /
         // adbc_driver_secure_path through the environment. Those @ConfFields are gone; an environment
         // that still carries them must not resurrect a channel fe-core no longer feeds.
+        //
+        // Asserted through AdbcConf's own readers, not through ConnectorConf with a hand-written null
+        // legacy key: passing the null here would only prove that this test passes null, and would stay
+        // green if a reader started naming a legacy key.
         Map<String, String> legacyEnv = new HashMap<>();
         legacyEnv.put("adbc_drivers_dir", "/from/fe/conf");
         legacyEnv.put("adbc_driver_secure_path", "/from/fe/conf");
 
-        Assertions.assertEquals("/default", ConnectorConf.get(
-                context(Collections.emptyMap(), legacyEnv),
-                AdbcConnectorProperties.CONF_DRIVERS_DIR, null, "/default"));
-        Assertions.assertEquals(AdbcConnectorProperties.DEFAULT_DRIVER_SECURE_PATH, ConnectorConf.get(
-                context(Collections.emptyMap(), legacyEnv),
-                AdbcConnectorProperties.CONF_DRIVER_SECURE_PATH, null,
-                AdbcConnectorProperties.DEFAULT_DRIVER_SECURE_PATH));
+        Assertions.assertNull(AdbcConf.driversDir(context(Collections.emptyMap(), legacyEnv)));
+        Assertions.assertEquals(AdbcConf.DEFAULT_DRIVER_SECURE_PATH,
+                AdbcConf.driverSecurePath(context(Collections.emptyMap(), legacyEnv)));
+    }
+
+    @Test
+    public void driverSecurePathComesFromThePluginConf() {
+        Assertions.assertEquals("/opt/drivers;/srv/drivers", AdbcConf.driverSecurePath(
+                context(Collections.singletonMap(AdbcConf.CONF_DRIVER_SECURE_PATH,
+                        "/opt/drivers;/srv/drivers"), Collections.emptyMap())));
     }
 
     private static ConnectorContext context(Map<String, String> conf, Map<String, String> env) {

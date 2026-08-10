@@ -334,15 +334,15 @@ public class TrinoBootstrap {
      * That compatibility path was dropped deliberately — a deployment whose plugins still sit in a
      * legacy dir must move them or point the config at them.
      *
-     * @param properties   catalog properties (unstripped, may carry {@code trino.plugin.dir})
+     * @param catalogOverride the catalog's own {@code trino.plugin.dir}, already bound by
+     *                      {@link TrinoCatalogProperties}; empty when the catalog names none
      * @param configuredDir the deployment-level setting, already resolved by the caller from
      *                      {@code plugin_dir} in the plugin's own conf or {@code trino_connector_plugin_dir}
      *                      in fe.conf; null or empty means the engine delivered neither
      */
-    public static String resolvePluginDir(Map<String, String> properties, String configuredDir) {
-        String explicitDir = properties.get("trino.plugin.dir");
-        if (explicitDir != null && !explicitDir.isEmpty()) {
-            return explicitDir;
+    public static String resolvePluginDir(String catalogOverride, String configuredDir) {
+        if (catalogOverride != null && !catalogOverride.isEmpty()) {
+            return catalogOverride;
         }
 
         if (configuredDir == null || configuredDir.isEmpty()) {
@@ -350,7 +350,7 @@ public class TrinoBootstrap {
             // the engine failed to deliver it. Guessing a dir here would surface as "catalog creates fine
             // but every query fails", so fail where the cause is still visible.
             throw new IllegalStateException(
-                    "neither '" + TrinoConnectorProvider.CONF_PLUGIN_DIR + "' in "
+                    "neither '" + TrinoConf.CONF_PLUGIN_DIR + "' in "
                             + TrinoConnectorProvider.TYPE + ".conf nor trino_connector_plugin_dir in "
                             + "fe.conf was delivered; cannot resolve the Trino plugin dir");
         }

@@ -69,7 +69,7 @@ public class MaxComputeScanRangeTest {
     public void byteSizeBranchEmitsMinusOneSizeSentinel() throws Exception {
         // Build via the provider's REAL byte_size branch.
         ConnectorScanRange range = buildSingleRange(
-                MCConnectorProperties.SPLIT_BY_BYTE_SIZE_STRATEGY,
+                MCCatalogProperties.SplitStrategy.BYTE_SIZE,
                 new FakeSession(new FakeAssigner(SplitKind.BYTE_SIZE)));
 
         TFileRangeDesc rangeDesc = populate(range);
@@ -94,7 +94,7 @@ public class MaxComputeScanRangeTest {
         // so BE builds RowRangeInputSplit(sessionId, startOffset, splitSize). This locks the intent
         // that ONLY byte_size uses -1 — guarding against an over-broad "set everything to -1" fix.
         ConnectorScanRange range = buildSingleRange(
-                MCConnectorProperties.SPLIT_BY_ROW_COUNT_STRATEGY,
+                MCCatalogProperties.SplitStrategy.ROW_COUNT,
                 new FakeSession(new FakeAssigner(SplitKind.ROW_OFFSET)));
 
         TFileRangeDesc rangeDesc = populate(range);
@@ -108,8 +108,8 @@ public class MaxComputeScanRangeTest {
      * Invokes the provider's private {@code buildSplitsFromSession} (which contains the byte_size /
      * row_offset branches under test) with a stubbed session, returning the single produced range.
      */
-    private static ConnectorScanRange buildSingleRange(String strategy, TableBatchReadSession session)
-            throws Exception {
+    private static ConnectorScanRange buildSingleRange(MCCatalogProperties.SplitStrategy strategy,
+            TableBatchReadSession session) throws Exception {
         MaxComputeScanPlanProvider provider = newUninitializedProvider();
         setField(provider, "splitStrategy", strategy);
         setField(provider, "splitByteSize", SPLIT_BYTE_SIZE);

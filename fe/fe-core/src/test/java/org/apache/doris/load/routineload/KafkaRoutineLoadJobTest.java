@@ -180,21 +180,29 @@ public class KafkaRoutineLoadJobTest {
 
     @Test
     public void testUpdateLagRefreshesLatestOffsetCache() throws UserException {
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
-                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
-        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
-        partitionIdToOffset.put(1, 10L);
-        partitionIdToOffset.put(2, 20L);
-        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test-cloud";
+            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            routineLoadJob.setCloudCluster("routine-load-compute-group");
+            Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+            partitionIdToOffset.put(1, 10L);
+            partitionIdToOffset.put(2, 20L);
+            Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
 
-        try (MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
-            kafkaUtilStatic.when(() -> KafkaUtil.getLatestOffsets(Mockito.eq(1L), Mockito.any(UUID.class),
-                    Mockito.eq("127.0.0.1:9020"), Mockito.eq("topic1"), Mockito.anyMap(), Mockito.anyList()))
-                    .thenReturn(Lists.newArrayList(Pair.of(1, 15L), Pair.of(2, 30L)));
+            try (MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
+                kafkaUtilStatic.when(() -> KafkaUtil.getLatestOffsets(Mockito.eq(1L), Mockito.any(UUID.class),
+                        Mockito.eq("127.0.0.1:9020"), Mockito.eq("topic1"), Mockito.anyMap(), Mockito.anyList(),
+                        Mockito.eq("routine-load-compute-group")))
+                        .thenReturn(Lists.newArrayList(Pair.of(1, 15L), Pair.of(2, 30L)));
 
-            routineLoadJob.updateLag();
+                routineLoadJob.updateLag();
 
-            Assert.assertEquals(15L, routineLoadJob.totalLag().longValue());
+                Assert.assertEquals(15L, routineLoadJob.totalLag().longValue());
+            }
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
         }
     }
 
@@ -223,7 +231,8 @@ public class KafkaRoutineLoadJobTest {
                     Mockito.<Map<String, String>>argThat(properties ->
                             "SASL_PLAINTEXT".equals(properties.get("security.protocol"))
                                     && "PLAIN".equals(properties.get("sasl.mechanism"))),
-                    Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1))))
+                    Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1)),
+                    Mockito.nullable(String.class)))
                     .thenReturn(Lists.newArrayList(Pair.of(1, 15L)));
 
             routineLoadJob.updateLag();
@@ -234,7 +243,8 @@ public class KafkaRoutineLoadJobTest {
                     Mockito.<Map<String, String>>argThat(properties ->
                             "SASL_PLAINTEXT".equals(properties.get("security.protocol"))
                                     && "PLAIN".equals(properties.get("sasl.mechanism"))),
-                    Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1))));
+                    Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1)),
+                    Mockito.nullable(String.class)));
         }
     }
 
@@ -613,11 +623,12 @@ public class KafkaRoutineLoadJobTest {
                     .getPartition(Mockito.anyString(), Mockito.anyBoolean());
 
             kafkaUtilStatic.when(() -> KafkaUtil.getAllKafkaPartitions(
-                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap()))
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.nullable(String.class)))
                     .thenReturn(Lists.newArrayList(1, 2, 3));
 
             kafkaUtilStatic.when(() -> KafkaUtil.getRealOffsets(
-                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.anyList()))
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.anyList(),
+                    Mockito.nullable(String.class)))
                     .thenAnswer(invocation -> {
                         List<Pair<Integer, Long>> pairList = new ArrayList<>();
                         pairList.add(Pair.of(1, 0L));

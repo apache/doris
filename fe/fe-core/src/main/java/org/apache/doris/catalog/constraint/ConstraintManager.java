@@ -138,6 +138,24 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
     }
 
     /**
+     * Snapshot the tables whose foreign keys would be cascade-dropped along with the given primary
+     * key constraint. Taken under the read lock: {@link PrimaryKeyConstraint#getForeignTableInfos()}
+     * is only a view over a list that {@link #addConstraint} mutates under the write lock, so callers
+     * outside the lock must not iterate it directly. Returns an empty list for other constraint types.
+     */
+    public List<TableNameInfo> getCascadeDropTables(Constraint constraint) {
+        if (!(constraint instanceof PrimaryKeyConstraint)) {
+            return ImmutableList.of();
+        }
+        readLock();
+        try {
+            return ImmutableList.copyOf(((PrimaryKeyConstraint) constraint).getForeignTableInfos());
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
      * Drop a constraint from the specified table.
      * For PK constraints, cascade-drops all referencing FKs.
      * For FK constraints, updates the referenced PK's foreign table set.

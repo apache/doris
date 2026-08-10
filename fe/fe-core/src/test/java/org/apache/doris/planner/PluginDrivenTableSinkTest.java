@@ -107,6 +107,25 @@ public class PluginDrivenTableSinkTest {
     }
 
     @Test
+    public void bindDataSinkKeepsWriteSubsetSeparateFromBoundTargetSchema() throws AnalysisException {
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK)));
+        ConnectorColumn id = Mockito.mock(ConnectorColumn.class);
+        ConnectorColumn name = Mockito.mock(ConnectorColumn.class);
+        List<ConnectorColumn> writeColumns = Collections.singletonList(id);
+        List<ConnectorColumn> boundTargetColumns = java.util.Arrays.asList(id, name);
+
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, null, new ConnectorTableHandle() { }, writeColumns,
+                boundTargetColumns, null, WriteOperation.INSERT, false);
+        sink.bindDataSink(Optional.empty());
+
+        Assert.assertSame(writeColumns, provider.seenHandle.getColumns());
+        Assert.assertEquals(boundTargetColumns, provider.seenHandle.getBoundTargetColumns());
+        Assert.assertNotSame(boundTargetColumns, provider.seenHandle.getBoundTargetColumns());
+    }
+
+    @Test
     public void bindDataSinkThreadsEngineBuiltWriteSortInfoToHandle() throws AnalysisException {
         // WHY: the connector's planWrite cannot build a TSortInfo (the bound output exprs live only in the
         // engine). For a connector that declares write-sort columns (iceberg WRITE ORDERED BY), the engine
@@ -123,6 +142,20 @@ public class PluginDrivenTableSinkTest {
         sink.bindDataSink(Optional.empty());
 
         Assert.assertSame(engineBuilt, provider.seenHandle.getSortInfo());
+    }
+
+    @Test
+    public void bindDataSinkThreadsBoundWriteMetadataIdentityToHandle() throws AnalysisException {
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK)));
+        String metadataIdentity = "sort-generation-3/spec-generation-7";
+
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                Collections.emptyList(), null, WriteOperation.INSERT, false, metadataIdentity);
+        sink.bindDataSink(Optional.empty());
+
+        Assert.assertEquals(metadataIdentity, provider.seenHandle.getBoundWriteMetadataIdentity());
     }
 
     @Test

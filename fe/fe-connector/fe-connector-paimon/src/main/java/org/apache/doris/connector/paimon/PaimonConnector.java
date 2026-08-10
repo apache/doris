@@ -19,11 +19,12 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
+import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
-import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
@@ -109,7 +110,7 @@ public class PaimonConnector implements Connector {
     // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
     private static final String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
 
-    private final Map<String, String> properties;
+    private final PaimonCatalogProperties catalogProps;
     private final ConnectorContext context;
     private volatile Catalog catalog;
 
@@ -150,7 +151,10 @@ public class PaimonConnector implements Connector {
     private final Map<String, String> tableOptions;
 
     public PaimonConnector(Map<String, String> properties, ConnectorContext context) {
-        this.properties = properties;
+        // Construct-time BIND, not validation: of() carries only what the connector cannot run without,
+        // so a catalog created before a rule existed still comes back after an FE restart. The
+        // CREATE/ALTER-only rules live behind checkCreateTimeOnlyRules(), which only the provider calls.
+        this.catalogProps = PaimonCatalogProperties.of(properties);
         this.tableOptions = PaimonTableOptions.extractCompatible(properties);
         // Wrap the FE-injected context so every executeAuthenticated pins the TCCL to the plugin loader (the
         // paimon plugin bundles paimon-core + hadoop child-first) and, for a Kerberos catalog, runs the op
@@ -177,7 +181,7 @@ public class PaimonConnector implements Connector {
         if (!pluginAuthComputed) {
             synchronized (this) {
                 if (!pluginAuthComputed) {
-                    pluginAuth = buildPluginAuthenticator(properties, buildStorageHadoopConfig());
+                    pluginAuth = buildPluginAuthenticator(catalogProps.getRaw(), buildStorageHadoopConfig());
                     pluginAuthComputed = true;
                 }
             }
@@ -213,7 +217,7 @@ public class PaimonConnector implements Connector {
             return HadoopAuthenticator.getHadoopAuthenticator(
                     PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig));
         }
-        if (PaimonConnectorProperties.HMS.equals(PaimonCatalogFactory.resolveFlavor(properties))) {
+        if (PaimonCatalogProperties.HMS.equals(PaimonCatalogProperties.of(properties).getFlavor())) {
             HmsMetaStoreProperties hms =
                     (HmsMetaStoreProperties) MetaStoreProviders.bind(properties, storageHadoopConfig);
             Optional<KerberosAuthSpec> spec = hms.kerberos();
@@ -252,7 +256,7 @@ public class PaimonConnector implements Connector {
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new PaimonConnectorMetadata(
                 new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions),
-                properties, context, schemaAtMemo, latestSnapshotCache, partitionViewCache);
+                catalogProps, context, schemaAtMemo, latestSnapshotCache, partitionViewCache);
     }
 
     /**
@@ -316,7 +320,7 @@ public class PaimonConnector implements Connector {
         // Restore the legacy single-knob semantics: meta.cache.paimon.table.ttl-second also governs the schema
         // cache (the SPI routes paimon schema to the generic schema cache keyed by schema.cache.ttl-second). So
         // the no-cache catalog (ttl-second=0) serves FRESH schema. Absent -> no override (engine default TTL).
-        String raw = properties.get(TABLE_CACHE_TTL_SECOND);
+        String raw = catalogProps.getRaw().get(TABLE_CACHE_TTL_SECOND);
         if (raw == null || raw.trim().isEmpty()) {
             return OptionalLong.empty();
         }
@@ -331,7 +335,7 @@ public class PaimonConnector implements Connector {
     public ConnectorScanPlanProvider getScanPlanProvider() {
         // FIX-B-R2-be: inject the SAME per-catalog schemaAtMemo getMetadata uses, so the schema-evolution
         // dict's per-schema-id reads are memoized across scans (and shared with the B-MC2 time-travel path).
-        return new PaimonScanPlanProvider(properties,
+        return new PaimonScanPlanProvider(catalogProps,
                 new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions),
                 context, schemaAtMemo);
     }
@@ -390,8 +394,8 @@ public class PaimonConnector implements Connector {
     }
 
     private Catalog createCatalog() {
-        Options options = PaimonCatalogFactory.buildCatalogOptions(properties);
-        String flavor = PaimonCatalogFactory.resolveFlavor(properties);
+        Options options = PaimonCatalogFactory.buildCatalogOptions(catalogProps);
+        String flavor = catalogProps.getFlavor();
         // Canonical storage config from the FE-bound fe-filesystem StorageProperties (P1-T03), replacing
         // the legacy buildObjectStorageHadoopConfig path: object stores contribute their fs.s3a.*/fs.oss.*
         // /fs.cosn.*/fs.obs.* translation, and an HDFS-backed catalog contributes its hadoop.config.resources
@@ -401,24 +405,26 @@ public class PaimonConnector implements Connector {
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
 
         switch (flavor) {
-            case PaimonConnectorProperties.FILESYSTEM: {
+            case PaimonCatalogProperties.FILESYSTEM: {
                 // filesystem carries a Hadoop Configuration for HDFS/S3 storage.
-                Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
+                Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(
+                        catalogProps.getRaw(), storageHadoopConfig);
                 return createCatalogFromContext(CatalogContext.create(options, conf), flavor,
                         "Failed to create Paimon catalog with filesystem metastore");
             }
-            case PaimonConnectorProperties.REST: {
+            case PaimonCatalogProperties.REST: {
                 // rest is Options-only (no storage Configuration; the REST server owns storage).
                 return createCatalogFromContext(CatalogContext.create(options), flavor,
                         "Failed to create Paimon catalog with REST metastore");
             }
-            case PaimonConnectorProperties.JDBC: {
+            case PaimonCatalogProperties.JDBC: {
                 maybeRegisterJdbcDriver();
-                Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
+                Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(
+                        catalogProps.getRaw(), storageHadoopConfig);
                 return createCatalogFromContext(CatalogContext.create(options, conf), flavor,
                         "Failed to create Paimon catalog with JDBC metastore");
             }
-            case PaimonConnectorProperties.HMS: {
+            case PaimonCatalogProperties.HMS: {
                 // NOTE (B1/cutover-blocker P5-B7): the live metastore=hive path needs the Thrift
                 // metastore client (org.apache.hadoop.hive.metastore.IMetaStoreClient /
                 // HiveMetaStoreClient), which is NOT provided by this connector's compile deps
@@ -435,14 +441,11 @@ public class PaimonConnector implements Connector {
                 // so connection-critical settings present only in that file reach the live metastore client.
                 // Shared parser produces the neutral HiveConf overrides (P2-T03); the connector seeds the
                 // external hive-site.xml as the BASE first, then overlays the overrides (F2 ordering).
-                HmsMetaStoreProperties hms = (HmsMetaStoreProperties)
-                        MetaStoreProviders.bind(properties, storageHadoopConfig);
+                AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties)
+                        MetaStoreProviders.bind(catalogProps.getRaw(), storageHadoopConfig);
                 HiveConf hc = PaimonCatalogFactory.assembleHiveConf(
-                        PaimonCatalogFactory.firstNonBlank(properties, "hive.conf.resources"),
-                        hms.toHiveConfOverrides(ConnectorConf.get(context,
-                                PaimonConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
-                                PaimonConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND,
-                                PaimonConnectorProperties.DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND)));
+                        hms.getConfResources(),
+                        hms.toHiveConfOverrides(PaimonConf.metastoreClientTimeoutSecond(context)));
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
                         "Failed to create Paimon catalog with HMS metastore");
             }
@@ -506,11 +509,10 @@ public class PaimonConnector implements Connector {
      */
     @Override
     public void preCreateValidation(ConnectorValidationContext validationContext) throws Exception {
-        if (!PaimonConnectorProperties.JDBC.equals(PaimonCatalogFactory.resolveFlavor(properties))) {
+        if (!PaimonCatalogProperties.JDBC.equals(catalogProps.getFlavor())) {
             return;
         }
-        String driverUrl = PaimonCatalogFactory.firstNonBlank(
-                properties, PaimonConnectorProperties.JDBC_DRIVER_URL);
+        String driverUrl = PaimonJdbcMetaStoreProperties.of(catalogProps.getRaw()).getDriverUrl();
         if (StringUtils.isNotBlank(driverUrl)) {
             validationContext.validateAndResolveDriverPath(driverUrl);
         }
@@ -525,14 +527,12 @@ public class PaimonConnector implements Connector {
      * against {@code ConnectorContext.getEnvironment()}.
      */
     private void maybeRegisterJdbcDriver() {
-        String driverUrl = PaimonCatalogFactory.firstNonBlank(
-                properties, PaimonConnectorProperties.JDBC_DRIVER_URL);
+        PaimonJdbcMetaStoreProperties jdbc = PaimonJdbcMetaStoreProperties.of(catalogProps.getRaw());
+        String driverUrl = jdbc.getDriverUrl();
         if (StringUtils.isBlank(driverUrl)) {
             return;
         }
-        String driverClass = PaimonCatalogFactory.firstNonBlank(
-                properties, PaimonConnectorProperties.JDBC_DRIVER_CLASS);
-        registerJdbcDriver(driverUrl, driverClass);
+        registerJdbcDriver(driverUrl, jdbc.getDriverClass());
         LOG.info("Using dynamic JDBC driver for Paimon JDBC catalog from: {}", driverUrl);
     }
 
@@ -552,8 +552,8 @@ public class PaimonConnector implements Connector {
      */
     private String resolveFullDriverUrl(String driverUrl) {
         return JdbcDriverSupport.resolveDriverUrl(driverUrl,
-                PaimonConnectorProperties.configuredDriversDir(context),
-                PaimonConnectorProperties.configuredDorisHome(context));
+                PaimonConf.driversDir(context),
+                PaimonConf.dorisHome(context));
     }
 
     private void registerJdbcDriver(String driverUrl, String driverClassName) {

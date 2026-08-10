@@ -47,7 +47,7 @@ public class PaimonBuildTableDescriptorTest {
     @Test
     public void buildsHiveTableDescriptorWithAddressing() {
         PaimonConnectorMetadata metadata = new PaimonConnectorMetadata(
-                null, Collections.emptyMap(), new RecordingConnectorContext());
+                null, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
 
         long tableId = 42L;
         String tableName = "local_table";

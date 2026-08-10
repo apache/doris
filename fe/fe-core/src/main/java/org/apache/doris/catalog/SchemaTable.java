@@ -897,6 +897,16 @@ public class SchemaTable extends Table {
                             .column("LAG", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("LAST_CONSUMPTION_TIME", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))
+            .put("tso_status",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "tso_status", TableType.SCHEMA,
+                            builder().column("WINDOW_END_PHYSICAL_TIME",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_TSO", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_TSO_PHYSICAL_TIME",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_TSO_LOGICAL_COUNTER",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build()))
             .put("be_compaction_tasks",
                     new SchemaTable(SystemIdGenerator.getNextId(), "be_compaction_tasks", TableType.SCHEMA,
                             builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))

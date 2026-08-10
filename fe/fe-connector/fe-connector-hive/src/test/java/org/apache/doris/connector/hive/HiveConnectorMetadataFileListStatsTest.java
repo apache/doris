@@ -46,7 +46,7 @@ import java.util.function.ToLongBiFunction;
 public class HiveConnectorMetadataFileListStatsTest {
 
     private static HiveConnectorMetadata metadata(HmsClient client) {
-        return new HiveConnectorMetadata(client, Collections.emptyMap(), new FakeConnectorContext());
+        return new HiveConnectorMetadata(client, HiveTestProperties.minimal(), new FakeConnectorContext());
     }
 
     private static HiveTableHandle unpartitioned(String location) {
@@ -163,7 +163,7 @@ public class HiveConnectorMetadataFileListStatsTest {
         // fires (a silent stat undercount). The TCCL pin must still be restored on the throw path (try/finally).
         // MUTATION: re-adding a catch -> Collections.emptyList swallows the error -> assertThrows red.
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
-                new PartitionFakeHmsClient(Collections.emptyList()), Collections.emptyMap(), new FakeConnectorContext(),
+                new PartitionFakeHmsClient(Collections.emptyList()), HiveTestProperties.minimal(), new FakeConnectorContext(),
                 () -> null, () -> null, handle -> null, new ThrowingFileListingCache());
         HiveTableHandle handle = unpartitioned("s3://wh/t");
 
@@ -196,7 +196,7 @@ public class HiveConnectorMetadataFileListStatsTest {
     /** A {@link HiveFileListingCache} whose listing always fails, to prove listFileSizes propagates (not swallows). */
     private static final class ThrowingFileListingCache extends HiveFileListingCache {
         ThrowingFileListingCache() {
-            super(Collections.emptyMap());
+            super(HiveTestProperties.minimal());
         }
 
         @Override

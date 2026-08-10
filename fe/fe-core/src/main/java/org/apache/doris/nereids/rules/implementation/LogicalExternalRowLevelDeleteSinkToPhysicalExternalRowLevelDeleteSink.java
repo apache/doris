@@ -37,6 +37,7 @@ public class LogicalExternalRowLevelDeleteSinkToPhysicalExternalRowLevelDeleteSi
             return new PhysicalExternalRowLevelDeleteSink<>(
                     sink.getDatabase(),
                     sink.getTargetTable(),
+                    sink.getBoundWriteMetadataIdentity(),
                     sink.getCols(),
                     sink.getOutputExprs(),
                     Optional.empty(),

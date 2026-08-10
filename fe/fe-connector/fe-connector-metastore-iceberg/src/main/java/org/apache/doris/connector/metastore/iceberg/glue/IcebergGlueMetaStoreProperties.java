@@ -53,6 +53,18 @@ public final class IcebergGlueMetaStoreProperties extends AbstractMetaStorePrope
             description = "The IAM role of the AWS Glue.")
     private String glueIamRole = "";
 
+    @ConnectorProperty(names = {"glue.region", "aws.region", "aws.glue.region"},
+            required = false, description = "The region of the AWS Glue.")
+    private String glueRegion = "";
+
+    @ConnectorProperty(names = {"aws.glue.session-token"}, required = false, sensitive = true,
+            description = "The session token accompanying the AWS Glue access key pair.")
+    private String glueSessionToken = "";
+
+    @ConnectorProperty(names = {"glue.external_id"}, required = false,
+            description = "The external id required when assuming the AWS Glue IAM role.")
+    private String glueExternalId = "";
+
     private IcebergGlueMetaStoreProperties(Map<String, String> raw) {
         super(raw);
     }
@@ -66,6 +78,40 @@ public final class IcebergGlueMetaStoreProperties extends AbstractMetaStorePrope
     @Override
     public String providerName() {
         return "GLUE";
+    }
+
+    // ---------------------------------------------------------------------
+    // Assembly surface: the connector builds the glue catalog options from these, so the alias sets declared
+    // above are the single place a glue key name lives (it used to keep a second copy of them to scan with).
+    // ---------------------------------------------------------------------
+
+    public String getGlueAccessKey() {
+        return glueAccessKey;
+    }
+
+    public String getGlueSecretKey() {
+        return glueSecretKey;
+    }
+
+    public String getGlueEndpoint() {
+        return glueEndpoint;
+    }
+
+    public String getGlueIamRole() {
+        return glueIamRole;
+    }
+
+    /** Blank when the catalog names no region — the connector then derives one from the endpoint. */
+    public String getGlueRegion() {
+        return glueRegion;
+    }
+
+    public String getGlueSessionToken() {
+        return glueSessionToken;
+    }
+
+    public String getGlueExternalId() {
+        return glueExternalId;
     }
 
     @Override

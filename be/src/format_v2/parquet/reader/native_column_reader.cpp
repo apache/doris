@@ -106,6 +106,24 @@ const NativeFieldSchema* find_child_field(const NativeFieldSchema& parent,
     return field_it == parent.children.end() ? nullptr : &*field_it;
 }
 
+Status sync_native_field_types(const ParquetColumnSchema& schema, NativeFieldSchema* field) {
+    DORIS_CHECK(field != nullptr);
+    field->data_type = schema.type;
+    for (const auto& child_schema : schema.children) {
+        auto child_it = std::ranges::find_if(field->children, [&](const NativeFieldSchema& child) {
+            return (child_schema->parquet_field_id >= 0 &&
+                    child.field_id == child_schema->parquet_field_id) ||
+                   child.name == child_schema->name;
+        });
+        if (child_it == field->children.end()) {
+            return Status::Corruption("Native/reader parquet child schema mismatch at {}.{}",
+                                      field->name, child_schema->name);
+        }
+        RETURN_IF_ERROR(sync_native_field_types(*child_schema, &*child_it));
+    }
+    return Status::OK();
+}
+
 void collect_physical_subtree_ids(const NativeFieldSchema& field, std::set<uint64_t>* ids) {
     DORIS_CHECK(ids != nullptr);
     ids->insert(field.get_column_id());
@@ -164,8 +182,9 @@ Status NativeColumnReader::create(
         io::FileReaderSPtr file, const NativeParquetMetadata* metadata, int row_group_id,
         const std::vector<RowRange>& selected_ranges,
         const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
-        const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
-        bool enable_page_cache, const std::string& page_cache_file_key,
+        const cctz::time_zone* timezone,
+        std::optional<const cctz::time_zone*> int96_timezone_override, io::IOContext* io_ctx,
+        RuntimeState* runtime_state, bool enable_page_cache, const std::string& page_cache_file_key,
         bool enable_dictionary_filter, ParquetColumnReaderProfile profile,
         std::unique_ptr<ParquetColumnReader>* reader) {
     if (reader == nullptr) {
@@ -183,27 +202,34 @@ Status NativeColumnReader::create(
         return Status::InvalidArgument("Invalid native parquet top-level column id {} for {}",
                                        column_schema.local_id, column_schema.name);
     }
-    auto* field = const_cast<NativeFieldSchema*>(native_schema.get_column(column_schema.local_id));
-    DORIS_CHECK(field != nullptr);
-    if (field->name != column_schema.name &&
-        !(field->field_id >= 0 && field->field_id == column_schema.parquet_field_id)) {
+    const auto* metadata_field = native_schema.get_column(column_schema.local_id);
+    DORIS_CHECK(metadata_field != nullptr);
+    if (metadata_field->name != column_schema.name &&
+        !(metadata_field->field_id >= 0 &&
+          metadata_field->field_id == column_schema.parquet_field_id)) {
         return Status::Corruption(
                 "Native/metadata parquet schema mismatch at column {}: native={}, arrow={}",
-                column_schema.local_id, field->name, column_schema.name);
+                column_schema.local_id, metadata_field->name, column_schema.name);
     }
 
     auto type = projected_type(column_schema, projection);
+    auto native_reader = std::unique_ptr<NativeColumnReader>(
+            new NativeColumnReader(column_schema, type, profile));
+    // Footer metadata is cached and shared across scans. Keep per-request timestamp semantics on a
+    // reader-owned copy so mixed Paimon TIMESTAMP/TIMESTAMP_LTZ columns cannot contaminate it.
+    native_reader->_native_field_schema = *metadata_field;
+    RETURN_IF_ERROR(sync_native_field_types(column_schema, &native_reader->_native_field_schema));
+    auto* field = &native_reader->_native_field_schema;
     std::shared_ptr<NativeSchemaNode> schema_node;
     RETURN_IF_ERROR(build_native_schema_node(type, column_schema, &schema_node));
     std::set<uint64_t> projected_ids;
     collect_projected_ids(column_schema, projection, *field, &projected_ids);
 
-    auto native_reader = std::unique_ptr<NativeColumnReader>(
-            new NativeColumnReader(column_schema, std::move(type), profile));
     RETURN_IF_ERROR(native_reader->init(
             std::move(file), metadata, row_group_id, field, std::move(schema_node),
-            std::move(projected_ids), selected_ranges, offset_indexes, timezone, io_ctx,
-            runtime_state, enable_page_cache, page_cache_file_key, enable_dictionary_filter));
+            std::move(projected_ids), selected_ranges, offset_indexes, timezone,
+            int96_timezone_override, io_ctx, runtime_state, enable_page_cache, page_cache_file_key,
+            enable_dictionary_filter));
     *reader = std::move(native_reader);
     return Status::OK();
 }
@@ -213,8 +239,9 @@ Status NativeColumnReader::init(
         NativeFieldSchema* field, std::shared_ptr<NativeSchemaNode> schema_node,
         std::set<uint64_t> projected_column_ids, const std::vector<RowRange>& selected_ranges,
         const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
-        const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
-        bool enable_page_cache, const std::string& page_cache_file_key,
+        const cctz::time_zone* timezone,
+        std::optional<const cctz::time_zone*> int96_timezone_override, io::IOContext* io_ctx,
+        RuntimeState* runtime_state, bool enable_page_cache, const std::string& page_cache_file_key,
         bool enable_dictionary_filter) {
     DORIS_CHECK(file != nullptr);
     DORIS_CHECK(metadata != nullptr);
@@ -259,7 +286,8 @@ Status NativeColumnReader::init(
             std::move(file), field, row_group, _row_ranges, timezone, io_ctx, _native_reader,
             max_buffer_size, *_offset_indexes, native_runtime_state, false, _projected_column_ids,
             _filter_column_ids, page_cache_file_key, compat,
-            runtime_state != nullptr && runtime_state->enable_strict_mode()));
+            runtime_state != nullptr && runtime_state->enable_strict_mode(),
+            int96_timezone_override));
     DORIS_CHECK(_native_reader != nullptr);
     _skip_column = _type->create_column();
     return Status::OK();

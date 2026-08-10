@@ -33,6 +33,7 @@
 #include "exec/sink/autoinc_buffer.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"          // DataWriteType
+#include "storage/tablet/tablet_fwd.h"    // BaseTabletSPtr
 #include "storage/tablet/tablet_schema.h" // TabletSchemaSPtr
 #include "storage/utils.h"                // BINLOG_*_COL
 
@@ -124,16 +125,6 @@ inline std::string get_binlog_data_key_from_meta_key(const std::string_view meta
     return fmt::format("{}data_{}", kBinlogPrefix, meta_key.substr(kBinlogMetaPrefix.length()));
 }
 
-inline auto make_row_binlog_key_prefix(const TabletUid& tablet_uid, const RowsetId& rowset_id) {
-    return fmt::format("{}{}_{}_", kRowBinlogPrefix, tablet_uid.to_string(), rowset_id.to_string());
-}
-
-inline auto make_row_binlog_key(const TabletUid& tablet_uid, const RowsetId& rowset_id,
-                                const RowsetId& binlog_rowset_id) {
-    return fmt::format("{}{}_{}_{}", kRowBinlogPrefix, tablet_uid.to_string(),
-                       rowset_id.to_string(), binlog_rowset_id.to_string());
-}
-
 // Allocate per-row LSNs for row-binlog data.
 // The caller must provide a valid auto-inc buffer (typically from GlobalAutoIncBuffers).
 inline Status allocate_binlog_lsn(const std::shared_ptr<AutoIncIDBuffer>& lsn_buffer,
@@ -208,6 +199,7 @@ public:
 
     // source context, used for retrieving historical row and building binlog<row> block
     struct SourceWriteDataOptions {
+        BaseTabletSPtr base_tablet = nullptr;
         TabletSchemaSPtr tablet_schema = nullptr;
         std::shared_ptr<PartialUpdateInfo> partial_update_info;
         std::shared_ptr<MowContext> mow_context;

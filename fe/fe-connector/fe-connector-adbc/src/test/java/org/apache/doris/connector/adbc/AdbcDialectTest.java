@@ -27,7 +27,6 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Map;
 
 /**
  * What the default dialect will and will not say, and how one gets chosen.
@@ -170,7 +169,7 @@ class AdbcDialectTest {
 
     @Test
     void selectsAnsiWhenNothingIdentifiesTheSource() {
-        AdbcDialectSelector selector = new AdbcDialectSelector(Map.of());
+        AdbcDialectSelector selector = new AdbcDialectSelector("");
         // The probe cannot run without a client; supplying one that fails stands in for a driver that
         // refuses getInfo, which must land on ANSI rather than fail the query.
         Assertions.assertSame(ANSI, selector.select(() -> {
@@ -182,8 +181,7 @@ class AdbcDialectTest {
     void selectsTheConfiguredDialectWithoutAskingTheSource() {
         AdbcDialect fake = new FakeDialect("fake-for-selection");
         AdbcDialectRegistry.register(fake);
-        AdbcDialectSelector selector = new AdbcDialectSelector(
-                Map.of(AdbcConnectorProperties.SQL_DIALECT, "fake-for-selection"));
+        AdbcDialectSelector selector = new AdbcDialectSelector("fake-for-selection");
 
         Assertions.assertSame(fake, selector.select(() -> {
             // A probe here would make the property advisory, and would also cost a remote call on a
@@ -194,8 +192,7 @@ class AdbcDialectTest {
 
     @Test
     void matchesTheConfiguredNameCaseInsensitively() {
-        AdbcDialectSelector selector = new AdbcDialectSelector(
-                Map.of(AdbcConnectorProperties.SQL_DIALECT, "ANSI"));
+        AdbcDialectSelector selector = new AdbcDialectSelector("ANSI");
         Assertions.assertSame(ANSI, selector.select(() -> {
             throw new AssertionError("not probed");
         }));
@@ -203,8 +200,7 @@ class AdbcDialectTest {
 
     @Test
     void rejectsAnUnknownConfiguredDialectAndNamesTheRegisteredOnes() {
-        AdbcDialectSelector selector = new AdbcDialectSelector(
-                Map.of(AdbcConnectorProperties.SQL_DIALECT, "postgres-typo"));
+        AdbcDialectSelector selector = new AdbcDialectSelector("postgres-typo");
 
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
                 selector::validateConfiguredName);

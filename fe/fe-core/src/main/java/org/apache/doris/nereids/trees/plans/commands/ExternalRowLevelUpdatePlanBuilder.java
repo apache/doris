@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -112,6 +113,10 @@ public class ExternalRowLevelUpdatePlanBuilder {
                 ? tableAlias
                 : Util.getTempTableDisplayName(icebergTable.getName());
         List<Column> writeColumns = ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable);
+        // pinAndGet records the identity paired with these request-scoped columns. Capture the sink snapshot
+        // afterwards so a cached identity can never fence output bound from a newer connector generation.
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                ((PluginDrivenExternalTable) icebergTable).getWriteSchemaSnapshot();
         List<EqualTo> resolvedAssignments = assignments.stream()
                 .map(assignment -> (EqualTo) assignment.withChildren(ImmutableList.of(
                         assignment.left(),
@@ -136,6 +141,7 @@ public class ExternalRowLevelUpdatePlanBuilder {
         return new LogicalExternalRowLevelMergeSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
+                writeSchema.getWriteMetadataIdentity(),
                 writeColumns,
                 outputExprs,
                 false,

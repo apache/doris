@@ -72,7 +72,7 @@ public class IcebergLiveConnectivityTest {
         String warehouse = System.getenv("ICEBERG_WAREHOUSE");
 
         Map<String, String> props = new HashMap<>();
-        props.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        props.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
         props.put("iceberg.rest.uri", restUri);
         if (warehouse != null && !warehouse.isEmpty()) {
             props.put("warehouse", warehouse);

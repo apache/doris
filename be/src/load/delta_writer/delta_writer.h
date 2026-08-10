@@ -90,6 +90,8 @@ public:
 
     int64_t tablet_id() const { return _req.tablet_id; }
 
+    int64_t binlog_tablet_id() const { return _req.binlog_tablet_id; }
+
     int64_t txn_id() const { return _req.txn_id; }
 
     int64_t total_received_rows() const { return _memtable_writer->total_received_rows(); }

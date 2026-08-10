@@ -569,7 +569,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
         }
         return new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames,
-                tableSchema.getProperties(), tableSchema.getTableCapabilities());
+                tableSchema.getProperties(), tableSchema.getTableCapabilities(),
+                tableSchema.getWriteMetadataIdentity());
     }
 
     @Override
@@ -735,6 +736,61 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return result;
     }
 
+    /** Immutable write-facing views captured from one schema-cache generation. */
+    public static final class WriteSchemaSnapshot {
+        private final List<Column> baseSchema;
+        private final List<Column> fullSchema;
+        private final List<Column> partitionColumns;
+        private final String writeMetadataIdentity;
+
+        private WriteSchemaSnapshot(List<Column> baseSchema, List<Column> fullSchema,
+                List<Column> partitionColumns, String writeMetadataIdentity) {
+            this.baseSchema = Collections.unmodifiableList(new ArrayList<>(baseSchema));
+            this.fullSchema = Collections.unmodifiableList(new ArrayList<>(fullSchema));
+            this.partitionColumns = Collections.unmodifiableList(new ArrayList<>(partitionColumns));
+            this.writeMetadataIdentity = writeMetadataIdentity;
+        }
+
+        public List<Column> getBaseSchema() {
+            return baseSchema;
+        }
+
+        public List<Column> getFullSchema() {
+            return fullSchema;
+        }
+
+        public List<Column> getPartitionColumns() {
+            return partitionColumns;
+        }
+
+        public String getWriteMetadataIdentity() {
+            return writeMetadataIdentity;
+        }
+    }
+
+    /**
+     * Captures schema and partition identities from one cache value for write binding. Reading them through
+     * separate table APIs can straddle a concurrent refresh and make the planner hash an older output by a
+     * newer column ordinal.
+     */
+    public WriteSchemaSnapshot getWriteSchemaSnapshot() {
+        makeSureInitialized();
+        PluginDrivenSchemaCacheValue value = getSchemaCacheValue(Optional.empty())
+                .map(PluginDrivenSchemaCacheValue.class::cast)
+                .orElseGet(() -> new PluginDrivenSchemaCacheValue(
+                        Collections.emptyList(), Collections.emptyList(), Collections.emptyList()));
+        List<Column> baseSchema = value.getSchema();
+        String writeMetadataIdentity = value.getWriteMetadataIdentity();
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getStatementContext() != null) {
+            writeMetadataIdentity = ctx.getStatementContext()
+                    .getConnectorWriteMetadataIdentity(getId())
+                    .orElse(writeMetadataIdentity);
+        }
+        return new WriteSchemaSnapshot(baseSchema, appendSyntheticWriteColumns(baseSchema),
+                value.getPartitionColumns(), writeMetadataIdentity);
+    }
+
     /**
      * Fetches the connector's declared synthetic write columns for this table, in engine-neutral form.
      * Degrades to an empty list on any miss (non-plugin catalog, a read-only connector with no write-plan
@@ -802,8 +858,17 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(provider.getClass().getClassLoader());
-            return provider.getWriteColumns(session, handle.get(), branchName)
-                    .map(ConnectorColumnConverter::convertColumns);
+            Optional<List<ConnectorColumn>> connectorColumns =
+                    provider.getWriteColumns(session, handle.get(), branchName);
+            if (!connectorColumns.isPresent()) {
+                return Optional.empty();
+            }
+            String identity = provider.getWriteMetadataIdentity(session, handle.get());
+            ConnectContext ctx = ConnectContext.get();
+            if (identity != null && ctx != null && ctx.getStatementContext() != null) {
+                ctx.getStatementContext().setConnectorWriteMetadataIdentity(getId(), identity);
+            }
+            return connectorColumns.map(ConnectorColumnConverter::convertColumns);
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }

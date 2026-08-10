@@ -27,9 +27,12 @@ import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -74,6 +77,7 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(
                 table.getDatabase().getCatalog(), table.getDatabase(), table);
         ImmutableList<String> columns = columnsAndTable.first;
+        checkAlterPriv(ctx, tableNameInfo);
 
         Pair<ImmutableList<String>, TableNameInfo> referencedColumnsAndTable = null;
         if (constraint.isForeignKey()) {
@@ -82,6 +86,8 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             TableIf refTable = refColumnsAndTable.second;
             TableNameInfo refTableInfo = TableNameInfoUtils.fromCatalogDb(
                     refTable.getDatabase().getCatalog(), refTable.getDatabase(), refTable);
+            // a foreign key also registers a reverse reference on the referenced table
+            checkAlterPriv(ctx, refTableInfo);
             referencedColumnsAndTable = Pair.of(refColumnsAndTable.first, refTableInfo);
         }
         if (constraint.isForeignKey()) {
@@ -120,6 +126,16 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             }
         } else {
             throw new AnalysisException("Unsupported constraint type: " + constraint);
+        }
+    }
+
+    private void checkAlterPriv(ConnectContext ctx, TableNameInfo tableNameInfo)
+            throws org.apache.doris.common.AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tableNameInfo.getCtl(),
+                tableNameInfo.getDb(), tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER",
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(),
+                    tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
         }
     }
 

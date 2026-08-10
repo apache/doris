@@ -53,7 +53,7 @@ import java.util.Map;
 public class IcebergCreateTableValidationTest {
 
     private IcebergConnectorMetadata metadata() {
-        return new IcebergConnectorMetadata(null, null, null);
+        return new IcebergConnectorMetadata(null, IcebergCatalogProperties.of(Collections.emptyMap()), null);
     }
 
     private ConnectorColumn col(String name, String type) {

@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -160,6 +161,20 @@ public class PluginDrivenScanNodeColumnPruningTest {
 
         Assertions.assertEquals(1, selected.size());
         Assertions.assertSame(all.get("c1"), selected.get(0));
+    }
+
+    @Test
+    public void testPinnedHandleGuardExemptsConnectorReservedPassthroughColumn() {
+        // Iceberg v3 row-lineage columns are part of the bound Doris schema but are generated scan slots,
+        // not physical Iceberg schema columns. Requiring a connector handle for one rejects every pinned
+        // v3 scan before the scan provider can append the generated field to its schema dictionary.
+        Column rowId = new Column("_row_id", PrimitiveType.BIGINT);
+        rowId.setReservedPassthrough(true);
+
+        Assertions.assertFalse(PluginDrivenScanNode.requiresPinnedColumnHandle(
+                rowId, Collections.singleton("_row_id")));
+        Assertions.assertTrue(PluginDrivenScanNode.requiresPinnedColumnHandle(
+                new Column("physical_col", PrimitiveType.INT), Collections.singleton("physical_col")));
     }
 
     @Test

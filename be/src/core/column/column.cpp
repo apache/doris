@@ -74,6 +74,11 @@ bool IColumn::column_boolean_check() const {
                 ++result_size_hint;
             }
         }
+        if (result_size_hint == nested_col.size()) {
+            // Filtering an all-non-null column preserves every row, so copying nested payloads
+            // only for validation can exhaust memory for large complex columns.
+            return nested_col.column_boolean_check();
+        }
         auto nested_col_skip_null = nested_col.filter(not_null_filter, result_size_hint);
         return nested_col_skip_null->column_boolean_check();
     }

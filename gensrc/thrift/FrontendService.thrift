@@ -823,6 +823,7 @@ struct TCloudVersionInfo {
    2: optional i64 partitionId
    3: optional i64 version
    4: optional i64 versionUpdateTime
+   5: optional i64 commitTso
 }
 
 struct TFrontendSyncCloudVersionRequest {
@@ -917,6 +918,7 @@ enum TSchemaTableName {
   TABLE_STREAM_CONSUMPTION = 16,
   ROLE_MAPPINGS = 17,
   EXTENSIONS = 18,
+  TSO_STATUS = 19,
 }
 
 struct TMetadataTableRequestParams {
