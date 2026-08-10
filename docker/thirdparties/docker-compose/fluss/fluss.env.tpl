@@ -24,6 +24,7 @@ DOCKER_FLUSS_ZOOKEEPER_EXTERNAL_PORT=22181
 DOCKER_FLUSS_COORDINATOR_EXTERNAL_PORT=19123
 DOCKER_FLUSS_TABLET_EXTERNAL_PORT=19124
 DOCKER_FLUSS_FLINK_JOBMANAGER_EXTERNAL_PORT=18085
+DOCKER_FLUSS_MINIO_EXTERNAL_PORT=19125
 
 # Fluss 1.0 is not released yet, so there is no published image to pull.
 # build-images.sh builds both tags from a local fluss source checkout.
@@ -40,19 +41,47 @@ FLUSS_HOST_IP=${IP_HOST}
 # mounted at the SAME absolute path inside the containers and on the host.
 FLUSS_REMOTE_DATA_DIR=${FLUSS_COMPOSE_DIR}/data/remote
 
-# The paimon warehouse the tiering service writes the lake tables into. Doris
-# reads it from the host through the paimon connector, so -- exactly like
-# remote.data.dir above -- the same absolute path has to resolve on both sides:
-# the warehouse location is recorded in fluss table properties and handed to
-# paimon verbatim, with nothing left to rewrite a container path into a host one.
+# The paimon warehouse the tiering service writes the lake tables into. It lives
+# in the object store this compose brings up rather than in a directory, and that
+# choice is what makes the environment able to check the one thing a directory
+# never could: fluss deletes every lake option whose name contains key, secret or
+# password before it hands a table's properties to a client, so Doris cannot
+# learn the credentials from fluss at all -- it can only be told them as catalog
+# properties of its own. A warehouse that needs no credentials leaves that whole
+# path unexecuted, which is where it stayed until this moved.
 #
-# Two spellings, and both are needed. The bind mount is a plain path, while the
-# warehouse Doris is told about must carry the file:// scheme: a location with no
-# scheme is read as HDFS (StorageRegistry.fromScheme defaults a blank scheme to
-# HDFS), and every data-file path paimon recorded then fails to normalize with
-# "Unsupported schema: null" at scan time -- long after catalog creation.
+# The scheme is load bearing: a location with no scheme is read as HDFS
+# (StorageRegistry.fromScheme defaults a blank scheme to HDFS), and every
+# data-file path paimon recorded then fails to normalize with "Unsupported
+# schema: null" at scan time -- long after catalog creation.
+#
+# To read the lake out of a directory again while debugging -- to tell a storage
+# problem from a lake problem -- set this to the FLUSS_PAIMON_WAREHOUSE_DIR path
+# below with a file:// scheme, and nothing else has to change: the bind mounts
+# are still in place and the s3 settings go inert, because the FileIO paimon
+# picks follows the scheme.
+#
+# The bucket name here, and the port in the endpoint further down, are spelled
+# out again rather than substituted: this file is rendered with envsubst, which
+# resolves names from the environment and not from the lines above it, so a
+# reference to one of them would render empty.
+FLUSS_LAKE_S3_BUCKET=fluss-lake
+FLUSS_PAIMON_WAREHOUSE=s3://fluss-lake/wh
+
+# Kept for the directory warehouse above, and bind mounted at the same absolute
+# path inside the containers and on the host so that the switch needs no other
+# edit. Unused while the warehouse is in the object store.
 FLUSS_PAIMON_WAREHOUSE_DIR=${FLUSS_COMPOSE_DIR}/data/paimon
-FLUSS_PAIMON_WAREHOUSE=file://${FLUSS_COMPOSE_DIR}/data/paimon
+
+# How everything reaches the object store. One address for all of them -- the
+# containers and Doris on the host -- for the same reason the fluss servers
+# advertise the host address: the endpoint is recorded in the lake table's
+# properties, and a container-only hostname there would be a location the host
+# cannot resolve. The credentials are the minio root user, which the container
+# below is started with.
+FLUSS_LAKE_S3_ENDPOINT=http://${IP_HOST}:19125
+FLUSS_LAKE_S3_ACCESS_KEY=minioadmin
+FLUSS_LAKE_S3_SECRET_KEY=minioadmin
 
 # Paimon build the flink image carries, matched to the one fluss-lake-paimon was
 # compiled against (fluss-dist ships paimon-bundle at this version) and to Doris's
