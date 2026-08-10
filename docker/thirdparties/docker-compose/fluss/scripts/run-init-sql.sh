@@ -102,7 +102,10 @@ sed "s|__FLUSS_BOOTSTRAP_SERVERS__|${FLUSS_BOOTSTRAP_SERVERS}|g" \
     "${SQL_TEMPLATE}" >"${MARKER_DIR}/init.sql"
 sed "s|__FLUSS_BOOTSTRAP_SERVERS__|${FLUSS_BOOTSTRAP_SERVERS}|g" \
     "${LAKE_TAIL_TEMPLATE}" >"${MARKER_DIR}/init-lake-tail.sql"
-sed "s|__FLUSS_PAIMON_WAREHOUSE__|${FLUSS_PAIMON_WAREHOUSE}|g" \
+sed -e "s|__FLUSS_PAIMON_WAREHOUSE__|${FLUSS_PAIMON_WAREHOUSE}|g" \
+    -e "s|__FLUSS_LAKE_S3_ENDPOINT__|${FLUSS_LAKE_S3_ENDPOINT}|g" \
+    -e "s|__FLUSS_LAKE_S3_ACCESS_KEY__|${FLUSS_LAKE_S3_ACCESS_KEY}|g" \
+    -e "s|__FLUSS_LAKE_S3_SECRET_KEY__|${FLUSS_LAKE_S3_SECRET_KEY}|g" \
     "${LAKE_COUNTS_TEMPLATE}" >"${MARKER_DIR}/lake-row-counts.sql"
 
 # Cancels every job on the cluster. This cluster runs nothing but the tiering
@@ -131,12 +134,18 @@ start_tiering_job() {
     echo "Submitting tiering service from ${jar}"
     # The lake settings repeat the ones the fluss servers carry. They have to:
     # the servers use them to create the paimon table, this job uses them to
-    # write it, and neither reads the other's configuration.
+    # write it, and neither reads the other's configuration. The credentials in
+    # particular cannot be picked up from the servers even in principle -- fluss
+    # strips them out of anything it hands to a client.
     "${FLINK_BIN}" run -d "${jar}" \
         --fluss.bootstrap.servers "${FLUSS_BOOTSTRAP_SERVERS}" \
         --datalake.format paimon \
         --datalake.paimon.metastore filesystem \
-        --datalake.paimon.warehouse "${FLUSS_PAIMON_WAREHOUSE}"
+        --datalake.paimon.warehouse "${FLUSS_PAIMON_WAREHOUSE}" \
+        --datalake.paimon.s3.endpoint "${FLUSS_LAKE_S3_ENDPOINT}" \
+        --datalake.paimon.s3.path.style.access true \
+        --datalake.paimon.s3.access-key "${FLUSS_LAKE_S3_ACCESS_KEY}" \
+        --datalake.paimon.s3.secret-key "${FLUSS_LAKE_S3_SECRET_KEY}"
 }
 
 # Waits until paimon holds every row init.sql wrote to a lake table, by counting

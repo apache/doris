@@ -44,6 +44,11 @@ suite("test_fluss_lake_pk_merge", "p0,external") {
 
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String coordinatorPort = context.config.otherConfigs.get("fluss_coordinator_port")
+    // The lake sits in an object store. Fluss removes every lake option whose name holds
+    // key, secret or password before it hands a table's properties to a client, and Doris
+    // configures storage once per catalog rather than per table, so the whole of how to
+    // reach that store is stated on the catalog instead of learned from the fluss cluster.
+    String minioPort = context.config.otherConfigs.get("fluss_minio_port")
     String bootstrapServers = "${externalEnvIp}:${coordinatorPort}"
     String mergeCatalog = "test_fluss_lake_pk_merge"
     String flussOnlyCatalog = "test_fluss_lake_pk_merge_off"
@@ -56,6 +61,9 @@ suite("test_fluss_lake_pk_merge", "p0,external") {
         create catalog ${mergeCatalog} properties (
             "type" = "fluss",
             "fluss.bootstrap.servers" = "${bootstrapServers}",
+            "fluss.lake.paimon.s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
+            "fluss.lake.paimon.s3.access-key" = "minioadmin",
+            "fluss.lake.paimon.s3.secret-key" = "minioadmin",
             "fluss.union_read.mode" = "required"
         );
     """
@@ -200,6 +208,9 @@ suite("test_fluss_lake_pk_merge", "p0,external") {
         create catalog ${cappedCatalog} properties (
             "type" = "fluss",
             "fluss.bootstrap.servers" = "${bootstrapServers}",
+            "fluss.lake.paimon.s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
+            "fluss.lake.paimon.s3.access-key" = "minioadmin",
+            "fluss.lake.paimon.s3.secret-key" = "minioadmin",
             "fluss.union_read.max_tail_rows" = "1",
             "fluss.union_read.max_total_tail_rows" = "1"
         );
@@ -222,6 +233,9 @@ suite("test_fluss_lake_pk_merge", "p0,external") {
         create catalog ${cappedRequired} properties (
             "type" = "fluss",
             "fluss.bootstrap.servers" = "${bootstrapServers}",
+            "fluss.lake.paimon.s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
+            "fluss.lake.paimon.s3.access-key" = "minioadmin",
+            "fluss.lake.paimon.s3.secret-key" = "minioadmin",
             "fluss.union_read.mode" = "required",
             "fluss.union_read.max_tail_rows" = "1",
             "fluss.union_read.max_total_tail_rows" = "1"

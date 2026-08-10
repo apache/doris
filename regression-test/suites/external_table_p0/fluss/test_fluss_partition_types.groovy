@@ -39,6 +39,11 @@ suite("test_fluss_partition_types", "p0,external") {
 
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String coordinatorPort = context.config.otherConfigs.get("fluss_coordinator_port")
+    // The lake sits in an object store. Fluss removes every lake option whose name holds
+    // key, secret or password before it hands a table's properties to a client, and Doris
+    // configures storage once per catalog rather than per table, so the whole of how to
+    // reach that store is stated on the catalog instead of learned from the fluss cluster.
+    String minioPort = context.config.otherConfigs.get("fluss_minio_port")
     String bootstrapServers = "${externalEnvIp}:${coordinatorPort}"
     String catalogName = "test_fluss_partition_types"
     String varbinaryCatalog = "test_fluss_partition_types_vb"
@@ -49,7 +54,10 @@ suite("test_fluss_partition_types", "p0,external") {
     sql """
         create catalog ${catalogName} properties (
             "type" = "fluss",
-            "fluss.bootstrap.servers" = "${bootstrapServers}"
+            "fluss.bootstrap.servers" = "${bootstrapServers}",
+            "fluss.lake.paimon.s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
+            "fluss.lake.paimon.s3.access-key" = "minioadmin",
+            "fluss.lake.paimon.s3.secret-key" = "minioadmin"
         );
     """
     sql """switch ${catalogName}"""
@@ -181,6 +189,9 @@ suite("test_fluss_partition_types", "p0,external") {
         create catalog ${unionCatalog} properties (
             "type" = "fluss",
             "fluss.bootstrap.servers" = "${bootstrapServers}",
+            "fluss.lake.paimon.s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
+            "fluss.lake.paimon.s3.access-key" = "minioadmin",
+            "fluss.lake.paimon.s3.secret-key" = "minioadmin",
             "fluss.union_read.mode" = "required"
         );
     """
