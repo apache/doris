@@ -2889,6 +2889,17 @@ public class SessionVariable implements Serializable, Writable {
             description = "enable count(*) pushdown optimization for external table")
     private boolean enableCountPushDownForExternalTable = true;
 
+    public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
+
+    @VarAttrDef.VarAttr(name = FLUSS_UNION_READ_MODE,
+            options = {"", "auto", "required", "disabled"},
+            description = "For this statement, how a fluss table's scan combines the lake with the log: "
+                    + "auto reads the lake when it has a readable snapshot and reads fluss alone when it "
+                    + "does not, required fails instead of reading fluss alone, disabled always reads fluss "
+                    + "alone. The default, empty, follows the catalog's fluss.union_read.mode property. "
+                    + "The value set belongs to the fluss connector, which rejects anything else")
+    public String flussUnionReadMode = "";
+
     @VarAttrDef.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
             description = "The minimum memory required to be used by an operator, if not meet, the operator will not "
                     + "run")
