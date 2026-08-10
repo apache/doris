@@ -116,8 +116,10 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             CollectorContext argumentContext = new CollectorContext(context, false);
                             argumentContext.setType(accessPath.getType());
                             if (function.child(colIndex).getDataType().isVariantType()) {
-                                argumentContext.getAccessPathBuilder()
-                                        .addSuffix(path.subList(2, path.size()));
+                                // Every Variant argument determines the generated array shape, so
+                                // an output-field path must not narrow the input container.
+                                exprCollector.collect(function.child(colIndex));
+                                continue;
                             } else {
                                 argumentContext.getAccessPathBuilder()
                                         .addSuffix(AccessPathInfo.ACCESS_ALL)

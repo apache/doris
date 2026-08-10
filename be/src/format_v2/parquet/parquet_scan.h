@@ -23,6 +23,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -104,6 +105,10 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
                                               const ParquetScanRange& scan_range,
                                               std::vector<int64_t>* row_group_first_rows,
                                               std::vector<int>* selected_row_groups);
+#ifdef BE_TEST
+void reset_physical_leaf_set_build_count();
+size_t physical_leaf_set_build_count();
+#endif
 } // namespace detail
 
 // ============================================================================
@@ -142,6 +147,8 @@ struct RowGroupReadPlan {
 struct RowGroupScanPlan {
     std::vector<RowGroupReadPlan> row_groups; // row groups selected after pruning
     ParquetPruningStats pruning_stats;        // pruning statistics
+    // Row-group plans only add full-fallback leaves to this immutable request-level baseline.
+    std::unordered_set<int> requested_leaf_column_ids;
     bool enable_bloom_filter = false;
 };
 
@@ -337,6 +344,7 @@ private:
     std::shared_ptr<format::FileScanRequest> _active_request;
     std::shared_ptr<format::FileScanRequest> _pending_request;
     bool _remaining_plans_need_replanning = false;
+    bool _requested_leaf_ids_need_refresh = false;
     detail::PredicateConjunctSchedule _predicate_schedule;
     std::vector<size_t> _predicate_positions_scratch;
     std::unordered_map<size_t, size_t> _predicate_indices_by_position_scratch;

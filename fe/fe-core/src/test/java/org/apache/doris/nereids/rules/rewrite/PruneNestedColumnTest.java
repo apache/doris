@@ -280,6 +280,26 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testMultiArgumentExplodePreservesVariantContainers() throws Exception {
+        assertColumn("select x1['k'] from variant_tbl lateral view explode(v, v) tmp as x1, x2",
+                "variant",
+                ImmutableList.of(path("v")),
+                ImmutableList.of());
+
+        assertColumns("select x1['k'] from variant_tbl "
+                        + "lateral view explode(v['a'], v['b']) tmp as x1, x2",
+                ImmutableList.of(
+                        Triple.of("variant", ImmutableList.of(path("v", "a")), ImmutableList.of()),
+                        Triple.of("variant", ImmutableList.of(path("v", "b")), ImmutableList.of())));
+
+        assertColumn("select x1['k'] from variant_tbl "
+                        + "lateral view explode_outer(v, v) tmp as x1, x2",
+                "variant",
+                ImmutableList.of(path("v")),
+                ImmutableList.of());
+    }
+
+    @Test
     public void testStruct() throws Throwable {
         assertColumn("select element_at(s, 1) from tbl",
                 "struct<city:text>",

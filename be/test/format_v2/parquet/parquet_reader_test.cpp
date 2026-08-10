@@ -2069,6 +2069,52 @@ TEST(ParquetVariantProjectionTest, FinalizesPhysicalProjectionBeforeFooterPrunin
     EXPECT_EQ(plan.row_groups[1].variant_full_projection_columns, 0);
 }
 
+TEST(ParquetVariantProjectionTest, ReusesWideNonVariantLeafSetAcrossRowGroups) {
+    constexpr int COLUMN_COUNT = 64;
+    constexpr int ROW_GROUP_COUNT = 3;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    format::FileScanRequest request;
+    for (int column = 0; column < COLUMN_COUNT; ++column) {
+        auto field = std::make_unique<format::parquet::ParquetColumnSchema>();
+        field->name = fmt::format("c{}", column);
+        field->local_id = column;
+        field->leaf_column_id = column;
+        field->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+        field->type = make_nullable(std::make_shared<DataTypeInt32>());
+        field->type_descriptor.doris_type = field->type;
+        field->type_descriptor.physical_type = tparquet::Type::INT32;
+        schema.push_back(std::move(field));
+        request.non_predicate_columns.push_back(format::LocalColumnIndex::local(column));
+        request.local_positions.emplace(format::LocalColumnId(column), format::LocalIndex(column));
+    }
+
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.__set_type(tparquet::Type::INT32);
+    column_metadata.__set_num_values(10);
+    column_metadata.__set_total_compressed_size(1);
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(std::move(column_metadata));
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(10);
+    row_group.__set_columns(std::vector<tparquet::ColumnChunk>(COLUMN_COUNT, chunk));
+    tparquet::FileMetaData thrift_metadata;
+    thrift_metadata.__set_num_rows(ROW_GROUP_COUNT * 10);
+    thrift_metadata.__set_row_groups(std::vector<tparquet::RowGroup>(ROW_GROUP_COUNT, row_group));
+    format::parquet::NativeParquetMetadata metadata(std::move(thrift_metadata), 0);
+    format::parquet::ParquetFileContext file_context;
+    file_context.native_metadata = &metadata;
+    file_context.contains_variant = false;
+    format::parquet::RowGroupScanPlan plan;
+
+    format::parquet::detail::reset_physical_leaf_set_build_count();
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(metadata, schema, request,
+                                                         {.start_offset = 0, .size = -1}, false,
+                                                         &plan, nullptr, nullptr, &file_context)
+                        .ok());
+    EXPECT_EQ(plan.row_groups.size(), ROW_GROUP_COUNT);
+    EXPECT_EQ(format::parquet::detail::physical_leaf_set_build_count(), 1);
+}
+
 TEST(ParquetVariantProjectionTest, FinalizesNestedVariantProjectionPerRowGroup) {
     using format::parquet::ParquetColumnSchema;
     using format::parquet::ParquetColumnSchemaKind;
