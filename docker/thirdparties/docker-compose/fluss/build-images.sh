@@ -152,6 +152,13 @@ if ((BUILD_SERVER == 1)); then
     echo "Building ${FLUSS_SERVER_IMAGE} from ${DIST_DIR}"
     mkdir -p "${BUILD_CONTEXT}/server"
     cp -r "${DIST_DIR}" "${BUILD_CONTEXT}/server/build-target"
+    # The S3 FileIO the coordinator needs to open the warehouse. fluss-dist's
+    # plugins/paimon already carries fluss-lake-paimon, paimon-bundle and a
+    # shaded hadoop, but paimon keeps each filesystem implementation in a jar of
+    # its own and loads it by ServiceLoader, so an s3:// warehouse is
+    # unreachable -- at CREATE TABLE time, from the coordinator -- without this.
+    resolve_maven_jar "org/apache/paimon" "paimon-s3" \
+        "${FLUSS_PAIMON_VERSION}" "${BUILD_CONTEXT}/server/build-target/plugins/paimon"
     cp "${FLUSS_SOURCE_DIR}/docker/fluss/Dockerfile" "${BUILD_CONTEXT}/server/Dockerfile"
     cp "${FLUSS_SOURCE_DIR}/docker/fluss/docker-entrypoint.sh" "${BUILD_CONTEXT}/server/docker-entrypoint.sh"
     docker_cli build -t "${FLUSS_SERVER_IMAGE}" "${BUILD_CONTEXT}/server"
@@ -168,12 +175,15 @@ echo "  $(basename "${CONNECTOR_JAR}")"
 # Paimon runtime for the tiering job. fluss-lake-paimon is only the fluss->paimon
 # writer: it carries no paimon of its own, so paimon-flink (which bundles paimon
 # core) has to sit next to it, and paimon in turn builds every CatalogContext
-# around a hadoop Configuration -- a plain directory warehouse still needs hadoop
-# present. Same three jars upstream's quickstart image activates for paimon,
-# minus paimon-s3: this warehouse is a bind-mounted directory.
+# around a hadoop Configuration -- even a directory warehouse still needs hadoop
+# present. Same four jars upstream's quickstart image activates for paimon;
+# paimon-s3 is what reaches the warehouse, both for the tiering job and for the
+# row counts init waits on.
 cp "${LAKE_PAIMON_JAR}" "${BUILD_CONTEXT}/flink/lib/"
 echo "  $(basename "${LAKE_PAIMON_JAR}")"
 resolve_maven_jar "org/apache/paimon" "paimon-flink-${FLINK_MINOR_VERSION}" \
+    "${FLUSS_PAIMON_VERSION}" "${BUILD_CONTEXT}/flink/lib"
+resolve_maven_jar "org/apache/paimon" "paimon-s3" \
     "${FLUSS_PAIMON_VERSION}" "${BUILD_CONTEXT}/flink/lib"
 resolve_maven_jar "io/trino/hadoop" "hadoop-apache" \
     "${FLUSS_HADOOP_APACHE_VERSION}" "${BUILD_CONTEXT}/flink/lib"
