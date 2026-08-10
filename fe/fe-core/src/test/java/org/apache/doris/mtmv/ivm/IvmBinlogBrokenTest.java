@@ -340,7 +340,7 @@ public class IvmBinlogBrokenTest extends TestWithFeService {
         TruncateTableInfo info = new TruncateTableInfo(database.getId(), database.getFullName(), table.getId(),
                 table.getName(), Collections.singletonList(newPartition), false,
                 "TRUNCATE TABLE ivm_base PARTITION(p202001)", Collections.singletonList(oldPartition), true,
-                Collections.emptyMap());
+                Collections.emptyMap(), table.getNextVersion(), System.currentTimeMillis());
         Env.getCurrentInternalCatalog().replayTruncateTable(info);
 
         Assertions.assertTrue(getMtmv(db).getIvmInfo().isBinlogBroken());
