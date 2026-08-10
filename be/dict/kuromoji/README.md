@@ -38,18 +38,23 @@ Source: the UTF-8 IPADIC from <https://github.com/lindera/mecab-ipadic>
 (tag `2.7.0-20250920`) — the original `mecab-ipadic-2.7.0-20070801` lexicon
 converted to UTF-8 (license: NAIST-2003, see `dist/licenses/LICENSE-ipadic.txt`).
 
-Automated, two steps:
+A normal BE build (`sh build.sh`) generates these `*.bin` automatically: the
+`kuromoji_dict` target is part of `ALL` and the `install` rule then ships this
+directory. The target is defined only for real (`MAKE_TEST=OFF`) builds, not for
+the unit-test tree.
+
+To regenerate manually:
 
 ```bash
 # 1. thirdparty fetches + stages the UTF-8 IPADIC source into
 #    ${DORIS_THIRDPARTY}/installed/share/mecab-ipadic-2.7.0-20250920
 sh thirdparty/build-thirdparty.sh mecab_ipadic
 
-# 2. the CMake target builds the offline compiler and produces the *.bin here
-ninja -C be/ut_build_RELEASE kuromoji_dict
+# 2. run the target in a real (non-test) build tree, e.g. the one sh build.sh
+#    creates under be/build_<BUILD_TYPE> (build_Release by default)
+ninja -C be/build_Release kuromoji_dict
 ```
 
-CI/release should run `ninja kuromoji_dict` before packaging; the BE `install`
-rule then ships this directory. Override the source dir with
-`-DKUROMOJI_IPADIC_SRC=<path>` at CMake configure time. (The tool can also be
-run directly: `kuromoji_build_dict <utf8_ipadic_src_dir> be/dict/kuromoji`.)
+Override the source dir with `-DKUROMOJI_IPADIC_SRC=<path>` at CMake configure
+time. (The tool can also be run directly:
+`kuromoji_build_dict <utf8_ipadic_src_dir> be/dict/kuromoji`.)

@@ -21,11 +21,29 @@ suite("test_japanese_analyzer", "p0") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+
+    def get_be_config = { backend_id, key ->
+        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id),
+                                              backendId_to_backendHttpPort.get(backend_id))
+        assertEquals(0, code)
+        for (Object ele in (List) parseJson(out.trim())) {
+            if (((List<String>) ele)[0] == key) {
+                return ((List<String>) ele)[2]
+            }
+        }
+        assertTrue(false, "BE config not found: " + key)
+    }
     def set_be_config = { key, value ->
         for (String backend_id : backendId_to_backendIP.keySet()) {
-            update_be_config(backendId_to_backendIP.get(backend_id),
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id),
                              backendId_to_backendHttpPort.get(backend_id), key, value)
+            assertEquals(0, code)
         }
+    }
+
+    def originalEnable = [:]
+    for (String backend_id : backendId_to_backendIP.keySet()) {
+        originalEnable[backend_id] = get_be_config(backend_id, "enable_kuromoji_analyzer")
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -79,6 +97,10 @@ suite("test_japanese_analyzer", "p0") {
         assertTrue(tokenStr.contains('"token": "東京"'))
     } finally {
         sql "DROP TABLE IF EXISTS ${tableName}"
-        set_be_config("enable_kuromoji_analyzer", "false")
+        for (String backend_id : originalEnable.keySet()) {
+            update_be_config(backendId_to_backendIP.get(backend_id),
+                             backendId_to_backendHttpPort.get(backend_id),
+                             "enable_kuromoji_analyzer", originalEnable[backend_id])
+        }
     }
 }

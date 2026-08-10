@@ -286,13 +286,12 @@ const KuromojiDictionary* KuromojiDictionary::get_or_load(const std::string& dir
     std::lock_guard<std::mutex> lock(mu);
     auto it = cache.find(dir);
     if (it != cache.end()) {
-        return it->second.get(); // may be nullptr if a prior load failed
+        return it->second.get(); // only successful loads are cached
     }
     std::unique_ptr<KuromojiDictionary> dict;
     Status st = load(dir, &dict);
     if (!st.ok()) {
         LOG(WARNING) << "kuromoji: failed to load dictionary from " << dir << ": " << st;
-        cache.emplace(dir, nullptr);
         return nullptr;
     }
     const KuromojiDictionary* ptr = dict.get();
