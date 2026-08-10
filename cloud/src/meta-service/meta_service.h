@@ -163,6 +163,11 @@ public:
                      const GetVersionRequest* request, GetVersionResponse* response,
                      ::google::protobuf::Closure* done) override;
 
+    void get_table_stream_offset(::google::protobuf::RpcController* controller,
+                                 const GetTableStreamOffsetRequest* request,
+                                 GetTableStreamOffsetResponse* response,
+                                 ::google::protobuf::Closure* done) override;
+
     void batch_get_version(::google::protobuf::RpcController* controller,
                            const GetVersionRequest* request, GetVersionResponse* response,
                            ::google::protobuf::Closure* done);
@@ -514,6 +519,10 @@ private:
                                    const std::vector<int64_t>& partition_ids,
                                    PartitionResponse* response, MetaServiceCode& code,
                                    std::string& msg, KVStats& stats);
+    void commit_table_stream_partition_internal(Transaction* txn, const PartitionRequest* request,
+                                                const std::string& instance_id,
+                                                const std::vector<int64_t>& partition_ids,
+                                                MetaServiceCode& code, std::string& msg);
 
     // Wait for all pending transactions before returning, and bump up the version to the latest.
     std::pair<MetaServiceCode, std::string> wait_for_pending_txns(const std::string& instance_id,
@@ -633,6 +642,14 @@ public:
                      const GetVersionRequest* request, GetVersionResponse* response,
                      ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_version, controller, request, response, done);
+    }
+
+    void get_table_stream_offset(::google::protobuf::RpcController* controller,
+                                 const GetTableStreamOffsetRequest* request,
+                                 GetTableStreamOffsetResponse* response,
+                                 ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_table_stream_offset, controller, request, response,
+                  done);
     }
 
     void create_tablets(::google::protobuf::RpcController* controller,

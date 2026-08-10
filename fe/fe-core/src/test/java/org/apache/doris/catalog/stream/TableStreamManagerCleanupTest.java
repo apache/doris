@@ -20,6 +20,7 @@ package org.apache.doris.catalog.stream;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -32,6 +33,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class TableStreamManagerCleanupTest extends TestWithFeService {
@@ -135,6 +137,22 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
 
         Assertions.assertFalse(
                 Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db).contains(streamId));
+    }
+
+    @Test
+    public void testGetCloudTableStreamsForBaseTable() throws Exception {
+        StreamContext context = createStreamContext("cloud_identity");
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream_cleanup");
+
+        List<Cloud.TableStreamIdentityPB> identities = Env.getCurrentEnv().getTableStreamManager()
+                .getCloudTableStreamsForBaseTable(db.getId(), context.baseTable.getId());
+
+        Assertions.assertEquals(1, identities.size());
+        Cloud.TableStreamIdentityPB identity = identities.get(0);
+        Assertions.assertEquals(db.getId(), identity.getBaseDbId());
+        Assertions.assertEquals(context.baseTable.getId(), identity.getBaseTableId());
+        Assertions.assertEquals(db.getId(), identity.getStreamDbId());
+        Assertions.assertEquals(context.stream.getId(), identity.getStreamId());
     }
 
     private StreamContext createStreamContext(String suffix) throws Exception {
