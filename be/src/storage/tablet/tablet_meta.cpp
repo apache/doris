@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <memory>
 #include <random>
+#include <ranges>
 #include <set>
 #include <utility>
 
