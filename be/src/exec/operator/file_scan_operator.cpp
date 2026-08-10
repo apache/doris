@@ -229,8 +229,8 @@ int FileScanLocalState::_scanner_count_for_local_ranges(
             return range.__isset.is_file_parent && range.is_file_parent;
         });
     });
-    // A file parent is only the source morsel. Keep the configured scanner capacity so the row
-    // group children appended by that source can still run at pipeline parallelism.
+    // A file parent is only the source morsel. Keep the configured scanner capacity so appended
+    // row-group children can still use the intended scanner concurrency.
     return has_file_parent ? requested : std::min(requested, static_cast<int>(scan_ranges.size()));
 }
 
