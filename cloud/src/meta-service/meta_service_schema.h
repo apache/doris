@@ -27,6 +27,15 @@ struct ValueBuf;
 void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
                    std::string_view schema_key, const doris::TabletSchemaCloudPB& schema);
 
+// Put schema during a restore job. Unlike put_schema_kv, this function will
+// overwrite an existing schema key whose contents are broken (cannot be
+// parsed, or column(0).unique_id == -1 produced by create_tablet for tables
+// with light_schema_change=false). It also refuses to write a new schema
+// that is itself broken, to avoid replacing a bad schema with another bad one.
+void put_schema_kv_on_restore(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                              std::string_view schema_key,
+                              const doris::TabletSchemaCloudPB& schema);
+
 void put_versioned_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
                              std::string_view schema_key, const doris::TabletSchemaCloudPB& schema);
 
