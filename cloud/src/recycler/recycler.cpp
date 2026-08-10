@@ -7562,8 +7562,8 @@ int InstanceRecycler::scan_and_statistics_rowsets() {
     std::string recyc_rs_key0;
     std::string recyc_rs_key1;
     recycle_rowset_key(recyc_rs_key_info0, &recyc_rs_key0);
-                recycle_rowset_key(recyc_rs_key_info1, &recyc_rs_key1);
-       int64_t earlest_ts = std::numeric_limits<int64_t>::max();
+    recycle_rowset_key(recyc_rs_key_info1, &recyc_rs_key1);
+    int64_t earlest_ts = std::numeric_limits<int64_t>::max();
 
     auto handle_rowset_kv = [&, this](std::string_view k, std::string_view v) -> int {
         RecycleRowsetPB rowset;
@@ -7587,11 +7587,12 @@ int InstanceRecycler::scan_and_statistics_rowsets() {
             metrics_context.total_need_recycle_num++;
             metrics_context.total_need_recycle_data_size += rowset.rowset_meta().total_disk_size();
             segment_metrics_context_.total_need_recycle_num += rowset.rowset_meta().num_segments();
-            segment_metrics_context_.total_need_recycle_data_size += rowset.rowset_meta().total_disk_size();
+            segment_metrics_context_.total_need_recycle_data_size +=
+                    rowset.rowset_meta().total_disk_size();
             return 0;
         }
 
-        if(!rowset_meta->has_is_recycled() || !rowset_meta->is_recycled()) {
+        if (!rowset_meta->has_is_recycled() || !rowset_meta->is_recycled()) {
             return 0;
         }
 
@@ -7638,7 +7639,7 @@ int InstanceRecycler::scan_and_statistics_tmp_rowsets() {
         DCHECK_GT(rowset.txn_id(), 0)
                 << "txn_id=" << rowset.txn_id() << " rowset=" << rowset.ShortDebugString();
 
-        if(!rowset.has_is_recycled() || !rowset.is_recycled()) {
+        if (!rowset.has_is_recycled() || !rowset.is_recycled()) {
             return 0;
         }
 
@@ -7715,7 +7716,8 @@ int InstanceRecycler::scan_and_statistics_abort_timeout_txn() {
         return 0;
     };
 
-    int ret = scan_and_recycle(begin_txn_running_key, end_txn_running_key, std::move(handle_abort_timeout_txn_kv));
+    int ret = scan_and_recycle(begin_txn_running_key, end_txn_running_key,
+                               std::move(handle_abort_timeout_txn_kv));
     metrics_context.report(true);
     return ret;
 }
@@ -7749,7 +7751,8 @@ int InstanceRecycler::scan_and_statistics_expired_txn_label() {
         return 0;
     };
 
-    int ret = scan_and_recycle(begin_recycle_txn_key, end_recycle_txn_key, std::move(handle_expired_txn_label_kv));
+    int ret = scan_and_recycle(begin_recycle_txn_key, end_recycle_txn_key,
+                               std::move(handle_expired_txn_label_kv));
     metrics_context.report(true);
     return ret;
 }
@@ -7980,7 +7983,7 @@ int InstanceRecycler::scan_and_statistics_restore_jobs() {
             return 0;
         }
         metrics_context.total_need_recycle_num++;
-        if(restore_job_pb.need_recycle_data()) {
+        if (restore_job_pb.need_recycle_data()) {
             scan_tablet_and_statistics(restore_job_pb.tablet_id(), metrics_context);
         }
         return 0;
@@ -8022,7 +8025,7 @@ void InstanceRecycler::scan_and_statistics_operation_logs() {
 
         OperationLogReferenceInfo ref_info;
         if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp(),
-                                         &ref_info)) {
+                                        &ref_info)) {
             metrics_context.total_need_recycle_num++;
             metrics_context.total_need_recycle_data_size += operation_log.ByteSizeLong();
         }
@@ -8178,8 +8181,8 @@ int InstanceRecycler::cleanup_rowset_metadata(const std::vector<RowsetDeleteTask
         std::string dbm_start_key =
                 meta_delete_bitmap_key({reference_instance_id, tablet_id, rowset_id, 0, 0});
         std::string dbm_end_key = meta_delete_bitmap_key(
-                {reference_instance_id, tablet_id, rowset_id,
-                 std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max()});
+                {reference_instance_id, tablet_id, rowset_id, std::numeric_limits<int64_t>::max(),
+                 std::numeric_limits<int64_t>::max()});
         txn->remove(dbm_start_key, dbm_end_key);
         LOG_INFO("remove delete bitmap kv in cleanup phase")
                 .tag("instance_id", instance_id_)
@@ -8202,8 +8205,8 @@ int InstanceRecycler::cleanup_rowset_metadata(const std::vector<RowsetDeleteTask
 
         // Remove versioned meta rowset key
         if (!task.versioned_rowset_key.empty()) {
-            versioned::document_remove<RowsetMetaCloudPB>(
-                txn.get(), task.versioned_rowset_key, task.versionstamp);
+            versioned::document_remove<RowsetMetaCloudPB>(txn.get(), task.versioned_rowset_key,
+                                                          task.versionstamp);
             LOG_INFO("remove versioned meta rowset key in cleanup phase")
                     .tag("instance_id", instance_id_)
                     .tag("tablet_id", tablet_id)
