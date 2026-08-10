@@ -88,8 +88,15 @@ final class PaimonRowChangeCapabilities {
         requirePrimaryKey(table, "UPDATE");
         CoreOptions options = CoreOptions.fromMap(table.options());
         requireNoRowKindField(options, "UPDATE");
+        if (options.changelogProducer() == CoreOptions.ChangelogProducer.INPUT) {
+            throw new AnalysisException("Paimon UPDATE is not supported when "
+                    + "changelog-producer=input because both UPDATE_BEFORE and UPDATE_AFTER "
+                    + "records are required");
+        }
         Set<String> primaryKeys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         primaryKeys.addAll(table.primaryKeys());
+        Set<String> partitionKeys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        partitionKeys.addAll(table.partitionKeys());
         Set<String> sequenceFields = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         sequenceFields.addAll(options.sequenceField());
         for (String column : updatedColumns) {
@@ -100,6 +107,11 @@ final class PaimonRowChangeCapabilities {
             if (sequenceFields.contains(column)) {
                 throw new AnalysisException("Paimon UPDATE cannot modify sequence-field column '"
                         + column + "'");
+            }
+            if (partitionKeys.contains(column) && options.bucket() != -1) {
+                throw new AnalysisException("Paimon UPDATE cannot modify partition column '"
+                        + column + "' unless bucket=-1 because the old partition row cannot be "
+                        + "removed without an UPDATE_BEFORE record");
             }
         }
         CoreOptions.MergeEngine engine = options.mergeEngine();

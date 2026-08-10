@@ -142,6 +142,27 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
             'bucket' = '1',
             'rowkind.field' = 'row_kind'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_input_changelog;
+        CREATE TABLE paimon.${dbName}.t_input_changelog (
+            id INT, name STRING
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'changelog-producer' = 'input'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_cross_partition_fixed;
+        CREATE TABLE paimon.${dbName}.t_cross_partition_fixed (
+            pt STRING, id INT, name STRING
+        ) USING paimon
+        PARTITIONED BY (pt)
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '2',
+            'bucket-key' = 'id'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -212,6 +233,30 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
                 WHEN MATCHED THEN DELETE
             """
             exception "Paimon MERGE is not supported when rowkind.field is configured"
+        }
+        test {
+            sql """UPDATE t_input_changelog SET name = 'updated' WHERE id = 1"""
+            exception "Paimon UPDATE is not supported when changelog-producer=input"
+        }
+        test {
+            sql """
+                MERGE INTO t_input_changelog t
+                USING internal.${dbName}.t_merge_source s ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET name = s.name
+            """
+            exception "Paimon UPDATE is not supported when changelog-producer=input"
+        }
+        test {
+            sql """UPDATE t_cross_partition_fixed SET pt = 'new_pt' WHERE id = 1"""
+            exception "Paimon UPDATE cannot modify partition column 'pt' unless bucket=-1"
+        }
+        test {
+            sql """
+                MERGE INTO t_cross_partition_fixed t
+                USING internal.${dbName}.t_merge_source s ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET pt = 'new_pt', name = s.name
+            """
+            exception "Paimon UPDATE cannot modify partition column 'pt' unless bucket=-1"
         }
 
         sql """
