@@ -31,9 +31,16 @@ SET 'execution.runtime-mode' = 'batch';
 SET 'sql-client.execution.result-mode' = 'tableau';
 SET 'parallelism.default' = '1';
 
+-- The credentials are spelled out here rather than inherited from anywhere: this
+-- catalog opens the warehouse itself, and nothing in a Flink SQL session carries
+-- the settings the tiering job was submitted with.
 CREATE CATALOG paimon_catalog WITH (
     'type' = 'paimon',
-    'warehouse' = '__FLUSS_PAIMON_WAREHOUSE__'
+    'warehouse' = '__FLUSS_PAIMON_WAREHOUSE__',
+    's3.endpoint' = '__FLUSS_LAKE_S3_ENDPOINT__',
+    's3.path.style.access' = 'true',
+    's3.access-key' = '__FLUSS_LAKE_S3_ACCESS_KEY__',
+    's3.secret-key' = '__FLUSS_LAKE_S3_SECRET_KEY__'
 );
 
 USE CATALOG paimon_catalog;
