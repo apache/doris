@@ -84,6 +84,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.ThriftLogHelper;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -1396,7 +1397,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn begin request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn begin request: {}, backend: {}", ThriftLogHelper.requestForLog(request), clientAddr);
         }
         if (request.isSetCertBasedAuth()) {
             TCertBasedAuth certAuth = request.getCertBasedAuth();
@@ -1459,7 +1460,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     toForwardedCertificateInfo(request.getCertBasedAuth()));
         } else {
             if (!checkToken(request.getToken())) {
-                throw new AuthenticationException("Invalid token: " + request.getToken());
+                throw new AuthenticationException("Invalid token");
             }
         }
 
@@ -1625,7 +1626,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnCommitResult loadTxnPreCommit(TLoadTxnCommitRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn pre-commit request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn pre-commit request: {}, backend: {}",
+                    ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
@@ -1725,7 +1727,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             if (!checkToken(request.getToken())) {
-                throw new AuthenticationException("Invalid token: " + request.getToken());
+                throw new AuthenticationException("Invalid token");
             }
         } else {
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
@@ -1768,7 +1770,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxn2PCResult loadTxn2PC(TLoadTxn2PCRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn 2PC request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn 2PC request: {}, backend: {}", ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         TLoadTxn2PCResult result = new TLoadTxn2PCResult();
@@ -1860,7 +1862,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         deleteMultiTableStreamLoadJobIndex(request.getTxnId());
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn commit request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn commit request: {}, backend: {}",
+                    ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
@@ -2102,7 +2105,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn rollback request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn rollback request: {}, backend: {}",
+                    ThriftLogHelper.requestForLog(request), clientAddr);
         }
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
         TStatus status = checkMaster();
@@ -3019,7 +3023,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive stream load put request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive stream load put request: {}, backend: {}",
+                    ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         String groupCommitMode = request.getGroupCommitMode();
@@ -3172,7 +3177,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
             throws UserException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive http stream put request: {}", request);
+            LOG.debug("receive http stream put request: {}", ThriftLogHelper.requestForLog(request));
         }
 
         ConnectContext ctx = ConnectContext.get();
@@ -3497,9 +3502,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TCheckAuthResult checkAuth(TCheckAuthRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            TCheckAuthRequest requestForLog = request.deepCopy();
-            requestForLog.setPasswd("***MASKED***");
-            LOG.debug("receive auth request: {}, backend: {}", requestForLog, clientAddr);
+            LOG.debug("receive auth request: {}, backend: {}", ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         TCheckAuthResult result = new TCheckAuthResult();
