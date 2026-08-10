@@ -30,11 +30,11 @@ import java.util.function.Supplier;
  */
 final class TestStatementScope implements ConnectorStatementScope {
 
-    private final ConcurrentHashMap<Object, Object> cache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
 
     @Override
     @SuppressWarnings("unchecked")
-    public <T> T computeIfAbsent(Object key, Supplier<T> loader) {
+    public <T> T computeIfAbsent(String key, Supplier<T> loader) {
         return (T) cache.computeIfAbsent(key, k -> loader.get());
     }
 }
