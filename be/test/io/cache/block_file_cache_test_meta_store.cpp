@@ -23,9 +23,8 @@
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
 
-#include "util/defer_op.h"
-
 #include "io/cache/block_file_cache_test_common.h"
+#include "util/defer_op.h"
 
 #if defined(__clang__)
 #pragma clang diagnostic pop

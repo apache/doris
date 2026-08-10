@@ -110,7 +110,6 @@ public:
     }
 
 private:
-
     ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right,
                               const typename Impl::DataTypeA* type_left,
                               const typename Impl::DataTypeB* type_right, DataTypePtr res_data_type,
@@ -803,17 +802,12 @@ void register_function_modulo(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMod<ModNumericImpl<PModuloNumericImpl<TYPE_BIGINT>>>>();
     factory.register_function<FunctionMod<ModNumericImpl<PModuloNumericImpl<TYPE_DOUBLE>>>>();
 
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMALV2>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMALV2>>>>();
 
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL32>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL64>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL128I>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL256>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL32>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL64>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL128I>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL256>>>>();
     factory.register_alias("mod", "fmod");
 }
 

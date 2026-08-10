@@ -29,8 +29,8 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
-#include "core/field.h"
 #include "core/extended_types.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 

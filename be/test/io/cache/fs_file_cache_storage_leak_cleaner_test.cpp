@@ -35,9 +35,8 @@
 #pragma clang diagnostic pop
 #endif
 #include "io/cache/block_file_cache.h"
-#include "io/cache/fs_file_cache_storage.h"
-
 #include "io/cache/block_file_cache_test_common.h"
+#include "io/cache/fs_file_cache_storage.h"
 
 namespace doris::io {
 

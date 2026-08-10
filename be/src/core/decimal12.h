@@ -140,8 +140,7 @@ struct decimal12_t {
     // this header does not need storage/utils.h (whose g_power_table drags in
     // the whole storage layer).
     static constexpr int32_t k_power_table[MAX_FRAC_DIGITS_NUM + 1] = {
-            1,      10,      100,      1000,      10000,
-            100000, 1000000, 10000000, 100000000, 1000000000};
+            1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000};
 
     int64_t integer;
     int32_t fraction;

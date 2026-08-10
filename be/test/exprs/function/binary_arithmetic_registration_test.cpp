@@ -102,7 +102,8 @@ TEST_F(BinaryArithmeticRegistrationTest, multiply_full_cross_product_retained) {
 
 TEST_F(BinaryArithmeticRegistrationTest, decimalv2_still_resolvable) {
     auto type = std::make_shared<DataTypeDecimalV2>();
-    for (const auto& name : {std::string("add"), std::string("subtract"), std::string("multiply")}) {
+    for (const auto& name :
+         {std::string("add"), std::string("subtract"), std::string("multiply")}) {
         auto function = lookup(name, type, type, type);
         ASSERT_NE(function, nullptr) << name;
         EXPECT_EQ(function->get_name(), name);

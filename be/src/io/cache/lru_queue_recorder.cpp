@@ -24,9 +24,7 @@
 
 namespace doris::io {
 
-namespace {
-
-} // namespace
+namespace {} // namespace
 
 void LRUQueueRecorder::record_queue_event(FileCacheType type, CacheLRULogType log_type,
                                           const UInt128Wrapper hash, const size_t offset,

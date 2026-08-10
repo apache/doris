@@ -91,7 +91,6 @@ public:
     }
 
 private:
-
     ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right,
                               const typename Impl::DataTypeA* type_left,
                               const typename Impl::DataTypeB* type_right, DataTypePtr res_data_type,

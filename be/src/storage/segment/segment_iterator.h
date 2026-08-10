@@ -47,7 +47,6 @@
 #include "runtime/runtime_profile.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/index_iterator.h"
-#include "util/json/path_in_data.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
@@ -56,6 +55,7 @@
 #include "storage/schema.h"
 #include "storage/segment/common.h"
 #include "storage/segment/segment.h"
+#include "util/json/path_in_data.h"
 #include "util/slice.h"
 
 namespace doris {

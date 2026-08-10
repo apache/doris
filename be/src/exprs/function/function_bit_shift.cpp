@@ -67,7 +67,6 @@ public:
     }
 
 private:
-
     ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
         const auto* column_left_ptr = assert_cast<const ColumnInt64*>(column_left.get());
