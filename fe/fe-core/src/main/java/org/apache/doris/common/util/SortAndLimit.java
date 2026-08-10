@@ -22,9 +22,9 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Utility for the common "sort, then truncate to the first N rows" pattern used by several
- * SHOW/proc-dir style commands that operate on {@code List<List<Comparable>>} rows (see
- * {@link ListComparator} and {@link OrderByPair}).
+ * Utility for the common "sort, then truncate to the first N rows" pattern of the SHOW/proc-dir
+ * style commands that operate on {@code List<List<Comparable>>} rows (see {@link ListComparator}
+ * and {@link OrderByPair}).
  */
 public class SortAndLimit {
 
@@ -41,8 +41,8 @@ public class SortAndLimit {
      *
      * @param rows       the rows to sort; not modified by this call
      * @param comparator the comparator defining the sort order
-     * @param sizeLimit      the maximum number of rows to keep, counted from the start of the sorted
-     *                   result; {@link Optional#empty()} means "no sizeLimit" (return every row)
+     * @param sizeLimit  the maximum number of rows to keep, counted from the start of the sorted
+     *                   result; {@link Optional#empty()} means "no limit" (return every row)
      * @return a new list, sorted by {@code comparator} and truncated to at most {@code sizeLimit}
      *         elements
      */
