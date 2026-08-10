@@ -1217,9 +1217,10 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
 
         // The lake half's turn at the same params. Its ranges are useless without it — the paimon reader
         // fails outright on a missing serialized table — and only the sibling knows which of the merged
-        // entries are its own.
+        // entries are its own. A $log scan resolved a union read for its offsets and has no lake half to
+        // hand this to, so the question is whether there is one, not whether a union read was resolved.
         UnionRead union = unionRead;
-        if (union != null) {
+        if (union != null && union.hasLakeHalf()) {
             LakeSibling.call(union.sibling, () -> {
                 union.siblingProvider.populateScanLevelParams(params, nodeProperties);
                 return null;
