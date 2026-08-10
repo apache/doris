@@ -294,24 +294,6 @@ public class CreateRoutineLoadInfo {
         return jobProperties;
     }
 
-    public void applyEffectiveJobProperties(Map<String, String> effectiveJobProperties,
-            TUniqueKeyUpdateMode effectiveUpdateMode,
-            TPartialUpdateNewRowPolicy effectiveNewRowPolicy) {
-        jobProperties.putAll(effectiveJobProperties);
-
-        uniqueKeyUpdateMode = effectiveUpdateMode;
-        isPartialUpdate = uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
-        partialUpdateNewKeyPolicy = effectiveNewRowPolicy;
-
-        jobProperties.put(UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
-        jobProperties.put(PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
-        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
-            jobProperties.remove(PARTIAL_UPDATE_NEW_KEY_POLICY);
-        } else {
-            jobProperties.put(PARTIAL_UPDATE_NEW_KEY_POLICY, partialUpdateNewKeyPolicy.name());
-        }
-    }
-
     public String getTypeName() {
         return typeName;
     }

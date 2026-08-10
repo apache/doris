@@ -2048,7 +2048,23 @@ public abstract class RoutineLoadJob
             ctx.getState().reset();
             try {
                 ctx.setThreadLocalInfo();
-                CreateRoutineLoadInfo createRoutineLoadInfo = reconstructEffectiveCreateInfo();
+                NereidsParser nereidsParser = new NereidsParser();
+                CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
+                        origStmt.originStmt);
+                CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+                // If tableId is set, resolve the current table name by ID so that
+                // table rename / SWAP TABLE won't cause replay to fail with stale name in origStmt.
+                if (!isMultiTable && tableId != 0) {
+                    try {
+                        Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).orElse(null);
+                        if (db != null) {
+                            db.getTable(tableId).ifPresent(
+                                    table -> createRoutineLoadInfo.setTableName(table.getName()));
+                        }
+                    } catch (Exception ignored) {
+                        // fall through; let validate() surface the real error
+                    }
+                }
                 createRoutineLoadInfo.validate(ctx);
                 setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
             } finally {
@@ -2061,33 +2077,6 @@ public abstract class RoutineLoadJob
         if (userIdentity != null) {
             userIdentity.setIsAnalyzed();
         }
-    }
-
-    private CreateRoutineLoadInfo reconstructEffectiveCreateInfo() {
-        NereidsParser nereidsParser = new NereidsParser();
-        CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
-                origStmt.originStmt);
-        CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
-
-        // origStmt is the create-time snapshot. Reconstruct with the current
-        // effective properties before validating the current target table.
-        createRoutineLoadInfo.applyEffectiveJobProperties(
-                jobProperties, uniqueKeyUpdateMode, partialUpdateNewKeyPolicy);
-
-        // Resolve the current target by tableId because the table name in
-        // origStmt may be stale after target switching, rename, or SWAP TABLE.
-        if (!isMultiTable && tableId != 0) {
-            try {
-                Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).orElse(null);
-                if (db != null) {
-                    db.getTable(tableId).ifPresent(
-                            table -> createRoutineLoadInfo.setTableName(table.getName()));
-                }
-            } catch (Exception ignored) {
-                // fall through; let validate() surface the real error
-            }
-        }
-        return createRoutineLoadInfo;
     }
 
     public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
