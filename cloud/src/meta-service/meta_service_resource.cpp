@@ -2562,9 +2562,11 @@ static std::pair<MetaServiceCode, std::string> drop_single_instance(const std::s
 
     instance->set_status(InstanceInfoPB::DELETED);
     instance->set_mtime(duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
-    instance->set_recycle_state(INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
-    instance->set_recycle_state_update_time_ms(
-            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+    if (!instance->has_recycle_state()) {
+        instance->set_recycle_state(INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+        instance->set_recycle_state_update_time_ms(
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+    }
 
     std::string serialized = instance->SerializeAsString();
     if (serialized.empty()) {

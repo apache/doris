@@ -425,6 +425,7 @@ std::pair<MetaServiceCode, std::string> RecyclerServiceImpl::skip_instance_data_
         LOG(WARNING) << msg;
         return {MetaServiceCode::PROTOBUF_PARSE_ERR, std::move(msg)};
     }
+    auto current_state = instance.recycle_state();
     if (instance.status() != InstanceInfoPB::DELETED) {
         std::string msg = fmt::format(
                 "failed to set instance recycle state, instance is not deleted, instance_id={}",
@@ -432,12 +433,12 @@ std::pair<MetaServiceCode, std::string> RecyclerServiceImpl::skip_instance_data_
         LOG(WARNING) << msg;
         return {MetaServiceCode::INVALID_ARGUMENT, std::move(msg)};
     }
-    if (instance.recycle_state() != INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING) {
+    if (current_state != INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING) {
         std::string msg = fmt::format(
                 "failed to set instance recycle state, instance state should be {}"
                 ", current_state={}"
                 ", instance_id={}",
-                INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING, instance.recycle_state(), instance_id);
+                INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING, current_state, instance_id);
         LOG(WARNING) << msg;
         return {MetaServiceCode::INVALID_ARGUMENT, std::move(msg)};
     }
@@ -470,6 +471,9 @@ std::pair<MetaServiceCode, std::string> RecyclerServiceImpl::skip_instance_data_
         LOG(WARNING) << msg << " instance_id=" << instance_id;
         return {MetaServiceCode::KV_TXN_COMMIT_ERR, std::move(msg)};
     }
+    LOG(WARNING) << "successfully skipped instance data cleanup, instance_id=" << instance_id
+                 << " current_state=" << InstanceRecycleState_Name(current_state)
+                 << " target_state=" << InstanceRecycleState_Name(instance.recycle_state());
 
     return {MetaServiceCode::OK, "OK"};
 }

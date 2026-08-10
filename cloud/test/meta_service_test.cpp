@@ -599,9 +599,15 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         AlterInstanceResponse retry_res;
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &retry_res, nullptr);
-        ASSERT_EQ(retry_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-        ASSERT_NE(retry_res.status().msg().find("instance has already been recycled"),
+        ASSERT_EQ(retry_res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(retry_res.status().msg().find("instance has already been recycled"),
                   std::string::npos);
+        val.clear();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        instance.ParseFromString(val);
+        ASSERT_EQ(instance.status(), InstanceInfoPB::DELETED);
+        ASSERT_EQ(instance.recycle_state(), INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
     }
 
     // case: normal refresh instance

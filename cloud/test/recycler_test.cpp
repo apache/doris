@@ -3800,6 +3800,7 @@ TEST(RecyclerTest, init_deleted_instance_with_terminal_recycle_state) {
     instance_info.set_status(InstanceInfoPB::DELETED);
     instance_info.set_recycle_state(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
     instance_info.add_resource_ids("deleted_vault");
+    put_instance_info(txn_kv.get(), instance_info);
 
     InstanceRecycler recycler(txn_kv, instance_info, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
