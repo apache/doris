@@ -22,6 +22,7 @@
 #include <gtest/gtest-test-part.h>
 #include <limits.h>
 
+#include <array>
 #include <atomic>
 #include <memory>
 #include <ostream>
@@ -122,6 +123,23 @@ private:
     size_t _size;
     bool _closed = false;
     io::Path _path = "/tmp/mock";
+};
+
+class CountingOffsetFileReader final : public MockOffsetFileReader {
+public:
+    explicit CountingOffsetFileReader(size_t size) : MockOffsetFileReader(size) {}
+
+    int reads() const { return _reads.load(); }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        ++_reads;
+        return MockOffsetFileReader::read_at_impl(offset, result, bytes_read, io_ctx);
+    }
+
+private:
+    std::atomic<int> _reads = 0;
 };
 
 class CacheAwareMockFileReader : public MockOffsetFileReader, public io::ExactCacheReader {
@@ -258,6 +276,30 @@ TEST_F(BufferedReaderTest, normal_use) {
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(950, read_length);
     LOG(INFO) << "read bytes " << read_length << " using time " << watch.elapsed_time();
+}
+
+TEST_F(BufferedReaderTest, InMemoryFileReaderLoadsOnceAcrossConcurrentReaders) {
+    constexpr size_t FILE_SIZE = 1024 * 1024;
+    auto source = std::make_shared<CountingOffsetFileReader>(FILE_SIZE);
+    auto reader = std::make_shared<io::InMemoryFileReader>(source);
+    std::array<std::thread, 8> threads;
+    std::array<Status, 8> statuses;
+    std::array<size_t, 8> bytes_read {};
+    std::array<char, 8> values {};
+    for (size_t index = 0; index < threads.size(); ++index) {
+        threads[index] = std::thread([&, index]() {
+            statuses[index] = reader->read_at(index, Slice(&values[index], 1), &bytes_read[index]);
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    for (size_t index = 0; index < statuses.size(); ++index) {
+        EXPECT_TRUE(statuses[index].ok());
+        EXPECT_EQ(bytes_read[index], 1);
+        EXPECT_EQ(static_cast<uint8_t>(values[index]), index % UCHAR_MAX);
+    }
+    EXPECT_EQ(source->reads(), 1);
 }
 
 TEST_F(BufferedReaderTest, test_validity) {

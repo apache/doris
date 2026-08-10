@@ -140,6 +140,7 @@ struct ParquetFileContext {
     // row-group tasks retain the same immutable owner after the parent reader closes.
     const NativeParquetMetadata* native_metadata = nullptr;
     std::shared_ptr<const SharedParquetMetadata> shared_metadata;
+    io::FileReaderSPtr shared_staged_file;
     int64_t native_footer_read_calls = 0;
     int64_t native_footer_cache_hits = 0;
     bool native_page_cache_enabled = false;
@@ -153,6 +154,9 @@ struct ParquetFileContext {
                 bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false);
     void set_shared_metadata(std::shared_ptr<const SharedParquetMetadata> metadata) {
         shared_metadata = std::move(metadata);
+    }
+    void set_shared_staged_file(io::FileReaderSPtr staged_file) {
+        shared_staged_file = std::move(staged_file);
     }
     Status load_native_offset_indexes(
             int row_group_id, const std::unordered_set<int>& leaf_column_ids,

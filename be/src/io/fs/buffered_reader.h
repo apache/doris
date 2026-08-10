@@ -287,8 +287,10 @@ public:
 
     MergeRangeFileReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
                          const std::vector<PrefetchRange>& random_access_ranges,
-                         int64_t merge_read_slice_size = READ_SLICE_SIZE)
+                         int64_t merge_read_slice_size = READ_SLICE_SIZE,
+                         size_t total_buffer_size = TOTAL_BUFFER_SIZE)
             : _profile(profile), _reader(std::move(reader)) {
+        DORIS_CHECK(total_buffer_size >= BOX_SIZE && total_buffer_size % BOX_SIZE == 0);
         // Eager plans can contain PARQUET-816 padding overlaps. Normalize them through the same
         // path as staged ranges so useful-byte accounting always measures a union.
         DORIS_CHECK(add_random_access_ranges(random_access_ranges, 0).ok());
@@ -300,7 +302,8 @@ public:
             exact_cache_candidate = tracing_reader->inner_reader();
         }
         _exact_cache_reader = dynamic_cast<io::ExactCacheReader*>(exact_cache_candidate.get());
-        _remaining = TOTAL_BUFFER_SIZE;
+        _remaining = total_buffer_size;
+        _max_boxes = total_buffer_size / BOX_SIZE;
         _is_oss = typeid_cast<io::S3FileReader*>(_reader.get()) != nullptr;
         _max_amplified_ratio = config::max_amplified_read_ratio;
         // Equivalent min size of each IO that can reach the maximum storage speed limit:
@@ -423,6 +426,7 @@ private:
     size_t _size;
     bool _closed = false;
     size_t _remaining;
+    size_t _max_boxes;
 
     std::unique_ptr<OwnedSlice> _read_slice;
     std::vector<OwnedSlice> _boxes;
@@ -649,6 +653,8 @@ public:
 
     int64_t mtime() const override { return _reader->mtime(); }
 
+    Status load(const IOContext* io_ctx = nullptr);
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
@@ -659,6 +665,7 @@ private:
     Status _close_internal();
     io::FileReaderSPtr _reader;
     std::unique_ptr<char[]> _data;
+    std::mutex _load_mutex;
     size_t _size;
     bool _closed = false;
 };

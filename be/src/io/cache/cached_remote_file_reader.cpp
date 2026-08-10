@@ -2166,13 +2166,17 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                 num_local_io_total++;
                 bytes_read_from_local += source_read_breakdown.local_bytes;
             }
-            if (source_read_breakdown.peer_bytes != 0 || read_stats.from_peer_cache) {
-                num_peer_io_total++;
+            if (source_read_breakdown.peer_bytes != 0 || source_read_breakdown.peer_requests != 0 ||
+                read_stats.from_peer_cache) {
+                // One logical index read can contain several disjoint misses; preserve the
+                // physical RPC count in both the aggregate and specialized profiles.
+                num_peer_io_total += std::max<int64_t>(source_read_breakdown.peer_requests, 1);
                 bytes_read_from_peer += source_read_breakdown.peer_bytes;
                 peer_io_timer += read_stats.peer_read_timer;
             }
-            if (source_read_breakdown.remote_bytes != 0) {
-                num_remote_io_total++;
+            if (source_read_breakdown.remote_bytes != 0 ||
+                source_read_breakdown.remote_requests != 0) {
+                num_remote_io_total += std::max<int64_t>(source_read_breakdown.remote_requests, 1);
                 bytes_read_from_remote += source_read_breakdown.remote_bytes;
                 remote_io_timer += read_stats.remote_read_timer;
             }

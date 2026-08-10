@@ -10269,54 +10269,65 @@ TEST_F(BlockFileCacheTest, file_block_appendv_persists_segmented_payload_to_memo
     EXPECT_EQ(buffer, "abcd");
 }
 
-TEST_F(BlockFileCacheTest, cached_remote_reader_merges_only_contiguous_cache_misses) {
-    const std::string content = "abcdefghijklmnop";
-    const fs::path file_path =
-            create_cached_remote_reader_test_file("contiguous_cache_misses", content);
-    Defer cleanup_file {[&]() {
-        std::error_code ignore;
-        fs::remove(file_path, ignore);
-    }};
+TEST_F(BlockFileCacheTest, cached_remote_reader_counts_disjoint_misses_in_index_profiles) {
+    auto verify_profile = [&](std::string_view suffix, bool inverted_index,
+                              int64_t FileCacheStatistics::*specialized_counter) {
+        const std::string content = "abcdefghijklmnop";
+        const fs::path file_path = create_cached_remote_reader_test_file(
+                fmt::format("disjoint_{}_misses", suffix), content);
+        Defer cleanup_file {[&]() {
+            std::error_code ignore;
+            fs::remove(file_path, ignore);
+        }};
 
-    const fs::path cache_path = caches_dir / "contiguous_cache_misses_cache";
-    clear_cached_remote_reader_factory();
-    Defer cleanup_cache {[&]() {
-        std::error_code ignore;
-        fs::remove_all(cache_path, ignore);
+        const fs::path cache_path = caches_dir / fmt::format("disjoint_{}_misses_cache", suffix);
         clear_cached_remote_reader_factory();
-    }};
-    auto* cache =
-            create_cached_remote_reader_test_cache(cache_path, kCachedRemoteReaderTinyBlockSize);
+        Defer cleanup_cache {[&]() {
+            std::error_code ignore;
+            fs::remove_all(cache_path, ignore);
+            clear_cached_remote_reader_factory();
+        }};
+        auto* cache = create_cached_remote_reader_test_cache(cache_path,
+                                                             kCachedRemoteReaderTinyBlockSize);
 
-    FileReaderSPtr local_reader;
-    ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
-    auto recording_reader = std::make_shared<RecordingFileReader>(local_reader);
-    io::FileReaderOptions opts;
-    opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
-    opts.is_doris_table = false;
-    opts.cache_base_path = cache_path.string();
-    opts.mtime = 1;
-    CachedRemoteFileReader reader(recording_reader, opts);
-    FileCacheStatistics read_stats;
-    IOContext read_ctx;
-    read_ctx.file_cache_stats = &read_stats;
+        FileReaderSPtr local_reader;
+        ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
+        auto recording_reader = std::make_shared<RecordingFileReader>(local_reader);
+        io::FileReaderOptions opts;
+        opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+        opts.is_doris_table = false;
+        opts.cache_base_path = cache_path.string();
+        opts.mtime = 1;
+        CachedRemoteFileReader reader(recording_reader, opts);
+        FileCacheStatistics read_stats;
+        IOContext read_ctx;
+        read_ctx.file_cache_stats = &read_stats;
+        read_ctx.is_inverted_index = inverted_index;
+        read_ctx.is_index_data = !inverted_index;
 
-    ReadStatistics cache_stats;
-    auto context = create_cached_remote_reader_context(&cache_stats);
-    FileBlocksHolder cached_holder = cache->get_or_set(reader._cache_hash, 4, 4, context);
-    auto cached_blocks = fromHolder(cached_holder);
-    ASSERT_EQ(cached_blocks.size(), 1);
-    append_cached_remote_reader_block(cached_blocks[0], content);
+        ReadStatistics cache_stats;
+        auto context = create_cached_remote_reader_context(&cache_stats);
+        FileBlocksHolder cached_holder = cache->get_or_set(reader._cache_hash, 4, 4, context);
+        auto cached_blocks = fromHolder(cached_holder);
+        ASSERT_EQ(cached_blocks.size(), 1);
+        append_cached_remote_reader_block(cached_blocks[0], content);
 
-    std::string buffer(12, '#');
-    size_t bytes_read = 0;
-    ASSERT_TRUE(
-            reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &read_ctx).ok());
-    EXPECT_EQ(buffer, content.substr(0, buffer.size()));
-    ASSERT_EQ(recording_reader->reads().size(), 2);
-    EXPECT_EQ(recording_reader->reads()[0], PrefetchRange(0, 4));
-    EXPECT_EQ(recording_reader->reads()[1], PrefetchRange(8, 16));
-    EXPECT_EQ(read_stats.num_remote_io_total, 2);
+        std::string buffer(12, '#');
+        size_t bytes_read = 0;
+        ASSERT_TRUE(reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &read_ctx)
+                            .ok());
+        EXPECT_EQ(buffer, content.substr(0, buffer.size()));
+        ASSERT_EQ(recording_reader->reads().size(), 2);
+        EXPECT_EQ(recording_reader->reads()[0], PrefetchRange(0, 4));
+        EXPECT_EQ(recording_reader->reads()[1], PrefetchRange(8, 16));
+        EXPECT_EQ(read_stats.num_remote_io_total, 2);
+        EXPECT_EQ(read_stats.*specialized_counter, 2);
+    };
+
+    verify_profile("inverted_index", true,
+                   &FileCacheStatistics::inverted_index_num_remote_io_total);
+    verify_profile("footer_index", false,
+                   &FileCacheStatistics::segment_footer_index_num_remote_io_total);
 }
 
 TEST_F(BlockFileCacheTest,

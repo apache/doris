@@ -122,5 +122,22 @@ TEST(ParquetPageCacheRangeTest, DeferredMergeRangesRetainPredicateAndLazyColumns
     EXPECT_EQ(columns[1].column_id(), format::LocalColumnId(2));
 }
 
+TEST(ParquetPageCacheRangeTest, RevisitedPredicateRootNeedsIndependentMergeRangeReaders) {
+    format::FileScanRequest request;
+    format::FileScanRequestBuilder builder(&request);
+    ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(builder.add_deferred_non_predicate_column(
+                               format::LocalColumnIndex::top_level(format::LocalColumnId(1)))
+                        .ok());
+
+    EXPECT_TRUE(detail::needs_independent_merge_range_readers(request));
+
+    format::FileScanRequest disjoint_request;
+    format::FileScanRequestBuilder disjoint_builder(&disjoint_request);
+    ASSERT_TRUE(disjoint_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(disjoint_builder.add_non_predicate_column(format::LocalColumnId(2)).ok());
+    EXPECT_FALSE(detail::needs_independent_merge_range_readers(disjoint_request));
+}
+
 } // namespace
 } // namespace doris::format::parquet

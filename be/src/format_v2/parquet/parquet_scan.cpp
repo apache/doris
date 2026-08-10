@@ -528,6 +528,10 @@ std::vector<format::LocalColumnIndex> deferred_merge_range_columns(
     return request_scan_columns(request);
 }
 
+bool needs_independent_merge_range_readers(const format::FileScanRequest& request) {
+    return !request.non_predicate_positions.empty();
+}
+
 Status build_native_prefetch_ranges(
         const tparquet::FileMetaData& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -1267,24 +1271,38 @@ void ParquetScanScheduler::reset_current_row_group() {
     _current_predicate_prefetched = false;
     _current_non_predicate_prefetched = false;
     _current_merge_range_active = false;
-    _current_merge_range_reader = nullptr;
-    _current_merge_ranges_by_column.clear();
-    _activated_merge_range_columns.clear();
-    _current_merge_range_stage = 0;
+    _current_independent_merge_range_readers = false;
+    auto reset_merge_range_state = [](StagedMergeRangeState* state) {
+        if (state->file != nullptr) {
+            state->file->collect_profile_before_close();
+        }
+        state->file.reset();
+        state->reader = nullptr;
+        state->ranges_by_column.clear();
+        state->activated_columns.clear();
+        state->stage = 0;
+    };
+    reset_merge_range_state(&_current_shared_merge_range);
+    reset_merge_range_state(&_current_predicate_merge_range);
+    reset_merge_range_state(&_current_output_merge_range);
 }
 
 Status ParquetScanScheduler::activate_merge_ranges_for_columns(
-        const std::vector<format::LocalColumnId>& column_ids) {
-    if (_current_merge_range_reader == nullptr) {
+        const std::vector<format::LocalColumnId>& column_ids, bool output_columns) {
+    auto* state = &_current_shared_merge_range;
+    if (_current_independent_merge_range_readers) {
+        state = output_columns ? &_current_output_merge_range : &_current_predicate_merge_range;
+    }
+    if (state->reader == nullptr) {
         return Status::OK();
     }
     std::vector<io::PrefetchRange> ranges;
     for (const auto column_id : column_ids) {
-        if (!_activated_merge_range_columns.emplace(column_id).second) {
+        if (!state->activated_columns.emplace(column_id).second) {
             continue;
         }
-        const auto it = _current_merge_ranges_by_column.find(column_id);
-        if (it == _current_merge_ranges_by_column.end()) {
+        const auto it = state->ranges_by_column.find(column_id);
+        if (it == state->ranges_by_column.end()) {
             continue;
         }
         for (const auto& [start, end] : it->second) {
@@ -1294,8 +1312,15 @@ Status ParquetScanScheduler::activate_merge_ranges_for_columns(
     if (ranges.empty()) {
         return Status::OK();
     }
-    return _current_merge_range_reader->add_random_access_ranges(ranges,
-                                                                 _current_merge_range_stage++);
+    return state->reader->add_random_access_ranges(ranges, state->stage++);
+}
+
+bool ParquetScanScheduler::has_staged_merge_range_reader(bool output_columns) const {
+    if (_current_independent_merge_range_readers) {
+        return (output_columns ? _current_output_merge_range.reader
+                               : _current_predicate_merge_range.reader) != nullptr;
+    }
+    return _current_shared_merge_range.reader != nullptr;
 }
 
 void ParquetScanScheduler::flush_current_reader_profiles() {
@@ -1520,10 +1545,8 @@ Status ParquetScanScheduler::open_next_row_group(
     RETURN_IF_ERROR(prepare_current_dictionary_filters(file_context, file_schema, request,
                                                        row_group_request.predicate_columns,
                                                        row_group_idx, row_group_metadata));
-    // Dictionary probing is complete, so the native data-page readers can now share the same
-    // row-group-scoped MergeRangeFileReader policy as v1. Sharing one wrapper is important: a
-    // separate merge reader per leaf would duplicate its 128MB scratch capacity and defeat lazy
-    // materialization for wide schemas.
+    // Dictionary probing is complete, so native data-page readers can establish their row-group
+    // merge plans before constructing column readers.
     const auto& thrift_metadata = file_context.native_metadata->to_thrift();
     const auto compat = native::parquet_reader_compat(
             thrift_metadata.__isset.created_by ? thrift_metadata.created_by : std::string {});
@@ -1535,34 +1558,92 @@ Status ParquetScanScheduler::open_next_row_group(
     // stage only adds small reads. Remote readers can avoid future-stage IO, and exact cache hits
     // can bypass their merge path altogether.
     const bool defer_merge_ranges = file_context.native_file_should_defer_merge_ranges();
-    if (request.non_predicate_positions.empty()) {
+    _current_independent_merge_range_readers =
+            detail::needs_independent_merge_range_readers(request);
+    if (!_current_independent_merge_range_readers) {
         _current_merge_range_active = file_context.set_native_random_access_ranges(
                 native_ranges, detail::average_prefetch_range_size(native_ranges), _profile,
                 _merge_read_slice_size, !defer_merge_ranges);
     } else {
-        // Independent predicate/output readers may revisit the same physical leaf at different
-        // cursors. MergeRangeFileReader has one consumptive cache per range, so use the random
-        // access reader for this layout instead of sharing one sequential range cache.
-        _current_merge_range_active = file_context.set_native_random_access_ranges(
-                {}, 0, _profile, _merge_read_slice_size);
-    }
-    if (_current_merge_range_active && defer_merge_ranges) {
-        _current_merge_range_reader =
-                typeid_cast<io::MergeRangeFileReader*>(file_context.native_data_file().get());
-        DORIS_CHECK(_current_merge_range_reader != nullptr);
-        for (const auto& column : detail::deferred_merge_range_columns(request)) {
-            std::vector<ParquetPageCacheRange> column_ranges;
-            RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
-                    thrift_metadata, file_schema, {column}, row_group_idx,
-                    file_context.native_file->size(), compat.parquet_816_padding, &column_ranges));
-            auto& stored_ranges = _current_merge_ranges_by_column[column.column_id()];
-            stored_ranges.reserve(column_ranges.size());
-            for (const auto& range : detail::valid_prefetch_ranges(column_ranges)) {
-                stored_ranges.emplace_back(cast_set<size_t>(range.offset),
-                                           cast_set<size_t>(range.end_offset()));
-            }
+        _current_merge_range_active = detail::should_use_merge_range_reader(
+                native_ranges, detail::average_prefetch_range_size(native_ranges),
+                typeid_cast<io::InMemoryFileReader*>(file_context.native_file.get()) != nullptr);
+        if (_current_merge_range_active) {
+            auto build_independent_reader =
+                    [&](const std::vector<format::LocalColumnIndex>& columns,
+                        StagedMergeRangeState* state) -> Status {
+                std::vector<ParquetPageCacheRange> ranges;
+                RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
+                        thrift_metadata, file_schema, columns, row_group_idx,
+                        file_context.native_file->size(), compat.parquet_816_padding, &ranges));
+                std::vector<io::PrefetchRange> prefetch_ranges;
+                for (const auto& range : detail::valid_prefetch_ranges(ranges)) {
+                    prefetch_ranges.emplace_back(cast_set<size_t>(range.offset),
+                                                 cast_set<size_t>(range.end_offset()));
+                }
+                std::ranges::sort(prefetch_ranges, {}, &io::PrefetchRange::start_offset);
+                if (prefetch_ranges.empty()) {
+                    return Status::OK();
+                }
+                const auto initial_ranges =
+                        defer_merge_ranges ? std::vector<io::PrefetchRange> {} : prefetch_ranges;
+                // Two cursors are required when a nested root is revisited for deferred output.
+                // Split the original scratch budget so correctness does not double scanner memory.
+                state->file = std::make_shared<io::MergeRangeFileReader>(
+                        _profile, file_context.native_file, initial_ranges, _merge_read_slice_size,
+                        io::MergeRangeFileReader::TOTAL_BUFFER_SIZE / 2);
+                state->reader = typeid_cast<io::MergeRangeFileReader*>(state->file.get());
+                DORIS_CHECK(state->reader != nullptr);
+                return Status::OK();
+            };
+            RETURN_IF_ERROR(build_independent_reader(request.predicate_columns,
+                                                     &_current_predicate_merge_range));
+            RETURN_IF_ERROR(build_independent_reader(physical_non_predicate_columns(request),
+                                                     &_current_output_merge_range));
         }
     }
+    if (_current_merge_range_active && defer_merge_ranges) {
+        if (!_current_independent_merge_range_readers) {
+            _current_shared_merge_range.reader =
+                    typeid_cast<io::MergeRangeFileReader*>(file_context.native_data_file().get());
+            DORIS_CHECK(_current_shared_merge_range.reader != nullptr);
+        }
+        auto store_column_ranges = [&](const std::vector<format::LocalColumnIndex>& columns,
+                                       StagedMergeRangeState* state) -> Status {
+            for (const auto& column : columns) {
+                std::vector<ParquetPageCacheRange> column_ranges;
+                RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
+                        thrift_metadata, file_schema, {column}, row_group_idx,
+                        file_context.native_file->size(), compat.parquet_816_padding,
+                        &column_ranges));
+                auto& stored_ranges = state->ranges_by_column[column.column_id()];
+                stored_ranges.reserve(stored_ranges.size() + column_ranges.size());
+                for (const auto& range : detail::valid_prefetch_ranges(column_ranges)) {
+                    stored_ranges.emplace_back(cast_set<size_t>(range.offset),
+                                               cast_set<size_t>(range.end_offset()));
+                }
+            }
+            return Status::OK();
+        };
+        if (_current_independent_merge_range_readers) {
+            RETURN_IF_ERROR(store_column_ranges(request.predicate_columns,
+                                                &_current_predicate_merge_range));
+            RETURN_IF_ERROR(store_column_ranges(physical_non_predicate_columns(request),
+                                                &_current_output_merge_range));
+        } else {
+            RETURN_IF_ERROR(store_column_ranges(detail::deferred_merge_range_columns(request),
+                                                &_current_shared_merge_range));
+        }
+    }
+
+    const auto predicate_data_file = _current_independent_merge_range_readers &&
+                                                     _current_predicate_merge_range.file != nullptr
+                                             ? _current_predicate_merge_range.file
+                                             : file_context.native_data_file();
+    const auto output_data_file =
+            _current_independent_merge_range_readers && _current_output_merge_range.file != nullptr
+                    ? _current_output_merge_range.file
+                    : file_context.native_data_file();
 
     for (const auto& col : row_group_request.predicate_columns) {
         const auto local_id = col.column_id();
@@ -1588,7 +1669,7 @@ Status ParquetScanScheduler::open_next_row_group(
         DORIS_CHECK(column_schema != nullptr);
         std::unique_ptr<ParquetColumnReader> column_reader;
         RETURN_IF_ERROR(NativeColumnReader::create(
-                *column_schema, &col, file_context.native_data_file(), file_context.native_metadata,
+                *column_schema, &col, predicate_data_file, file_context.native_metadata,
                 row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
                 file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
                 file_context.native_page_cache_file_key,
@@ -1628,8 +1709,8 @@ Status ParquetScanScheduler::open_next_row_group(
         DORIS_CHECK(column_schema != nullptr);
         std::unique_ptr<ParquetColumnReader> column_reader;
         RETURN_IF_ERROR(NativeColumnReader::create(
-                *column_schema, &col, file_context.native_data_file(), file_context.native_metadata,
-                row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
+                *column_schema, &col, output_data_file, file_context.native_metadata, row_group_idx,
+                _current_selected_ranges, _current_offset_indexes, _timezone,
                 file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
                 file_context.native_page_cache_file_key, false, _scan_profile.column_reader_profile,
                 &column_reader));
@@ -2649,7 +2730,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
     };
 
     auto read_all_predicate_columns = [&]() -> Status {
-        if (_current_merge_range_reader != nullptr) {
+        if (has_staged_merge_range_reader(false)) {
             std::vector<format::LocalColumnId> stage_columns;
             stage_columns.reserve(_current_predicate_columns.size());
             for (const auto& fid : _current_predicate_columns | std::views::keys) {
@@ -2703,7 +2784,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             const size_t idx = _predicate_indices_by_position_scratch.at(position);
             const auto& col = request.predicate_columns[idx];
             const auto fid = col.column_id();
-            if (_current_merge_range_reader != nullptr) {
+            if (has_staged_merge_range_reader(false)) {
                 RETURN_IF_ERROR(activate_merge_ranges_for_columns({fid}));
             }
             auto reader_it = _current_predicate_columns.find(fid);
@@ -2766,7 +2847,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
     };
 
     auto materialize_predicate_positions = [&](const std::vector<size_t>& positions) -> Status {
-        if (_current_merge_range_reader != nullptr) {
+        if (has_staged_merge_range_reader(false)) {
             std::vector<format::LocalColumnId> stage_columns;
             stage_columns.reserve(positions.size());
             for (const size_t position : positions) {
@@ -2807,7 +2888,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             }
             const auto reader_it = _current_predicate_columns.find(col.column_id());
             DORIS_CHECK(reader_it != _current_predicate_columns.end());
-            if (_current_merge_range_reader != nullptr) {
+            if (has_staged_merge_range_reader(false)) {
                 // A zero-survivor predicate can bypass the normal activation point, but physical
                 // skip still reads page headers and must retain the planned merged IO range.
                 RETURN_IF_ERROR(activate_merge_ranges_for_columns({col.column_id()}));
@@ -3021,7 +3102,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
                 file_context, file_schema, physical_non_predicate_columns(physical_request),
                 &_current_non_predicate_prefetched));
     }
-    if (_current_merge_range_reader != nullptr && selected_rows > 0) {
+    if (has_staged_merge_range_reader(true) && selected_rows > 0) {
         std::vector<format::LocalColumnId> lazy_columns;
         lazy_columns.reserve(_current_non_predicate_columns.size());
         for (const auto& fid : _current_non_predicate_columns | std::views::keys) {
@@ -3030,7 +3111,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
         // Deferred remote ranges are intentionally absent while predicates reject rows. Activate
         // every surviving output column at the exact lazy-materialization boundary so its page
         // reads do not silently fall back to many direct remote requests.
-        RETURN_IF_ERROR(activate_merge_ranges_for_columns(lazy_columns));
+        RETURN_IF_ERROR(activate_merge_ranges_for_columns(lazy_columns, true));
     }
 
     if (selected_rows > _batch_size) {
@@ -3124,13 +3205,13 @@ Status ParquetScanScheduler::materialize_pending_predicate_batch(
         file_block->replace_by_position(
                 block_position, column->cut(_pending_predicate_selected_offset, output_rows));
     }
-    if (_current_merge_range_reader != nullptr) {
+    if (has_staged_merge_range_reader(true)) {
         std::vector<format::LocalColumnId> lazy_columns;
         lazy_columns.reserve(_current_non_predicate_columns.size());
         for (const auto& fid : _current_non_predicate_columns | std::views::keys) {
             lazy_columns.push_back(fid);
         }
-        RETURN_IF_ERROR(activate_merge_ranges_for_columns(lazy_columns));
+        RETURN_IF_ERROR(activate_merge_ranges_for_columns(lazy_columns, true));
     }
     {
         SCOPED_TIMER(_scan_profile.column_read_time);

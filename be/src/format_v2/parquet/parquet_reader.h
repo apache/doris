@@ -37,10 +37,12 @@ namespace doris::format::parquet {
 struct ParquetReaderScanState;
 
 struct ParquetFileSplitContext final : FileScanSplitContext {
-    explicit ParquetFileSplitContext(std::shared_ptr<const SharedParquetMetadata> metadata_)
-            : metadata(std::move(metadata_)) {}
+    explicit ParquetFileSplitContext(std::shared_ptr<const SharedParquetMetadata> metadata_,
+                                     io::FileReaderSPtr staged_file_ = nullptr)
+            : metadata(std::move(metadata_)), staged_file(std::move(staged_file_)) {}
 
     std::shared_ptr<const SharedParquetMetadata> metadata;
+    io::FileReaderSPtr staged_file;
 };
 // ============================================================================
 // ============================================================================

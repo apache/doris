@@ -472,7 +472,7 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
             }
         }
         // apply for new box to copy data
-        while (copy_start < range_copy_end && _boxes.size() < NUM_BOX) {
+        while (copy_start < range_copy_end && _boxes.size() < _max_boxes) {
             _boxes.emplace_back(BOX_SIZE);
             _box_ref.emplace_back(0);
             fill_box(cast_set<int16_t>(_boxes.size()) - 1, 0, range_copy_end);
@@ -894,18 +894,29 @@ Status InMemoryFileReader::_close_internal() {
 
 Status InMemoryFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                         const IOContext* io_ctx) {
-    if (_data == nullptr) {
-        _data = std::make_unique_for_overwrite<char[]>(_size);
-
-        size_t file_size = 0;
-        RETURN_IF_ERROR(_reader->read_at(0, Slice(_data.get(), _size), &file_size, io_ctx));
-        DCHECK_EQ(file_size, _size);
-    }
+    RETURN_IF_ERROR(load(io_ctx));
     if (UNLIKELY(offset > _size)) {
         return Status::IOError("Out of bounds access");
     }
     *bytes_read = std::min(result.size, _size - offset);
     memcpy(result.data, _data.get() + offset, *bytes_read);
+    return Status::OK();
+}
+
+Status InMemoryFileReader::load(const IOContext* io_ctx) {
+    std::lock_guard lock(_load_mutex);
+    if (_data == nullptr) {
+        auto data = std::make_unique_for_overwrite<char[]>(_size);
+        size_t file_size = 0;
+        RETURN_IF_ERROR(_reader->read_at(0, Slice(data.get(), _size), &file_size, io_ctx));
+        if (file_size != _size) {
+            return Status::IOError("Short in-memory file read: expected {}, got {}", _size,
+                                   file_size);
+        }
+        // Publish the buffer only after a complete load so concurrent child scanners cannot
+        // observe partial bytes or suppress a retry after a failed HTTP request.
+        _data = std::move(data);
+    }
     return Status::OK();
 }
 

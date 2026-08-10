@@ -162,7 +162,7 @@ rows, at least 10% NULLs, and materially fragmented definition-level runs.
 
 `ParquetSelection` contains 25 cases that isolate the selection-vector work used by Parquet
 predicate evaluation. It measures identity initialization, one raw-row filter, and two successive
-filters. The filter matrix covers 0%, 1%, 5%, 10%, 50%, 90%, and 100% selectivity with clustered and
+filters. The filter matrix covers 0%, 1%, 10%, 50%, 90%, and 100% selectivity with clustered and
 alternating matches. These cases include `SelectionVector::resize()` in the timed region because
 initializing a new batch is part of the production predicate path.
 
@@ -180,7 +180,7 @@ deduplication it contains 167 cases covering:
 - file encodings: PLAIN, dictionary, BYTE_STREAM_SPLIT, and DELTA_BINARY_PACKED;
 - null ratios: 0%, 1%, 10%, 50%, and 90%;
 - null shapes: clustered and alternating;
-- predicate selectivities: 0%, 1%, 5%, 10%, 50%, 90%, and 100%;
+- predicate selectivities: 0%, 1%, 10%, 50%, 90%, and 100%;
 - projection shapes: predicate-only and predicate plus one lazy payload column;
 - schema widths: 4, 32, 128, and 512 columns;
 - predicate position: first or last column.

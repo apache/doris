@@ -27,6 +27,7 @@
 #include <parquet/page_index.h>
 
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -1720,6 +1721,36 @@ public:
     long io_context_use_count() const { return _io_ctx.use_count(); }
 };
 
+class CountingHttpFileReader final : public io::FileReader {
+public:
+    CountingHttpFileReader(io::FileReaderSPtr delegate, std::shared_ptr<std::atomic<int>> reads)
+            : _delegate(std::move(delegate)),
+              _reads(std::move(reads)),
+              _path("http://example.test/data.parquet") {}
+
+    Status close() override {
+        _closed = true;
+        return Status::OK();
+    }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return _delegate->size(); }
+    bool closed() const override { return _closed; }
+    int64_t mtime() const override { return _delegate->mtime(); }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        ++*_reads;
+        return _delegate->read_at(offset, result, bytes_read, io_ctx);
+    }
+
+private:
+    io::FileReaderSPtr _delegate;
+    std::shared_ptr<std::atomic<int>> _reads;
+    io::Path _path;
+    bool _closed = false;
+};
+
 TEST(FileReaderTest, OpenStoresRequestAndCloseKeepsRequest) {
     auto system_properties = std::make_shared<io::FileSystemProperties>();
     system_properties->system_type = TFileType::FILE_LOCAL;
@@ -3406,6 +3437,43 @@ TEST_F(NewParquetReaderTest, FileParentBuildsRowGroupTasksWithSharedFooterMetada
         ASSERT_TRUE(child_reader->close().ok());
     }
     EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 3, 4, 5}));
+}
+
+TEST_F(NewParquetReaderTest, SmallHttpFileParentSharesOneStagedObjectWithChildren) {
+    write_parquet_file(_file_path, 2);
+    auto make_source = [&](const std::shared_ptr<std::atomic<int>>& reads) {
+        io::FileReaderSPtr local_reader;
+        EXPECT_TRUE(io::global_local_filesystem()->open_file(_file_path, &local_reader).ok());
+        return std::make_shared<CountingHttpFileReader>(std::move(local_reader), reads);
+    };
+
+    io::FileDescription description;
+    description.path = "http://example.test/data.parquet";
+    description.file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+    description.is_immutable = true;
+
+    auto parent_reads = std::make_shared<std::atomic<int>>(0);
+    format::parquet::ParquetFileContext parent;
+    ASSERT_TRUE(parent.open(make_source(parent_reads), nullptr, false, description).ok());
+    EXPECT_EQ(*parent_reads, 1);
+    auto split_context = std::make_shared<format::parquet::ParquetFileSplitContext>(
+            parent.shared_metadata, parent.native_file);
+    ASSERT_TRUE(parent.close().ok());
+
+    for (int child_index = 0; child_index < 3; ++child_index) {
+        auto child_reads = std::make_shared<std::atomic<int>>(0);
+        format::parquet::ParquetFileContext child;
+        child.set_shared_metadata(split_context->metadata);
+        child.set_shared_staged_file(split_context->staged_file);
+        ASSERT_TRUE(child.open(make_source(child_reads), nullptr, false, description).ok());
+        char byte = 0;
+        size_t bytes_read = 0;
+        ASSERT_TRUE(child.native_file->read_at(0, Slice(&byte, 1), &bytes_read).ok());
+        EXPECT_EQ(bytes_read, 1);
+        EXPECT_EQ(*child_reads, 0);
+        ASSERT_TRUE(child.close().ok());
+    }
+    EXPECT_EQ(*parent_reads, 1);
 }
 
 TEST_F(NewParquetReaderTest, UnknownMtimeSkipsPageCacheForMutableFile) {

@@ -41,6 +41,7 @@
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/count_column_reader.h"
+#include "io/fs/buffered_reader.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 
@@ -532,6 +533,7 @@ Status ParquetReader::init(RuntimeState* state) {
             return Status::InvalidArgument("Invalid Parquet child split context");
         }
         _state->file_context.set_shared_metadata(parquet_context->metadata);
+        _state->file_context.set_shared_staged_file(parquet_context->staged_file);
     }
     // Opening the file parses the footer before any row group can be scheduled. Keep this timer
     // around the whole operation so footer/cache latency cannot disappear from a slow profile.
@@ -582,7 +584,18 @@ Status ParquetReader::build_split_tasks(const TFileRangeDesc& parent,
     std::vector<ParquetScanRange> split_ranges;
     RETURN_IF_ERROR(
             detail::build_native_row_group_split_ranges(metadata, file_size, &split_ranges));
-    auto context = std::make_shared<ParquetFileSplitContext>(_state->file_context.shared_metadata);
+    io::FileReaderSPtr staged_file;
+    if (!split_ranges.empty()) {
+        if (auto in_memory_file = std::dynamic_pointer_cast<io::InMemoryFileReader>(
+                    _state->file_context.native_file)) {
+            // A footer-cache hit may not touch the HTTP object. Force the single parent-owned load
+            // before publishing it to concurrent row-group scanners.
+            RETURN_IF_ERROR(in_memory_file->load(_io_ctx.get()));
+            staged_file = std::move(in_memory_file);
+        }
+    }
+    auto context = std::make_shared<ParquetFileSplitContext>(_state->file_context.shared_metadata,
+                                                             std::move(staged_file));
     auto shared_parent = std::make_shared<const TFileRangeDesc>(parent);
     children->reserve(split_ranges.size());
     for (const auto& split_range : split_ranges) {

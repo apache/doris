@@ -274,9 +274,11 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
                                 bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary) {
     DORIS_CHECK(input_file_reader != nullptr);
     contains_variant = false;
-    if (detail::should_stage_small_http_file(input_file_reader->path().native(),
-                                             input_file_reader->size(),
-                                             config::in_memory_file_size)) {
+    if (shared_staged_file != nullptr) {
+        native_file = shared_staged_file;
+    } else if (detail::should_stage_small_http_file(input_file_reader->path().native(),
+                                                    input_file_reader->size(),
+                                                    config::in_memory_file_size)) {
         // A metadata-cache hit can make the first physical read start inside a tiny HTTP file.
         // Read it from byte zero once so EOF-range quirks cannot make warm scans less reliable
         // than cold scans, while keeping this compatibility policy entirely inside v2.
@@ -616,6 +618,7 @@ Status ParquetFileContext::close() {
     native_row_group_file.reset();
     native_metadata = nullptr;
     shared_metadata.reset();
+    shared_staged_file.reset();
     native_file.reset();
     native_io_ctx = nullptr;
     native_page_cache_enabled = false;

@@ -110,6 +110,7 @@ Status build_native_row_group_split_ranges(const tparquet::FileMetaData& metadat
                                            std::vector<ParquetScanRange>* ranges);
 std::vector<format::LocalColumnIndex> deferred_merge_range_columns(
         const format::FileScanRequest& request);
+bool needs_independent_merge_range_readers(const format::FileScanRequest& request);
 Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& metadata,
                                               const ParquetScanRange& scan_range,
                                               std::vector<int64_t>* row_group_first_rows,
@@ -260,7 +261,9 @@ private:
 
     Status skip_current_row_group_rows(int64_t rows);
     Status flush_pending_non_predicate_skip_rows();
-    Status activate_merge_ranges_for_columns(const std::vector<format::LocalColumnId>& column_ids);
+    Status activate_merge_ranges_for_columns(const std::vector<format::LocalColumnId>& column_ids,
+                                             bool output_columns = false);
+    bool has_staged_merge_range_reader(bool output_columns) const;
 
     Status read_filter_columns(int64_t batch_rows, const format::FileScanRequest& request,
                                Block* file_block, SelectionVector* selection,
@@ -334,12 +337,18 @@ private:
 
     bool _current_predicate_prefetched = false;
     bool _current_non_predicate_prefetched = false;
+    struct StagedMergeRangeState {
+        io::FileReaderSPtr file;
+        io::MergeRangeFileReader* reader = nullptr;
+        std::map<format::LocalColumnId, std::vector<std::pair<size_t, size_t>>> ranges_by_column;
+        std::set<format::LocalColumnId> activated_columns;
+        uint32_t stage = 0;
+    };
     bool _current_merge_range_active = false;
-    io::MergeRangeFileReader* _current_merge_range_reader = nullptr;
-    std::map<format::LocalColumnId, std::vector<std::pair<size_t, size_t>>>
-            _current_merge_ranges_by_column;
-    std::set<format::LocalColumnId> _activated_merge_range_columns;
-    uint32_t _current_merge_range_stage = 0;
+    bool _current_independent_merge_range_readers = false;
+    StagedMergeRangeState _current_shared_merge_range;
+    StagedMergeRangeState _current_predicate_merge_range;
+    StagedMergeRangeState _current_output_merge_range;
     ParquetPageSkipProfile _page_skip_profile;
     ParquetScanProfile _scan_profile;
     const ParquetProfile* _parquet_profile = nullptr;
