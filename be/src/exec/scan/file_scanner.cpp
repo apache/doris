@@ -766,12 +766,10 @@ Status FileScanner::_convert_to_output_block(Block* block) {
     auto filter_column = ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
 
-    // After convert, the column_ptr should be copied into output block.
-    // Can not use block->insert() because it may cause use_count() non-zero bug
     auto scoped_mutable_output_block =
             VectorizedUtils::build_scoped_mutable_mem_reuse_block(block, *_dest_row_desc);
-    auto& mutable_output_block = scoped_mutable_output_block.mutable_block();
-    auto& mutable_output_columns = mutable_output_block.mutable_columns();
+    auto& mutable_output_columns = scoped_mutable_output_block.mutable_columns();
+    Columns output_columns(mutable_output_columns.size());
 
     std::vector<BitmapValue>* skip_bitmaps {nullptr};
     MutableColumnPtr skip_bitmap_column;
@@ -859,12 +857,27 @@ Status FileScanner::_convert_to_output_block(Block* block) {
         } else if (slot_desc->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
         }
-        mutable_output_columns[j]->insert_range_from(*column_ptr, 0, rows);
+        DORIS_CHECK_EQ(column_ptr->size(), rows);
+        if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+            DORIS_CHECK_EQ(ctx->root()->data_type()->get_primitive_type(),
+                           PrimitiveType::TYPE_VARIANT);
+            // CAST to Variant may produce a scalar Variant expression result. Insert it into the
+            // destination Variant column to normalize its internal structure before publication.
+            mutable_output_columns[j]->insert_range_from(*column_ptr, 0, rows);
+        } else {
+            output_columns[j] = std::move(column_ptr);
+        }
         ctx_idx++;
     }
     scoped_mutable_output_block.restore();
+    for (size_t i = 0; i < output_columns.size(); ++i) {
+        if (output_columns[i]) {
+            block->replace_by_position(i, std::move(output_columns[i]));
+        }
+    }
 
-    // after do the dest block insert operation, clear _src_block to remove the reference of origin column
+    // Clear the source references before filtering so directly published columns can become
+    // exclusive.
     _src_block_ptr->clear();
 
     size_t dest_size = block->columns();

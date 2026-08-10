@@ -369,7 +369,8 @@ Status VectorizedIfExpr::execute_for_null_condition(Block& block, const ColumnNu
     handled = false;
 
     if (cond_is_null) {
-        block.replace_by_position(result, arg_else.column->clone_resized(arg_cond.column->size()));
+        DCHECK_EQ(arg_else.column->size(), arg_cond.column->size());
+        block.replace_by_position(result, arg_else.column);
         handled = true;
         return Status::OK();
     }

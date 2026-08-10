@@ -260,20 +260,19 @@ Status SchemaScanOperatorX::get_block_impl(RuntimeState* state, Block* block, bo
         if (src_block.rows()) {
             // block->check_number_of_rows();
             for (int i = 0; i < _slot_num; ++i) {
-                MutableColumnPtr column_ptr =
-                        IColumn::mutate(std::move(block->get_by_position(i).column));
+                const auto& output_column = block->get_by_position(i).column;
                 ColumnPtr src_column = src_block.safe_get_by_position(_slot_offsets[i])
                                                .column->convert_to_full_column_if_const();
-                if (is_column_nullable(*column_ptr) && !is_column_nullable(*src_column)) {
+                if (is_column_nullable(*output_column) && !is_column_nullable(*src_column)) {
                     src_column = make_nullable(src_column);
                 }
-                DORIS_CHECK(is_column_nullable(*column_ptr) == is_column_nullable(*src_column));
-                column_ptr->insert_range_from(*src_column, 0, src_block.rows());
-                block->replace_by_position(i, std::move(column_ptr));
+                DORIS_CHECK_EQ(src_column->size(), src_block.rows());
+                DORIS_CHECK_EQ(output_column->get_name(), src_column->get_name());
+                block->replace_by_position(i, std::move(src_column));
             }
             DCHECK_EQ(block->columns(), _dest_tuple_desc->slots().size());
-            RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
             src_block.clear();
+            RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
         }
     } while (block->rows() == 0 && !*eos);
 

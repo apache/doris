@@ -110,7 +110,7 @@ Status MultiCastDataStreamerSourceOperatorX::get_block_impl(RuntimeState* state,
     if (!local_state._output_expr_contexts.empty() && output_block->rows() > 0) {
         SCOPED_TIMER(local_state._materialize_data_timer);
         RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(
-                local_state._output_expr_contexts, *output_block, block, true));
+                local_state._output_expr_contexts, *output_block, block));
         materialize_block_inplace(*block);
     }
     return Status::OK();
