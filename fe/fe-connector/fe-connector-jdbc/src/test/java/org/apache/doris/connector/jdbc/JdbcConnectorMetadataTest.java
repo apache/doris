@@ -113,11 +113,11 @@ class JdbcConnectorMetadataTest {
     /** Live per-statement scope (map-backed) so resolveInStatement memoizes within the statement. */
     private static ConnectorStatementScope liveScope() {
         return new ConnectorStatementScope() {
-            private final Map<Object, Object> arena = new HashMap<>();
+            private final Map<String, Object> arena = new HashMap<>();
 
             @Override
             @SuppressWarnings("unchecked")
-            public <T> T computeIfAbsent(Object key, Supplier<T> loader) {
+            public <T> T computeIfAbsent(String key, Supplier<T> loader) {
                 return (T) arena.computeIfAbsent(key, k -> loader.get());
             }
         };

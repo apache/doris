@@ -146,12 +146,12 @@ public class ConnectorStatementScopesTest {
 
     /** A statement scope that memoizes like the engine's real one and records the last key, for the assertions. */
     private static final class RecordingMemoScope implements ConnectorStatementScope {
-        private final ConcurrentHashMap<Object, Object> cache = new ConcurrentHashMap<>();
-        private Object lastKey;
+        private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+        private String lastKey;
 
         @Override
         @SuppressWarnings("unchecked")
-        public <T> T computeIfAbsent(Object key, Supplier<T> loader) {
+        public <T> T computeIfAbsent(String key, Supplier<T> loader) {
             lastKey = key;
             return (T) cache.computeIfAbsent(key, k -> loader.get());
         }
