@@ -18,7 +18,10 @@
 package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.hadoop.hive.common.FileUtils;
 
@@ -30,7 +33,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Function;
 
 /**
@@ -46,7 +48,7 @@ import java.util.function.Function;
  * legacy after the cutover. Because the {@code HmsClient} is also held by the hudi/iceberg siblings from
  * this same module, the decorator is reusable by them later.</p>
  *
- * <p><b>What it caches (4 methods)</b>, each on its own {@link MetaCacheEntry} configured from catalog
+ * <p><b>What it caches (4 methods)</b>, each on its own framework cache configured from catalog
  * properties {@code meta.cache.hive.<entry>.(enable|ttl-second|capacity)} (defaults mirror the legacy
  * fe-core {@code Config} values — the connector is {@code Config}-free):</p>
  * <ul>
@@ -111,32 +113,40 @@ public class CachingHmsClient implements HmsClient {
     static final long DEFAULT_PARTITION_NAMES_CAPACITY = 10000L;
     static final long DEFAULT_PARTITION_CAPACITY = 100000L;
     static final long DEFAULT_COLUMN_STATS_CAPACITY = 10000L;
-
     private final HmsClient delegate;
-    private final MetaCacheEntry<TableKey, HmsTableInfo> tableCache;
-    private final MetaCacheEntry<PartitionNamesKey, List<String>> partitionNamesCache;
-    private final MetaCacheEntry<PartitionKey, HmsPartitionInfo> partitionsCache;
-    private final MetaCacheEntry<ColumnStatsKey, List<HmsColumnStatistics>> columnStatsCache;
+    private final CatalogMetaCache owner;
+    private final MetaCache<TableKey, HmsTableInfo> tableCache;
+    private final MetaCache<PartitionNamesKey, List<String>> partitionNamesCache;
+    private final MetaCache<PartitionKey, HmsPartitionInfo> partitionsCache;
+    private final MetaCache<ColumnStatsKey, List<HmsColumnStatistics>> columnStatsCache;
 
     public CachingHmsClient(HmsClient delegate, Map<String, String> properties) {
+        this(new CatalogMetaCache(), delegate, properties);
+    }
+
+    public CachingHmsClient(CatalogMetaCache owner, HmsClient delegate, Map<String, String> properties) {
+        this.owner = Objects.requireNonNull(owner, "owner can not be null");
         this.delegate = Objects.requireNonNull(delegate, "delegate can not be null");
         Map<String, String> props = applyLegacyTtlCompatibility(
                 properties == null ? Collections.emptyMap() : properties);
-        this.tableCache = newEntry("hive.table", props, ENTRY_TABLE, DEFAULT_TABLE_CAPACITY);
-        this.partitionNamesCache =
-                newEntry("hive.partition_names", props, ENTRY_PARTITION_NAMES, DEFAULT_PARTITION_NAMES_CAPACITY);
-        this.partitionsCache = newEntry("hive.partition", props, ENTRY_PARTITION, DEFAULT_PARTITION_CAPACITY);
-        this.columnStatsCache =
-                newEntry("hive.column_stats", props, ENTRY_COLUMN_STATS, DEFAULT_COLUMN_STATS_CAPACITY);
+        this.tableCache = newEntry(owner, "hive-table", props, ENTRY_TABLE, DEFAULT_TABLE_CAPACITY,
+                key -> ScopePath.table(key.dbName, key.tableName));
+        this.partitionNamesCache = newEntry(owner, "hive-partition-names", props, ENTRY_PARTITION_NAMES,
+                DEFAULT_PARTITION_NAMES_CAPACITY,
+                key -> ScopePath.partitionCollection(key.dbName, key.tableName));
+        this.partitionsCache = newEntry(owner, "hive-partition", props, ENTRY_PARTITION,
+                DEFAULT_PARTITION_CAPACITY,
+                key -> ScopePath.partition(key.dbName, key.tableName, key.values));
+        this.columnStatsCache = newEntry(owner, "hive-column-stats", props, ENTRY_COLUMN_STATS,
+                DEFAULT_COLUMN_STATS_CAPACITY,
+                key -> ScopePath.table(key.dbName, key.tableName));
     }
 
-    private static <K, V> MetaCacheEntry<K, V> newEntry(String name, Map<String, String> props,
-            String entry, long defaultCapacity) {
+    private static <K, V> MetaCache<K, V> newEntry(CatalogMetaCache owner, String name,
+            Map<String, String> props, String entry, long defaultCapacity, Function<K, ScopePath> scopeResolver) {
         CacheSpec spec = CacheSpec.fromProperties(props, ENGINE, entry,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, defaultCapacity));
-        // Contextual-only + manual-miss load so a slow HMS RPC runs outside Caffeine's sync compute lock
-        // (deduplicated by a striped lock instead), mirroring PaimonLatestSnapshotCache / IcebergLatestSnapshotCache.
-        return new MetaCacheEntry<>(name, null, spec, ForkJoinPool.commonPool(), false, true, 0L, true);
+        return owner.create(MetaCacheDefinition.<K, V>builder(name, spec, scopeResolver).build());
     }
 
     /** Legacy fe-core catalog knob ({@code ExternalCatalog.SCHEMA_CACHE_TTL_SECOND}) for the table/schema cache. */
@@ -232,11 +242,12 @@ public class CachingHmsClient implements HmsClient {
             // guard; the per-partition put must restore it (getTable/listPartitionNames/getTableColumnStatistics
             // still use the guarded get path). The delegate results still populate the RESULT list directly,
             // preserving the misparse->never-drop safety (only the CACHE put is generation-guarded).
-            long generation = partitionsCache.invalidationGeneration();
-            for (HmsPartitionInfo info : delegate.getPartitions(dbName, tableName, missNames)) {
-                partitionsCache.putIfNotInvalidatedSince(
-                        generation, new PartitionKey(dbName, tableName, info.getValues()), info);
-                result.add(info);
+            try (MetaCache.BulkLoad<PartitionKey, HmsPartitionInfo> load =
+                    partitionsCache.beginBulkLoad(ScopePath.table(dbName, tableName))) {
+                for (HmsPartitionInfo info : delegate.getPartitions(dbName, tableName, missNames)) {
+                    load.publish(new PartitionKey(dbName, tableName, info.getValues()), info);
+                    result.add(info);
+                }
             }
         }
         return result;
@@ -282,10 +293,7 @@ public class CachingHmsClient implements HmsClient {
 
     /** Drop every cached entry for one table. Backs {@code REFRESH TABLE}. */
     public void flush(String dbName, String tableName) {
-        tableCache.invalidateKey(new TableKey(dbName, tableName));
-        partitionNamesCache.invalidateIf(key -> key.matches(dbName, tableName));
-        partitionsCache.invalidateIf(key -> key.matches(dbName, tableName));
-        columnStatsCache.invalidateIf(key -> key.matches(dbName, tableName));
+        owner.invalidateTable(dbName, tableName);
     }
 
     /**
@@ -297,26 +305,20 @@ public class CachingHmsClient implements HmsClient {
      * partition-level refresh.
      */
     public void invalidatePartitions(String dbName, String tableName, Set<List<String>> partitionValues) {
-        partitionNamesCache.invalidateIf(key -> key.matches(dbName, tableName));
-        if (!partitionValues.isEmpty()) {
-            partitionsCache.invalidateIf(key -> key.matchesPartitions(dbName, tableName, partitionValues));
+        owner.invalidatePartitionCollection(dbName, tableName);
+        for (List<String> values : partitionValues) {
+            owner.invalidatePartition(dbName, tableName, values);
         }
     }
 
     /** Drop every cached entry for one database (all its tables). Backs {@code REFRESH DATABASE}. */
     public void flushDb(String dbName) {
-        tableCache.invalidateIf(key -> key.matchesDb(dbName));
-        partitionNamesCache.invalidateIf(key -> key.matchesDb(dbName));
-        partitionsCache.invalidateIf(key -> key.matchesDb(dbName));
-        columnStatsCache.invalidateIf(key -> key.matchesDb(dbName));
+        owner.invalidateDatabase(dbName);
     }
 
     /** Drop the whole cache. Backs {@code REFRESH CATALOG}. */
     public void flushAll() {
-        tableCache.invalidateAll();
-        partitionNamesCache.invalidateAll();
-        partitionsCache.invalidateAll();
-        columnStatsCache.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     // ========== Pass-through: everything else is delegated verbatim ==========

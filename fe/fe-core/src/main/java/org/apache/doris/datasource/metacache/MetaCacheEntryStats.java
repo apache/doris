@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.metacache;
 
+import org.apache.doris.connector.cache.CacheSpec;
+
 import java.util.Objects;
 
 /**

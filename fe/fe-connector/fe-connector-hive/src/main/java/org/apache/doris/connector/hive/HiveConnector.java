@@ -17,7 +17,9 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
@@ -84,6 +86,7 @@ public class HiveConnector implements Connector {
     // every (re)build of the connector, including the lazy one an FE does after replaying the edit log.
     private final HiveCatalogProperties props;
     private final ConnectorContext context;
+    private final CatalogMetaCache metaCache = new CatalogMetaCache();
     private volatile HmsClient hmsClient;
 
     // Lazily-built plugin-side Kerberos authenticator (single-owner auth), null for a non-Kerberos catalog.
@@ -133,10 +136,12 @@ public class HiveConnector implements Connector {
         this.props = HiveCatalogProperties.of(properties);
         this.properties = props.getRaw();
         this.context = context;
-        this.fileListingCache = new HiveFileListingCache(props);
+        this.fileListingCache = new HiveFileListingCache(metaCache, props);
         // Reads its own meta.cache.hive.partition_view.(enable|ttl-second|capacity) from the catalog properties
         // via the framework's CacheSpec (default ON / 24h / 1000).
-        this.partitionViewCache = new ConnectorMetadataCache<>("hive", "partition_view", this.properties);
+        this.partitionViewCache = new ConnectorMetadataCache<>(metaCache, "hive-partition-view",
+                "hive", "partition_view", this.properties,
+                key -> ScopePath.partitionCollection(key.getDb(), key.getTable()));
     }
 
     @Override
@@ -366,13 +371,7 @@ public class HiveConnector implements Connector {
     // Package-private seam: the metastore half needs an observable CachingHmsClient, which a unit test can build
     // via wrapWithCache (the hmsClient field is otherwise only set by getOrCreateClient building a real client).
     void invalidateTable(HmsClient client, String dbName, String tableName) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flush(dbName, tableName);
-        }
-        fileListingCache.invalidateTable(dbName, tableName);
-        // PERF-06: also drop this table's cached derived partition-view entry, so the next listPartitions
-        // re-derives live.
-        partitionViewCache.invalidateTable(dbName, tableName);
+        metaCache.invalidateTable(dbName, tableName);
     }
 
     /**
@@ -390,11 +389,7 @@ public class HiveConnector implements Connector {
 
     // Package-private seam (see invalidateTable above).
     void invalidateDb(HmsClient client, String dbName) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flushDb(dbName);
-        }
-        fileListingCache.invalidateDb(dbName);
-        partitionViewCache.invalidateDb(dbName);
+        metaCache.invalidateDatabase(dbName);
     }
 
     /**
@@ -411,11 +406,7 @@ public class HiveConnector implements Connector {
 
     // Package-private seam (see invalidateTable above).
     void invalidateAll(HmsClient client) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flushAll();
-        }
-        fileListingCache.invalidateAll();
-        partitionViewCache.invalidateAll();
+        metaCache.invalidateCatalog();
     }
 
     /**
@@ -443,11 +434,12 @@ public class HiveConnector implements Connector {
         }
         if (client instanceof CachingHmsClient) {
             ((CachingHmsClient) client).invalidatePartitions(dbName, tableName, partitionValues);
+        } else {
+            metaCache.invalidatePartitionCollection(dbName, tableName);
+            for (List<String> values : partitionValues) {
+                metaCache.invalidatePartition(dbName, tableName, values);
+            }
         }
-        fileListingCache.invalidatePartitions(dbName, tableName, partitionValues);
-        // PERF-06: cache A's key carries no partition-name axis (only db/table/-1/-1), so a partition-level
-        // change cannot be scoped finer than the whole table's single cached entry — invalidate it wholesale.
-        partitionViewCache.invalidateTable(dbName, tableName);
     }
 
     /**
@@ -645,7 +637,7 @@ public class HiveConnector implements Connector {
      * {@code HiveConnector}, and {@link #createClient()} wraps its {@code ThriftHmsClient} here.
      */
     HmsClient wrapWithCache(HmsClient raw) {
-        return new CachingHmsClient(raw, properties);
+        return new CachingHmsClient(metaCache, raw, properties);
     }
 
     /**
@@ -731,6 +723,7 @@ public class HiveConnector implements Connector {
 
     @Override
     public void close() throws IOException {
+        metaCache.close();
         HmsClient c = hmsClient;
         if (c != null) {
             c.close();

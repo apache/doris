@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
@@ -70,6 +71,7 @@ public class HudiConnector implements Connector {
     private final HudiCatalogProperties props;
     private final Map<String, String> properties;
     private final ConnectorContext context;
+    private final CatalogMetaCache metaCache = new CatalogMetaCache();
     private volatile HmsClient hmsClient;
 
     // Lazily-built plugin-side Kerberos authenticator (single-owner auth), null for a non-Kerberos catalog.
@@ -162,6 +164,8 @@ public class HudiConnector implements Connector {
     void invalidateTable(HmsClient client, String dbName, String tableName) {
         if (client instanceof CachingHmsClient) {
             ((CachingHmsClient) client).flush(dbName, tableName);
+        } else {
+            metaCache.invalidateTable(dbName, tableName);
         }
     }
 
@@ -178,6 +182,8 @@ public class HudiConnector implements Connector {
     void invalidateDb(HmsClient client, String dbName) {
         if (client instanceof CachingHmsClient) {
             ((CachingHmsClient) client).flushDb(dbName);
+        } else {
+            metaCache.invalidateDatabase(dbName);
         }
     }
 
@@ -194,6 +200,8 @@ public class HudiConnector implements Connector {
     void invalidateAll(HmsClient client) {
         if (client instanceof CachingHmsClient) {
             ((CachingHmsClient) client).flushAll();
+        } else {
+            metaCache.invalidateCatalog();
         }
     }
 
@@ -249,7 +257,7 @@ public class HudiConnector implements Connector {
      * assert the cache decoration.
      */
     HmsClient wrapWithCache(HmsClient raw) {
-        return new CachingHmsClient(raw, properties);
+        return new CachingHmsClient(metaCache, raw, properties);
     }
 
     /**
@@ -318,6 +326,7 @@ public class HudiConnector implements Connector {
 
     @Override
     public void close() throws IOException {
+        metaCache.close();
         HmsClient c = hmsClient;
         if (c != null) {
             c.close();

@@ -19,14 +19,14 @@ package org.apache.doris.datasource.doris;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
-import org.apache.doris.datasource.metacache.CacheSpec;
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 import org.apache.doris.system.Backend;
@@ -99,7 +99,7 @@ public class DorisExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     public void invalidateBackendCache(long catalogId) {
-        MetaCacheEntry<String, ImmutableMap<Long, Backend>> backends = backendsEntry.getIfInitialized(catalogId);
+        MetaCache<String, ImmutableMap<Long, Backend>> backends = backendsEntry.getIfInitialized(catalogId);
         if (backends != null) {
             backends.invalidateKey(BACKEND_ENTRY_KEY);
         }

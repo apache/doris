@@ -27,9 +27,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
-import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -704,7 +704,8 @@ public class ExternalCatalogTest extends TestWithFeService {
             releaseLoader.countDown();
 
             Assertions.assertSame(db, lookup.get(3L, TimeUnit.SECONDS));
-            Assertions.assertNull(objectEntry.getIfPresent(db.getFullName()));
+            // Exact-key generations do not reject this load merely because an unrelated key shares its FE stripe.
+            Assertions.assertSame(db, objectEntry.getIfPresent(db.getFullName()));
             Assertions.assertEquals(db.getFullName(), catalog.getCachedDatabaseNameByIdForTest(db.getId()));
         } finally {
             releaseLoader.countDown();
@@ -936,7 +937,8 @@ public class ExternalCatalogTest extends TestWithFeService {
         try {
             env.getExtMetaCacheMgr().prepareCatalogByEngine(
                     catalog.getId(), "default", Maps.newHashMap());
-            MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> schemaEntry = env.getExtMetaCacheMgr()
+            org.apache.doris.connector.cache.MetaCache<SchemaCacheKey, SchemaCacheValue> schemaEntry =
+                    env.getExtMetaCacheMgr()
                     .engine("default")
                     .entry(catalog.getId(), "schema",
                             SchemaCacheKey.class, SchemaCacheValue.class);

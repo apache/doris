@@ -18,15 +18,16 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.iceberg.IcebergPartitionUtils.IcebergRawPartition;
 
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 /**
@@ -85,18 +86,25 @@ final class IcebergPartitionCache {
         }
     }
 
-    private final MetaCacheEntry<Key, List<IcebergRawPartition>> entry;
+    private final CatalogMetaCache owner;
+    private final MetaCache<Key, List<IcebergRawPartition>> entry;
 
     IcebergPartitionCache(long ttlSeconds, int maxSize) {
+        this(new CatalogMetaCache(), ttlSeconds, maxSize);
+    }
+
+    IcebergPartitionCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
+        this.owner = owner;
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
         CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
-        this.entry = new MetaCacheEntry<>("iceberg-partition", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+        this.entry = owner.create(MetaCacheDefinition
+                .<Key, List<IcebergRawPartition>>builder("iceberg-partition", spec, IcebergPartitionCache::scope)
+                .build());
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always scan live". */
     boolean isEnabled() {
-        return entry.stats().isEffectiveEnabled();
+        return entry.isEnabled();
     }
 
     /**
@@ -110,29 +118,30 @@ final class IcebergPartitionCache {
 
     /** Drops every cached snapshot entry for one table so the next read scans live (REFRESH TABLE). */
     void invalidate(TableIdentifier id) {
-        entry.invalidateIf(key -> key.id.equals(id));
+        owner.invalidateTable(id.namespace().toString(), id.name());
     }
 
     /** Drops every cached entry for one database (REFRESH DATABASE / DROP DATABASE); db match = namespace equality. */
     void invalidateDb(String dbName) {
-        Namespace ns = Namespace.of(dbName);
-        entry.invalidateIf(key -> key.id.namespace().equals(ns));
+        owner.invalidateDatabase(dbName);
     }
 
     /** Drops all cached entries (REFRESH CATALOG). */
     void invalidateAll() {
-        entry.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
-        int[] count = {0};
-        entry.forEach((key, value) -> count[0]++);
-        return count[0];
+        return Math.toIntExact(entry.size());
     }
 
     /** Test-only: how many times the live loader (the PARTITIONS scan) actually ran — the metric gate. */
     long loadCountForTest() {
-        return entry.stats().getLoadSuccessCount();
+        return entry.loadSuccessCount();
+    }
+
+    private static ScopePath scope(Key key) {
+        return ScopePath.table(key.id.namespace().toString(), key.id.name());
     }
 }

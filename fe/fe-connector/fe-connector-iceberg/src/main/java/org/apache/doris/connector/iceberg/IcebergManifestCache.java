@@ -18,7 +18,10 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
@@ -33,7 +36,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 
@@ -67,7 +69,8 @@ final class IcebergManifestCache {
     /** Leak backstop for the per-scan stats stash (see {@link #statsByQuery}); far above any live entry's life. */
     private static final long DEFAULT_STATS_TTL_SECONDS = 300L;
 
-    private final MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> entry;
+    private final CatalogMetaCache owner;
+    private final MetaCache<IcebergManifestEntryKey, ManifestCacheValue> entry;
 
     // Per-scan manifest-cache access tally, keyed by the statement's stable queryId
     // (ConnectorSession.getQueryId()), so VERBOSE EXPLAIN can report THIS scan's hits/misses/failures (the
@@ -93,19 +96,35 @@ final class IcebergManifestCache {
     }
 
     IcebergManifestCache() {
-        this(DEFAULT_MANIFEST_CACHE_CAPACITY);
+        this(new CatalogMetaCache(), DEFAULT_MANIFEST_CACHE_CAPACITY);
+    }
+
+    IcebergManifestCache(CatalogMetaCache owner) {
+        this(owner, DEFAULT_MANIFEST_CACHE_CAPACITY);
     }
 
     IcebergManifestCache(int maxSize) {
-        this(maxSize, DEFAULT_STATS_TTL_SECONDS, System::nanoTime);
+        this(new CatalogMetaCache(), maxSize);
+    }
+
+    private IcebergManifestCache(CatalogMetaCache owner, int maxSize) {
+        this(owner, maxSize, DEFAULT_STATS_TTL_SECONDS, System::nanoTime);
     }
 
     /** Visible for testing: injectable stats TTL + clock so the leak sweep is deterministic without sleeping. */
     IcebergManifestCache(int maxSize, long statsTtlSeconds, LongSupplier nanoClock) {
+        this(new CatalogMetaCache(), maxSize, statsTtlSeconds, nanoClock);
+    }
+
+    private IcebergManifestCache(
+            CatalogMetaCache owner, int maxSize, long statsTtlSeconds, LongSupplier nanoClock) {
+        this.owner = owner;
         // Always enabled, no expiry, capacity-bounded (CACHE_NO_TTL == -1 means "no expiration", enabled).
         CacheSpec spec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, Math.max(1, maxSize));
-        this.entry = new MetaCacheEntry<>("iceberg-manifest", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+        this.entry = owner.create(MetaCacheDefinition
+                .<IcebergManifestEntryKey, ManifestCacheValue>builder(
+                        "iceberg-manifest", spec, ignored -> ScopePath.catalog())
+                .build());
         this.statsTtlNanos = TimeUnit.SECONDS.toNanos(Math.max(1L, statsTtlSeconds));
         this.nanoClock = nanoClock;
     }
@@ -222,14 +241,16 @@ final class IcebergManifestCache {
      * (catalog-wide invalidation); table-level invalidation (REFRESH TABLE) intentionally does not.
      */
     void invalidateAll() {
-        entry.invalidateAll();
+        owner.invalidateCatalog();
+        statsByQuery.clear();
+    }
+
+    void clearStats() {
         statsByQuery.clear();
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
-        int[] count = {0};
-        entry.forEach((key, value) -> count[0]++);
-        return count[0];
+        return Math.toIntExact(entry.size());
     }
 }

@@ -116,6 +116,11 @@ under the License.
             <artifactId>fe-connector-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- Connector impl modules, TEST SCOPE ONLY. Production loads these from the
              plugins/connector/ directory via ConnectorPluginManager; fe-core must never depend on a
              connector at compile or runtime scope. Same arrangement as the fe-filesystem-* modules below.

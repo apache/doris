@@ -17,6 +17,11 @@
 
 package org.apache.doris.datasource.metacache;
 
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.ScopedMetaCache.CacheMetrics;
+
 import com.google.common.collect.Maps;
 
 import java.util.Map;
@@ -27,23 +32,59 @@ import java.util.concurrent.ConcurrentHashMap;
  * Catalog scoped entry container.
  */
 public class CatalogEntryGroup {
-    private final Map<String, MetaCacheEntry<?, ?>> entries = new ConcurrentHashMap<>();
+    private final CatalogMetaCache owner = new CatalogMetaCache();
+    private final Map<String, MetaCache<?, ?>> entries = new ConcurrentHashMap<>();
 
-    public MetaCacheEntry<?, ?> get(String entryName) {
+    public CatalogMetaCache owner() {
+        return owner;
+    }
+
+    public MetaCache<?, ?> get(String entryName) {
         return entries.get(entryName);
     }
 
-    public void put(String entryName, MetaCacheEntry<?, ?> entry) {
+    public void put(String entryName, MetaCache<?, ?> entry) {
         entries.put(Objects.requireNonNull(entryName, "entryName"), Objects.requireNonNull(entry, "entry"));
     }
 
     public Map<String, MetaCacheEntryStats> stats() {
         Map<String, MetaCacheEntryStats> result = Maps.newHashMap();
-        entries.forEach((name, entry) -> result.put(name, entry.stats()));
+        entries.forEach((name, entry) -> result.put(name, stats(entry)));
         return result;
     }
 
     public void invalidateAll() {
-        entries.values().forEach(MetaCacheEntry::invalidateAll);
+        owner.invalidateCatalog();
+    }
+
+    public void close() {
+        owner.close();
+    }
+
+    private MetaCacheEntryStats stats(MetaCache<?, ?> entry) {
+        CacheSpec spec = entry.cacheSpec();
+        CacheMetrics metrics = entry.metrics();
+        long requests = metrics.getRequestCount();
+        long loads = metrics.getLoadSuccessCount() + metrics.getLoadFailureCount();
+        return new MetaCacheEntryStats(
+                spec.isEnable(),
+                entry.isEnabled(),
+                entry.isAutoRefresh(),
+                spec.getTtlSecond(),
+                spec.getCapacity(),
+                entry.size(),
+                requests,
+                metrics.getHitCount(),
+                metrics.getMissCount(),
+                requests == 0L ? 0D : (double) metrics.getHitCount() / requests,
+                metrics.getLoadSuccessCount(),
+                metrics.getLoadFailureCount(),
+                metrics.getTotalLoadTimeNanos(),
+                loads == 0L ? 0D : (double) metrics.getTotalLoadTimeNanos() / loads,
+                metrics.getEvictionCount(),
+                metrics.getInvalidateCount(),
+                metrics.getLastLoadSuccessTimeMs(),
+                metrics.getLastLoadFailureTimeMs(),
+                metrics.getLastError());
     }
 }

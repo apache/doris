@@ -25,13 +25,8 @@ import java.util.OptionalLong;
 /**
  * Common cache specification for external metadata caches.
  *
- * <p>Connector-side copy of the meta-cache property model (independent-copy meta-cache migration). fe-core is
- * NOT changed: it keeps its own {@code org.apache.doris.datasource.metacache.CacheSpec}; this is a separate
- * class under {@code org.apache.doris.connector.*} used only by the connector plugins. Although that prefix is
- * parent-first, fe-core does not depend on this module, so the class resolves parent → miss → CHILD and is
- * child-loaded per plugin — fe-core and the plugins do NOT share one {@code Class} identity. It carries no
- * third-party dependency (JDK only) and never crosses the fe-core↔connector boundary as an object (only its
- * {@code IllegalArgumentException}, a JDK type, crosses), so it is safe on both classpaths.
+ * <p>This is the single property model shared by fe-core and connector plugins. It carries no fe-core dependency,
+ * so cache configuration and validation remain available to independently loaded connectors.
  *
  * <p>The {@code check*Property} validators throw {@link IllegalArgumentException} (fe-core's
  * {@code PluginDrivenExternalCatalog.checkProperties} re-wraps it into a {@code DdlException} verbatim; the
@@ -204,7 +199,7 @@ public final class CacheSpec {
     }
 
     /**
-     * Convert ttlSecond to OptionalLong for CacheFactory.
+     * Convert ttlSecond to the optional expiry used by the cache runtime.
      * ttlSecond=-1 means no expiration; ttlSecond=0 disables cache.
      */
     public static OptionalLong toExpireAfterAccess(long ttlSecond) {

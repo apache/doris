@@ -17,8 +17,10 @@
 
 package org.apache.doris.connector.cache;
 
+import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.Ticker;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -26,6 +28,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -73,6 +76,23 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         return createCache(name, cacheSpec, null, null, NO_OP, NO_OP);
     }
 
+    <K, V> ScopedMetaCache<K, V> createCacheWithRemovalListener(
+            String name, CacheSpec cacheSpec, RemovalListener<K, V> removalListener,
+            Duration refreshAfterWrite, Executor refreshExecutor) {
+        return createCacheWithRemovalListener(name, cacheSpec, null, removalListener,
+                refreshAfterWrite, refreshExecutor, NO_OP, NO_OP, NO_OP);
+    }
+
+    <K, V> ScopedMetaCache<K, V> createCacheWithMetaRemovalListener(
+            String name, CacheSpec cacheSpec, MetaCacheRemovalListener<K, V> removalListener,
+            Duration refreshAfterWrite, Executor refreshExecutor) {
+        RemovalListener<K, V> caffeineListener = removalListener == null ? null
+                : (key, value, cause) -> removalListener.onRemoval(
+                        key, value, MetaCacheRemovalReason.valueOf(cause.name()));
+        return createCacheWithRemovalListener(
+                name, cacheSpec, caffeineListener, refreshAfterWrite, refreshExecutor);
+    }
+
     <K, V> ScopedMetaCache<K, V> createCache(
             String name,
             CacheSpec cacheSpec,
@@ -97,15 +117,46 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             BiConsumer<K, V> beforeRemoval,
             Runnable afterLoadElection,
             Runnable afterBulkStage) {
+        RemovalListener<K, V> listener = beforeRemoval == null
+                ? null
+                : (key, value, cause) -> beforeRemoval.accept(key, value);
+        return createCacheWithRemovalListener(
+                name, cacheSpec, ticker, listener, null, null, afterLoadElection, afterBulkStage, NO_OP);
+    }
+
+    <K, V> ScopedMetaCache<K, V> createCacheWithRefresh(
+            String name,
+            CacheSpec cacheSpec,
+            Duration refreshAfterWrite,
+            Executor refreshExecutor,
+            Runnable afterRefreshRegistration) {
+        return createCacheWithRemovalListener(
+                name, cacheSpec, null, null, refreshAfterWrite, refreshExecutor,
+                NO_OP, NO_OP, afterRefreshRegistration);
+    }
+
+    private <K, V> ScopedMetaCache<K, V> createCacheWithRemovalListener(
+            String name,
+            CacheSpec cacheSpec,
+            Ticker ticker,
+            RemovalListener<K, V> removalListener,
+            Duration refreshAfterWrite,
+            Executor refreshExecutor,
+            Runnable afterLoadElection,
+            Runnable afterBulkStage,
+            Runnable afterRefreshRegistration) {
         checkOpen();
         ScopedMetaCache<K, V> cache = new ScopedMetaCache<>(
                 this,
                 name,
                 cacheSpec,
                 ticker,
-                beforeRemoval,
+                removalListener,
+                refreshAfterWrite,
+                refreshExecutor,
                 afterLoadElection,
-                afterBulkStage);
+                afterBulkStage,
+                afterRefreshRegistration);
         caches.add(cache);
         if (closed.get()) {
             caches.remove(cache);
