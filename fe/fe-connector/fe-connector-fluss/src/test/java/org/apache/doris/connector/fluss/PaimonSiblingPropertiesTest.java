@@ -254,6 +254,10 @@ public class PaimonSiblingPropertiesTest {
     public void storageSettingsAreNotGivenToTheSibling() {
         Map<String, String> properties = flussTableProperties();
         properties.put("table.datalake.paimon.fs.oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        // A fluss cluster does send this one — its name holds no credential, so nothing strips it — and
+        // it is the whole of how a bucket is addressed. Given to the sibling it would configure the FE
+        // alone, which is the split this drop exists to prevent.
+        properties.put("table.datalake.paimon.s3.path.style.access", "true");
 
         Map<String, String> expected = new HashMap<>();
         expected.put("paimon.catalog.type", "filesystem");
