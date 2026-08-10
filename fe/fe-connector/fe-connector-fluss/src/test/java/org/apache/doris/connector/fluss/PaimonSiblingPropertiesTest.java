@@ -115,21 +115,88 @@ public class PaimonSiblingPropertiesTest {
         expected.put("warehouse", "/lake/warehouse");
 
         Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties, noOverrides()));
+
+        // A key left empty in the cluster's configuration file says the same thing as an absent one;
+        // reading it as a flavor name would refuse the lake over a blank line.
+        properties.put("table.datalake.paimon.metastore", "  ");
+        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties, noOverrides()));
+    }
+
+    @Test
+    public void hiveMetastoreLakeIsReadAsAnHmsCatalog() {
+        Map<String, String> properties = flussTableProperties();
+        properties.put("table.datalake.paimon.metastore", "hive");
+        properties.put("table.datalake.paimon.uri", "thrift://hms:9083");
+
+        Map<String, String> expected = new HashMap<>();
+        // Same metastore, different spelling: paimon calls it "hive", Doris's paimon connector "hms".
+        // Passing "hive" through unchanged would make the connector reject a catalog it can serve.
+        expected.put("paimon.catalog.type", "hms");
+        expected.put("warehouse", "/lake/warehouse");
+        expected.put("uri", "thrift://hms:9083");
+
+        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties, noOverrides()));
+    }
+
+    @Test
+    public void restCatalogLakeKeepsItsName() {
+        Map<String, String> properties = flussTableProperties();
+        properties.put("table.datalake.paimon.metastore", "rest");
+        properties.put("table.datalake.paimon.uri", "https://rest:8080");
+
+        Map<String, String> expected = new HashMap<>();
+        expected.put("paimon.catalog.type", "rest");
+        expected.put("warehouse", "/lake/warehouse");
+        expected.put("uri", "https://rest:8080");
+
+        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties, noOverrides()));
+    }
+
+    @Test
+    public void theCatalogCanStateTheFlavorItself() {
+        Map<String, String> properties = flussTableProperties();
+
+        Map<String, String> catalogOverrides = new LinkedHashMap<>();
+        catalogOverrides.put("metastore", "hive");
+        catalogOverrides.put("uri", "thrift://hms:9083");
+
+        Map<String, String> expected = new HashMap<>();
+        expected.put("paimon.catalog.type", "hms");
+        expected.put("warehouse", "/lake/warehouse");
+        expected.put("uri", "thrift://hms:9083");
+
+        // The flavor is read AFTER the override is applied, so a catalog can point a lake at a metastore
+        // the fluss cluster does not know it is registered in.
+        Assertions.assertEquals(expected,
+                PaimonSiblingProperties.synthesize(properties, catalogOverrides));
     }
 
     @Test
     public void anUnsupportedMetastoreFailsLoud() {
         Map<String, String> properties = flussTableProperties();
-        properties.put("table.datalake.paimon.metastore", "hive");
+        properties.put("table.datalake.paimon.metastore", "jdbc");
 
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
                 () -> PaimonSiblingProperties.synthesize(properties, noOverrides()));
-        // Naming both the flavor found and the one supported is what makes this actionable: the fix is in
-        // the fluss cluster's configuration, not in Doris.
-        Assertions.assertTrue(failure.getMessage().contains("hive"), failure.getMessage());
+        // Naming both the flavor found and the ones supported is what makes this actionable, and refusing
+        // by name is what keeps an unknown flavor from being read as a filesystem lake that is not there.
+        Assertions.assertTrue(failure.getMessage().contains("jdbc"), failure.getMessage());
         Assertions.assertTrue(failure.getMessage().contains("filesystem"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("hive"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("rest"), failure.getMessage());
         Assertions.assertTrue(failure.getMessage().contains("datalake.paimon.metastore"),
                 failure.getMessage());
+    }
+
+    @Test
+    public void theFlavorIsReadWithoutRegardToCaseOrPadding() {
+        Map<String, String> properties = flussTableProperties();
+        properties.put("table.datalake.paimon.metastore", " Hive ");
+
+        // A value out of a YAML file can carry either; refusing one of these would look like the flavor
+        // itself is unsupported.
+        Assertions.assertEquals("hms",
+                PaimonSiblingProperties.synthesize(properties, noOverrides()).get("paimon.catalog.type"));
     }
 
     @Test
