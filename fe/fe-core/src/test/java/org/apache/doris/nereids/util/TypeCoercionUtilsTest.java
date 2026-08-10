@@ -138,18 +138,18 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
-    public void testTimestampNsOnlyCoercesWithTimestampNsAndStrings() {
+    public void testTimestampNsUsesLosslessCommonType() {
         Assertions.assertEquals(Optional.of(TimeStampNsType.INSTANCE),
                 TypeCoercionUtils.findWiderTypeForTwo(
                         TimeStampNsType.INSTANCE, StringType.INSTANCE, false, false));
         Assertions.assertEquals(Optional.of(StringType.INSTANCE),
                 TypeCoercionUtils.findWiderTypeForTwo(
                         TimeStampNsType.INSTANCE, StringType.INSTANCE, false, true));
-        Assertions.assertEquals(Optional.empty(), TypeCoercionUtils.findWiderTypeForTwo(
+        Assertions.assertEquals(Optional.of(TimeStampNsType.INSTANCE), TypeCoercionUtils.findWiderTypeForTwo(
                 TimeStampNsType.INSTANCE, DateTimeV2Type.MAX, false, false));
-        Assertions.assertEquals(Optional.empty(), TypeCoercionUtils.findWiderTypeForTwo(
+        Assertions.assertEquals(Optional.of(TimeStampNsType.INSTANCE), TypeCoercionUtils.findWiderTypeForTwo(
                 DateV2Type.INSTANCE, TimeStampNsType.INSTANCE, false, false));
-        Assertions.assertEquals(Optional.empty(), TypeCoercionUtils.findWiderTypeForTwo(
+        Assertions.assertEquals(Optional.of(TimeStampNsType.INSTANCE), TypeCoercionUtils.findWiderTypeForTwo(
                 TimeStampNsType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, false, false));
 
         Assertions.assertEquals(Optional.of(TimeStampNsType.INSTANCE),
@@ -163,7 +163,7 @@ public class TypeCoercionUtilsTest {
                         TimeStampNsType.INSTANCE, AnyDataType.INSTANCE_WITHOUT_INDEX));
         Assertions.assertEquals(Optional.empty(),
                 TypeCoercionUtils.implicitCast(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX));
-        Assertions.assertEquals(Optional.empty(),
+        Assertions.assertEquals(Optional.of(TimeStampNsType.INSTANCE),
                 TypeCoercionUtils.implicitCast(DateTimeV2Type.MAX, TimeStampNsType.INSTANCE));
     }
 
@@ -182,10 +182,13 @@ public class TypeCoercionUtilsTest {
                 Assertions.assertEquals(TimeStampNsType.INSTANCE,
                         stringComparison.right().getDataType());
 
-                Assertions.assertThrows(AnalysisException.class,
-                        () -> TypeCoercionUtils.processComparisonPredicate(
-                                new EqualTo(new SlotReference("ts", TimeStampNsType.INSTANCE),
-                                        new SlotReference("dt", DateTimeV2Type.MAX))));
+                EqualTo datetimeComparison = (EqualTo) TypeCoercionUtils.processComparisonPredicate(
+                        new EqualTo(new SlotReference("ts", TimeStampNsType.INSTANCE),
+                                new SlotReference("dt", DateTimeV2Type.MAX)));
+                Assertions.assertEquals(TimeStampNsType.INSTANCE,
+                        datetimeComparison.left().getDataType());
+                Assertions.assertEquals(TimeStampNsType.INSTANCE,
+                        datetimeComparison.right().getDataType());
             }
         } finally {
             GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
@@ -217,7 +220,7 @@ public class TypeCoercionUtilsTest {
         Assertions.assertEquals(Optional.of(TimeStampNsType.INSTANCE),
                 TypeCoercionUtils.findWiderCommonTypeForComparison(
                         ImmutableList.of(TimeStampNsType.INSTANCE, StringType.INSTANCE)));
-        Assertions.assertEquals(Optional.empty(),
+        Assertions.assertEquals(Optional.of(TimeStampNsType.INSTANCE),
                 TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(
                         TimeStampNsType.INSTANCE, IntegerType.INSTANCE));
 
@@ -644,12 +647,15 @@ public class TypeCoercionUtilsTest {
         Expression date = new SlotReference("date", DateV2Type.INSTANCE, true);
         Expression nanoString = new StringLiteral("2024-01-01 00:00:00.000000001");
 
-        // Preserve the nanosecond literal instead of silently truncating it to DATETIMEV2(6).
-        // DATEV2/TIMESTAMP_NS casts are intentionally unsupported until cross-type casts land.
-        Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(date, nanoString)));
-        Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(nanoString, date)));
+        // Preserve the nanosecond literal and promote DATEV2 to TIMESTAMP_NS in either direction.
+        EqualTo rightNano = (EqualTo) TypeCoercionUtils.processComparisonPredicate(
+                new EqualTo(date, nanoString));
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, rightNano.left().getDataType());
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, rightNano.right().getDataType());
+        EqualTo leftNano = (EqualTo) TypeCoercionUtils.processComparisonPredicate(
+                new EqualTo(nanoString, date));
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, leftNano.left().getDataType());
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, leftNano.right().getDataType());
     }
 
     @Test
@@ -658,11 +664,19 @@ public class TypeCoercionUtilsTest {
         Expression nanoString = new StringLiteral("2024-01-01 00:00:00.000000001");
         Expression dateString = new StringLiteral("2024-01-02");
 
-        Assertions.assertThrows(AnalysisException.class, () -> TypeCoercionUtils.processInPredicate(
-                new InPredicate(date, ImmutableList.of(nanoString, dateString))));
-        Assertions.assertThrows(AnalysisException.class,
-                () -> ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(
-                        new Not(new InPredicate(date, ImmutableList.of(dateString, nanoString))), null));
+        InPredicate in = (InPredicate) TypeCoercionUtils.processInPredicate(
+                new InPredicate(date, ImmutableList.of(nanoString, dateString)));
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, in.getCompareExpr().getDataType());
+        in.getOptions().forEach(option -> Assertions.assertEquals(
+                TimeStampNsType.INSTANCE, option.getDataType()));
+
+        Expression notIn = ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(
+                new Not(new InPredicate(date, ImmutableList.of(dateString, nanoString))), null);
+        InPredicate rewrittenIn = (InPredicate) ((Not) notIn).child();
+        Assertions.assertEquals(TimeStampNsType.INSTANCE,
+                rewrittenIn.getCompareExpr().getDataType());
+        rewrittenIn.getOptions().forEach(option -> Assertions.assertEquals(
+                TimeStampNsType.INSTANCE, option.getDataType()));
     }
 
     @Test

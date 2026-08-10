@@ -145,6 +145,11 @@ struct ToDateImpl {
         } else if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
             t.cast_to_date();
             return t;
+        } else if constexpr (std::is_same_v<DateType, TimeStampNsValue>) {
+            DateV2Value<DateV2ValueType> result;
+            const auto civil_value = t.to_datetime();
+            DataTypeDateTimeV2::cast_to_date_v2(civil_value, result);
+            return result;
         } else {
             return binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
                     (UInt32)(t.to_date_int_val() >> TIME_PART_LENGTH));
@@ -205,14 +210,20 @@ struct ToIso8601Impl {
     static constexpr PrimitiveType OpArgType = PType;
     using ArgType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "to_iso8601";
-    static constexpr auto max_size = PType == TYPE_DATEV2 ? 10 : 26;
+    static constexpr auto max_size =
+            PType == TYPE_DATEV2 ? 10 : (PType == TYPE_TIMESTAMP_NS ? 29 : 26);
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
                         ColumnString::Chars& res_data, size_t& offset,
                         const char* const* /*names_ptr*/, FunctionContext* /*context*/) {
-        auto length = dt.to_buffer((char*)res_data.data() + offset,
-                                   std::is_same_v<ArgType, UInt32> ? -1 : 6);
-        if (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
+        int length = 0;
+        if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            length = dt.to_buffer((char*)res_data.data() + offset);
+        } else {
+            constexpr int scale = PType == TYPE_DATEV2 ? -1 : 6;
+            length = dt.to_buffer((char*)res_data.data() + offset, scale);
+        }
+        if (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMP_NS || PType == TYPE_TIMESTAMPTZ) {
             res_data[offset + 10] = 'T';
         }
 
@@ -302,10 +313,11 @@ struct MonthNameImpl {
     }
 };
 
-template <typename FormatImpl, const char* FuncName>
+template <PrimitiveType PType, typename FormatImpl, const char* FuncName>
 struct DateTimeV2FormatImpl {
-    static constexpr PrimitiveType OpArgType = TYPE_DATETIMEV2;
-    using ArgType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType;
+    static_assert(PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMP_NS);
+    static constexpr PrimitiveType OpArgType = PType;
+    using ArgType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = FuncName;
     static constexpr auto max_size = FormatImpl::row_size;
 
@@ -317,7 +329,7 @@ struct DateTimeV2FormatImpl {
     }
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::DataType>()};
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
     }
 };
 
@@ -333,21 +345,34 @@ inline constexpr char kMinuteSecondName[] = "minute_second";
 inline constexpr char kMinuteMicrosecondName[] = "minute_microsecond";
 inline constexpr char kSecondMicrosecondName[] = "second_microsecond";
 
-using YearMonthImpl = DateTimeV2FormatImpl<time_format_type::yyyy_MMImpl, kYearMonthName>;
-using DayHourImpl = DateTimeV2FormatImpl<time_format_type::dd_HHImpl, kDayHourName>;
-using DayMinuteImpl = DateTimeV2FormatImpl<time_format_type::dd_HH_mmImpl, kDayMinuteName>;
-using DaySecondImpl = DateTimeV2FormatImpl<time_format_type::dd_HH_mm_ssImpl, kDaySecondName>;
+template <PrimitiveType PType>
+using YearMonthImpl = DateTimeV2FormatImpl<PType, time_format_type::yyyy_MMImpl, kYearMonthName>;
+template <PrimitiveType PType>
+using DayHourImpl = DateTimeV2FormatImpl<PType, time_format_type::dd_HHImpl, kDayHourName>;
+template <PrimitiveType PType>
+using DayMinuteImpl = DateTimeV2FormatImpl<PType, time_format_type::dd_HH_mmImpl, kDayMinuteName>;
+template <PrimitiveType PType>
+using DaySecondImpl =
+        DateTimeV2FormatImpl<PType, time_format_type::dd_HH_mm_ssImpl, kDaySecondName>;
+template <PrimitiveType PType>
 using DayMicrosecondImpl =
-        DateTimeV2FormatImpl<time_format_type::dd_HH_mm_ss_SSSSSSImpl, kDayMicrosecondName>;
-using HourMinuteImpl = DateTimeV2FormatImpl<time_format_type::HH_mmImpl, kHourMinuteName>;
-using HourSecondImpl = DateTimeV2FormatImpl<time_format_type::HH_mm_ssImpl, kHourSecondName>;
+        DateTimeV2FormatImpl<PType, time_format_type::dd_HH_mm_ss_SSSSSSImpl, kDayMicrosecondName>;
+template <PrimitiveType PType>
+using HourMinuteImpl = DateTimeV2FormatImpl<PType, time_format_type::HH_mmImpl, kHourMinuteName>;
+template <PrimitiveType PType>
+using HourSecondImpl = DateTimeV2FormatImpl<PType, time_format_type::HH_mm_ssImpl, kHourSecondName>;
+template <PrimitiveType PType>
 using HourMicrosecondImpl =
-        DateTimeV2FormatImpl<time_format_type::HH_mm_ss_SSSSSSImpl, kHourMicrosecondName>;
-using MinuteSecondImpl = DateTimeV2FormatImpl<time_format_type::mm_ssImpl, kMinuteSecondName>;
+        DateTimeV2FormatImpl<PType, time_format_type::HH_mm_ss_SSSSSSImpl, kHourMicrosecondName>;
+template <PrimitiveType PType>
+using MinuteSecondImpl =
+        DateTimeV2FormatImpl<PType, time_format_type::mm_ssImpl, kMinuteSecondName>;
+template <PrimitiveType PType>
 using MinuteMicrosecondImpl =
-        DateTimeV2FormatImpl<time_format_type::mm_ss_SSSSSSImpl, kMinuteMicrosecondName>;
+        DateTimeV2FormatImpl<PType, time_format_type::mm_ss_SSSSSSImpl, kMinuteMicrosecondName>;
+template <PrimitiveType PType>
 using SecondMicrosecondImpl =
-        DateTimeV2FormatImpl<time_format_type::ss_SSSSSSImpl, kSecondMicrosecondName>;
+        DateTimeV2FormatImpl<PType, time_format_type::ss_SSSSSSImpl, kSecondMicrosecondName>;
 
 template <PrimitiveType PType>
 struct DateFormatImpl {

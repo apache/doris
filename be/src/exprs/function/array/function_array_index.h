@@ -295,7 +295,13 @@ private:
                 return_column = _execute_view(array_view, right_view);
                 return true;
             };
-            dispatch_switch_all(left_element_primitive_type, call);
+            // Keep nano dispatch local: the shared scalar dispatcher is also used by
+            // arithmetic-only templates that cannot be instantiated for datetime values.
+            if (left_element_primitive_type == TYPE_TIMESTAMP_NS) {
+                call(DispatchDataType<TYPE_TIMESTAMP_NS>());
+            } else {
+                dispatch_switch_all(left_element_primitive_type, call);
+            }
         }
 
         if (return_column) {

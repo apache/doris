@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <utility>
 
@@ -36,6 +37,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
@@ -57,7 +59,8 @@ enum GroupIndex : size_t {
     DECIMAL_GROUP_BEGIN = DOUBLE_GROUP + 1,
     DATE_GROUP = DECIMAL_GROUP_BEGIN + DECIMAL_SCALE_COUNT,
     TIMESTAMP_NTZ_GROUP = DATE_GROUP + 1,
-    TIMESTAMP_TZ_GROUP = TIMESTAMP_NTZ_GROUP + 1,
+    TIMESTAMP_NANOS_GROUP = TIMESTAMP_NTZ_GROUP + 1,
+    TIMESTAMP_TZ_GROUP = TIMESTAMP_NANOS_GROUP + 1,
     STRING_GROUP = TIMESTAMP_TZ_GROUP + 1,
     GROUP_COUNT = STRING_GROUP + 1,
 };
@@ -203,6 +206,29 @@ void append_timestamp(ScalarGroups& groups, size_t row, int64_t micros, bool utc
     group.source_rows.push_back(row);
 }
 
+void append_timestamp_nanos(FunctionContext* context, ScalarGroups& groups, size_t row,
+                            int64_t nanos, bool utc_adjusted) {
+    if (utc_adjusted) {
+        DORIS_CHECK(context != nullptr);
+        DORIS_CHECK(context->state() != nullptr);
+        const auto seconds = TimeStampNsValue(nanos).epoch_seconds();
+        const auto instant = cctz::time_point<cctz::seconds>(cctz::seconds(seconds));
+        const auto offset = context->state()->timezone_obj().lookup(instant).offset;
+        const auto local_nanos = static_cast<__int128>(nanos) +
+                                 static_cast<__int128>(offset) * TimeStampNsValue::NANOS_PER_SECOND;
+        if (local_nanos < std::numeric_limits<int64_t>::min() ||
+            local_nanos > std::numeric_limits<int64_t>::max()) {
+            append_invalid(groups, row);
+            return;
+        }
+        nanos = static_cast<int64_t>(local_nanos);
+    }
+    auto& group = initialize_group(groups, TIMESTAMP_NANOS_GROUP,
+                                   [] { return std::make_shared<DataTypeTimeStampNs>(); });
+    assert_cast<ColumnTimeStampNs&>(*group.values).insert_value(TimeStampNsValue(nanos));
+    group.source_rows.push_back(row);
+}
+
 void append_string(ScalarGroups& groups, size_t row, StringRef value) {
     auto& group = initialize_group(groups, STRING_GROUP,
                                    [] { return std::make_shared<DataTypeString>(); });
@@ -210,7 +236,8 @@ void append_string(ScalarGroups& groups, size_t row, StringRef value) {
     group.source_rows.push_back(row);
 }
 
-void classify_value(ScalarGroups& groups, size_t row, VariantRef value, bool forced_null) {
+void classify_value(FunctionContext* context, ScalarGroups& groups, size_t row, VariantRef value,
+                    PrimitiveType target_primitive, bool forced_null) {
     if (forced_null) {
         append_invalid(groups, row);
         return;
@@ -267,9 +294,17 @@ void classify_value(ScalarGroups& groups, size_t row, VariantRef value, bool for
         append_timestamp(groups, row, value.get_timestamp_ntz_micros(), false);
         return;
     case VariantPrimitiveId::TIMESTAMP_NANOS:
+        if (target_primitive == TYPE_TIMESTAMP_NS || target_primitive == TYPE_STRING) {
+            append_timestamp_nanos(context, groups, row, value.get_timestamp_nanos(), true);
+            return;
+        }
         append_timestamp(groups, row, nanos_to_micros(value.get_timestamp_nanos()), true);
         return;
     case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
+        if (target_primitive == TYPE_TIMESTAMP_NS || target_primitive == TYPE_STRING) {
+            append_timestamp_nanos(context, groups, row, value.get_timestamp_ntz_nanos(), false);
+            return;
+        }
         append_timestamp(groups, row, nanos_to_micros(value.get_timestamp_ntz_nanos()), false);
         return;
     case VariantPrimitiveId::STRING:
@@ -404,6 +439,7 @@ bool is_supported_scalar_target(const DataTypePtr& type) {
     case TYPE_DATEV2:
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP_NS:
     case TYPE_TIMESTAMPTZ:
         return true;
     default:
@@ -448,7 +484,8 @@ Status cast_variant_refs_to_scalar(FunctionContext* context, std::span<const Var
     }
     ScalarGroups groups;
     for (size_t row = 0; row < values.size(); ++row) {
-        classify_value(groups, row, values[row], !forced_nulls.empty() && forced_nulls[row] != 0);
+        classify_value(context, groups, row, values[row], target_type->get_primitive_type(),
+                       !forced_nulls.empty() && forced_nulls[row] != 0);
     }
     return assemble_groups(context, groups, target_type, values.size(), output);
 }
@@ -462,7 +499,8 @@ Status cast_encoded_variant_to_scalar(FunctionContext* context, const ColumnVari
     }
     ScalarGroups groups;
     for (size_t row = 0; row < rows; ++row) {
-        classify_value(groups, row, source.get_value_ref(row),
+        classify_value(context, groups, row, source.get_value_ref(row),
+                       target_type->get_primitive_type(),
                        !forced_nulls.empty() && forced_nulls[row] != 0);
     }
     return assemble_groups(context, groups, target_type, rows, output);
@@ -477,7 +515,10 @@ Status cast_variant_values_to_scalar(FunctionContext* context, const ColumnVaria
     ScalarGroups groups;
     visit_variant_v2_values(
             source, 0, rows, forced_nulls, [&](size_t row) { append_invalid(groups, row); },
-            [&](size_t row, VariantRef value) { classify_value(groups, row, value, false); });
+            [&](size_t row, VariantRef value) {
+                classify_value(context, groups, row, value, target_type->get_primitive_type(),
+                               false);
+            });
     return assemble_groups(context, groups, target_type, rows, output);
 }
 

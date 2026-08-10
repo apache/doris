@@ -237,14 +237,17 @@ public class TypeCoercionUtils {
      * Return Optional.empty() if we cannot do implicit cast.
      */
     public static Optional<DataType> implicitCastPrimitive(DataType input, DataType expected) {
-        // TIMESTAMP_NS has a different physical representation from DATETIMEV2. Until explicit
-        // cross-type casts are implemented, only its string conversions can be implicit.
+        // TIMESTAMP_NS has a different physical representation from DATETIMEV2. Temporal and
+        // numeric inputs may be promoted to TIMESTAMP_NS now that the corresponding casts exist,
+        // but never implicitly demote TIMESTAMP_NS to DATETIMEV2 because that loses nanoseconds.
         if (input instanceof TimeStampNsType || expected instanceof TimeStampNsType) {
             if (input.equals(expected) || expected instanceof AnyDataType) {
                 return Optional.of(input);
             } else if (input instanceof NullType) {
                 return Optional.of(expected.defaultConcreteType());
-            } else if (input instanceof CharacterType && expected instanceof TimeStampNsType) {
+            } else if (expected instanceof TimeStampNsType
+                    && (input instanceof NumericType || input.isDateLikeType()
+                            || input instanceof TimeV2Type || input instanceof CharacterType)) {
                 return Optional.of(expected);
             } else if (input instanceof TimeStampNsType && expected instanceof CharacterType) {
                 return Optional.of(expected.defaultConcreteType());
@@ -419,9 +422,10 @@ public class TypeCoercionUtils {
                     // not type-family precision promotion.
                     replaceSpecifiedType(dataType,
                             type -> type.getClass() == DateTimeV2Type.class,
-                            DateTimeV2Type.of(targetScale)),
-                        TimeV2Type.class, TimeV2Type.of(targetScale)),
-                    TimeStampTzType.class, TimeStampTzType.of(targetScale));
+                            DateTimeV2Type.of(Math.min(targetScale, DateTimeV2Type.MAX_SCALE))),
+                        TimeV2Type.class, TimeV2Type.of(Math.min(targetScale, TimeV2Type.MAX_SCALE))),
+                    TimeStampTzType.class,
+                    TimeStampTzType.of(Math.min(targetScale, TimeStampTzType.MAX_SCALE)));
     }
 
     /**
@@ -1032,6 +1036,8 @@ public class TypeCoercionUtils {
      */
     private static Optional<DataType> getCommonDataTypeWithDateTimeV2Type(
             DateTimeV2Type leftType, DataType rightType) {
+        Preconditions.checkArgument(leftType.getClass() == DateTimeV2Type.class,
+                "TIMESTAMP_NS does not belong to the DATETIMEV2 precision family");
         if (rightType.isNumericType()) {
             if (rightType instanceof IntegralType) {
                 return Optional.of(leftType);
@@ -1066,11 +1072,14 @@ public class TypeCoercionUtils {
     }
 
     /**
-     * TIMESTAMP_NS is not a high-scale DATETIMEV2. It can only share a coercion target with
-     * strings until casts between TIMESTAMP_NS and other temporal or numeric types are available.
+     * Choose TIMESTAMP_NS as the lossless common type whenever the other operand has a supported
+     * conversion. In particular, DATETIMEV2 must be promoted rather than truncating a nanosecond
+     * operand to DATETIMEV2(6).
      */
     private static Optional<DataType> getCommonDataTypeWithTimeStampNsType(DataType otherType) {
-        if (otherType instanceof TimeStampNsType || otherType.isStringLikeType()) {
+        if (otherType instanceof TimeStampNsType || otherType.isNumericType()
+                || otherType.isDateLikeType() || otherType instanceof TimeV2Type
+                || otherType.isStringLikeType()) {
             return Optional.of(TimeStampNsType.INSTANCE);
         }
         return Optional.empty();
@@ -2081,8 +2090,11 @@ public class TypeCoercionUtils {
             return Optional.of(StringType.INSTANCE);
         }
 
-        if (t1 instanceof TimeStampNsType || t2 instanceof TimeStampNsType) {
-            return Optional.empty();
+        if (t1 instanceof TimeStampNsType) {
+            return getCommonDataTypeWithTimeStampNsType(t2);
+        }
+        if (t2 instanceof TimeStampNsType) {
+            return getCommonDataTypeWithTimeStampNsType(t1);
         }
 
         // decimal with date should return double

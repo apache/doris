@@ -21,8 +21,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -136,5 +141,59 @@ class TimeStampNsLiteralTest {
                 .checkedCastTo(TimeStampNsType.INSTANCE);
         Assertions.assertEquals("2024-01-02 03:04:05.000000000",
                 ((TimeStampNsLiteral) fromInteger).getStringValue());
+    }
+
+    @Test
+    void testSupportedOutboundCastsAndRounding() {
+        TimeStampNsLiteral lower = TimeStampNsLiteral.getMinValue();
+        TimeStampNsLiteral carry = new TimeStampNsLiteral("1969-12-31 23:59:59.999999999");
+        TimeStampNsLiteral normal = new TimeStampNsLiteral("2024-02-29 12:34:56.123456789");
+        TimeStampNsLiteral upper = TimeStampNsLiteral.getMaxValue();
+
+        Assertions.assertEquals("1677-09-21 00:12:43.145224",
+                ((Literal) lower.checkedCastTo(DateTimeV2Type.MAX)).getStringValue());
+        Assertions.assertEquals("1970-01-01 00:00:00.000000",
+                ((Literal) carry.checkedCastTo(DateTimeV2Type.MAX)).getStringValue());
+        Assertions.assertEquals("2024-02-29 12:34:56.123457",
+                ((Literal) normal.checkedCastTo(DateTimeV2Type.MAX)).getStringValue());
+        Assertions.assertEquals("2262-04-11 23:47:16.854776",
+                ((Literal) upper.checkedCastTo(DateTimeV2Type.MAX)).getStringValue());
+
+        Assertions.assertEquals("2024-02-29",
+                ((Literal) normal.checkedCastTo(DateV2Type.INSTANCE)).getStringValue());
+        Assertions.assertEquals("12:34:56.123457",
+                ((Literal) normal.checkedCastTo(TimeV2Type.MAX)).getStringValue());
+        Assertions.assertEquals(20240229123456L,
+                ((BigIntLiteral) normal.checkedCastTo(BigIntType.INSTANCE)).getValue());
+        Assertions.assertEquals("20240229123456",
+                ((LargeIntLiteral) normal.checkedCastTo(LargeIntType.INSTANCE)).getValue().toString());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> normal.checkedCastTo(IntegerType.INSTANCE));
+    }
+
+    @Test
+    void testSupportedInboundCastsCheckTimestampNsRange() {
+        Assertions.assertThrows(CastException.class,
+                () -> new DateV2Literal("1677-09-21").checkedCastTo(TimeStampNsType.INSTANCE));
+        Assertions.assertEquals("1677-09-22 00:00:00.000000000",
+                ((Literal) new DateV2Literal("1677-09-22")
+                        .checkedCastTo(TimeStampNsType.INSTANCE)).getStringValue());
+
+        Assertions.assertThrows(CastException.class,
+                () -> new DateTimeV2Literal(DateTimeV2Type.MAX,
+                        "1677-09-21 00:12:43.145224")
+                        .checkedCastTo(TimeStampNsType.INSTANCE));
+        Assertions.assertEquals("1677-09-21 00:12:43.145225000",
+                ((Literal) new DateTimeV2Literal(DateTimeV2Type.MAX,
+                        "1677-09-21 00:12:43.145225")
+                        .checkedCastTo(TimeStampNsType.INSTANCE)).getStringValue());
+        Assertions.assertEquals("2262-04-11 23:47:16.854775000",
+                ((Literal) new DateTimeV2Literal(DateTimeV2Type.MAX,
+                        "2262-04-11 23:47:16.854775")
+                        .checkedCastTo(TimeStampNsType.INSTANCE)).getStringValue());
+        Assertions.assertThrows(CastException.class,
+                () -> new DateTimeV2Literal(DateTimeV2Type.MAX,
+                        "2262-04-11 23:47:16.854776")
+                        .checkedCastTo(TimeStampNsType.INSTANCE));
     }
 }

@@ -37,6 +37,7 @@ bool is_supported_variant_typed_identity(PrimitiveType type) {
     case TYPE_DATEV2:
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP_NS:
     case TYPE_TIMESTAMPTZ:
     case TYPE_CHAR:
     case TYPE_VARCHAR:

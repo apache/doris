@@ -57,10 +57,11 @@ suite("test_timestamp_ns_storage_dup_key") {
     order_qt_is_null "select id from timestamp_ns_storage_dup_key where dt is null order by id"
     order_qt_is_not_null "select id from timestamp_ns_storage_dup_key where dt is not null order by id"
     qt_min_max_count "select min(dt), max(dt), count(dt) from timestamp_ns_storage_dup_key"
-    test {
-        sql "select cast(dt as datetimev2(6)) from timestamp_ns_storage_dup_key"
-        exception "cannot cast"
-    }
+    order_qt_cast_datetimev2_6 """
+        select id, cast(dt as datetimev2(6))
+        from timestamp_ns_storage_dup_key
+        order by id
+    """
 
     sql "drop table if exists timestamp_ns_storage_dup_key_row_store"
     sql """

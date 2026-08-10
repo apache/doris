@@ -34,7 +34,11 @@ WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr&
         constexpr bool is_timestamp_ns_source = std::is_same_v<FromDataType, DataTypeTimeStampNs>;
         constexpr bool is_timestamp_ns_target = std::is_same_v<ToDataType, DataTypeTimeStampNs>;
         constexpr bool is_supported_timestamp_ns_cast =
-                is_timestamp_ns_target && IsStringType<FromDataType>;
+                (is_timestamp_ns_target &&
+                 (IsStringType<FromDataType> || CastUtil::IsPureDigitType<FromDataType> ||
+                  IsDatelikeTypes<FromDataType> ||
+                  std::is_same_v<FromDataType, DataTypeTimeStampTz>)) ||
+                (is_timestamp_ns_source && IsDatelikeTypes<ToDataType>);
         constexpr bool is_supported_legacy_cast =
                 !is_timestamp_ns_source && !is_timestamp_ns_target &&
                 (CastUtil::IsPureDigitType<FromDataType> || IsDatelikeTypes<FromDataType> ||

@@ -96,10 +96,7 @@ suite("test_timestamp_ns_literal") {
         sql "set enable_strict_cast = ${originalEnableStrictCast}"
     }
 
-    test {
-        sql "select seconds_add(cast('1970-01-01 00:00:00.000000001' as timestamp_ns), 1)"
-        exception "Can not find the compatibility function signature: seconds_add"
-    }
+    qt_seconds_add "select seconds_add(cast('1970-01-01 00:00:00.000000001' as timestamp_ns), 1)"
 
     sql "drop table if exists test_timestamp_ns_current_default"
     test {

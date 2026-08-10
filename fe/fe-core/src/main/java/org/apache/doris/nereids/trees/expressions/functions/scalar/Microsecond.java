@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 
 import com.google.common.base.Preconditions;
@@ -44,6 +45,7 @@ public class Microsecond extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(TimeStampNsType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(TimeV2Type.WILDCARD)
     );
 

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -120,6 +121,10 @@ public class DateTrunc extends ScalarFunction
                 getArgument(1).isConstant() && getArgument(1) instanceof StringLikeLiteral;
         if (firstArgIsStringLiteral && !secondArgIsStringLiteral) {
             DataType argType = getArgument(1).getDataType();
+            if (argType instanceof TimeStampNsType) {
+                return FunctionSignature.ret(TimeStampNsType.INSTANCE)
+                        .args(VarcharType.SYSTEM_DEFAULT, TimeStampNsType.INSTANCE);
+            }
             if (argType instanceof TimeStampTzType) {
                 return FunctionSignature.ret((TimeStampTzType) argType)
                         .args(VarcharType.SYSTEM_DEFAULT, (TimeStampTzType) argType);
@@ -128,6 +133,10 @@ public class DateTrunc extends ScalarFunction
                     .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.WILDCARD);
         } else if (!firstArgIsStringLiteral && secondArgIsStringLiteral) {
             DataType argType = getArgument(0).getDataType();
+            if (argType instanceof TimeStampNsType) {
+                return FunctionSignature.ret(TimeStampNsType.INSTANCE)
+                        .args(TimeStampNsType.INSTANCE, VarcharType.SYSTEM_DEFAULT);
+            }
             if (argType instanceof TimeStampTzType) {
                 return FunctionSignature.ret((TimeStampTzType) argType)
                         .args((TimeStampTzType) argType, VarcharType.SYSTEM_DEFAULT);

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
@@ -43,6 +44,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -58,17 +60,54 @@ import java.util.List;
 
 public class CheckCastTest {
     @Test
-    public void testTimeStampNsOnlySupportsStringCasts() {
-        Assertions.assertTrue(CheckCast.check(StringType.INSTANCE, TimeStampNsType.INSTANCE, true));
-        Assertions.assertTrue(CheckCast.check(TimeStampNsType.INSTANCE, StringType.INSTANCE, true));
-        Assertions.assertTrue(CheckCast.check(StringType.INSTANCE, TimeStampNsType.INSTANCE, false));
-        Assertions.assertTrue(CheckCast.check(TimeStampNsType.INSTANCE, StringType.INSTANCE, false));
-        Assertions.assertFalse(CheckCast.check(DateTimeV2Type.MAX, TimeStampNsType.INSTANCE, true));
-        Assertions.assertFalse(CheckCast.check(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX, true));
-        Assertions.assertFalse(CheckCast.check(DateV2Type.INSTANCE, TimeStampNsType.INSTANCE, true));
-        Assertions.assertFalse(CheckCast.check(TimeStampNsType.INSTANCE, DateV2Type.INSTANCE, true));
-        Assertions.assertFalse(CheckCast.check(DateTimeV2Type.MAX, TimeStampNsType.INSTANCE, false));
-        Assertions.assertFalse(CheckCast.check(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX, false));
+    public void testTimeStampNsCastMatrix() {
+        List<DataType> strictTargets = Lists.newArrayList(
+                BigIntType.INSTANCE, LargeIntType.INSTANCE,
+                DateType.INSTANCE, DateV2Type.INSTANCE, DateTimeType.INSTANCE,
+                DateTimeV2Type.MAX, TimeStampNsType.INSTANCE, TimeV2Type.MAX,
+                CharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, StringType.INSTANCE,
+                VariantType.INSTANCE, TimeStampTzType.MAX);
+        for (DataType target : strictTargets) {
+            Assertions.assertTrue(CheckCast.check(TimeStampNsType.INSTANCE, target, true), target.toSql());
+            Assertions.assertTrue(CheckCast.check(TimeStampNsType.INSTANCE, target, false), target.toSql());
+        }
+
+        Assertions.assertFalse(CheckCast.check(TimeStampNsType.INSTANCE, FloatType.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(TimeStampNsType.INSTANCE, DoubleType.INSTANCE, true));
+        Assertions.assertTrue(CheckCast.check(TimeStampNsType.INSTANCE, FloatType.INSTANCE, false));
+        Assertions.assertTrue(CheckCast.check(TimeStampNsType.INSTANCE, DoubleType.INSTANCE, false));
+
+        List<DataType> unsupportedTargets = Lists.newArrayList(
+                BooleanType.INSTANCE, TinyIntType.INSTANCE, SmallIntType.INSTANCE,
+                IntegerType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT,
+                IPv4Type.INSTANCE, IPv6Type.INSTANCE, JsonType.INSTANCE,
+                ArrayType.SYSTEM_DEFAULT, MapType.SYSTEM_DEFAULT, StructType.SYSTEM_DEFAULT,
+                HllType.INSTANCE, BitmapType.INSTANCE, QuantileStateType.INSTANCE);
+        for (DataType target : unsupportedTargets) {
+            Assertions.assertFalse(CheckCast.check(TimeStampNsType.INSTANCE, target, true), target.toSql());
+            Assertions.assertFalse(CheckCast.check(TimeStampNsType.INSTANCE, target, false), target.toSql());
+        }
+
+        List<DataType> strictSources = Lists.newArrayList(
+                TinyIntType.INSTANCE, SmallIntType.INSTANCE, IntegerType.INSTANCE,
+                BigIntType.INSTANCE, LargeIntType.INSTANCE, FloatType.INSTANCE, DoubleType.INSTANCE,
+                DecimalV2Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT,
+                DateType.INSTANCE, DateV2Type.INSTANCE, DateTimeType.INSTANCE, DateTimeV2Type.MAX,
+                TimeV2Type.MAX, CharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT,
+                StringType.INSTANCE, TimeStampTzType.MAX, VariantType.INSTANCE);
+        for (DataType source : strictSources) {
+            Assertions.assertTrue(CheckCast.check(source, TimeStampNsType.INSTANCE, true), source.toSql());
+            Assertions.assertTrue(CheckCast.check(source, TimeStampNsType.INSTANCE, false), source.toSql());
+        }
+
+        List<DataType> unsupportedSources = Lists.newArrayList(
+                BooleanType.INSTANCE, IPv4Type.INSTANCE, IPv6Type.INSTANCE, JsonType.INSTANCE,
+                ArrayType.SYSTEM_DEFAULT, MapType.SYSTEM_DEFAULT, StructType.SYSTEM_DEFAULT,
+                HllType.INSTANCE, BitmapType.INSTANCE, QuantileStateType.INSTANCE);
+        for (DataType source : unsupportedSources) {
+            Assertions.assertFalse(CheckCast.check(source, TimeStampNsType.INSTANCE, true), source.toSql());
+            Assertions.assertFalse(CheckCast.check(source, TimeStampNsType.INSTANCE, false), source.toSql());
+        }
     }
 
     @Test

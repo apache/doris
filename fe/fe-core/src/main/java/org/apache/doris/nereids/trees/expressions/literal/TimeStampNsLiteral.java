@@ -19,10 +19,18 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 
+import java.math.BigInteger;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoField;
@@ -213,6 +221,72 @@ public final class TimeStampNsLiteral extends DateLiteral {
 
     public int getScale() {
         return TimeStampNsType.SCALE;
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (getDataType().equals(targetType)) {
+            return this;
+        }
+        if (targetType.isBigIntType()) {
+            return new BigIntLiteral(getValue());
+        }
+        if (targetType.isLargeIntType()) {
+            return new LargeIntLiteral(new BigInteger(String.valueOf(getValue())));
+        }
+        if (targetType.isDateType()) {
+            return new DateLiteral(year, month, day);
+        }
+        if (targetType.isDateV2Type()) {
+            return new DateV2Literal(year, month, day);
+        }
+        if (targetType.isDateTimeType()) {
+            return new DateTimeLiteral((DateTimeType) targetType,
+                    year, month, day, hour, minute, second, 0);
+        }
+        if (targetType instanceof DateTimeV2Type) {
+            DateTimeV2Type dateTimeV2Type = (DateTimeV2Type) targetType;
+            LocalDateTime rounded = roundToScale(dateTimeV2Type.getScale());
+            return DateTimeV2Literal.fromJavaDateType(rounded, dateTimeV2Type.getScale());
+        }
+        if (targetType.isTimeType()) {
+            int scale = ((TimeV2Type) targetType).getScale();
+            long factor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale);
+            long timeNanos = getTimePartInNanoseconds() + factor / 2;
+            int resultHour = (int) (timeNanos / NANOS_PER_SECOND / 60 / 60);
+            int resultMinute = (int) (timeNanos / NANOS_PER_SECOND / 60 % 60);
+            int resultSecond = (int) (timeNanos / NANOS_PER_SECOND % 60);
+            int resultMicroSecond = (int) (timeNanos % NANOS_PER_SECOND / 1000 / (factor / 1000)
+                    * (factor / 1000));
+            return new TimeV2Literal(resultHour, resultMinute, resultSecond,
+                    resultMicroSecond, scale, false);
+        }
+        if (targetType.isTimeStampTzType()) {
+            int scale = ((TimeStampTzType) targetType).getScale();
+            LocalDateTime rounded = roundToScale(scale);
+            DateTimeV2Literal local = DateTimeV2Literal.fromJavaDateType(rounded, scale);
+            return local.checkedCastTo(targetType);
+        }
+        if (targetType.isFloatType()) {
+            return new FloatLiteral((float) getDouble());
+        }
+        if (targetType.isDoubleType()) {
+            return new DoubleLiteral(getDouble());
+        }
+        if (targetType.isIntegralType()) {
+            throw new CastException(getStringValue() + " can't cast to " + targetType.toSql());
+        }
+        try {
+            return super.uncheckedCastTo(targetType);
+        } catch (AnalysisException e) {
+            throw new CastException(e.getMessage(), e);
+        }
+    }
+
+    private LocalDateTime roundToScale(int scale) {
+        long factor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale);
+        LocalDateTime rounded = toJavaDateType().plusNanos(factor / 2);
+        return rounded.withNano((int) (rounded.getNano() / factor * factor));
     }
 
     @Override
