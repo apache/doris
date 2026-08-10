@@ -140,7 +140,7 @@ suite("test_fluss_pk_table", "p0,external") {
 
     // --- planning is visible in the plan ------------------------------------
     def basicPlan = planOf("""select * from pk_basic""")
-    assertTrue(basicPlan.contains("flussScan: unionRead=no"),
+    assertTrue(basicPlan.contains("flussScan: readMode=default, unionRead=no"),
             "no fluss scan line: ${basicPlan}")
     assertTrue(basicPlan.contains("lakeSplits=0"), "unexpected lake splits: ${basicPlan}")
     assertTrue(basicPlan.contains("mode=auto"), "unexpected union read mode: ${basicPlan}")
