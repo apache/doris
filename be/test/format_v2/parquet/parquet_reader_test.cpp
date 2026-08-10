@@ -2018,11 +2018,13 @@ TEST(ParquetVariantProjectionTest, FinalizesPhysicalProjectionBeforeFooterPrunin
             {chunk(tparquet::Type::INT32, 0, 10, 1, 2), chunk(tparquet::Type::BYTE_ARRAY, 0, 20),
              chunk(tparquet::Type::BYTE_ARRAY, 10, 30), chunk(tparquet::Type::BYTE_ARRAY, 9, 40),
              chunk(tparquet::Type::INT32, 1, 50)});
+    auto leaf_row_group = row_group;
+    leaf_row_group.columns[3] = chunk(tparquet::Type::BYTE_ARRAY, 10, 40);
     tparquet::ColumnOrder order;
     order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
     tparquet::FileMetaData thrift_metadata;
-    thrift_metadata.__set_num_rows(10);
-    thrift_metadata.__set_row_groups({row_group});
+    thrift_metadata.__set_num_rows(20);
+    thrift_metadata.__set_row_groups({row_group, leaf_row_group});
     thrift_metadata.__set_column_orders({order, order, order, order, order});
     format::parquet::NativeParquetMetadata metadata(std::move(thrift_metadata), 0);
 
@@ -2047,20 +2049,24 @@ TEST(ParquetVariantProjectionTest, FinalizesPhysicalProjectionBeforeFooterPrunin
                                                          &plan, nullptr, nullptr, &file_context)
                         .ok());
     EXPECT_TRUE(plan.row_groups.empty());
-    // Footer accounting must use the row-group fallback shape: id plus all four Variant leaves.
-    EXPECT_EQ(plan.pruning_stats.filtered_bytes, 150);
+    // Footer accounting uses id plus all Variant leaves for the first row group (150 bytes), then
+    // id plus the retained typed leaf for the fully shredded row group (60 bytes).
+    EXPECT_EQ(plan.pruning_stats.filtered_bytes, 210);
 
     request.conjuncts.clear();
     ASSERT_TRUE(format::parquet::plan_parquet_row_groups(metadata, schema, request,
                                                          {.start_offset = 0, .size = -1}, false,
                                                          &plan, nullptr, nullptr, &file_context)
                         .ok());
-    ASSERT_EQ(plan.row_groups.size(), 1);
-    EXPECT_TRUE(plan.row_groups[0].has_row_group_physical_projection);
-    ASSERT_EQ(plan.row_groups[0].physical_non_predicate_columns.size(), 1);
-    EXPECT_TRUE(plan.row_groups[0].physical_non_predicate_columns[0].project_all_children);
+    ASSERT_EQ(plan.row_groups.size(), 2);
+    EXPECT_TRUE(plan.row_groups[0].has_row_group_physical_projection());
+    EXPECT_EQ(plan.row_groups[0].full_variant_projection_ordinals, std::vector<size_t> {0});
     EXPECT_EQ(plan.row_groups[0].variant_leaf_projection_columns, 0);
     EXPECT_EQ(plan.row_groups[0].variant_full_projection_columns, 1);
+    EXPECT_FALSE(plan.row_groups[1].has_row_group_physical_projection());
+    EXPECT_TRUE(plan.row_groups[1].full_variant_projection_ordinals.empty());
+    EXPECT_EQ(plan.row_groups[1].variant_leaf_projection_columns, 1);
+    EXPECT_EQ(plan.row_groups[1].variant_full_projection_columns, 0);
 }
 
 TEST(ParquetVariantProjectionTest, FinalizesNestedVariantProjectionPerRowGroup) {

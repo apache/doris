@@ -1233,21 +1233,25 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
 int64_t native_requested_compressed_bytes(
         const tparquet::RowGroup& row_group,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request) {
+        const format::FileScanRequest& request, const std::unordered_set<int>* requested_leaf_ids) {
     std::set<int> leaf_column_ids;
-    auto collect_projection = [&](const format::LocalColumnIndex& projection) {
-        const int32_t local_id = projection.local_id();
-        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size()) ||
-            file_schema[local_id] == nullptr) {
-            return;
+    if (requested_leaf_ids != nullptr) {
+        leaf_column_ids.insert(requested_leaf_ids->begin(), requested_leaf_ids->end());
+    } else {
+        auto collect_projection = [&](const format::LocalColumnIndex& projection) {
+            const int32_t local_id = projection.local_id();
+            if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size()) ||
+                file_schema[local_id] == nullptr) {
+                return;
+            }
+            collect_filtered_leaf_ids(*file_schema[local_id], &projection, &leaf_column_ids);
+        };
+        for (const auto& projection : request.predicate_columns) {
+            collect_projection(projection);
         }
-        collect_filtered_leaf_ids(*file_schema[local_id], &projection, &leaf_column_ids);
-    };
-    for (const auto& projection : request.predicate_columns) {
-        collect_projection(projection);
-    }
-    for (const auto& projection : request.non_predicate_columns) {
-        collect_projection(projection);
+        for (const auto& projection : request.non_predicate_columns) {
+            collect_projection(projection);
+        }
     }
     int64_t bytes = 0;
     for (const int leaf_column_id : leaf_column_ids) {
@@ -1272,7 +1276,7 @@ Status select_row_groups_by_metadata(
         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone,
         const RuntimeState* runtime_state, ParquetFileContext* file_context,
         const ParquetColumnReaderProfile& column_reader_profile,
-        ParquetMetadataProbeMode probe_mode) {
+        ParquetMetadataProbeMode probe_mode, const std::unordered_set<int>* requested_leaf_ids) {
     int64_t timer_sink = 0;
     SCOPED_RAW_TIMER(pruning_stats == nullptr ? &timer_sink
                                               : &pruning_stats->row_group_filter_time);
@@ -1338,8 +1342,8 @@ Status select_row_groups_by_metadata(
         }
         if (pruning_stats != nullptr) {
             pruning_stats->filtered_group_rows += row_group.num_rows;
-            pruning_stats->filtered_bytes +=
-                    native_requested_compressed_bytes(row_group, file_schema, request);
+            pruning_stats->filtered_bytes += native_requested_compressed_bytes(
+                    row_group, file_schema, request, requested_leaf_ids);
             if (prune_reason == ParquetRowGroupPruneReason::STATISTICS) {
                 ++pruning_stats->filtered_row_groups_by_statistics;
             } else if (prune_reason == ParquetRowGroupPruneReason::DICTIONARY) {

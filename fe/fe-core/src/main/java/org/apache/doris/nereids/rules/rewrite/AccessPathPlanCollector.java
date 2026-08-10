@@ -92,6 +92,10 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                     for (Expression child : function.children()) {
                         exprCollector.collect(child);
                     }
+                } else if (function.arity() == 1 && function.child(0).getDataType().isVariantType()) {
+                    // A generator may change the Variant container kind, which the legacy path
+                    // cannot encode. Preserve the whole input container so residual values stay visible.
+                    exprCollector.collect(function.child(0));
                 } else {
                     for (CollectAccessPathResult accessPath : accessPaths) {
                         List<String> path = accessPath.getPath();
@@ -99,14 +103,9 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             // $c$1.VALUES.b
                             CollectorContext argumentContext = new CollectorContext(context, false);
                             argumentContext.setType(accessPath.getType());
-                            if (function.child(0).getDataType().isVariantType()) {
-                                argumentContext.getAccessPathBuilder()
-                                        .addSuffix(path.subList(1, path.size()));
-                            } else {
-                                argumentContext.getAccessPathBuilder()
-                                        .addSuffix(AccessPathInfo.ACCESS_ALL)
-                                        .addSuffix(path.subList(1, path.size()));
-                            }
+                            argumentContext.getAccessPathBuilder()
+                                    .addSuffix(AccessPathInfo.ACCESS_ALL)
+                                    .addSuffix(path.subList(1, path.size()));
                             function.child(0).accept(exprCollector, argumentContext);
                             continue;
                         } else if (path.size() >= 2) {

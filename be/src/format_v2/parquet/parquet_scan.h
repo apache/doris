@@ -81,6 +81,9 @@ size_t finalize_variant_leaf_projection_for_row_group(const tparquet::RowGroup& 
                                                       const ParquetColumnSchema& schema,
                                                       format::LocalColumnIndex* projection,
                                                       size_t* full_projections = nullptr);
+bool variant_leaf_projection_is_safe_for_row_group(const tparquet::RowGroup& row_group,
+                                                   const ParquetColumnSchema& schema,
+                                                   const format::LocalColumnIndex& projection);
 
 std::vector<size_t> order_adaptive_predicates(
         const std::vector<size_t>& positions,
@@ -122,16 +125,18 @@ struct RowGroupReadPlan {
     // Deferred planning transfers parsed indexes to execution so narrowed scans never issue the
     // same remote index reads a second time while opening the row group.
     std::unordered_map<int, tparquet::OffsetIndex> offset_indexes;
-    // Variant leaf/full selection is row-group scoped and must be fixed before footer byte
-    // accounting, metadata probes, page indexes, prefetch, and physical readers use the request.
-    std::vector<format::LocalColumnIndex> physical_predicate_columns;
-    std::vector<format::LocalColumnIndex> physical_non_predicate_columns;
-    bool has_row_group_physical_projection = false;
+    // Candidate ordinals refer to a deterministic traversal of the immutable request projection.
+    // Only full fallbacks are retained, keeping the row-group delta independent of projection size.
+    std::vector<size_t> full_variant_projection_ordinals;
     size_t variant_leaf_projection_columns = 0;
     size_t variant_full_projection_columns = 0;
     // Footer statistics are cheap and eager. Remote dictionary/Bloom/page-index probes fill the
     // remaining fields only when this row group reaches the scheduler.
     bool expensive_pruning_pending = false;
+
+    bool has_row_group_physical_projection() const {
+        return !full_variant_projection_ordinals.empty();
+    }
 };
 
 struct RowGroupScanPlan {
@@ -179,7 +184,7 @@ class ParquetScanScheduler {
 public:
     static constexpr int64_t DEFAULT_READ_BATCH_SIZE = 4096;
 
-    void set_plan(RowGroupScanPlan plan);
+    void set_plan(std::shared_ptr<RowGroupScanPlan> plan);
     void set_page_skip_profile(ParquetPageSkipProfile page_skip_profile) {
         _page_skip_profile = page_skip_profile;
     }
@@ -211,7 +216,7 @@ public:
         _batch_size = batch_size == 0 ? 1 : static_cast<int64_t>(batch_size);
     }
     void reset();
-    bool empty() const { return _row_group_plans.empty(); }
+    bool empty() const { return _scan_plan == nullptr || _scan_plan->row_groups.empty(); }
     int64_t condition_cache_filtered_rows() const { return _condition_cache_filtered_rows; }
     int64_t predicate_filtered_rows() const { return _predicate_filtered_rows; }
     int64_t raw_rows_read() const { return _raw_rows_read; }
@@ -269,8 +274,8 @@ private:
     void mark_condition_cache_granules(const SelectionVector& selection, uint16_t selected_rows,
                                        int64_t batch_first_file_row);
 
-    std::vector<RowGroupReadPlan> _row_group_plans; // row group queue to scan
-    size_t _next_row_group_plan_idx = 0;            // index of the next row group to process
+    std::shared_ptr<RowGroupScanPlan> _scan_plan; // shared with the reader's aggregate path
+    size_t _next_row_group_plan_idx = 0;          // index of the next row group to process
 
     bool _has_current_row_group = false;
     // Readers retain pointers into this immutable row-group map, so it must outlive both maps below.

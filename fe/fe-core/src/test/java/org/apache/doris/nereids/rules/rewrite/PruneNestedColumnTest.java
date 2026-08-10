@@ -236,7 +236,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testExplodeVariantAccessPath() throws Exception {
         assertColumn("select x['k'] from variant_tbl lateral view explode(v) tmp as x",
                 "variant",
-                ImmutableList.of(path("v", "k")),
+                ImmutableList.of(path("v")),
                 ImmutableList.of()
         );
     }
@@ -245,7 +245,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testExplodeVariantProjectAndFilterAccessPath() throws Exception {
         assertColumn("select x['x'] from variant_tbl lateral view explode(v['arr']) tmp as x where x['y'] is not null",
                 "variant",
-                ImmutableList.of(path("v", "arr", "x"), path("v", "arr", "y")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
     }
@@ -254,7 +254,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testExplodeVariantMultiLevelFieldAccessPath() throws Exception {
         assertColumn("select x['a']['b'] from variant_tbl lateral view explode(v['arr']) tmp as x",
                 "variant",
-                ImmutableList.of(path("v", "arr", "a", "b")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
     }
@@ -264,8 +264,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         assertAllAccessPathsContain("select x['x'] from variant_tbl lateral view explode(v['arr']) tmp as x "
                         + "where v['filter']['k'] = 1 and x['y'] is not null",
                 ImmutableList.of(
-                        path("v", "arr", "x"),
-                        path("v", "arr", "y"),
+                        path("v", "arr"),
                         path("v", "filter", "k")),
                 ImmutableList.of());
     }
@@ -275,7 +274,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         assertColumn("select x['m'] from (select v as a from variant_tbl) t lateral view explode(a['arr']) tmp as x "
                         + "where x['n'] is not null",
                 "variant",
-                ImmutableList.of(path("v", "arr", "m"), path("v", "arr", "n")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
     }
