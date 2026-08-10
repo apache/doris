@@ -174,6 +174,7 @@ TEST_F(InvertedIndexIteratorTest, AddReader_DuplicateIndexIdFails) {
     auto duplicate_reader = create_mock_reader("english", InvertedIndexReaderType::FULLTEXT, 7);
 
 #ifndef NDEBUG
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH(
             {
                 InvertedIndexIterator iterator;
