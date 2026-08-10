@@ -864,7 +864,7 @@ public class MTMVTask extends AbstractTask {
         return executor -> {
             // executor == null 且 this.executor 仍注册:executeCommand 的 finally 回调,
             // 命令已执行完成,在 registerExecutor(null) 清空字段前先摘取 IVM 签名。
-            if (executor == null && this.executor != null) {
+            if (executor == null && this.executor != null && this.executor.planner() != null) {
                 ((NereidsPlanner) this.executor.planner())
                         .getCascadesContext()
                         .getIvmRewriteResult()
