@@ -6564,7 +6564,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
     std::string end_recycle_txn_key;
     recycle_txn_key(recycle_txn_key_info0, &begin_recycle_txn_key);
     recycle_txn_key(recycle_txn_key_info1, &end_recycle_txn_key);
-    std::vector<std::string> recycle_txn_info_keys;
+    std::unordered_map<std::string, std::vector<std::string>> recycle_txn_keys_by_label;
 
     LOG_WARNING("begin to recycle expired txn").tag("instance_id", instance_id_);
 
@@ -6605,7 +6605,17 @@ int InstanceRecycler::recycle_expired_txn_label() {
              current_time_ms)) {
             VLOG_DEBUG << "found recycle txn, key=" << hex(k);
             num_expired++;
-            recycle_txn_info_keys.emplace_back(k);
+
+            std::string_view k1 = k;
+            k1.remove_prefix(1); // Remove key space
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            if (decode_key(&k1, &out) != 0) {
+                LOG_ERROR("failed to decode key").tag("key", hex(k));
+                return -1;
+            }
+            int64_t db_id = std::get<int64_t>(std::get<0>(out[3]));
+            auto label_key = txn_label_key({instance_id_, db_id, recycle_txn_pb.label()});
+            recycle_txn_keys_by_label[label_key].emplace_back(k);
         }
         return 0;
     };
@@ -6714,35 +6724,48 @@ int InstanceRecycler::recycle_expired_txn_label() {
 
     auto loop_done = [&]() -> int {
         DORIS_CLOUD_DEFER {
-            recycle_txn_info_keys.clear();
+            recycle_txn_keys_by_label.clear();
         };
         TEST_SYNC_POINT_CALLBACK(
-                "InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_info_keys",
-                &recycle_txn_info_keys);
-        for (const auto& k : recycle_txn_info_keys) {
-            concurrent_delete_executor.add([&]() {
-                int ret = delete_recycle_txn_kv(k);
-                if (ret == 1) {
-                    const int max_retry = std::max(1, config::recycle_txn_delete_max_retry_times);
-                    for (int i = 1; i <= max_retry; ++i) {
-                        LOG(WARNING) << "txn conflict, retry times=" << i << " key=" << hex(k);
-                        ret = delete_recycle_txn_kv(k);
-                        // clang-format off
-                        TEST_SYNC_POINT_CALLBACK(
-                                "InstanceRecycler::recycle_expired_txn_label.delete_recycle_txn_kv_error", &ret);
-                        // clang-format off
-                        if (ret != 1) {
-                            break;
-                        }
-                        // random sleep 0-100 ms to retry
-                        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 100));
+                "InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_keys_by_label",
+                &recycle_txn_keys_by_label);
+        auto delete_recycle_txn_kv_with_retry = [&](const std::string& k) -> int {
+            int ret = delete_recycle_txn_kv(k);
+            TEST_SYNC_POINT_CALLBACK(
+                    "InstanceRecycler::recycle_expired_txn_label.delete_recycle_txn_kv_error",
+                    &ret);
+            if (ret == 1) {
+                const int max_retry = std::max(1, config::recycle_txn_delete_max_retry_times);
+                for (int i = 1; i <= max_retry; ++i) {
+                    LOG(WARNING) << "txn conflict, retry times=" << i << " key=" << hex(k);
+                    ret = delete_recycle_txn_kv(k);
+                    TEST_SYNC_POINT_CALLBACK(
+                            "InstanceRecycler::recycle_expired_txn_label.delete_recycle_txn_kv_"
+                            "error",
+                            &ret);
+                    if (ret != 1) {
+                        break;
                     }
+                    // random sleep 0-100 ms to retry
+                    std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 100));
                 }
-                if (ret != 0) {
-                    LOG_WARNING("failed to delete recycle txn kv")
-                            .tag("instance id", instance_id_)
-                            .tag("key", hex(k));
-                    return -1;
+            }
+            return ret;
+        };
+
+        for (auto& [label_key, txn_keys] : recycle_txn_keys_by_label) {
+            concurrent_delete_executor.add([&, txn_keys = std::move(txn_keys), label_key]() {
+                VLOG_DEBUG << "recycle txn label group, key=" << hex(label_key)
+                           << " txn_count=" << txn_keys.size();
+                for (const auto& k : txn_keys) {
+                    int ret = delete_recycle_txn_kv_with_retry(k);
+                    if (ret != 0) {
+                        LOG_WARNING("failed to delete recycle txn kv")
+                                .tag("instance id", instance_id_)
+                                .tag("key", hex(k))
+                                .tag("label_key", hex(label_key));
+                        return -1;
+                    }
                 }
                 return 0;
             });
