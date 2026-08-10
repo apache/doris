@@ -275,6 +275,8 @@ if ! OPTS="$(getopt \
     -l 'be-extension-ignore:' \
     -l 'enable-dynamic-arch' \
     -l 'disable-dynamic-arch' \
+    -l 'exclude-obs-dependencies' \
+    -l 'exclude-cos-dependencies' \
     -l 'clean' \
     -l 'compile-bench' \
     -l 'coverage' \
