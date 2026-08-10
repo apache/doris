@@ -580,17 +580,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public boolean registerTable(TableIf tableIf) {
         makeSureInitialized();
-        T table = (T) tableIf;
-        // Replayed metadata may lose these non-persistent owner references, so restore them before publication.
-        table.setCatalog(extCatalog);
-        table.setDb(this);
-        String tableName = table.getName();
+        String tableName = tableIf.getName();
         if (LOG.isDebugEnabled()) {
             LOG.debug("create table [{}]", tableName);
         }
         if (isInitialized()) {
             String localName = extCatalog.fromRemoteTableName(this.remoteName, tableName);
-            metaCache.updateCache(tableName, localName, table,
+            metaCache.updateCache(tableName, localName, (T) tableIf,
                     Util.genIdByName(extCatalog.getName(), name, localName));
             lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
         }
