@@ -74,9 +74,17 @@ suite("test_fluss_nested_types", "p0,external") {
     // but hold NULL elements, and the one whose columns are NULL outright. The middle
     // row is the one worth having -- a decoder that confuses "no element" with "a null
     // element" gets the other two right and this one wrong.
+    //
+    // f_map_arr is the one map here with more than one key, and it goes in as its sorted
+    // keys plus a lookup per key rather than whole: the order a map renders its entries
+    // in is neither the order they were written in nor stable across runs, so a recorded
+    // whole-map cell pins something no reader promises. The keys say which entries exist,
+    // which is what tells a missing entry apart from a null one.
     order_qt_log_rows """
-        select id, f_arr_arr, f_arr_map, f_arr_row, f_map_arr, f_map_row, f_row_deep,
-               f_arr_arr_arr
+        select id, f_arr_arr, f_arr_map, f_arr_row,
+               array_sort(map_keys(f_map_arr)) as f_map_arr_keys,
+               f_map_arr['k1'] as f_map_arr_k1, f_map_arr['k2'] as f_map_arr_k2,
+               f_map_row, f_row_deep, f_arr_arr_arr
         from log_nested
     """
 
