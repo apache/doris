@@ -153,11 +153,11 @@ public class HudiStatementMemoTest {
 
     /** A statement scope that memoizes like the engine's real one (ConcurrentHashMap computeIfAbsent). */
     private static final class MemoScope implements ConnectorStatementScope {
-        private final ConcurrentHashMap<Object, Object> cache = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
 
         @Override
         @SuppressWarnings("unchecked")
-        public <T> T computeIfAbsent(Object key, Supplier<T> loader) {
+        public <T> T computeIfAbsent(String key, Supplier<T> loader) {
             return (T) cache.computeIfAbsent(key, k -> loader.get());
         }
     }
