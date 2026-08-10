@@ -3497,7 +3497,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TCheckAuthResult checkAuth(TCheckAuthRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive auth request: {}, backend: {}", request, clientAddr);
+            TCheckAuthRequest requestForLog = request.deepCopy();
+            requestForLog.setPasswd("***MASKED***");
+            LOG.debug("receive auth request: {}, backend: {}", requestForLog, clientAddr);
         }
 
         TCheckAuthResult result = new TCheckAuthResult();
