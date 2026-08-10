@@ -51,9 +51,11 @@ import java.util.TreeMap;
  * the fluss client's own option set: fluss owns those names and adds to them between releases, and a
  * Doris-side allowlist would silently reject options that fluss understands perfectly well.
  *
- * <p>No lake/paimon connection property belongs here. The tiering service writes the lake catalog
- * configuration into each datalake-enabled table's own properties ({@code table.datalake.paimon.*}), so
- * union read reads it from the table, never from the catalog.
+ * <p>The lake connection is the one exception, and {@link #LAKE_OPTION_PREFIX} is the reason it has to be:
+ * the fluss cluster's own lake configuration arrives inside each datalake table's properties, but it
+ * arrives incomplete — anything that looks like a credential is stripped from it before it leaves the
+ * cluster (see {@link PaimonSiblingProperties}). So a catalog needs a place to state the lake settings the
+ * cluster cannot hand over, and these keys are it.
  */
 public final class FlussCatalogProperties {
 
@@ -116,6 +118,26 @@ public final class FlussCatalogProperties {
     public static final long DEFAULT_MAX_TOTAL_TAIL_ROWS = 10 * DEFAULT_MAX_TAIL_ROWS;
 
     /**
+     * Optional, repeated. Prefix of a lake connection setting this catalog states for itself, overriding
+     * whatever its fluss cluster reports for the same setting. The tail is spelled the way paimon spells
+     * it, which is also how it is spelled in the fluss cluster's own {@code datalake.paimon.*} block, so an
+     * operator copies the tail across rather than translating it:
+     *
+     * <pre>
+     *   fluss server.yaml     datalake.paimon.warehouse = s3://bucket/lake
+     *   Doris catalog         "fluss.lake.paimon.warehouse" = "s3://bucket/lake"
+     * </pre>
+     *
+     * <p>Per key, not wholesale: a catalog that states only the credentials keeps the warehouse, the
+     * metastore and every other setting the cluster reports. That is what makes the common case — the
+     * cluster's configuration is right except for what it is not allowed to send — a two-line catalog.
+     *
+     * <p>Doris-only in the sense that matters here: these keys configure the LAKE, not the fluss client, so
+     * {@link #getFlussClientConfig()} must not see them.
+     */
+    public static final String LAKE_OPTION_PREFIX = "fluss.lake.paimon.";
+
+    /**
      * Optional. Whether a fluss BINARY/BYTES column reads as Doris VARBINARY instead of STRING.
      *
      * <p>Unprefixed on purpose: this is the engine-wide catalog property
@@ -174,6 +196,7 @@ public final class FlussCatalogProperties {
     private UnionReadMode unionReadMode;
     private FlussTypeMapping.Options typeMappingOptions;
     private Map<String, String> flussClientConfig;
+    private Map<String, String> lakeOverrides;
 
     private FlussCatalogProperties() {
     }
@@ -216,7 +239,33 @@ public final class FlussCatalogProperties {
         p.typeMappingOptions =
                 new FlussTypeMapping.Options(p.enableMappingVarbinary, p.enableMappingTimestampTz);
         p.flussClientConfig = deriveFlussClientConfig(properties, p.bootstrapServers);
+        p.lakeOverrides = extractLakeOverrides(properties);
         return p;
+    }
+
+    /**
+     * The lake settings a catalog states for itself: every {@link #LAKE_OPTION_PREFIX} key with the prefix
+     * stripped, so the result is already spelled the way the lake configuration is.
+     *
+     * <p>Static, and taking the raw map, because the storage half of these settings is read a second time
+     * from a place that has only the raw map to work with — {@code Connector.deriveStorageProperties}, which
+     * the engine calls with the catalog's current persisted properties. Both readers must agree on which
+     * keys are lake overrides, and the only way to guarantee that is for there to be one implementation.
+     *
+     * <p>A blank value counts as no override, the same rule the binder applies to every bound property.
+     * Here it is also the only way back: {@code ALTER CATALOG} can overwrite a key but never remove one, so
+     * without it an override written once could never be handed back to the fluss cluster.
+     *
+     * <p>Sorted, so a configuration renders the same way every time it is compared or printed.
+     */
+    static Map<String, String> extractLakeOverrides(Map<String, String> properties) {
+        Map<String, String> overrides = new TreeMap<>();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(LAKE_OPTION_PREFIX) && !entry.getValue().trim().isEmpty()) {
+                overrides.put(entry.getKey().substring(LAKE_OPTION_PREFIX.length()), entry.getValue());
+            }
+        }
+        return Collections.unmodifiableMap(overrides);
     }
 
     /**
@@ -274,10 +323,17 @@ public final class FlussCatalogProperties {
         return Collections.unmodifiableMap(config);
     }
 
-    /** Whether {@code key} configures Doris's own behaviour and must not reach the fluss client. */
+    /**
+     * Whether {@code key} configures Doris's own behaviour and must not reach the fluss client.
+     *
+     * <p>The lake overrides are matched by PREFIX, not by name: their tails are paimon's option names, an
+     * open set nothing here enumerates. Matching them by name would be impossible, and leaving them out
+     * would hand the fluss client a pile of {@code lake.paimon.*} options it has never heard of.
+     */
     private static boolean isDorisOnly(String key) {
         return UNION_READ_MODE.equals(key) || UNION_READ_MAX_TAIL_ROWS.equals(key)
-                || UNION_READ_MAX_TOTAL_TAIL_ROWS.equals(key);
+                || UNION_READ_MAX_TOTAL_TAIL_ROWS.equals(key)
+                || key.startsWith(LAKE_OPTION_PREFIX);
     }
 
     private static void checkBootstrapServerList(String value) {
@@ -341,6 +397,19 @@ public final class FlussCatalogProperties {
      */
     public Map<String, String> getFlussClientConfig() {
         return flussClientConfig;
+    }
+
+    /**
+     * The lake settings this catalog states for itself, unmodifiable and prefix-stripped. Empty when it
+     * states none, which is the case for a catalog whose fluss cluster reports a complete configuration.
+     *
+     * <p><b>It can carry credentials</b> — that is the reason it exists ({@link #LAKE_OPTION_PREFIX}), and
+     * unlike the bound properties it is NOT covered by {@link #toString()}'s masking, which only knows about
+     * declared fields. Pass it to the lake sibling and to the storage layer, never to anything a user can
+     * read.
+     */
+    public Map<String, String> getLakeOverrides() {
+        return lakeOverrides;
     }
 
     @Override

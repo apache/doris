@@ -449,6 +449,27 @@ public class FlussSplitPlanTest {
     }
 
     /**
+     * The planner configures a lake sibling of its own, so it has to apply the catalog's lake settings the
+     * same way the metadata side does. If only one of the two did, a catalog would end up with two
+     * siblings — and the one that answers a given call would decide which warehouse the table is read from.
+     */
+    @Test
+    public void theLakeHalfIsPlannedWithTheCatalogsOwnLakeSettings() {
+        registerLakeTable(1);
+        lakeSnapshotAt(7L, offsets(5L));
+        latestOffsets(null, 9L);
+        // No lakeRanges() here on purpose: that helper builds the sibling itself, which would hide the
+        // properties planning would have configured one with.
+
+        plan(LOG_TABLE, catalog("fluss.lake.paimon.warehouse", "s3://bucket/lake"));
+
+        Map<String, String> expected = new HashMap<>();
+        expected.put("paimon.catalog.type", "filesystem");
+        expected.put("warehouse", "s3://bucket/lake");
+        Assertions.assertEquals(expected, sibling().properties);
+    }
+
+    /**
      * A bucket the lake snapshot never mentions has never been tiered, so nothing of it is in the lake
      * and its whole log is still the truth. Starting it at the snapshot's (absent) offset would be the
      * bug: there is no offset to start at, and treating that as zero rows would drop the bucket.
@@ -1802,6 +1823,7 @@ public class FlussSplitPlanTest {
 
     private FlussConnectorMetadata metadata() {
         return new FlussConnectorMetadata(adminOps, new FlussTypeMapping.Options(false, false),
+                Collections.emptyMap(),
                 properties -> {
                     throw new AssertionError("no lake sibling is expected in this test");
                 },
