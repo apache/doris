@@ -42,6 +42,7 @@ public class LakeStorageOptionsTest {
         lakeOptions.put("s3.secret-key", "SK");
         lakeOptions.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
         lakeOptions.put("s3.region", "us-east-1");
+        lakeOptions.put("s3.path.style.access", "true");
         lakeOptions.put("fs.oss.accessKeyId", "oss-ak");
         lakeOptions.put("fs.oss.accessKeySecret", "oss-sk");
         lakeOptions.put("fs.oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
@@ -54,6 +55,7 @@ public class LakeStorageOptionsTest {
         expected.put("s3.secret_key", "SK");
         expected.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
         expected.put("s3.region", "us-east-1");
+        expected.put("use_path_style", "true");
         expected.put("oss.access_key", "oss-ak");
         expected.put("oss.secret_key", "oss-sk");
         expected.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
@@ -73,12 +75,14 @@ public class LakeStorageOptionsTest {
         dotted.put("s3.secret.key", "SK");
         dotted.put("fs.obs.access-key", "obs-ak");
         dotted.put("fs.obs.secret-key", "obs-sk");
+        dotted.put("s3.path-style-access", "true");
 
         Map<String, String> expected = new HashMap<>();
         expected.put("s3.access_key", "AK");
         expected.put("s3.secret_key", "SK");
         expected.put("obs.access_key", "obs-ak");
         expected.put("obs.secret_key", "obs-sk");
+        expected.put("use_path_style", "true");
 
         Assertions.assertEquals(expected, LakeStorageOptions.toStorageProperties(dotted));
     }
