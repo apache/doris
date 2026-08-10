@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -46,6 +47,16 @@ public class PaimonSiblingPropertiesTest {
         return properties;
     }
 
+    /** A catalog that states nothing about the lake: the fluss cluster's configuration is used as is. */
+    private static Map<String, String> noOverrides() {
+        return Collections.emptyMap();
+    }
+
+    /** A catalog that states {@code key} about the lake, spelled the way paimon spells it. */
+    private static Map<String, String> overrides(String key, String value) {
+        return Collections.singletonMap(key, value);
+    }
+
     @Test
     public void lakeOptionsBecomeThePaimonCatalogProperties() {
         Map<String, String> expected = new HashMap<>();
@@ -54,7 +65,7 @@ public class PaimonSiblingPropertiesTest {
         expected.put("warehouse", "/lake/warehouse");
 
         Assertions.assertEquals(expected,
-                PaimonSiblingProperties.synthesize(flussTableProperties()));
+                PaimonSiblingProperties.synthesize(flussTableProperties(), noOverrides()));
     }
 
     @Test
@@ -70,7 +81,7 @@ public class PaimonSiblingPropertiesTest {
         expected.put("paimon.catalog.type", "filesystem");
         expected.put("warehouse", "/lake/warehouse");
 
-        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties),
+        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties, noOverrides()),
                 "only the table.datalake.paimon.* namespace describes the lake catalog");
     }
 
@@ -88,7 +99,7 @@ public class PaimonSiblingPropertiesTest {
         expected.put("fs.s3a.endpoint", "http://minio:9000");
         expected.put("fs.s3a.access.key", "ak");
 
-        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties));
+        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties, noOverrides()));
     }
 
     @Test
@@ -103,7 +114,7 @@ public class PaimonSiblingPropertiesTest {
         expected.put("paimon.catalog.type", "filesystem");
         expected.put("warehouse", "/lake/warehouse");
 
-        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties));
+        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties, noOverrides()));
     }
 
     @Test
@@ -112,7 +123,7 @@ public class PaimonSiblingPropertiesTest {
         properties.put("table.datalake.paimon.metastore", "hive");
 
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
-                () -> PaimonSiblingProperties.synthesize(properties));
+                () -> PaimonSiblingProperties.synthesize(properties, noOverrides()));
         // Naming both the flavor found and the one supported is what makes this actionable: the fix is in
         // the fluss cluster's configuration, not in Doris.
         Assertions.assertTrue(failure.getMessage().contains("hive"), failure.getMessage());
@@ -129,7 +140,7 @@ public class PaimonSiblingPropertiesTest {
         // Without a warehouse the paimon catalog cannot be built at all. Failing here names the fluss
         // setting to fix; letting it through would surface as a paimon error about a catalog nobody created.
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
-                () -> PaimonSiblingProperties.synthesize(properties));
+                () -> PaimonSiblingProperties.synthesize(properties, noOverrides()));
         Assertions.assertTrue(failure.getMessage().contains("table.datalake.paimon.warehouse"),
                 failure.getMessage());
     }
@@ -140,7 +151,7 @@ public class PaimonSiblingPropertiesTest {
         properties.put("table.datalake.paimon.warehouse", "");
 
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> PaimonSiblingProperties.synthesize(properties));
+                () -> PaimonSiblingProperties.synthesize(properties, noOverrides()));
     }
 
     @Test
@@ -148,10 +159,75 @@ public class PaimonSiblingPropertiesTest {
         Map<String, String> properties = flussTableProperties();
         Map<String, String> before = new LinkedHashMap<>(properties);
 
-        PaimonSiblingProperties.synthesize(properties);
+        PaimonSiblingProperties.synthesize(properties, noOverrides());
 
         // The caller's map is a table handle's property map, shared and unmodifiable in production; a
         // synthesis that consumed entries from it would corrupt every later read of that table.
         Assertions.assertEquals(before, properties);
+    }
+
+    @Test
+    public void catalogSettingsOverrideTheClusterKeyByKey() {
+        Map<String, String> properties = flussTableProperties();
+        properties.put("table.datalake.paimon.fs.s3a.endpoint", "http://cluster:9000");
+
+        Map<String, String> expected = new HashMap<>();
+        expected.put("paimon.catalog.type", "filesystem");
+        // The catalog states the endpoint, so its value is used...
+        expected.put("fs.s3a.endpoint", "http://catalog:9000");
+        // ...and the warehouse it says nothing about still comes from the cluster. Replacing the whole
+        // configuration instead would mean every catalog that fixes one setting has to restate all of them.
+        expected.put("warehouse", "/lake/warehouse");
+
+        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties,
+                overrides("fs.s3a.endpoint", "http://catalog:9000")));
+    }
+
+    @Test
+    public void catalogSuppliesWhatTheClusterCannotReport() {
+        Map<String, String> properties = flussTableProperties();
+
+        Map<String, String> expected = new HashMap<>();
+        expected.put("paimon.catalog.type", "filesystem");
+        expected.put("warehouse", "/lake/warehouse");
+        // A fluss cluster removes every lake option whose name contains key/secret/password before it
+        // answers a metadata request, so credentials NEVER arrive with the table. The catalog is the only
+        // place they can come from, which is the whole reason these overrides exist.
+        expected.put("s3.access-key", "AK");
+
+        Assertions.assertEquals(expected,
+                PaimonSiblingProperties.synthesize(properties, overrides("s3.access-key", "AK")));
+    }
+
+    @Test
+    public void catalogOverridesAreAppliedBeforeTheChecks() {
+        Map<String, String> properties = flussTableProperties();
+        properties.remove("table.datalake.paimon.warehouse");
+
+        Map<String, String> expected = new HashMap<>();
+        expected.put("paimon.catalog.type", "filesystem");
+        expected.put("warehouse", "/catalog/warehouse");
+
+        // Checking first would reject the configuration this feature is for: the cluster reports no
+        // warehouse (or an unreachable one) and the catalog is what says where the lake really is.
+        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties,
+                overrides("warehouse", "/catalog/warehouse")));
+    }
+
+    @Test
+    public void neitherInputMapIsMutatedByAnOverride() {
+        Map<String, String> properties = flussTableProperties();
+        Map<String, String> propertiesBefore = new LinkedHashMap<>(properties);
+        Map<String, String> catalogOverrides = new LinkedHashMap<>();
+        catalogOverrides.put("warehouse", "/catalog/warehouse");
+        catalogOverrides.put("metastore", "filesystem");
+        Map<String, String> overridesBefore = new LinkedHashMap<>(catalogOverrides);
+
+        PaimonSiblingProperties.synthesize(properties, catalogOverrides);
+
+        // Both are long-lived, shared and unmodifiable in production — the table handle's properties and
+        // the catalog's own. Consuming an entry from either would change what the NEXT table synthesizes.
+        Assertions.assertEquals(propertiesBefore, properties);
+        Assertions.assertEquals(overridesBefore, catalogOverrides);
     }
 }
