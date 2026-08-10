@@ -104,6 +104,8 @@ import java.util.stream.Collectors;
  */
 public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
+    private static final int SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION = 12;
+
     // Legacy IcebergUtils compression-codec property keys (connector-local copies; iceberg SDK has no
     // constant for the doris/spark-sql forms).
     private static final String COMPRESSION_CODEC = "compression-codec";
@@ -177,6 +179,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // transaction switches on at commit time (Append vs ReplacePartitions / OverwriteFiles).
         IcebergWriteSchemaContext schemaContext = handle.getWriteOperation() == WriteOperation.REWRITE
                 ? null : resolveWriteSchema(session, tableHandle, handle.getBranchName());
+        validateNestedPartitionWriteCompatibility(handle, schemaContext);
         IcebergWriteContext writeContext = buildWriteContext(handle, schemaContext);
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
         Table table = transaction.getTable();
@@ -386,6 +389,26 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // The explicit INSERT column list can omit an unchanged Variant column, but the data writer
         // still binds the complete target schema and therefore must validate that complete shape.
         validateWriteSchema(handle.getBoundTargetColumns(), handle.isWritesDataFiles());
+    }
+
+    private static void validateNestedPartitionWriteCompatibility(
+            ConnectorWriteHandle handle, IcebergWriteSchemaContext schemaContext) {
+        WriteOperation operation = handle.getWriteOperation();
+        boolean writesDataFiles = operation != WriteOperation.DELETE
+                && ((operation != WriteOperation.UPDATE && operation != WriteOperation.MERGE)
+                        || handle.isWritesDataFiles());
+        if (!writesDataFiles || schemaContext == null
+                || handle.getBeExecVersion() >= SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION) {
+            return;
+        }
+        Set<Integer> topLevelIds = schemaContext.getSchema().columns().stream()
+                .map(NestedField::fieldId).collect(Collectors.toSet());
+        if (schemaContext.getPartitionSpec().fields().stream()
+                .anyMatch(field -> !topLevelIds.contains(field.sourceId()))) {
+            // Old writers resolve partition sources only from top-level IDs and ignore nested source paths.
+            throw new DorisConnectorException(
+                    "Iceberg nested partition writes are unavailable during rolling upgrade");
+        }
     }
 
     private static boolean containsVariant(ConnectorType type) {

@@ -289,6 +289,7 @@ public class PluginDrivenTableSinkTest {
 
             nonVariantSink.bindDataSink(Optional.empty());
             Assert.assertNotNull(provider.seenHandle);
+            Assert.assertEquals(11, provider.seenHandle.getBeExecVersion());
 
             ConnectorColumn payload = new ConnectorColumn(
                     "payload", ConnectorType.of("VARIANT_COMPUTE_V2"), null, true, null);

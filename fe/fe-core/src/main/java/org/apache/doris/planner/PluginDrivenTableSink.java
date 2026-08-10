@@ -373,6 +373,12 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         }
 
         @Override
+        public int getBeExecVersion() {
+            // Use the query-wide minimum so connector plans cannot select a capability absent on any BE.
+            return Config.be_exec_version;
+        }
+
+        @Override
         public boolean isRequireMergeCardinalityCheck() {
             return requireMergeCardinalityCheck;
         }

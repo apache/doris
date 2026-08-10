@@ -126,6 +126,14 @@ public interface ConnectorWriteHandle {
     }
 
     /**
+     * Query-wide backend execution version selected by the engine for compatibility checks. Offline and
+     * third-party handle implementations default to the newest-capability side of any fence.
+     */
+    default int getBeExecVersion() {
+        return Integer.MAX_VALUE;
+    }
+
+    /**
      * The named table branch this write targets ({@code INSERT INTO t@branch(name)}), or
      * {@link Optional#empty()} when the write goes to the table's default ref. Threaded from the
      * generic insert command context onto this handle; a versioned-table connector (iceberg / paimon)

@@ -1934,9 +1934,13 @@ void ColumnVariantV2::_replace_shredded_state_with(const ColumnVariantV2& replac
             << "shredded state replacement changed the row count";
     // Format states cache and share materialized columns. Detach every mutable buffer before
     // dropping the state owner so later COW mutations cannot modify a cached representation.
-    _metadatas = replacement._metadatas->clone_resized(replacement._metadatas->size());
-    _meta_ids = replacement._meta_ids->clone_resized(replacement._meta_ids->size());
-    _values = replacement._values->clone_resized(replacement._values->size());
+    // clone_resized erases concrete types; restore them explicitly to prevent unsafe COW downcasts.
+    static_cast<ColumnString::Ptr&>(_metadatas) = cast_column_ptr<ColumnString>(
+            replacement._metadatas->clone_resized(replacement._metadatas->size()));
+    static_cast<MetadataIdsColumn::Ptr&>(_meta_ids) = cast_column_ptr<MetadataIdsColumn>(
+            replacement._meta_ids->clone_resized(replacement._meta_ids->size()));
+    static_cast<ColumnString::Ptr&>(_values) = cast_column_ptr<ColumnString>(
+            replacement._values->clone_resized(replacement._values->size()));
     _typed = replacement._typed == nullptr
                      ? nullptr
                      : replacement._typed->clone_resized(replacement._typed->size());

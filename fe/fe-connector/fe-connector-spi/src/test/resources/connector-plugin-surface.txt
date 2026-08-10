@@ -54,6 +54,7 @@ org.apache.doris.connector.spi.ConnectorTableSchema#toString():java.lang.String
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#equals(java.lang.Object):boolean
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#hashCode():int
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#withProjectedFieldIds(java.util.Set):org.apache.doris.connector.spi.handle.ConnectorColumnHandle
+org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBeExecVersion():int
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBoundTargetColumns():java.util.List
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBoundWriteMetadataIdentity():java.lang.String
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBranchName():java.util.Optional

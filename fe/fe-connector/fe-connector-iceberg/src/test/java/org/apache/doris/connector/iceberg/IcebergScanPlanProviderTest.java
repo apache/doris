@@ -1788,8 +1788,9 @@ public class IcebergScanPlanProviderTest {
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         table.newAppend().appendFile(dataFile(
                 table.spec(), "s3://b/db/t1/f1.parquet", 1000, null, null)).commit();
+        // The typed wrapper preserves catalog-property validation after the provider constructor migration.
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
-                Collections.emptyMap(), opsReturning(table));
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
         ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap());
 
         Assertions.assertTrue(provider.canServeMetadataOnlyCount(

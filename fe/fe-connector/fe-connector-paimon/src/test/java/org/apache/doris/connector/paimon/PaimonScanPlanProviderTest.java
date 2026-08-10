@@ -340,13 +340,22 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
-    public void variantProjectionOverridesForceJniWhenNativeFilesAreAvailable() {
+    public void variantProjectionOverridesOnlyTheSessionForceForParquet() {
         Optional<List<RawFile>> rawFiles = Optional.of(
                 Arrays.asList(parquetRawFile("/data/part-0.parquet")));
 
+        Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
+                        true, false, true, rawFiles),
+                "system-table forceJni preserves semantics that the raw-file reader cannot reproduce");
         Assertions.assertTrue(PaimonScanPlanProvider.shouldUseNativeReader(
-                        true, true, true, rawFiles),
-                "Variant has no JNI carrier, so a forced-JNI session must remain on the native reader");
+                        false, true, true, rawFiles),
+                "Variant has no JNI carrier, so only the user session force may be overridden");
+
+        Optional<List<RawFile>> orcFiles = Optional.of(Arrays.asList(
+                new RawFile("/data/part-0.orc", 0L, 100L, 100L, "orc", 0L, 0L)));
+        Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
+                        false, false, true, orcFiles),
+                "BE installs the Paimon Variant schema override only for Parquet files");
     }
 
     // ---- FIX-URI-NORMALIZE (B-7DF data file + B-7DV deletion vector) ----

@@ -631,6 +631,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         boolean hasVariantProjection = Arrays.stream(projected)
                 .filter(index -> index >= 0)
                 .anyMatch(index -> containsVariant(rowType.getTypeAt(index)));
+        if (hasVariantProjection && paimonHandle.isForceJni()) {
+            // System-table forceJni preserves row-kind/sequence semantics that raw files cannot reproduce;
+            // Variant has no JNI carrier, so failing is safer than silently changing those semantics.
+            throw new DorisConnectorException(
+                    "Paimon Variant columns are unsupported for force-JNI system tables");
+        }
         if (optionsPin && Arrays.stream(projected).anyMatch(index -> index < 0)) {
             // Only an @options read can bind against a schema the scan table does not have: its snapshot
             // is chosen per relation, so a column bound from one version may be absent from the version
@@ -708,7 +714,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         for (Split split : nonDataSplits) {
             if (hasVariantProjection) {
                 throw new DorisConnectorException(
-                        "Paimon Variant columns require the native ORC/Parquet reader");
+                        "Paimon Variant columns require native Parquet data files");
             }
             if (ignoreJni) {
                 // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:401).
@@ -783,7 +789,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 // JNI reader path
                 if (hasVariantProjection) {
                     throw new DorisConnectorException(
-                            "Paimon Variant columns require native ORC/Parquet files");
+                            "Paimon Variant columns require native Parquet data files");
                 }
                 if (ignoreJni) {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
@@ -1016,11 +1022,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // FIX-SCHEMA-EVOLUTION (B-1a): emit the native-reader schema dictionary so BE matches file<->table
         // columns BY FIELD ID across schema evolution (rename/reorder) instead of falling back to NAME
         // matching (which silently reads NULL/garbage for renamed columns). Only meaningful when the table
-        // can take the native path: skip it when the handle or session forces JNI, except for a Variant
-        // projection, which must override those debugging knobs because JNI has no Variant carrier.
+        // can take the native path: handle-level force is semantic and unconditional, while a Variant
+        // projection may override only the session debugging knob because JNI has no Variant carrier.
         boolean hasVariantProjection = projectsVariant(table.rowType(), columns);
-        if (hasVariantProjection
-                || (!paimonHandle.isForceJni() && !isForceJniScannerEnabled(session))) {
+        if (!paimonHandle.isForceJni()
+                && (hasVariantProjection || !isForceJniScannerEnabled(session))) {
             // The schema dict must be built from a FileStoreTable. A normal data table IS one; a $ro
             // (read-optimized) system table is a ReadOptimizedTable that WRAPS a FileStoreTable and reads
             // its data files with its field ids, so resolve the underlying base FileStoreTable here.
@@ -1589,8 +1595,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      *
      * <p>{@code forceJniScanner} is the user/session escape hatch ({@code SET force_jni_scanner=true},
      * read via {@link #isForceJniScannerEnabled}): when set, every native-eligible non-Variant split is
-     * routed to JNI to dodge native-reader bugs. Variant projections stay native because JNI cannot
-     * carry Variant columns. Default false, so normal reads are unaffected.
+     * routed to JNI to dodge native-reader bugs. Variant projections on ordinary tables stay native because
+     * JNI cannot carry Variant columns, but the semantic handle-level force remains unconditional. Default
+     * false, so normal reads are unaffected.
      *
      * <p>Extracted as a pure static so the correctness-critical routing decision is unit-testable
      * with real {@link RawFile}s, without driving a full Paimon {@code ReadBuilder}/{@code TableScan}.
@@ -1602,10 +1609,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     static boolean shouldUseNativeReader(boolean forceJni, boolean forceJniScanner,
             boolean hasVariantProjection, Optional<List<RawFile>> optRawFiles) {
-        // JNI has no Variant carrier, so Variant projections override the debugging force-JNI knobs
-        // while still requiring an ORC/Parquet split that the native reader can consume.
-        return supportNativeReader(optRawFiles)
-                && (hasVariantProjection || (!forceJni && !forceJniScanner));
+        // Handle-level force marks system-table semantics, while only the session debugging knob may be
+        // overridden for Variant. BE currently installs Paimon Variant schema overrides for Parquet only.
+        return !forceJni && (hasVariantProjection
+                ? supportNativeVariantReader(optRawFiles)
+                : !forceJniScanner && supportNativeReader(optRawFiles));
     }
 
     private static boolean containsVariant(DataType type) {
@@ -1647,6 +1655,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return true;
+    }
+
+    private static boolean supportNativeVariantReader(Optional<List<RawFile>> optRawFiles) {
+        return optRawFiles.isPresent() && !optRawFiles.get().isEmpty()
+                && optRawFiles.get().stream()
+                        .allMatch(file -> file.path().toLowerCase().endsWith(".parquet"));
     }
 
     private Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValue, String timeZone) {

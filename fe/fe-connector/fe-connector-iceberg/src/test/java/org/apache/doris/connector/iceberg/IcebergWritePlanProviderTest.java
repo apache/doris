@@ -1373,6 +1373,34 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals(Integer.valueOf(3), field.getSourceId());
     }
 
+    @Test
+    public void oldBeRejectsDataWritesUsingNestedPartitionSources() {
+        InMemoryCatalog catalog = freshCatalog();
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "part", Types.IntegerType.get()))));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "nested_partition"), schema,
+                PartitionSpec.builderFor(schema).bucket("payload.part", 8).build());
+
+        WriteHandle oldBeWrite = new WriteHandle(
+                new IcebergTableHandle("db1", "nested_partition")).beExecVersion(11);
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> providerFor(table, contextWithStorage()).planWrite(
+                        sessionFor(table, contextWithStorage()), oldBeWrite));
+        Assertions.assertTrue(error.getMessage().contains("nested partition"));
+
+        WriteHandle currentBeWrite = new WriteHandle(
+                new IcebergTableHandle("db1", "nested_partition")).beExecVersion(12);
+        Assertions.assertDoesNotThrow(() -> providerFor(table, contextWithStorage()).planWrite(
+                sessionFor(table, contextWithStorage()), currentBeWrite));
+
+        WriteHandle deleteOnlyMerge = new WriteHandle(new IcebergTableHandle("db1", "nested_partition"))
+                .writeOperation(WriteOperation.MERGE).writesDataFiles(false).beExecVersion(11);
+        Assertions.assertDoesNotThrow(() -> providerFor(table, contextWithStorage()).planWrite(
+                sessionFor(table, contextWithStorage()), deleteOnlyMerge));
+    }
+
     // ───────────────────── getSyntheticWriteColumns (connector declares the row-id STRUCT, ③ C3b-core) ─────────────────────
     //
     // WHY: post-flip the iceberg DML hidden column __DORIS_ICEBERG_ROWID_COL__ that legacy
@@ -1842,9 +1870,11 @@ public class IcebergWritePlanProviderTest {
         private WriteOperation writeOperation = WriteOperation.INSERT;
         private Optional<String> branchName = Optional.empty();
         private boolean requireMergeCardinalityCheck;
+        private boolean writesDataFiles = true;
         private List<ConnectorColumn> columns = Collections.emptyList();
         private List<ConnectorColumn> boundTargetColumns;
         private String boundWriteMetadataIdentity;
+        private int beExecVersion = Integer.MAX_VALUE;
 
         WriteHandle(ConnectorTableHandle tableHandle) {
             this.tableHandle = tableHandle;
@@ -1868,6 +1898,16 @@ public class IcebergWritePlanProviderTest {
         WriteHandle boundWriteMetadataIdentity(String v) {
             this.boundWriteMetadataIdentity = v;
             return this;
+        }
+
+        WriteHandle beExecVersion(int v) {
+            this.beExecVersion = v;
+            return this;
+        }
+
+        @Override
+        public int getBeExecVersion() {
+            return beExecVersion;
         }
 
         @Override
@@ -1908,6 +1948,16 @@ public class IcebergWritePlanProviderTest {
         @Override
         public boolean isRequireMergeCardinalityCheck() {
             return requireMergeCardinalityCheck;
+        }
+
+        WriteHandle writesDataFiles(boolean v) {
+            this.writesDataFiles = v;
+            return this;
+        }
+
+        @Override
+        public boolean isWritesDataFiles() {
+            return writesDataFiles;
         }
 
         WriteHandle writeContext(Map<String, String> v) {
