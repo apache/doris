@@ -20,10 +20,13 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TCompressionType;
 
 import com.google.common.collect.ImmutableList;
@@ -35,51 +38,56 @@ import java.util.Optional;
 
 public class ColumnCompressionTest {
     @Test
-    public void testParseAlgoOnly() throws Exception {
-        ColumnDefinition.CompressionSpec s = ColumnDefinition.parseCompressionSpec("zstd");
-        Assertions.assertEquals(TCompressionType.ZSTD, s.type);
-        Assertions.assertEquals(-1, s.level);
-    }
-
-    @Test
-    public void testParseAlgoWithLevel() throws Exception {
-        ColumnDefinition.CompressionSpec s = ColumnDefinition.parseCompressionSpec("zstd:9");
-        Assertions.assertEquals(TCompressionType.ZSTD, s.type);
-        Assertions.assertEquals(9, s.level);
+    public void testCompressionSyntax() {
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setDatabase("test");
+        connectContext.setThreadLocalInfo();
+        try {
+            NereidsParser parser = new NereidsParser();
+            Assertions.assertDoesNotThrow(() -> parser.parseSingle("CREATE TABLE test_compression ("
+                    + "k INT, v VARCHAR(10) COMPRESSION ZSTD(9) COMMENT 'value') "
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                    + "PROPERTIES ('replication_num' = '1')"));
+            Assertions.assertThrows(ParseException.class, () -> parser.parseSingle("CREATE TABLE test_compression ("
+                    + "k INT, v VARCHAR(10) COMPRESSION 'zstd:9') "
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                    + "PROPERTIES ('replication_num' = '1')"));
+            Assertions.assertThrows(ParseException.class, () -> parser.parseSingle("CREATE TABLE test_compression ("
+                    + "k INT, v VARCHAR(10) COMMENT 'value' COMPRESSION ZSTD(9)) "
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                    + "PROPERTIES ('replication_num' = '1')"));
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test
     public void testLevelOnLz4Rejected() {
         Assertions.assertThrows(AnalysisException.class,
-                () -> ColumnDefinition.parseCompressionSpec("lz4:5"));
+                () -> newColumn().setCompression(TCompressionType.LZ4, 5));
     }
 
     @Test
     public void testZstdLevelOutOfRange() {
         Assertions.assertThrows(AnalysisException.class,
-                () -> ColumnDefinition.parseCompressionSpec("zstd:99"));
+                () -> newColumn().setCompression(TCompressionType.ZSTD, 99));
     }
 
     @Test
     public void testLz4hcLevelRange() throws Exception {
-        ColumnDefinition.CompressionSpec s = ColumnDefinition.parseCompressionSpec("lz4hc:12");
-        Assertions.assertEquals(TCompressionType.LZ4HC, s.type);
-        Assertions.assertEquals(12, s.level);
+        ColumnDefinition column = newColumn();
+        column.setCompression(TCompressionType.LZ4HC, 12);
+        Assertions.assertEquals(TCompressionType.LZ4HC, column.getCompressionType());
+        Assertions.assertEquals(12, column.getCompressionLevel());
         Assertions.assertThrows(AnalysisException.class,
-                () -> ColumnDefinition.parseCompressionSpec("lz4hc:13"));
-    }
-
-    @Test
-    public void testUnknownAlgoRejected() {
-        Assertions.assertThrows(AnalysisException.class,
-                () -> ColumnDefinition.parseCompressionSpec("brotli"));
+                () -> column.setCompression(TCompressionType.LZ4HC, 13));
     }
 
     @Test
     public void testCompressionRejectedOnNonOlap() throws Exception {
         ColumnDefinition col = new ColumnDefinition("col1", IntegerType.INSTANCE, false, AggregateType.NONE,
                 true, Optional.empty(), "");
-        col.setCompressionSpec("zstd:9");
+        col.setCompression(TCompressionType.ZSTD, 9);
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 () -> col.validate(false, Sets.newHashSet(), Sets.newHashSet(), false, KeysType.DUP_KEYS));
     }
@@ -88,7 +96,7 @@ public class ColumnCompressionTest {
     public void testCompressionAllowedOnOlap() throws Exception {
         ColumnDefinition col = new ColumnDefinition("col1", IntegerType.INSTANCE, false, AggregateType.NONE,
                 true, Optional.empty(), "");
-        col.setCompressionSpec("zstd:9");
+        col.setCompression(TCompressionType.ZSTD, 9);
         Assertions.assertDoesNotThrow(
                 () -> col.validate(true, Sets.newHashSet(), Sets.newHashSet(), false, KeysType.DUP_KEYS));
     }
@@ -97,7 +105,7 @@ public class ColumnCompressionTest {
     public void testCompressionRejectedOnComplexType() throws Exception {
         ColumnDefinition col = new ColumnDefinition("col1", ArrayType.of(IntegerType.INSTANCE), false,
                 AggregateType.NONE, true, Optional.empty(), "");
-        col.setCompressionSpec("zstd:9");
+        col.setCompression(TCompressionType.ZSTD, 9);
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 () -> col.validate(true, Sets.newHashSet(), Sets.newHashSet(), false, KeysType.DUP_KEYS));
     }
@@ -111,7 +119,7 @@ public class ColumnCompressionTest {
                 ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true);
         ColumnDefinition col = new ColumnDefinition("col1", aggState, false,
                 AggregateType.GENERIC, true, Optional.empty(), "");
-        col.setCompressionSpec("zstd:9");
+        col.setCompression(TCompressionType.ZSTD, 9);
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 () -> col.validate(true, Sets.newHashSet(), Sets.newHashSet(), false, KeysType.AGG_KEYS));
     }
@@ -120,15 +128,20 @@ public class ColumnCompressionTest {
     public void testToSqlRendersCompressionClause() throws Exception {
         ColumnDefinition withLevel = new ColumnDefinition("c1", IntegerType.INSTANCE, false,
                 AggregateType.NONE, true, Optional.empty(), "");
-        withLevel.setCompressionSpec("zstd:9");
-        Assertions.assertTrue(withLevel.toSql("`c1`").toLowerCase().contains("compression \"zstd:9\""),
+        withLevel.setCompression(TCompressionType.ZSTD, 9);
+        Assertions.assertTrue(withLevel.toSql("`c1`").contains("COMPRESSION ZSTD(9)"),
                 "toSql should render COMPRESSION with level, got: " + withLevel.toSql("`c1`"));
 
         ColumnDefinition noLevel = new ColumnDefinition("c2", IntegerType.INSTANCE, false,
                 AggregateType.NONE, true, Optional.empty(), "");
-        noLevel.setCompressionSpec("zstd");
-        String sql = noLevel.toSql("`c2`").toLowerCase();
-        Assertions.assertTrue(sql.contains("compression \"zstd\"") && !sql.contains("zstd:"),
+        noLevel.setCompression(TCompressionType.ZSTD, -1);
+        String sql = noLevel.toSql("`c2`");
+        Assertions.assertTrue(sql.contains("COMPRESSION ZSTD") && !sql.contains("ZSTD("),
                 "toSql should render COMPRESSION without level, got: " + noLevel.toSql("`c2`"));
+    }
+
+    private ColumnDefinition newColumn() {
+        return new ColumnDefinition("col1", IntegerType.INSTANCE, false, AggregateType.NONE,
+                true, Optional.empty(), "");
     }
 }

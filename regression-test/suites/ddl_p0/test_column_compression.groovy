@@ -31,7 +31,7 @@ suite("test_column_compression") {
         CREATE TABLE test_column_compression_tbl (
             k INT,
             v_default VARCHAR(64),
-            v_heavy VARCHAR(64) COMPRESSION 'zstd:9'
+            v_heavy VARCHAR(64) COMPRESSION ZSTD(9)
         )
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -48,12 +48,12 @@ suite("test_column_compression") {
     order_qt_select_after_modify "SELECT k, v_heavy FROM test_column_compression_tbl ORDER BY k"
 
     test {
-        sql "ALTER TABLE test_column_compression_tbl ADD COLUMN v_added VARCHAR(64) COMPRESSION 'zstd:5'"
+        sql "ALTER TABLE test_column_compression_tbl ADD COLUMN v_added VARCHAR(64) COMPRESSION ZSTD(5)"
         exception "Per-column compression is not supported for ADD COLUMN"
     }
 
     test {
-        sql "ALTER TABLE test_column_compression_tbl MODIFY COLUMN v_heavy VARCHAR(64) COMPRESSION 'zstd:12'"
+        sql "ALTER TABLE test_column_compression_tbl MODIFY COLUMN v_heavy VARCHAR(64) COMPRESSION ZSTD(12)"
         exception "Per-column compression is not supported for MODIFY COLUMN"
     }
 
@@ -62,7 +62,7 @@ suite("test_column_compression") {
         sql """
             CREATE TABLE test_column_compression_bad (
                 k INT,
-                v VARCHAR(64) COMPRESSION 'lz4:5'
+                v VARCHAR(64) COMPRESSION LZ4(5)
             ) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
             PROPERTIES ("replication_num" = "1")
         """
@@ -75,7 +75,7 @@ suite("test_column_compression") {
         sql """
             CREATE TABLE test_column_compression_bad_complex (
                 k INT,
-                v ARRAY<INT> COMPRESSION 'zstd:9'
+                v ARRAY<INT> COMPRESSION ZSTD(9)
             ) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
             PROPERTIES ("replication_num" = "1")
         """
@@ -85,7 +85,7 @@ suite("test_column_compression") {
     sql """
         CREATE TABLE test_column_compression_scalar (
             k INT,
-            v BIGINT COMPRESSION 'zstd:5'
+            v BIGINT COMPRESSION ZSTD(5)
         )
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1

@@ -902,16 +902,14 @@ public class Column implements GsonPostProcessable {
         if (hasOnUpdateDefaultValue) {
             sb.append(" ON UPDATE ").append(defaultValue).append("");
         }
+        if (compressionType != null) {
+            sb.append(" COMPRESSION ").append(compressionType.name());
+            if (compressionLevel > 0) {
+                sb.append("(").append(compressionLevel).append(")");
+            }
+        }
         if (StringUtils.isNotBlank(comment)) {
             sb.append(" COMMENT \"").append(getComment(true)).append("\"");
-        }
-        if (compressionType != null) {
-            String algo = compressionType.name().toLowerCase();
-            if (compressionLevel > 0) {
-                sb.append(" COMPRESSION \"").append(algo).append(":").append(compressionLevel).append("\"");
-            } else {
-                sb.append(" COMPRESSION \"").append(algo).append("\"");
-            }
         }
         return sb.toString();
     }

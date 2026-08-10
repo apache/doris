@@ -26,9 +26,11 @@ import org.junit.jupiter.api.Test;
 public class ColumnCompressionSqlTest {
     @Test
     public void testToSqlRendersCompression() {
-        Column c = new Column("c1", Type.INT, true, null, false, "", true);
+        Column c = new Column("c1", Type.INT, true, null, false, "compressed column", true);
         c.setCompression(TCompressionType.ZSTD, 9);
-        Assertions.assertTrue(c.toSql().contains("COMPRESSION \"zstd:9\""));
+        String sql = c.toSql();
+        Assertions.assertTrue(sql.contains("COMPRESSION ZSTD(9)"));
+        Assertions.assertTrue(sql.indexOf("COMPRESSION") < sql.indexOf("COMMENT"));
     }
 
     @Test

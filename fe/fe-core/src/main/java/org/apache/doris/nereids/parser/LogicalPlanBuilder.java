@@ -1108,6 +1108,7 @@ import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.NodeType;
+import org.apache.doris.thrift.TCompressionType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -4180,11 +4181,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Optional<DefaultValue> defaultValue = Optional.empty();
         Optional<DefaultValue> onUpdateDefaultValue = Optional.empty();
         if (ctx.DEFAULT() != null) {
-            if (ctx.INTEGER_VALUE() != null) {
+            if (ctx.defaultInteger != null) {
                 if (ctx.SUBTRACT() == null) {
-                    defaultValue = Optional.of(new DefaultValue(ctx.INTEGER_VALUE().getText()));
+                    defaultValue = Optional.of(new DefaultValue(ctx.defaultInteger.getText()));
                 } else {
-                    defaultValue = Optional.of(new DefaultValue("-" + ctx.INTEGER_VALUE().getText()));
+                    defaultValue = Optional.of(new DefaultValue("-" + ctx.defaultInteger.getText()));
                 }
             } else if (ctx.DECIMAL_VALUE() != null) {
                 if (ctx.SUBTRACT() == null) {
@@ -4252,13 +4253,38 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 : Optional.empty();
         ColumnDefinition columnDef = new ColumnDefinition(colName, colType, isKey, aggType, nullableType,
                 autoIncInitValue, defaultValue, onUpdateDefaultValue, comment, ctx.comment != null, true, desc);
-        if (ctx.compression != null) {
-            String rawCompression = ctx.compression.getText();
-            // strip surrounding quotes from the string literal
-            String compressionSpec = rawCompression.substring(1, rawCompression.length() - 1);
+        if (ctx.compressionType != null) {
+            TCompressionType compressionType;
+            switch (ctx.compressionType.getType()) {
+                case DorisParser.NO_COMPRESSION:
+                    compressionType = TCompressionType.NO_COMPRESSION;
+                    break;
+                case DorisParser.LZ4:
+                    compressionType = TCompressionType.LZ4;
+                    break;
+                case DorisParser.LZ4F:
+                    compressionType = TCompressionType.LZ4F;
+                    break;
+                case DorisParser.LZ4HC:
+                    compressionType = TCompressionType.LZ4HC;
+                    break;
+                case DorisParser.ZLIB:
+                    compressionType = TCompressionType.ZLIB;
+                    break;
+                case DorisParser.ZSTD:
+                    compressionType = TCompressionType.ZSTD;
+                    break;
+                case DorisParser.SNAPPY:
+                    compressionType = TCompressionType.SNAPPY;
+                    break;
+                default:
+                    throw new AnalysisException("Unsupported compression type: " + ctx.compressionType.getText());
+            }
             try {
-                columnDef.setCompressionSpec(compressionSpec);
-            } catch (org.apache.doris.common.AnalysisException e) {
+                int compressionLevel = ctx.compressionLevel == null
+                        ? -1 : Integer.parseInt(ctx.compressionLevel.getText());
+                columnDef.setCompression(compressionType, compressionLevel);
+            } catch (NumberFormatException | org.apache.doris.common.AnalysisException e) {
                 throw new AnalysisException(e.getMessage(), e);
             }
         }

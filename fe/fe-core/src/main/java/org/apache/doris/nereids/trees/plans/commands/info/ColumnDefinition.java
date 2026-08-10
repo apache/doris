@@ -26,7 +26,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
@@ -177,61 +176,29 @@ public class ColumnDefinition {
         this(name, type, false, null, isNullable, Optional.empty(), comment);
     }
 
-    /** Parsed per-column compression spec. level == -1 means "codec default". */
-    public static class CompressionSpec {
-        public final TCompressionType type;
-        public final int level;
-
-        public CompressionSpec(TCompressionType type, int level) {
-            this.type = type;
-            this.level = level;
-        }
-    }
-
-    /** Parse and validate a per-column COMPRESSION 'algo[:level]' spec. */
-    public static CompressionSpec parseCompressionSpec(String spec) throws org.apache.doris.common.AnalysisException {
-        if (spec == null || spec.trim().isEmpty()) {
-            throw new org.apache.doris.common.AnalysisException("empty compression spec");
-        }
-        String[] parts = spec.trim().split(":", 2);
-        String algo = parts[0].trim();
-        TCompressionType type = PropertyAnalyzer.stringToCompressionType(algo);
-        int level = -1;
-        if (parts.length == 2) {
-            String levelStr = parts[1].trim();
-            int parsed;
-            try {
-                parsed = Integer.parseInt(levelStr);
-            } catch (NumberFormatException e) {
-                throw new org.apache.doris.common.AnalysisException("invalid compression level: " + levelStr);
-            }
+    /** Set and validate the per-column compression algorithm and optional level. */
+    public void setCompression(TCompressionType type, int level) throws org.apache.doris.common.AnalysisException {
+        if (level != -1) {
             switch (type) {
                 case ZSTD:
-                    if (parsed < 1 || parsed > 22) {
+                    if (level < 1 || level > 22) {
                         throw new org.apache.doris.common.AnalysisException(
-                                "ZSTD compression level must be in [1, 22], got " + parsed);
+                                "ZSTD compression level must be in [1, 22], got " + level);
                     }
                     break;
                 case LZ4HC:
-                    if (parsed < 1 || parsed > 12) {
+                    if (level < 1 || level > 12) {
                         throw new org.apache.doris.common.AnalysisException(
-                                "LZ4HC compression level must be in [1, 12], got " + parsed);
+                                "LZ4HC compression level must be in [1, 12], got " + level);
                     }
                     break;
                 default:
                     throw new org.apache.doris.common.AnalysisException(
-                            "compression level is only supported for ZSTD and LZ4HC, not " + algo);
+                            "compression level is only supported for ZSTD and LZ4HC, not " + type);
             }
-            level = parsed;
         }
-        return new CompressionSpec(type, level);
-    }
-
-    /** Called by the parser to attach a COMPRESSION clause. */
-    public void setCompressionSpec(String spec) throws org.apache.doris.common.AnalysisException {
-        CompressionSpec parsed = parseCompressionSpec(spec);
-        this.compressionType = parsed.type;
-        this.compressionLevel = parsed.level;
+        this.compressionType = type;
+        this.compressionLevel = level;
     }
 
     public TCompressionType getCompressionType() {
@@ -342,7 +309,7 @@ public class ColumnDefinition {
             sb.append("AUTO_INCREMENT ");
             sb.append("(");
             sb.append(autoIncInitValue);
-            sb.append(")");
+            sb.append(") ");
         }
 
         if (defaultValue.isPresent()) {
@@ -363,16 +330,15 @@ public class ColumnDefinition {
                 sb.append("DEFAULT ").append("NULL").append(" ");
             }
         }
+        if (compressionType != null) {
+            sb.append("COMPRESSION ").append(compressionType.name());
+            if (compressionLevel > 0) {
+                sb.append("(").append(compressionLevel).append(")");
+            }
+            sb.append(" ");
+        }
         if (includeComment) {
             sb.append("COMMENT ").append(SqlLiteralUtils.quoteStringLiteral(getComment()));
-        }
-        if (compressionType != null) {
-            String algo = compressionType.name().toLowerCase();
-            if (compressionLevel > 0) {
-                sb.append(" COMPRESSION \"").append(algo).append(":").append(compressionLevel).append("\"");
-            } else {
-                sb.append(" COMPRESSION \"").append(algo).append("\"");
-            }
         }
 
         return sb.toString();
