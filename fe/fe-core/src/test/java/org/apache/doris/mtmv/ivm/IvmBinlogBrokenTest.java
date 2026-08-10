@@ -24,12 +24,20 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
+import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
+import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.TruncateTableInfo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -222,6 +230,53 @@ public class IvmBinlogBrokenTest extends TestWithFeService {
         executeSql("ALTER TABLE ivm_base REPLACE WITH TABLE ivm_new_base PROPERTIES('swap' = 'false')");
 
         Assertions.assertTrue(getMtmv(db).getIvmInfo().isBinlogBroken());
+    }
+
+    @Test
+    public void testReconcileIvmStreamAfterTableReplace() throws Exception {
+        String db = "ivm_reconcile_replace_table";
+        createPartitionedIvmTableAndMv(db);
+        MTMV mtmv = getMtmv(db);
+        Database database = getDb(db);
+        OlapTable originalBaseTable = getBaseTable(db);
+        String streamName = IvmUtil.streamName(mtmv.getId(), originalBaseTable.getFullQualifiers());
+        OlapTableStream originalStream = (OlapTableStream) database.getTableOrMetaException(streamName);
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase(db);
+
+        reconcileIvmStreams(mtmv, ctx);
+        Assertions.assertSame(originalStream, database.getTableOrMetaException(streamName));
+
+        createTable("CREATE TABLE " + db + ".ivm_new_base (\n"
+                + "  dt date NOT NULL,\n"
+                + "  k1 int,\n"
+                + "  v1 int\n"
+                + ")\n"
+                + "DUPLICATE KEY(dt, k1)\n"
+                + "PARTITION BY RANGE(dt) (\n"
+                + "  PARTITION p202001 VALUES [('2020-01-01'), ('2020-02-01')),\n"
+                + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        executeSql("ALTER TABLE ivm_base REPLACE WITH TABLE ivm_new_base PROPERTIES('swap' = 'false')");
+
+        OlapTable replacedBaseTable = getBaseTable(db);
+        OlapTableStream staleStream = (OlapTableStream) database.getTableOrMetaException(streamName);
+        Assertions.assertFalse(IvmUtil.isIvmStreamUsable(staleStream, replacedBaseTable));
+
+        reconcileIvmStreams(mtmv, ctx);
+        OlapTableStream reconciledStream = (OlapTableStream) database.getTableOrMetaException(streamName);
+        Assertions.assertNotSame(originalStream, reconciledStream);
+        Assertions.assertEquals(replacedBaseTable.getId(), reconciledStream.getBaseTableNullable().getId());
+    }
+
+    private void reconcileIvmStreams(MTMV mtmv, ConnectContext ctx) throws Exception {
+        MTMVPlanUtil.QueryAnalysisResult result = MTMVPlanUtil.getBaseTableFromQuery(mtmv.getQuerySql(), ctx);
+        MTMVRelation relation = MTMVPlanUtil.generateMTMVRelation(
+                result.getAllLevelTables(), result.getOneLevelTables());
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Deencapsulation.invoke(task, "reconcileIvmStreams", ctx);
     }
 
     @Test
