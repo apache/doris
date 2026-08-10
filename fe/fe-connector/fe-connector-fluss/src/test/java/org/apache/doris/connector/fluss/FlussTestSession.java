@@ -36,6 +36,7 @@ final class FlussTestSession implements ConnectorSession {
     private final long catalogId;
     private final String queryId;
     private final Map<String, Object> values = new ConcurrentHashMap<>();
+    private final Map<String, String> sessionProperties = new ConcurrentHashMap<>();
     private final ConnectorStatementScope scope = new ConnectorStatementScope() {
         @SuppressWarnings("unchecked")
         @Override
@@ -47,6 +48,16 @@ final class FlussTestSession implements ConnectorSession {
     FlussTestSession(long catalogId, String queryId) {
         this.catalogId = catalogId;
         this.queryId = queryId;
+    }
+
+    /**
+     * Sets a session variable, as {@code SET name = value} does for the statement this session stands for.
+     * The variable lands in the same namespace the engine fills from {@code VariableMgr.toMap}, so a
+     * connector that reads it here reads it the same way in production.
+     */
+    FlussTestSession set(String name, String value) {
+        sessionProperties.put(name, value);
+        return this;
     }
 
     @Override
@@ -92,5 +103,10 @@ final class FlussTestSession implements ConnectorSession {
     @Override
     public Map<String, String> getCatalogProperties() {
         return Collections.emptyMap();
+    }
+
+    @Override
+    public Map<String, String> getSessionProperties() {
+        return Collections.unmodifiableMap(sessionProperties);
     }
 }
