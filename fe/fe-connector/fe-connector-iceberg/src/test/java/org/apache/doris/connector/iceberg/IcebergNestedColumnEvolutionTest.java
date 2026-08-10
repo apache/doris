@@ -23,12 +23,26 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.MetadataUpdate;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.UpdateRequirement;
+import org.apache.iceberg.UpdateRequirements;
+import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.AfterEach;
@@ -39,6 +53,8 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -80,6 +96,11 @@ public class IcebergNestedColumnEvolutionTest {
     private void createTable(String table, Schema schema) {
         ops.createTable("db1", table, schema, PartitionSpec.unpartitioned(), null,
                 IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+    }
+
+    private void createTable(String table, Schema schema, PartitionSpec spec, Map<String, String> properties) {
+        ops.createTable("db1", table, schema, spec, null,
+                IcebergSchemaBuilder.buildTableProperties(properties));
     }
 
     private Schema reload(String table) {
@@ -289,6 +310,122 @@ public class IcebergNestedColumnEvolutionTest {
                 () -> ops.dropNestedColumn("db1", "d_old_spec", path("s", "a")));
         Assertions.assertTrue(ex.getMessage().contains("used by an old partition spec"), ex.getMessage());
         Assertions.assertNotNull(reload("d_old_spec").findField("s.a"));
+    }
+
+    @Test
+    public void testDropNestedFieldUsedByCurrentFormatV1VoidSpecFailsLoud() {
+        Schema schema = flatNestedSchema();
+        PartitionSpec initialSpec = PartitionSpec.builderFor(schema).identity("s.a").build();
+        createTable("d_v1_void", schema, initialSpec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "1"));
+        Table table = ops.loadTable("db1", "d_v1_void");
+        int oldSpecId = table.spec().specId();
+        table.updateSpec().removeField(table.spec().fields().get(0).name()).commit();
+
+        // Simulate metadata cleanup so only the v1 current void field retains the source ID. Ignoring the
+        // current spec would let schema deletion corrupt metadata-table schema construction.
+        table.refresh();
+        TableOperations tableOps = ((HasTableOperations) table).operations();
+        TableMetadata base = tableOps.current();
+        TableMetadata.Builder builder = TableMetadata.buildFrom(base);
+        new MetadataUpdate.RemovePartitionSpecs(Set.of(oldSpecId)).applyTo(builder);
+        tableOps.commit(base, builder.build());
+        table.refresh();
+
+        Assertions.assertTrue(table.spec().fields().get(0).transform().isVoid());
+        Assertions.assertEquals(1, table.specs().size());
+        assertFailsLoud(() -> ops.dropNestedColumn("db1", "d_v1_void", path("s", "a")),
+                "partition spec");
+        Assertions.assertNotNull(reload("d_v1_void").findField("s.a"));
+        Assertions.assertDoesNotThrow(() -> MetadataTableUtils.createMetadataTableInstance(
+                ops.loadTable("db1", "d_v1_void"), MetadataTableType.POSITION_DELETES).schema());
+    }
+
+    @Test
+    public void testDropRetriesAfterConcurrentNonDefaultSpecAddition() {
+        createTable("d_concurrent_spec", flatNestedSchema());
+        Table original = ops.loadTable("db1", "d_concurrent_spec");
+        ConcurrentSpecTableOperations concurrentOps = new ConcurrentSpecTableOperations(
+                ((HasTableOperations) original).operations(), "s.a");
+        Table racedTable = new BaseTable(concurrentOps, original.name());
+
+        assertFailsLoud(() -> IcebergNestedColumnEvolution.dropColumn(
+                racedTable, path("s", "a")), "partition spec");
+
+        Assertions.assertTrue(concurrentOps.sawLastAssignedPartitionIdRequirement,
+                "schema drop must fence REST rebases on partition-spec generation");
+        Assertions.assertEquals(1, concurrentOps.commitAttempts,
+                "the retry must refresh and reject the new spec before a second commit");
+        original.refresh();
+        Assertions.assertNotNull(original.schema().findField("s.a"));
+    }
+
+    /** Injects a non-default spec, then applies the same requirements a REST server validates on rebase. */
+    private static final class ConcurrentSpecTableOperations implements TableOperations {
+        private final TableOperations delegate;
+        private final String sourceColumn;
+        private boolean injectConcurrentSpec = true;
+        private boolean sawLastAssignedPartitionIdRequirement;
+        private int commitAttempts;
+
+        private ConcurrentSpecTableOperations(TableOperations delegate, String sourceColumn) {
+            this.delegate = delegate;
+            this.sourceColumn = sourceColumn;
+        }
+
+        @Override
+        public TableMetadata current() {
+            return delegate.current();
+        }
+
+        @Override
+        public TableMetadata refresh() {
+            return delegate.refresh();
+        }
+
+        @Override
+        public void commit(TableMetadata base, TableMetadata metadata) {
+            commitAttempts++;
+            if (!injectConcurrentSpec) {
+                delegate.commit(base, metadata);
+                return;
+            }
+            injectConcurrentSpec = false;
+            List<UpdateRequirement> requirements = UpdateRequirements.forUpdateTable(base, metadata.changes());
+            sawLastAssignedPartitionIdRequirement = requirements.stream()
+                    .anyMatch(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance);
+
+            int newSpecId = base.specs().stream().mapToInt(PartitionSpec::specId).max().orElse(-1) + 1;
+            PartitionSpec concurrentSpec = PartitionSpec.builderFor(base.schema())
+                    .withSpecId(newSpecId).identity(sourceColumn).build();
+            TableMetadata.Builder concurrent = TableMetadata.buildFrom(base).addPartitionSpec(concurrentSpec);
+            delegate.commit(base, concurrent.build());
+            TableMetadata rebased = delegate.refresh();
+            for (UpdateRequirement requirement : requirements) {
+                requirement.validate(rebased);
+            }
+            throw new CommitFailedException("Schema drop did not detect a concurrent partition spec");
+        }
+
+        @Override
+        public FileIO io() {
+            return delegate.io();
+        }
+
+        @Override
+        public EncryptionManager encryption() {
+            return delegate.encryption();
+        }
+
+        @Override
+        public String metadataFileLocation(String fileName) {
+            return delegate.metadataFileLocation(fileName);
+        }
+
+        @Override
+        public LocationProvider locationProvider() {
+            return delegate.locationProvider();
+        }
     }
 
     @Test

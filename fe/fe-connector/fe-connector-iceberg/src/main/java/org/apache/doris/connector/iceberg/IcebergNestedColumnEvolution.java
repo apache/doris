@@ -21,13 +21,22 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.MetadataUpdate;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdateSchema;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.util.Tasks;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,8 +56,8 @@ import java.util.TreeSet;
  * {@link IcebergColumnChange}), so this class only ever touches iceberg + neutral SPI types — never a Doris type.
  * Every failure is raised as a {@link DorisConnectorException} (the caller maps it to a {@code DdlException}).</p>
  *
- * <p><b>No partial commit:</b> every {@code UpdateSchema.commit()} is the final statement of each entry point, so
- * any validation/resolution throw aborts the whole change before anything is committed (legacy parity).</p>
+ * <p><b>No partial commit:</b> every entry point validates before its single metadata commit, so any
+ * validation/resolution throw aborts the whole change before anything is committed (legacy parity).</p>
  *
  * <p>The TOP-LEVEL (flat) column ops stay on {@link IcebergCatalogOps}, but they share this class's name
  * resolution and validators — iceberg matches field names case-SENSITIVELY while Doris column names are
@@ -87,36 +96,74 @@ public final class IcebergNestedColumnEvolution {
 
     /** Drops the nested field at {@code path}; its parent must resolve to a struct that contains the leaf. */
     public static void dropColumn(Table table, ConnectorColumnPath path) {
-        ResolvedColumnPath resolvedPath = validateNestedStructFieldPath(table.schema(), path, "drop");
-        validateNotUsedByOldPartitionSpec(table, resolvedPath);
-        UpdateSchema updateSchema = table.updateSchema();
-        updateSchema.deleteColumn(resolvedPath.getFullPath());
-        updateSchema.commit();
+        dropColumnWithPartitionSpecFence(table, path, true);
     }
 
     static void dropTopLevelColumn(Table table, String columnName) {
-        ResolvedColumnPath resolvedPath = resolveColumnPath(
-                table.schema(), ConnectorColumnPath.of(columnName), "drop");
-        validateNotUsedByOldPartitionSpec(table, resolvedPath);
-        UpdateSchema updateSchema = table.updateSchema();
-        updateSchema.deleteColumn(resolvedPath.getFullPath());
-        updateSchema.commit();
+        dropColumnWithPartitionSpecFence(table, ConnectorColumnPath.of(columnName), false);
     }
 
-    private static void validateNotUsedByOldPartitionSpec(Table table, ResolvedColumnPath columnPath) {
-        int currentSpecId = table.spec().specId();
+    private static void dropColumnWithPartitionSpecFence(
+            Table table, ConnectorColumnPath path, boolean nested) {
+        TableOperations operations = ((HasTableOperations) table).operations();
+        TableMetadata initial = operations.refresh();
+        // A commit conflict must rerun resolution and retained-spec validation against refreshed metadata.
+        Tasks.foreach(operations)
+                .retry(initial.propertyAsInt(
+                        TableProperties.COMMIT_NUM_RETRIES, TableProperties.COMMIT_NUM_RETRIES_DEFAULT))
+                .exponentialBackoff(
+                        initial.propertyAsInt(TableProperties.COMMIT_MIN_RETRY_WAIT_MS,
+                                TableProperties.COMMIT_MIN_RETRY_WAIT_MS_DEFAULT),
+                        initial.propertyAsInt(TableProperties.COMMIT_MAX_RETRY_WAIT_MS,
+                                TableProperties.COMMIT_MAX_RETRY_WAIT_MS_DEFAULT),
+                        initial.propertyAsInt(TableProperties.COMMIT_TOTAL_RETRY_TIME_MS,
+                                TableProperties.COMMIT_TOTAL_RETRY_TIME_MS_DEFAULT),
+                        2.0)
+                .onlyRetryOn(CommitFailedException.class)
+                .run(ops -> commitDropAttempt(ops, table.name(), path, nested));
+    }
+
+    private static void commitDropAttempt(
+            TableOperations operations, String tableName, ConnectorColumnPath path, boolean nested) {
+        TableMetadata base = operations.refresh();
+        ResolvedColumnPath resolvedPath = nested
+                ? validateNestedStructFieldPath(base.schema(), path, "drop")
+                : resolveColumnPath(base.schema(), path, "drop");
+        validateNotUsedByRetainedPartitionSpec(base, resolvedPath);
+
+        Table attemptTable = new BaseTable(operations.temp(base), tableName);
+        Schema updatedSchema = attemptTable.updateSchema()
+                .deleteColumn(resolvedPath.getFullPath()).apply();
+        int fenceSpecId = base.specs().stream().mapToInt(PartitionSpec::specId).max().orElse(-1) + 1;
+        String fenceFieldName = "_doris_schema_drop_fence_" + (base.lastAssignedPartitionId() + 1);
+        PartitionSpec fenceSpec = PartitionSpec.builderFor(base.schema())
+                .withSpecId(fenceSpecId)
+                .alwaysNull(resolvedPath.getFullPath(), fenceFieldName)
+                .build();
+        TableMetadata.Builder builder = TableMetadata.buildFrom(base).addPartitionSpec(fenceSpec);
+        new MetadataUpdate.RemovePartitionSpecs(Set.of(fenceSpecId)).applyTo(builder);
+        builder.setCurrentSchema(updatedSchema, base.lastColumnId());
+        // The transient spec leaves no readable metadata behind, but forces REST commits to assert the
+        // last partition-field ID so a concurrent non-default spec cannot be silently rebased past validation.
+        operations.commit(base, builder.build());
+    }
+
+    private static void validateNotUsedByRetainedPartitionSpec(
+            TableMetadata metadata, ResolvedColumnPath columnPath) {
+        int currentSpecId = metadata.spec().specId();
         Set<Integer> droppedFieldIds = TypeUtil.indexById(
                 Types.StructType.of(columnPath.getField())).keySet();
         // Historical specs resolve partition types by source field ID against the current schema, so deleting
-        // a referenced source field or any ancestor leaves those specs unreadable even after the field is
-        // removed from the current spec. Index the full subtree because deleting a struct also deletes its fields.
-        boolean usedByOldSpec = table.specs().values().stream()
-                .filter(spec -> spec.specId() != currentSpecId)
-                .flatMap(spec -> spec.fields().stream())
-                .anyMatch(field -> droppedFieldIds.contains(field.sourceId()));
-        if (usedByOldSpec) {
+        // a referenced source field or any ancestor leaves those specs unreadable. Format-v1 also retains a
+        // void field in the current spec after removal, so it must remain part of this source-ID check.
+        boolean usedByRetainedSpec = metadata.specs().stream()
+                .anyMatch(spec -> spec.fields().stream().anyMatch(field ->
+                        droppedFieldIds.contains(field.sourceId())
+                                && (spec.specId() != currentSpecId || field.transform().isVoid())));
+        if (usedByRetainedSpec) {
             throw new DorisConnectorException(
-                    "Cannot drop column which is used by an old partition spec: " + columnPath.getFullPath());
+                    "Cannot drop column which is used by an old partition spec or retained format-v1 void field: "
+                            + columnPath.getFullPath());
         }
     }
 
