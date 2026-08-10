@@ -605,7 +605,7 @@ public class MaterializedViewHandler extends AlterHandler {
                                 "The mvItem[" + mvColumnItem.getName() + "] require slot because it is value column");
                     }
                 }
-                newMVColumns.add(mvColumnItem.toMVColumn(sessionVariables));
+                newMVColumns.add(toMVColumn(mvColumnItem, olapTable, sessionVariables));
             }
         } else {
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
@@ -614,7 +614,7 @@ public class MaterializedViewHandler extends AlterHandler {
                     throw new DdlException("Base columns is null");
                 }
 
-                newMVColumns.add(mvColumnItem.toMVColumn(sessionVariables));
+                newMVColumns.add(toMVColumn(mvColumnItem, olapTable, sessionVariables));
             }
         }
 
@@ -692,6 +692,20 @@ public class MaterializedViewHandler extends AlterHandler {
             LOG.debug("lightSchemaChange:{}, newMVColumns:{}", olapTable.getEnableLightSchemaChange(), newMVColumns);
         }
         return newMVColumns;
+    }
+
+    private Column toMVColumn(MVColumnItem mvColumnItem, OlapTable olapTable,
+            Map<String, String> sessionVariables) throws DdlException {
+        Column mvColumn = mvColumnItem.toMVColumn(sessionVariables);
+        if (mvColumnItem.getDefineExpr() instanceof SlotRef) {
+            SlotRef slotRef = (SlotRef) mvColumnItem.getDefineExpr();
+            Column baseColumn = Preconditions.checkNotNull(olapTable.getColumn(slotRef.getColumnName()),
+                    "Base column does not exist: %s", slotRef.getColumnName());
+            if (baseColumn.hasCompressionOverride()) {
+                mvColumn.setCompression(baseColumn.getCompressionType(), baseColumn.getCompressionLevel());
+            }
+        }
+        return mvColumn;
     }
 
     public List<Column> checkAndPrepareMaterializedView(AddRollupOp addRollupOp, OlapTable olapTable,
