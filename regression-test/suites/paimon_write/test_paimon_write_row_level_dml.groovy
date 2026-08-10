@@ -76,6 +76,18 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
             'partial-update.remove-record-on-delete' = 'true'
         );
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_partial_update_sequence_group;
+        CREATE TABLE paimon.${dbName}.t_partial_update_sequence_group (
+            id INT, name STRING, seq INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'merge-engine' = 'partial-update',
+            'fields.seq.sequence-group' = 'name',
+            'partial-update.remove-record-on-sequence-group' = 'seq'
+        );
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_aggregation_no_delete;
         CREATE TABLE paimon.${dbName}.t_aggregation_no_delete (
             id INT, score INT
@@ -375,6 +387,24 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
         }
         sql """DELETE FROM t_partial_update WHERE id = 20"""
         qt_paimon_partial_update_delete """SELECT count(*) FROM t_partial_update"""
+
+        sql """INSERT INTO t_partial_update_sequence_group VALUES (21, 'keep', NULL)"""
+        test {
+            sql """DELETE FROM t_partial_update_sequence_group WHERE id = 21"""
+            exception "partial-update.remove-record-on-delete=true"
+        }
+        sql """TRUNCATE TABLE internal.${dbName}.t_merge_source"""
+        sql """INSERT INTO internal.${dbName}.t_merge_source VALUES
+            (21, 'keep', 0, 'D')
+        """
+        test {
+            sql """
+                MERGE INTO t_partial_update_sequence_group t
+                USING internal.${dbName}.t_merge_source s ON t.id = s.id
+                WHEN MATCHED THEN DELETE
+            """
+            exception "partial-update.remove-record-on-delete=true"
+        }
 
         sql """INSERT INTO t_aggregation_no_delete VALUES (30, 30)"""
         test {

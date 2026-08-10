@@ -17,12 +17,20 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.plans.commands.info.PaimonRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.options.Options;
@@ -38,7 +46,9 @@ final class PaimonRowChangeCapabilities {
     private PaimonRowChangeCapabilities() {
     }
 
-    static void check(PaimonWriteTarget target, PaimonRowChangeSpec spec) {
+    static void check(PaimonWriteTarget target, PaimonRowChangeSpec spec,
+            CascadesContext cascadesContext) {
+        requireNoDataMask(target, spec, cascadesContext);
         if (spec instanceof PaimonRowChangeSpec.Update) {
             checkUpdate(target,
                     updatedColumns(((PaimonRowChangeSpec.Update) spec).getAssignments()));
@@ -113,12 +123,13 @@ final class PaimonRowChangeCapabilities {
             case DEDUPLICATE:
                 return;
             case PARTIAL_UPDATE:
-                if (options.get(CoreOptions.PARTIAL_UPDATE_REMOVE_RECORD_ON_DELETE)
-                        || options.getOptional(
-                                CoreOptions.PARTIAL_UPDATE_REMOVE_RECORD_ON_SEQUENCE_GROUP).isPresent()) {
+                if (options.get(CoreOptions.PARTIAL_UPDATE_REMOVE_RECORD_ON_DELETE)) {
                     return;
                 }
-                break;
+                throw new AnalysisException("Paimon DELETE on merge-engine=partial-update requires "
+                        + "partial-update.remove-record-on-delete=true because "
+                        + "partial-update.remove-record-on-sequence-group does not guarantee "
+                        + "whole-row deletion");
             case AGGREGATE:
                 if (options.get(CoreOptions.AGGREGATION_REMOVE_RECORD_ON_DELETE)) {
                     return;
@@ -155,6 +166,34 @@ final class PaimonRowChangeCapabilities {
             throw new AnalysisException("Paimon " + operation
                     + " is not supported when rowkind.field is configured because it overrides "
                     + "the row-change operation");
+        }
+    }
+
+    private static void requireNoDataMask(PaimonWriteTarget target,
+            PaimonRowChangeSpec spec, CascadesContext cascadesContext) {
+        ConnectContext connectContext = cascadesContext.getConnectContext();
+        UserIdentity user = connectContext.getCurrentUserIdentity();
+        if (user.isRootUser() || user.isAdminUser()) {
+            return;
+        }
+
+        PaimonExternalTable table = target.getDorisTable();
+        DatabaseIf database = table.getDatabase();
+        if (database == null || database.getCatalog() == null) {
+            return;
+        }
+        CatalogIf catalog = database.getCatalog();
+        Set<String> columns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (Column column : target.getSchema()) {
+            columns.add(column.getName());
+        }
+        AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
+        boolean hasDataMask = accessManager.evalDataMaskPolicies(
+                user, catalog.getName(), database.getFullName(), table.getName(), columns)
+                .values().stream().anyMatch(policy -> policy.isPresent());
+        if (hasDataMask) {
+            throw new AnalysisException("Paimon " + spec.getDmlCommandType()
+                    + " is not supported when data masking policies apply to the target table");
         }
     }
 }

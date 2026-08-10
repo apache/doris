@@ -50,7 +50,7 @@ final class PaimonRowChangePlanBuilder {
     static LogicalProject<?> build(
             PaimonWriteTarget target, PaimonRowChangeSpec spec, LogicalPlan child,
             CascadesContext cascadesContext) {
-        PaimonRowChangeCapabilities.check(target, spec);
+        PaimonRowChangeCapabilities.check(target, spec, cascadesContext);
         if (spec instanceof PaimonRowChangeSpec.Update) {
             return buildUpdate(target, (PaimonRowChangeSpec.Update) spec,
                     child, cascadesContext);
