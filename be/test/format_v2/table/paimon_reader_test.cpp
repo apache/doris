@@ -699,6 +699,53 @@ TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(PaimonReaderTest, FileParentPreloadsDeletionVectorForChildren) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_paimon_parent_deletion_vector_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    const auto dv_length = write_paimon_deletion_vector_file(dv_path, {1, 3});
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    paimon::PaimonReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    SplitReadOptions parent;
+    parent.cache = &cache;
+    parent.current_split_format = FileFormat::PARQUET;
+    parent.current_range.__set_path("unused.parquet");
+    parent.current_range.__set_is_file_parent(true);
+    parent.current_range.__set_table_format_params(
+            make_paimon_table_format_desc(dv_path, 0, dv_length));
+    ASSERT_TRUE(reader.prepare_split(parent).ok());
+    EXPECT_EQ(profile.get_counter("DeletionVectorDecodedCacheMissCount")->value(), 1);
+
+    auto child = parent;
+    child.current_range.__set_is_file_parent(false);
+    ASSERT_TRUE(reader.prepare_split(child).ok());
+    EXPECT_EQ(profile.get_counter("DeletionVectorDecodedCacheMissCount")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DeletionVectorDecodedCacheHitCount")->value(), 1);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(PaimonHybridReaderTest, ClassifiesJniSplitByReaderType) {
     EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_jni_split(
             make_paimon_native_range(TFileFormatType::FORMAT_PARQUET)));

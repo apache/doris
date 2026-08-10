@@ -59,7 +59,8 @@ struct FileReaderOptions {
     bool is_doris_table = false;
     // Keep this opt-in so legacy scanners and internal-table readers retain their existing IO path.
     bool enable_reader_local_cache = false;
-    // File Scanner V2 readers in one scan node share a bounded owner and a file-identity block map.
+    // File Scanner V2 readers in one scan node share a bounded owner; each physical stream owns
+    // its block map so registry lifetime cannot outlive the stream.
     std::shared_ptr<FileScannerV2ReaderLocalCache> reader_local_cache {nullptr};
     std::string cache_base_path;
     // Length of the file in bytes, -1 means unset.
@@ -69,6 +70,9 @@ struct FileReaderOptions {
     int64_t mtime = 0;
     // Used to query the location of the file cache
     int64_t tablet_id = -1;
+    // Stable filesystem identity used by external cache keys. This is separate from the storage
+    // resource id because temporary HDFS filesystems still need their nameservice preserved.
+    std::string cache_file_system_identity;
     // Storage resource id of the remote file system. Used by peer fill to reconstruct
     // the source file system without scanning tablet rowsets on the peer.
     std::string storage_resource_id;

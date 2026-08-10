@@ -3364,12 +3364,16 @@ TEST_F(NewParquetReaderTest, FileParentBuildsRowGroupTasksWithSharedFooterMetada
     ASSERT_TRUE(parent_reader->build_split_tasks(parent, &children).ok());
     ASSERT_EQ(children.size(), 3);
     ASSERT_NE(children.front().context, nullptr);
+    ASSERT_NE(children.front().parent_range, nullptr);
     for (const auto& child : children) {
         EXPECT_FALSE(child.range.is_file_parent);
         EXPECT_GT(child.range.size, 0);
         EXPECT_EQ(child.context, children.front().context);
-        ASSERT_TRUE(child.range.table_format_params.paimon_params.__isset.deletion_file);
-        EXPECT_EQ(child.range.table_format_params.paimon_params.deletion_file.path,
+        EXPECT_EQ(child.parent_range, children.front().parent_range);
+        EXPECT_FALSE(child.range.__isset.table_format_params);
+        const auto materialized = child.materialize_range();
+        ASSERT_TRUE(materialized.table_format_params.paimon_params.__isset.deletion_file);
+        EXPECT_EQ(materialized.table_format_params.paimon_params.deletion_file.path,
                   "s3://bucket/delete-vector");
     }
 
@@ -3378,9 +3382,9 @@ TEST_F(NewParquetReaderTest, FileParentBuildsRowGroupTasksWithSharedFooterMetada
 
     std::vector<int32_t> ids;
     for (const auto& child : children) {
-        auto child_reader =
-                create_reader(child.range.start_offset, child.range.size, nullptr, false, nullptr,
-                              std::nullopt, false, false, {}, 0, child.context);
+        const auto range = child.materialize_range();
+        auto child_reader = create_reader(range.start_offset, range.size, nullptr, false, nullptr,
+                                          std::nullopt, false, false, {}, 0, child.context);
         ASSERT_TRUE(child_reader->init(&state).ok());
         EXPECT_EQ(child_reader->TEST_footer_read_calls(), 0);
         std::vector<format::ColumnDefinition> schema;

@@ -1229,9 +1229,9 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _current_task->data_file = create_file_description(options.current_range);
     _current_file_description = *_current_task->data_file;
     if (options.current_range.__isset.is_file_parent && options.current_range.is_file_parent) {
-        // Delete state belongs to row-group children; parsing it on the metadata-only parent would
-        // duplicate IO and retain split-local mutable state across concurrent child readers.
-        return Status::OK();
+        // Decode deletion state once on the file parent so all row-group children reuse the shared
+        // cache entry instead of independently issuing deletion-vector IO.
+        return _parse_delete_predicates(options);
     }
     // A table-level row count is only equivalent to scanning the split when no row predicate is
     // active and no predicate can arrive later. The metadata path can return several batches for

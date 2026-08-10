@@ -31,7 +31,25 @@ struct FileScanSplitContext {
 
 struct FileScanSplitTask {
     TFileRangeDesc range;
+    std::shared_ptr<const TFileRangeDesc> parent_range;
     std::shared_ptr<const FileScanSplitContext> context;
+
+    TFileRangeDesc materialize_range() const {
+        if (parent_range == nullptr) {
+            return range;
+        }
+        // Queued children share bulky table/delete descriptors and override only physical bounds;
+        // materializing on claim keeps descriptor copies bounded by active scanners, not row groups.
+        TFileRangeDesc result = *parent_range;
+        if (range.__isset.start_offset) {
+            result.__set_start_offset(range.start_offset);
+        }
+        if (range.__isset.size) {
+            result.__set_size(range.size);
+        }
+        result.__set_is_file_parent(false);
+        return result;
+    }
 };
 
 } // namespace doris

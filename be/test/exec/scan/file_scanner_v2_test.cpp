@@ -543,7 +543,9 @@ TEST(FileScannerV2Test, FileParentPublishesSharedChildTasksBeforeSourceFinishes)
     child_range.__set_start_offset(128);
     child_range.__set_size(256);
     child_range.__set_is_file_parent(false);
-    ASSERT_TRUE(source.finish_file_parent({{.range = std::move(child_range), .context = context}})
+    ASSERT_TRUE(source.finish_file_parent({{.range = std::move(child_range),
+                                            .parent_range = nullptr,
+                                            .context = context}})
                         .ok());
 
     auto [status, child_available, child] = waiting_scanner.get();
@@ -556,6 +558,19 @@ TEST(FileScannerV2Test, FileParentPublishesSharedChildTasksBeforeSourceFinishes)
     FileScanSplitTask exhausted;
     ASSERT_TRUE(source.get_next_split(&has_next, &exhausted).ok());
     EXPECT_FALSE(has_next);
+}
+
+TEST(FileScannerV2Test, FileParentKeepsScannerCapacityForGeneratedChildren) {
+    TScanRangeParams params;
+    TFileRangeDesc parent;
+    parent.__set_path("file.parquet");
+    parent.__set_is_file_parent(true);
+    params.scan_range.ext_scan_range.file_scan_range.ranges.push_back(std::move(parent));
+
+    EXPECT_EQ(FileScanLocalState::TEST_scanner_count_for_local_ranges(8, {params}), 8);
+
+    params.scan_range.ext_scan_range.file_scan_range.ranges.front().__set_is_file_parent(false);
+    EXPECT_EQ(FileScanLocalState::TEST_scanner_count_for_local_ranges(8, {params}), 1);
 }
 
 TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {

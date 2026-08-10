@@ -294,6 +294,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
             .cache_base_path {},
             .file_size = meta.file_size,
             .tablet_id = meta.tablet_id,
+            .cache_file_system_identity = meta.file_system->id(),
             .storage_resource_id = meta.file_system->id(),
     };
     auto st = meta.file_system->open_file(meta.path, &file_reader, &opts);

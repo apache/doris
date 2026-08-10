@@ -592,6 +592,39 @@ Status build_native_prefetch_ranges(
 
 namespace detail {
 
+Status build_native_row_group_split_ranges(const tparquet::FileMetaData& metadata, size_t file_size,
+                                           std::vector<ParquetScanRange>* ranges) {
+    DORIS_CHECK(ranges != nullptr);
+    ranges->clear();
+    ranges->reserve(metadata.row_groups.size());
+    for (size_t row_group_idx = 0; row_group_idx < metadata.row_groups.size(); ++row_group_idx) {
+        const auto& row_group = metadata.row_groups[row_group_idx];
+        if (row_group.columns.empty()) {
+            return Status::Corruption("Parquet row group {} has no column chunks", row_group_idx);
+        }
+        size_t group_start = std::numeric_limits<size_t>::max();
+        size_t group_end = 0;
+        for (size_t column_idx = 0; column_idx < row_group.columns.size(); ++column_idx) {
+            const auto& chunk = row_group.columns[column_idx];
+            if (!chunk.__isset.meta_data) {
+                return Status::Corruption("Parquet row group {} column {} has no metadata",
+                                          row_group_idx, column_idx);
+            }
+            native::ColumnChunkRange chunk_range;
+            RETURN_IF_ERROR(native::compute_column_chunk_range(chunk.meta_data, file_size, false,
+                                                               &chunk_range));
+            group_start = std::min(group_start, chunk_range.offset);
+            group_end = std::max(group_end, chunk_range.offset + chunk_range.length);
+        }
+        // Compatibility padding belongs to physical reads, not scheduling ownership; keeping the
+        // split boundary raw preserves the non-overlapping scan-range ownership invariant.
+        ranges->push_back({.start_offset = cast_set<int64_t>(group_start),
+                           .size = cast_set<int64_t>(group_end - group_start),
+                           .file_size = cast_set<int64_t>(file_size)});
+    }
+    return Status::OK();
+}
+
 Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& metadata,
                                               const ParquetScanRange& scan_range,
                                               std::vector<int64_t>* row_group_first_rows,
@@ -612,8 +645,6 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
     const bool full_file_range =
             scan_range.size < 0 || (range_start == 0 && scan_range.file_size >= 0 &&
                                     range_end >= static_cast<uint64_t>(scan_range.file_size));
-    const auto compat = native::parquet_reader_compat(
-            metadata.__isset.created_by ? metadata.created_by : std::string {});
     row_group_first_rows->assign(metadata.row_groups.size(), 0);
     selected_row_groups->clear();
     selected_row_groups->reserve(metadata.row_groups.size());
@@ -636,7 +667,6 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
                                           row_group_idx);
             }
             size_t group_start = std::numeric_limits<size_t>::max();
-            size_t group_end = 0;
             for (size_t column_idx = 0; column_idx < row_group.columns.size(); ++column_idx) {
                 const auto& chunk = row_group.columns[column_idx];
                 if (!chunk.__isset.meta_data) {
@@ -644,16 +674,13 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
                                               row_group_idx, column_idx);
                 }
                 native::ColumnChunkRange chunk_range;
-                RETURN_IF_ERROR(native::compute_column_chunk_range(
-                        chunk.meta_data, file_size, compat.parquet_816_padding, &chunk_range));
+                RETURN_IF_ERROR(native::compute_column_chunk_range(chunk.meta_data, file_size,
+                                                                   false, &chunk_range));
                 group_start = std::min(group_start, chunk_range.offset);
-                group_end = std::max(group_end, chunk_range.offset + chunk_range.length);
             }
-            // Checked chunk ranges make end >= start; this midpoint form cannot overflow even
-            // when footer offsets are close to the host coordinate limit.
-            const uint64_t group_mid =
-                    static_cast<uint64_t>(group_start) + (group_end - group_start) / 2;
-            selected = group_mid >= range_start && group_mid < range_end;
+            // Split ownership follows the unpadded row-group start. Compatibility read padding
+            // may overlap the next group and must never make two children claim the same rows.
+            selected = group_start >= range_start && group_start < range_end;
         }
         if (selected) {
             selected_row_groups->push_back(cast_set<int>(row_group_idx));

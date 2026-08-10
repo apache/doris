@@ -166,6 +166,52 @@ TEST(ParquetScanMetadataSafetyTest, CheckedChunkRangesDrivePrefetchAndSplitAssig
                          .ok());
 }
 
+TEST(ParquetScanMetadataSafetyTest, OldParquetMrRowGroupsUseUnpaddedSplitOwnership) {
+    tparquet::FileMetaData metadata;
+    metadata.__set_created_by("parquet-mr version 1.2.8 (build test)");
+
+    auto make_row_group = [](int64_t offset) {
+        tparquet::ColumnMetaData column;
+        column.__set_type(tparquet::Type::INT32);
+        column.__set_data_page_offset(offset);
+        column.__set_dictionary_page_offset(-1);
+        column.__set_total_compressed_size(20);
+        tparquet::ColumnChunk chunk;
+        chunk.__set_meta_data(std::move(column));
+        tparquet::RowGroup row_group;
+        row_group.__set_num_rows(1);
+        row_group.__set_columns({std::move(chunk)});
+        return row_group;
+    };
+    metadata.__set_row_groups({make_row_group(100), make_row_group(120)});
+
+    std::vector<format::parquet::ParquetScanRange> split_ranges;
+    ASSERT_TRUE(format::parquet::detail::build_native_row_group_split_ranges(metadata, 240,
+                                                                             &split_ranges)
+                        .ok());
+    ASSERT_EQ(split_ranges.size(), 2);
+    EXPECT_EQ(split_ranges[0].start_offset, 100);
+    EXPECT_EQ(split_ranges[0].size, 20);
+    EXPECT_EQ(split_ranges[1].start_offset, 120);
+    EXPECT_EQ(split_ranges[1].size, 20);
+
+    std::vector<int64_t> first_rows;
+    std::vector<int> selected;
+    format::parquet::ParquetScanRange first_split {
+            .start_offset = 100, .size = 20, .file_size = 240};
+    ASSERT_TRUE(format::parquet::detail::select_native_row_groups_by_scan_range(
+                        metadata, first_split, &first_rows, &selected)
+                        .ok());
+    EXPECT_EQ(selected, std::vector<int>({0}));
+
+    format::parquet::ParquetScanRange second_split {
+            .start_offset = 120, .size = 20, .file_size = 240};
+    ASSERT_TRUE(format::parquet::detail::select_native_row_groups_by_scan_range(
+                        metadata, second_split, &first_rows, &selected)
+                        .ok());
+    EXPECT_EQ(selected, std::vector<int>({1}));
+}
+
 class Int32ZoneMapExpr final : public VExpr {
 public:
     enum class Op { GE, GT, LT };

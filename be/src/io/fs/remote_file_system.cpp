@@ -58,6 +58,9 @@ Status RemoteFileSystem::open_file_impl(const Path& path, FileReaderSPtr* reader
     if (effective_opts.storage_resource_id.empty()) {
         effective_opts.storage_resource_id = id();
     }
+    if (effective_opts.cache_file_system_identity.empty()) {
+        effective_opts.cache_file_system_identity = id();
+    }
     RETURN_IF_ERROR(open_file_internal(path, &raw_reader, effective_opts));
     *reader = DORIS_TRY(create_cached_file_reader(raw_reader, effective_opts));
     return Status::OK();

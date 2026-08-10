@@ -59,6 +59,10 @@ public:
 #ifdef BE_TEST
     static bool TEST_should_use_file_scanner_v2(const TQueryOptions& query_options, bool is_load,
                                                 const TFileScanRangeParams& scan_params);
+    static int TEST_scanner_count_for_local_ranges(
+            int requested, const std::vector<TScanRangeParams>& scan_ranges) {
+        return _scanner_count_for_local_ranges(requested, scan_ranges);
+    }
 #endif
 
 private:
@@ -73,6 +77,8 @@ private:
     bool _push_down_topn(const RuntimePredicate& predicate) override;
     static bool _should_use_file_scanner_v2(const TQueryOptions& query_options, bool is_load,
                                             const TFileScanRangeParams& scan_params);
+    static int _scanner_count_for_local_ranges(int requested,
+                                               const std::vector<TScanRangeParams>& scan_ranges);
 
     PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||

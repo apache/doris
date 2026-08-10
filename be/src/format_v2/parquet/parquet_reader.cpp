@@ -576,37 +576,22 @@ Status ParquetReader::build_split_tasks(const TFileRangeDesc& parent,
         return Status::Uninitialized("ParquetReader is not open");
     }
     const auto& metadata = _state->file_context.native_metadata->to_thrift();
-    const auto compat = native::parquet_reader_compat(
-            metadata.__isset.created_by ? metadata.created_by : std::string {});
     const size_t file_size = _file_description->file_size < 0
                                      ? _state->file_context.native_file->size()
                                      : cast_set<size_t>(_file_description->file_size);
+    std::vector<ParquetScanRange> split_ranges;
+    RETURN_IF_ERROR(
+            detail::build_native_row_group_split_ranges(metadata, file_size, &split_ranges));
     auto context = std::make_shared<ParquetFileSplitContext>(_state->file_context.shared_metadata);
-    children->reserve(metadata.row_groups.size());
-    for (size_t row_group_idx = 0; row_group_idx < metadata.row_groups.size(); ++row_group_idx) {
-        const auto& row_group = metadata.row_groups[row_group_idx];
-        if (row_group.columns.empty()) {
-            return Status::Corruption("Parquet row group {} has no column chunks", row_group_idx);
-        }
-        size_t group_start = std::numeric_limits<size_t>::max();
-        size_t group_end = 0;
-        for (size_t column_idx = 0; column_idx < row_group.columns.size(); ++column_idx) {
-            const auto& chunk = row_group.columns[column_idx];
-            if (!chunk.__isset.meta_data) {
-                return Status::Corruption("Parquet row group {} column {} has no metadata",
-                                          row_group_idx, column_idx);
-            }
-            native::ColumnChunkRange chunk_range;
-            RETURN_IF_ERROR(native::compute_column_chunk_range(
-                    chunk.meta_data, file_size, compat.parquet_816_padding, &chunk_range));
-            group_start = std::min(group_start, chunk_range.offset);
-            group_end = std::max(group_end, chunk_range.offset + chunk_range.length);
-        }
-        TFileRangeDesc child = parent;
-        child.__set_start_offset(cast_set<int64_t>(group_start));
-        child.__set_size(cast_set<int64_t>(group_end - group_start));
+    auto shared_parent = std::make_shared<const TFileRangeDesc>(parent);
+    children->reserve(split_ranges.size());
+    for (const auto& split_range : split_ranges) {
+        TFileRangeDesc child;
+        child.__set_start_offset(split_range.start_offset);
+        child.__set_size(split_range.size);
         child.__set_is_file_parent(false);
-        children->push_back({.range = std::move(child), .context = context});
+        children->push_back(
+                {.range = std::move(child), .parent_range = shared_parent, .context = context});
     }
     return Status::OK();
 }

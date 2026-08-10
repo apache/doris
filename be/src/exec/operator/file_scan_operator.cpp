@@ -221,6 +221,19 @@ std::string FileScanLocalState::name_suffix() const {
                        std::to_string(_parent->node_id()));
 }
 
+int FileScanLocalState::_scanner_count_for_local_ranges(
+        int requested, const std::vector<TScanRangeParams>& scan_ranges) {
+    const bool has_file_parent = std::ranges::any_of(scan_ranges, [](const auto& params) {
+        const auto& ranges = params.scan_range.ext_scan_range.file_scan_range.ranges;
+        return std::ranges::any_of(ranges, [](const auto& range) {
+            return range.__isset.is_file_parent && range.is_file_parent;
+        });
+    });
+    // A file parent is only the source morsel. Keep the configured scanner capacity so the row
+    // group children appended by that source can still run at pipeline parallelism.
+    return has_file_parent ? requested : std::min(requested, static_cast<int>(scan_ranges.size()));
+}
+
 void FileScanLocalState::set_scan_ranges(RuntimeState* state,
                                          const std::vector<TScanRangeParams>& scan_ranges) {
     auto& p = _parent->cast<FileScanOperatorX>();
@@ -260,7 +273,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         }
         // currently the total number of splits in the bach split mode cannot be accurately obtained,
         // so we don't do it in the batch split mode.
-        _max_scanners = std::min(_max_scanners, _split_source->num_scan_ranges());
+        _max_scanners = _scanner_count_for_local_ranges(_max_scanners, scan_ranges);
     }
 
     if (!scan_ranges.empty() &&

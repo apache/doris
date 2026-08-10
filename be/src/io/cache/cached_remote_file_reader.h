@@ -26,7 +26,6 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
-#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -87,8 +86,6 @@ public:
     ~FileScannerV2ReaderLocalCache();
 
     std::shared_ptr<FileScannerV2ReaderLocalFileCache> create_file_cache();
-    std::shared_ptr<FileScannerV2ReaderLocalFileCache> get_or_create_file_cache(
-            const std::string& file_key);
 
     size_t entry_count() const;
     size_t memory_usage() const;
@@ -99,7 +96,6 @@ private:
 
     bool _reserve(size_t bytes, FileScannerV2ReaderLocalFileCache* requester, size_t* evicted);
     bool _try_reserve(size_t bytes);
-    bool _evict_idle_file_cache(FileScannerV2ReaderLocalFileCache* requester, size_t* evicted);
     void _commit(size_t bytes);
     void _cancel_reservation(size_t bytes);
     void _release(size_t bytes);
@@ -113,12 +109,10 @@ private:
     size_t _reserved_bytes = 0;
     mutable std::mutex _registry_mutex;
     std::vector<std::weak_ptr<FileScannerV2ReaderLocalFileCache>> _files;
-    std::unordered_map<std::string, std::shared_ptr<FileScannerV2ReaderLocalFileCache>>
-            _file_cache_by_key;
 };
 
-// File-scoped block map for reader-local data. Different external files never contend on this
-// mutex; duplicate reads of the same file still share fills and LRU state.
+// Stream-scoped block map for reader-local data. Different external streams never contend on this
+// mutex; overlapping reads through the same stream still share fills and LRU state.
 class FileScannerV2ReaderLocalFileCache {
 public:
     using LookupResult = FileScannerV2ReaderLocalCache::LookupResult;

@@ -11226,7 +11226,7 @@ TEST_F(BlockFileCacheTest, reader_local_cache_fill_exception_wakes_waiter) {
     EXPECT_EQ(opts.reader_local_cache->memory_usage(), 0);
 }
 
-TEST_F(BlockFileCacheTest, reader_local_cache_block_maps_are_shared_by_file_identity) {
+TEST_F(BlockFileCacheTest, reader_local_cache_block_maps_are_isolated_per_stream) {
     constexpr size_t reader_block_size = 256_kb;
     const std::string content(600_kb, 'x');
     const fs::path file_path =
@@ -11283,14 +11283,14 @@ TEST_F(BlockFileCacheTest, reader_local_cache_block_maps_are_shared_by_file_iden
                                             &bytes_read, &cache_hit, &second_ctx)
                         .ok());
     ASSERT_TRUE(cache_hit);
-    EXPECT_EQ(second_stats.num_reader_local_cache_hit, 1);
-    EXPECT_EQ(second_stats.num_reader_local_cache_fill, 0);
-    EXPECT_EQ(shared_cache->entry_count(), 1);
-    EXPECT_EQ(shared_cache->memory_usage(), reader_block_size);
-    EXPECT_EQ(shared_cache->tracked_memory(), reader_block_size);
+    EXPECT_EQ(second_stats.num_reader_local_cache_hit, 0);
+    EXPECT_EQ(second_stats.num_reader_local_cache_fill, 1);
+    EXPECT_EQ(shared_cache->entry_count(), 2);
+    EXPECT_EQ(shared_cache->memory_usage(), 2 * reader_block_size);
+    EXPECT_EQ(shared_cache->tracked_memory(), 2 * reader_block_size);
 }
 
-TEST_F(BlockFileCacheTest, reader_local_cache_survives_sequential_readers_in_one_scan) {
+TEST_F(BlockFileCacheTest, reader_local_cache_releases_blocks_with_stream) {
     constexpr size_t reader_block_size = 256_kb;
     const std::string content(300_kb, 'x');
     const fs::path file_path =
@@ -11339,8 +11339,8 @@ TEST_F(BlockFileCacheTest, reader_local_cache_survives_sequential_readers_in_one
         ASSERT_TRUE(cache_hit);
         ASSERT_EQ(shared_cache->entry_count(), 1);
     }
-    EXPECT_EQ(shared_cache->entry_count(), 1);
-    EXPECT_EQ(shared_cache->memory_usage(), reader_block_size);
+    EXPECT_EQ(shared_cache->entry_count(), 0);
+    EXPECT_EQ(shared_cache->memory_usage(), 0);
 
     CachedRemoteFileReader second_reader(local_reader, opts);
     FileCacheStatistics stats;
@@ -11351,8 +11351,40 @@ TEST_F(BlockFileCacheTest, reader_local_cache_survives_sequential_readers_in_one
                                             &bytes_read, &cache_hit, &io_ctx)
                         .ok());
     EXPECT_TRUE(cache_hit);
-    EXPECT_EQ(stats.num_reader_local_cache_hit, 1);
-    EXPECT_EQ(stats.num_reader_local_cache_fill, 0);
+    EXPECT_EQ(stats.num_reader_local_cache_hit, 0);
+    EXPECT_EQ(stats.num_reader_local_cache_fill, 1);
+}
+
+TEST_F(BlockFileCacheTest, external_cache_key_includes_file_system_identity) {
+    const std::string content = "cache-key-content";
+    const fs::path file_path =
+            create_cached_remote_reader_test_file("external_cache_file_identity", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ignore;
+        fs::remove(file_path, ignore);
+    }};
+    const fs::path cache_path = caches_dir / "external_cache_file_identity_blocks";
+    clear_cached_remote_reader_factory();
+    Defer cleanup_cache {[&]() {
+        std::error_code ignore;
+        fs::remove_all(cache_path, ignore);
+        clear_cached_remote_reader_factory();
+    }};
+    create_cached_remote_reader_test_cache(cache_path, 1_mb);
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
+    io::FileReaderOptions opts;
+    opts.is_doris_table = false;
+    opts.mtime = 1;
+    opts.file_size = static_cast<int64_t>(content.size());
+    opts.cache_base_path = cache_path.string();
+    opts.cache_file_system_identity = "hdfs://warehouse-a";
+    CachedRemoteFileReader first_reader(local_reader, opts);
+
+    opts.cache_file_system_identity = "hdfs://warehouse-b";
+    CachedRemoteFileReader second_reader(local_reader, opts);
+    EXPECT_NE(first_reader._cache_hash, second_reader._cache_hash);
 }
 
 TEST_F(BlockFileCacheTest, reader_local_cache_does_not_evict_another_reader) {
@@ -11433,7 +11465,7 @@ TEST_F(BlockFileCacheTest, reader_local_cache_does_not_evict_another_reader) {
     EXPECT_EQ(shared_cache->tracked_memory(), shared_cache->memory_usage());
 }
 
-TEST_F(BlockFileCacheTest, reader_local_cache_reclaims_idle_file_for_later_file) {
+TEST_F(BlockFileCacheTest, reader_local_cache_capacity_moves_to_later_stream) {
     constexpr size_t reader_block_size = 256_kb;
     const std::string content(600_kb, 'x');
     const fs::path first_file_path =
@@ -11485,7 +11517,7 @@ TEST_F(BlockFileCacheTest, reader_local_cache_reclaims_idle_file_for_later_file)
                             .ok());
         ASSERT_TRUE(cache_hit);
     }
-    ASSERT_EQ(shared_cache->entry_count(), 1);
+    ASSERT_EQ(shared_cache->entry_count(), 0);
 
     CachedRemoteFileReader second_reader(second_local_reader, opts);
     ASSERT_TRUE(
@@ -11500,7 +11532,7 @@ TEST_F(BlockFileCacheTest, reader_local_cache_reclaims_idle_file_for_later_file)
     EXPECT_TRUE(cache_hit);
     EXPECT_EQ(second_stats.num_reader_local_cache_fill, 1);
     EXPECT_EQ(second_stats.num_reader_local_cache_admission_reject, 0);
-    EXPECT_EQ(second_stats.num_reader_local_cache_evict, 1);
+    EXPECT_EQ(second_stats.num_reader_local_cache_evict, 0);
     EXPECT_EQ(shared_cache->entry_count(), 1);
     EXPECT_EQ(shared_cache->memory_usage(), reader_block_size);
 }

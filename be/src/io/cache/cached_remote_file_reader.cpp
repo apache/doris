@@ -129,36 +129,12 @@ FileScannerV2ReaderLocalCache::~FileScannerV2ReaderLocalCache() {
                 live_file->_drain(this);
             }
         }
-        for (const auto& [_, file] : _file_cache_by_key) {
-            file->_drain(this);
-        }
     } catch (...) {
         return;
     }
     std::lock_guard lock(_budget_mutex);
     DORIS_CHECK(_memory_bytes == 0);
     DORIS_CHECK(_reserved_bytes == 0);
-}
-
-std::shared_ptr<FileScannerV2ReaderLocalFileCache>
-FileScannerV2ReaderLocalCache::get_or_create_file_cache(const std::string& file_key) {
-    if (_capacity == 0 || file_key.empty()) {
-        return nullptr;
-    }
-    std::lock_guard lock(_registry_mutex);
-    if (auto it = _file_cache_by_key.find(file_key); it != _file_cache_by_key.end()) {
-        return it->second;
-    }
-    try {
-        auto file_cache = std::shared_ptr<FileScannerV2ReaderLocalFileCache>(
-                new FileScannerV2ReaderLocalFileCache(shared_from_this()));
-        _file_cache_by_key.emplace(file_key, file_cache);
-        return file_cache;
-    } catch (const doris::Exception&) {
-        return nullptr;
-    } catch (const std::bad_alloc&) {
-        return nullptr;
-    }
 }
 
 std::shared_ptr<FileScannerV2ReaderLocalFileCache>
@@ -210,23 +186,6 @@ bool FileScannerV2ReaderLocalCache::_try_reserve(size_t bytes) {
     return true;
 }
 
-bool FileScannerV2ReaderLocalCache::_evict_idle_file_cache(
-        FileScannerV2ReaderLocalFileCache* requester, size_t* evicted) {
-    DORIS_CHECK(evicted != nullptr);
-    std::lock_guard lock(_registry_mutex);
-    for (auto it = _file_cache_by_key.begin(); it != _file_cache_by_key.end(); ++it) {
-        if (it->second.get() != requester && it->second.use_count() == 1) {
-            // The registry is the last owner only after every row-group reader for that file has
-            // closed. Reclaiming it preserves active-file isolation while letting the bounded
-            // scan-node budget move on to later physical files.
-            *evicted = it->second->entry_count();
-            _file_cache_by_key.erase(it);
-            return true;
-        }
-    }
-    return false;
-}
-
 bool FileScannerV2ReaderLocalCache::_reserve(size_t bytes,
                                              FileScannerV2ReaderLocalFileCache* requester,
                                              size_t* evicted) {
@@ -234,16 +193,9 @@ bool FileScannerV2ReaderLocalCache::_reserve(size_t bytes,
         return true;
     }
     // A stream may recycle its own cold blocks, but it must never evict another stream's hot
-    // block map. StarRocks gets the same isolation from CacheInputStream::_block_map ownership.
+    // block map; physical-stream ownership provides that isolation without a global registry.
     while (requester->_evict_one()) {
         ++*evicted;
-        if (_try_reserve(bytes)) {
-            return true;
-        }
-    }
-    size_t idle_file_evicted = 0;
-    while (_evict_idle_file_cache(requester, &idle_file_evicted)) {
-        *evicted += idle_file_evicted;
         if (_try_reserve(bytes)) {
             return true;
         }
@@ -285,9 +237,6 @@ FileScannerV2ReaderLocalCache::_file_caches() const {
         if (auto live_file = file.lock(); live_file != nullptr) {
             files.push_back(std::move(live_file));
         }
-    }
-    for (const auto& [_, file] : _file_cache_by_key) {
-        files.push_back(file);
     }
     return files;
 }
@@ -651,10 +600,9 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         _init_external_table_cache(opts);
     }
     if (_enable_reader_local_cache) {
-        // Path, version, and size form a stable physical-file identity across the row-group
-        // readers created from one parent task without extending the aggregate reader options.
-        _reader_local_file_cache = _reader_local_cache->get_or_create_file_cache(
-                fmt::format("{}:{}:{}", path().native(), opts.mtime, opts.file_size));
+        // Bind each block map to one physical stream so file-registry objects outside the byte
+        // budget cannot accumulate across a long scan.
+        _reader_local_file_cache = _reader_local_cache->create_file_cache();
         _enable_reader_local_cache = _reader_local_file_cache != nullptr;
     }
 }
@@ -669,8 +617,14 @@ void CachedRemoteFileReader::_init_doris_table_cache() {
 }
 
 void CachedRemoteFileReader::_init_external_table_cache(const FileReaderOptions& opts) {
-    // Use path and modification time to build cache key.
-    std::string unique_path = fmt::format("{}:{}", path().native(), opts.mtime);
+    const std::string& file_system_identity = opts.cache_file_system_identity.empty()
+                                                      ? opts.storage_resource_id
+                                                      : opts.cache_file_system_identity;
+    // HDFS readers strip the nameservice from path(). Keep the filesystem identity in the key so
+    // equal paths from different namespaces can never alias cached bytes.
+    std::string unique_path =
+            fmt::format("{}:{}:{}:{}:{}:{}", file_system_identity.size(), file_system_identity,
+                        path().native().size(), path().native(), opts.mtime, opts.file_size);
     _cache_hash = BlockFileCache::hash(unique_path);
     if (opts.cache_base_path.empty()) {
         // If cache path is not specified by session variable, choose randomly.

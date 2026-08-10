@@ -479,7 +479,8 @@ Status FileScannerV2::_get_next_scan_range(bool* has_next) {
     RETURN_IF_ERROR(_split_source->get_next_split(has_next, &task));
     if (*has_next) {
         DORIS_CHECK(!_current_file_parent_claimed);
-        _current_range = std::move(task.range);
+        _current_range =
+                task.parent_range == nullptr ? std::move(task.range) : task.materialize_range();
         _current_split_context = std::move(task.context);
         _current_file_parent_claimed =
                 _current_range.__isset.is_file_parent && _current_range.is_file_parent;

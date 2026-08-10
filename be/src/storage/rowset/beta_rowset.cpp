@@ -276,6 +276,7 @@ Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
             .cache_base_path = "",
             .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
             .tablet_id = _rowset_meta->tablet_id(),
+            .cache_file_system_identity = _rowset_meta->resource_id(),
             .storage_resource_id = _rowset_meta->resource_id(),
     };
 
@@ -637,6 +638,7 @@ Status BetaRowset::check_current_rowset_segment() {
                 .cache_base_path {},
                 .file_size = _rowset_meta->segment_file_size(seg_id),
                 .tablet_id = _rowset_meta->tablet_id(),
+                .cache_file_system_identity = _rowset_meta->resource_id(),
                 .storage_resource_id = _rowset_meta->resource_id(),
         };
 
