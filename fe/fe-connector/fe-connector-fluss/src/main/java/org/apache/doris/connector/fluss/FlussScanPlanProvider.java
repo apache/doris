@@ -168,6 +168,11 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     private int plannedLakeSplits;
     private int plannedSuppressedLakeSplits;
     private boolean plannedUnionRead;
+    private String plannedReadMode = READ_MODE_DEFAULT;
+
+    /** EXPLAIN spellings of {@link FlussTableHandle.ReadMode}, which is a plan anchor and not a Java name. */
+    private static final String READ_MODE_DEFAULT = "default";
+    private static final String READ_MODE_LOG = "log";
 
     /**
      * This scan node's lake half, resolved at most once (see {@link #resolveUnionRead}). Same threading
@@ -208,6 +213,12 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * The lake half of a union read: the sibling connector that owns it, its scan planner, its table handle
      * already pinned to {@link #snapshotId}, and where that snapshot left each bucket's log.
+     *
+     * <p>A {@code $log} scan resolves the same snapshot for its offsets alone and never reads the lake, so
+     * it gets a {@link #boundaryOnly} instance: the offsets and the snapshot id, and no sibling. Everything
+     * that reads the lake half asks {@link #hasLakeHalf()} first — the field is left null rather than
+     * filled with an unused sibling so that a missed check fails immediately instead of quietly planning a
+     * lake read into a scan that promised not to do one.
      */
     private static final class UnionRead {
         private final Connector sibling;
@@ -225,6 +236,15 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             this.snapshotId = snapshotId;
             this.logOffsets = logOffsets;
         }
+
+        /** Where the lake snapshot leaves each bucket's log, with no lake half to read. */
+        private static UnionRead boundaryOnly(long snapshotId, Map<TableBucket, Long> logOffsets) {
+            return new UnionRead(null, null, null, snapshotId, logOffsets);
+        }
+
+        private boolean hasLakeHalf() {
+            return sibling != null;
+        }
     }
 
     @Override
@@ -237,6 +257,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 ? planPrimaryKeyUnion(session, handle, union, buckets, request)
                 : planWithoutKeyMerging(session, handle, union, buckets, request);
 
+        plannedReadMode = handle.isLogOnly() ? READ_MODE_LOG : READ_MODE_DEFAULT;
         plannedLogRanges = count(ranges, FlussScanRange.RangeType.LOG);
         plannedPkRanges = count(ranges, FlussScanRange.RangeType.PK_FULL);
         plannedPkTailRanges = count(ranges, FlussScanRange.RangeType.PK_TAIL);
@@ -251,6 +272,11 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * A log table, or any table read from fluss alone: every bucket end to end, with the lake half — when
      * there is one — prepended.
+     *
+     * <p>A {@code $log} scan is this same plan with the lake half left out. Its log half is not merely
+     * similar to a union read's, it IS one — the same bucket ranges, from the same snapshot offsets — which
+     * is what makes {@code tbl$lake} and {@code tbl$log} add up to {@code tbl} rather than merely look as
+     * though they should.
      */
     private List<ConnectorScanRange> planWithoutKeyMerging(ConnectorSession session,
             FlussTableHandle handle, UnionRead union, List<Integer> buckets,
@@ -260,7 +286,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         // planned once for the whole table: the sibling prunes partitions from the pushed-down filter, not
         // from the engine's pruned partition list (which it does not consume). No key overlaps the log
         // half here - the two halves meet at an offset - so every lake split is wrapped plain.
-        if (union != null) {
+        if (union != null && union.hasLakeHalf()) {
             for (ConnectorScanRange lakeSplit : planLakeRanges(session, union, request)) {
                 ranges.add(FlussLakeRange.plain(lakeSplit));
             }
@@ -672,6 +698,15 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private UnionRead resolveUnionReadUncached(ConnectorSession session, FlussTableHandle handle) {
+        // A $log scan asks a different question of the same resolution, so it reads the mode differently.
+        // The union-read mode chooses a PATH for reading a whole table, and $log is not a whole table: it
+        // is defined AS "the part past the lake snapshot", so there is no path here to choose and the mode
+        // does not apply. Where a whole-table read may quietly settle for reading fluss alone, $log has to
+        // fail instead — the fluss-only read returns the whole table, which is a different row set under
+        // the same name.
+        if (handle.isLogOnly()) {
+            return resolveLakeBoundary(handle);
+        }
         FlussCatalogProperties.UnionReadMode mode = catalogProperties.getUnionReadMode();
         if (!handle.isDataLakeEnabled() || mode == FlussCatalogProperties.UnionReadMode.DISABLED) {
             // Not a lake table, or the user asked for the fluss-only read explicitly.
@@ -746,6 +781,35 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 () -> sibling.getScanPlanProvider(pinnedHandle));
         return new UnionRead(sibling, siblingProvider, pinnedHandle, snapshot.getSnapshotId(),
                 snapshot.getTableBucketsOffset());
+    }
+
+    /**
+     * Where the lake ends, for a {@code $log} scan — which is the whole of what such a scan needs from the
+     * lake, and it needs it absolutely.
+     *
+     * <p>Both failures below are the same failure seen twice: {@code $log} names the log PAST the lake, so
+     * without a lake there is no such segment. Answering with the whole log instead would be the one
+     * mistake that cannot be noticed downstream — the plan looks exactly like a correct one, and the query
+     * returns every row of the table under a name that promised a part of them.
+     */
+    private UnionRead resolveLakeBoundary(FlussTableHandle handle) {
+        if (!handle.isDataLakeEnabled()) {
+            // Reachable: the lake can be turned off between resolving the name and planning the scan.
+            throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
+                    + handle.getTableName() + "' is no longer tiered into a lake (table.datalake.enabled),"
+                    + " so it has no '$log' part. Query '" + handle.getTableName() + "' itself.");
+        }
+        LakeSnapshot snapshot;
+        try {
+            snapshot = adminOps.getReadableLakeSnapshot(handle.toTablePath());
+        } catch (LakeTableSnapshotNotExistException e) {
+            throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
+                    + handle.getTableName() + "' has no readable lake snapshot yet, so '$log' has no point"
+                    + " to start from: nothing has been tiered, and the whole table is still in the log."
+                    + " Query '" + handle.getTableName() + "' itself, or wait for the tiering service to"
+                    + " commit.", e);
+        }
+        return UnionRead.boundaryOnly(snapshot.getSnapshotId(), snapshot.getTableBucketsOffset());
     }
 
     /**
@@ -1018,7 +1082,10 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 .forEach((key, value) -> props.put(PROP_CLIENT_PREFIX + key, value));
 
         UnionRead union = resolveUnionRead(session, flussHandle);
-        if (union != null) {
+        // A $log scan resolved the lake only to find where the log starts; it plans no lake range, so
+        // sending the lake's scan-node properties to BE would configure a reader for ranges that are
+        // not there.
+        if (union != null && union.hasLakeHalf()) {
             if (flussHandle.hasPrimaryKey()) {
                 // What BE needs to suppress lake rows by key: which columns the key is made of, and how
                 // large a tail it may hold in memory while doing so. Both are node-level because both are
@@ -1102,7 +1169,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public List<String> getDeleteFiles(TTableFormatFileDesc tableFormatParams) {
         UnionRead union = unionRead;
-        if (union == null) {
+        if (union == null || !union.hasLakeHalf()) {
             return Collections.emptyList();
         }
         return LakeSibling.call(union.sibling,
@@ -1115,11 +1182,19 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * invisible in the plan and a union-read test would pass without having tested anything. Log and
      * primary-key ranges are counted apart for the same reason: they are read by different code, and a
      * single total cannot tell a primary-key table planned the right way from one planned the wrong way.
+     *
+     * <p>{@code readMode} says WHICH PART of the table was asked for and {@code mode} says which PATH was
+     * taken to read it — two different questions that a single field would blur. They also fail
+     * differently, and only together are the failures visible: a {@code $log} scan reports
+     * {@code readMode=log} with {@code unionRead=yes} and {@code lakeSplits=0}, so the one silent way it
+     * could go wrong — reading the whole log instead of the part past the lake — shows up here as
+     * {@code unionRead=no}, since the lake snapshot is exactly what supplies its starting offsets.
      */
     @Override
     public void appendExplainInfo(StringBuilder output, String prefix, Map<String, String> nodeProperties) {
         output.append(prefix)
-                .append("flussScan: unionRead=").append(plannedUnionRead ? "yes" : "no")
+                .append("flussScan: readMode=").append(plannedReadMode)
+                .append(", unionRead=").append(plannedUnionRead ? "yes" : "no")
                 .append(", lakeSplits=").append(plannedLakeSplits)
                 .append(", suppressedLakeSplits=").append(plannedSuppressedLakeSplits)
                 .append(", logRanges=").append(plannedLogRanges)

@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.metadata.LakeSnapshot;
+import org.apache.fluss.client.table.scanner.log.LogScanner;
 import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.ResolvedPartitionSpec;
 import org.apache.fluss.metadata.TableBucket;
@@ -49,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * Split planning driven entirely off recorded admin answers, which is the point: the states worth
@@ -418,7 +420,7 @@ public class FlussSplitPlanTest {
         StringBuilder output = new StringBuilder();
         provider.appendExplainInfo(output, "", Collections.emptyMap());
 
-        Assertions.assertEquals("flussScan: unionRead=no, lakeSplits=0, suppressedLakeSplits=0,"
+        Assertions.assertEquals("flussScan: readMode=default, unionRead=no, lakeSplits=0, suppressedLakeSplits=0,"
                 + " logRanges=0, pkRanges=1, pkTailRanges=0, mode=auto\n", output.toString());
     }
 
@@ -638,7 +640,169 @@ public class FlussSplitPlanTest {
         provider.appendExplainInfo(output, "", Collections.emptyMap());
 
         Assertions.assertEquals(
-                "flussScan: unionRead=yes, lakeSplits=3, suppressedLakeSplits=0, logRanges=1,"
+                "flussScan: readMode=default, unionRead=yes, lakeSplits=3, suppressedLakeSplits=0, logRanges=1,"
+                + " pkRanges=0, pkTailRanges=0, mode=auto\n", output.toString());
+    }
+
+    // ------------------------------------------------------------ $log, the log half on its own
+
+    /**
+     * The defining property of {@code $log}: its ranges are not merely similar to the log half of a union
+     * read, they are that half. Both plans come from ONE fixture in one test, and the expectation is taken
+     * from the union plan rather than written out — a hand-written offset would still pass if BOTH plans
+     * drifted the same way, which is exactly the failure that would break {@code $lake ⊎ $log == tbl}.
+     */
+    @Test
+    public void logSuffixPlansExactlyTheLogHalfOfTheUnionRead() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(1L, 9L));
+        latestOffsets(null, 5L, 9L);
+        lakeRanges(3);
+
+        List<ConnectorScanRange> unionRanges = plan(LOG_TABLE, catalog());
+        List<ConnectorScanRange> logRanges = planLogOnly(LOG_TABLE, catalog());
+
+        // Every range of a fluss scan carries the same table format and is told apart by its range type,
+        // so the log half is the ranges typed LOG — not the ones this connector happens to own.
+        List<ConnectorScanRange> unionLogHalf = new ArrayList<>();
+        for (ConnectorScanRange range : unionRanges) {
+            if ("LOG".equals(range.getProperties().get("fluss.range_type"))) {
+                unionLogHalf.add(range);
+            }
+        }
+        Assertions.assertEquals(3, unionRanges.size() - unionLogHalf.size(), "the fixture has a lake half");
+        Assertions.assertFalse(unionLogHalf.isEmpty(), "the fixture has a log half");
+        Assertions.assertEquals(describe(unionLogHalf), describe(logRanges));
+    }
+
+    /**
+     * The same comparison on a partitioned table, where the offsets are keyed by (partition, bucket) and
+     * the ranges carry rendered partition values. Partitioning is where the two halves have the most ways
+     * to disagree, and the comparison is again against the union read's own log half rather than against
+     * written-out offsets.
+     */
+    @Test
+    public void logSuffixPlansTheLogHalfOfAPartitionedUnionReadToo() {
+        registerPartitionedLakeTable(1, "20260101", "20260102");
+        Map<TableBucket, Long> lakeOffsets = new HashMap<>();
+        lakeOffsets.put(new TableBucket(FlussTestTables.TABLE_ID, 100L, 0), 4L);
+        lakeOffsets.put(new TableBucket(FlussTestTables.TABLE_ID, 101L, 0), 1L);
+        lakeSnapshotAt(7L, lakeOffsets);
+        latestOffsets("20260101", 9L);
+        latestOffsets("20260102", 6L);
+        lakeRanges(2);
+
+        List<ConnectorScanRange> unionLogHalf = new ArrayList<>();
+        for (ConnectorScanRange range : plan(LOG_TABLE, catalog())) {
+            if ("LOG".equals(range.getProperties().get("fluss.range_type"))) {
+                unionLogHalf.add(range);
+            }
+        }
+
+        Assertions.assertEquals(2, unionLogHalf.size(), "one range per partition in this fixture");
+        Assertions.assertEquals(describe(unionLogHalf), describe(planLogOnly(LOG_TABLE, catalog())));
+    }
+
+    /**
+     * The one way {@code $log} can go wrong without anything looking wrong: reading the log from its
+     * earliest offset instead of from where the lake stopped. The plan has the same shape, the same range
+     * count, and returns the whole table under a name that promised the part outside the lake.
+     */
+    @Test
+    public void logSuffixStartsAtTheLakeBoundaryNotAtTheEarliestOffset() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(4L, 6L));
+        latestOffsets(null, 9L, 9L);
+        lakeRanges(3);
+
+        List<ConnectorScanRange> ranges = planLogOnly(LOG_TABLE, catalog());
+
+        Assertions.assertEquals(2, ranges.size());
+        assertLogRange(ranges.get(0), 0, 4L, 9L);
+        assertLogRange(ranges.get(1), 1, 6L, 9L);
+    }
+
+    /**
+     * Nothing tiered means there is no boundary for {@code $log} to start from, and "the log past the lake"
+     * would silently become "the whole table". A base-table scan may quietly settle for reading fluss alone
+     * because that still returns every row of the table it names; {@code $log} names something else.
+     */
+    @Test
+    public void logSuffixFailsWhenNothingHasBeenTiered() {
+        registerLakeTable(2);
+        latestOffsets(null, 4L, 4L);
+
+        // Same fixture, base table: still the documented fall back to the log alone.
+        Assertions.assertEquals(2, plan(LOG_TABLE, catalog()).size());
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planLogOnly(LOG_TABLE, catalog()));
+        Assertions.assertTrue(e.getMessage().contains("no readable lake snapshot"), e.getMessage());
+    }
+
+    /**
+     * The union-read mode picks a PATH for reading a whole table. {@code $log} is not a whole table, so
+     * there is no path to pick and the mode does not apply — under {@code disabled} it must still start at
+     * the lake boundary rather than degrade into the fluss-only read of everything.
+     */
+    @Test
+    public void logSuffixIsNotAffectedByTheUnionReadMode() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(4L, 6L));
+        latestOffsets(null, 9L, 9L);
+        lakeRanges(3);
+        Map<String, String> disabled = catalog(FlussCatalogProperties.UNION_READ_MODE, "disabled");
+
+        // The base table under 'disabled' reads every bucket from the beginning: that IS the whole table.
+        List<ConnectorScanRange> baseRanges = plan(LOG_TABLE, disabled);
+        Assertions.assertEquals(2, baseRanges.size());
+        assertLogRange(baseRanges.get(0), 0, LogScanner.EARLIEST_OFFSET, 9L);
+
+        List<ConnectorScanRange> ranges = planLogOnly(LOG_TABLE, disabled);
+        Assertions.assertEquals(2, ranges.size());
+        assertLogRange(ranges.get(0), 0, 4L, 9L);
+        assertLogRange(ranges.get(1), 1, 6L, 9L);
+    }
+
+    /**
+     * A {@code $log} scan plans no lake range, so the lake's scan-node properties would configure a reader
+     * for ranges that are not in the plan. Pinned by whole-map equality against the base table's union
+     * read, which is where those properties legitimately appear.
+     */
+    @Test
+    public void logSuffixSendsNoLakeScanProperties() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(1L, 9L));
+        latestOffsets(null, 5L, 9L);
+        lakeRanges(3);
+        sibling();
+        sibling.lakeNodeProperties = Collections.singletonMap("paimon.some_option", "v");
+
+        Assertions.assertEquals("v", nodeProperties(LOG_TABLE, catalog()).get("paimon.some_option"));
+        Assertions.assertFalse(logOnlyNodeProperties(LOG_TABLE, catalog()).containsKey("paimon.some_option"));
+        // The fluss half is still fully described; only the lake's contribution is gone.
+        Assertions.assertEquals(LOG_TABLE.getTableName(), logOnlyNodeProperties(LOG_TABLE, catalog())
+                .get(FlussScanPlanProvider.PROP_TABLE_NAME));
+    }
+
+    /** The plan anchor a regression test reads to know a $log query was planned as one. */
+    @Test
+    public void explainReportsTheLogReadMode() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(1L, 9L));
+        latestOffsets(null, 5L, 9L);
+        lakeRanges(3);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps,
+                FlussCatalogProperties.of(catalog()), this::lakeSibling);
+        provider.planScan(session, request(logOnlyHandle(LOG_TABLE), Collections.emptyList()));
+
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+
+        // unionRead=yes with lakeSplits=0 is the point: the lake snapshot supplied the starting offsets,
+        // and no lake split was planned. A plan that lost the boundary would read unionRead=no here.
+        Assertions.assertEquals(
+                "flussScan: readMode=log, unionRead=yes, lakeSplits=0, suppressedLakeSplits=0, logRanges=1,"
                 + " pkRanges=0, pkTailRanges=0, mode=auto\n", output.toString());
     }
 
@@ -1151,7 +1315,7 @@ public class FlussSplitPlanTest {
         StringBuilder output = new StringBuilder();
         provider.appendExplainInfo(output, "", Collections.emptyMap());
 
-        Assertions.assertEquals("flussScan: unionRead=yes, lakeSplits=3, suppressedLakeSplits=2,"
+        Assertions.assertEquals("flussScan: readMode=default, unionRead=yes, lakeSplits=3, suppressedLakeSplits=2,"
                 + " logRanges=0, pkRanges=0, pkTailRanges=1, mode=auto\n", output.toString());
     }
 
@@ -1363,7 +1527,7 @@ public class FlussSplitPlanTest {
         provider.appendExplainInfo(output, "  ", Collections.emptyMap());
 
         Assertions.assertEquals(
-                "  flussScan: unionRead=no, lakeSplits=0, suppressedLakeSplits=0, logRanges=2,"
+                "  flussScan: readMode=default, unionRead=no, lakeSplits=0, suppressedLakeSplits=0, logRanges=2,"
                 + " pkRanges=0, pkTailRanges=0, mode=auto\n", output.toString());
     }
 
@@ -1385,7 +1549,7 @@ public class FlussSplitPlanTest {
         provider.appendExplainInfo(output, "", Collections.emptyMap());
 
         Assertions.assertEquals(
-                "flussScan: unionRead=no, lakeSplits=0, suppressedLakeSplits=0, logRanges=0,"
+                "flussScan: readMode=default, unionRead=no, lakeSplits=0, suppressedLakeSplits=0, logRanges=0,"
                 + " pkRanges=2, pkTailRanges=0, mode=auto\n", output.toString());
     }
 
@@ -1432,6 +1596,38 @@ public class FlussSplitPlanTest {
 
     private List<ConnectorScanRange> plan(TablePath tablePath, Map<String, String> catalogProperties) {
         return plan(tablePath, catalogProperties, Collections.emptyList());
+    }
+
+    /** The handle {@code tbl$log} resolves to. */
+    private ConnectorTableHandle logOnlyHandle(TablePath tablePath) {
+        return FlussTableHandle.of(adminOps.tableInfos.get(tablePath)).asLogOnly();
+    }
+
+    private List<ConnectorScanRange> planLogOnly(TablePath tablePath, Map<String, String> catalogProperties) {
+        return new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalogProperties),
+                this::lakeSibling)
+                .planScan(session, request(logOnlyHandle(tablePath), Collections.emptyList()));
+    }
+
+    private Map<String, String> logOnlyNodeProperties(TablePath tablePath,
+            Map<String, String> catalogProperties) {
+        return new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalogProperties),
+                this::lakeSibling).getScanNodeProperties(
+                session, logOnlyHandle(tablePath), Collections.emptyList(), Optional.empty());
+    }
+
+    /**
+     * A range rendered as everything the engine will act on: its table format and its whole property map.
+     * Two plans are compared through this rather than through equals() — the ranges are different objects
+     * by construction — and the map is taken WHOLE so that a difference in any key shows up, not only in
+     * the offsets a hand-written assertion would have thought to check.
+     */
+    private static List<String> describe(List<ConnectorScanRange> ranges) {
+        List<String> described = new ArrayList<>(ranges.size());
+        for (ConnectorScanRange range : ranges) {
+            described.add(range.getTableFormatType() + " " + new TreeMap<>(range.getProperties()));
+        }
+        return described;
     }
 
     private List<ConnectorScanRange> plan(TablePath tablePath, Map<String, String> catalogProperties,

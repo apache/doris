@@ -100,6 +100,56 @@ public class FlussTableHandleTest {
         Assertions.assertNotEquals(handle("t", 1L, 1), handle("other", 1L, 1));
     }
 
+    /**
+     * The segment is part of identity because the two segments hold different rows. If it were not, any
+     * cache keyed by handle would let {@code tbl}'s entry answer for {@code tbl$log} — returning the whole
+     * table under a name that promised only the part outside the lake.
+     */
+    @Test
+    public void identityAlsoCoversWhichSegmentTheHandleReads() {
+        Assertions.assertNotEquals(handle("t", 1L, 1), handle("t", 1L, 1).asLogOnly());
+        Assertions.assertNotEquals(handle("t", 1L, 1).hashCode(),
+                handle("t", 1L, 1).asLogOnly().hashCode());
+        Assertions.assertEquals(handle("t", 1L, 1).asLogOnly(), handle("t", 1L, 1).asLogOnly());
+    }
+
+    @Test
+    public void readingTheLogTailKeepsEveryFactAboutTheTable() {
+        FlussTableHandle base = handle("t", 1L, 1);
+        FlussTableHandle logOnly = base.asLogOnly();
+
+        Assertions.assertFalse(base.isLogOnly());
+        Assertions.assertTrue(logOnly.isLogOnly());
+        Assertions.assertEquals(FlussTableHandle.ReadMode.LOG_ONLY, logOnly.getReadMode());
+        // Same table, read differently: everything planning reads about the table itself has to be the
+        // same object-for-object, or the two halves would be planned against two different tables.
+        Assertions.assertEquals(base.getDatabaseName(), logOnly.getDatabaseName());
+        Assertions.assertEquals(base.getTableName(), logOnly.getTableName());
+        Assertions.assertEquals(base.getTableId(), logOnly.getTableId());
+        Assertions.assertEquals(base.getSchemaId(), logOnly.getSchemaId());
+        Assertions.assertEquals(base.hasPrimaryKey(), logOnly.hasPrimaryKey());
+        Assertions.assertEquals(base.getPrimaryKeys(), logOnly.getPrimaryKeys());
+        Assertions.assertEquals(base.getBucketKeys(), logOnly.getBucketKeys());
+        Assertions.assertEquals(base.getBucketCount(), logOnly.getBucketCount());
+        Assertions.assertEquals(base.getPartitionKeys(), logOnly.getPartitionKeys());
+        Assertions.assertEquals(base.isDataLakeEnabled(), logOnly.isDataLakeEnabled());
+        Assertions.assertEquals(base.getDataLakeFormat(), logOnly.getDataLakeFormat());
+        Assertions.assertEquals(base.getProperties(), logOnly.getProperties());
+        Assertions.assertEquals(base.getKeyColumnTypes(), logOnly.getKeyColumnTypes());
+        // Idempotent: the engine may resolve the same sub-table more than once per statement.
+        Assertions.assertSame(logOnly, logOnly.asLogOnly());
+    }
+
+    /**
+     * The segment travels to the BE-facing plan inside the handle, so it has to survive the same round
+     * trip as everything else. Coming back as DEFAULT would turn a log-tail scan into a full-table one.
+     */
+    @Test
+    public void theSegmentSurvivesSerialization() {
+        Assertions.assertTrue(roundTrip(handle("t", 1L, 1).asLogOnly()).isLogOnly());
+        Assertions.assertFalse(roundTrip(handle("t", 1L, 1)).isLogOnly());
+    }
+
     private static FlussTableHandle roundTrip(FlussTableHandle handle) {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
