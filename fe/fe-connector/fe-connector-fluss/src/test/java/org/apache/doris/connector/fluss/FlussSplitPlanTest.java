@@ -840,6 +840,224 @@ public class FlussSplitPlanTest {
                 adminOps.calls.toString());
     }
 
+    // ---------------------------------------------- the union-read mode a single statement asks for
+
+    /**
+     * The catalog says how its tables are read in general; one statement says how it wants to be answered,
+     * and it wins. Read the other way round the session variable would be pointless — a catalog that had
+     * already chosen would be unoverridable, which is the only case anyone wants to override.
+     */
+    @Test
+    public void sessionModeOverridesTheCatalogAndReadsFlussAlone() {
+        registerLakeTable(2);
+        latestOffsets(null, 4L, 4L);
+        Map<String, String> required = catalog(FlussCatalogProperties.UNION_READ_MODE, "required");
+
+        // Under the catalog alone this table cannot be read at all: nothing has been tiered yet.
+        Assertions.assertThrows(DorisConnectorException.class, () -> plan(LOG_TABLE, required));
+        adminOps.calls.clear();
+
+        List<ConnectorScanRange> ranges = planInSession(LOG_TABLE, required, sessionWithMode("disabled"));
+
+        Assertions.assertEquals(2, ranges.size());
+        Assertions.assertTrue(adminOps.calls.stream().noneMatch(c -> c.startsWith("getReadableLakeSnapshot")),
+                adminOps.calls.toString());
+    }
+
+    /**
+     * The direction that makes the variable worth having: {@code required} turns a catalog's silent
+     * fallback into an error, which is how a test or an investigation asks "did this query really read the
+     * lake?" and gets an answer it cannot mistake. Without the override this plan would succeed, having
+     * read no lake at all.
+     */
+    @Test
+    public void sessionModeCanRequireTheUnionReadACatalogOnlyPrefers() {
+        registerLakeTable(2);
+        latestOffsets(null, 4L, 4L);
+
+        // The catalog is 'auto', under which a table that has never tiered reads from fluss alone.
+        Assertions.assertEquals(2, plan(LOG_TABLE, catalog()).size());
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planInSession(LOG_TABLE, catalog(), sessionWithMode("required")));
+
+        Assertions.assertTrue(e.getMessage().contains("no readable lake snapshot"), e.getMessage());
+        // The message must send the user to the setting that actually refused, not to a catalog property
+        // their own session is overriding.
+        Assertions.assertTrue(e.getMessage().contains(FlussScanPlanProvider.SESSION_UNION_READ_MODE),
+                e.getMessage());
+        Assertions.assertFalse(e.getMessage().contains(FlussCatalogProperties.UNION_READ_MODE),
+                e.getMessage());
+    }
+
+    /**
+     * Blank is the variable's own default and how a session hands the decision back to the catalog. It has
+     * to mean "unset" rather than "auto", or a user who cleared the variable would silently override a
+     * catalog that had chosen something else.
+     */
+    @Test
+    public void blankSessionModeFollowsTheCatalog() {
+        registerLakeTable(2);
+        latestOffsets(null, 4L, 4L);
+        Map<String, String> required = catalog(FlussCatalogProperties.UNION_READ_MODE, "required");
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planInSession(LOG_TABLE, required, sessionWithMode("")));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planInSession(LOG_TABLE, required, sessionWithMode("   ")));
+    }
+
+    /**
+     * A typo is refused rather than read as the default, for the reason the catalog property is: the
+     * difference between the modes shows up only as "the query returned fewer rows than it should", so a
+     * value that silently meant {@code auto} would defeat the mode it was trying to ask for. The message
+     * names the variable, since that is the only thing about it the catalog's message cannot say.
+     */
+    @Test
+    public void unparseableSessionModeIsRefusedAndNamesTheVariable() {
+        registerLakeTable(2);
+        latestOffsets(null, 4L, 4L);
+
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> planInSession(LOG_TABLE, catalog(), sessionWithMode("enabled")));
+
+        Assertions.assertTrue(e.getMessage().contains(FlussScanPlanProvider.SESSION_UNION_READ_MODE),
+                e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("auto, required, disabled"), e.getMessage());
+        Assertions.assertFalse(e.getMessage().contains(FlussCatalogProperties.UNION_READ_MODE),
+                e.getMessage());
+    }
+
+    /**
+     * A {@code $log} scan ignores the mode, but a value this connector cannot parse is still a request it
+     * cannot honour. Refusing it only on the statements the mode goes on to change would make the same
+     * typo an error or a no-op depending on which table was read next.
+     */
+    @Test
+    public void sessionModeIsCheckedEvenOnALogSuffixScanThatIgnoresIt() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(4L, 6L));
+        latestOffsets(null, 9L, 9L);
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalog()),
+                        this::lakeSibling)
+                        .planScan(sessionWithMode("enabled"),
+                                request(logOnlyHandle(LOG_TABLE), Collections.emptyList())));
+    }
+
+    /**
+     * EXPLAIN reports what the scan was PLANNED under. Reporting the catalog's value instead would agree
+     * with the catalog and disagree with the plan — the one combination neither can be read alone to
+     * catch — and the {@code (session)} mark is what tells a reader which of the two they should go and
+     * change.
+     */
+    @Test
+    public void explainReportsTheSessionModeAndWhereItCameFrom() {
+        registerLakeTable(1);
+        latestOffsets(null, 4L);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps,
+                FlussCatalogProperties.of(catalog()), this::lakeSibling);
+        provider.planScan(sessionWithMode("disabled"), request(handle(LOG_TABLE), Collections.emptyList()));
+
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+
+        Assertions.assertTrue(output.toString().contains("mode=disabled(session)"), output.toString());
+    }
+
+    /** Without a session mode the line reports the catalog's, unmarked. */
+    @Test
+    public void explainDoesNotMarkTheCatalogsModeAsTheSessions() {
+        registerLakeTable(1);
+        latestOffsets(null, 4L);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps,
+                FlussCatalogProperties.of(catalog(FlussCatalogProperties.UNION_READ_MODE, "disabled")),
+                this::lakeSibling);
+        provider.planScan(session, request(handle(LOG_TABLE), Collections.emptyList()));
+
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+
+        Assertions.assertTrue(output.toString().contains("mode=disabled"), output.toString());
+        Assertions.assertFalse(output.toString().contains("(session)"), output.toString());
+    }
+
+    /**
+     * The engine asks which columns must be kept while translating the plan and plans the ranges later,
+     * and both must be answered under the same mode — see {@link #bothQuestionsAreAnsweredByTheSameResolution}
+     * for why. A session mode is resolved with the lake half, once, so the two cannot see different values
+     * even though each call is handed its own session object.
+     */
+    @Test
+    public void mustReadColumnsAndPlanScanSeeTheSameSessionMode() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 105L);
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps,
+                FlussCatalogProperties.of(catalog()), this::lakeSibling);
+
+        // The catalog is 'auto' and this table's lake HAS a readable snapshot, so ignoring the session
+        // would union-read: the key column would be kept, the plan would carry a tail, and the lake would
+        // be consulted. Each of the three assertions below is that failure seen from a different side.
+        Assertions.assertEquals(Collections.emptySet(),
+                provider.getMustReadColumns(sessionWithMode("disabled"), handle(PK_TABLE)));
+        List<ConnectorScanRange> ranges = provider.planScan(sessionWithMode("disabled"),
+                request(handle(PK_TABLE), Collections.emptyList()));
+
+        Assertions.assertEquals(1, ranges.size());
+        assertPkRange(ranges.get(0), 0, 4L, 10L, 105L);
+        Assertions.assertTrue(adminOps.calls.stream().noneMatch(c -> c.startsWith("getReadableLakeSnapshot")),
+                adminOps.calls.toString());
+    }
+
+    /**
+     * A union read can also be given up after the offsets come back, and those two decisions have to read
+     * the statement's mode as well. Reading the catalog's there would leave {@code required} honoured at
+     * the start of planning and quietly abandoned at the end of it — a fluss-only plan under a mode whose
+     * whole purpose is to refuse one.
+     */
+    @Test
+    public void sessionModeAlsoDecidesTheRefusalsMadeAfterTheOffsetsComeBack() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 105L);
+        earliestOffsets(null, 101L);
+
+        // The catalog is 'auto', under which this truncated tail degrades to the fluss-only read.
+        Assertions.assertEquals(1, plan(PK_TABLE, catalog()).size());
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planInSession(PK_TABLE, catalog(), sessionWithMode("required")));
+
+        Assertions.assertTrue(e.getMessage().contains("the log now starts at 101"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains(FlussScanPlanProvider.SESSION_UNION_READ_MODE),
+                e.getMessage());
+    }
+
+    /** The other of those two decisions: a tail too large to hold. Same reasoning, separate line of code. */
+    @Test
+    public void sessionModeAlsoDecidesTheRefusalOfATailOverItsCeiling() {
+        registerPkLakeTable(1);
+        lakeSnapshotAt(9L, offsets(100L));
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 201L);
+        earliestOffsets(null, 0L);
+        Map<String, String> ceiling = catalog(FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "100");
+
+        // The catalog is 'auto', under which the 101-row tail degrades to the fluss-only read.
+        Assertions.assertEquals(1, plan(PK_TABLE, ceiling).size());
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planInSession(PK_TABLE, ceiling, sessionWithMode("required")));
+
+        Assertions.assertTrue(e.getMessage().contains("raise the ceiling"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains(FlussScanPlanProvider.SESSION_UNION_READ_MODE),
+                e.getMessage());
+    }
+
     // ------------------------------------------- union read of a primary-key table: lake + log tail
 
     /**
@@ -1628,6 +1846,18 @@ public class FlussSplitPlanTest {
             described.add(range.getTableFormatType() + " " + new TreeMap<>(range.getProperties()));
         }
         return described;
+    }
+
+    /** A session that ran {@code SET fluss_union_read_mode = value} before the statement it stands for. */
+    private static ConnectorSession sessionWithMode(String value) {
+        return new FlussTestSession(1L, "q1").set(FlussScanPlanProvider.SESSION_UNION_READ_MODE, value);
+    }
+
+    private List<ConnectorScanRange> planInSession(TablePath tablePath,
+            Map<String, String> catalogProperties, ConnectorSession scanSession) {
+        return new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalogProperties),
+                this::lakeSibling)
+                .planScan(scanSession, request(handle(tablePath), Collections.emptyList()));
     }
 
     private List<ConnectorScanRange> plan(TablePath tablePath, Map<String, String> catalogProperties,
