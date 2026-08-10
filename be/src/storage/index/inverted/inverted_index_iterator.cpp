@@ -152,7 +152,18 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
         const DataTypePtr& column_type, InvertedIndexQueryType query_type,
         const std::string& analyzer_key) {
     const std::string normalized_key = ensure_normalized_key(analyzer_key);
-    const auto field_type = get_inverted_index_leaf_field_type(column_type);
+    // The column type only disambiguates between several indexes on the same field; with a
+    // single candidate the selection is already determined. Callers that have no runtime type
+    // binding therefore leave column_type null, so resolve the leaf type only when it matters.
+    FieldType field_type = FieldType::OLAP_FIELD_TYPE_UNKNOWN;
+    if (_selection_candidates.size() > 1) {
+        if (column_type == nullptr) {
+            return ResultError(Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
+                    "column_type is required to select among {} inverted indexes",
+                    _selection_candidates.size()));
+        }
+        field_type = get_inverted_index_leaf_field_type(column_type);
+    }
     auto selection = select_best_inverted_index_candidate(_selection_candidates, _key_to_entries,
                                                           field_type, query_type, normalized_key);
     if (!selection.has_value()) {
