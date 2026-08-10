@@ -173,6 +173,23 @@ public class SchemaChangeHandler extends AlterHandler {
         super("schema change", Config.default_schema_change_scheduler_interval_millisecond);
     }
 
+    private void validateColumnCompressionSchemaChange(List<AlterOp> alterOps) throws DdlException {
+        for (AlterOp alterOp : alterOps) {
+            if (alterOp instanceof AddColumnOp
+                    && ((AddColumnOp) alterOp).getColumn().hasCompressionOverride()) {
+                throw new DdlException("Per-column compression is not supported for ADD COLUMN");
+            }
+            if (alterOp instanceof AddColumnsOp
+                    && ((AddColumnsOp) alterOp).getColumns().stream().anyMatch(Column::hasCompressionOverride)) {
+                throw new DdlException("Per-column compression is not supported for ADD COLUMN");
+            }
+            if (alterOp instanceof ModifyColumnOp
+                    && ((ModifyColumnOp) alterOp).getColumn().hasCompressionOverride()) {
+                throw new DdlException("Per-column compression is not supported for MODIFY COLUMN");
+            }
+        }
+    }
+
     /**
      * @param addColumnOp
      * @param olapTable
@@ -2328,6 +2345,7 @@ public class SchemaChangeHandler extends AlterHandler {
         olapTable.writeLockOrDdlException();
         try {
             olapTable.checkNormalStateForAlter();
+            validateColumnCompressionSchemaChange(alterOps);
             //alterClauses can or cannot light schema change
             boolean lightSchemaChange = true;
             boolean lightIndexChange = false;
