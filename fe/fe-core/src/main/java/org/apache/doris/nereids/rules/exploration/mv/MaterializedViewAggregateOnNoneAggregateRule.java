@@ -105,8 +105,8 @@ public class MaterializedViewAggregateOnNoneAggregateRule extends AbstractMateri
         Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions
                 = super.calcInvalidPartitions(queryUsedBaseTablePartitionMap, rewrittenPlan, cascadesContext,
                 materializationContext);
-        if (PartitionCompensator.hasPartitionCompensation(invalidPartitions)) {
-            // Aggregate-on-non-aggregate rewrite does not support partition compensation.
+        if (invalidPartitions != null && !invalidPartitions.value().isEmpty()) {
+            // Aggregate-on-non-aggregate rewrite does not support base-table union compensation.
             return null;
         }
         return invalidPartitions;

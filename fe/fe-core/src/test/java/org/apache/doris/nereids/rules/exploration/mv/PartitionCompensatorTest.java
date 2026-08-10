@@ -41,7 +41,6 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import org.junit.jupiter.api.Assertions;
@@ -289,20 +288,6 @@ public class PartitionCompensatorTest extends TestWithFeService {
         t.put(ImmutableList.of(), PartitionCompensator.ALL_PARTITIONS);
         Mockito.when(sc.getTableUsedPartitionNameMap()).thenReturn(t);
         Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx, sc));
-    }
-
-    @Test
-    public void testHasPartitionCompensation() {
-        BaseTableInfo mvTableInfo = newBaseTableInfo();
-        BaseColInfo baseColInfo = new BaseColInfo("c", newBaseTableInfo());
-
-        Assertions.assertFalse(PartitionCompensator.hasPartitionCompensation(null));
-        Assertions.assertFalse(PartitionCompensator.hasPartitionCompensation(
-                Pair.of(ImmutableMap.of(), ImmutableMap.of())));
-        Assertions.assertTrue(PartitionCompensator.hasPartitionCompensation(
-                Pair.of(ImmutableMap.of(mvTableInfo, ImmutableSet.of("mv_p1")), ImmutableMap.of())));
-        Assertions.assertTrue(PartitionCompensator.hasPartitionCompensation(
-                Pair.of(ImmutableMap.of(), ImmutableMap.of(baseColInfo, ImmutableSet.of("base_p1")))));
     }
 
     @Test

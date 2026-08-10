@@ -2,3 +2,6 @@
 -- !aggregate_without_partition_column_after_partition_delete --
 1	20
 
+-- !aggregate_on_detail_mv_after_partition_delete --
+1	1
+

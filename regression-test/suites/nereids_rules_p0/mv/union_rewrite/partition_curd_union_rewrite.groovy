@@ -313,4 +313,65 @@ suite ("partition_curd_union_rewrite") {
     ${aggregate_without_partition_column_sql}
     order by k
     """
+
+    // Aggregate-on-detail rewrite has the same removal-only partition state. It should remove the stale
+    // detail MV partition and must not require a base-table UNION ALL branch.
+    sql "DROP MATERIALIZED VIEW IF EXISTS partition_compensation_detail_mv"
+    sql "DROP TABLE IF EXISTS partition_compensation_detail_mv"
+    sql "DROP TABLE IF EXISTS partition_compensation_detail_base"
+    sql """
+    CREATE TABLE partition_compensation_detail_base (
+        id int not null,
+        k int not null,
+        d date not null,
+        v int not null
+    )
+    DUPLICATE KEY(id, k, d)
+    PARTITION BY RANGE(d) (
+        PARTITION p1 VALUES [('2024-02-01'), ('2024-02-02')),
+        PARTITION p2 VALUES [('2024-02-02'), ('2024-02-03'))
+    )
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ('replication_num' = '1')
+    """
+    sql """
+    INSERT INTO partition_compensation_detail_base VALUES
+        (1, 1, '2024-02-01', 1),
+        (2, 1, '2024-02-02', 1)
+    """
+
+    def aggregate_on_detail_mv_sql = """
+    select k, sum(v) as sum_v
+    from partition_compensation_detail_base
+    group by k
+    """
+    sql """
+    CREATE MATERIALIZED VIEW partition_compensation_detail_mv
+    BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+    PARTITION BY(d)
+    DISTRIBUTED BY RANDOM BUCKETS 1
+    PROPERTIES ('replication_num' = '1')
+    AS
+    select id, k, d, v
+    from partition_compensation_detail_base
+    """
+    waitingMTMVTaskFinished(getJobName(db, "partition_compensation_detail_mv"))
+    sql """
+    analyze table partition_compensation_detail_base with sync;
+    analyze table partition_compensation_detail_mv with sync;
+    """
+
+    sql "ALTER TABLE partition_compensation_detail_base DROP PARTITION p2 FORCE"
+    waitingPartitionIsExpected("partition_compensation_detail_mv", "p_20240202_20240203", false)
+    mv_rewrite_success(aggregate_on_detail_mv_sql, "partition_compensation_detail_mv",
+            is_partition_statistics_ready(
+                    db, ["partition_compensation_detail_base", "partition_compensation_detail_mv"]))
+    explain {
+        sql "memo plan ${aggregate_on_detail_mv_sql}"
+        notContains "PhysicalUnion"
+    }
+    order_qt_aggregate_on_detail_mv_after_partition_delete """
+    ${aggregate_on_detail_mv_sql}
+    order by k
+    """
 }
