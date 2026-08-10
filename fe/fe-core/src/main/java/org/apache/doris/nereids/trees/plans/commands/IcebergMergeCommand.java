@@ -64,6 +64,12 @@ import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeUtils;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -198,13 +204,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         if (targetAlias.isPresent()) {
             targetPlan = new LogicalSubQueryAlias<>(targetAlias.get(), targetPlan);
         }
-        // Use INNER JOIN when there are no WHEN NOT MATCHED clauses, since unmatched
-        // source rows are not needed. This allows early filtering for better performance.
-        JoinType joinType = notMatchedClauses.isEmpty()
-                ? JoinType.INNER_JOIN : JoinType.LEFT_OUTER_JOIN;
-        return new LogicalJoin<>(joinType,
-                ImmutableList.of(), ImmutableList.of(onClause),
-                source, targetPlan, JoinReorderContext.EMPTY);
+        return MergeUtils.buildMergeJoin(targetPlan, source, onClause, !notMatchedClauses.isEmpty());
     }
 
     private NamedExpression generateBranchLabel(Expression rowIdExpr) {
