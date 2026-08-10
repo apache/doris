@@ -23,8 +23,11 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
@@ -265,6 +268,48 @@ public class IcebergNestedColumnEvolutionTest {
         Types.StructType s = reload("d_drop").findField("s").type().asStructType();
         Assertions.assertNull(s.field("a"));
         Assertions.assertNotNull(s.field("x"));
+    }
+
+    @Test
+    public void testDropNestedFieldUsedByHistoricalPartitionSpecFailsLoud() {
+        createTable("d_old_spec", flatNestedSchema());
+        Table table = ops.loadTable("db1", "d_old_spec");
+        table.updateSpec().addField("s.a").commit();
+        String partitionName = table.spec().fields().get(0).name();
+        DataFile dataFile = DataFiles.builder(table.spec())
+                .withPath("file:/warehouse/d_old_spec/data.parquet")
+                .withFileSizeInBytes(1)
+                .withRecordCount(1)
+                .withPartitionPath(partitionName + "=1")
+                .build();
+        table.newAppend().appendFile(dataFile).commit();
+        table.updateSpec().removeField(partitionName).commit();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.dropNestedColumn("db1", "d_old_spec", path("s", "a")));
+        Assertions.assertTrue(ex.getMessage().contains("used by an old partition spec"), ex.getMessage());
+        Assertions.assertNotNull(reload("d_old_spec").findField("s.a"));
+    }
+
+    @Test
+    public void testDropParentOfHistoricalPartitionFieldFailsLoud() {
+        createTable("d_old_spec_parent", flatNestedSchema());
+        Table table = ops.loadTable("db1", "d_old_spec_parent");
+        table.updateSpec().addField("s.a").commit();
+        String partitionName = table.spec().fields().get(0).name();
+        DataFile dataFile = DataFiles.builder(table.spec())
+                .withPath("file:/warehouse/d_old_spec_parent/data.parquet")
+                .withFileSizeInBytes(1)
+                .withRecordCount(1)
+                .withPartitionPath(partitionName + "=1")
+                .build();
+        table.newAppend().appendFile(dataFile).commit();
+        table.updateSpec().removeField(partitionName).commit();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.dropColumn("db1", "d_old_spec_parent", "s"));
+        Assertions.assertTrue(ex.getMessage().contains("used by an old partition spec"), ex.getMessage());
+        Assertions.assertNotNull(reload("d_old_spec_parent").findField("s"));
     }
 
     @Test

@@ -88,9 +88,36 @@ public final class IcebergNestedColumnEvolution {
     /** Drops the nested field at {@code path}; its parent must resolve to a struct that contains the leaf. */
     public static void dropColumn(Table table, ConnectorColumnPath path) {
         ResolvedColumnPath resolvedPath = validateNestedStructFieldPath(table.schema(), path, "drop");
+        validateNotUsedByOldPartitionSpec(table, resolvedPath);
         UpdateSchema updateSchema = table.updateSchema();
         updateSchema.deleteColumn(resolvedPath.getFullPath());
         updateSchema.commit();
+    }
+
+    static void dropTopLevelColumn(Table table, String columnName) {
+        ResolvedColumnPath resolvedPath = resolveColumnPath(
+                table.schema(), ConnectorColumnPath.of(columnName), "drop");
+        validateNotUsedByOldPartitionSpec(table, resolvedPath);
+        UpdateSchema updateSchema = table.updateSchema();
+        updateSchema.deleteColumn(resolvedPath.getFullPath());
+        updateSchema.commit();
+    }
+
+    private static void validateNotUsedByOldPartitionSpec(Table table, ResolvedColumnPath columnPath) {
+        int currentSpecId = table.spec().specId();
+        Set<Integer> droppedFieldIds = TypeUtil.indexById(
+                Types.StructType.of(columnPath.getField())).keySet();
+        // Historical specs resolve partition types by source field ID against the current schema, so deleting
+        // a referenced source field or any ancestor leaves those specs unreadable even after the field is
+        // removed from the current spec. Index the full subtree because deleting a struct also deletes its fields.
+        boolean usedByOldSpec = table.specs().values().stream()
+                .filter(spec -> spec.specId() != currentSpecId)
+                .flatMap(spec -> spec.fields().stream())
+                .anyMatch(field -> droppedFieldIds.contains(field.sourceId()));
+        if (usedByOldSpec) {
+            throw new DorisConnectorException(
+                    "Cannot drop column which is used by an old partition spec: " + columnPath.getFullPath());
+        }
     }
 
     /**
