@@ -122,11 +122,16 @@ suite("test_fluss_lake_only", "p0,external") {
     // and range predicates on it are right. That is the paimon connector's own
     // behaviour (a plain paimon catalog over this warehouse does the same), so it is
     // not pinned here -- recording the value sidesteps it entirely.
+    //
+    // The MAP goes in as its sorted keys and sorted values rather than whole: the order
+    // a map renders its entries in is neither the order they were written in nor stable
+    // across runs, so a recorded whole-map cell pins something no reader promises.
     order_qt_lake_types_row """
         select id, f_boolean, f_tinyint, f_smallint, f_int, f_bigint, f_float, f_double,
                f_decimal, f_char, f_string, hex(f_binary) as f_binary_hex,
                hex(f_bytes) as f_bytes_hex, f_date, f_timestamp, f_timestamp_ltz,
-               f_array, f_map, f_row
+               f_array, array_sort(map_keys(f_map)) as f_map_keys,
+               array_sort(map_values(f_map)) as f_map_values, f_row
         from lake_types\$lake
     """
 
