@@ -527,6 +527,10 @@ struct TLanceFileDesc {
     1: optional string dataset_uri
     2: optional list<i64> fragment_ids
     3: optional i64 version
+    // Per-split row limit pushed down from the query LIMIT. Each scanner returns at
+    // most this many rows; the upper LIMIT operator still enforces the global bound.
+    // Only set for ordinary scans whose predicates are fully pushed into Lance.
+    4: optional i64 limit
 }
 
 struct TTableFormatFileDesc {

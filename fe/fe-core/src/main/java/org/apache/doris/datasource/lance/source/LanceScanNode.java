@@ -114,6 +114,19 @@ public class LanceScanNode extends FileQueryScanNode {
         }
     }
 
+    // A fragment-level LIMIT can be pushed into an ordinary Lance scan only when every predicate
+    // is already pushed into Lance (conjuncts is empty). Otherwise Doris re-filters the returned
+    // rows and truncating a fragment early could drop valid results.
+    //
+    // OFFSET needs no special handling: the Nereids SplitLimit rule rewrites Limit(limit, offset)
+    // into a global Limit(limit, offset) over a local Limit(limit + offset, 0), and the local
+    // bound is what lands on this scan node. So getLimit() already accounts for the offset and
+    // getOffset() is always 0 here; each fragment fetches up to limit + offset rows and the upper
+    // global LIMIT still applies the offset and the final bound.
+    private boolean canPushDownLimit() {
+        return hasLimit() && conjuncts.isEmpty();
+    }
+
     @Override
     protected void convertPredicate() {
         if (isExternalSearch()) {
@@ -189,6 +202,12 @@ public class LanceScanNode extends FileQueryScanNode {
                         "Ordinary Lance scan split must contain one fragment");
             }
             lanceParams.setFragmentIds(Collections.singletonList(lanceSplit.getFragmentId()));
+            // Push LIMIT into each fragment scanner only when it is safe to truncate a single
+            // fragment early. See canPushDownLimit(). Each scanner still returns at most `limit`
+            // rows and the upper LIMIT operator enforces the final bound across fragments.
+            if (canPushDownLimit()) {
+                lanceParams.setLimit(getLimit());
+            }
         }
 
         TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
@@ -243,6 +262,9 @@ public class LanceScanNode extends FileQueryScanNode {
                     .append(((LanceExternalCatalog) lanceTable.getCatalog()).getLanceCatalogType()).append("\n");
             result.append(prefix).append("lanceVersion=").append(plannedVersion).append("\n");
             result.append(prefix).append("lanceFragments=").append(plannedFragments).append("\n");
+            if (canPushDownLimit()) {
+                result.append(prefix).append("lanceLimit=").append(getLimit()).append("\n");
+            }
             if (!lancePushdownPredicate.isEmpty()) {
                 result.append(prefix).append("lancePushdownPredicate=")
                         .append(lancePushdownPredicate).append("\n");
