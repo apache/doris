@@ -30,8 +30,8 @@ TEST(MockFnCallTest, test) {
     fn->set_const_expr_col(ColumnHelper::create_column<DataTypeInt64>({1}));
     std::shared_ptr<ColumnPtrWrapper> column_wrapper;
     EXPECT_TRUE(fn->get_const_col(nullptr, &column_wrapper));
-    EXPECT_EQ(column_wrapper->column_ptr->size(), 1);
-    EXPECT_EQ(column_wrapper->column_ptr->get_int(0), 1);
+    EXPECT_EQ(column_wrapper->column().size(), 1);
+    EXPECT_EQ(column_wrapper->column().get_int(0), 1);
 }
 
 } // namespace doris

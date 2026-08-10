@@ -108,7 +108,7 @@ public:
                     "The second parameter of the function {} must be a constant.", get_name());
         }
 
-        auto string_vale = column_string->column_ptr->get_data_at(0);
+        auto string_vale = column_string->column().get_data_at(0);
         if (string_vale.data == nullptr) {
             // func(col , null);
             state->is_valid = false;

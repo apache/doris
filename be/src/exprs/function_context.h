@@ -30,7 +30,7 @@
 
 namespace doris {
 
-struct ColumnPtrWrapper;
+class ColumnPtrWrapper;
 struct StringRef;
 class RuntimeState;
 

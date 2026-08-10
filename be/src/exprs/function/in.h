@@ -92,7 +92,7 @@ public:
         for (int i = 1; i < context->get_num_args(); ++i) {
             const auto& const_column_ptr = context->get_constant_col(i);
             if (const_column_ptr != nullptr) {
-                auto const_data = const_column_ptr->column_ptr->get_data_at(0);
+                auto const_data = const_column_ptr->column().get_data_at(0);
                 if (const_data.data != nullptr) {
                     sz++;
                 }
@@ -123,7 +123,7 @@ public:
         for (int i = 1; i < context->get_num_args(); ++i) {
             const auto& const_column_ptr = context->get_constant_col(i);
             if (const_column_ptr != nullptr) {
-                auto const_data = const_column_ptr->column_ptr->get_data_at(0);
+                auto const_data = const_column_ptr->column().get_data_at(0);
                 state->hybrid_set->insert((void*)const_data.data, const_data.size);
             } else {
                 state->use_set = false;

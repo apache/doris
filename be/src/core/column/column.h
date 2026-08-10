@@ -900,11 +900,17 @@ bool is_column_const(const IColumn& column);
 bool is_column_nullable(const IColumn& column);
 } // namespace doris
 
-// Wrap `ColumnPtr` because `ColumnPtr` can't be used in forward declaration.
+// Store the single-row data column of a constant expression because `ColumnPtr` can't be used in
+// forward declarations. A ColumnConst input is unwrapped without copying.
 namespace doris {
-struct ColumnPtrWrapper {
-    ColumnPtr column_ptr;
+class ColumnPtrWrapper {
+public:
+    explicit ColumnPtrWrapper(ColumnPtr column);
 
-    ColumnPtrWrapper(ColumnPtr col) : column_ptr(std::move(col)) {}
+    const IColumn& column() const { return *_column_ptr; }
+    const ColumnPtr& column_ptr() const { return _column_ptr; }
+
+private:
+    ColumnPtr _column_ptr;
 };
 } // namespace doris

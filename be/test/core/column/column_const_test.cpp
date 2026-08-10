@@ -42,6 +42,26 @@ TEST(ColumnConstTest, TestCreate) {
     EXPECT_TRUE(!is_column_const(column_const2->get_data_column()));
 }
 
+TEST(ColumnPtrWrapperTest, StoresSingleRowDataColumn) {
+    auto data_column = ColumnHelper::create_column<DataTypeInt64>({7});
+
+    ColumnPtrWrapper data_wrapper(data_column);
+    EXPECT_EQ(data_wrapper.column_ptr().get(), data_column.get());
+    EXPECT_EQ(data_wrapper.column().get_int(0), 7);
+    EXPECT_FALSE(is_column_const(data_wrapper.column()));
+
+    auto const_column = ColumnConst::create(data_column, 3);
+    ColumnPtrWrapper const_wrapper(std::move(const_column));
+    EXPECT_EQ(const_wrapper.column_ptr().get(), data_column.get());
+    EXPECT_EQ(const_wrapper.column().get_int(0), 7);
+    EXPECT_FALSE(is_column_const(const_wrapper.column()));
+}
+
+TEST(ColumnPtrWrapperTest, RejectsNonConstMultiRowColumn) {
+    auto column = ColumnHelper::create_column<DataTypeInt64>({7, 8});
+    EXPECT_DEATH(static_cast<void>(ColumnPtrWrapper(column)), "");
+}
+
 TEST(ColumnConstTest, IsExclusiveChecksNestedColumn) {
     auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
     auto column_const = ColumnConst::create(column_data, 3);

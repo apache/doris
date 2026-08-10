@@ -110,8 +110,8 @@ public:
     void init_convert_tz_state(std::shared_ptr<ConvertTzState> state,
                                const ColumnPtrWrapper* const_from_tz,
                                const ColumnPtrWrapper* const_to_tz) {
-        auto const_data_from_tz = const_from_tz->column_ptr->get_data_at(0);
-        auto const_data_to_tz = const_to_tz->column_ptr->get_data_at(0);
+        auto const_data_from_tz = const_from_tz->column().get_data_at(0);
+        auto const_data_to_tz = const_to_tz->column().get_data_at(0);
 
         // from_tz and to_tz must both be non-null.
         if (const_data_from_tz.data == nullptr || const_data_to_tz.data == nullptr) {
