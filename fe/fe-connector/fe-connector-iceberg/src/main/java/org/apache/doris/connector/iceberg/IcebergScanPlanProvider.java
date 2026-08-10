@@ -20,7 +20,6 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.ConnectorContext;
-import org.apache.doris.connector.spi.ConnectorScanKeyUtils;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -3153,7 +3152,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private final String ref;
         private final long schemaId;
         private final List<String> rewriteFileScope;
-        private final List<ConnectorExpression> filterConjuncts;
+        private final Optional<ConnectorExpression> filter;
         private final boolean countPushdown;
 
         private IcebergScanReuseKey(IcebergTableHandle handle, ConnectorScanRequest request) {
@@ -3168,7 +3167,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     ? Collections.emptyList()
                     : handle.getRewriteFileScope().stream().sorted()
                             .collect(Collectors.toList());
-            this.filterConjuncts = ConnectorScanKeyUtils.canonicalFilterConjuncts(request.getFilter());
+            this.filter = request.getFilter();
             this.countPushdown = request.isCountPushdown();
         }
 
@@ -3188,13 +3187,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(ref, that.ref)
                     && Objects.equals(rewriteFileScope, that.rewriteFileScope)
-                    && Objects.equals(filterConjuncts, that.filterConjuncts);
+                    && Objects.equals(filter, that.filter);
         }
 
         @Override
         public int hashCode() {
             return Objects.hash(dbName, tableName, snapshotId, ref, schemaId,
-                    rewriteFileScope, filterConjuncts, countPushdown);
+                    rewriteFileScope, filter, countPushdown);
         }
 
         @Override

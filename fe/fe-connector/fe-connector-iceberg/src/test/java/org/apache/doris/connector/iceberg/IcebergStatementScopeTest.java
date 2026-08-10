@@ -214,10 +214,10 @@ public class IcebergStatementScopeTest {
 
     /** A scope that records the last key handed to {@link #computeIfAbsent}, for the byte-key parity assertion. */
     private static final class KeyCapturingScope implements ConnectorStatementScope {
-        private Object lastKey;
+        private String lastKey;
 
         @Override
-        public <T> T computeIfAbsent(Object key, Supplier<T> loader) {
+        public <T> T computeIfAbsent(String key, Supplier<T> loader) {
             lastKey = key;
             return loader.get();
         }
