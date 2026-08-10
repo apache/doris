@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
-#include <future>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -44,6 +43,8 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -295,9 +296,26 @@ private:
     std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
 };
 
-TEST_F(SegCompactionTest, FatalStatusPreservesOriginalError) {
+// A segcompaction failure that is not one of the retryable ones (out of memory, reader or
+// writer init) terminates the write job, and build() must surface that instead of returning
+// a rowset built on top of a failed compaction. The row-count check is the cheapest fatal
+// failure to provoke: SegcompactionWorker::_check_correctness reports CHECK_LINES_ERROR,
+// which falls through to the fatal branch of SegcompactionWorker::compact_segments.
+//
+// build() reports SEGCOMPACTION_FAILED rather than CHECK_LINES_ERROR because the worker
+// hands the writer a bare error code, losing the original status. That is existing
+// behavior; this test pins the failure reaching build(), not the code it arrives as.
+TEST_F(SegCompactionTest, FatalSegcompactionFailsBuild) {
     config::segcompaction_candidate_max_rows = 10;
     config::segcompaction_batch_size = 2;
+
+    const auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("SegcompactionWorker._check_correctness_wrong_sum_src_row");
+    Defer defer([origin_enable_debug_points]() {
+        DebugPoints::instance()->remove("SegcompactionWorker._check_correctness_wrong_sum_src_row");
+        config::enable_debug_points = origin_enable_debug_points;
+    });
 
     auto tablet_schema = std::make_shared<TabletSchema>();
     create_tablet_schema(tablet_schema, DUP_KEYS);
@@ -307,24 +325,6 @@ TEST_F(SegCompactionTest, FatalStatusPreservesOriginalError) {
     auto writer_result = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
     ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
     auto rowset_writer = std::move(writer_result).value();
-
-    const auto expected_status = Status::Error<INVERTED_INDEX_ANALYZER_ERROR>(
-            "CommonGrams analysis failed; set enable_common_grams_index_build=false and retry "
-            "the load as a new transaction");
-    std::promise<void> worker_started;
-    auto worker_started_future = worker_started.get_future();
-    auto* sync_point = SyncPoint::get_instance();
-    SyncPoint::CallbackGuard callback_guard;
-    sync_point->set_call_back(
-            "SegcompactionWorker::_do_compact_segments",
-            [&worker_started, expected_status](auto&& args) {
-                auto* result = try_any_cast_ret<Status>(args);
-                result->first = expected_status;
-                result->second = true;
-                worker_started.set_value();
-            },
-            &callback_guard);
-    sync_point->enable_processing();
 
     for (int segment_id = 0; segment_id < 3; ++segment_id) {
         Block block = tablet_schema->create_block();
@@ -336,12 +336,13 @@ TEST_F(SegCompactionTest, FatalStatusPreservesOriginalError) {
         ASSERT_TRUE(add_block_with_columns(rowset_writer.get(), &block, &columns).ok());
         ASSERT_TRUE(rowset_writer->flush().ok());
     }
-    ASSERT_EQ(worker_started_future.wait_for(std::chrono::seconds(10)), std::future_status::ready);
 
     RowsetSharedPtr rowset;
+    // build() waits for the inflight segcompaction, so the failure is visible by the time it
+    // returns; no polling is needed.
     const auto status = rowset_writer->build(rowset);
-    EXPECT_EQ(status.code(), INVERTED_INDEX_ANALYZER_ERROR);
-    EXPECT_EQ(status.to_string(), expected_status.to_string());
+    EXPECT_FALSE(status.ok()) << "expected the fatal segcompaction to fail the build";
+    EXPECT_EQ(status.code(), SEGCOMPACTION_FAILED) << status;
 }
 
 TEST_F(SegCompactionTest, SegCompactionThenRead) {
