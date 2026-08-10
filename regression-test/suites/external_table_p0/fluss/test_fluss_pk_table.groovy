@@ -108,11 +108,17 @@ suite("test_fluss_pk_table", "p0,external") {
     //
     // BINARY and BYTES go through hex(): they map to a Doris string, and a raw byte
     // in a recorded baseline is neither readable nor safely round-tripped.
+    //
+    // The MAP goes in as its sorted keys and sorted values rather than whole. The order
+    // a map renders its entries in is neither the order they were written in nor stable
+    // across runs, so a recorded whole-map cell pins something no reader promises. Which
+    // value belongs to which key is pinned by the lookups below.
     order_qt_types_all """
         select id, f_boolean, f_tinyint, f_smallint, f_int, f_bigint, f_float, f_double,
                f_decimal, f_char, f_string, hex(f_binary) as f_binary_hex,
                hex(f_bytes) as f_bytes_hex, f_date, f_timestamp, f_timestamp_ltz,
-               f_array, f_map, f_row
+               f_array, array_sort(map_keys(f_map)) as f_map_keys,
+               array_sort(map_values(f_map)) as f_map_values, f_row
         from pk_types
     """
 

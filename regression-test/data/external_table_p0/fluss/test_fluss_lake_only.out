@@ -67,7 +67,7 @@ __offset	bigint	Yes	true	\N	NONE
 __timestamp	datetime(3)	Yes	true	\N	NONE
 
 -- !lake_types_row --
-1	true	1	2	3	4	1.5	2.5	123.4567	char1	string1	010203	0A0B	2026-01-01	2026-01-01T01:02:03.456789	2026-01-01T09:02:03.456	[1, 2, 3]	{"k2":2, "k1":1}	{"r_int":1, "r_string":"nested1"}
+1	true	1	2	3	4	1.5	2.5	123.4567	char1	string1	010203	0A0B	2026-01-01	2026-01-01T01:02:03.456789	2026-01-01T09:02:03.456	[1, 2, 3]	["k1", "k2"]	[1, 2]	{"r_int":1, "r_string":"nested1"}
 
 -- !lake_types_count --
 1
