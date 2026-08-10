@@ -26,6 +26,8 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2_typed_column.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
@@ -41,6 +43,8 @@ class VariantBatchBuilder;
 // typed scalar column. Mixed operations materialize the typed state as encoded bytes on demand.
 class ColumnVariantV2 final : public COWHelper<IColumn, ColumnVariantV2> {
 public:
+    using MetadataIdsColumn = ColumnVector<TYPE_UINT32>;
+
     struct EncodedDataView {
         StringRef metadata_bytes;
         std::span<const uint32_t> metadata_offsets;
@@ -65,13 +69,14 @@ public:
 
     private:
         friend class ColumnVariantV2;
-        ReadView(const IColumn* metadatas, const IColumn* metadata_ids, const IColumn* values);
+        ReadView(const ColumnString* metadatas, const MetadataIdsColumn* metadata_ids,
+                 const ColumnString* values);
         ReadView(const IColumn* typed, const DataTypePtr* typed_type);
 
         bool _typed_state = false;
-        const IColumn* _metadatas = nullptr;
-        const IColumn* _metadata_ids = nullptr;
-        const IColumn* _values = nullptr;
+        const ColumnString* _metadatas = nullptr;
+        const MetadataIdsColumn* _metadata_ids = nullptr;
+        const ColumnString* _values = nullptr;
         const IColumn* _typed = nullptr;
         const DataTypePtr* _typed_type = nullptr;
     };
@@ -79,8 +84,9 @@ public:
 #ifdef BE_TEST
     // Narrow unit-test seam for encoded-state invariant coverage.
     struct TestAccess {
-        static void replace_encoded_subcolumn(ColumnVariantV2& column, size_t index,
-                                              ColumnPtr replacement);
+        static void replace_metadata_ids(ColumnVariantV2& column,
+                                         MetadataIdsColumn::Ptr replacement);
+        static void replace_values(ColumnVariantV2& column, ColumnString::Ptr replacement);
     };
 #endif
 
@@ -189,9 +195,9 @@ private:
     // uint32 id costs four bytes per encoded row, but avoids repeating object-key metadata and
     // gives canonical comparison, hashing, subpath lookup, and binary SerDe O(1) schema access.
     // It is required because valid external Variant rows may use different metadata dictionaries.
-    IColumn::WrappedPtr _metadatas;
-    IColumn::WrappedPtr _meta_ids;
-    IColumn::WrappedPtr _values;
+    ColumnString::WrappedPtr _metadatas;
+    MetadataIdsColumn::WrappedPtr _meta_ids;
+    ColumnString::WrappedPtr _values;
 
     // A non-null _typed always means all encoded buffers are empty and the entire column has the
     // single type described by _typed_type.
