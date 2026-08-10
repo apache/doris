@@ -17,11 +17,15 @@
 
 #pragma once
 
+#include <cinttypes>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <string>
 
-#include "storage/utils.h"
+#include "common/status.h"
 
 namespace doris {
 
@@ -118,7 +122,7 @@ struct decimal12_t {
                     (nullptr != sepr) ? MAX_FRAC_DIGITS_NUM - static_cast<int64_t>(strlen(sepr + 1))
                                       : MAX_FRAC_DIGITS_NUM;
             frac_len = frac_len > 0 ? frac_len : 0;
-            fraction *= g_power_table[frac_len];
+            fraction *= k_power_table[frac_len];
         }
 
         if (sign != nullptr) {
@@ -132,6 +136,12 @@ struct decimal12_t {
     static const int32_t FRAC_RATIO = 1000000000;
     static const int32_t MAX_INT_DIGITS_NUM = 18;
     static const int32_t MAX_FRAC_DIGITS_NUM = 9;
+    // 10^0 .. 10^MAX_FRAC_DIGITS_NUM, used by from_string. A private copy so
+    // this header does not need storage/utils.h (whose g_power_table drags in
+    // the whole storage layer).
+    static constexpr int32_t k_power_table[MAX_FRAC_DIGITS_NUM + 1] = {
+            1,      10,      100,      1000,      10000,
+            100000, 1000000, 10000000, 100000000, 1000000000};
 
     int64_t integer;
     int32_t fraction;

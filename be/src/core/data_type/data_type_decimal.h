@@ -46,7 +46,7 @@
 #include "core/typeid_cast.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
-#include "storage/olap_common.h"
+#include "storage/field_type.h"
 
 namespace doris {
 class DecimalV2Value;

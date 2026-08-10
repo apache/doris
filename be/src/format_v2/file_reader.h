@@ -33,6 +33,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "io/io_common.h"
 
 namespace doris {
 class Block;
