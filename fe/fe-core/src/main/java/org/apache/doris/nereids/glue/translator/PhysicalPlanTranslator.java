@@ -520,10 +520,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     (RemoteOlapTable) targetTable,
                     olapTuple,
                     olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
-                    olapTableSink.isSingleReplicaLoad(), partitionExprs, syncMvWhereClauses);
+                    partitionExprs, syncMvWhereClauses);
         } else if (context.getConnectContext().isGroupCommit()) {
             sink = new GroupCommitBlockSink(targetTable, olapTuple,
-                    targetTable.getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
+                    targetTable.getPartitionIds(),
                     partitionExprs, syncMvWhereClauses,
                     context.getSessionVariable().getGroupCommit(),
                     ConnectContext.get().getSessionVariable().getEnableInsertStrict() ? 0
@@ -533,7 +533,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     targetTable,
                     olapTuple,
                     olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
-                    olapTableSink.isSingleReplicaLoad(), partitionExprs, syncMvWhereClauses
+                    partitionExprs, syncMvWhereClauses
             );
         }
         sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);

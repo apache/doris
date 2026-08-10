@@ -98,7 +98,6 @@ std::unique_ptr<VRowDistributionHarness> _build_vrow_distribution_harness(
     rctx.vec_output_expr_ctxs = &h->output_expr_ctxs;
     rctx.schema = h->schema;
     rctx.caller = caller;
-    rctx.write_single_replica = false;
     rctx.create_partition_callback = create_partition_callback;
     h->row_distribution.init(rctx);
 

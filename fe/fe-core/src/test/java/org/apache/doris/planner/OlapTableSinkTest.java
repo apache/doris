@@ -59,11 +59,11 @@ public class OlapTableSinkTest {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-            OlapTableSink sink = new OlapTableSink(table, null, Collections.emptyList(), false);
-            List<TOlapTableLocationParam> locationParams = sink.createDummyLocation(table);
+            OlapTableSink sink = new OlapTableSink(table, null, Collections.emptyList());
+            TOlapTableLocationParam location = sink.createDummyLocation(table);
 
             Assert.assertEquals(Collections.singletonList(1L),
-                    locationParams.get(0).getTablets().get(0).getNodeIds());
+                    location.getTablets().get(0).getNodeIds());
             Mockito.verify(systemInfoService, Mockito.never()).getAllBackendIds(true);
             Mockito.verify(systemInfoService).getBackendsByCurrentCluster();
         }
@@ -84,14 +84,14 @@ public class OlapTableSinkTest {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-            OlapTableSink sink = new OlapTableSink(table, null, Collections.emptyList(), true);
-            List<TOlapTableLocationParam> locationParams = sink.createDummyLocation(table);
+            OlapTableSink sink = new OlapTableSink(table, null, Collections.emptyList());
+            TOlapTableLocationParam location = sink.createDummyLocation(table);
 
-            Assert.assertEquals(2, locationParams.get(0).getTabletsSize());
+            Assert.assertEquals(2, location.getTabletsSize());
             Assert.assertEquals(Collections.singletonList(1L),
-                    locationParams.get(0).getTablets().get(0).getNodeIds());
+                    location.getTablets().get(0).getNodeIds());
             Assert.assertEquals(Collections.singletonList(1L),
-                    locationParams.get(0).getTablets().get(1).getNodeIds());
+                    location.getTablets().get(1).getNodeIds());
         }
     }
 

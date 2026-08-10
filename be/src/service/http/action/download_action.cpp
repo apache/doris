@@ -41,10 +41,9 @@ const std::string ACQUIRE_MD5_PARAMETER = "acquire_md5";
 
 DownloadAction::DownloadAction(ExecEnv* exec_env,
                                std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group,
-                               const std::vector<std::string>& allow_dirs, int32_t num_workers)
+                               const std::vector<std::string>& allow_dirs)
         : HttpHandlerWithAuth(exec_env),
           _download_type(NORMAL),
-          _num_workers(num_workers),
           _rate_limit_group(std::move(rate_limit_group)) {
     for (const auto& dir : allow_dirs) {
         std::string p;
@@ -54,17 +53,10 @@ DownloadAction::DownloadAction(ExecEnv* exec_env,
         }
         _allow_paths.emplace_back(std::move(p));
     }
-    if (_num_workers > 0) {
-        // for single-replica-load
-        static_cast<void>(ThreadPoolBuilder("DownloadThreadPool")
-                                  .set_min_threads(num_workers)
-                                  .set_max_threads(num_workers)
-                                  .build(&_download_workers));
-    }
 }
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir)
-        : HttpHandlerWithAuth(exec_env), _download_type(ERROR_LOG), _num_workers(0) {
+        : HttpHandlerWithAuth(exec_env), _download_type(ERROR_LOG) {
 #ifndef BE_TEST
     static_cast<void>(
             io::global_local_filesystem()->canonicalize(error_log_root_dir, &_error_log_root_dir));
@@ -161,15 +153,7 @@ void DownloadAction::handle_error_log(HttpRequest* req, const std::string& file_
 }
 
 void DownloadAction::handle(HttpRequest* req) {
-    if (_num_workers > 0) {
-        // async for heavy download job, currently mainly for single-replica-load
-        auto status = _download_workers->submit_func([this, req]() { _handle(req); });
-        if (!status.ok()) {
-            HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status.to_string());
-        }
-    } else {
-        _handle(req);
-    }
+    _handle(req);
 }
 
 void DownloadAction::_handle(HttpRequest* req) {

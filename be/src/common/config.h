@@ -734,10 +734,6 @@ DECLARE_Int32(webserver_num_workers);
 // 2. Client disconnects
 DECLARE_mInt32(async_reply_timeout_s);
 
-DECLARE_Bool(enable_single_replica_load);
-// Number of download workers for single replica load
-DECLARE_Int32(single_replica_load_download_num_workers);
-
 // Used for mini Load. mini load data file will be removed after this time.
 DECLARE_Int64(load_data_reserve_hours);
 // log error log will be removed after this time
@@ -774,7 +770,6 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
-DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DECLARE_mBool(enable_stream_load_record);

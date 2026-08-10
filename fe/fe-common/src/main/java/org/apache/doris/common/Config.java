@@ -636,11 +636,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = "Whether to enable stream load profile")
     public static boolean enable_stream_load_profile = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = "Whether to enable writing to a single replica for "
-            + "stream load and broker load.",
-            varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_single_replica_load = false;
-
     @ConfField(mutable = true, masterOnly = true, description = "Shuffle will not be enabled for DUPLICATE KEY tables "
             + "if their tablet count is lower than this number",
             varType = VariableAnnotation.EXPERIMENTAL)
