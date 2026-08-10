@@ -33,6 +33,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -115,6 +116,9 @@ final class RecordingLakeSibling implements Connector {
 
     /** The node properties last handed to {@code populateScanLevelParams}. */
     Map<String, String> populatedNodeProperties;
+
+    /** The merge-on-read delete files this sibling reports for a range of its own. */
+    List<String> lakeDeleteFiles = Collections.emptyList();
 
     private static Map<String, ConnectorColumnHandle> defaultLakeColumns() {
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>();
@@ -233,6 +237,12 @@ final class RecordingLakeSibling implements Connector {
                 Map<String, String> nodeProperties) {
             calls.add("populateScanLevelParams");
             populatedNodeProperties = new LinkedHashMap<>(nodeProperties);
+        }
+
+        @Override
+        public List<String> getDeleteFiles(TTableFormatFileDesc tableFormatParams) {
+            calls.add("getDeleteFiles");
+            return lakeDeleteFiles;
         }
     }
 

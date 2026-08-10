@@ -27,6 +27,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.metadata.LakeSnapshot;
@@ -804,6 +805,66 @@ public class FlussSplitPlanTest {
         // The fluss half is still fully described; only the lake's contribution is gone.
         Assertions.assertEquals(LOG_TABLE.getTableName(), logOnlyNodeProperties(LOG_TABLE, catalog())
                 .get(FlussScanPlanProvider.PROP_TABLE_NAME));
+    }
+
+    /**
+     * The other three calls that can reach the lake half, asked on a {@code $log} scan.
+     *
+     * <p>A {@code $log} scan resolves a union read for the offsets alone and holds no sibling, so each of
+     * these has to ask whether there IS a lake half rather than whether a union read was resolved. The two
+     * questions differ only here, and the difference is not subtle at run time: the sibling is null, so a
+     * call that asked the wrong one throws a NullPointerException out of query planning. One test per call
+     * because they check independently — which is exactly how one of them came to check the wrong thing.
+     */
+    @Test
+    public void logSuffixHandsTheLakeHalfNothingAtAll() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(1L, 9L));
+        latestOffsets(null, 5L, 9L);
+        lakeRanges(3);
+        sibling();
+        sibling.lakeNodeProperties = Collections.singletonMap("paimon.serialized_table", "encoded");
+        sibling.lakeDeleteFiles = Collections.singletonList("deletes.bin");
+        Map<String, String> catalog = catalog();
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps,
+                FlussCatalogProperties.of(catalog), this::lakeSibling);
+        Map<String, String> nodeProps = provider.getScanNodeProperties(
+                session, logOnlyHandle(LOG_TABLE), Collections.emptyList(), Optional.empty());
+        provider.planScan(session, request(logOnlyHandle(LOG_TABLE), Collections.emptyList()));
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, nodeProps);
+        // The fluss half is configured and the scanner is stamped, so what is gone is the lake's turn and
+        // nothing else.
+        Assertions.assertEquals("log_tbl", params.getFlussProperties().get("fluss.table_name"));
+        Assertions.assertEquals("fluss", params.getTableFormatParams().getTableFormatType());
+
+        // Merge-on-read deletes belong to lake ranges; a plan with none can report none without asking.
+        Assertions.assertEquals(Collections.emptyList(),
+                provider.getDeleteFiles(new TTableFormatFileDesc()));
+
+        Assertions.assertFalse(sibling.calls.contains("populateScanLevelParams"), sibling.calls.toString());
+        Assertions.assertFalse(sibling.calls.contains("getDeleteFiles"), sibling.calls.toString());
+    }
+
+    /** The same two calls on a union read, so the assertions above pin a gate and not a dead sibling. */
+    @Test
+    public void unionReadStillHandsBothToTheLakeHalf() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(1L, 9L));
+        latestOffsets(null, 5L, 9L);
+        lakeRanges(3);
+        sibling();
+        sibling.lakeDeleteFiles = Collections.singletonList("deletes.bin");
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps,
+                FlussCatalogProperties.of(catalog()), this::lakeSibling);
+        Map<String, String> nodeProps = provider.getScanNodeProperties(
+                session, handle(LOG_TABLE), Collections.emptyList(), Optional.empty());
+
+        provider.populateScanLevelParams(new TFileScanRangeParams(), nodeProps);
+        Assertions.assertEquals(Collections.singletonList("deletes.bin"),
+                provider.getDeleteFiles(new TTableFormatFileDesc()));
+        Assertions.assertTrue(sibling.calls.contains("populateScanLevelParams"), sibling.calls.toString());
     }
 
     /** The plan anchor a regression test reads to know a $log query was planned as one. */
