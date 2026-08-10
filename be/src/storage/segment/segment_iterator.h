@@ -55,6 +55,7 @@
 #include "storage/schema.h"
 #include "storage/segment/common.h"
 #include "storage/segment/segment.h"
+#include "util/json/path_in_data.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -78,8 +79,15 @@ struct ColumnPredicateInfo {
 
     std::string debug_string() const {
         std::stringstream ss;
-        ss << "column_name=" << column_name << ", query_op=" << query_op
-           << ", query_value=" << boost::join(query_values, ",");
+        ss << "column_name=" << column_name << ", query_op=" << query_op << ", query_value=";
+        bool first = true;
+        for (const auto& query_value : query_values) {
+            if (!first) {
+                ss << ",";
+            }
+            first = false;
+            ss << query_value;
+        }
         return ss.str();
     }
 

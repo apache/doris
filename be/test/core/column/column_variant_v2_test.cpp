@@ -68,6 +68,7 @@
 #include "exprs/function/parse/variant_string_parse.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
+#include "util/json/path_in_data.h"
 #include "util/jsonb_writer.h"
 #include "util/variant/variant_test_utils.h"
 
