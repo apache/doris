@@ -101,14 +101,17 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
 
     private final FlussAdminOps adminOps;
     private final FlussTypeMapping.Options typeMappingOptions;
+    private final Map<String, String> lakeOverrides;
     private final Function<Map<String, String>, Connector> lakeSiblingFactory;
     private final Function<ConnectorTableHandle, Connector> siblingOwner;
 
     public FlussConnectorMetadata(FlussAdminOps adminOps, FlussTypeMapping.Options typeMappingOptions,
+            Map<String, String> lakeOverrides,
             Function<Map<String, String>, Connector> lakeSiblingFactory,
             Function<ConnectorTableHandle, Connector> siblingOwner) {
         this.adminOps = adminOps;
         this.typeMappingOptions = typeMappingOptions;
+        this.lakeOverrides = lakeOverrides;
         this.lakeSiblingFactory = lakeSiblingFactory;
         this.siblingOwner = siblingOwner;
     }
@@ -235,7 +238,7 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
         }
 
         Connector sibling = lakeSiblingFactory.apply(
-                PaimonSiblingProperties.synthesize(flussHandle.getProperties()));
+                PaimonSiblingProperties.synthesize(flussHandle.getProperties(), lakeOverrides));
         Optional<ConnectorTableHandle> lakeHandle = forward(session, sibling, m -> m.getTableHandle(
                 session, flussHandle.getDatabaseName(), flussHandle.getTableName()));
         if (!lakeHandle.isPresent()) {
