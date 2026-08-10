@@ -32,7 +32,6 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h"
-#include "exprs/function_filter.h"
 #include "io/io_common.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/iterators.h"
@@ -142,7 +141,6 @@ public:
         bool end_key_include = false;
 
         std::vector<std::shared_ptr<ColumnPredicate>> predicates;
-        std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
         // slots that cast may be eliminated in storage layer
         std::map<std::string, DataTypePtr> target_cast_type_for_variants;
@@ -293,18 +291,9 @@ protected:
 
     Status _init_column_predicates(const ReaderParams& read_params);
 
-    std::shared_ptr<ColumnPredicate> _parse_to_predicate(const FunctionFilter& function_filter);
-
     Status _init_delete_condition(const ReaderParams& read_params);
 
     const BaseTabletSPtr& tablet() { return _tablet; }
-    // If original column is a variant type column, and it's predicate is normalized
-    // so in order to get the real type of column predicate, we need to reset type
-    // according to the related type in `target_cast_type_for_variants`.Since variant is not
-    // an predicate applicable type.Otherwise return the original tablet column.
-    // Eg. `where cast(v:a as bigint) > 1` will elimate cast, and materialize this variant column
-    // to type bigint
-    TabletColumn materialize_column(const TabletColumn& orig);
 
     // The read schema shared by the caller, TabletReader, VCollect and each rowset reader.
     ReadSchemaSPtr _read_schema;

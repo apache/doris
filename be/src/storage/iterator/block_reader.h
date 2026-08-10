@@ -38,7 +38,6 @@
 
 namespace doris {
 class ColumnPredicate;
-class FunctionFilter;
 class RuntimeProfile;
 
 class BlockReader final : public TabletReader {

@@ -254,8 +254,12 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
             delete_predicates.push_back(rs_meta);
         }
     }
-    RETURN_IF_ERROR(
-            delete_handler.init(read_schema, delete_predicates, start_resp.alter_version()));
+    std::vector<TabletColumn> dropped_columns;
+    RETURN_IF_ERROR(delete_handler.init(delete_predicates, start_resp.alter_version(), read_schema,
+                                        dropped_columns));
+    for (auto& column : dropped_columns) {
+        read_schema->append_column(std::make_shared<TabletColumn>(std::move(column)));
+    }
 
     // reader_context is stack variables, it's lifetime MUST keep the same with rs_readers
     RowsetReaderContext reader_context;

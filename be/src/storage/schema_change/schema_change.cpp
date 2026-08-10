@@ -929,8 +929,8 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
 
     // Use the visible schema from the base tablet. If FE supplies a schema in
     // the request, prefer it because the tablet schema may not be the latest.
-    // Historical delete columns are appended by DeleteHandler after this
-    // schema-change output prefix and are not returned in Blocks.
+    // Historical delete columns are appended after this schema-change output
+    // prefix and are not returned in Blocks.
     size_t num_cols =
             request.columns.empty() ? _base_tablet_schema->num_columns() : request.columns.size();
     DORIS_CHECK_LE(num_cols, _base_tablet_schema->columns().size());
@@ -1036,11 +1036,15 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
                 }
                 del_preds.push_back(rs_meta);
             }
-            res = delete_handler.init(read_schema, del_preds, end_version);
+            std::vector<TabletColumn> dropped_columns;
+            res = delete_handler.init(del_preds, end_version, read_schema, dropped_columns);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
                              << _base_tablet->tablet_id() << ", end_version=" << end_version;
                 break;
+            }
+            for (auto& column : dropped_columns) {
+                read_schema->append_column(std::make_shared<TabletColumn>(std::move(column)));
             }
 
             reader_context.reader_type = ReaderType::READER_ALTER_TABLE;

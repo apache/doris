@@ -30,9 +30,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
-#include "exec/common/variant_util.h"
 #include "exprs/bloom_filter_func.h"
-#include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
@@ -44,7 +42,6 @@
 #include "storage/olap_define.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
-#include "storage/predicate/like_column_predicate.h"
 #include "storage/predicate/predicate_creator.h"
 #include "storage/row_cursor.h"
 #include "storage/schema.h"
@@ -219,20 +216,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
-    if (!orig.is_variant_type()) {
-        return orig;
-    }
-    TabletColumn column_with_cast_type = orig;
-    auto cast_type = _reader_context.target_cast_type_for_variants.at(orig.name());
-    return variant_util::get_column_by_type(cast_type, orig.name(),
-                                            {
-                                                    .unique_id = orig.unique_id(),
-                                                    .parent_unique_id = orig.parent_unique_id(),
-                                                    .path_info = *orig.path_info_ptr(),
-                                            });
-}
-
 Status TabletReader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
 
@@ -377,20 +360,15 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
 Status TabletReader::_init_column_predicates(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_conditions_param_timer_ns);
     auto predicates = read_params.predicates;
-    // Function filter push down to storage engine
-    auto is_like_predicate = [](std::shared_ptr<ColumnPredicate> _pred) {
-        return dynamic_cast<LikeColumnPredicate*>(_pred.get()) != nullptr;
-    };
-
-    for (const auto& filter : read_params.function_filters) {
-        predicates.emplace_back(_parse_to_predicate(filter));
-        auto pred = predicates.back();
-
-        const auto& col = *_read_schema->column(pred->column_id());
+    for (const auto& predicate : predicates) {
+        if (predicate->type() != PredicateType::LIKE) {
+            continue;
+        }
+        const auto& col = *_read_schema->column(predicate->column_id());
         const auto* tablet_index = _tablet_schema->get_ngram_bf_index(col.unique_id());
-        if (is_like_predicate(pred) && tablet_index && config::enable_query_like_bloom_filter) {
+        if (tablet_index && config::enable_query_like_bloom_filter) {
             std::unique_ptr<segment_v2::BloomFilter> ng_bf;
-            std::string pattern = pred->get_search_str();
+            std::string pattern = predicate->get_search_str();
             auto gram_bf_size = tablet_index->get_gram_bf_size();
             auto gram_size = tablet_index->get_gram_size();
 
@@ -400,7 +378,7 @@ Status TabletReader::_init_column_predicates(const ReaderParams& read_params) {
 
             if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(),
                                                              *ng_bf)) {
-                pred->set_page_ng_bf(std::move(ng_bf));
+                predicate->set_page_ng_bf(std::move(ng_bf));
             }
         }
     }
@@ -423,15 +401,6 @@ Status TabletReader::_init_column_predicates(const ReaderParams& read_params) {
     }
 
     return Status::OK();
-}
-
-std::shared_ptr<ColumnPredicate> TabletReader::_parse_to_predicate(
-        const FunctionFilter& function_filter) {
-    const auto ordinal = function_filter._column_id;
-    DORIS_CHECK_LT(ordinal, _read_schema->num_block_columns());
-    const TabletColumn& column = materialize_column(*_read_schema->column(ordinal));
-    return create_column_predicate(ordinal, std::make_shared<FunctionFilter>(function_filter),
-                                   column.type(), &column);
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
@@ -457,8 +426,13 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     // However, queries will not use this condition but generate special where predicates to filter data.
     // (Though a lille bit confused, it is how the current logic working...)
     _filter_delete = _delete_sign_available || cumu_delete;
-    return _delete_handler.init(_read_schema, read_params.delete_predicates,
-                                read_params.version.second);
+    std::vector<TabletColumn> dropped_columns;
+    RETURN_IF_ERROR(_delete_handler.init(read_params.delete_predicates, read_params.version.second,
+                                         _read_schema, dropped_columns));
+    for (auto& column : dropped_columns) {
+        _read_schema->append_column(std::make_shared<TabletColumn>(std::move(column)));
+    }
+    return Status::OK();
 }
 
 } // namespace doris

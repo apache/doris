@@ -44,7 +44,6 @@
 namespace doris {
 
 struct OlapScanRange;
-class FunctionFilter;
 class RuntimeProfile;
 class RuntimeState;
 class TPaloScanRange;
@@ -107,8 +106,7 @@ private:
     Status _init_tablet_reader_params(
             const std::vector<OlapScanRange*>& key_ranges,
             const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                    predicates,
-            const std::vector<FunctionFilter>& function_filters);
+                    predicates);
 
     [[nodiscard]] Status _init_tso_predicates();
     [[nodiscard]] Status _init_read_schema();

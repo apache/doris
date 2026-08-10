@@ -97,7 +97,6 @@
 #include "storage/olap_common.h"
 #include "storage/predicate/bloom_filter_predicate.h"
 #include "storage/predicate/column_predicate.h"
-#include "storage/predicate/like_column_predicate.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
@@ -1209,11 +1208,6 @@ bool SegmentIterator::_check_apply_by_inverted_index(std::shared_ptr<ColumnPredi
         return false;
     }
 
-    // Function filter no apply inverted index
-    if (dynamic_cast<LikeColumnPredicate*>(pred.get()) != nullptr) {
-        return false;
-    }
-
     bool handle_by_fulltext = _column_has_fulltext_index(pred_column_id);
     if (handle_by_fulltext) {
         // when predicate is leafNode of andNode,
@@ -1487,7 +1481,7 @@ bool SegmentIterator::_column_has_fulltext_index(int32_t cid) {
 }
 
 inline bool SegmentIterator::_inverted_index_not_support_pred_type(const PredicateType& type) {
-    return type == PredicateType::BF;
+    return type == PredicateType::BF || type == PredicateType::LIKE;
 }
 
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
@@ -2103,7 +2097,8 @@ bool SegmentIterator::_can_evaluated_by_vectorized(std::shared_ptr<ColumnPredica
     case PredicateType::LE:
     case PredicateType::LT:
     case PredicateType::GE:
-    case PredicateType::GT: {
+    case PredicateType::GT:
+    case PredicateType::LIKE: {
         if (field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
             field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
             field_type == FieldType::OLAP_FIELD_TYPE_STRING) {
