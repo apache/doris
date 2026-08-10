@@ -26,13 +26,16 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.mtmv.MTMVRewriteUtil;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext;
@@ -251,6 +254,51 @@ public class ExecuteCommandTest {
             executeCommand.run(connectContext, executor);
             Assertions.assertEquals(Collections.singleton(firstPartition),
                     statementContext.getMvCanRewritePartitionsMap().get(new BaseTableInfo(mtmv)));
+        }
+    }
+
+    @Test
+    public void testMvCandidateIsRebuiltAfterSameNameReplacement() throws Exception {
+        String sql = "select 1";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        StatementContext statementContext = new StatementContext(
+                connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        connectContext.addPreparedStatementContext("stmt", new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt"));
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        BaseTableInfo baseTableInfo = new BaseTableInfo(new TableNameInfo("internal", "db", "base"));
+        BaseTableInfo mtmvInfo = new BaseTableInfo(new TableNameInfo("internal", "db", "mv"));
+        MTMVRelation relation = new MTMVRelation(
+                Collections.singleton(baseTableInfo), Collections.singleton(baseTableInfo),
+                Collections.singleton(baseTableInfo), Collections.emptySet(), Collections.emptySet());
+        MTMVRelationManager relationManager = new MTMVRelationManager();
+        relationManager.refreshMTMVCache(relation, mtmvInfo);
+        MTMV oldMtmv = Mockito.mock(MTMV.class);
+        MTMV replacementMtmv = Mockito.mock(MTMV.class);
+        Mockito.when(oldMtmv.canBeCandidate()).thenReturn(true);
+        Mockito.when(replacementMtmv.canBeCandidate()).thenReturn(true);
+
+        try (MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
+            mtmvUtil.when(() -> MTMVUtil.getTable(mtmvInfo)).thenReturn(oldMtmv, replacementMtmv);
+            Mockito.doAnswer(invocation -> {
+                statementContext.getCandidateMTMVs().addAll(relationManager.getCandidateMTMVs(
+                        Collections.singletonList(baseTableInfo)));
+                return null;
+            }).when(executor).execute();
+
+            ExecuteCommand executeCommand = new ExecuteCommand("stmt", prepareCommand, statementContext);
+            executeCommand.run(connectContext, executor);
+            Assertions.assertEquals(Collections.singleton(oldMtmv), statementContext.getCandidateMTMVs());
+
+            relationManager.refreshMTMVCache(relation, mtmvInfo);
+            executeCommand.run(connectContext, executor);
+            Assertions.assertEquals(Collections.singleton(replacementMtmv), statementContext.getCandidateMTMVs());
         }
     }
 
