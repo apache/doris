@@ -275,25 +275,6 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
     return ObjectStorageResponse::OK();
 }
 
-ObjectStorageResponse S3ObjStorageClient::abort_multipart_upload(
-        const ObjectStoragePathOptions& opts) {
-    AbortMultipartUploadRequest request;
-    request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(*opts.upload_id);
-    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(_client->AbortMultipartUpload(request),
-                                                "s3_file_writer::abort_multi_part",
-                                                std::cref(request).get());
-    if (!outcome.IsSuccess()) {
-        record_s3_request_failed(outcome.GetError());
-        auto status = s3fs_error(outcome.GetError(),
-                                 fmt::format("failed to AbortMultipartUpload: {}, upload_id={}",
-                                             opts.path.native(), *opts.upload_id));
-        return {convert_to_obj_response(std::move(status)),
-                static_cast<int>(outcome.GetError().GetResponseCode()),
-                outcome.GetError().GetRequestId()};
-    }
-    return ObjectStorageResponse::OK();
-}
-
 ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePathOptions& opts) {
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);

@@ -57,13 +57,6 @@ public:
         return io::ObjectStorageResponse::OK();
     }
 
-    io::ObjectStorageResponse abort_multipart_upload(
-            const io::ObjectStoragePathOptions& opts) override {
-        ++abort_count;
-        aborted_upload_id = opts.upload_id.value_or("");
-        return io::ObjectStorageResponse::OK();
-    }
-
     io::ObjectStorageHeadResponse head_object(const io::ObjectStoragePathOptions&) override {
         return {.resp = io::ObjectStorageResponse::OK(), .file_size = 0};
     }
@@ -96,9 +89,6 @@ public:
                                        const S3ClientConf&) override {
         return {};
     }
-
-    int abort_count = 0;
-    std::string aborted_upload_id;
 };
 
 class FixedLengthTransformer final : public VFileFormatTransformer {
@@ -178,7 +168,7 @@ ReportStatusRequest report_request(RuntimeState* state, bool done) {
 } // namespace
 
 TEST(VHivePartitionWriterReportLifecycleTest,
-     PeriodicReportDefersMetadataAndRejectedFinalReportAbortsProviderUpload) {
+     PeriodicReportDefersMetadataAndFinalReportTransfersUploadIdentity) {
     MockRuntimeState state;
     VExprContextSPtrs output_exprs;
     auto client = std::make_shared<RecordingObjStorageClient>();
@@ -190,7 +180,6 @@ TEST(VHivePartitionWriterReportLifecycleTest,
     context->_append_external_file_commit_data(periodic_request, &periodic_params);
 
     EXPECT_FALSE(periodic_params.__isset.hive_partition_updates);
-    EXPECT_EQ(0, client->abort_count);
 
     TReportExecStatusParams final_params;
     auto final_request = report_request(&state, true);
@@ -203,17 +192,9 @@ TEST(VHivePartitionWriterReportLifecycleTest,
     EXPECT_EQ("bucket", pending_upload.bucket);
     EXPECT_EQ("table/part.parquet", pending_upload.key);
     EXPECT_EQ("upload-id", pending_upload.upload_id);
-
-    // A definite coordinator rejection must consume the same cleanup owner that was retained
-    // while the periodic report deliberately withheld the pending-upload record.
-    context->_coordinator_callback(final_request);
-
-    EXPECT_EQ(1, client->abort_count);
-    EXPECT_EQ("upload-id", client->aborted_upload_id);
 }
 
-TEST(VHivePartitionWriterReportLifecycleTest,
-     AzureFinalReportCarriesExactBlockIdentityAndRejectionAbortsUpload) {
+TEST(VHivePartitionWriterReportLifecycleTest, AzureFinalReportCarriesExactBlockIdentity) {
     MockRuntimeState state;
     VExprContextSPtrs output_exprs;
     auto client = std::make_shared<RecordingObjStorageClient>();
@@ -231,11 +212,6 @@ TEST(VHivePartitionWriterReportLifecycleTest,
     ASSERT_EQ(1, pending_uploads.size());
     EXPECT_EQ("upload-id", pending_uploads[0].upload_id);
     EXPECT_EQ("exact-block-id", pending_uploads[0].etags.at(1));
-
-    // Azure staged blocks stay owned by BE until the final coordinator ACK transfers them.
-    context->_coordinator_callback(final_request);
-    EXPECT_EQ(1, client->abort_count);
-    EXPECT_EQ("upload-id", client->aborted_upload_id);
 }
 
 } // namespace doris

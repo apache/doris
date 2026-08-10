@@ -162,12 +162,6 @@ Status VHivePartitionWriter::close(const Status& status) {
     }
     if (status_ok) {
         auto partition_update = _build_partition_update();
-        if (partition_update.__isset.s3_mpu_pending_uploads) {
-            auto* s3_writer = dynamic_cast<io::S3FileWriter*>(_file_writer.get());
-            DCHECK(s3_writer != nullptr);
-            // Until FE accepts the final report, BE remains the cleanup owner of staged uploads.
-            _state->add_rejected_external_file_report_cleanup(s3_writer->failed_report_cleanup());
-        }
         _state->add_hive_partition_updates(partition_update);
     }
     return result_status;
@@ -230,11 +224,6 @@ void VHivePartitionWriter::_add_s3_mpu_pending_upload_for_rollback() {
     if (!_build_s3_mpu_pending_upload(&s3_mpu_pending_upload)) {
         return;
     }
-    auto* s3_writer = dynamic_cast<io::S3FileWriter*>(_file_writer.get());
-    DCHECK(s3_writer != nullptr);
-    // A failed write still relies on the final report to hand its staged upload to FE rollback.
-    _state->add_rejected_external_file_report_cleanup(s3_writer->failed_report_cleanup());
-
     THivePartitionUpdate hive_partition_update;
     hive_partition_update.__set_name(_partition_name);
     hive_partition_update.__set_update_mode(_update_mode);

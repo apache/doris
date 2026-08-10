@@ -125,8 +125,7 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     }
     }
     if (!open_status.ok()) {
-        // A transformer failure happens after object creation, so abort multipart state before deleting the path.
-        WARN_IF_ERROR(_file_writer->abort(), "failed to abort Iceberg file after open error");
+        // A transformer failure happens after object creation, so remove any published file.
         WARN_IF_ERROR(_fs->delete_file(_path), "failed to delete Iceberg file after open error");
     }
     return open_status;

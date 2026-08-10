@@ -78,8 +78,6 @@ S3FileWriter::~S3FileWriter() {
         // For thread safety
         std::ignore = _async_close_pack->future.get();
         _async_close_pack = nullptr;
-    } else if (state() == State::OPENED) {
-        WARN_IF_ERROR(abort(), "failed to abort unfinished S3 writer");
     } else {
         // Consider one situation where the file writer is destructed after it submit at least one async task
         // without calling close(), then there exists one occasion where the async task is executed right after
@@ -87,60 +85,12 @@ S3FileWriter::~S3FileWriter() {
         _wait_until_finish(fmt::format("wait s3 file {} upload to be finished",
                                        _obj_storage_path_opts.path.native()));
     }
+    // Deferred uploads are reported to FE for cleanup. Uploads that never reach FE are left to
+    // the provider lifecycle policy, so destroying a writer must not mutate provider state here.
     if (state() == State::OPENED && !_failed) {
         s3_bytes_written_total << _bytes_appended;
     }
     s3_file_being_written << -1;
-}
-
-Status S3FileWriter::abort() {
-    if (state() == State::CLOSED) {
-        return Status::OK();
-    }
-    if (state() == State::ASYNC_CLOSING) {
-        return Status::InternalError("cannot abort an asynchronously closing S3 writer");
-    }
-    RETURN_IF_ERROR(_abort_impl());
-    _state = State::CLOSED;
-    return Status::OK();
-}
-
-std::function<void()> S3FileWriter::failed_report_cleanup() const {
-    auto client_holder = _obj_client;
-    auto path_opts = _obj_storage_path_opts;
-    return [client_holder = std::move(client_holder), path_opts = std::move(path_opts)] {
-        // The writer is already CLOSED, but ownership was not transferred; bypass abort()'s
-        // state guard while retaining the provider client and the exact upload identity.
-        const auto& client = client_holder->get();
-        if (client == nullptr) {
-            LOG(WARNING) << "failed to abort a rejected external-file report: invalid object "
-                            "storage client";
-            return;
-        }
-        auto response = client->abort_multipart_upload(path_opts);
-        if (response.status.code != ErrorCode::OK) {
-            LOG(WARNING) << "failed to abort a rejected external-file report for "
-                         << path_opts.path.native() << ": " << response.status.msg;
-        }
-    };
-}
-
-Status S3FileWriter::_abort_impl() {
-    _wait_until_finish(
-            fmt::format("wait s3 file {} before abort", _obj_storage_path_opts.path.native()));
-    _pending_buf.reset();
-    if (_multipart_upload_started) {
-        const auto& client = _obj_client->get();
-        if (client == nullptr) {
-            return Status::InternalError("invalid obj storage client");
-        }
-        auto response = client->abort_multipart_upload(_obj_storage_path_opts);
-        if (response.status.code != ErrorCode::OK) {
-            return {response.status.code, std::move(response.status.msg)};
-        }
-    }
-    // Once abort returns, no destructor or retry may complete the abandoned upload.
-    return Status::OK();
 }
 
 Status S3FileWriter::_create_multi_upload_request() {
@@ -151,8 +101,6 @@ Status S3FileWriter::_create_multi_upload_request() {
     }
     auto resp = client->create_multipart_upload(_obj_storage_path_opts);
     if (resp.resp.status.code == ErrorCode::OK) {
-        // Some providers identify staged uploads by block IDs instead of a server-issued upload ID.
-        _multipart_upload_started = true;
         _obj_storage_path_opts.upload_id = resp.upload_id;
     }
     return {resp.resp.status.code, std::move(resp.resp.status.msg)};
@@ -215,10 +163,6 @@ Status S3FileWriter::close(bool non_block) {
                         s3_file_writer_async_close_queuing << -1;
                         s3_file_writer_async_close_processing << 1;
                         _st = _close_impl();
-                        if (!_st.ok()) {
-                            // A failed completion must not leave server-side multipart state behind.
-                            WARN_IF_ERROR(_abort_impl(), "failed to abort incomplete S3 upload");
-                        }
                         _async_close_pack->promise.set_value(_st);
                         s3_file_writer_async_close_processing << -1;
                     });
@@ -229,18 +173,12 @@ Status S3FileWriter::close(bool non_block) {
                          << _obj_storage_path_opts.path.native()
                          << ", fallback to sync close, status=" << submit_status;
             _st = _close_impl();
-            if (!_st.ok()) {
-                WARN_IF_ERROR(_abort_impl(), "failed to abort incomplete S3 upload");
-            }
             _async_close_pack->promise.set_value(_st);
             return _st;
         }
         return Status::OK();
     }
     _st = _close_impl();
-    if (!_st.ok()) {
-        WARN_IF_ERROR(_abort_impl(), "failed to abort incomplete S3 upload");
-    }
     _state = State::CLOSED;
     if (!non_block && _st.ok()) {
         _record_close_latency();

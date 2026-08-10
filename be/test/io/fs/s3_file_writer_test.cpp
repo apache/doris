@@ -316,21 +316,6 @@ public:
     }
 };
 
-TEST_F(S3FileWriterTest, abort_cleans_up_multipart_upload) {
-    mock_client = std::make_shared<MockS3Client>();
-    doris::io::FileWriterOptions options;
-
-    io::FileWriterPtr writer;
-    ASSERT_TRUE(s3_fs->create_file("abort_multipart", &writer, &options).ok());
-    std::string data(config::s3_write_buffer_size, 'a');
-    ASSERT_TRUE(writer->append(Slice(data)).ok());
-    ASSERT_FALSE(static_cast<io::S3FileWriter*>(writer.get())->upload_id().empty());
-
-    ASSERT_TRUE(writer->abort().ok());
-    EXPECT_EQ(writer->state(), io::FileWriter::State::CLOSED);
-    EXPECT_TRUE(mock_client->contents().empty());
-}
-
 TEST_F(S3FileWriterTest, multi_part_io_error) {
     mock_client = std::make_shared<MockS3Client>();
     doris::io::FileWriterOptions state;
@@ -1169,14 +1154,6 @@ public:
         return default_response;
     }
 
-    ObjectStorageResponse abort_multipart_upload(const ObjectStoragePathOptions& opts) override {
-        std::lock_guard lock(_mutex);
-        abort_multipart_count++;
-        last_opts = opts;
-        parts.clear();
-        return default_response;
-    }
-
     ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override {
         std::lock_guard lock(_mutex);
         return {.resp = ObjectStorageResponse::OK(),
@@ -1251,7 +1228,6 @@ public:
     int put_object_count = 0;
     int upload_part_count = 0;
     int complete_multipart_count = 0;
-    int abort_multipart_count = 0;
 
     // Structures to store input parameters for each call
     struct UploadPartParams {
@@ -1290,7 +1266,6 @@ public:
         put_object_count = 0;
         upload_part_count = 0;
         complete_multipart_count = 0;
-        abort_multipart_count = 0;
 
         create_multipart_params.clear();
         put_object_params.clear();
@@ -1319,9 +1294,8 @@ private:
  * @return A tuple containing the mock S3 client and the S3FileWriter.
  */
 std::tuple<std::shared_ptr<SimpleMockObjStorageClient>, std::shared_ptr<S3FileWriter>>
-create_s3_client(const std::string& path, bool used_by_s3_committer = false) {
+create_s3_client(const std::string& path) {
     doris::io::FileWriterOptions opts;
-    opts.used_by_s3_committer = used_by_s3_committer;
     io::FileWriterPtr file_writer;
     auto st = s3_fs->create_file(path, &file_writer, &opts);
     EXPECT_TRUE(st.ok()) << st;
@@ -1331,32 +1305,6 @@ create_s3_client(const std::string& path, bool used_by_s3_committer = false) {
     holder->_client = mock_client;
     s3_file_writer->_obj_client = holder;
     return {mock_client, s3_file_writer};
-}
-
-TEST_F(S3FileWriterTest, abortsProviderMultipartWithoutAnUploadId) {
-    auto [client, writer] = create_s3_client("provider_without_upload_id");
-    client->default_upload_response.upload_id.reset();
-    std::string data(config::s3_write_buffer_size, 'a');
-
-    ASSERT_TRUE(writer->append(Slice(data)).ok());
-    ASSERT_TRUE(writer->abort().ok());
-
-    EXPECT_EQ(1, client->create_multipart_count);
-    EXPECT_EQ(1, client->abort_multipart_count);
-    EXPECT_EQ(FileWriter::State::CLOSED, writer->state());
-}
-
-TEST_F(S3FileWriterTest, failedReportCleanupAbortsDeferredProviderUploadAfterClose) {
-    auto [client, writer] = create_s3_client("deferred_report_rejected", true);
-    std::string data(config::s3_write_buffer_size, 'a');
-    ASSERT_TRUE(writer->append(Slice(data)).ok());
-    ASSERT_TRUE(writer->close().ok());
-    ASSERT_EQ(FileWriter::State::CLOSED, writer->state());
-    auto cleanup = writer->failed_report_cleanup();
-
-    cleanup();
-
-    EXPECT_EQ(1, client->abort_multipart_count);
 }
 
 /**

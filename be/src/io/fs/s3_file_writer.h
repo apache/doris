@@ -21,7 +21,6 @@
 
 #include <chrono>
 #include <cstddef>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -72,13 +71,9 @@ public:
     }
 
     Status close(bool non_block = false) override;
-    Status abort() override;
     Status try_finish_close() override;
 
-    std::function<void()> failed_report_cleanup() const;
-
 private:
-    Status _abort_impl();
     Status _close_impl();
     [[nodiscard]] std::string _dump_completed_part() const;
     void _wait_until_finish(std::string_view task_name);
@@ -122,7 +117,6 @@ private:
     std::shared_ptr<ObjClientHolder> _obj_client;
     std::optional<std::chrono::steady_clock::time_point> _first_append_timestamp;
     bool _close_latency_recorded = false;
-    bool _multipart_upload_started = false;
 };
 
 } // namespace io
