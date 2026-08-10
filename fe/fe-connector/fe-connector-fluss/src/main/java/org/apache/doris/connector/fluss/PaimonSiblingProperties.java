@@ -20,6 +20,7 @@ package org.apache.doris.connector.fluss;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -72,8 +73,16 @@ final class PaimonSiblingProperties {
     /** Same name on both sides, but required, so it is handled explicitly rather than by the tail. */
     private static final String WAREHOUSE = "warehouse";
 
-    /** The only metastore flavor this connector serves today (see the class comment of the gate). */
-    private static final String FILESYSTEM = "filesystem";
+    // The metastore flavors, in paimon's spelling (left) and Doris's paimon connector's (right). Only the
+    // names differ; paimon's "hive" and Doris's "hms" are the same metastore. Paimon also has "jdbc",
+    // deliberately not served here: nothing has read a lake through it, and an untried flavor is better
+    // refused by name than half-supported.
+    private static final String PAIMON_FILESYSTEM = "filesystem";
+    private static final String PAIMON_HIVE = "hive";
+    private static final String PAIMON_REST = "rest";
+    private static final String DORIS_FILESYSTEM = "filesystem";
+    private static final String DORIS_HMS = "hms";
+    private static final String DORIS_REST = "rest";
 
     private PaimonSiblingProperties() {
     }
@@ -107,14 +116,7 @@ final class PaimonSiblingProperties {
         // than dropping them.
         lakeOptions.keySet().removeIf(LakeStorageOptions::isStorageOption);
 
-        String metastore = lakeOptions.remove(FLUSS_METASTORE);
-        // Absent means paimon's own default, which is filesystem — the same thing this connector supports.
-        if (metastore != null && !FILESYSTEM.equalsIgnoreCase(metastore)) {
-            throw new DorisConnectorException(
-                    "Cannot read the lake table: its fluss cluster configures a '" + metastore
-                            + "' paimon catalog (datalake.paimon." + FLUSS_METASTORE
-                            + "), and the fluss connector currently supports only '" + FILESYSTEM + "'");
-        }
+        String catalogType = dorisCatalogType(lakeOptions.remove(FLUSS_METASTORE));
 
         String warehouse = lakeOptions.remove(WAREHOUSE);
         if (warehouse == null || warehouse.isEmpty()) {
@@ -128,9 +130,45 @@ final class PaimonSiblingProperties {
 
         // LinkedHashMap so a failure message or a log line renders the same order every time.
         Map<String, String> siblingProperties = new LinkedHashMap<>();
-        siblingProperties.put(PAIMON_CATALOG_TYPE, FILESYSTEM);
+        siblingProperties.put(PAIMON_CATALOG_TYPE, catalogType);
         siblingProperties.put(WAREHOUSE, warehouse);
         siblingProperties.putAll(lakeOptions);
         return siblingProperties;
+    }
+
+    /**
+     * Doris's name for the paimon metastore flavor {@code flussMetastore} names, which is the same
+     * metastore under a different spelling.
+     *
+     * <p>An absent flavor is paimon's own default, filesystem. The catalog type is then stated explicitly
+     * anyway: the paimon connector defaults on its own, and leaving it out would make what this lake is
+     * read as depend on that default staying put.
+     *
+     * <p>The rest of a flavor's configuration is not checked here. Each one has its own required and
+     * mutually exclusive settings (a metastore uri, kerberos, REST tokens), and the paimon connector
+     * enforces them when it binds this map — a second copy of those rules would drift from the first and
+     * reject configurations paimon accepts. Only the flavor itself is checked, because it is the one thing
+     * this side chooses.
+     */
+    private static String dorisCatalogType(String flussMetastore) {
+        if (flussMetastore == null || flussMetastore.trim().isEmpty()) {
+            return DORIS_FILESYSTEM;
+        }
+        switch (flussMetastore.trim().toLowerCase(Locale.ROOT)) {
+            case PAIMON_FILESYSTEM:
+                return DORIS_FILESYSTEM;
+            case PAIMON_HIVE:
+                return DORIS_HMS;
+            case PAIMON_REST:
+                return DORIS_REST;
+            default:
+                // Exhaustive on purpose: a flavor added to the left has to be given a Doris name here,
+                // and until it is, a lake behind it is refused by name rather than read as a filesystem.
+                throw new DorisConnectorException(
+                        "Cannot read the lake table: its paimon catalog is a '" + flussMetastore
+                                + "' one (datalake.paimon." + FLUSS_METASTORE
+                                + "), and the fluss connector supports " + PAIMON_FILESYSTEM + ", "
+                                + PAIMON_HIVE + " and " + PAIMON_REST);
+        }
     }
 }
