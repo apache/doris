@@ -25,6 +25,7 @@
 
 #include "cloud/cloud_base_compaction.h"
 #include "cloud/cloud_cluster_info.h"
+#include "cloud/cloud_rowset_builder.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
@@ -249,6 +250,57 @@ static RowsetSharedPtr create_rowset(Version version, int num_segments, bool ove
         return nullptr;
     }
     return rowset;
+}
+
+static RowsetSharedPtr create_prepared_rowset(int num_segments, int data_size) {
+    auto rs_meta = std::make_shared<RowsetMeta>();
+    rs_meta->set_rowset_type(BETA_ROWSET);
+    rs_meta->set_rowset_state(PREPARED);
+    rs_meta->set_num_segments(num_segments);
+    rs_meta->set_segments_overlap(OVERLAPPING);
+    rs_meta->set_total_disk_size(data_size);
+    RowsetSharedPtr rowset;
+    Status st = RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset);
+    if (!st.ok()) {
+        return nullptr;
+    }
+    return rowset;
+}
+
+class TestableCloudRowsetBuilder : public CloudRowsetBuilder {
+public:
+    using CloudRowsetBuilder::CloudRowsetBuilder;
+
+    void set_tablet_and_rowset(const CloudTabletSPtr& tablet, const RowsetSharedPtr& rowset) {
+        _tablet = tablet;
+        _rowset = rowset;
+    }
+};
+
+TEST_F(CloudCompactionTest, update_tablet_stats_counts_zero_segment_rowset) {
+    auto tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    {
+        std::unique_lock lock(tablet->get_header_lock());
+        tablet->reset_approximate_stats(0, 0, 0, 0);
+    }
+
+    TestableCloudRowsetBuilder builder(_engine, WriteRequest {}, nullptr);
+
+    auto empty_rowset = create_prepared_rowset(0, 0);
+    ASSERT_NE(empty_rowset, nullptr);
+    ASSERT_TRUE(empty_rowset->is_pending());
+    ASSERT_FALSE(empty_rowset->rowset_meta()->has_version());
+    builder.set_tablet_and_rowset(tablet, empty_rowset);
+    builder.update_tablet_stats();
+    EXPECT_EQ(tablet->fetch_add_approximate_cumu_num_deltas(0), 1);
+
+    auto overlapping_rowset = create_prepared_rowset(3, 41);
+    ASSERT_NE(overlapping_rowset, nullptr);
+    ASSERT_TRUE(overlapping_rowset->is_pending());
+    ASSERT_FALSE(overlapping_rowset->rowset_meta()->has_version());
+    builder.set_tablet_and_rowset(tablet, overlapping_rowset);
+    builder.update_tablet_stats();
+    EXPECT_EQ(tablet->fetch_add_approximate_cumu_num_deltas(0), 4);
 }
 
 class TestableCloudCompaction : public CloudCompactionMixin {
