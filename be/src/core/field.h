@@ -42,9 +42,9 @@
 #include "core/value/bitmap_value.h"
 #include "core/value/hll.h"
 #include "core/value/quantile_state.h"
-#include "util/json/path_in_data.h"
 
 namespace doris {
+class PathInData;
 template <PrimitiveType type>
 struct PrimitiveTypeTraits;
 template <typename T>

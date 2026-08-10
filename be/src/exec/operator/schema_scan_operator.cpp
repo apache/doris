@@ -19,6 +19,7 @@
 
 #include <gen_cpp/FrontendService_types.h>
 
+#include <boost/algorithm/string.hpp>
 #include <memory>
 
 #include "core/column/column_nullable.h"

@@ -29,6 +29,7 @@
 #include <gen_cpp/Exprs_types.h>
 #include <glog/logging.h>
 
+#include <boost/algorithm/string.hpp>
 #include <memory>
 #include <string>
 #include <string_view>

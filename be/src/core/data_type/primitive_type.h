@@ -34,9 +34,9 @@
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/template_helpers.hpp"
-#include "util/json/path_in_data.h"
 
 namespace doris {
+class PathInData;
 template <typename T>
 class ColumnStr;
 class IColumnDummy;

@@ -47,6 +47,7 @@
 #include "runtime/runtime_profile.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/index_iterator.h"
+#include "util/json/path_in_data.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
@@ -78,8 +79,15 @@ struct ColumnPredicateInfo {
 
     std::string debug_string() const {
         std::stringstream ss;
-        ss << "column_name=" << column_name << ", query_op=" << query_op
-           << ", query_value=" << boost::join(query_values, ",");
+        ss << "column_name=" << column_name << ", query_op=" << query_op << ", query_value=";
+        bool first = true;
+        for (const auto& query_value : query_values) {
+            if (!first) {
+                ss << ",";
+            }
+            first = false;
+            ss << query_value;
+        }
         return ss.str();
     }
 
