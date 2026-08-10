@@ -276,10 +276,10 @@ public class FlussLakeTableTest {
         Map<String, String> expected = new HashMap<>();
         expected.put("paimon.catalog.type", "filesystem");
         expected.put("warehouse", "s3://bucket/lake");
-        expected.put("s3.access-key", "AK");
         // This is the metadata half of the wiring; the scan planner configures a sibling of its own from
         // the same catalog. Both have to pass the overrides on: one that did not would build a SECOND
         // sibling for the same catalog, reading a different warehouse under the same table's name.
+        // The credential is absent because storage is configured through the catalog, not the sibling.
         Assertions.assertEquals(expected, builtSiblings.get(0).properties);
     }
 

@@ -184,17 +184,17 @@ public class PaimonSiblingPropertiesTest {
     }
 
     @Test
-    public void catalogSuppliesWhatTheClusterCannotReport() {
+    public void storageSettingsAreNotGivenToTheSibling() {
         Map<String, String> properties = flussTableProperties();
+        properties.put("table.datalake.paimon.fs.oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
 
         Map<String, String> expected = new HashMap<>();
         expected.put("paimon.catalog.type", "filesystem");
         expected.put("warehouse", "/lake/warehouse");
-        // A fluss cluster removes every lake option whose name contains key/secret/password before it
-        // answers a metadata request, so credentials NEVER arrive with the table. The catalog is the only
-        // place they can come from, which is the whole reason these overrides exist.
-        expected.put("s3.access-key", "AK");
 
+        // Whichever side a storage setting came from, it belongs to the catalog's storage configuration
+        // (which the FE and the BE both read) and not to the lake catalog. Left here, an fs.-spelled one
+        // would additionally OVERRIDE that configuration on the FE only.
         Assertions.assertEquals(expected,
                 PaimonSiblingProperties.synthesize(properties, overrides("s3.access-key", "AK")));
     }
