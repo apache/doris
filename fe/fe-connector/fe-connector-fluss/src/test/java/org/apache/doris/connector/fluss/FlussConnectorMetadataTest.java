@@ -72,7 +72,7 @@ public class FlussConnectorMetadataTest {
      */
     private static FlussConnectorMetadata metadata(
             RecordingFlussAdminOps adminOps, FlussTypeMapping.Options options) {
-        return new FlussConnectorMetadata(adminOps, options,
+        return new FlussConnectorMetadata(adminOps, options, Collections.emptyMap(),
                 properties -> {
                     throw new AssertionError("no lake sibling is expected in this test");
                 },

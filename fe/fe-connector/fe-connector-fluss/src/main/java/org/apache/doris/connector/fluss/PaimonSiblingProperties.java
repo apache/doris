@@ -46,6 +46,12 @@ import java.util.Map;
  * everything else is forwarded with only the prefix removed. That verbatim tail is what carries a real
  * deployment's storage keys ({@code fs.*} / {@code dfs.*} / {@code hadoop.*}), which the paimon connector
  * reads under exactly those names.
+ *
+ * <p><b>What the table properties cannot contain is credentials.</b> The fluss cluster removes every lake
+ * option whose name contains {@code key}, {@code secret} or {@code password} before it answers a metadata
+ * request, so {@code s3.access-key} and its equivalents never leave the cluster. This is not a Doris-side
+ * omission and there is no alias to fix: a lake on authenticated storage is readable only if the CATALOG
+ * supplies those settings, which is what {@link FlussCatalogProperties#LAKE_OPTION_PREFIX} is for.
  */
 final class PaimonSiblingProperties {
 
@@ -69,19 +75,29 @@ final class PaimonSiblingProperties {
     }
 
     /**
-     * Returns a NEW paimon catalog-property map derived from one fluss table's properties. The input is
-     * never mutated and is not aliased into the result.
+     * Returns a NEW paimon catalog-property map derived from one fluss table's properties, with the
+     * catalog's own lake settings applied over them. Neither input is mutated nor aliased into the result.
+     *
+     * <p>The catalog wins, key by key: a catalog that states only what its cluster cannot report keeps
+     * everything else the cluster does report. Both arguments are required — there is no single-argument
+     * form — because the overrides have to be applied at every place a sibling is configured, and one call
+     * site that forgot them would build a second, differently configured sibling for the same catalog.
+     *
+     * <p>The override happens BEFORE the checks below, not after: "the cluster reports no warehouse and the
+     * catalog supplies one" is exactly the configuration this is for, and checking first would reject it.
      *
      * <p>Fails loud on a lake configuration this connector cannot serve, rather than handing the paimon
      * connector a half-built map and letting it fail with a message about a catalog nobody created.
      */
-    static Map<String, String> synthesize(Map<String, String> flussTableProperties) {
+    static Map<String, String> synthesize(Map<String, String> flussTableProperties,
+            Map<String, String> catalogLakeOverrides) {
         Map<String, String> lakeOptions = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : flussTableProperties.entrySet()) {
             if (entry.getKey().startsWith(LAKE_OPTION_PREFIX)) {
                 lakeOptions.put(entry.getKey().substring(LAKE_OPTION_PREFIX.length()), entry.getValue());
             }
         }
+        lakeOptions.putAll(catalogLakeOverrides);
 
         String metastore = lakeOptions.remove(FLUSS_METASTORE);
         // Absent means paimon's own default, which is filesystem — the same thing this connector supports.
@@ -97,8 +113,9 @@ final class PaimonSiblingProperties {
             throw new DorisConnectorException(
                     "Cannot read the lake table: the fluss table carries no '"
                             + LAKE_OPTION_PREFIX + WAREHOUSE
-                            + "'. The fluss cluster must configure datalake.paimon." + WAREHOUSE
-                            + " for its lake tables to be readable");
+                            + "'. Either the fluss cluster configures datalake.paimon." + WAREHOUSE
+                            + ", or the catalog states it as '"
+                            + FlussCatalogProperties.LAKE_OPTION_PREFIX + WAREHOUSE + "'");
         }
 
         // LinkedHashMap so a failure message or a log line renders the same order every time.

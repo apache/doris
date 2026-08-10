@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -52,6 +53,9 @@ public class FlussLakeTableTest {
 
     /** The sibling connectors this test's factory built, in build order. */
     private final List<RecordingLakeSibling> builtSiblings = new ArrayList<>();
+
+    /** What the catalog states about the lake itself; empty unless a test says otherwise. */
+    private final Map<String, String> lakeOverrides = new LinkedHashMap<>();
 
     private final ConnectorSession session = new FlussTestSession(7L, "q1");
 
@@ -87,7 +91,7 @@ public class FlussLakeTableTest {
      * — by asking each built sibling whether the handle is its own.
      */
     private FlussConnectorMetadata metadata(RecordingFlussAdminOps adminOps) {
-        return new FlussConnectorMetadata(adminOps, FlussTypeMapping.Options.DEFAULT,
+        return new FlussConnectorMetadata(adminOps, FlussTypeMapping.Options.DEFAULT, lakeOverrides,
                 properties -> {
                     RecordingLakeSibling sibling = new RecordingLakeSibling(properties);
                     builtSiblings.add(sibling);
@@ -263,6 +267,23 @@ public class FlussLakeTableTest {
     }
 
     @Test
+    public void theSiblingSeesTheCatalogsOwnLakeSettings() {
+        lakeOverrides.put("warehouse", "s3://bucket/lake");
+        lakeOverrides.put("s3.access-key", "AK");
+        FlussConnectorMetadata metadata = metadata(withLakeTable());
+        lakeHandle(metadata);
+
+        Map<String, String> expected = new HashMap<>();
+        expected.put("paimon.catalog.type", "filesystem");
+        expected.put("warehouse", "s3://bucket/lake");
+        expected.put("s3.access-key", "AK");
+        // This is the metadata half of the wiring; the scan planner configures a sibling of its own from
+        // the same catalog. Both have to pass the overrides on: one that did not would build a SECOND
+        // sibling for the same catalog, reading a different warehouse under the same table's name.
+        Assertions.assertEquals(expected, builtSiblings.get(0).properties);
+    }
+
+    @Test
     public void anUnknownSystemTableNameIsNotServed() {
         FlussConnectorMetadata metadata = metadata(withLakeTable());
         // Only "lake" is this connector's; asking for anything else must not build a sibling.
@@ -297,7 +318,7 @@ public class FlussLakeTableTest {
     @Test
     public void anUntieredLakeTableFailsLoud() {
         FlussConnectorMetadata metadata = new FlussConnectorMetadata(withLakeTable(),
-                FlussTypeMapping.Options.DEFAULT,
+                FlussTypeMapping.Options.DEFAULT, lakeOverrides,
                 properties -> {
                     RecordingLakeSibling sibling = new RecordingLakeSibling(properties);
                     sibling.lakeTableExists = false;
@@ -322,7 +343,7 @@ public class FlussLakeTableTest {
         // connector did the first time it was used as a sibling for real. Caught where the handle is born,
         // the message names the class that has to change.
         FlussConnectorMetadata metadata = new FlussConnectorMetadata(withLakeTable(),
-                FlussTypeMapping.Options.DEFAULT,
+                FlussTypeMapping.Options.DEFAULT, lakeOverrides,
                 properties -> {
                     RecordingLakeSibling sibling = new RecordingLakeSibling(properties);
                     sibling.claimsItsOwnHandles = false;

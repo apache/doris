@@ -783,8 +783,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                     + "', and the fluss connector currently supports only '" + PAIMON_LAKE_FORMAT + "'");
         }
 
-        Connector sibling = lakeSiblingFactory.apply(
-                PaimonSiblingProperties.synthesize(handle.getProperties()));
+        Connector sibling = lakeSiblingFactory.apply(PaimonSiblingProperties.synthesize(
+                handle.getProperties(), catalogProperties.getLakeOverrides()));
         ConnectorTableHandle lakeHandle = LakeSibling.forward(session, sibling,
                 metadata -> metadata.getTableHandle(
                         session, handle.getDatabaseName(), handle.getTableName()))

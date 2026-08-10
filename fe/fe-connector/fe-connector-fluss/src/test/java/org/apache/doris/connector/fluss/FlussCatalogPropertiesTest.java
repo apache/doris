@@ -22,6 +22,7 @@ import org.apache.doris.connector.fluss.FlussCatalogProperties.UnionReadMode;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -250,5 +251,45 @@ public class FlussCatalogPropertiesTest {
         FlussTypeMapping.Options garbage =
                 bound(FlussCatalogProperties.ENABLE_MAPPING_VARBINARY, "yes").getTypeMappingOptions();
         Assertions.assertFalse(garbage.isMapBinaryToVarbinary());
+    }
+
+    @Test
+    public void lakeOverridesAreThePrefixedKeysWithoutThePrefix() {
+        FlussCatalogProperties p = bound(
+                "fluss.lake.paimon.warehouse", "s3://bucket/lake",
+                "fluss.lake.paimon.s3.access-key", "AK",
+                // Not a lake key: it is the fluss client's own, and the two namespaces must not blur.
+                "fluss.client.security.protocol", "sasl");
+
+        // The tail is left exactly as written: it is paimon's own option name, which is what makes an
+        // operator able to copy it out of the fluss cluster's datalake.paimon.* block unchanged.
+        Map<String, String> expected = new HashMap<>();
+        expected.put("warehouse", "s3://bucket/lake");
+        expected.put("s3.access-key", "AK");
+        Assertions.assertEquals(expected, p.getLakeOverrides());
+    }
+
+    @Test
+    public void lakeOverridesNeverReachTheFlussClient() {
+        FlussCatalogProperties p = bound("fluss.lake.paimon.warehouse", "s3://bucket/lake");
+
+        // They are fluss.-prefixed, so only a PREFIX test keeps them out of the client configuration —
+        // their tails are paimon option names, an open set no list here could enumerate. Leaked, they
+        // would reach the fluss client as unknown "lake.paimon.*" options.
+        Map<String, String> expected = new HashMap<>();
+        expected.put("bootstrap.servers", "localhost:9123");
+        Assertions.assertEquals(expected, p.getFlussClientConfig());
+    }
+
+    @Test
+    public void blankLakeOverridesCountAsUnset() {
+        FlussCatalogProperties p = bound(
+                "fluss.lake.paimon.warehouse", "  ",
+                "fluss.lake.paimon.s3.endpoint", "");
+
+        // ALTER CATALOG can overwrite a property but never remove one, so blanking an override is the
+        // only way to hand a setting back to the fluss cluster. Keeping the blank would instead override
+        // the cluster's value with nothing at all — a lake that stops being readable and no way to undo it.
+        Assertions.assertEquals(Collections.emptyMap(), p.getLakeOverrides());
     }
 }
