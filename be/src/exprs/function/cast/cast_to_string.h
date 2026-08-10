@@ -21,6 +21,7 @@
 #include "core/types.h"
 #include "core/value/time_value.h"
 #include "exprs/function/cast/cast_base.h"
+#include "runtime/runtime_state.h"
 #include "util/mysql_global.h"
 #include "util/to_string.h"
 namespace doris {
