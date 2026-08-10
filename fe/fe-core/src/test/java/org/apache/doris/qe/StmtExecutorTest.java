@@ -17,9 +17,14 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
@@ -45,6 +50,7 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -280,6 +286,21 @@ public class StmtExecutorTest extends TestWithFeService {
     }
 
     @Test
+    public void testArrowFlightSqlRejectsTimestampNsOutput() {
+        Expr timestampNs = Mockito.mock(Expr.class);
+        Mockito.when(timestampNs.getType()).thenReturn(Type.TIMESTAMP_NS);
+        AnalysisException scalarException = Assertions.assertThrows(AnalysisException.class,
+                () -> StmtExecutor.checkArrowFlightSqlOutput(Lists.newArrayList(timestampNs)));
+        Assertions.assertTrue(scalarException.getMessage().contains(
+                "TIMESTAMP_NS is not supported by Arrow Flight SQL"), scalarException.getMessage());
+
+        Expr nestedTimestampNs = Mockito.mock(Expr.class);
+        Mockito.when(nestedTimestampNs.getType()).thenReturn(ArrayType.create(Type.TIMESTAMP_NS, true));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> StmtExecutor.checkArrowFlightSqlOutput(Lists.newArrayList(nestedTimestampNs)));
+    }
+
+    @Test
     public void testSendBinaryResultRow() throws IOException {
         ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
         MysqlChannel channel = Mockito.mock(MysqlChannel.class);
@@ -324,6 +345,37 @@ public class StmtExecutorTest extends TestWithFeService {
         }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
 
         StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
+        executor.sendBinaryResultRow(resultSet);
+    }
+
+    @Test
+    public void testSendBinaryTimestampNsResultRow() throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
+        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
+
+        String value = "2025-01-01 01:02:03.123456789";
+        List<List<String>> rows = Lists.newArrayList();
+        rows.add(Lists.newArrayList(value));
+        ResultSet resultSet = new CommonResultSet(
+                new CommonResultSetMetaData(Lists.newArrayList(
+                        new Column("timestamp_ns", ScalarType.createTimeStampNsType()))),
+                rows);
+        Mockito.doAnswer(invocation -> {
+            byte[] valueBytes = value.getBytes(StandardCharsets.UTF_8);
+            byte[] expected = new byte[valueBytes.length + 3];
+            expected[2] = (byte) valueBytes.length;
+            System.arraycopy(valueBytes, 0, expected, 3, valueBytes.length);
+            ByteBuffer buffer = invocation.getArgument(0);
+            Assertions.assertArrayEquals(expected, buffer.array());
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        StmtExecutor executor = new StmtExecutor(mockCtx, new OriginStatement("", 1), false);
         executor.sendBinaryResultRow(resultSet);
     }
 

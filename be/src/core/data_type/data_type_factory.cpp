@@ -59,6 +59,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/data_type_variant.h"
@@ -151,6 +152,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         break;
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         result = create_datetimev2(scale);
+        break;
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
+        result = std::make_shared<DataTypeTimeStampNs>();
         break;
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         result = std::make_shared<DataTypeTimeStampTz>(scale);
@@ -257,6 +261,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     case PGenericType::DATETIMEV2:
         nested = std::make_shared<DataTypeDateTimeV2>(pcolumn.decimal_param().scale());
+        break;
+    case PGenericType::TIMESTAMP_NS:
+        nested = std::make_shared<DataTypeTimeStampNs>();
         break;
     case PGenericType::DATETIME:
         nested = std::make_shared<DataTypeDateTime>();
@@ -435,6 +442,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         break;
     case TYPE_DATETIMEV2:
         nested = create_datetimev2(scale);
+        break;
+    case TYPE_TIMESTAMP_NS:
+        nested = std::make_shared<DataTypeTimeStampNs>();
         break;
     case TYPE_DATETIME:
         nested = std::make_shared<DataTypeDateTime>();

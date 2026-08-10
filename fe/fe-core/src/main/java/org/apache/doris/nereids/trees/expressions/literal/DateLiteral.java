@@ -20,12 +20,14 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
@@ -254,14 +256,14 @@ public class DateLiteral extends Literal implements ComparableLiteral {
             sb.append(":00");
         }
 
-        // parse MicroSecond
-        // Keep up to 7 digits at most, 7th digit is use for overflow.
+        // Keep one more digit than Java's NANO_OF_SECOND supports. The tenth digit is the guard
+        // digit used when a DATETIMEV2(9) literal is rounded.
         int j = i;
         if (partNumber == 6 && i < s.length() && s.charAt(i) == '.') {
             sb.append(s.charAt(i));
             i += 1;
             while (i < s.length() && Character.isDigit(s.charAt(i))) {
-                if (i - j <= 7) {
+                if (i - j <= DateUtils.NANOSECOND_SCALE + 1) {
                     sb.append(s.charAt(i));
                 }
                 i += 1;
@@ -329,6 +331,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
             }
             if (!containsPunctuation) {
                 s = normalizeBasic(s);
+                s = DateUtils.truncateFractionalSecondForJavaParser(s);
                 // mysql reject "20200219 010101" "200219 010101", can't use ' ' spilt basic date time.
 
                 if (!s.contains("T")) {
@@ -344,6 +347,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
                 return normalizeResult.cast();
             }
             s = normalizeResult.get();
+            s = DateUtils.truncateFractionalSecondForJavaParser(s);
 
             if (!s.contains(" ")) {
                 dateTime = DateTimeFormatterUtils.ZONE_DATE_FORMATTER.parse(s);
@@ -397,7 +401,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         return DateUtils.getOrDefault(dateTime, ChronoField.HOUR_OF_DAY) != 0
                 || DateUtils.getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR) != 0
                 || DateUtils.getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE) != 0
-                || DateUtils.getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND) != 0;
+                || DateUtils.getOrDefault(dateTime, ChronoField.NANO_OF_SECOND) != 0;
     }
 
     @Override
@@ -472,10 +476,8 @@ public class DateLiteral extends Literal implements ComparableLiteral {
                 return cmp;
             }
 
-            long thisMicrosecond = this instanceof DateTimeV2Literal ? ((DateTimeV2Literal) this).getMicroSecond() : 0L;
-            long otherMicrosecond = other instanceof DateTimeV2Literal
-                    ? ((DateTimeV2Literal) other).getMicroSecond() : 0L;
-            return Long.compare(thisMicrosecond, otherMicrosecond);
+            return Long.compare(getFractionalSecondInNanoseconds(),
+                    ((DateLiteral) other).getFractionalSecondInNanoseconds());
         }
         if (other instanceof NullLiteral) {
             return 1;
@@ -498,6 +500,21 @@ public class DateLiteral extends Literal implements ComparableLiteral {
 
     public long getDay() {
         return day;
+    }
+
+    /** Return the time of day in nanoseconds; DATE literals have no time part. */
+    public long getTimePartInNanoseconds() {
+        return 0;
+    }
+
+    /** Return the fractional second in nanoseconds; DATE literals have no fractional part. */
+    public long getFractionalSecondInNanoseconds() {
+        return 0;
+    }
+
+    /** DATE values represent the beginning of a day. Datetime subclasses override this as needed. */
+    public boolean isMidnight() {
+        return true;
     }
 
     public int getDayOfYear() {
@@ -622,6 +639,12 @@ public class DateLiteral extends Literal implements ComparableLiteral {
             return new FloatLiteral(value);
         } else if (targetType.isDoubleType()) {
             return new DoubleLiteral(value);
+        } else if (targetType instanceof TimeStampNsType) {
+            try {
+                return new TimeStampNsLiteral(year, month, day, 0, 0, 0, 0);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
         } else if (targetType.isDateTimeV2Type()) {
             return new DateTimeV2Literal((DateTimeV2Type) targetType, year, month, day, 0, 0, 0, 0);
         } else if (targetType.isDateTimeType()) {

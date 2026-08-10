@@ -134,6 +134,8 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
     case TPrimitiveType::DATETIME:
     case TPrimitiveType::DATETIMEV2:
         return "datetime";
+    case TPrimitiveType::TIMESTAMP_NS:
+        return "timestamp_ns";
     case TPrimitiveType::TIMESTAMPTZ:
         return "timestamp";
     case TPrimitiveType::DECIMAL32:

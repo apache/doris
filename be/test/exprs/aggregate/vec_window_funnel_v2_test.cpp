@@ -28,6 +28,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/string_buffer.hpp"
 #include "core/value/vdatetime_value.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -64,6 +65,16 @@ public:
 
     Arena arena;
 };
+
+TEST(VWindowFunnelV2TimeStampNsTest, FactoryCreatesFunction) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeString>(),
+                            std::make_shared<DataTypeTimeStampNs>(),
+                            std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
+    EXPECT_NE(factory.get("window_funnel_v2", data_types, nullptr, false,
+                          BeExecVersionManager::get_newest_version()),
+              nullptr);
+}
 
 TEST_F(VWindowFunnelV2Test, testEmpty) {
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);

@@ -79,6 +79,8 @@ void merge_events_list(T& events_list, size_t prefix_size, bool prefix_sorted, b
 /// This approach adds ZERO storage overhead — each event remains 9 bytes (UInt64 + UInt8).
 template <PrimitiveType T>
 struct WindowFunnelStateV2 {
+    using TimestampType = std::conditional_t<T == TYPE_TIMESTAMP_NS, Int64, UInt64>;
+
     /// (timestamp_int_val, 1-based event_index with continuation flag in bit 7)
     ///
     /// Bit layout of event_idx:
@@ -89,7 +91,7 @@ struct WindowFunnelStateV2 {
     /// Sorted by timestamp only (via operator<). stable_sort preserves insertion order
     /// for equal timestamps, so same-row events remain consecutive after sorting.
     struct TimestampEvent {
-        UInt64 timestamp;
+        TimestampType timestamp;
         UInt8 event_idx; // includes continuation flag in bit 7
 
         /// Sort by timestamp only. For same timestamp, stable_sort preserves insertion
@@ -243,14 +245,13 @@ struct WindowFunnelStateV2 {
         }
     }
 
-    using DateValueType = DateV2Value<DateTimeV2ValueType>;
+    using DateValueType = std::conditional_t<T == TYPE_TIMESTAMP_NS, TimeStampNsValue,
+                                             DateV2Value<DateTimeV2ValueType>>;
 
-    /// Reconstruct DateV2Value from packed UInt64.
-    static DateValueType _ts_from_int(UInt64 packed) { return DateValueType(packed); }
+    static DateValueType _ts_from_int(TimestampType timestamp) { return DateValueType(timestamp); }
 
     /// Check if `current_ts` is within `window` seconds of `base_ts`.
-    /// Both are packed UInt64 from DateV2Value::to_date_int_val().
-    bool _within_window(UInt64 base_ts, UInt64 current_ts) const {
+    bool _within_window(TimestampType base_ts, TimestampType current_ts) const {
         DateValueType end_ts = _ts_from_int(base_ts);
         TimeInterval interval(SECOND, window, false);
         end_ts.template date_add_interval<SECOND>(interval);
@@ -258,18 +259,19 @@ struct WindowFunnelStateV2 {
     }
 
     /// Track (first_timestamp, last_timestamp, last_event_list_idx) for each event level.
-    /// Uses packed UInt64 values; 0 means unset for first_ts.
     /// last_list_idx tracks the position in events_list of the event that set this level,
     /// used to check continuation flag on subsequent events to detect same-row advancement.
     struct TimestampPair {
-        UInt64 first_ts = 0;
-        UInt64 last_ts = 0;
+        TimestampType first_ts = 0;
+        TimestampType last_ts = 0;
         size_t last_list_idx = 0;
-        bool has_value() const { return first_ts != 0; }
+        bool initialized = false;
+        bool has_value() const { return initialized; }
         void reset() {
             first_ts = 0;
             last_ts = 0;
             last_list_idx = 0;
+            initialized = false;
         }
     };
 
@@ -316,13 +318,13 @@ private:
             int event_idx = get_event_idx(evt.event_idx) - 1;
 
             if (event_idx == 0) {
-                events_timestamp[0] = {evt.timestamp, evt.timestamp, i};
+                events_timestamp[0] = {evt.timestamp, evt.timestamp, i, true};
             } else if (events_timestamp[event_idx - 1].has_value() &&
                        !_is_same_row(events_timestamp[event_idx - 1].last_list_idx, i)) {
                 // Must be from a DIFFERENT row than the predecessor level
                 if (_within_window(events_timestamp[event_idx - 1].first_ts, evt.timestamp)) {
                     events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts,
-                                                   evt.timestamp, i};
+                                                   evt.timestamp, i, true};
                     if (event_idx + 1 == event_count) {
                         return event_count;
                     }
@@ -375,7 +377,7 @@ private:
             // Try building a chain from this event-0
             std::vector<TimestampPair> events_timestamp(event_count);
             events_timestamp[0] = {events_list[start].timestamp, events_list[start].timestamp,
-                                   start};
+                                   start, true};
             int curr_level = 0;
 
             for (size_t i = start + 1; i < list_size; ++i) {
@@ -394,7 +396,7 @@ private:
                     matched = matched && events_timestamp[event_idx - 1].last_ts < evt.timestamp;
                     if (matched) {
                         events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts,
-                                                       evt.timestamp, i};
+                                                       evt.timestamp, i, true};
                         curr_level = std::max(event_idx, curr_level);
                         if (event_idx + 1 == event_count) {
                             return event_count;
@@ -436,7 +438,7 @@ private:
             }
 
             // Build a chain from this event-0
-            UInt64 first_ts = events_list[start].timestamp;
+            TimestampType first_ts = events_list[start].timestamp;
             int curr_level = 0;
             size_t last_advance_idx = start;
 
@@ -518,7 +520,7 @@ private:
             // Only start from c1 events (condition 0 in 0-based)
             if (get_event_idx(events_list[start_i].event_idx) != 1) continue;
 
-            UInt64 chain_start_ts = events_list[start_i].timestamp;
+            TimestampType chain_start_ts = events_list[start_i].timestamp;
             int curr_level = 0;
 
             // c1 is always the last event of its row, so start_i+1 is

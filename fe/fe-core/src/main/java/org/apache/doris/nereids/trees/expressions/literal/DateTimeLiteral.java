@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
@@ -103,6 +104,7 @@ public class DateTimeLiteral extends DateLiteral {
         this.day = day;
     }
 
+    @Override
     public boolean isMidnight() {
         return hour == 0 && minute == 0 && second == 0 && microSecond == 0;
     }
@@ -320,6 +322,16 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     @Override
+    public long getTimePartInNanoseconds() {
+        return timePartToMicroSecond() * 1000L;
+    }
+
+    @Override
+    public long getFractionalSecondInNanoseconds() {
+        return microSecond * 1000L;
+    }
+
+    @Override
     public double getDouble() {
         return (double) getValue();
     }
@@ -408,6 +420,13 @@ public class DateTimeLiteral extends DateLiteral {
             return new DateV2Literal(year, month, day);
         } else if (targetType.isDateType()) {
             return new DateLiteral(year, month, day);
+        } else if (targetType instanceof TimeStampNsType) {
+            try {
+                return new TimeStampNsLiteral(year, month, day, hour, minute, second,
+                        microSecond * 1000);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
         } else if (targetType.isDateTimeV2Type()) {
             // High scale datetime to low scale datetime may overflow.
             try {

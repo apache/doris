@@ -85,13 +85,13 @@ public class TimeStampTzType extends DateLikeType implements ScaleTimeType {
 
     public static TimeStampTzType forTypeFromString(String s) {
         DateTimeV2Type dateTimeV2Type = DateTimeV2Type.forTypeFromString(s);
-        return TimeStampTzType.of(dateTimeV2Type.getScale());
+        return TimeStampTzType.of(Math.min(dateTimeV2Type.getScale(), MAX_SCALE));
     }
 
     @Override
     public ScaleTimeType scaleTypeForType(DataType dataType) {
         DateTimeV2Type dateTimeV2Type = DateTimeV2Type.forType(dataType);
-        return TimeStampTzType.of(dateTimeV2Type.getScale());
+        return TimeStampTzType.of(Math.min(dateTimeV2Type.getScale(), MAX_SCALE));
     }
 
     /**

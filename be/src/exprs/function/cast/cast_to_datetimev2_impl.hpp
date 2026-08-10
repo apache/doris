@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <fmt/format.h>
 #include <sys/types.h>
 
+#include <array>
 #include <type_traits>
 
 #include "common/status.h"
@@ -27,6 +29,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/datelike_serde_common.hpp"
 #include "core/types.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h" // IWYU pragma: keep
 #include "util/asan_util.h"
@@ -141,6 +144,47 @@ struct CastToDatetimeV2 {
         return true;
     }
 
+    // Floating-point input has no fixed decimal scale. Format it with the shortest round-trippable
+    // decimal representation, then reuse the decimal parser so digits 7-9 are not lost through a
+    // binary floating-point-to-microsecond conversion.
+    template <typename T>
+        requires std::is_floating_point_v<T>
+    static inline bool from_float(T float_value, TimeStampNsValue& res, uint32_t to_scale,
+                                  CastParameters& params) {
+        if (params.is_strict) {
+            return from_float<DatelikeParseMode::STRICT>(float_value, res, to_scale, params);
+        }
+        return from_float<DatelikeParseMode::NON_STRICT>(float_value, res, to_scale, params);
+    }
+
+    template <DatelikeParseMode ParseMode, typename T>
+        requires std::is_floating_point_v<T>
+    static inline bool from_float(T float_value, TimeStampNsValue& res, uint32_t to_scale,
+                                  CastParameters& params) {
+        constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+        DCHECK(IsStrict == params.is_strict);
+        DCHECK_EQ(to_scale, TimeStampNsValue::FRACTIONAL_DIGITS);
+        SET_PARAMS_RET_FALSE_IFN(
+                float_value > 0 && !std::isnan(float_value) && !std::isinf(float_value),
+                "invalid float value for timestamp_ns: {}", float_value);
+
+        std::array<char, 64> decimal_buffer {};
+        const auto formatted =
+                fmt::format_to_n(decimal_buffer.data(), decimal_buffer.size(), "{}", float_value);
+        DCHECK_LE(formatted.size, decimal_buffer.size());
+        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+        constexpr int decimal_scale = 18;
+        const auto decimal_value = StringParser::string_to_decimal<TYPE_DECIMAL128I>(
+                decimal_buffer.data(), formatted.size, 38, decimal_scale, &parse_result);
+        SET_PARAMS_RET_FALSE_IFN(parse_result == StringParser::PARSE_SUCCESS,
+                                 "invalid float value for timestamp_ns: {}", float_value);
+
+        constexpr auto scale_multiplier = decimal_scale_multiplier<Int128>(decimal_scale);
+        return from_decimal<ParseMode>(decimal_value / scale_multiplier,
+                                       decimal_value % scale_multiplier, decimal_scale, res,
+                                       to_scale, params);
+    }
+
     // may be slow
     template <typename T>
     static inline bool from_decimal(const T& int_part, const T& frac_part,
@@ -176,6 +220,64 @@ struct CastToDatetimeV2 {
                                          params)) {
             return false; // status set in init_microsecond
         }
+        return true;
+    }
+
+    template <typename T>
+    static inline bool from_decimal(const T& int_part, const T& frac_part,
+                                    const int64_t& decimal_scale, TimeStampNsValue& res,
+                                    uint32_t to_scale, CastParameters& params) {
+        if (params.is_strict) {
+            return from_decimal<DatelikeParseMode::STRICT>(int_part, frac_part, decimal_scale, res,
+                                                           to_scale, params);
+        }
+        return from_decimal<DatelikeParseMode::NON_STRICT>(int_part, frac_part, decimal_scale, res,
+                                                           to_scale, params);
+    }
+
+    template <DatelikeParseMode ParseMode, typename T>
+    static inline bool from_decimal(const T& int_part, const T& frac_part,
+                                    const int64_t& decimal_scale, TimeStampNsValue& res,
+                                    uint32_t to_scale, CastParameters& params) {
+        constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+        DCHECK(IsStrict == params.is_strict);
+        DCHECK_EQ(to_scale, TimeStampNsValue::FRACTIONAL_DIGITS);
+        SET_PARAMS_RET_FALSE_IFN(int_part <= std::numeric_limits<int64_t>::max() && int_part >= 1,
+                                 "invalid decimal value for timestamp_ns: {}.{}", int_part,
+                                 frac_part);
+
+        DateV2Value<DateTimeV2ValueType> datetime;
+        if (!from_integer<ParseMode>(int_part, datetime, params)) {
+            return false;
+        }
+
+        T scaled_fraction = frac_part;
+        if (decimal_scale > to_scale) {
+            const auto divisor =
+                    decimal_scale_multiplier<T>(static_cast<uint32_t>(decimal_scale - to_scale));
+            const auto remainder = scaled_fraction % divisor;
+            scaled_fraction /= divisor;
+            if (remainder >= divisor / 2) {
+                ++scaled_fraction;
+            }
+        } else if (decimal_scale < to_scale) {
+            scaled_fraction *=
+                    decimal_scale_multiplier<T>(static_cast<uint32_t>(to_scale - decimal_scale));
+        }
+
+        const auto fraction_limit = decimal_scale_multiplier<T>(to_scale);
+        if (scaled_fraction == fraction_limit) {
+            SET_PARAMS_RET_FALSE_IFN(datetime.template date_add_interval<TimeUnit::SECOND>(
+                                             TimeInterval {TimeUnit::SECOND, 1, false}),
+                                     "timestamp_ns overflow when rounding up to next second");
+            scaled_fraction = 0;
+        }
+
+        const auto nanoseconds = static_cast<uint32_t>(scaled_fraction);
+        datetime.set_microsecond(nanoseconds / TimeStampNsValue::NANOS_PER_MICROSECOND);
+        SET_PARAMS_RET_FALSE_IFN(
+                res.from_datetime(datetime, nanoseconds % TimeStampNsValue::NANOS_PER_MICROSECOND),
+                "timestamp_ns value is outside the signed epoch-nanosecond range");
         return true;
     }
 
@@ -1072,6 +1174,48 @@ inline bool transform_date_scale(UInt32 to_scale, UInt32 from_scale,
         to_value = dtmv2;
     }
     return true;
+}
+
+// Round the nine-digit fraction to a DATETIMEV2/TIMEV2 target scale. The rounded civil value is
+// allowed to lie outside the TIMESTAMP_NS range because the destination type has the wider
+// year-0000..9999 domain. This matters at the lower boundary, whose microsecond rounding is 192ns
+// below the TIMESTAMP_NS minimum but is still a valid DATETIMEV2 value.
+inline bool round_timestamp_ns_fraction(UInt32 to_scale, DateV2Value<DateTimeV2ValueType>& datetime,
+                                        uint32_t& nanoseconds) {
+    DCHECK_LE(to_scale, 6);
+    const auto divisor = static_cast<uint32_t>(common::exp10_i64(9 - to_scale));
+    const uint32_t remainder = nanoseconds % divisor;
+    nanoseconds = nanoseconds / divisor * divisor;
+    if (remainder >= divisor / 2) {
+        nanoseconds += divisor;
+    }
+    if (nanoseconds >= TimeStampNsValue::NANOS_PER_SECOND) {
+        nanoseconds = 0;
+        if (!datetime.template date_add_interval<TimeUnit::SECOND>(
+                    TimeInterval {TimeUnit::SECOND, 1, false})) {
+            return false;
+        }
+    }
+    datetime.set_microsecond(nanoseconds / TimeStampNsValue::NANOS_PER_MICROSECOND);
+    return true;
+}
+
+inline bool transform_date_scale(UInt32 to_scale, UInt32 /*from_scale*/,
+                                 DateV2Value<DateTimeV2ValueType>& to_value,
+                                 const TimeStampNsValue& from_value) {
+    auto datetime = from_value.to_datetime();
+    uint32_t nanoseconds = from_value.nanosecond();
+    if (!round_timestamp_ns_fraction(to_scale, datetime, nanoseconds)) {
+        return false;
+    }
+    to_value = datetime;
+    return true;
+}
+
+inline bool transform_date_scale(UInt32 to_scale, UInt32 /*from_scale*/, TimeStampNsValue& to_value,
+                                 const DateV2Value<DateTimeV2ValueType>& from_value) {
+    DCHECK_EQ(to_scale, TimeStampNsValue::FRACTIONAL_DIGITS);
+    return to_value.from_datetime(from_value);
 }
 
 inline bool transform_date_scale(UInt32 to_scale, UInt32 from_scale,

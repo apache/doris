@@ -50,6 +50,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -89,6 +90,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.remove(DateV2Type.class);
         allowedTypes.remove(DateTimeType.class);
         allowedTypes.remove(DateTimeV2Type.class);
+        allowedTypes.remove(TimeStampNsType.class);
         allowedTypes.remove(TimeV2Type.class);
         allowedTypes.add(JsonType.class);
         allowedTypes.add(VariantType.class);
@@ -118,6 +120,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateV2Type.class);
         allowedTypes.add(DateTimeType.class);
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(DateType.class, allowedTypes);
@@ -131,6 +134,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateV2Type.class);
         allowedTypes.add(DateTimeType.class);
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowedTypes.add(TimeV2Type.class);
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
@@ -144,15 +148,32 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateV2Type.class);
         allowedTypes.add(DateTimeType.class);
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowedTypes.add(TimeV2Type.class);
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
         allowedTypes.add(TimeStampTzType.class);
         strictCastWhiteList.put(DateTimeV2Type.class, allowedTypes);
 
+        // TimestampNs
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(BigIntType.class);
+        allowedTypes.add(LargeIntType.class);
+        allowedTypes.add(DateType.class);
+        allowedTypes.add(DateV2Type.class);
+        allowedTypes.add(DateTimeType.class);
+        allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
+        allowedTypes.add(TimeV2Type.class);
+        allowToStringLikeType(allowedTypes);
+        allowedTypes.add(VariantType.class);
+        allowedTypes.add(TimeStampTzType.class);
+        strictCastWhiteList.put(TimeStampNsType.class, allowedTypes);
+
         // timestamp tz
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowedTypes.add(TimeStampTzType.class);
         allowToStringLikeType(allowedTypes);
         strictCastWhiteList.put(TimeStampTzType.class, allowedTypes);
@@ -168,6 +189,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateV2Type.class);
         allowedTypes.add(DateTimeType.class);
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowedTypes.add(TimeV2Type.class);
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
@@ -180,6 +202,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(IPv6Type.class);
         allowedTypes.add(VarBinaryType.class);
         allowedTypes.add(TimeStampTzType.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowToComplexType(allowedTypes);
         allowedTypes.remove(HllType.class);
         allowedTypes.remove(BitmapType.class);
@@ -254,6 +277,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.remove(DateV2Type.class);
         allowedTypes.remove(DateTimeType.class);
         allowedTypes.remove(DateTimeV2Type.class);
+        allowedTypes.remove(TimeStampNsType.class);
         allowedTypes.remove(TimeV2Type.class);
         allowedTypes.add(ArrayType.class);
         allowedTypes.add(StructType.class);
@@ -282,6 +306,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DoubleType.class);
         unStrictCastWhiteList.put(DateTimeType.class, allowedTypes);
         unStrictCastWhiteList.put(DateTimeV2Type.class, allowedTypes);
+        unStrictCastWhiteList.put(TimeStampNsType.class, allowedTypes);
 
         // Time
         allowedTypes = Sets.newHashSet();
@@ -305,6 +330,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateV2Type.class);
         allowedTypes.add(DateTimeType.class);
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowedTypes.add(TimeV2Type.class);
         allowToStringLikeType(allowedTypes);
     }

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -627,6 +628,13 @@ public class ComputeSignatureHelper {
     // if signatureType is a super type of targetType, then extract corresponding argumentType slot
     private static List<DataType> extractBySignature(Class<? extends DataType> targetType,
             DataType signatureType, DataType argumentType, BiFunction<DataType, DataType, DataType> pick) {
+        // TIMESTAMP_NS subclasses DateTimeV2Type only to reuse the date-like interfaces. It has a
+        // fixed scale of 9 and is not a member of DATETIMEV2's 0..6 precision family. In
+        // particular, its scale must never participate in the generic precision promotion below,
+        // otherwise a signature such as (TIMESTAMP_NS, TIMEV2(6)) attempts to build TIMEV2(9).
+        if (targetType == DateTimeV2Type.class && signatureType instanceof TimeStampNsType) {
+            return Lists.newArrayList();
+        }
         if (targetType.isAssignableFrom(signatureType.getClass())) {
             return Lists.newArrayList(pick.apply(signatureType, argumentType));
         } else if (signatureType instanceof ArrayType) {
