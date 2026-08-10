@@ -148,6 +148,9 @@ struct ParquetFileContext {
     // Set once after the logical file schema is built. Per-request planning uses this guard so
     // ordinary files never enter Variant projection or shredded-statistics paths.
     bool contains_variant = false;
+#ifdef BE_TEST
+    bool test_force_deferred_merge_ranges = false;
+#endif
 
     Status open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx, bool enable_page_cache,
                 const io::FileDescription& file_description,

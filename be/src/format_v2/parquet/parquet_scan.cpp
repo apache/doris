@@ -1198,6 +1198,10 @@ void ParquetScanScheduler::reset() {
     _materialized_predicate_positions_scratch.clear();
     _ordered_predicate_positions_scratch.clear();
     _predicate_batch_sequence = 0;
+#ifdef BE_TEST
+    _test_predicate_merge_range_activations = 0;
+    _test_output_merge_range_activations = 0;
+#endif
     reset_current_row_group();
 }
 
@@ -1312,7 +1316,15 @@ Status ParquetScanScheduler::activate_merge_ranges_for_columns(
     if (ranges.empty()) {
         return Status::OK();
     }
-    return state->reader->add_random_access_ranges(ranges, state->stage++);
+    RETURN_IF_ERROR(state->reader->add_random_access_ranges(ranges, state->stage++));
+#ifdef BE_TEST
+    if (output_columns) {
+        ++_test_output_merge_range_activations;
+    } else {
+        ++_test_predicate_merge_range_activations;
+    }
+#endif
+    return Status::OK();
 }
 
 bool ParquetScanScheduler::has_staged_merge_range_reader(bool output_columns) const {

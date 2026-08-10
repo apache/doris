@@ -237,6 +237,11 @@ public:
     int64_t condition_cache_filtered_rows() const { return _condition_cache_filtered_rows; }
     int64_t predicate_filtered_rows() const { return _predicate_filtered_rows; }
     int64_t raw_rows_read() const { return _raw_rows_read; }
+#ifdef BE_TEST
+    std::pair<uint32_t, uint32_t> TEST_staged_merge_range_activations() const {
+        return {_test_predicate_merge_range_activations, _test_output_merge_range_activations};
+    }
+#endif
 
     Status read_next_batch(ParquetFileContext& file_context,
                            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -349,6 +354,10 @@ private:
     StagedMergeRangeState _current_shared_merge_range;
     StagedMergeRangeState _current_predicate_merge_range;
     StagedMergeRangeState _current_output_merge_range;
+#ifdef BE_TEST
+    uint32_t _test_predicate_merge_range_activations = 0;
+    uint32_t _test_output_merge_range_activations = 0;
+#endif
     ParquetPageSkipProfile _page_skip_profile;
     ParquetScanProfile _scan_profile;
     const ParquetProfile* _parquet_profile = nullptr;

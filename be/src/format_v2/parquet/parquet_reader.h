@@ -89,6 +89,8 @@ public:
 
 #ifdef BE_TEST
     int64_t TEST_footer_read_calls() const;
+    void TEST_force_deferred_merge_ranges();
+    std::pair<uint32_t, uint32_t> TEST_staged_merge_range_activations() const;
 #endif
 
 protected:

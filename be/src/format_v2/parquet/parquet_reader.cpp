@@ -493,6 +493,16 @@ ParquetReader::~ParquetReader() = default;
 int64_t ParquetReader::TEST_footer_read_calls() const {
     return _state == nullptr ? 0 : _state->file_context.native_footer_read_calls;
 }
+
+void ParquetReader::TEST_force_deferred_merge_ranges() {
+    DORIS_CHECK(_state != nullptr);
+    _state->file_context.test_force_deferred_merge_ranges = true;
+}
+
+std::pair<uint32_t, uint32_t> ParquetReader::TEST_staged_merge_range_activations() const {
+    DORIS_CHECK(_state != nullptr);
+    return _state->scheduler.TEST_staged_merge_range_activations();
+}
 #endif
 
 Status ParquetReader::init(RuntimeState* state) {

@@ -566,6 +566,11 @@ void ParquetFileContext::prefetch_ranges(const std::vector<ParquetPageCacheRange
 }
 
 bool ParquetFileContext::native_file_should_defer_merge_ranges() const {
+#ifdef BE_TEST
+    if (test_force_deferred_merge_ranges) {
+        return true;
+    }
+#endif
     io::FileReaderSPtr reader = native_file;
     if (auto tracing_reader = std::dynamic_pointer_cast<io::TracingFileReader>(reader)) {
         reader = tracing_reader->inner_reader();

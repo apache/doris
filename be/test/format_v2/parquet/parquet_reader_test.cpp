@@ -2567,6 +2567,7 @@ TEST_F(NewParquetReaderTest, ReadsStructPredicateChildBeforeDeferredRootOutput) 
     auto reader = create_reader(0, -1, &profile);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
+    reader->TEST_force_deferred_merge_ranges();
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     ASSERT_EQ(schema.size(), 1);
@@ -2618,6 +2619,56 @@ TEST_F(NewParquetReaderTest, ReadsStructPredicateChildBeforeDeferredRootOutput) 
     EXPECT_EQ(names, (std::vector<std::string> {"ten", "eleven"}));
     ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
     EXPECT_GT(profile.get_counter("FilteredRowsByLazyRead")->value(), 0);
+    const auto [predicate_activations, output_activations] =
+            reader->TEST_staged_merge_range_activations();
+    EXPECT_GT(predicate_activations, 0);
+    EXPECT_GT(output_activations, 0);
+}
+
+TEST_F(NewParquetReaderTest, StagedMergeRangesDoNotActivateLazyOutputWithoutSurvivors) {
+    write_struct_filter_parquet_file(_file_path);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    reader->TEST_force_deferred_merge_ranges();
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+    ASSERT_EQ(schema[0].children.size(), 2);
+
+    auto predicate_projection = format::LocalColumnIndex::partial_local(schema[0].local_id);
+    predicate_projection.children.push_back(
+            format::LocalColumnIndex::local(schema[0].children[0].local_id));
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns.push_back(predicate_projection);
+    request->non_predicate_columns.push_back(
+            format::LocalColumnIndex::top_level(format::LocalColumnId(schema[0].local_id)));
+    request->predicate_only_columns.push_back(format::LocalColumnId(schema[0].local_id));
+    request->local_positions.emplace(format::LocalColumnId(schema[0].local_id),
+                                     format::LocalIndex(0));
+    request->non_predicate_positions.emplace(format::LocalColumnId(schema[0].local_id),
+                                             format::LocalIndex(1));
+    request->conjuncts.push_back(create_struct_int32_child_greater_than_conjunct(0, 100));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    format::ColumnDefinition predicate_field;
+    ASSERT_TRUE(format::project_column_definition(schema[0], predicate_projection, &predicate_field)
+                        .ok());
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block;
+        block.insert({predicate_field.type->create_column(), predicate_field.type, "s_predicate"});
+        block.insert({schema[0].type->create_column(), schema[0].type, "s_output"});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, 0);
+    const auto [predicate_activations, output_activations] =
+            reader->TEST_staged_merge_range_activations();
+    EXPECT_GT(predicate_activations, 0);
+    EXPECT_EQ(output_activations, 0);
 }
 
 TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {
