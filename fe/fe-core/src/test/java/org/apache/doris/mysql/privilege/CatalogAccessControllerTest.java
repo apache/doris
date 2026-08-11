@@ -19,6 +19,8 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.common.AuthorizationException;
 
 import com.google.common.collect.ImmutableList;
@@ -115,13 +117,13 @@ public class CatalogAccessControllerTest {
         }
 
         @Override
-        public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db,
+        public Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db,
                 String tbl, String col) {
             return Optional.empty();
         }
 
         @Override
-        public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl,
+        public List<RowFilterSpec> evalRowFilterPolicies(UserIdentity currentUser, String ctl,
                 String db, String tbl) {
             return ImmutableList.of();
         }

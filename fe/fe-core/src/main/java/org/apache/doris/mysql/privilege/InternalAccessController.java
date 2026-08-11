@@ -19,8 +19,16 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterMergeType;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthorizationException;
+import org.apache.doris.policy.FilterType;
+import org.apache.doris.policy.RowPolicy;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -81,14 +89,41 @@ public class InternalAccessController implements CatalogAccessController {
     }
 
     @Override
-    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+    public Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
             String col) {
+        // The built-in privilege model has no column masking: there is no DDL to define one.
         return Optional.empty();
     }
 
     @Override
-    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
+    public List<RowFilterSpec> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
             String tbl) {
-        return Env.getCurrentEnv().getPolicyMgr().getUserPolicies(ctl, db, tbl, currentUser);
+        List<RowPolicy> policies = Env.getCurrentEnv().getPolicyMgr().getUserPolicies(ctl, db, tbl, currentUser);
+        ImmutableList.Builder<RowFilterSpec> specs = ImmutableList.builderWithExpectedSize(policies.size());
+        for (RowPolicy policy : policies) {
+            try {
+                specs.add(new RowFilterSpec(policy.getPolicyIdent(), policy.getFilterSql(),
+                        mergeTypeOf(policy.getFilterType())));
+            } catch (AnalysisException e) {
+                // A policy whose statement no longer parses cannot be turned into a filter, and dropping it
+                // would silently widen access to the whole table. Fail the query with the same message the
+                // planner used to raise when it asked the policy for its expression.
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(e.getMessage(), e);
+            }
+        }
+        return specs.build();
+    }
+
+    private static RowFilterMergeType mergeTypeOf(FilterType filterType) {
+        switch (filterType) {
+            case PERMISSIVE:
+                return RowFilterMergeType.PERMISSIVE;
+            case RESTRICTIVE:
+                return RowFilterMergeType.RESTRICTIVE;
+            default:
+                // Same shape as the planner's merge switch used to have: an unmapped filter type is a bug,
+                // and guessing either way would change which rows the user sees.
+                throw new IllegalStateException("Invalid operator");
+        }
     }
 }
