@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_write_variant_nested", "p0,external,paimon") {
+suite("test_paimon_write_variant_nested", "p0,external,paimon,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
@@ -70,10 +70,11 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon") {
     """
     sql """SWITCH ${catalogName}"""
     sql """USE ${dbName}"""
-    sql """SET enable_variant_v2 = true"""
-    sql """SET force_jni_scanner = true"""
 
     try {
+        setFeConfigTemporary([enable_variant_v2: true]) {
+            assertTrue(getFeConfig("enable_variant_v2").toBoolean())
+            sql """SET force_jni_scanner = true"""
         // ARRAY, MAP, STRUCT and multiple Variant columns in one Arrow batch.
         sql """
             INSERT INTO t_variant_nested VALUES
@@ -188,6 +189,7 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon") {
         // Refreshing metadata must not affect nested Variant reads.
         sql """REFRESH TABLE t_variant_deep"""
         qt_variant_deep_count """SELECT COUNT(*) FROM t_variant_deep"""
+        }
     } finally {
         sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""

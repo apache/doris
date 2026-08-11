@@ -1593,9 +1593,8 @@ Status SegmentIterator::_init_index_iterators() {
     for (auto cid : _schema->column_ids()) {
         // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
         if (_index_iterators[cid] == nullptr) {
-            // In the _opts.tablet_schema, the sub-column type information for the variant is FieldType::OLAP_FIELD_TYPE_VARIANT.
-            // This is because the sub-column is created in create_materialized_variant_column.
-            // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
+            // Scan-time Variant path placeholders retain the Variant storage type. Use their
+            // parent unique id and path to locate the extracted column's inverted-index metadata.
             const auto& column = _opts.tablet_schema->column(cid);
             std::vector<const TabletIndex*> inverted_indexs;
             // Keep shared_ptr alive to prevent use-after-free when accessing raw pointers

@@ -168,6 +168,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     }
 
     private boolean isLegacyVariant(DataType dataType) {
-        return dataType instanceof VariantType && !((VariantType) dataType).isComputeV2();
+        return dataType instanceof VariantType && !((VariantType) dataType).isExecutionV2();
     }
 }

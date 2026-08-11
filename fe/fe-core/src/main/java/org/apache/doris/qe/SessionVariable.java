@@ -855,8 +855,6 @@ public class SessionVariable implements Serializable, Writable {
     // Default is false, which means do not flatten nested when create table.
     @Deprecated
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
-    public static final String ENABLE_VARIANT_V2 = "enable_variant_v2";
-
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String COMPUTE_GROUP = "compute_group";
@@ -3662,18 +3660,6 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public int defaultVariantMaxSubcolumnsCount = 2048;
-
-    @VariableMgr.VarAttr(
-            name = ENABLE_VARIANT_V2,
-            needForward = true,
-            affectQueryResultInPlan = true,
-            varType = VariableAnnotation.EXPERIMENTAL,
-            description = {
-                    "是否对纯计算表达式启用 ColumnVariantV2，默认关闭。",
-                    "Whether to enable ColumnVariantV2 for compute expressions. The default is false."
-            }
-    )
-    public boolean enableVariantV2 = false;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
@@ -6566,10 +6552,6 @@ public class SessionVariable implements Serializable, Writable {
     @Deprecated
     public boolean getEnableVariantFlattenNested() {
         return enableVariantFlattenNested;
-    }
-
-    public boolean isEnableVariantV2() {
-        return enableVariantV2;
     }
 
     public void setProfileLevel(String profileLevel) {

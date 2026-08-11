@@ -21,6 +21,8 @@
 // which incorrectly excluded subcolumns whose parent has unique_id=0.
 
 suite("test_compaction_nokey_variant") {
+    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
     def tableName = "test_compaction_nokey_variant"
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -40,19 +42,28 @@ suite("test_compaction_nokey_variant") {
 
     // Insert multiple batches to create multiple rowsets
     sql """INSERT INTO ${tableName} VALUES
-        ('{"name":"Alice","age":30}', '{"city":"Beijing","zip":100000}', '{"score":95.5,"passed":true}'),
-        ('{"name":"Bob","age":25}', '{"city":"Shanghai"}', '{"score":88.0,"passed":true}'),
-        ('{"name":"Charlie"}', '{"city":"Shenzhen","zip":518000}', '{"score":72.3,"passed":false}');"""
+        (${variantV2Function}('{"name":"Alice","age":30}'), ${variantV2Function}('{"city":"Beijing","zip":100000}'), ${variantV2Function}('{"score":95.5,"passed":true}')),
+        (${variantV2Function}('{"name":"Bob","age":25}'), ${variantV2Function}('{"city":"Shanghai"}'), ${variantV2Function}('{"score":88.0,"passed":true}')),
+        (${variantV2Function}('{"name":"Charlie"}'), ${variantV2Function}('{"city":"Shenzhen","zip":518000}'), ${variantV2Function}('{"score":72.3,"passed":false}'));"""
 
-    sql """INSERT INTO ${tableName} VALUES ('{"name":"u1","age":10}', '{"city":"c1"}', '{"score":10.5}');"""
-    sql """INSERT INTO ${tableName} VALUES ('{"name":"u2","age":20}', '{"city":"c2"}', '{"score":20.5}');"""
-    sql """INSERT INTO ${tableName} VALUES ('{"name":"u3","age":30}', '{"city":"c3"}', '{"score":30.5}');"""
-    sql """INSERT INTO ${tableName} VALUES ('{"name":"u4","age":40}', '{"city":"c4"}', '{"score":40.5}');"""
-    sql """INSERT INTO ${tableName} VALUES ('{"name":"u5","age":50}', '{"city":"c5"}', '{"score":50.5}');"""
+    sql """INSERT INTO ${tableName} VALUES (${variantV2Function}('{"name":"u1","age":10}'), ${variantV2Function}('{"city":"c1"}'), ${variantV2Function}('{"score":10.5}'));"""
+    sql """INSERT INTO ${tableName} VALUES (${variantV2Function}('{"name":"u2","age":20}'), ${variantV2Function}('{"city":"c2"}'), ${variantV2Function}('{"score":20.5}'));"""
+    sql """INSERT INTO ${tableName} VALUES (${variantV2Function}('{"name":"u3","age":30}'), ${variantV2Function}('{"city":"c3"}'), ${variantV2Function}('{"score":30.5}'));"""
+    sql """INSERT INTO ${tableName} VALUES (${variantV2Function}('{"name":"u4","age":40}'), ${variantV2Function}('{"city":"c4"}'), ${variantV2Function}('{"score":40.5}'));"""
+    sql """INSERT INTO ${tableName} VALUES (${variantV2Function}('{"name":"u5","age":50}'), ${variantV2Function}('{"city":"c5"}'), ${variantV2Function}('{"score":50.5}'));"""
 
-    // Verify data before compaction
-    qt_before_compaction """SELECT cast(v1 as string) c1, cast(v2 as string) c2, cast(v3 as string) c3
-        FROM ${tableName} ORDER BY c1;"""
+    def supportedQuery = """SELECT cast(v1['name'] as text) c1, cast(v1['age'] as int),
+        cast(v2['city'] as text), cast(v2['zip'] as int), cast(v3['score'] as double),
+        cast(v3['passed'] as boolean) FROM ${tableName} ORDER BY c1"""
+
+    // V1 serializes boolean Variant subpaths as 0/1 while V2 keeps JSON booleans.
+    // Preserve the full V1 JSON assertion and compare typed values across both formats.
+    if (!enableVariantV2) {
+        qt_before_compaction_v1 """SELECT sort_json_object_keys(cast(v1 as json)) c1,
+            sort_json_object_keys(cast(v2 as json)) c2, sort_json_object_keys(cast(v3 as json)) c3
+            FROM ${tableName} ORDER BY c1;"""
+    }
+    qt_before_compaction_supported supportedQuery
 
     def rowCountBefore = sql "SELECT count() FROM ${tableName}"
     assertEquals(8, rowCountBefore[0][0])
@@ -61,8 +72,12 @@ suite("test_compaction_nokey_variant") {
     trigger_and_wait_compaction(tableName, "cumulative")
 
     // Verify data after compaction
-    qt_after_compaction """SELECT cast(v1 as string) c1, cast(v2 as string) c2, cast(v3 as string) c3
-        FROM ${tableName} ORDER BY c1;"""
+    if (!enableVariantV2) {
+        qt_after_compaction_v1 """SELECT sort_json_object_keys(cast(v1 as json)) c1,
+            sort_json_object_keys(cast(v2 as json)) c2, sort_json_object_keys(cast(v3 as json)) c3
+            FROM ${tableName} ORDER BY c1;"""
+    }
+    qt_after_compaction_supported supportedQuery
 
     def rowCountAfter = sql "SELECT count() FROM ${tableName}"
     assertEquals(8, rowCountAfter[0][0])

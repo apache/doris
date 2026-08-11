@@ -18,6 +18,7 @@
 import java.sql.SQLException
 
 suite("test_variant_custom_analyzer", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def indexTbName1 = "test_custom_analyzer_1"
     def indexTbName2 = "test_custom_analyzer_2"
     def indexTbName3 = "test_custom_analyzer_3"
@@ -100,12 +101,12 @@ suite("test_variant_custom_analyzer", "p0") {
         );
     """
 
-    sql """ insert into ${indexTbName1} values(1, '{"ch" : "abcDEF"}'); """
-    sql """ insert into ${indexTbName1} values(2, '{"ch" : "中国人民"}'); """
-    sql """ insert into ${indexTbName1} values(3, '{"ch" : "ǁŨǁe Language"}'); """
-    sql """ insert into ${indexTbName1} values(4, '{"ch" : "RX J1242−11"}'); """
-    sql """ insert into ${indexTbName1} values(5, '{"ch" : "clayfighter 63⅓"}'); """
-    sql """ insert into ${indexTbName1} values(6, '{"ch" : "β-carbon nitrid"}'); """
+    sql """ insert into ${indexTbName1} values(1, ${variantV2Function}('{"ch" : "abcDEF"}')); """
+    sql """ insert into ${indexTbName1} values(2, ${variantV2Function}('{"ch" : "中国人民"}')); """
+    sql """ insert into ${indexTbName1} values(3, ${variantV2Function}('{"ch" : "ǁŨǁe Language"}')); """
+    sql """ insert into ${indexTbName1} values(4, ${variantV2Function}('{"ch" : "RX J1242−11"}')); """
+    sql """ insert into ${indexTbName1} values(5, ${variantV2Function}('{"ch" : "clayfighter 63⅓"}')); """
+    sql """ insert into ${indexTbName1} values(6, ${variantV2Function}('{"ch" : "β-carbon nitrid"}')); """
 
     try {
         trigger_and_wait_compaction(indexTbName1, "full", 1800)
@@ -132,7 +133,7 @@ suite("test_variant_custom_analyzer", "p0") {
         );
     """
 
-    sql """ INSERT INTO ${indexTbName2} VALUES ('3', '{"ch" : "Wikipedia;Miscellaneous-Jj102786 / 3tle Born Oct 27th 1986 @ Blytheville, Arkansas @ 9:14pm 23 yrs of age male,white Cucassion American raised Religion:Pentocostal,Church of God"}'); """
+    sql """ INSERT INTO ${indexTbName2} VALUES ('3', ${variantV2Function}('{"ch" : "Wikipedia;Miscellaneous-Jj102786 / 3tle Born Oct 27th 1986 @ Blytheville, Arkansas @ 9:14pm 23 yrs of age male,white Cucassion American raised Religion:Pentocostal,Church of God"}')); """
 
     try {
         sql "sync"
@@ -156,7 +157,7 @@ suite("test_variant_custom_analyzer", "p0") {
         );
     """
 
-    sql """ INSERT INTO ${indexTbName3} VALUES ('4', '{"ch" : "1080º Avalanche"}'); """
+    sql """ INSERT INTO ${indexTbName3} VALUES ('4', ${variantV2Function}('{"ch" : "1080º Avalanche"}')); """
 
     try {
         sql "sync"

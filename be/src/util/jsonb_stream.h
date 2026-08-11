@@ -163,6 +163,8 @@ public:
 
     pos_type getSize() const { return tellp(); }
 
+    uint64_t allocated_bytes() const { return alloc_ ? capacity_ : 0; }
+
 private:
     void realloc(uint64_t len) {
         assert(capacity_ > 0);

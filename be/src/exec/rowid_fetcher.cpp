@@ -454,6 +454,8 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                   row_location.row_location.row_id);
         for (int x = 0; x < slots.size(); ++x) {
             auto row_id = static_cast<segment_v2::rowid_t>(row_loc.ordinal_id());
+            // The scoped mutation republishes a potentially replaced V2 column when the reader
+            // transfers ownership of its first assembled batch.
             auto column_guard = result_block.mutate_column_scoped(x);
             MutableColumnPtr& column = column_guard.mutable_column();
             IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),

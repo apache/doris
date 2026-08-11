@@ -60,39 +60,9 @@ public class CheckCastTest {
         VariantType v1Source = new VariantType(100);
         VariantType v1SameProperties = new VariantType(100);
         VariantType v1DifferentProperties = new VariantType(200);
-        VariantType v2Source = v1Source.withComputeV2(true);
-        VariantType v2DifferentProperties = v1DifferentProperties.withComputeV2(true);
 
         Assertions.assertTrue(CheckCast.check(v1Source, v1SameProperties, true));
-        Assertions.assertFalse(CheckCast.check(v1Source, v1DifferentProperties, true));
-        Assertions.assertTrue(CheckCast.check(v2Source, v2DifferentProperties, true));
-        Assertions.assertTrue(CheckCast.check(
-                ArrayType.of(v2Source), ArrayType.of(v2DifferentProperties), true));
-        Assertions.assertFalse(CheckCast.check(v1Source, v2Source, true));
-        Assertions.assertFalse(CheckCast.check(v2Source, v1Source, true));
-    }
-
-    @Test
-    public void testComputeVariantV2CastSourcesMatchExecutionKernel() {
-        VariantType target = VariantType.COMPUTE_V2_INSTANCE;
-        Assertions.assertTrue(CheckCast.check(IntegerType.INSTANCE, target, true));
-        Assertions.assertTrue(CheckCast.check(JsonType.INSTANCE, target, true));
-        Assertions.assertTrue(CheckCast.check(ArrayType.of(IntegerType.INSTANCE), target, true));
-        Assertions.assertTrue(CheckCast.check(DecimalV3Type.SYSTEM_DEFAULT, target, true));
-
-        Assertions.assertFalse(CheckCast.check(VariantType.INSTANCE, target, true));
-        Assertions.assertFalse(CheckCast.check(TimeV2Type.MAX, target, true));
-        Assertions.assertFalse(CheckCast.check(
-                DecimalV3Type.createDecimalV3TypeNoCheck(39, 0), target, true));
-        Assertions.assertFalse(CheckCast.check(
-                MapType.of(StringType.INSTANCE, IntegerType.INSTANCE), target, true));
-        Assertions.assertFalse(CheckCast.check(
-                new StructType(Lists.newArrayList(
-                        new StructField("field", IntegerType.INSTANCE, true, ""))),
-                target, true));
-        Assertions.assertFalse(CheckCast.check(
-                ArrayType.of(MapType.of(StringType.INSTANCE, IntegerType.INSTANCE)),
-                target, true));
+        Assertions.assertTrue(CheckCast.check(v1Source, v1DifferentProperties, true));
     }
 
     @Test

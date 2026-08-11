@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -141,18 +142,32 @@ public class TypeCoercionUtilsTest {
 
     @Test
     public void testVariantV2ToJsonImplicitCastRequiresExplicitCast() {
-        Assertions.assertEquals(JsonType.INSTANCE, TypeCoercionUtils.implicitCast(
-                VariantType.INSTANCE, JsonType.INSTANCE).get());
-        Assertions.assertFalse(TypeCoercionUtils.implicitCast(
-                VariantType.COMPUTE_V2_INSTANCE, JsonType.INSTANCE).isPresent());
+        boolean originalEnableVariantV2 = Config.enable_variant_v2;
+        try {
+            Config.enable_variant_v2 = false;
+            Assertions.assertEquals(JsonType.INSTANCE, TypeCoercionUtils.implicitCast(
+                    VariantType.INSTANCE, JsonType.INSTANCE).get());
+            Config.enable_variant_v2 = true;
+            Assertions.assertFalse(TypeCoercionUtils.implicitCast(
+                    VariantType.INSTANCE, JsonType.INSTANCE).isPresent());
+        } finally {
+            Config.enable_variant_v2 = originalEnableVariantV2;
+        }
     }
 
     @Test
     public void testVariantV2ToJsonFunctionSignatureRequiresExplicitCast() {
-        Assertions.assertTrue(ExplicitlyCastableSignature.isExplicitlyCastable(
-                JsonType.INSTANCE, VariantType.INSTANCE));
-        Assertions.assertFalse(ExplicitlyCastableSignature.isExplicitlyCastable(
-                JsonType.INSTANCE, VariantType.COMPUTE_V2_INSTANCE));
+        boolean originalEnableVariantV2 = Config.enable_variant_v2;
+        try {
+            Config.enable_variant_v2 = false;
+            Assertions.assertTrue(ExplicitlyCastableSignature.isExplicitlyCastable(
+                    JsonType.INSTANCE, VariantType.INSTANCE));
+            Config.enable_variant_v2 = true;
+            Assertions.assertFalse(ExplicitlyCastableSignature.isExplicitlyCastable(
+                    JsonType.INSTANCE, VariantType.INSTANCE));
+        } finally {
+            Config.enable_variant_v2 = originalEnableVariantV2;
+        }
     }
 
     @Test
@@ -168,26 +183,33 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
-    public void testVariantCommonTypePreservesLegacyBehavior() {
+    public void testVariantCommonTypeRequiresSameStorageProperties() {
         VariantType v1 = new VariantType(100);
         VariantType anotherV1 = new VariantType(200);
-        VariantType v2 = v1.withComputeV2(true);
-        VariantType anotherV2 = anotherV1.withComputeV2(true);
+        boolean originalEnableVariantV2 = Config.enable_variant_v2;
+        try {
+            Config.enable_variant_v2 = false;
+            Assertions.assertFalse(
+                    TypeCoercionUtils.findWiderTypeForTwo(v1, anotherV1, false, true).isPresent());
+            Assertions.assertFalse(TypeCoercionUtils.findWiderTypeForTwo(
+                    ArrayType.of(v1), ArrayType.of(anotherV1), false, true).isPresent());
 
-        Assertions.assertTrue(v1.hasCommonExecutionTypeWith(anotherV1));
-        Assertions.assertFalse(v1.isCastCompatibleWith(anotherV1));
-        Assertions.assertFalse(TypeCoercionUtils.isNoOpCastCompatible(v1, anotherV1));
-        Assertions.assertTrue(TypeCoercionUtils.isNoOpCastCompatible(v2, anotherV2));
+            Assertions.assertFalse(
+                    TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(v1, anotherV1).isPresent());
+            Assertions.assertFalse(TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
+                    ImmutableList.of(ArrayType.of(v1), ArrayType.of(anotherV1))).isPresent());
 
-        Assertions.assertEquals(anotherV1,
-                TypeCoercionUtils.findWiderTypeForTwo(v1, anotherV1, false, true).get());
-        Assertions.assertEquals(VariantType.COMPUTE_V2_INSTANCE,
-                TypeCoercionUtils.findWiderTypeForTwo(v2, anotherV2, false, true).get());
+            Assertions.assertEquals(v1,
+                    TypeCoercionUtils.findWiderTypeForTwo(v1, new VariantType(100), false, true).get());
 
-        Assertions.assertFalse(TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(
-                v1, anotherV1).isPresent());
-        Assertions.assertEquals(VariantType.COMPUTE_V2_INSTANCE,
-                TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(v2, anotherV2).get());
+            Config.enable_variant_v2 = true;
+            Assertions.assertEquals(anotherV1,
+                    TypeCoercionUtils.findWiderTypeForTwo(v1, anotherV1, false, true).get());
+            Assertions.assertEquals(ArrayType.of(anotherV1), TypeCoercionUtils.findWiderTypeForTwo(
+                    ArrayType.of(v1), ArrayType.of(anotherV1), false, true).get());
+        } finally {
+            Config.enable_variant_v2 = originalEnableVariantV2;
+        }
     }
 
     @Test
@@ -292,7 +314,6 @@ public class TypeCoercionUtilsTest {
                 TypeCoercionUtils.castIfNotSameType(new CharLiteral("char", 4), VarcharType.createVarcharType(100)));
         Assertions.assertEquals(new StringLiteral("string"),
                 TypeCoercionUtils.castIfNotSameType(new StringLiteral("string"), VarcharType.createVarcharType(100)));
-
     }
 
     @Test
@@ -383,51 +404,56 @@ public class TypeCoercionUtilsTest {
 
     @Test
     public void testVariantV2ComparisonRequiresExplicitCast() {
-        SlotReference legacyVariant = new SlotReference("legacy_v", VariantType.INSTANCE);
-        SlotReference variant = new SlotReference("v", VariantType.COMPUTE_V2_INSTANCE);
-        SlotReference anotherVariant = new SlotReference("v2", VariantType.COMPUTE_V2_INSTANCE);
+        boolean originalEnableVariantV2 = Config.enable_variant_v2;
+        Config.enable_variant_v2 = true;
+        SlotReference variant = new SlotReference("v", VariantType.INSTANCE);
+        SlotReference anotherVariant = new SlotReference("v2", VariantType.INSTANCE);
         SlotReference integer = new SlotReference("i", IntegerType.INSTANCE);
         ElementAt variantSubpath = new ElementAt(variant, new StringLiteral("c"));
         ElementAt anotherVariantSubpath = new ElementAt(anotherVariant, new StringLiteral("c"));
+        try {
+            AnalysisException equality = Assertions.assertThrows(AnalysisException.class,
+                    () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, anotherVariant)));
+            Assertions.assertTrue(equality.getMessage().contains("CAST to a concrete type first"));
 
-        AnalysisException equality = Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, anotherVariant)));
-        Assertions.assertTrue(equality.getMessage().contains("CAST to a concrete type first"));
+            AnalysisException nullSafeEquality = Assertions.assertThrows(AnalysisException.class,
+                    () -> TypeCoercionUtils.processComparisonPredicate(new NullSafeEqual(variant, anotherVariant)));
+            Assertions.assertTrue(nullSafeEquality.getMessage().contains("CAST to a concrete type first"));
 
-        AnalysisException nullSafeEquality = Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(new NullSafeEqual(variant, anotherVariant)));
-        Assertions.assertTrue(nullSafeEquality.getMessage().contains("CAST to a concrete type first"));
+            AnalysisException mixedType = Assertions.assertThrows(AnalysisException.class,
+                    () -> TypeCoercionUtils.processComparisonPredicate(new GreaterThan(variant, integer)));
+            Assertions.assertTrue(mixedType.getMessage().contains("could not used in ComparisonPredicate"));
+            Assertions.assertTrue(mixedType.getMessage().contains("CAST to a concrete type first"));
 
-        AnalysisException mixedType = Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(new GreaterThan(variant, integer)));
-        Assertions.assertTrue(mixedType.getMessage().contains("could not used in ComparisonPredicate"));
-        Assertions.assertTrue(mixedType.getMessage().contains("CAST to a concrete type first"));
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> TypeCoercionUtils.processComparisonPredicate(
+                            new GreaterThan(variant, anotherVariant)));
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, integer)));
 
-        Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(
-                        new GreaterThan(variant, anotherVariant)));
-        Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, integer)));
+            Expression subpathComparison = TypeCoercionUtils.processComparisonPredicate(
+                    new EqualTo(variantSubpath, integer));
+            Assertions.assertTrue(subpathComparison instanceof EqualTo);
+            Assertions.assertTrue(subpathComparison.child(0) instanceof Cast);
+            Assertions.assertFalse(subpathComparison.child(0).getDataType().isVariantType());
+            Assertions.assertEquals(subpathComparison.child(0).getDataType(),
+                    subpathComparison.child(1).getDataType());
 
-        Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
-                new EqualTo(legacyVariant, integer)));
-        Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
-                new GreaterThan(legacyVariant, integer)));
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> TypeCoercionUtils.processComparisonPredicate(
+                            new EqualTo(variantSubpath, anotherVariantSubpath)));
 
-        Expression subpathComparison = TypeCoercionUtils.processComparisonPredicate(
-                new EqualTo(variantSubpath, integer));
-        Assertions.assertTrue(subpathComparison instanceof EqualTo);
-        Assertions.assertTrue(subpathComparison.child(0) instanceof Cast);
-        Assertions.assertFalse(subpathComparison.child(0).getDataType().isVariantType());
-        Assertions.assertEquals(subpathComparison.child(0).getDataType(),
-                subpathComparison.child(1).getDataType());
+            Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
+                    new GreaterThan(new Cast(variant, IntegerType.INSTANCE), integer)));
 
-        Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(
-                        new EqualTo(variantSubpath, anotherVariantSubpath)));
-
-        Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
-                new GreaterThan(new Cast(variant, IntegerType.INSTANCE), integer)));
+            Config.enable_variant_v2 = false;
+            Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
+                    new EqualTo(variant, integer)));
+            Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
+                    new GreaterThan(variant, integer)));
+        } finally {
+            Config.enable_variant_v2 = originalEnableVariantV2;
+        }
     }
 
     @Test

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_write_variant_dml", "p0,external,paimon") {
+suite("test_paimon_write_variant_dml", "p0,external,paimon,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
@@ -64,12 +64,12 @@ suite("test_paimon_write_variant_dml", "p0,external,paimon") {
     """
     sql """SWITCH ${catalogName}"""
     sql """USE ${dbName}"""
-    sql """SET enable_variant_v2 = true"""
-    sql """SET force_jni_scanner = true"""
 
     try {
-        // INSERT SELECT preserves the V2 value and metadata buffers without routing
-        // through an internal OLAP Variant column, whose storage format is legacy V1.
+        setFeConfigTemporary([enable_variant_v2: true]) {
+            assertTrue(getFeConfig("enable_variant_v2").toBoolean())
+            sql """SET force_jni_scanner = true"""
+        // INSERT SELECT preserves the V2 value and metadata buffers through the Paimon sink.
         sql """
             INSERT INTO t_variant_dml (id, payload, pt)
             SELECT 1, parse_to_variant('{"source":"direct","n":1}'), 'p1'
@@ -178,6 +178,7 @@ suite("test_paimon_write_variant_dml", "p0,external,paimon") {
         """
         qt_variant_empty_overwrite """SELECT COUNT(*) FROM t_variant_overwrite"""
 
+        }
     } finally {
         sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
