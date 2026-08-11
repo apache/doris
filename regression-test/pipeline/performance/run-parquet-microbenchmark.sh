@@ -75,6 +75,8 @@ if [[ "${PARQUET_MICROBENCHMARK_IN_CONTAINER:-false}" != true ]]; then
 
         local docker_image="${performance_docker_image:-apache/doris:build-env-ldb-toolchain-latest}"
         local docker_name="parquet-microbenchmark-${TEAMCITY_BUILD_ID:-${commit_id_from_trigger:-manual}}"
+        local toolchain_dir=/tmp/parquet-ldb-toolchain-v0.26
+        local toolchain_script=/tmp/ldb_toolchain_gen.sh
         local git_storage_path
         git_storage_path=$(grep storage "${teamcity_build_checkoutDir}"/.git/config |
             rev | cut -d ' ' -f 1 | rev | awk -F '/lfs' '{print $1}')
@@ -107,6 +109,7 @@ if [[ "${PARQUET_MICROBENCHMARK_IN_CONTAINER:-false}" != true ]]; then
 
         sudo docker run -i --rm \
             --name "${docker_name}" \
+            --network=host \
             "${docker_environment[@]}" \
             -v /mnt/ccache/.ccache:/root/.ccache \
             -v "${performance_remote_ccache}":/root/ccache \
@@ -115,6 +118,10 @@ if [[ "${PARQUET_MICROBENCHMARK_IN_CONTAINER:-false}" != true ]]; then
             "${docker_image}" \
             /bin/bash -o pipefail -c "mkdir -p ${git_storage_path} \
                 && cp -r /root/git/* ${git_storage_path}/ \
+                && wget -c -t3 -q -O ${toolchain_script} https://doris-regression-hk.oss-cn-hongkong-internal.aliyuncs.com/tools/ldb-toolchain/v0.26/ldb_toolchain_gen.sh \
+                && bash ${toolchain_script} ${toolchain_dir} \
+                && export DORIS_GCC_HOME=${toolchain_dir} \
+                && export PATH=${toolchain_dir}/bin:\$PATH \
                 && bash /root/doris/regression-test/pipeline/performance/run-parquet-microbenchmark.sh"
     }
 
