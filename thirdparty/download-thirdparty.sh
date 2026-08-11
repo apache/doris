@@ -101,7 +101,14 @@ fi
 
 md5sum_bin='md5sum'
 if ! command -v "${md5sum_bin}" >/dev/null 2>&1; then
-    echo "Warn: md5sum is not installed"
+    # macOS ships BSD md5 rather than GNU md5sum. Giving up on verification there
+    # is not a neutral loss: `wget -O` creates its output file before the transfer,
+    # so a failed download leaves a 0-byte file behind, and an unverified retry
+    # then reports it as a valid cached archive and carries on.
+    md5sum_bin='md5'
+fi
+if ! command -v "${md5sum_bin}" >/dev/null 2>&1; then
+    echo "Warn: neither md5sum nor md5 is installed, archives will not be verified"
     md5sum_bin=""
 fi
 
@@ -113,13 +120,18 @@ md5sum_func() {
 
     if [[ "${md5sum_bin}" == "" ]]; then
         return 0
+    fi
+
+    # Compare the digest alone, the two tools disagree on everything around it.
+    if [[ "${md5sum_bin}" == 'md5' ]]; then
+        md5="$("${md5sum_bin}" -q "${DESC_DIR}/${FILENAME}")"
     else
-        md5="$(md5sum "${DESC_DIR}/${FILENAME}")"
-        if [[ "${md5}" != "${MD5SUM}  ${DESC_DIR}/${FILENAME}" ]]; then
-            echo "${DESC_DIR}/${FILENAME} md5sum check failed!"
-            echo -e "except-md5 ${MD5SUM} \nactual-md5 ${md5}"
-            return 1
-        fi
+        md5="$("${md5sum_bin}" "${DESC_DIR}/${FILENAME}" | awk '{ print $1 }')"
+    fi
+    if [[ "${md5}" != "${MD5SUM}" ]]; then
+        echo "${DESC_DIR}/${FILENAME} md5sum check failed!"
+        echo -e "except-md5 ${MD5SUM} \nactual-md5 ${md5}"
+        return 1
     fi
     return 0
 }
