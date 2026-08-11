@@ -140,19 +140,33 @@ public enum ConnectorCapability {
      *
      * <p>The nereids nested-column-prune probe ({@code LogicalFileScan.supportPruneNestedColumn}) enables it
      * for a plugin-driven table only when its connector declares this (replacing the legacy exact-class
-     * {@code IcebergExternalTable} arm). It is only correct when the connector also carries a stable per-field
-     * id down its column tree (top-level via {@link ConnectorColumn#withUniqueId} + nested via
-     * {@link ConnectorType#withChildrenFieldIds}), because the engine rewrites the nested access path from
-     * field <em>names</em> to those ids ({@code SlotTypeReplacer}) and the BE field-id scan path matches
-     * nested leaves by id — an un-translated (name / {@code -1}) leaf is skipped and returns NULL. Row/
-     * passthrough connectors (e.g. JDBC, ES) and connectors that do not carry nested field ids must NOT
-     * declare it.</p>
+     * {@code IcebergExternalTable} arm). Declaring it says the connector's readers honour a pruned nested type
+     * — nothing about HOW the nested access paths are addressed. A connector whose column tree also carries
+     * stable field ids declares {@link #SUPPORTS_FIELD_ID_ACCESS_PATH} in addition; one that is matched by
+     * NAME (paimon, fluss) declares this alone, and BE resolves its access paths by name. Row/passthrough
+     * connectors (e.g. JDBC, ES) declare neither.</p>
      *
      * <p><b>Scope: catalog-wide OR per-table.</b> hive declares it per-table because eligibility is
      * orc/parquet-only; blanket-declaring it for a mixed catalog would be a correctness bug, not just an
-     * over-admission — a text/json table has no field ids, so pruned leaves would read back NULL.</p>
+     * over-admission — a text/json table cannot be read as a pruned nested type at all.</p>
      */
     SUPPORTS_NESTED_COLUMN_PRUNE,
+    /**
+     * Indicates the connector carries a stable field id down its whole column tree, so the engine may rewrite
+     * a nested access path from field <em>names</em> to those ids.
+     *
+     * <p>{@code SlotTypeReplacer} performs that rewrite for a plugin-driven scan only when its connector
+     * declares this, reading {@code Column.getUniqueId()} / {@code getChildren()} — which the connector
+     * populates via {@link ConnectorColumn#withUniqueId} (top level) and
+     * {@link ConnectorType#withChildrenFieldIds} (nested). Declaring it WITHOUT those ids rewrites every path
+     * segment to {@code "-1"}, which BE matches neither as an id nor as a name, so the pruned leaves read
+     * back NULL. It is meaningless without {@link #SUPPORTS_NESTED_COLUMN_PRUNE}, which is what generates the
+     * paths in the first place.
+     *
+     * <p><b>Scope: catalog-wide OR per-table</b>, mirroring {@link #SUPPORTS_NESTED_COLUMN_PRUNE} — the two
+     * are resolved together and a delegated (iceberg-on-HMS) table must inherit both or neither.</p>
+     */
+    SUPPORTS_FIELD_ID_ACCESS_PATH,
     /**
      * Indicates the connector's external metadata (schema / partitions / snapshot) can be pre-warmed
      * asynchronously by the planner before it takes the internal read lock, rather than loaded lazily
