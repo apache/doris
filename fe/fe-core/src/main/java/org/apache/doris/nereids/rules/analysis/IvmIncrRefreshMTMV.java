@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.mtmv.ivm.DryRunLimit;
 import org.apache.doris.mtmv.ivm.IvmDeltaRewriteHelper;
 import org.apache.doris.mtmv.ivm.IvmDeltaRewriter;
+import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmInfo;
@@ -85,9 +85,9 @@ public class IvmIncrRefreshMTMV implements CustomRewriter {
             // plan is executable as a plain query.
             Plan rewritten = newDeltaRewriter().generateIncrRefreshPlan(
                     plan, rewriteResult, rewriteContext, connectContext);
-            Optional<DryRunLimit> dryRunLimit = rewriteContext.getDryRunLimit();
+            Optional<IvmDryRunLimit> dryRunLimit = rewriteContext.getDryRunLimit();
             if (dryRunLimit.isPresent()) {
-                DryRunLimit limit = dryRunLimit.get();
+                IvmDryRunLimit limit = dryRunLimit.get();
                 rewritten = new LogicalLimit<>(limit.getCount(), limit.getOffset(),
                         LimitPhase.ORIGIN, (LogicalPlan) rewritten);
             }

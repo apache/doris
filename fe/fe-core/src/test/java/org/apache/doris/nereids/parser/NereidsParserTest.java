@@ -23,7 +23,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.mtmv.ivm.DryRunLimit;
+import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
@@ -140,17 +140,17 @@ public class NereidsParserTest extends ParserTestBase {
 
         RefreshMTMVCommand limit = (RefreshMTMVCommand) nereidsParser.parseSingle(
                 "REFRESH MATERIALIZED VIEW mv INCREMENTAL WITH DRY RUN LIMIT 10");
-        Assertions.assertEquals(new DryRunLimit(0, 10).toString(),
+        Assertions.assertEquals(new IvmDryRunLimit(0, 10).toString(),
                 limit.getDryRunLimit().get().toString());
 
         RefreshMTMVCommand offsetLimit = (RefreshMTMVCommand) nereidsParser.parseSingle(
                 "REFRESH MATERIALIZED VIEW mv INCREMENTAL WITH DRY RUN LIMIT 3, 10");
-        Assertions.assertEquals(new DryRunLimit(3, 10).toString(),
+        Assertions.assertEquals(new IvmDryRunLimit(3, 10).toString(),
                 offsetLimit.getDryRunLimit().get().toString());
 
         RefreshMTMVCommand offsetKeywordLimit = (RefreshMTMVCommand) nereidsParser.parseSingle(
                 "REFRESH MATERIALIZED VIEW mv INCREMENTAL WITH DRY RUN LIMIT 10 OFFSET 3");
-        Assertions.assertEquals(new DryRunLimit(3, 10).toString(),
+        Assertions.assertEquals(new IvmDryRunLimit(3, 10).toString(),
                 offsetKeywordLimit.getDryRunLimit().get().toString());
 
         RefreshMTMVCommand ordinaryRefresh = (RefreshMTMVCommand) nereidsParser.parseSingle(

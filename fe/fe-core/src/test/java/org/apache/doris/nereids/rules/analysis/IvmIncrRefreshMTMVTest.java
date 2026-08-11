@@ -20,8 +20,8 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.mtmv.ivm.DryRunLimit;
 import org.apache.doris.mtmv.ivm.IvmDeltaRewriter;
+import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmInfo;
@@ -132,7 +132,7 @@ class IvmIncrRefreshMTMVTest {
                 ImmutableList.of(new org.apache.doris.nereids.trees.expressions.Alias(
                         scan.getOutput().get(0), scan.getOutput().get(0).getName())), scan);
         RecordingRule rule = new RecordingRule(deltaPlan);
-        DryRunLimit dryRunLimit = new DryRunLimit(3, 10);
+        IvmDryRunLimit dryRunLimit = new IvmDryRunLimit(3, 10);
 
         Plan result = rule.rewriteRoot(scan, newJobContext(scan,
                 IvmRewriteContext.incrementalDryRun(mtmv, Optional.of(dryRunLimit)),
@@ -150,7 +150,7 @@ class IvmIncrRefreshMTMVTest {
 
     @Test
     void testDryRunLimitZeroIsAllowedLikeSelectLimit() {
-        DryRunLimit dryRunLimit = new DryRunLimit(0, 0);
+        IvmDryRunLimit dryRunLimit = new IvmDryRunLimit(0, 0);
         Assertions.assertEquals(0, dryRunLimit.getOffset());
         Assertions.assertEquals(0, dryRunLimit.getCount());
 

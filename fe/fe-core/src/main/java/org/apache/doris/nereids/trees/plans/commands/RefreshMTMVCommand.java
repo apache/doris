@@ -30,7 +30,7 @@ import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVUtil;
-import org.apache.doris.mtmv.ivm.DryRunLimit;
+import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -64,7 +64,7 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
     // Dry run computes the delta query and streams rows back without writing anything.
     private final boolean dryRun;
     // Only used when dryRun is true: optional offset/count cap for the returned delta rows.
-    private final Optional<DryRunLimit> dryRunLimit;
+    private final Optional<IvmDryRunLimit> dryRunLimit;
     private Plan explainPlan;
     private Optional<NereidsPlanner> explainPlanner = Optional.empty();
 
@@ -77,7 +77,7 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
     }
 
     public RefreshMTMVCommand(RefreshMTMVInfo refreshMTMVInfo, boolean includeExhaustedStreams,
-            boolean dryRun, Optional<DryRunLimit> dryRunLimit) {
+            boolean dryRun, Optional<IvmDryRunLimit> dryRunLimit) {
         super(PlanType.REFRESH_MTMV_COMMAND);
         this.refreshMTMVInfo = Objects.requireNonNull(refreshMTMVInfo, "require refreshMTMVInfo object");
         this.includeExhaustedStreams = includeExhaustedStreams;
@@ -215,7 +215,7 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
         return dryRun;
     }
 
-    public Optional<DryRunLimit> getDryRunLimit() {
+    public Optional<IvmDryRunLimit> getDryRunLimit() {
         return dryRunLimit;
     }
 
