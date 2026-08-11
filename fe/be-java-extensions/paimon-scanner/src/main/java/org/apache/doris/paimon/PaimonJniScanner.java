@@ -39,7 +39,9 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
 import org.apache.paimon.table.system.SystemTableLoader;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +58,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
@@ -192,11 +195,30 @@ public class PaimonJniScanner extends JniScanner {
                             fields.length, paimonAllFieldNames.size()));
         }
         int[] projected = getProjected();
-        readBuilder.withProjection(projected);
+        List<DataField> readFields = new ArrayList<>(projected.length);
+        boolean hasReadTypeProjection = false;
+        for (int outputIndex = 0; outputIndex < projected.length; outputIndex++) {
+            DataField tableField = table.rowType().getFields().get(projected[outputIndex]);
+            // The engine may have pruned this complex column down to the sub-fields the query touches.
+            // Mirroring that shape with paimon's own types lets withReadType push the same projection
+            // through the ROW/ARRAY/MAP readers instead of reading the whole column and discarding it.
+            DataType projectedType =
+                    PaimonReadTypeProjection.project(tableField.type(), types[outputIndex]);
+            if (projectedType != tableField.type()) {
+                hasReadTypeProjection = true;
+            }
+            readFields.add(tableField.newType(projectedType));
+        }
+        if (hasReadTypeProjection) {
+            readBuilder.withReadType(new RowType(readFields));
+        } else {
+            readBuilder.withProjection(projected);
+        }
         readBuilder.withFilter(getPredicates());
         reader = newReadWithOptionalIOManager(readBuilder).executeFilter().createReader(getSplit());
-        paimonDataTypeList =
-                Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
+        // Decode with the types that were REQUESTED, not the table's: a pruned nested column comes back
+        // narrow, and taking table.rowType() here would misalign every one of them.
+        paimonDataTypeList = readFields.stream().map(DataField::type).collect(Collectors.toList());
     }
 
     private TableRead newReadWithOptionalIOManager(ReadBuilder readBuilder) throws IOException {
