@@ -390,7 +390,7 @@ void ExchangeSinkBuffer::_construct_request(InstanceLoId id, PUniqueId finst_id)
 }
 
 void ExchangeSinkBuffer::_ended(InstanceLoId id) {
-    if (!_instance_to_package_queue_mutex.template contains(id)) {
+    if (!_instance_to_package_queue_mutex.contains(id)) {
         std::stringstream ss;
         ss << "failed find the instance id:" << id
            << " now mutex map size:" << _instance_to_package_queue_mutex.size();
