@@ -169,13 +169,22 @@ public class LanceIndexMetadataLoaderTest {
                         Collections.emptyMap()));
         Assertions.assertTrue(columns.getMessage().contains("64"));
 
-        IndexDescription one = description(
-                "idx", Collections.singletonList(1), "BTREE", null);
+        List<IndexDescription> atLimit = new ArrayList<>();
+        for (int index = 0; index < 256; ++index) {
+            atLimit.add(description(
+                    "idx_" + index, Collections.singletonList(1), "BTREE", null));
+        }
+        Assertions.assertEquals(256,
+                LanceIndexMetadataLoader.normalize(atLimit, fieldNames("alpha")).size());
+
+        List<IndexDescription> overLimit = new ArrayList<>(atLimit);
+        overLimit.add(description(
+                "idx_over_limit", Collections.singletonList(1), "BTREE", null));
         IllegalArgumentException indexes = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> LanceIndexMetadataLoader.normalize(
-                        Collections.nCopies(10_001, one), fieldNames("alpha")));
-        Assertions.assertTrue(indexes.getMessage().contains("10000"));
+                        overLimit, fieldNames("alpha")));
+        Assertions.assertTrue(indexes.getMessage().contains("256"));
     }
 
     @Test
