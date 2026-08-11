@@ -23,7 +23,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -253,10 +252,10 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     @Override
     public Plan visitLogicalOlapScan(LogicalOlapScan scan, NormalizeContext context) {
         OlapTable table = scan.getTable();
-        Pair<Expression, Boolean> rowId = buildRowId(table, scan);
+        ScanRowId scanRowId = computeScanRowIdAndKeys(table, scan);
         validateBinlogEnabled(scan);
-        Alias rowIdAlias = new Alias(rowId.first, Column.IVM_ROW_ID_COL);
-        rewriteResult.addRowId(rowIdAlias.toSlot(), rowId.second);
+        Alias rowIdAlias = new Alias(scanRowId.rowIdExpr, Column.IVM_ROW_ID_COL);
+        rewriteResult.addRowId(rowIdAlias.toSlot(), scanRowId.deterministic);
         List<NamedExpression> outputs = ImmutableList.<NamedExpression>builder()
                 .add(rowIdAlias)
                 .addAll(scan.getOutput().stream()
@@ -265,14 +264,11 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                 .build();
         LogicalProject<?> result = new LogicalProject<>(outputs, scan);
         if (useFullKeys && !context.isInsideAggregate) {
-            identityKeysByNode.put(result, scanIdentityKeys(table, scan));
+            // remainKeys excludes the base table's own row-id column, so cascading
+            // MVs never accumulate ancestor row-id columns in their unique keys.
+            identityKeysByNode.put(result, scanRowId.remainKeys);
         }
         return result;
-    }
-
-    private List<Slot> scanIdentityKeys(OlapTable table, LogicalOlapScan scan) {
-        Pair<List<Slot>, Boolean> identity = computeBaseIdentityKeys(table, scan);
-        return identity.second ? identity.first : ImmutableList.of();
     }
 
     @Override
@@ -944,29 +940,36 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     }
 
     /**
-     * Builds the row-id expression and returns whether it is deterministic as a pair.
-     * - UNIQUE_KEYS (MOW or excluded): (buildRowIdHash(uk...), true)      — stable across refreshes
-     * - DUP_KEYS: (UuidNumeric(), false)                                  — random per insert
-     * - Excluded AGG_KEYS: (buildRowIdHash(agg key...), true)             — stable across refreshes
-     * - Other key types: throws IvmException (unless excluded trigger table)
+     * Scan-level row-id computation result: the row-id expression, the remaining identity key
+     * slots (the base table's key columns excluding the IVM row-id column), and whether the
+     * row-id is deterministic.
      */
-    private Pair<Expression, Boolean> buildRowId(OlapTable table, LogicalOlapScan scan) {
-        Pair<List<Slot>, Boolean> identity = computeBaseIdentityKeys(table, scan);
-        if (!identity.second) {
-            return Pair.of(new UuidNumeric(), false);
+    final class ScanRowId {
+        final Expression rowIdExpr;
+        final List<Slot> remainKeys;
+        final boolean deterministic;
+
+        ScanRowId(Expression rowIdExpr, List<Slot> remainKeys, boolean deterministic) {
+            this.rowIdExpr = rowIdExpr;
+            this.remainKeys = remainKeys;
+            this.deterministic = deterministic;
         }
-        return Pair.of(IvmUtil.buildRowIdHash(identity.first), true);
     }
 
     /**
-     * Computes the base-table identity key slots and whether the row-id is deterministic.
-     * Returns (identityKeySlots, deterministic):
-     * - UNIQUE_KEYS (MOW or excluded): (uk slots, true)
-     * - DUP_KEYS: (empty, false)
-     * - Excluded AGG_KEYS: (agg-key slots, true)
+     * Computes the scan-level IVM row-id expression, the remaining identity key slots, and
+     * whether the row-id is deterministic:
+     * - UNIQUE_KEYS (MOW or excluded): (row-id over the uk slots, uk slots minus row-id, true)
+     * - DUP_KEYS: (UuidNumeric(), empty, false)
+     * - Excluded AGG_KEYS: (row-id over the agg-key slots, agg-key slots, true)
      * - Other key types: throws IvmException
+     *
+     * <p>When the base table's only key column is the IVM row-id itself (an IVM MV created
+     * without ivm_use_full_keys), the stored row-id is passed through directly instead of
+     * hashing it again. The remaining identity keys exclude the row-id column, so cascading
+     * MVs never accumulate ancestor row-id columns in their unique keys.
      */
-    private Pair<List<Slot>, Boolean> computeBaseIdentityKeys(OlapTable table, LogicalOlapScan scan) {
+    private ScanRowId computeScanRowIdAndKeys(OlapTable table, LogicalOlapScan scan) {
         KeysType keysType = table.getKeysType();
         boolean isExcluded = isExcludedTriggerTable(scan);
         if (keysType == KeysType.UNIQUE_KEYS) {
@@ -978,13 +981,13 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                                 + " If this table does not participate in incremental refresh, "
                                 + "add it to 'excluded_trigger_tables'.");
             }
-            return Pair.of(baseKeySlots(table, scan), true);
+            return buildDeterministicScanRowIdAndKeys(table, scan);
         }
         if (keysType == KeysType.DUP_KEYS) {
-            return Pair.of(ImmutableList.of(), false);
+            return new ScanRowId(new UuidNumeric(), ImmutableList.of(), false);
         }
         if (keysType == KeysType.AGG_KEYS && isExcluded) {
-            return Pair.of(baseKeySlots(table, scan), true);
+            return buildDeterministicScanRowIdAndKeys(table, scan);
         }
         throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                 "INCREMENTAL materialized view requires base tables to be "
@@ -994,7 +997,8 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                         + "add it to 'excluded_trigger_tables'.");
     }
 
-    private List<Slot> baseKeySlots(OlapTable table, LogicalOlapScan scan) {
+    private ScanRowId buildDeterministicScanRowIdAndKeys(
+            OlapTable table, LogicalOlapScan scan) {
         // Use full schema because MTMV key columns (row-id) are hidden.
         Set<String> keyColNames = table.getBaseSchema(true).stream()
                 .filter(Column::isKey)
@@ -1008,7 +1012,14 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                     "IVM: no key columns found for "
                     + table.getKeysType() + " table: " + table.getName());
         }
-        return keySlots;
+        List<Slot> remainKeys = keySlots.stream()
+                .filter(slot -> !Column.IVM_ROW_ID_COL.equalsIgnoreCase(slot.getName()))
+                .collect(ImmutableList.toImmutableList());
+        Expression rowIdExpr = (keySlots.size() == 1
+                && Column.IVM_ROW_ID_COL.equalsIgnoreCase(keySlots.get(0).getName()))
+                ? keySlots.get(0)
+                : IvmUtil.buildRowIdHash(keySlots);
+        return new ScanRowId(rowIdExpr, remainKeys, true);
     }
 
     private void validateBinlogEnabled(LogicalOlapScan scan) {
