@@ -1410,6 +1410,81 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void ignoreJniDropsVariantSplitBeforeCompatibilityCheck(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("payload", DataTypes.BIGINT())
+                    .option("bucket", "-1")
+                    .option("file.format", "orc")
+                    .build(), false);
+            Table storageTable = catalog.getTable(id);
+            BatchWriteBuilder wb = storageTable.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RowType variantRowType = RowType.builder()
+                    .field("id", DataTypes.INT())
+                    .field("payload", new org.apache.paimon.types.VariantType())
+                    .build();
+            // The local Paimon test writer cannot materialize Variant values. Keep its real ORC
+            // split while overriding only the planning schema so this test reaches Doris routing.
+            Table planningTable = (Table) java.lang.reflect.Proxy.newProxyInstance(
+                    Table.class.getClassLoader(), new Class<?>[] {Table.class}, (proxy, method, args) -> {
+                        if ("rowType".equals(method.getName())) {
+                            return variantRowType;
+                        }
+                        if ("copy".equals(method.getName())) {
+                            return proxy;
+                        }
+                        try {
+                            return method.invoke(storageTable, args);
+                        } catch (java.lang.reflect.InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    });
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = planningTable;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            ConnectorSession session = sessionWithProps(
+                    Collections.singletonMap("ignore_split_type", "IGNORE_JNI"));
+
+            List<ConnectorScanRange> ranges = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("payload", 1)))
+                    .build());
+
+            // IGNORE_JNI is a planning escape hatch: a discarded JNI-only split must not be
+            // rejected for lacking a Variant carrier that will never be instantiated.
+            Assertions.assertTrue(ranges.isEmpty(),
+                    "ignored JNI Variant splits must be dropped before compatibility validation");
+
+            // Set the serialized force-JNI hint directly to cover the earlier system-table fence
+            // without requiring a live Paimon system-table implementation in this routing test.
+            PaimonTableHandle forcedHandle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList(), null, true);
+            List<ConnectorScanRange> forcedRanges = provider.planScan(session,
+                    ConnectorScanRequest.builder(forcedHandle,
+                            Collections.singletonList(new PaimonColumnHandle("payload", 1)))
+                    .build());
+            Assertions.assertTrue(forcedRanges.isEmpty(),
+                    "ignored force-JNI Variant scans must bypass the system-table carrier fence");
+        }
+    }
+
+    @Test
     public void ignoreNativeDropsNativeSplit(@TempDir Path warehouse) throws Exception {
         // FIX-L14: an append-only table's DataSplit is native-eligible; ignore_split_type=IGNORE_NATIVE must
         // drop it (legacy PaimonScanNode.getSplits:443). MUTATION: not honoring IGNORE_NATIVE -> the native

@@ -631,7 +631,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         boolean hasVariantProjection = Arrays.stream(projected)
                 .filter(index -> index >= 0)
                 .anyMatch(index -> containsVariant(rowType.getTypeAt(index)));
-        if (hasVariantProjection && paimonHandle.isForceJni()) {
+
+        // FIX-L14: honor the ignore_split_type debugging escape hatch (legacy PaimonScanNode.getSplits):
+        // IGNORE_JNI drops JNI splits (nonDataSplit + DataSplit-JNI arms), IGNORE_NATIVE drops native splits.
+        // The COUNT(*) arm is never dropped (legacy parity); IGNORE_PAIMON_CPP stays a no-op (legacy getSplits
+        // never consulted it). Read once here so discarded JNI splits bypass carrier compatibility checks.
+        String ignoreSplitType = resolveIgnoreSplitType(session);
+        boolean ignoreJni = IGNORE_SPLIT_TYPE_JNI.equals(ignoreSplitType);
+        boolean ignoreNative = IGNORE_SPLIT_TYPE_NATIVE.equals(ignoreSplitType);
+
+        if (hasVariantProjection && paimonHandle.isForceJni() && !ignoreJni) {
             // System-table forceJni preserves row-kind/sequence semantics that raw files cannot reproduce;
             // Variant has no JNI carrier, so failing is safer than silently changing those semantics.
             throw new DorisConnectorException(
@@ -687,14 +696,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
 
-        // FIX-L14: honor the ignore_split_type debugging escape hatch (legacy PaimonScanNode.getSplits):
-        // IGNORE_JNI drops JNI splits (nonDataSplit + DataSplit-JNI arms), IGNORE_NATIVE drops native splits.
-        // The COUNT(*) arm is never dropped (legacy parity); IGNORE_PAIMON_CPP stays a no-op (legacy getSplits
-        // never consulted it). Read once here, null-tolerant like the flags above.
-        String ignoreSplitType = resolveIgnoreSplitType(session);
-        boolean ignoreJni = IGNORE_SPLIT_TYPE_JNI.equals(ignoreSplitType);
-        boolean ignoreNative = IGNORE_SPLIT_TYPE_NATIVE.equals(ignoreSplitType);
-
         // FIX-REST-VENDED-URI-NORMALIZE (P9-1): extract the per-table vended token ONCE per scan
         // (validToken() may refresh; legacy computes its storage map once in doInitialize), threaded into
         // the native-path URI normalization below so REST object-store reads normalize via the vended
@@ -712,13 +713,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         // Non-DataSplit → always JNI
         for (Split split : nonDataSplits) {
-            if (hasVariantProjection) {
-                throw new DorisConnectorException(
-                        "Paimon Variant columns require native Parquet data files");
-            }
             if (ignoreJni) {
                 // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:401).
                 continue;
+            }
+            if (hasVariantProjection) {
+                throw new DorisConnectorException(
+                        "Paimon Variant columns require native Parquet data files");
             }
             ranges.add(buildJniScanRange(split, defaultFileFormat,
                     Collections.emptyMap(), false, weightDenominator));
@@ -787,13 +788,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 }
             } else {
                 // JNI reader path
-                if (hasVariantProjection) {
-                    throw new DorisConnectorException(
-                            "Paimon Variant columns require native Parquet data files");
-                }
                 if (ignoreJni) {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
+                }
+                if (hasVariantProjection) {
+                    throw new DorisConnectorException(
+                            "Paimon Variant columns require native Parquet data files");
                 }
                 ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
                         partitionValues, true, weightDenominator));
