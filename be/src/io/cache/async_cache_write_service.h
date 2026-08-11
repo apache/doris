@@ -285,6 +285,8 @@ private:
     std::atomic<size_t> _active_finalize_count {0};
     std::atomic<bool> _accepting {true};
     std::atomic<size_t> _active_submitters {0};
+    // Atomic for checks outside `_queue_mutex`, but the transition to true is made while holding
+    // `_queue_mutex` so it cannot race with a worker entering `_queue_cv.wait()`.
     std::atomic<bool> _shutdown_requested {false};
     std::atomic<bool> _started {false};
     std::atomic<uint64_t> _cache_epoch {1};
