@@ -104,7 +104,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     private boolean hasPartitionPredicate = false;
 
     // support multi topn filter
-    protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
+    protected final List<PlanNode> topnFilterSourceNodes = Lists.newArrayList();
 
     protected TableSnapshot tableSnapshot;
     protected List<Column> columns;
@@ -716,24 +716,24 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected void toThrift(TPlanNode msg) {
         // topn filter
         if (useTopnFilter()) {
-            List<Integer> topnFilterSourceNodeIds = getTopnFilterSortNodes()
+            List<Integer> topnFilterSourceNodeIds = getTopnFilterSourceNodes()
                     .stream()
-                    .map(sortNode -> sortNode.getId().asInt())
+                    .map(sourceNode -> sourceNode.getId().asInt())
                     .collect(Collectors.toList());
             msg.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
         }
     }
 
-    public void addTopnFilterSortNode(SortNode sortNode) {
-        topnFilterSortNodes.add(sortNode);
+    public void addTopnFilterSourceNode(PlanNode sourceNode) {
+        topnFilterSourceNodes.add(sourceNode);
     }
 
-    public List<SortNode> getTopnFilterSortNodes() {
-        return topnFilterSortNodes;
+    public List<PlanNode> getTopnFilterSourceNodes() {
+        return topnFilterSourceNodes;
     }
 
     public boolean useTopnFilter() {
-        return !topnFilterSortNodes.isEmpty();
+        return !topnFilterSourceNodes.isEmpty();
     }
 
     public long getSelectedPartitionNum() {

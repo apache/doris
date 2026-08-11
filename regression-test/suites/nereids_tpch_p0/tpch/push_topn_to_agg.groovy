@@ -18,9 +18,22 @@
  */
 
 suite("push_topn_to_agg") {
+    def checkAggregateTopnFilter = { String explainStr ->
+        def sourceMatcher = explainStr =~ /(?m)^\s*(\d+):VAGGREGATE \(update serialize\).*$/
+        assertTrue(sourceMatcher.find())
+        String sourceNodeId = sourceMatcher.group(1)
+        int scanStart = explainStr.indexOf(":VOlapScanNode", sourceMatcher.start())
+        assertTrue(scanStart > sourceMatcher.start())
+        assertTrue(explainStr.substring(sourceMatcher.start(), scanStart)
+                .contains("TOPN filter targets:"))
+        assertTrue(explainStr.contains("TOPN OPT:${sourceNodeId}"))
+    }
+
     sql "set parallel_pipeline_task_num=2"
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
+    sql "set enable_bucketed_hash_agg=false"
+    sql "analyze table orders with sync"
     sql "set topn_opt_limit_threshold=1024"
     // limit -> agg
         // verify switch
@@ -33,6 +46,7 @@ suite("push_topn_to_agg") {
     explain{
         sql "select o_custkey, sum(o_shippriority) from orders group by o_custkey limit 4;"
         multiContains ("sortByGroupKey:true", 2)
+        check(checkAggregateTopnFilter)
     }
 
     // when apply this opt, trun off STREAMING
@@ -46,7 +60,24 @@ suite("push_topn_to_agg") {
     explain{
         sql "select o_custkey, sum(o_shippriority) from orders group by o_custkey order by o_custkey limit 8;"
         multiContains ("sortByGroupKey:true", 2)
+        check(checkAggregateTopnFilter)
     }
+
+    order_qt_topn_runtime_filter_asc """
+        select o_custkey, sum(o_shippriority)
+        from orders
+        group by o_custkey
+        order by o_custkey
+        limit 8
+    """
+
+    order_qt_topn_runtime_filter_desc """
+        select o_custkey + 1, sum(o_shippriority)
+        from orders
+        group by o_custkey + 1
+        order by o_custkey + 1 desc
+        limit 8
+    """
 
     // order keys are part of group keys, 
     // 1. adjust group keys (o_custkey, o_clerk) -> o_clerk, o_custkey

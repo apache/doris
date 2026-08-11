@@ -19,9 +19,14 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDownContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.types.DataType;
 
@@ -40,12 +45,54 @@ public class TopNScanOpt extends PlanPostProcessor {
         topN.child().accept(this, ctx);
         if (checkTopN(topN)) {
             TopnFilterPushDownVisitor pusher = new TopnFilterPushDownVisitor(ctx.getTopnFilterContext());
+            PhysicalHashAggregate<? extends Plan> aggregateSource = findAggregateSource(topN);
+            AbstractPlan source = aggregateSource == null ? topN : aggregateSource;
+            Expression probeExpr = aggregateSource == null
+                    ? topN.getOrderKeys().get(0).getExpr()
+                    : aggregateSource.getGroupByExpressions().get(0);
             TopnFilterPushDownVisitor.PushDownContext pushdownContext = new PushDownContext(topN,
-                    topN.getOrderKeys().get(0).getExpr(),
+                    source, probeExpr,
                     topN.getOrderKeys().get(0).isNullFirst());
-            topN.accept(pusher, pushdownContext);
+            boolean pushed = source.accept(pusher, pushdownContext);
+            if (!pushed && aggregateSource != null) {
+                pushdownContext = new PushDownContext(topN, topN,
+                        topN.getOrderKeys().get(0).getExpr(),
+                        topN.getOrderKeys().get(0).isNullFirst());
+                topN.accept(pusher, pushdownContext);
+            }
         }
         return topN;
+    }
+
+    private PhysicalHashAggregate<? extends Plan> findAggregateSource(
+            PhysicalTopN<? extends Plan> topN) {
+        Plan topNChild = topN.child();
+        if (topNChild instanceof PhysicalProject) {
+            topNChild = topNChild.child(0);
+        }
+        if (!(topNChild instanceof PhysicalHashAggregate)) {
+            return null;
+        }
+
+        PhysicalHashAggregate<? extends Plan> upperAggregate =
+                (PhysicalHashAggregate<? extends Plan>) topNChild;
+        if (upperAggregate.getTopnPushInfo() == null) {
+            return null;
+        }
+
+        Plan aggregateChild = upperAggregate.child();
+        if (aggregateChild instanceof PhysicalDistribute) {
+            aggregateChild = aggregateChild.child(0);
+        }
+        if (aggregateChild instanceof PhysicalHashAggregate) {
+            PhysicalHashAggregate<? extends Plan> lowerAggregate =
+                    (PhysicalHashAggregate<? extends Plan>) aggregateChild;
+            if (lowerAggregate.getTopnPushInfo() != null) {
+                return lowerAggregate;
+            }
+            return null;
+        }
+        return upperAggregate;
     }
 
     boolean checkTopN(TopN topN) {

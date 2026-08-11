@@ -27,16 +27,43 @@
 #include "exec/operator/assert_num_rows_operator.h"
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
+#include "exec/pipeline/thrift_builder.h"
+#include "runtime/query_context.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
 #include "testutil/mock/mock_slot_ref.h"
 
 namespace doris {
+namespace {
+
+constexpr TPlanNodeId TOPN_FILTER_TARGET_NODE_ID = 20;
+
+void init_topn_runtime_predicate(MockRuntimeState& state, TPlanNodeId source_node_id, bool is_asc) {
+    auto target_expr = TRuntimeFilterDescBuilder::get_default_expr();
+    target_expr.nodes[0].__set_type(create_type_desc(TYPE_BIGINT));
+
+    TTopnFilterDesc desc;
+    desc.__set_source_node_id(source_node_id);
+    desc.__set_is_asc(is_asc);
+    desc.__set_null_first(false);
+    desc.__set_target_node_id_to_target_expr({{TOPN_FILTER_TARGET_NODE_ID, target_expr}});
+    state.get_query_ctx()->init_runtime_predicates({desc});
+
+    auto& predicate = state.get_query_ctx()->get_runtime_predicate(source_node_id);
+    predicate.set_detected_source();
+    DORIS_CHECK(predicate.init_target(TOPN_FILTER_TARGET_NODE_ID, {}, -1).ok());
+}
+
+Field get_topn_runtime_predicate_value(MockRuntimeState& state, TPlanNodeId source_node_id) {
+    return state.get_query_ctx()->get_runtime_predicate(source_node_id).get_value();
+}
+
+} // namespace
 
 auto static init_sink_and_source(std::shared_ptr<AggSinkOperatorX> sink_op,
                                  std::shared_ptr<AggSourceOperatorX> source_op,
                                  OperatorContext& ctx) {
-    auto shared_state = sink_op->create_shared_state();
+    auto shared_state = std::static_pointer_cast<AggSharedState>(sink_op->create_shared_state());
     {
         auto local_state = AggSinkOperatorX::LocalState ::create_unique(sink_op.get(), &ctx.state);
         LocalSinkStateInfo info {.task_idx = 0,
@@ -194,6 +221,90 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, test_need_finalize_without_ord
     }
 }
 
+TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, test_desc_order_by_updates_runtime_predicate) {
+    OperatorContext ctx;
+    auto sink_op = std::make_shared<MockAggsinkOperator>();
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
+            ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
+            false, false));
+    sink_op->_pool = &ctx.pool;
+    sink_op->_limit = 2;
+    sink_op->_probe_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink_op->_order_directions = {-1};
+    sink_op->_null_directions = {-1};
+    sink_op->_do_sort_limit = true;
+    ASSERT_TRUE(sink_op->prepare(&ctx.state).ok());
+
+    auto source_op = std::make_shared<MockAggSourceOperator>();
+    source_op->mock_row_descriptor.reset(new MockRowDescriptor {
+            {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()}, &ctx.pool});
+    source_op->_without_key = false;
+    source_op->_needs_finalize = true;
+    ASSERT_TRUE(source_op->prepare(&ctx.state).ok());
+
+    auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
+    init_topn_runtime_predicate(ctx.state, sink_op->node_id(), false);
+
+    Block first_block {ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4}),
+                       ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4})};
+    ASSERT_TRUE(sink_op->sink(&ctx.state, &first_block, false).ok());
+    EXPECT_EQ(get_topn_runtime_predicate_value(ctx.state, sink_op->node_id()),
+              Field::create_field<TYPE_BIGINT>(3));
+
+    Block second_block {ColumnHelper::create_column_with_name<DataTypeInt64>({2, 5}),
+                        ColumnHelper::create_column_with_name<DataTypeInt64>({2, 5})};
+    ASSERT_TRUE(sink_op->sink(&ctx.state, &second_block, true).ok());
+    EXPECT_EQ(get_topn_runtime_predicate_value(ctx.state, sink_op->node_id()),
+              Field::create_field<TYPE_BIGINT>(4));
+}
+
+TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy,
+       test_null_boundary_does_not_update_runtime_predicate) {
+    OperatorContext ctx;
+    auto sink_op = std::make_shared<MockAggsinkOperator>();
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
+            ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
+            false, false));
+    sink_op->_pool = &ctx.pool;
+    sink_op->_limit = 1;
+    sink_op->_probe_expr_ctxs = MockSlotRef::create_mock_contexts(
+            0, std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()));
+    sink_op->_order_directions = {1};
+    sink_op->_null_directions = {-1};
+    sink_op->_do_sort_limit = true;
+    ASSERT_TRUE(sink_op->prepare(&ctx.state).ok());
+
+    auto source_op = std::make_shared<MockAggSourceOperator>();
+    source_op->mock_row_descriptor.reset(new MockRowDescriptor {
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()),
+             std::make_shared<DataTypeInt64>()},
+            &ctx.pool});
+    source_op->_without_key = false;
+    source_op->_needs_finalize = true;
+    ASSERT_TRUE(source_op->prepare(&ctx.state).ok());
+
+    auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
+    init_topn_runtime_predicate(ctx.state, sink_op->node_id(), true);
+    shared_state->reach_limit = true;
+    shared_state->do_sort_limit = true;
+    shared_state->limit_columns.emplace_back(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>())->create_column());
+    shared_state->limit_columns[0]->insert_default();
+    shared_state->limit_columns_min = 0;
+
+    auto* local_state = static_cast<AggSinkLocalState*>(ctx.state.get_sink_local_state());
+    ASSERT_TRUE(local_state->_update_runtime_predicate(&ctx.state).ok());
+    auto& predicate = ctx.state.get_query_ctx()->get_runtime_predicate(sink_op->node_id());
+    EXPECT_FALSE(predicate.has_value());
+
+    shared_state->limit_columns[0]->insert(Field::create_field<TYPE_BIGINT>(7));
+    shared_state->limit_columns_min = 1;
+    ASSERT_TRUE(local_state->_update_runtime_predicate(&ctx.state).ok());
+    ASSERT_TRUE(predicate.has_value());
+    EXPECT_EQ(predicate.get_value(), Field::create_field<TYPE_BIGINT>(7));
+}
+
 TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, test_need_finalize_with_order_by) {
     /* 
         select column1, sum(column2) from test_table group by column1 order by  column1 limit 3;
@@ -258,6 +369,7 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, test_need_finalize_with_order_
     EXPECT_TRUE(source_op->prepare(&ctx.state).ok());
 
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
+    init_topn_runtime_predicate(ctx.state, sink_op->node_id(), true);
 
     {
         Block block {ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5, 6}),
@@ -266,6 +378,8 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, test_need_finalize_with_order_
         std::cout << block.dump_data() << std::endl;
         auto st = sink_op->sink(&ctx.state, &block, false);
         EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(get_topn_runtime_predicate_value(ctx.state, sink_op->node_id()),
+                  Field::create_field<TYPE_BIGINT>(3));
     }
 
     {
@@ -275,6 +389,8 @@ TEST_F(AggOperatorGroupByLimitOptTestWithGroupBy, test_need_finalize_with_order_
         std::cout << block.dump_data() << std::endl;
         auto st = sink_op->sink(&ctx.state, &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(get_topn_runtime_predicate_value(ctx.state, sink_op->node_id()),
+                  Field::create_field<TYPE_BIGINT>(2));
     }
 
     {

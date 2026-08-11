@@ -29,6 +29,8 @@
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
 #include "exec/operator/streaming_aggregation_operator.h"
+#include "exec/pipeline/thrift_builder.h"
+#include "runtime/query_context.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -36,6 +38,27 @@
 #include "util/jsonb_document.h"
 
 namespace doris {
+namespace {
+
+constexpr TPlanNodeId TOPN_FILTER_TARGET_NODE_ID = 20;
+
+void init_topn_runtime_predicate(MockRuntimeState& state, TPlanNodeId source_node_id) {
+    auto target_expr = TRuntimeFilterDescBuilder::get_default_expr();
+    target_expr.nodes[0].__set_type(create_type_desc(TYPE_BIGINT));
+
+    TTopnFilterDesc desc;
+    desc.__set_source_node_id(source_node_id);
+    desc.__set_is_asc(true);
+    desc.__set_null_first(false);
+    desc.__set_target_node_id_to_target_expr({{TOPN_FILTER_TARGET_NODE_ID, target_expr}});
+    state.get_query_ctx()->init_runtime_predicates({desc});
+
+    auto& predicate = state.get_query_ctx()->get_runtime_predicate(source_node_id);
+    predicate.set_detected_source();
+    DORIS_CHECK(predicate.init_target(TOPN_FILTER_TARGET_NODE_ID, {}, -1).ok());
+}
+
+} // namespace
 
 struct MockStreamingAggOperatorX : public StreamingAggOperatorX {
     MockStreamingAggOperatorX() = default;
@@ -153,6 +176,51 @@ TEST_F(StreamingAggOperatorTest, test1) {
     }
 
     { EXPECT_TRUE(local_state->close(state.get()).ok()); }
+}
+
+TEST_F(StreamingAggOperatorTest, topn_runtime_predicate_updates_in_hash_and_passthrough_paths) {
+    op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
+            pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()), false,
+            false));
+    op->_pool = &pool;
+    op->_needs_finalize = false;
+    op->_sort_limit = 3;
+    op->_do_sort_limit = true;
+    op->_order_directions = {1};
+    op->_null_directions = {1};
+
+    ASSERT_TRUE(op->set_child(child_op));
+    ASSERT_TRUE(op->prepare(state.get()).ok());
+    op->_probe_expr_ctxs = MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+
+    auto local_state_ptr = std::make_unique<MockStreamingAggLocalState>(state.get(), op.get());
+    LocalStateInfo info {.parent_profile = &profile,
+                         .scan_ranges = {},
+                         .shared_state = nullptr,
+                         .shared_state_map = {},
+                         .task_idx = 0};
+    ASSERT_TRUE(local_state_ptr->init(state.get(), info).ok());
+    state->resize_op_id_to_local_state(-100);
+    state->emplace_local_state(op->operator_id(), std::move(local_state_ptr));
+    local_state =
+            static_cast<MockStreamingAggLocalState*>(state->get_local_state(op->operator_id()));
+    ASSERT_TRUE(local_state->open(state.get()).ok());
+    init_topn_runtime_predicate(*state, op->node_id());
+
+    Block first_block {ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5, 6}),
+                       ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5, 6})};
+    ASSERT_TRUE(op->push(state.get(), &first_block, false).ok());
+    auto& predicate = state->get_query_ctx()->get_runtime_predicate(op->node_id());
+    ASSERT_TRUE(predicate.has_value());
+    EXPECT_EQ(predicate.get_value(), Field::create_field<TYPE_BIGINT>(3));
+
+    local_state->should_not_do_pre_agg = true;
+    Block second_block {ColumnHelper::create_column_with_name<DataTypeInt64>({0, 2, 7, 8, 9, 10}),
+                        ColumnHelper::create_column_with_name<DataTypeInt64>({0, 2, 7, 8, 9, 10})};
+    ASSERT_TRUE(op->push(state.get(), &second_block, true).ok());
+    EXPECT_EQ(predicate.get_value(), Field::create_field<TYPE_BIGINT>(2));
+
+    ASSERT_TRUE(local_state->close(state.get()).ok());
 }
 
 TEST_F(StreamingAggOperatorTest, require_hash_shuffle_after_non_hash_local_exchange) {

@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include "core/field.h"
 #include "exec/operator/operator.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
@@ -80,6 +81,7 @@ protected:
     Status _execute_with_serialized_key(Block* block);
     Status _merge_with_serialized_key(Block* block);
     void _update_memusage_with_serialized_key();
+    Status _update_runtime_predicate(RuntimeState* state);
     template <bool limit>
 
     Status _execute_with_serialized_key_helper(Block* block);
@@ -117,6 +119,7 @@ protected:
     RuntimeProfile::Counter* _serialize_key_arena_memory_usage = nullptr;
     RuntimeProfile::Counter* _memory_usage_container = nullptr;
     RuntimeProfile::Counter* _memory_usage_arena = nullptr;
+    RuntimeProfile::Counter* _update_runtime_predicate_timer = nullptr;
 
     bool _should_limit_output = false;
 
@@ -130,6 +133,7 @@ protected:
     std::unique_ptr<ExecutorBase> _executor = nullptr;
 
     int64_t _memory_usage_last_executing = 0;
+    Field _old_top {PrimitiveType::TYPE_NULL};
 };
 
 class AggSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<AggSinkLocalState> {

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.postprocess;
 
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -36,6 +38,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.AggregationNode;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
 
 import org.junit.jupiter.api.Assertions;
@@ -87,14 +91,14 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         Expression probeExpr = filter.targets.get(lazyScan);
 
         TopnFilterContext topnFilterContext = new TopnFilterContext();
-        topnFilterContext.addTopnFilter(filter.topn, lazyScan.getScan(), probeExpr);
+        topnFilterContext.addTopnFilter(filter.topn, filter.source, lazyScan.getScan(), probeExpr);
         PlanTranslatorContext translatorContext = new PlanTranslatorContext();
         probeExpr.getInputSlots().forEach(slot -> translatorContext
                 .createSlotDesc(translatorContext.generateTupleDesc(), (SlotReference) slot));
         ScanNode legacyScan = Mockito.mock(ScanNode.class);
         topnFilterContext.translateTarget(lazyScan, legacyScan, translatorContext);
 
-        Assertions.assertTrue(topnFilterContext.getTopnFilter(filter.topn).legacyTargets.containsKey(legacyScan));
+        Assertions.assertTrue(topnFilterContext.getTopnFilter(filter.source).legacyTargets.containsKey(legacyScan));
     }
 
     @Test
@@ -109,6 +113,83 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         Assertions.assertEquals(SortPhase.LOCAL_SORT, ((PhysicalTopN<? extends Plan>) rfSource).getSortPhase());
         PhysicalTopN<? extends Plan> localTopN = (PhysicalTopN<? extends Plan>) rfSource;
         Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+    }
+
+    @Test
+    public void testUseLowestAggregateAsTopNRuntimeFilterSource() {
+        String sql = "select c_nation, count(*) from customer group by c_nation limit 5";
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+
+        TopnFilterContext filterContext = checker.getCascadesContext().getTopnFilterContext();
+        TopnFilter filter = filterContext.getTopnFilters().stream()
+                .filter(f -> f.source instanceof PhysicalHashAggregate)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("aggregate topn filter source not found"));
+        PhysicalHashAggregate<?> aggregateSource = (PhysicalHashAggregate<?>) filter.source;
+        List<PhysicalHashAggregate<? extends Plan>> pushedAggregates = plan.collectToList(
+                node -> node instanceof PhysicalHashAggregate
+                        && ((PhysicalHashAggregate<?>) node).getTopnPushInfo() != null);
+
+        Assertions.assertTrue(pushedAggregates.size() >= 2, plan.treeString());
+        int lowestDepth = pushedAggregates.stream().mapToInt(Plan::depth).min().orElseThrow();
+        Assertions.assertEquals(lowestDepth, aggregateSource.depth());
+        Assertions.assertTrue(filterContext.isTopnFilterSource(aggregateSource));
+    }
+
+    @Test
+    public void testTranslateAggregateTopNRuntimeFilterSource() {
+        String sql = "select c_nation, count(*) from customer "
+                + "group by c_nation order by c_nation limit 5";
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+
+        TopnFilter filter = checker.getCascadesContext().getTopnFilterContext().getTopnFilters().stream()
+                .filter(f -> f.source instanceof PhysicalHashAggregate)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("aggregate topn filter source not found"));
+        PlanFragment fragment = new PhysicalPlanTranslator(
+                new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+
+        Assertions.assertNotNull(fragment);
+        Assertions.assertInstanceOf(AggregationNode.class, filter.legacySourceNode);
+        Assertions.assertEquals(filter.legacySourceNode.getId().asInt(),
+                filter.toThrift().getSourceNodeId());
+        Assertions.assertFalse(filter.legacyTargets.isEmpty());
+        for (ScanNode scanNode : filter.legacyTargets.keySet()) {
+            Assertions.assertTrue(scanNode.getTopnFilterSourceNodes().contains(filter.legacySourceNode));
+        }
+    }
+
+    @Test
+    public void testFallbackToSortSourceWhenPushTopNToAggregateDisabled() {
+        String sql = "select c_nation, count(*) from customer "
+                + "group by c_nation order by c_nation limit 5";
+        boolean originalPushTopnToAgg = connectContext.getSessionVariable().pushTopnToAgg;
+        long originalTopnOptLimitThreshold = connectContext.getSessionVariable().topnOptLimitThreshold;
+        connectContext.getSessionVariable().pushTopnToAgg = false;
+        connectContext.getSessionVariable().topnOptLimitThreshold = 0;
+        try {
+            PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
+                    .rewrite()
+                    .implement();
+            PhysicalPlan plan = checker.getPhysicalPlan();
+            new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+
+            Assertions.assertFalse(checker.getCascadesContext().getTopnFilterContext()
+                    .getTopnFilters().isEmpty());
+            checker.getCascadesContext().getTopnFilterContext().getTopnFilters()
+                    .forEach(filter -> Assertions.assertInstanceOf(PhysicalTopN.class, filter.source));
+        } finally {
+            connectContext.getSessionVariable().pushTopnToAgg = originalPushTopnToAgg;
+            connectContext.getSessionVariable().topnOptLimitThreshold = originalTopnOptLimitThreshold;
+        }
     }
 
     @Test

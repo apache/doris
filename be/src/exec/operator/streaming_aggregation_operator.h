@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/field.h"
 #include "exec/operator/operator.h"
 #include "runtime/runtime_profile.h"
 
@@ -55,6 +56,7 @@ private:
     void _add_limit_heap_top(ColumnRawPtrs& key_columns, size_t rows);
     bool _do_limit_filter(size_t num_rows, ColumnRawPtrs& key_columns);
     void _refresh_limit_heap(size_t i, ColumnRawPtrs& key_columns);
+    Status _update_runtime_predicate(RuntimeState* state);
 
     Status _pre_agg_with_serialized_key(doris::Block* in_block, doris::Block* out_block);
     bool _should_expand_preagg_hash_tables();
@@ -89,6 +91,7 @@ private:
     RuntimeProfile::Counter* _get_results_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
+    RuntimeProfile::Counter* _update_runtime_predicate_timer = nullptr;
 
     bool _should_expand_hash_table = true;
     int64_t _cur_num_rows_returned = 0;
@@ -107,6 +110,7 @@ private:
     bool do_sort_limit = false;
     MutableColumns limit_columns;
     int limit_columns_min = -1;
+    Field _old_top {PrimitiveType::TYPE_NULL};
     PaddedPODArray<uint8_t> need_computes;
     std::vector<uint8_t> cmp_res;
     std::vector<int> order_directions;

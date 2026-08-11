@@ -93,7 +93,7 @@ public class PluginDrivenScanNodeVerboseExplainTest {
         Deencapsulation.setField(node, "conjuncts", new ArrayList<>());
         Deencapsulation.setField(node, "scanRangeLocations", new ArrayList<>());
         // useTopnFilter() runs at the method tail (common to both EXPLAIN paths) and derefs this list.
-        Deencapsulation.setField(node, "topnFilterSortNodes", new ArrayList<>());
+        Deencapsulation.setField(node, "topnFilterSourceNodes", new ArrayList<>());
         // Pre-seed the cache so getOrLoadScanNodeProperties() returns it without contacting the connector.
         Deencapsulation.setField(node, "scanNodeProperties", Collections.<String, String>emptyMap());
         // Pre-seed the isBatchMode cache so the gate's !isBatchMode() is deterministic (no computeBatchMode).

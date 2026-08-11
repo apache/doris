@@ -23,6 +23,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.ScanNode;
@@ -43,6 +44,7 @@ import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -132,7 +134,9 @@ public class CoordinatorTest extends TestWithFeService {
     public void testFragmentExecParamsMarksNonOlapTopnFilterSource() {
         ScanNode scanNode = Mockito.mock(ScanNode.class);
         SortNode sortNode = Mockito.mock(SortNode.class);
-        Mockito.when(scanNode.getTopnFilterSortNodes()).thenReturn(Collections.singletonList(sortNode));
+        AggregationNode aggregationNode = Mockito.mock(AggregationNode.class);
+        Mockito.when(scanNode.getTopnFilterSourceNodes())
+                .thenReturn(Arrays.asList(sortNode, aggregationNode));
 
         PlanFragment fragment = Mockito.mock(PlanFragment.class);
         Mockito.when(fragment.getFragmentId()).thenReturn(new PlanFragmentId(0));
@@ -149,6 +153,7 @@ public class CoordinatorTest extends TestWithFeService {
         fragParams.toThrift(0);
 
         Mockito.verify(sortNode).setHasRuntimePredicate();
+        Mockito.verifyNoInteractions(aggregationNode);
     }
 
     private NereidsPlanner plan(String sql) throws IOException {

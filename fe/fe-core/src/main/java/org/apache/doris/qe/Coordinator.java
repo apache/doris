@@ -3341,7 +3341,10 @@ public class Coordinator implements CoordInterface {
 
         Map<TNetworkAddress, TPipelineFragmentParams> toThrift(int backendNum) {
             Set<SortNode> topnSortNodes = scanNodes.stream()
-                    .flatMap(scanNode -> scanNode.getTopnFilterSortNodes().stream()).collect(Collectors.toSet());
+                    .flatMap(scanNode -> scanNode.getTopnFilterSourceNodes().stream())
+                    .filter(SortNode.class::isInstance)
+                    .map(SortNode.class::cast)
+                    .collect(Collectors.toSet());
             topnSortNodes.forEach(SortNode::setHasRuntimePredicate);
 
             long memLimit = queryOptions.getMemLimit();

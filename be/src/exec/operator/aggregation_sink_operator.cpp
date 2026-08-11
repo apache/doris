@@ -28,6 +28,7 @@
 #include "exprs/aggregate/aggregate_function_count.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/vectorized_agg_fn.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 
@@ -77,6 +78,7 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
 
     _memory_usage_container = ADD_COUNTER(custom_profile(), "MemoryUsageContainer", TUnit::BYTES);
     _memory_usage_arena = ADD_COUNTER(custom_profile(), "MemoryUsageArena", TUnit::BYTES);
+    _update_runtime_predicate_timer = ADD_TIMER(custom_profile(), "UpdateRuntimePredicateTime");
 
     return Status::OK();
 }
@@ -223,6 +225,31 @@ Status AggSinkLocalState::_merge_with_serialized_key(Block* block) {
     } else {
         return _merge_with_serialized_key_helper<false, false>(block);
     }
+}
+
+Status AggSinkLocalState::_update_runtime_predicate(RuntimeState* state) {
+    auto& p = Base::_parent->template cast<AggSinkOperatorX>();
+    auto* query_ctx = state->get_query_ctx();
+    if (!query_ctx->has_runtime_predicate(p.node_id()) || !Base::_shared_state->reach_limit) {
+        return Status::OK();
+    }
+
+    SCOPED_TIMER(_update_runtime_predicate_timer);
+    auto& predicate = query_ctx->get_runtime_predicate(p.node_id());
+    if (!predicate.enable()) {
+        return Status::OK();
+    }
+
+    DCHECK(Base::_shared_state->do_sort_limit);
+    DCHECK(!Base::_shared_state->limit_columns.empty());
+    DCHECK_GE(Base::_shared_state->limit_columns_min, 0);
+    Field new_top {PrimitiveType::TYPE_NULL};
+    Base::_shared_state->limit_columns[0]->get(Base::_shared_state->limit_columns_min, new_top);
+    if (!new_top.is_null() && new_top != _old_top) {
+        RETURN_IF_ERROR(predicate.update(new_top));
+        _old_top = std::move(new_top);
+    }
+    return Status::OK();
 }
 
 size_t AggSinkLocalState::_memory_usage() const {
@@ -895,6 +922,13 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         }
     }
 
+    auto* query_ctx = state->get_query_ctx();
+    if (query_ctx->has_runtime_predicate(_node_id)) {
+        DORIS_CHECK(_do_sort_limit);
+        DORIS_CHECK_GT(_limit, 0);
+        query_ctx->get_runtime_predicate(_node_id).set_detected_source();
+    }
+
     return Status::OK();
 }
 
@@ -991,6 +1025,7 @@ Status AggSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* in_block, 
     local_state._shared_state->input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(local_state._executor->execute(&local_state, in_block));
+        RETURN_IF_ERROR(local_state._update_runtime_predicate(state));
         local_state._executor->update_memusage(&local_state);
         COUNTER_SET(local_state._hash_table_size_counter,
                     (int64_t)local_state.get_hash_table_size());

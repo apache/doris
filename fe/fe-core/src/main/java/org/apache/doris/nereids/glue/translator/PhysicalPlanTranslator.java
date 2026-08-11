@@ -1304,6 +1304,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             aggregationNode.setSortByGroupKey(null);
         }
+        if (context.getTopnFilterContext().isTopnFilterSource(aggregate)) {
+            context.getTopnFilterContext().translateSource(aggregate, aggregationNode);
+            TopnFilter filter = context.getTopnFilterContext().getTopnFilter(aggregate);
+            aggregationNode.setTopnFilterTargets(translateTopnFilterTargets(filter));
+        }
         setPlanRoot(inputPlanFragment, aggregationNode, aggregate);
         if (aggregate.getStats() != null) {
             aggregationNode.setCardinality((long) aggregate.getStats().getRowCount());
@@ -2644,18 +2649,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (context.getTopnFilterContext().isTopnFilterSource(topN)) {
                 context.getTopnFilterContext().translateSource(topN, sortNode);
                 TopnFilter filter = context.getTopnFilterContext().getTopnFilter(topN);
-                List<Pair<Integer, Integer>> targets = new ArrayList<>();
-                for (Entry<ScanNode, Expr> entry : filter.legacyTargets.entrySet()) {
-                    Set<SlotRef> inputSlots = entry.getValue().getInputSlotRef();
-                    if (inputSlots.size() != 1) {
-                        LOG.warn("topn filter targets error: " + inputSlots);
-                    } else {
-                        SlotRef slot = inputSlots.iterator().next();
-                        targets.add(Pair.of(entry.getKey().getId().asInt(),
-                                (slot.getDesc().getId().asInt())));
-                    }
-                }
-                sortNode.setTopnFilterTargets(targets);
+                sortNode.setTopnFilterTargets(translateTopnFilterTargets(filter));
             }
             // push sort to scan opt
             if (sortNode.getChild(0) instanceof OlapScanNode) {
@@ -2706,6 +2700,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         updateLegacyPlanIdToPhysicalPlan(inputFragment.getPlanRoot(), topN);
         return inputFragment;
+    }
+
+    private List<Pair<Integer, Integer>> translateTopnFilterTargets(TopnFilter filter) {
+        List<Pair<Integer, Integer>> targets = new ArrayList<>();
+        for (Entry<ScanNode, Expr> entry : filter.legacyTargets.entrySet()) {
+            Set<SlotRef> inputSlots = entry.getValue().getInputSlotRef();
+            if (inputSlots.size() != 1) {
+                LOG.warn("topn filter targets error: " + inputSlots);
+            } else {
+                SlotRef slot = inputSlots.iterator().next();
+                targets.add(Pair.of(entry.getKey().getId().asInt(), slot.getDesc().getId().asInt()));
+            }
+        }
+        return targets;
     }
 
     @Override
