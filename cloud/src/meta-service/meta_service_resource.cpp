@@ -2163,6 +2163,55 @@ std::pair<MetaServiceCode, std::string> handle_snapshot_intervals(const std::str
     return std::make_pair(MetaServiceCode::OK, "");
 }
 
+std::pair<MetaServiceCode, std::string> MetaServiceImpl::check_instance_recycle_completed(
+        const std::string& instance_id, bool& finished, std::string& reason) {
+    reason.clear();
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg = fmt::format("failed to create txn, err={}", err);
+        LOG(WARNING) << msg << " instance_id=" << instance_id;
+        return {MetaServiceCode::KV_TXN_CREATE_ERR, std::move(msg)};
+    }
+
+    std::string key = instance_key({instance_id});
+    std::string value;
+    err = txn->get(key, &value);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // The recycler only removes keys after cleanup is complete, so do not treat this as an
+        // incomplete or unknown state.
+        finished = true;
+        reason = fmt::format(
+                "instance recycling is considered completed because the instance key does not "
+                "exist, instance_id={}",
+                instance_id);
+        return {MetaServiceCode::OK, "OK"};
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg =
+                fmt::format("failed to get instance, instance_id={}, err={}", instance_id, err);
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::KV_TXN_GET_ERR, std::move(msg)};
+    }
+
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(value)) {
+        std::string msg = fmt::format("malformed instance info, key={}", hex(key));
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::PROTOBUF_PARSE_ERR, std::move(msg)};
+    }
+
+    finished = instance.recycle_state() ==
+               InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED;
+    if (!finished) {
+        reason = fmt::format(
+                "instance has not completed recycling, instance_id={}, recycle_state={}",
+                instance_id, InstanceRecycleState_Name(instance.recycle_state()));
+        return {MetaServiceCode::OK, "OK"};
+    }
+    return {MetaServiceCode::OK, "OK"};
+}
+
 void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller,
                                      const AlterInstanceRequest* request,
                                      AlterInstanceResponse* response,
@@ -2190,65 +2239,76 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     std::pair<MetaServiceCode, std::string> ret;
     switch (request->op()) {
     case AlterInstanceRequest::DROP: {
-        ret = alter_instance(
-                request, [&request, &instance_id](Transaction* txn, InstanceInfoPB* instance) {
-                    std::string msg;
-                    // check instance doesn't have any cluster.
-                    if (instance->clusters_size() != 0) {
-                        msg = "failed to drop instance, instance has clusters";
-                        LOG(WARNING) << msg;
-                        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
-                    }
+        ret = alter_instance(request, [&instance_id](Transaction* txn, InstanceInfoPB* instance) {
+            std::string msg;
+            if (instance->status() == InstanceInfoPB::DELETED) {
+                msg = "instance has already been recycled";
+                LOG(WARNING) << msg << " instance_id=" << instance_id;
+                return std::make_pair(MetaServiceCode::OK, instance->SerializeAsString());
+            }
 
-                    // check instance doesn't have any snapshot.
-                    MetaReader meta_reader(instance_id);
-                    std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots;
-                    TxnErrorCode err = meta_reader.get_snapshots(txn, &snapshots);
-                    if (err != TxnErrorCode::TXN_OK) {
-                        msg = "failed to get snapshots";
-                        LOG(WARNING) << msg << " err=" << err;
-                        return std::make_pair(cast_as<ErrCategory::READ>(err), msg);
-                    }
-                    for (auto& [snapshot, _] : snapshots) {
-                        if (snapshot.status() != SnapshotStatus::SNAPSHOT_RECYCLED) {
-                            // still has snapshots, cannot drop
-                            msg = "failed to drop instance, instance has snapshots";
-                            LOG(WARNING) << msg;
-                            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
-                        }
-                    }
+            // check instance doesn't have any cluster.
+            if (instance->clusters_size() != 0) {
+                std::string msg = "failed to drop instance, instance has clusters";
+                LOG(WARNING) << msg;
+                return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+            }
 
-                    instance->set_status(InstanceInfoPB::DELETED);
-                    instance->set_mtime(
-                            duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+            // check instance doesn't have any snapshot.
+            MetaReader meta_reader(instance_id);
+            std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots;
+            TxnErrorCode err = meta_reader.get_snapshots(txn, &snapshots);
+            if (err != TxnErrorCode::TXN_OK) {
+                msg = "failed to get snapshots";
+                LOG(WARNING) << msg << " err=" << err;
+                return std::make_pair(cast_as<ErrCategory::READ>(err), msg);
+            }
+            for (auto& [snapshot, _] : snapshots) {
+                if (snapshot.status() != SnapshotStatus::SNAPSHOT_RECYCLED) {
+                    // still has snapshots, cannot drop
+                    msg = "failed to drop instance, instance has snapshots";
+                    LOG(WARNING) << msg;
+                    return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+                }
+            }
 
-                    std::string ret = instance->SerializeAsString();
-                    if (ret.empty()) {
-                        msg = "failed to serialize";
-                        LOG(ERROR) << msg;
-                        return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
-                    }
-                    LOG(INFO) << "put instance_id=" << request->instance_id()
-                              << "drop instance json=" << proto_to_json(*instance);
+            instance->set_status(InstanceInfoPB::DELETED);
+            instance->set_mtime(
+                    duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+            if (!instance->has_recycle_state()) {
+                instance->set_recycle_state(INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+                instance->set_recycle_state_update_time_ms(
+                        duration_cast<milliseconds>(system_clock::now().time_since_epoch())
+                                .count());
+            }
 
-                    if (instance->has_source_instance_id() && instance->has_source_snapshot_id() &&
-                        !instance->source_instance_id().empty() &&
-                        !instance->source_snapshot_id().empty()) {
-                        Versionstamp snapshot_versionstamp;
-                        if (!SnapshotManager::parse_snapshot_versionstamp(
-                                    instance->source_snapshot_id(), &snapshot_versionstamp)) {
-                            msg = "failed to parse snapshot_id to versionstamp, snapshot_id=" +
-                                  instance->source_snapshot_id();
-                            LOG(WARNING) << msg;
-                            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
-                        }
-                        versioned::SnapshotReferenceKeyInfo ref_key_info {
-                                instance->source_instance_id(), snapshot_versionstamp, instance_id};
-                        std::string reference_key = versioned::snapshot_reference_key(ref_key_info);
-                        txn->remove(reference_key);
-                    }
-                    return std::make_pair(MetaServiceCode::OK, ret);
-                });
+            std::string ret = instance->SerializeAsString();
+            if (ret.empty()) {
+                msg = "failed to serialize";
+                LOG(ERROR) << msg;
+                return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
+            }
+            LOG(INFO) << "put instance_id=" << instance_id
+                      << "drop instance json=" << proto_to_json(*instance);
+
+            if (instance->has_source_instance_id() && instance->has_source_snapshot_id() &&
+                !instance->source_instance_id().empty() &&
+                !instance->source_snapshot_id().empty()) {
+                Versionstamp snapshot_versionstamp;
+                if (!SnapshotManager::parse_snapshot_versionstamp(instance->source_snapshot_id(),
+                                                                  &snapshot_versionstamp)) {
+                    msg = "failed to parse snapshot_id to versionstamp, snapshot_id=" +
+                          instance->source_snapshot_id();
+                    LOG(WARNING) << msg;
+                    return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+                }
+                versioned::SnapshotReferenceKeyInfo ref_key_info {
+                        instance->source_instance_id(), snapshot_versionstamp, instance_id};
+                std::string reference_key = versioned::snapshot_reference_key(ref_key_info);
+                txn->remove(reference_key);
+            }
+            return std::make_pair(MetaServiceCode::OK, ret);
+        });
     } break;
     case AlterInstanceRequest::RENAME: {
         ret = alter_instance(request, [&request](Transaction* txn, InstanceInfoPB* instance) {

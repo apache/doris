@@ -94,12 +94,19 @@ enum KeySetType {
     MULTI_VERSION_META_ROWSET = 21;
 }
 
+enum InstanceRecycleState {
+    INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING = 0;
+    INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING = 1;
+    INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED = 2;
+}
+
 message InstanceInfoPB {
     enum Status {
         NORMAL = 0;
         DELETED = 1;
         OVERDUE = 2;
     }
+
     optional string user_id = 1;
     optional string instance_id = 2;
     optional string name = 3;
@@ -140,6 +147,10 @@ message InstanceInfoPB {
 
     optional int64 snapshot_retained_data_size = 121;
     optional int64 snapshot_billable_data_size = 122;
+
+    optional InstanceRecycleState recycle_state = 125;
+    // Last time when recycle_state was updated by a recycle step.
+    optional int64 recycle_state_update_time_ms = 126;
 }
 
 message StagePB {

@@ -57,6 +57,9 @@ public:
               ::doris::cloud::MetaServiceHttpResponse* response,
               ::google::protobuf::Closure* done) override;
 
+    std::pair<MetaServiceCode, std::string> skip_instance_data_cleanup(
+            const std::string& instance_id);
+
 private:
     std::shared_ptr<TxnKv> txn_kv_;
     Recycler* recycler_; // Ref
