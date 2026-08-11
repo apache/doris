@@ -232,6 +232,13 @@ public final class FsCacheKeys {
      * plain HDFS, so both can be bound at once). That scheme then resolves last-writer-wins, which
      * is the pre-existing behavior for every other colliding key in such a merge (e.g.
      * {@code fs.defaultFS}) — an ambiguous configuration, not a regression introduced here.
+     *
+     * <p>Be explicit about what that costs, though: in such a catalog the shared scheme gets
+     * <em>no</em> isolation from this mechanism. Two catalogs differing only in their HDFS
+     * credentials but sharing one OSS-HDFS definition publish the same {@code hdfs} fingerprint and
+     * can share a cached FileSystem — exactly as they already do on a build without this feature,
+     * since the HDFS families never emitted {@code fs.hdfs.impl.disable.cache} either. Splitting
+     * the two definitions into separate catalogs is the way to get isolation back.
      */
     public static void putFsCacheKeys(Map<String, String> target, FileSystemProperties properties) {
         publishFsCacheKeys(properties, target::put);

@@ -82,6 +82,12 @@ class OssHdfsPropertiesSpiParityTest {
         // the Doris-patched FileSystem cache; the raw backend map above stays the fe-core golden.
         Map<String, String> goldenWithCacheKey = new HashMap<>(golden);
         FsCacheKeys.putFsCacheKeys(goldenWithCacheKey, p);
+        // Pin the scheme names literally: building the expectation with the production helper says
+        // nothing about WHICH keys it writes. OSS-HDFS declares {oss, hdfs} -- the hdfs entry is the
+        // one it shares with the plain HDFS provider (see FsCacheKeys on that ambiguity).
+        Assertions.assertEquals(p.fsCacheFingerprint(), goldenWithCacheKey.get("doris.fs.cache.key.oss"));
+        Assertions.assertEquals(p.fsCacheFingerprint(), goldenWithCacheKey.get("doris.fs.cache.key.hdfs"));
+        Assertions.assertNull(goldenWithCacheKey.get("doris.fs.cache.key"));
         assertExactMap(goldenWithCacheKey, p.toHadoopProperties().orElseThrow().toHadoopConfigurationMap());
         Assertions.assertFalse(p.isKerberos());
     }

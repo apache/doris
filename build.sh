@@ -1461,6 +1461,14 @@ if [[ ${BUILD_CLOUD} -eq 1 ]]; then
         mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
         cp -r "${HADOOP_DEPS_JAR_DIR}/lib/"* "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
     fi
+    # copy-dependencies writes only the transitive deps to target/lib; the patched
+    # org.apache.hadoop.fs.FileSystem lives in the module's own jar at target/. Without this the
+    # meta-service would run on the vanilla class and silently ignore doris.fs.cache.key.<scheme>.
+    # cloud/script/start.sh loads it ahead of the vanilla hadoop jars beside it.
+    if [[ -f "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" ]]; then
+        mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
+        cp "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
+    fi
     cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
 fi
 

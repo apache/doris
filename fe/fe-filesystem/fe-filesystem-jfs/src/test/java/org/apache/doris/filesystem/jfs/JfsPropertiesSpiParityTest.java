@@ -72,6 +72,11 @@ class JfsPropertiesSpiParityTest {
         // the Doris-patched FileSystem cache; the raw backend map above stays the fe-core golden.
         Map<String, String> goldenWithCacheKey = new HashMap<>(golden);
         FsCacheKeys.putFsCacheKeys(goldenWithCacheKey, p);
+        // Pin the scheme names literally: building the expectation with the production helper says
+        // nothing about WHICH keys it writes. JFS declares {jfs} and, being an HDFS family, {hdfs}
+        // as its legacy cache scheme.
+        Assertions.assertEquals(p.fsCacheFingerprint(), goldenWithCacheKey.get("doris.fs.cache.key.jfs"));
+        Assertions.assertNull(goldenWithCacheKey.get("doris.fs.cache.key"));
         assertExactMap(goldenWithCacheKey, p.toHadoopProperties().orElseThrow().toHadoopConfigurationMap());
         Assertions.assertFalse(p.isKerberos());
     }

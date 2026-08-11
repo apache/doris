@@ -79,6 +79,12 @@ class HdfsPropertiesSpiParityTest {
         // the Doris-patched FileSystem cache; the raw backend map above stays the fe-core golden.
         Map<String, String> goldenWithCacheKey = new HashMap<>(golden);
         FsCacheKeys.putFsCacheKeys(goldenWithCacheKey, p);
+        // Pin the scheme names literally: building the expectation with the production helper says
+        // nothing about WHICH keys it writes, so without this the assertions below would still hold
+        // if putFsCacheKeys published under the wrong scheme, or published nothing at all.
+        Assertions.assertEquals(p.fsCacheFingerprint(), goldenWithCacheKey.get("doris.fs.cache.key.hdfs"));
+        Assertions.assertEquals(p.fsCacheFingerprint(), goldenWithCacheKey.get("doris.fs.cache.key.viewfs"));
+        Assertions.assertNull(goldenWithCacheKey.get("doris.fs.cache.key"));
         assertExactMap(goldenWithCacheKey, p.toBackendProperties().orElseThrow().toMap());
         // HDFS family: hadoop configuration map == backend map (generic fs.* passthrough
         // and disable-cache orchestration are the facade's job).

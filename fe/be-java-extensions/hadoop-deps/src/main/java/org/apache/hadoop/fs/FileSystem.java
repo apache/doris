@@ -3538,7 +3538,21 @@ public abstract class FileSystem extends Configured
     LOGGER.debug("Loading filesystems");
     synchronized (FileSystem.class) {
       if (!FILE_SYSTEMS_LOADED) {
-        ServiceLoader<FileSystem> serviceLoader = ServiceLoader.load(FileSystem.class);
+        // DORIS-PATCH: scan the classloader that defined THIS class, not the thread context
+        // one. SERVICE_FILE_SYSTEMS is static and latches after the first call, so with the
+        // vanilla no-arg load() the registry is frozen by whichever thread happens to call
+        // first -- and in Doris that thread's context loader is routinely a plugin's, pinned
+        // around provider calls. Plugin classloaders are child-exclusive for resources, so a
+        // plugin that bundles hadoop-common without hadoop-hdfs-client (the hive connector)
+        // would freeze the shared registry at {file, viewfs, har, http, https} and break
+        // hdfs:// for the whole process until restart. It became shared precisely because FE
+        // resolves org.apache.hadoop.* parent-first so that this patched class reaches every
+        // plugin (ConnectorPluginManager, FileSystemPluginManager); binding the scan to this
+        // class's own loader is what makes that sharing order-independent. Nothing is lost:
+        // the FE classpath registers a superset of what any plugin does, and a scheme resolved
+        // through fs.<scheme>.impl never consults this map at all.
+        ServiceLoader<FileSystem> serviceLoader =
+            ServiceLoader.load(FileSystem.class, FileSystem.class.getClassLoader());
         Iterator<FileSystem> it = serviceLoader.iterator();
         while (it.hasNext()) {
           FileSystem fs;
@@ -3917,9 +3931,10 @@ public abstract class FileSystem extends Configured
         authority = uri.getAuthority()==null ?
             "" : StringUtils.toLowerCase(uri.getAuthority());
         this.unique = unique;
-        // DORIS-PATCH
-        this.dorisCacheKey = conf.get(DORIS_FS_CACHE_KEY_PROPERTY + "." + scheme,
-            conf.get(DORIS_FS_CACHE_KEY_PROPERTY, ""));
+        // DORIS-PATCH: getTrimmed, so a hand-written value with stray whitespace still keys the
+        // same entry as the FE-generated one.
+        this.dorisCacheKey = conf.getTrimmed(DORIS_FS_CACHE_KEY_PROPERTY + "." + scheme,
+            conf.getTrimmed(DORIS_FS_CACHE_KEY_PROPERTY, ""));
 
         this.ugi = UserGroupInformation.getCurrentUser();
       }

@@ -120,6 +120,9 @@ public abstract class HdfsCompatibleProperties
     // happen at bind() time (tests and pure planning paths never touch the KDC).
     private volatile ExecutionAuthenticator executionAuthenticator;
 
+    // Memoized fingerprint; see fsCacheFingerprint(). Every input is fixed after initialization.
+    private volatile String fsCacheFingerprint;
+
     protected HdfsCompatibleProperties(Map<String, String> origProps) {
         this.origProps = origProps;
     }
@@ -198,15 +201,27 @@ public abstract class HdfsCompatibleProperties
      *
      * <p>Reads the untagged backend map, never {@code toHadoopConfigurationMap()}: the latter calls
      * back into this fingerprint.
+     *
+     * <p>Memoized because every input is fixed once the binding is initialized, while the callers
+     * are not cold: the connectors rebuild a Configuration per scan
+     * ({@code HudiScanPlanProvider.buildHadoopConf}, {@code IcebergCatalogFactory
+     * .buildHadoopConfiguration}), and a derived map holding a full hdfs-site.xml would otherwise
+     * be re-sorted and re-hashed each time. A benign race just recomputes the same value.
      */
     @Override
     public String fsCacheFingerprint() {
+        String cached = fsCacheFingerprint;
+        if (cached != null) {
+            return cached;
+        }
         Map<String, String> identity = new TreeMap<>(FsCacheKeys.identityProperties(this));
         Map<String, String> derived = getBackendConfigProperties();
         if (derived != null) {
             derived.forEach((key, value) -> identity.put(FsCacheKeys.derivedIdentityKey(key), value));
         }
-        return FsCacheKeys.fingerprintOf(getClass().getName(), identity);
+        String computed = FsCacheKeys.fingerprintOf(getClass().getName(), identity);
+        fsCacheFingerprint = computed;
+        return computed;
     }
 
     /**

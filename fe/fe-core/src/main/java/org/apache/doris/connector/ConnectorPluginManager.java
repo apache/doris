@@ -97,12 +97,21 @@ public class ConnectorPluginManager {
     // the same Class or startup dies with "loader constraint violation".
     //
     // Parent-first is a delegation ORDER, not an exclusive claim: ChildFirstClassLoader falls back
-    // to the plugin's own jars for anything the parent lacks. So org.apache.hadoop.hbase.* (hudi),
-    // the huaweicloud fs.obs.* classes (paimon) and org.apache.hadoop.hive.* still come from the
-    // plugin -- FE carries hive-exec:core, the plugins carry hive-metastore, and the class names do
-    // not intersect. What actually changes provider is hadoop-common/auth/annotations/hdfs-client/
-    // aws plus hadoop-shaded-guava/protobuf, identical artifacts and versions on both sides because
-    // the maven-enforcer rule in be-java-extensions/hadoop-deps pins hadoop.version.
+    // to the plugin's own jars for anything the parent lacks. So org.apache.hadoop.hbase.* (hudi)
+    // and org.apache.hadoop.hive.* still come from the plugin -- FE carries hive-exec:core, the
+    // plugins carry hive-metastore, and the class names do not intersect. Everything else the
+    // plugins bundle under this namespace does change provider: hadoop-common/auth/annotations/
+    // hdfs-client/aws, hadoop-shaded-guava and -protobuf, and the huaweicloud fs.obs.* classes
+    // (paimon), which the FE kernel ships too. All of them are the same artifact at the same
+    // version on both sides -- hadoop.version is held by the maven-enforcer rule in
+    // be-java-extensions/hadoop-deps; huaweicloud is not pinned anywhere, so a divergence there
+    // would silently hand paimon the kernel's copy.
+    //
+    // The static state hanging off these now-shared classes matters as much as the classes: see the
+    // DORIS-PATCH in hadoop-deps' FileSystem.loadFileSystems, which binds the ServiceLoader scan to
+    // the class's own loader so that FileSystem.SERVICE_FILE_SYSTEMS -- a process-wide, first-caller
+    // -wins registry -- cannot be frozen by whichever plugin's context loader happens to touch it
+    // first.
     //
     // NOTE: the intended end state is an FE kernel with no hadoop classes at all, every plugin
     // bringing its own. At that point the fallback above takes over on its own, and the plugin
