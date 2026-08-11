@@ -38,6 +38,7 @@
 namespace doris::io {
 
 class BlockFileCache;
+class AsyncCacheWriteEpochRegistry;
 
 /// Cache admission attributes captured on the query thread and replayed by a write worker.
 struct CacheAdmissionContext {
@@ -70,6 +71,37 @@ private:
 
 using AsyncCacheWriteBufferPtr = std::shared_ptr<AsyncCacheWriteBuffer>;
 
+/// One live per-file write generation. All async read plans and writes for the same cache key share
+/// the current token. A key-scoped remove invalidates that token and lets later reads capture a new
+/// generation without retaining an epoch entry for every historical cache key.
+class AsyncCacheWriteEpochToken {
+public:
+    ~AsyncCacheWriteEpochToken();
+
+    uint64_t generation() const { return _generation; }
+    bool is_valid() const { return _valid.load(std::memory_order_acquire); }
+
+private:
+    friend class AsyncCacheWriteEpochRegistry;
+
+    AsyncCacheWriteEpochToken(const UInt128Wrapper& cache_hash, uint64_t generation,
+                              std::weak_ptr<AsyncCacheWriteEpochRegistry> registry);
+
+    UInt128Wrapper _cache_hash;
+    uint64_t _generation {0};
+    std::weak_ptr<AsyncCacheWriteEpochRegistry> _registry;
+    std::atomic<bool> _valid {true};
+};
+
+/// Composite persistence fence shared by an async read plan and its derived write tasks.
+/// `cache_epoch` invalidates all older writes on one cache disk during a full-cache clear, while
+/// `key_token` lets a single-file removal invalidate only older writes for that cache key. The
+/// epoch does not govern inflight reads because a cache hash identifies immutable file content.
+struct AsyncCacheWriteEpoch {
+    uint64_t cache_epoch {0};
+    std::shared_ptr<AsyncCacheWriteEpochToken> key_token;
+};
+
 /// One cache-block write. The sole production submitter allocates every `buffer` with exactly
 /// `file_cache_each_block_size` bytes. `write_size` is the valid prefix starting at `file_offset`;
 /// only the physical EOF block may use less than the full buffer. `write_epoch` prevents a worker
@@ -81,7 +113,7 @@ struct AsyncCacheWriteTask {
     AsyncCacheWriteBufferPtr buffer;
     CacheAdmissionContext admission_ctx;
     int64_t submit_ts_us {0};
-    uint64_t write_epoch {0};
+    AsyncCacheWriteEpoch write_epoch;
     std::function<void(const AsyncCacheWriteTask&)> on_finalized;
 };
 
@@ -128,17 +160,28 @@ public:
     /// Allocate `size` payload bytes charged to the service tracker and return them in `buffer`.
     Status allocate_tracked_buffer(size_t size, AsyncCacheWriteBufferPtr* buffer);
 
-    /// Return the epoch accepted by workers and inflight-buffer readers.
-    uint64_t current_write_epoch() const { return _write_epoch.load(std::memory_order_acquire); }
+    /// Capture the disk-wide epoch and current live generation for `cache_hash`.
+    AsyncCacheWriteEpoch current_write_epoch(const UInt128Wrapper& cache_hash);
 
-    /// Test whether `epoch` still belongs to the current cache contents.
-    bool is_current_write_epoch(uint64_t epoch) const { return epoch == current_write_epoch(); }
+    /// Return the current disk-wide epoch used by cache-clear operations.
+    uint64_t current_cache_epoch() const { return _cache_epoch.load(std::memory_order_acquire); }
 
-    /// Advance the epoch so queued/inflight writes captured before invalidation become stale.
-    /// @return The newly active epoch.
-    uint64_t invalidate_pending_writes() {
-        return _write_epoch.fetch_add(1, std::memory_order_acq_rel) + 1;
-    }
+    /// Test whether both levels of `epoch` still accept writes.
+    bool is_current_write_epoch(const AsyncCacheWriteEpoch& epoch) const;
+
+    /// Test the epoch and record one stale-drop metric when it is no longer current.
+    bool check_write_epoch(const AsyncCacheWriteEpoch& epoch);
+
+    /// Invalidate only queued/inflight work captured for `cache_hash` before this call.
+    void invalidate_pending_writes(const UInt128Wrapper& cache_hash);
+
+    /// Advance the disk-wide epoch so every previously captured write becomes stale.
+    /// @return The newly active disk-wide epoch.
+    uint64_t invalidate_all_pending_writes();
+
+    /// Return cache keys whose current valid generation is retained by at least one plan or task.
+    /// Invalidated generations are excluded even while stale tasks finish releasing them.
+    size_t active_write_epoch_key_count() const;
 
     /// Resize the number of active workers. A shrink waits only for retiring worker loops.
     /// @param worker_count Positive target worker count for this cache disk.
@@ -244,7 +287,8 @@ private:
     std::atomic<size_t> _active_submitters {0};
     std::atomic<bool> _shutdown_requested {false};
     std::atomic<bool> _started {false};
-    std::atomic<uint64_t> _write_epoch {1};
+    std::atomic<uint64_t> _cache_epoch {1};
+    std::shared_ptr<AsyncCacheWriteEpochRegistry> _write_epoch_registry;
 
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     std::unique_ptr<ThreadPool> _worker_pool;
@@ -265,6 +309,7 @@ private:
     std::shared_ptr<bvar::PassiveStatus<size_t>> _active_get_or_set_count_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _active_append_count_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _active_finalize_count_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_write_epoch_key_count_metric;
     std::shared_ptr<bvar::PassiveStatus<int64_t>> _buffer_memory_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _submitted_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _submitted_bytes_metric;
@@ -292,6 +337,10 @@ private:
     std::shared_ptr<bvar::Adder<uint64_t>> _skip_downloading_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _skip_partial_overlap_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _drop_stale_epoch_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _drop_stale_cache_epoch_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _drop_stale_key_epoch_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _cache_epoch_invalidate_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _key_epoch_invalidate_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _skip_deleting_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _append_fail_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _finalize_fail_metric;

@@ -959,7 +959,7 @@ std::string BlockFileCache::clear_file_cache_sync() {
 
 std::string BlockFileCache::clear_file_cache_impl(bool sync_remove) {
     DORIS_CHECK(_async_write_service != nullptr);
-    _async_write_service->invalidate_pending_writes();
+    _async_write_service->invalidate_all_pending_writes();
     const char* action = sync_remove ? "clear_file_cache_sync" : "clear_file_cache_async";
     LOG(INFO) << "start " << action << ", path=" << _cache_base_path;
     _lru_dumper->remove_lru_dump_files();
@@ -1500,7 +1500,7 @@ void BlockFileCache::try_evict_in_advance(size_t size, std::lock_guard<std::mute
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
     DORIS_CHECK(_async_write_service != nullptr);
-    _async_write_service->invalidate_pending_writes();
+    _async_write_service->invalidate_pending_writes(file_key);
     std::string reason = "remove_if_cached";
     SCOPED_CACHE_LOCK(_mutex, this);
     auto iter = _files.find(file_key);
@@ -1522,7 +1522,7 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
     DORIS_CHECK(_async_write_service != nullptr);
-    _async_write_service->invalidate_pending_writes();
+    _async_write_service->invalidate_pending_writes(file_key);
     std::string reason = "remove_if_cached_async";
     SCOPED_CACHE_LOCK(_mutex, this);
 

@@ -111,11 +111,15 @@ struct CachedRemoteFileReader::AsyncReadBlock {
 // `first_remote_block` and `remote_block_count` describe the minimal first-miss-to-last-miss span.
 // It may contain CACHE/INFLIGHT hits between misses so the read path issues at most one remote IO.
 // `probe_result` is absent only when inflight buffers covered every block and probe was skipped.
+// `write_epoch` fences only later persistence: a cache hash identifies immutable file content, so
+// an inflight payload remains readable after its original write task is invalidated.
 struct CachedRemoteFileReader::AsyncReadPlan {
-    AsyncReadPlan(uint64_t write_epoch_, size_t user_left_, size_t user_right_)
-            : write_epoch(write_epoch_), user_left(user_left_), user_right(user_right_) {}
+    AsyncReadPlan(AsyncCacheWriteEpoch write_epoch_, size_t user_left_, size_t user_right_)
+            : write_epoch(std::move(write_epoch_)),
+              user_left(user_left_),
+              user_right(user_right_) {}
 
-    uint64_t write_epoch {0};
+    AsyncCacheWriteEpoch write_epoch;
     size_t user_left {0};
     size_t user_right {0};
     std::optional<FileBlocksProbeResult> probe_result;
@@ -202,7 +206,7 @@ CacheWriteMode CachedRemoteFileReader::_resolve_cache_write_mode(const IOContext
 // avoids BlockFileCache::probe and its cache mutex. Only an incomplete inflight lookup performs one
 // whole-range probe whose result entries map directly to the logical plan blocks.
 CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_plan(
-        size_t remaining_offset, size_t remaining_size, uint64_t write_epoch,
+        size_t remaining_offset, size_t remaining_size, AsyncCacheWriteEpoch write_epoch,
         const IOContext* io_ctx, ReadStatistics& stats) {
     const int64_t plan_start_us = MonotonicMicros();
     Defer record_plan_latency {[&]() {
@@ -220,7 +224,8 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
     DORIS_CHECK(align_size > 0);
     DORIS_CHECK(align_size <= size() - align_left);
 
-    AsyncReadPlan plan(write_epoch, remaining_offset, remaining_offset + remaining_size - 1);
+    AsyncReadPlan plan(std::move(write_epoch), remaining_offset,
+                       remaining_offset + remaining_size - 1);
 
     std::vector<size_t> block_offsets;
     const size_t align_end = align_left + align_size;
@@ -243,7 +248,7 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
     if (inflight_index_enabled) {
         auto* inflight_index = _cache->inflight_write_buffer_index();
         DORIS_CHECK(inflight_index != nullptr);
-        auto inflight_results = inflight_index->lookup_all(_cache_hash, block_offsets, write_epoch);
+        auto inflight_results = inflight_index->lookup_all(_cache_hash, block_offsets);
         DORIS_CHECK(inflight_results.size() == plan.blocks.size());
         for (size_t index = 0; index < plan.blocks.size(); ++index) {
             auto& entry = inflight_results[index].entry;
@@ -560,7 +565,7 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
         DORIS_CHECK(read_block.range.size() <= cache_block_size);
         DORIS_CHECK(read_block.range.left >= remote_left);
         DORIS_CHECK(read_block.range.right <= remote_right);
-        if (!service->is_current_write_epoch(plan.write_epoch)) {
+        if (!service->check_write_epoch(plan.write_epoch)) {
             ++stats.async_cache_write_drop_stale_epoch;
             continue;
         }
@@ -593,7 +598,7 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
         if (config::enable_async_file_cache_write_inflight_write_buffer_index) {
             entry = std::make_shared<InflightWriteBufferEntry>(
                     tracked_buffer, read_block.range.left, read_block.range.size(),
-                    task.submit_ts_us, plan.write_epoch);
+                    task.submit_ts_us);
             TEST_SYNC_POINT_CALLBACK(
                     "CachedRemoteFileReader::_submit_async_write_tasks:before_inflight_insert",
                     &task);
@@ -646,7 +651,7 @@ Status CachedRemoteFileReader::_read_async_write_path(size_t offset, Slice resul
     auto* service = _cache->async_write_service();
     DORIS_CHECK(service != nullptr);
     auto plan = _build_async_read_plan(offset + already_read, bytes_req - already_read,
-                                       service->current_write_epoch(), io_ctx, stats);
+                                       service->current_write_epoch(_cache_hash), io_ctx, stats);
 
     CacheContext cache_context(io_ctx);
     cache_context.stats = &stats;

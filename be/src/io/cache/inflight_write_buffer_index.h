@@ -42,15 +42,13 @@ struct InflightWriteBufferEntry {
     size_t buffer_offset {0};
     size_t buffer_size {0};
     int64_t submit_ts_us {0};
-    uint64_t write_epoch {0};
 
     InflightWriteBufferEntry(AsyncCacheWriteBufferPtr buffer_, size_t offset_, size_t size_,
-                             int64_t submit_ts_us_, uint64_t write_epoch_)
+                             int64_t submit_ts_us_)
             : buffer(std::move(buffer_)),
               buffer_offset(offset_),
               buffer_size(size_),
-              submit_ts_us(submit_ts_us_),
-              write_epoch(write_epoch_) {}
+              submit_ts_us(submit_ts_us_) {}
 };
 
 /// Sharded index from (cache key, aligned block offset) to an accepted async-write payload.
@@ -67,22 +65,22 @@ public:
     /// @param metric_prefix Prefix that makes per-cache-disk bvar names unique.
     explicit InflightWriteBufferIndex(size_t shard_count, std::string metric_prefix = {});
 
-    /// Claim `(cache_hash, block_offset)` for `entry` if no entry from the same/newer epoch exists.
-    /// An older entry is atomically replaced so invalidation cannot block the current epoch.
-    /// @return null when insertion/replacement succeeds; otherwise the existing owner.
+    /// Claim `(cache_hash, block_offset)` for `entry` if no entry already exists. File contents are
+    /// immutable for a cache hash, so every entry at the same offset contains interchangeable data
+    /// even when its persistence task belongs to an invalidated write epoch.
+    /// @return null when insertion succeeds; otherwise the existing owner.
     std::shared_ptr<InflightWriteBufferEntry> insert_if_absent(
             const UInt128Wrapper& cache_hash, size_t block_offset,
             std::shared_ptr<InflightWriteBufferEntry> entry);
 
-    /// Find the payload only when its epoch equals `expected_epoch`. An older stale entry is erased;
-    /// a newer entry is preserved for readers already operating in that epoch.
+    /// Find the immutable payload for `(cache_hash, block_offset)` regardless of the persistence
+    /// task's write epoch.
     std::shared_ptr<InflightWriteBufferEntry> lookup(const UInt128Wrapper& cache_hash,
-                                                     size_t block_offset, uint64_t expected_epoch);
+                                                     size_t block_offset);
 
-    /// Look up aligned `block_offsets` in input order using the same epoch rule as `lookup`.
+    /// Look up aligned `block_offsets` in input order.
     std::vector<LookupResult> lookup_all(const UInt128Wrapper& cache_hash,
-                                         const std::vector<size_t>& block_offsets,
-                                         uint64_t expected_epoch);
+                                         const std::vector<size_t>& block_offsets);
 
     /// Remove the key only if it still points to `expected`, preventing an old task callback from
     /// deleting a replacement entry.
@@ -135,8 +133,6 @@ private:
     std::shared_ptr<bvar::Adder<uint64_t>> _insert_existing_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _remove_success_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _remove_failed_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _stale_epoch_miss_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _stale_epoch_replace_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _rollback_on_backpressure_metric;
     std::shared_ptr<bvar::LatencyRecorder> _lock_wait_latency_metric;
     std::shared_ptr<bvar::LatencyRecorder> _lock_hold_latency_metric;

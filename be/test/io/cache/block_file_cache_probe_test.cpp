@@ -178,7 +178,8 @@ TEST_F(BlockFileCacheTest, ProbeTouchAndRemovalRevalidateTheRetainedBlock) {
         }
 
         fs::path cache_file;
-        const uint64_t old_epoch = cache.async_write_service()->current_write_epoch();
+        const auto old_epoch = cache.async_write_service()->current_write_epoch(hash);
+        const uint64_t old_cache_epoch = cache.async_write_service()->current_cache_epoch();
         {
             auto probe_result = cache.probe(hash, 0, 4096, context);
             ASSERT_EQ(probe_result.file_blocks.size(), 1);
@@ -198,7 +199,8 @@ TEST_F(BlockFileCacheTest, ProbeTouchAndRemovalRevalidateTheRetainedBlock) {
             }
 
             cache.remove_if_cached(hash);
-            EXPECT_EQ(cache.async_write_service()->current_write_epoch(), old_epoch + 1);
+            EXPECT_EQ(cache.async_write_service()->current_cache_epoch(), old_cache_epoch);
+            EXPECT_FALSE(cache.async_write_service()->is_current_write_epoch(old_epoch));
             EXPECT_TRUE(cache.is_block_deleting(block));
             cache.touch_probe_block_if_cached(block, context);
         }

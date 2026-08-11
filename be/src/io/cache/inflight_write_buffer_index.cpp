@@ -89,10 +89,6 @@ InflightWriteBufferIndex::InflightWriteBufferIndex(size_t shard_count, std::stri
             prefix, "inflight_write_buffer_index_remove_if_success_total");
     _remove_failed_metric = std::make_shared<bvar::Adder<uint64_t>>(
             prefix, "inflight_write_buffer_index_remove_if_failed_total");
-    _stale_epoch_miss_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "inflight_write_buffer_index_stale_epoch_miss_total");
-    _stale_epoch_replace_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "inflight_write_buffer_index_stale_epoch_replace_total");
     _rollback_on_backpressure_metric = std::make_shared<bvar::Adder<uint64_t>>(
             prefix, "inflight_write_buffer_index_rollback_on_backpressure_total");
     _lock_wait_latency_metric = std::make_shared<bvar::LatencyRecorder>(
@@ -115,19 +111,6 @@ std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::insert_if_ab
             shard.entries.emplace(key, std::move(entry));
             _count.fetch_add(1, std::memory_order_relaxed);
             _buffer_bytes.fetch_add(entry_buffer_bytes, std::memory_order_relaxed);
-        } else if (iterator->second->write_epoch < entry->write_epoch) {
-            const size_t old_buffer_bytes = iterator->second->buffer->size();
-            iterator->second = std::move(entry);
-            if (entry_buffer_bytes > old_buffer_bytes) {
-                _buffer_bytes.fetch_add(entry_buffer_bytes - old_buffer_bytes,
-                                        std::memory_order_relaxed);
-            } else if (entry_buffer_bytes < old_buffer_bytes) {
-                _buffer_bytes.fetch_sub(old_buffer_bytes - entry_buffer_bytes,
-                                        std::memory_order_relaxed);
-            }
-            *_stale_epoch_replace_metric << 1;
-            *_insert_metric << 1;
-            return nullptr;
         } else {
             *_insert_existing_metric << 1;
             return iterator->second;
@@ -139,7 +122,7 @@ std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::insert_if_ab
 }
 
 std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::lookup(
-        const UInt128Wrapper& cache_hash, size_t block_offset, uint64_t expected_epoch) {
+        const UInt128Wrapper& cache_hash, size_t block_offset) {
     *_lookup_metric << 1;
     Key key {.cache_hash = cache_hash, .block_offset = block_offset};
     auto& shard = *_shards[_shard_index(key)];
@@ -150,32 +133,19 @@ std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::lookup(
             *_miss_metric << 1;
             return nullptr;
         }
-        if (iterator->second->write_epoch == expected_epoch) {
-            *_hit_metric << 1;
-            return iterator->second;
-        }
-        *_stale_epoch_miss_metric << 1;
-        if (iterator->second->write_epoch < expected_epoch) {
-            const size_t entry_buffer_bytes = iterator->second->buffer->size();
-            shard.entries.erase(iterator);
-            const size_t old_count = _count.fetch_sub(1, std::memory_order_relaxed);
-            DCHECK_GT(old_count, 0);
-            _buffer_bytes.fetch_sub(entry_buffer_bytes, std::memory_order_relaxed);
-        }
+        *_hit_metric << 1;
+        return iterator->second;
     }
-    *_miss_metric << 1;
-    return nullptr;
 }
 
 std::vector<InflightWriteBufferIndex::LookupResult> InflightWriteBufferIndex::lookup_all(
-        const UInt128Wrapper& cache_hash, const std::vector<size_t>& block_offsets,
-        uint64_t expected_epoch) {
+        const UInt128Wrapper& cache_hash, const std::vector<size_t>& block_offsets) {
     std::vector<LookupResult> results;
     results.reserve(block_offsets.size());
     for (size_t block_offset : block_offsets) {
         results.emplace_back(LookupResult {
                 .block_offset = block_offset,
-                .entry = lookup(cache_hash, block_offset, expected_epoch),
+                .entry = lookup(cache_hash, block_offset),
         });
     }
     return results;

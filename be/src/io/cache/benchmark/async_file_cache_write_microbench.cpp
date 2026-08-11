@@ -808,9 +808,9 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
                     break;
                 }
                 std::memset(buffer->data(), static_cast<int>(operation % 251), buffer->size());
-                const uint64_t epoch = environment->service()->current_write_epoch();
+                auto epoch = environment->service()->current_write_epoch(hash);
                 auto entry = std::make_shared<InflightWriteBufferEntry>(
-                        buffer, offset, buffer->size(), MonotonicMicros(), epoch);
+                        buffer, offset, buffer->size(), MonotonicMicros());
                 auto existing = environment->index()->insert_if_absent(hash, offset, entry);
                 if (existing != nullptr) {
                     error.set(Status::InternalError(
@@ -947,10 +947,9 @@ Status run_index_case(BenchmarkEnvironment* environment, std::string variant, si
             64, FLAGS_cache_path + "_index_" + variant + "_" + std::to_string(repetition));
     std::vector<UInt128Wrapper> hashes;
     hashes.reserve(key_count);
-    const uint64_t epoch = 1;
     AsyncCacheWriteBufferPtr buffer;
     RETURN_IF_ERROR(environment->service()->allocate_tracked_buffer(1, &buffer));
-    auto entry = std::make_shared<InflightWriteBufferEntry>(buffer, 0, 1, MonotonicMicros(), epoch);
+    auto entry = std::make_shared<InflightWriteBufferEntry>(buffer, 0, 1, MonotonicMicros());
     for (size_t key = 0; key < key_count; ++key) {
         hashes.emplace_back(
                 BlockFileCache::hash("inflight_index_" + variant + "_" + std::to_string(key)));
@@ -971,7 +970,7 @@ Status run_index_case(BenchmarkEnvironment* environment, std::string variant, si
             for (size_t operation = 0; operation < operations_per_thread; ++operation) {
                 const size_t key = (operation * 2654435761ULL + producer) % key_count;
                 const auto start = Clock::now();
-                auto result = index.lookup(hashes[key], 0, epoch);
+                auto result = index.lookup(hashes[key], 0);
                 const auto elapsed = std::chrono::duration_cast<Nanoseconds>(Clock::now() - start);
                 latencies[producer].push_back(elapsed.count());
                 if ((result != nullptr) != populate) {
