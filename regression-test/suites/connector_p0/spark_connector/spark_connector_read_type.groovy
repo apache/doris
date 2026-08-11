@@ -92,10 +92,10 @@ suite("spark_connector_read_type", "connector") {
       """
 
     logger.info("start delete local spark doris demo jar...")
-    def delete_local_spark_jar = "rm -rf spark-doris-read.jar".execute()
+    def delete_local_spark_jar = "rm -rf spark-doris-case.jar".execute()
     logger.info("start download spark doris demo ...")
     logger.info("getS3Url ==== ${getS3Url()}")
-    def download_spark_jar = "/usr/bin/curl ${getS3Url()}/regression/spark-doris-read-jar-with-dependencies.jar --output spark-doris-read.jar".execute().getText()
+    def download_spark_jar = "/usr/bin/curl ${getS3Url()}/regression/spark-doris-case.jar --output spark-doris-case.jar".execute().getText()
     logger.info("finish download spark doris demo ...")
 
     def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
@@ -113,8 +113,16 @@ suite("spark_connector_read_type", "connector") {
         addOpens = "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED  --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.util.calendar=ALL-UNNAMED"
     }
 
-    def run_cmd = "${javaPath} ${addOpens} -jar spark-doris-read.jar $context.config.feHttpAddress $context.config.feHttpUser regression_test_connector_p0_spark_connector.$tableReadName regression_test_connector_p0_spark_connector.$tableWriterName"
-    logger.info("run_cmd : $run_cmd")
+    def run_cmd = [javaPath]
+    run_cmd.addAll(addOpens.tokenize())
+    run_cmd.addAll(["-jar", "spark-doris-case.jar",
+            "--doris-fe-address", context.config.feHttpAddress,
+            "--doris-read-table-identifier", "regression_test_connector_p0_spark_connector.${tableReadName}",
+            "--doris-write-table-identifier", "regression_test_connector_p0_spark_connector.${tableWriterName}",
+            "--doris-user", context.config.feHttpUser,
+            "--doris-password", context.config.feHttpPassword])
+    run_cmd.addAll(getDorisConnectorTlsArgs())
+    logger.info("run_cmd : ${run_cmd.join(' ')}")
     def proc = run_cmd.execute()
     def sout = new StringBuilder()
     def serr = new StringBuilder()

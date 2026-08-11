@@ -139,8 +139,15 @@ VALUES
         addOpens = "--add-opens=java.base/java.nio=ALL-UNNAMED  --add-opens=java.base/java.lang=ALL-UNNAMED"
     }
 
-    def run_cmd = "${javaPath} ${addOpens} -cp flink-doris-case.jar org.apache.doris.FlinkConnectorTypeCase $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"
-    logger.info("run_cmd : $run_cmd")
+    def run_cmd = [javaPath]
+    run_cmd.addAll(addOpens.tokenize())
+    run_cmd.addAll(["-cp", "flink-doris-case.jar", "org.apache.doris.FlinkConnectorTypeCase",
+            "--doris-fe-address", context.config.feHttpAddress,
+            "--doris-database", "regression_test_flink_connector_p0",
+            "--doris-user", context.config.feHttpUser,
+            "--doris-password", context.config.feHttpPassword])
+    run_cmd.addAll(getDorisConnectorTlsArgs())
+    logger.info("run_cmd : ${run_cmd.join(' ')}")
     def run_flink_jar = run_cmd.execute().getText()
     logger.info("result: $run_flink_jar")
     // The publish in the commit phase is asynchronous

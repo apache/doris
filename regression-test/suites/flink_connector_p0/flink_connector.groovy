@@ -27,18 +27,18 @@ suite("flink_connector") {
     def tableName = "flink_connector"
     sql """DROP TABLE IF EXISTS ${tableName}"""
     sql new File("""${context.file.parent}/ddl/create.sql""").text
-    logger.info("start delete local flink doris demo jar...")
-    def delete_local_spark_jar = "rm -rf flink-doris-demo.jar".execute()
-    logger.info("start download flink doris demo ...")
+    logger.info("start delete local flink doris case jar...")
+    def delete_local_flink_jar = "rm -rf flink-doris-case.jar".execute()
+    logger.info("start download flink doris case ...")
     logger.info("getS3Url ==== ${getS3Url()}")
-    def download_spark_jar = "wget --quiet --continue --tries=3 ${getS3Url()}/regression/flink-doris-demo.jar".execute().getText()
-    def file = new File('flink-doris-demo.jar')
+    def download_flink_jar = "wget --quiet --continue --tries=3 ${getS3Url()}/regression/flink-doris-case.jar".execute().getText()
+    def file = new File('flink-doris-case.jar')
     if (file.exists()) {
         def fileSize = file.length()
-        assertEquals(fileSize, 167461032)
-        logger.info("finish download spark doris demo ...")
+        assertTrue(fileSize > 0)
+        logger.info("finish download flink doris case ...")
     } else {
-        logger.info("flink-doris-demo.jar 文件不存在, 忽略")
+        logger.info("flink-doris-case.jar does not exist, skip this case")
         return
     }
 
@@ -52,8 +52,13 @@ suite("flink_connector") {
     def javaVersion = System.getProperty("java.version")
     logger.info("Runtime java version: ${javaVersion}")
 
-    def run_cmd = "${javaPath} -cp flink-doris-demo.jar com.doris.DorisFlinkDfSinkDemo $context.config.feHttpAddress regression_test_flink_connector_p0.$tableName $context.config.feHttpUser"
-    logger.info("run_cmd : $run_cmd")
+    def run_cmd = [javaPath, "-cp", "flink-doris-case.jar", "org.apache.doris.DorisFlinkDfSinkDemo",
+            "--doris-fe-address", context.config.feHttpAddress,
+            "--doris-table-identifier", "regression_test_flink_connector_p0.${tableName}",
+            "--doris-user", context.config.feHttpUser,
+            "--doris-password", context.config.feHttpPassword]
+    run_cmd.addAll(getDorisConnectorTlsArgs())
+    logger.info("run_cmd : ${run_cmd.join(' ')}")
     def run_flink_jar = run_cmd.execute().getText()
     logger.info("result: $run_flink_jar")
     // The publish in the commit phase is asynchronous
