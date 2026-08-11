@@ -31,7 +31,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Enumeration;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -104,13 +103,6 @@ import java.util.stream.Stream;
  * interleaving and producing inconsistent outcomes.
  */
 public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
-
-    /**
-     * File-name prefix of the jar shipping Doris-patched copies of hadoop classes (currently
-     * {@code org.apache.hadoop.fs.FileSystem}). It must precede a plugin's own hadoop-common on the
-     * plugin classpath; see {@link #loadFromPluginDir}.
-     */
-    private static final String PATCHED_HADOOP_JAR_PREFIX = "hadoop-deps";
 
     private final ConcurrentMap<String, PluginHandle<F>> handlesByName = new ConcurrentHashMap<>();
     private final Object lifecycleLock = new Object();
@@ -239,27 +231,9 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
         List<Path> libJars = new ArrayList<>();
         resolveJars(normalizedDir, rootJars, libJars);
 
-        // hadoop-deps carries the Doris-patched org.apache.hadoop.fs.FileSystem (credential-aware
-        // doris.fs.cache.key, see FsCacheKeys). A plugin that bundles its own hadoop-common is
-        // loaded child-first for org.apache.hadoop.* -- the connector families deliberately keep
-        // their own hadoop copy -- so the patched class only wins if its jar precedes hadoop-common
-        // on the plugin's own classpath. Neither directory position nor the lexicographic order of
-        // collectJars() delivers that ("hadoop-common-x.y.z.jar" sorts BEFORE "hadoop-deps-*.jar"),
-        // so the promotion is explicit here. Mirrors start_fe.sh and the BE, which both prepend the
-        // same jar. Deliberately excluded from the discovery set below: it registers no SPI service,
-        // and its mere presence at the plugin root would otherwise make rootJars non-empty and
-        // narrow discovery to a jar that carries no factory.
-        List<Path> patchedHadoopJars = new ArrayList<>();
-        extractPatchedHadoopJars(rootJars, patchedHadoopJars);
-        extractPatchedHadoopJars(libJars, patchedHadoopJars);
-
-        List<Path> discoveryJars = new ArrayList<>(rootJars.size() + libJars.size());
-        discoveryJars.addAll(rootJars);
-        discoveryJars.addAll(libJars);
-
-        List<Path> allJars = new ArrayList<>(patchedHadoopJars.size() + discoveryJars.size());
-        allJars.addAll(patchedHadoopJars);
-        allJars.addAll(discoveryJars);
+        List<Path> allJars = new ArrayList<>(rootJars.size() + libJars.size());
+        allJars.addAll(rootJars);
+        allJars.addAll(libJars);
 
         URL[] allUrls = toUrls(allJars, normalizedDir);
         ClassLoader filteredParent = new ServiceResourceFilteringParentClassLoader(parent, factoryType);
@@ -280,7 +254,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
         try {
             // Discovery classloader: only root-level jars.  This ensures that service registrations
             // bundled inside lib/ dependencies are not included in the scan.
-            URL[] rootUrls = toUrls(rootJars.isEmpty() ? discoveryJars : rootJars, normalizedDir);
+            URL[] rootUrls = toUrls(rootJars.isEmpty() ? allJars : rootJars, normalizedDir);
             ClassLoader discoveryCL = new java.net.URLClassLoader(rootUrls, filteredParent);
             String factoryClassName;
             try {
@@ -460,22 +434,6 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                     LoadFailure.STAGE_RESOLVE,
                     "No jar found under plugin directory: " + pluginDir,
                     null);
-        }
-    }
-
-    /**
-     * Moves the Doris-patched hadoop jars out of {@code source} into {@code target}, preserving the
-     * relative order of both lists. See the call site for why they must lead the plugin classpath
-     * and stay out of service discovery.
-     */
-    private static void extractPatchedHadoopJars(List<Path> source, List<Path> target) {
-        Iterator<Path> it = source.iterator();
-        while (it.hasNext()) {
-            Path jar = it.next();
-            if (jar.getFileName().toString().startsWith(PATCHED_HADOOP_JAR_PREFIX)) {
-                target.add(jar);
-                it.remove();
-            }
         }
     }
 
