@@ -168,7 +168,7 @@ public class RowBinlogTabletLocality {
                     visibleVersion, replicaAlloc, requiredDestPathHashByBackend.keySet());
             if (tabletHealth.status == TabletStatus.HEALTHY
                     && hasWrongPathReplica(rowBinlogTablet, requiredDestPathHashByBackend)) {
-                tabletHealth.status = TabletStatus.COLOCATE_REDUNDANT;
+                tabletHealth.status = TabletStatus.COLOCATE_MISMATCH;
             }
             if (tabletHealth.status != TabletStatus.HEALTHY
                     && tabletHealth.status != TabletStatus.UNRECOVERABLE

@@ -118,14 +118,14 @@ public class RowBinlogTabletLocalityTest {
     }
 
     @Test
-    public void rowBinlogWrongPathBecomesRedundant() {
+    public void rowBinlogWrongPathBecomesMismatch() {
         TabletPair pair = createTabletPair(
                 replicas(1, 2, 3),
                 replicas(replicaSpec(1, 10), replicaSpec(2, 200), replicaSpec(3, 30)));
 
         TabletHealth health = getHealth(pair).getTabletHealth();
 
-        Assertions.assertEquals(TabletStatus.COLOCATE_REDUNDANT, health.status);
+        Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, health.status);
     }
 
     @Test
@@ -144,7 +144,7 @@ public class RowBinlogTabletLocalityTest {
     }
 
     @Test
-    public void singleReplicaWrongPathUsesRepairableRedundantStatus() {
+    public void singleReplicaWrongPathUsesRepairableMismatchStatus() {
         TabletPair pair = createTabletPair(
                 replicas(1),
                 replicas(replicaSpec(1, 100)));
@@ -153,7 +153,7 @@ public class RowBinlogTabletLocalityTest {
                 pair.partition, pair.rowBinlogTablet, new ReplicaAllocation((short) 1), VISIBLE_VERSION)
                 .getTabletHealth();
 
-        Assertions.assertEquals(TabletStatus.COLOCATE_REDUNDANT, health.status);
+        Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, health.status);
     }
 
     @Test

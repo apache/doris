@@ -1663,6 +1663,18 @@ public class TabletScheduler extends MasterDaemon {
         Preconditions.checkNotNull(tabletCtx.getColocateBackendsSet());
 
         stat.counterReplicaColocateMismatch.incrementAndGet();
+        // A row-binlog tablet may be missing a required backend and have a wrong-path replica at the same time.
+        // Clone the missing backend first; migrate in place only after backend locality is complete.
+        if (tabletCtx.hasRowBinlogRequiredDestPathHash()
+                && tabletCtx.getTablet().getBackendIds().containsAll(tabletCtx.getColocateBackendsSet())) {
+            for (Replica replica : tabletCtx.getReplicas()) {
+                if (isRowBinlogWrongPathReplica(tabletCtx, replica)) {
+                    migrateRowBinlogReplicaToRequiredPath(tabletCtx, replica, batchTask);
+                    return;
+                }
+            }
+        }
+
         // find an available dest backend and path
         RootPathLoadStatistic destPath = chooseAvailableDestPath(tabletCtx, null, true /* for colocate */);
         Preconditions.checkNotNull(destPath);

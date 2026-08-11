@@ -230,6 +230,19 @@ public class CreateTableTest extends TestWithFeService {
         Assert.assertNotNull(rowBinlogNormal.getAutoIncrementGenerator());
         Assert.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID,
                 rowBinlogNormal.getAutoIncrementGenerator().getColumnId());
+        boolean foundRowBinlogIndex = false;
+        for (Partition partition : rowBinlogNormal.getPartitions()) {
+            for (MaterializedIndex index
+                    : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true)) {
+                foundRowBinlogIndex |= index.isRowBinlog();
+                for (Tablet tablet : index.getTablets()) {
+                    TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tablet.getId());
+                    Assert.assertNotNull(tabletMeta);
+                    Assert.assertEquals(index.isRowBinlog(), tabletMeta.isRowBinlog());
+                }
+            }
+        }
+        Assert.assertTrue(foundRowBinlogIndex);
 
         OlapTable rowBinlogUnique = (OlapTable) db.getTableOrDdlException("row_binlog_unique");
         Assert.assertTrue(rowBinlogUnique.needRowBinlog());

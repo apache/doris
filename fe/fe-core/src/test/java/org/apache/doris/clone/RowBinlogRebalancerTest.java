@@ -115,20 +115,23 @@ public class RowBinlogRebalancerTest {
                 new PartitionRebalancer(infoService, invertedIndex, Maps.newHashMap()),
                 new DiskRebalancer(infoService, invertedIndex, Maps.newHashMap()));
 
-        TabletMeta baseMeta = tabletMeta(BASE_INDEX_ID);
-        TabletMeta rowBinlogMeta = tabletMeta(ROW_BINLOG_INDEX_ID);
-        TabletMeta rollupMeta = tabletMeta(ROLLUP_INDEX_ID);
+        TabletMeta baseMeta = tabletMeta(BASE_INDEX_ID, false);
+        TabletMeta rowBinlogMeta = tabletMeta(ROW_BINLOG_INDEX_ID, true);
+        TabletMeta rollupMeta = tabletMeta(ROLLUP_INDEX_ID, false);
+        // The same rollup is dynamically movable, so this isolates the TabletMeta fast-path filter.
+        TabletMeta fastFilteredMeta = tabletMeta(ROLLUP_INDEX_ID, true);
         TabletMeta ordinaryBaseMeta = new TabletMeta(DB_ID, ORDINARY_TABLE_ID, ORDINARY_PARTITION_ID,
                 ORDINARY_BASE_INDEX_ID, 0, TStorageMedium.HDD);
         for (Rebalancer rebalancer : rebalancers) {
             Assert.assertFalse(rebalancer.getClass().getSimpleName(), rebalancer.canBalanceTablet(baseMeta));
             Assert.assertFalse(rebalancer.getClass().getSimpleName(), rebalancer.canBalanceTablet(rowBinlogMeta));
+            Assert.assertFalse(rebalancer.getClass().getSimpleName(), rebalancer.canBalanceTablet(fastFilteredMeta));
             Assert.assertTrue(rebalancer.getClass().getSimpleName(), rebalancer.canBalanceTablet(rollupMeta));
             Assert.assertTrue(rebalancer.getClass().getSimpleName(), rebalancer.canBalanceTablet(ordinaryBaseMeta));
         }
     }
 
-    private TabletMeta tabletMeta(long indexId) {
-        return new TabletMeta(DB_ID, TABLE_ID, PARTITION_ID, indexId, 0, TStorageMedium.HDD);
+    private TabletMeta tabletMeta(long indexId, boolean isRowBinlog) {
+        return new TabletMeta(DB_ID, TABLE_ID, PARTITION_ID, indexId, 0, TStorageMedium.HDD, isRowBinlog);
     }
 }
