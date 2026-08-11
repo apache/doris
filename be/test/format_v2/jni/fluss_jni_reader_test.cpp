@@ -25,8 +25,10 @@
 
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "util/url_coding.h"
 
 namespace doris::format::fluss {
 namespace {
@@ -228,6 +230,37 @@ TEST(FlussJniReaderTest, ReadsAProjectionBuiltHereRatherThanPlannedByFe) {
     EXPECT_EQ(reader._jni_block_template.get_by_position(0).name, "id");
     EXPECT_EQ(reader._jni_block_template.get_by_position(2).name, "amount");
     EXPECT_TRUE(reader._jni_block_template.get_by_position(2).type->equals(DataTypeInt64 {}));
+}
+
+// The fluss scanner resolves a pruned STRUCT's fields by name while decoding, and the legacy schema
+// grammar lowercases those names. Publishing the encoded pair is what keeps a field's exact spelling
+// on the way to Java - this pins that the pair is actually sent, and that a STRUCT field's name
+// inside it carries the encoded grammar's '$' version marker rather than the legacy grammar's
+// lowercased, unmarked one.
+TEST(FlussJniReaderTest, PublishesEncodedSchemaForStructFieldNames) {
+    FlussJniReader reader;
+    DataTypePtr struct_type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>()}, Strings {"City"});
+    reader._jni_columns = {JniTableReader::JniColumn {
+            .java_name = "address",
+            // Keep the aggregate complete because BE UT treats omitted JniColumn fields as errors.
+            .output_type = struct_type,
+            .transfer_type = struct_type,
+    }};
+
+    reader._prepare_jni_scanner_schema();
+
+    ASSERT_TRUE(reader._scanner_params.contains("required_fields_base64"));
+    ASSERT_TRUE(reader._scanner_params.contains("columns_types_base64"));
+
+    const std::string& encoded_type = reader._scanner_params.at("columns_types_base64");
+    ASSERT_FALSE(encoded_type.empty());
+    ASSERT_EQ(encoded_type[0], '$');
+    std::string decoded_type;
+    ASSERT_TRUE(base64_decode(encoded_type.substr(1), &decoded_type));
+    // "City" base64-encodes to "Q2l0eQ=="; the leading '$' marks it as a versioned,
+    // spelling-preserving field name rather than the legacy grammar's lowercased "city".
+    EXPECT_EQ(decoded_type, "struct<$Q2l0eQ==:string>");
 }
 
 } // namespace

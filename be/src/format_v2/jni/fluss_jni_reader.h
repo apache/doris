@@ -46,6 +46,9 @@ protected:
     Status build_jni_columns(
             std::vector<format::JniTableReader::JniColumn>* columns) const override;
     Status finalize_jni_block(Block* jni_block, Block* output_block, size_t* rows) override;
+    // The fluss scanner resolves a pruned STRUCT's fields by name while decoding, and the legacy
+    // schema grammar lowercases those names. Publishing the encoded pair keeps their spelling.
+    bool publishes_encoded_schema() const override { return true; }
 };
 
 } // namespace doris::format::fluss
