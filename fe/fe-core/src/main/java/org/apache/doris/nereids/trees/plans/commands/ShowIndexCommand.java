@@ -118,8 +118,11 @@ public class ShowIndexCommand extends ShowCommand {
         if (db instanceof Database) {
             rows = getInternalIndexRows(db);
         } else if (catalog instanceof LanceExternalCatalog) {
-            LanceExternalTable table = (LanceExternalTable) db.getTableOrAnalysisException(tableNameInfo.getTbl());
-            rows = getLanceIndexRows(table);
+            TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
+            if (!(table instanceof LanceExternalTable)) {
+                throw new AnalysisException("Table " + tableNameInfo.getTbl() + " is not a Lance table");
+            }
+            rows = getLanceIndexRows((LanceExternalTable) table);
         }
         return new ShowResultSet(getMetaData(), rows);
     }
@@ -144,7 +147,7 @@ public class ShowIndexCommand extends ShowCommand {
         return rows;
     }
 
-    private List<List<String>> getLanceIndexRows(LanceExternalTable table) throws Exception {
+    private List<List<String>> getLanceIndexRows(LanceExternalTable table) throws AnalysisException {
         return buildLanceRows(table.getName(), table.loadIndexMetadata());
     }
 
