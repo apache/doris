@@ -27,6 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -41,7 +42,8 @@ public class MTMVPropertyUtil {
             PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT,
             PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION,
-            PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE
+            PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE,
+            PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS
     );
 
     public static void analyzeProperty(String key, String value) {
@@ -75,6 +77,9 @@ public class MTMVPropertyUtil {
                 break;
             case PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE:
                 analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE);
+                break;
+            case PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS:
+                analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS);
                 break;
             default:
                 throw new AnalysisException("illegal key:" + key);
@@ -173,5 +178,10 @@ public class MTMVPropertyUtil {
         if (!"true".equalsIgnoreCase(propertyValue) && !"false".equalsIgnoreCase(propertyValue)) {
             throw new AnalysisException(String.format("valid property %s fail", propertyName));
         }
+    }
+
+    public static boolean isIvmUseFullKeys(Map<String, String> mvProperties) {
+        return mvProperties != null && "true".equalsIgnoreCase(
+                mvProperties.get(PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS));
     }
 }

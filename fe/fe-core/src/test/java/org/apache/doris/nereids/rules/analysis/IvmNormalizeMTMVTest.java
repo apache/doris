@@ -41,12 +41,15 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
@@ -61,19 +64,24 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -925,6 +933,153 @@ class IvmNormalizeMTMVTest {
 
     private JobContext newJobContext(boolean enableIvmNormalRewrite) {
         return newJobContextForScan(scan, enableIvmNormalRewrite);
+    }
+
+    @Test
+    void testMowScanIdentityKeysWithUseFullKeys() {
+        OlapTable mowTable = PlanConstructor.newOlapTable(30, "mow_uk", 0, KeysType.UNIQUE_KEYS);
+        TableProperty tableProperty = new TableProperty(new java.util.HashMap<>());
+        tableProperty.setEnableUniqueKeyMergeOnWrite(true);
+        mowTable.setTableProperty(tableProperty);
+        enableBinlog(mowTable);
+        LogicalOlapScan mowScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), mowTable, ImmutableList.of("db"));
+        LogicalResultSink<Plan> sink = new LogicalResultSink<>(
+                ImmutableList.of(mowScan.getOutput().get(0), mowScan.getOutput().get(1)), mowScan);
+
+        JobContext jobContext = newJobContextWithFullKeys(sink);
+        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        List<String> keyNames = rewriteResult.getIdentityKeySlots().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        // MOW table key columns are (id, name); both survive to the sink output.
+        Assertions.assertEquals(ImmutableList.of("id", "name"), keyNames);
+    }
+
+    @Test
+    void testDupScanIdentityKeysEmptyWithUseFullKeys() {
+        LogicalResultSink<Plan> sink = new LogicalResultSink<>(
+                ImmutableList.of(scan.getOutput().get(0), scan.getOutput().get(1)), scan);
+
+        JobContext jobContext = newJobContextWithFullKeys(sink);
+        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        // DUP_KEYS tables have no identity keys; row-id remains the only key.
+        Assertions.assertTrue(rewriteResult.getIdentityKeySlots().isEmpty());
+    }
+
+    @Test
+    void testGroupedAggIdentityKeysAreGroupKeysWithUseFullKeys() {
+        LogicalAggregate<Plan> agg = buildGroupedAgg();
+        LogicalResultSink<Plan> sink = new LogicalResultSink<>(
+                ImmutableList.of(agg.getOutput().get(0), agg.getOutput().get(1)), agg);
+
+        JobContext jobContext = newJobContextWithFullKeys(sink);
+        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        List<String> keyNames = rewriteResult.getIdentityKeySlots().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        // Aggregate replaces child identity keys with the group-by keys.
+        Assertions.assertEquals(ImmutableList.of("id"), keyNames);
+    }
+
+    @Test
+    void testSinkAliasesDroppedKeyAsHiddenWithUseFullKeys() {
+        OlapTable mowTable = PlanConstructor.newOlapTable(31, "mow_uk2", 0, KeysType.UNIQUE_KEYS);
+        TableProperty tableProperty = new TableProperty(new java.util.HashMap<>());
+        tableProperty.setEnableUniqueKeyMergeOnWrite(true);
+        mowTable.setTableProperty(tableProperty);
+        enableBinlog(mowTable);
+        LogicalOlapScan mowScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), mowTable, ImmutableList.of("db"));
+        Slot idSlot = mowScan.getOutput().get(0);
+        // Project drops the "name" identity key column.
+        LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(idSlot), mowScan);
+        LogicalResultSink<Plan> sink = new LogicalResultSink<>(ImmutableList.of(idSlot), project);
+
+        JobContext jobContext = newJobContextWithFullKeys(sink);
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        List<String> keyNames = rewriteResult.getIdentityKeySlots().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertEquals(ImmutableList.of("id", "__DORIS_IVM_KEY_1_name_COL__"), keyNames);
+        List<String> outputNames = result.getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertTrue(outputNames.contains("__DORIS_IVM_KEY_1_name_COL__"));
+    }
+
+    @Test
+    void testJoinIdentityKeysConcatenateLeftAndRight() {
+        OlapTable leftTable = PlanConstructor.newOlapTable(32, "mow_l", 0, KeysType.UNIQUE_KEYS);
+        TableProperty leftProperty = new TableProperty(new java.util.HashMap<>());
+        leftProperty.setEnableUniqueKeyMergeOnWrite(true);
+        leftTable.setTableProperty(leftProperty);
+        enableBinlog(leftTable);
+        LogicalOlapScan leftScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), leftTable, ImmutableList.of("db"));
+        OlapTable rightTable = PlanConstructor.newOlapTable(33, "mow_r", 1, KeysType.UNIQUE_KEYS);
+        TableProperty rightProperty = new TableProperty(new java.util.HashMap<>());
+        rightProperty.setEnableUniqueKeyMergeOnWrite(true);
+        rightTable.setTableProperty(rightProperty);
+        enableBinlog(rightTable);
+        LogicalOlapScan rightScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), rightTable, ImmutableList.of("db"));
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(leftScan.getOutput().get(0), rightScan.getOutput().get(1))),
+                ImmutableList.of(), leftScan, rightScan, JoinReorderContext.EMPTY);
+        LogicalResultSink<Plan> sink = new LogicalResultSink<>(
+                ImmutableList.of(join.getOutput().get(0), join.getOutput().get(1)), join);
+
+        JobContext jobContext = newJobContextWithFullKeys(sink);
+        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        List<String> keyNames = rewriteResult.getIdentityKeySlots().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        // Left table keys (id, name) followed by right table keys (id, name), deduped by output presence.
+        Assertions.assertEquals(ImmutableList.of("id", "name", "id", "name"), keyNames);
+    }
+
+    @Test
+    void testUnionIdentityKeysAreArmIndexAndPositionalKeys() {
+        OlapTable leftTable = PlanConstructor.newOlapTable(34, "union_l", 0, KeysType.UNIQUE_KEYS);
+        TableProperty leftProperty = new TableProperty(new java.util.HashMap<>());
+        leftProperty.setEnableUniqueKeyMergeOnWrite(true);
+        leftTable.setTableProperty(leftProperty);
+        enableBinlog(leftTable);
+        LogicalOlapScan leftScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), leftTable, ImmutableList.of("db"));
+        OlapTable rightTable = PlanConstructor.newOlapTable(35, "union_r", 0, KeysType.UNIQUE_KEYS);
+        TableProperty rightProperty = new TableProperty(new java.util.HashMap<>());
+        rightProperty.setEnableUniqueKeyMergeOnWrite(true);
+        rightTable.setTableProperty(rightProperty);
+        enableBinlog(rightTable);
+        LogicalOlapScan rightScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), rightTable, ImmutableList.of("db"));
+        LogicalUnion union = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(leftScan.getOutput().get(0), leftScan.getOutput().get(1)),
+                ImmutableList.of(
+                        ImmutableList.of((SlotReference) leftScan.getOutput().get(0),
+                                (SlotReference) leftScan.getOutput().get(1)),
+                        ImmutableList.of((SlotReference) rightScan.getOutput().get(0),
+                                (SlotReference) rightScan.getOutput().get(1))),
+                ImmutableList.of(), false, ImmutableList.of(leftScan, rightScan));
+        LogicalResultSink<Plan> sink = new LogicalResultSink<>(
+                ImmutableList.of(union.getOutput().get(0), union.getOutput().get(1)), union);
+
+        JobContext jobContext = newJobContextWithFullKeys(sink);
+        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        List<String> keyNames = rewriteResult.getIdentityKeySlots().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        // Both arms expose 2 identity keys, so the union has arm_index + 2 positional keys.
+        Assertions.assertEquals(ImmutableList.of("__DORIS_IVM_UNION_ARM_INDEX_0_COL__",
+                "__DORIS_IVM_UNION_KEY_0_0_COL__", "__DORIS_IVM_UNION_KEY_0_1_COL__"), keyNames);
+    }
+
+    private JobContext newJobContextWithFullKeys(Plan root) {
+        IvmRewriteContext rewriteContext = IvmRewriteContext.create("test_mtmv");
+        rewriteContext.setUseFullKeys(true);
+        return newJobContextForRoot(root, true, Collections.emptySet(), Optional.of(rewriteContext));
     }
 
     private void assertIvmException(IvmFailureReason failureReason, Executable executable) {

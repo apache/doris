@@ -133,6 +133,7 @@ public class MTMV extends OlapTable {
         this.ivmInfo = new IvmInfo();
         this.ivmInfo.setEnableIvm(params.enableIvm);
         if (params.enableIvm) {
+            this.ivmInfo.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(params.mvProperties));
             if (params.ivmPlanSignature == null) {
                 throw new IllegalArgumentException("IVM materialized view requires a plan signature");
             }
