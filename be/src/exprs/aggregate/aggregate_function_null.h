@@ -465,7 +465,12 @@ public:
         }
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
-        bool has_null = column->has_null();
+        // Only scan the frame range for nulls (O(frame)), not the whole buffered
+        // column (O(n)). Scanning the whole column per row makes the analytic
+        // sliding-window path O(n * buffer) when nulls are sparse/absent.
+        bool has_null = current_frame_start < current_frame_end
+                                ? column->has_null(current_frame_start, current_frame_end)
+                                : false;
         if (has_null) {
             for (size_t i = current_frame_start; i < current_frame_end; ++i) {
                 this->add(place, columns, i, arena);
@@ -503,7 +508,11 @@ public:
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         const IColumn* nested_column = &column->get_nested_column();
 
-        if (!column->has_null()) {
+        // Scan only [frame_start-1, frame_end) covering the incremental step's
+        // outgoing (frame_start-1) and incoming (frame_end-1) positions, instead
+        // of has_null() over the whole buffered column (avoids O(n * buffer)).
+        if (!column->has_null(std::max<int64_t>(frame_start - 1, partition_start),
+                              current_frame_end)) {
             if (*could_use_previous_result) {
                 this->nested_function->execute_function_with_incremental(
                         partition_start, partition_end, frame_start, frame_end,
