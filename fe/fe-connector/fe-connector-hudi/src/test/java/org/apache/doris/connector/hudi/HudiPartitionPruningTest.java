@@ -31,7 +31,11 @@ import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import org.apache.hudi.common.model.HoodieBaseFile;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -58,6 +62,7 @@ import java.util.concurrent.Callable;
  *   <li>predicates on non-partition columns (or range predicates) never prune;</li>
  *   <li>when no partition predicate applies, the handle is left untouched
  *       ({@code Optional.empty()}) so scan planning falls back to Hudi's own listing;</li>
+ *   <li>Hive Sync names are translated to physical Hudi paths before FileSystemView lookup;</li>
  *   <li>a predicate that matches every / no partition is handled correctly.</li>
  * </ul>
  * A test that passed against the old stub (which always returned all partitions)
@@ -180,18 +185,64 @@ public class HudiPartitionPruningTest {
     }
 
     @Test
-    public void testHiveSyncBranchPrunesHmsNames() {
-        // use_hive_sync_partition=true: partitions are registered in HMS and the hive-style name IS the relative
-        // storage layout, so applyFilter prunes the HMS names directly (no Hudi metadata listing / stub unused).
+    public void testHiveSyncMapsHmsMatchesToHiveStylePhysicalPaths() {
+        // When the physical Hudi layout is also hive-style, translating an HMS match preserves the same path.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS),
                 HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
-                new StubMetaClientExecutor(Collections.emptyList()));
+                new StubMetaClientExecutor(new AbstractMap.SimpleImmutableEntry<>(true, PARTITIONS)));
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyFilter(null, partitionedHandle(), new ConnectorFilterConstraint(eq("year", "2024")));
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(
                 Arrays.asList("year=2024/month=01", "year=2024/month=02"), prunedPaths(result));
+    }
+
+    @Test
+    public void testHiveSyncPositionalLayoutReturnsPhysicalSplitAndValue() {
+        // HMS always returns a hive-style name, even though hoodie.datasource.write.hive_style_partitioning=false
+        // stores this table under the positional directory "Beijing". The handle must carry that physical key:
+        // FileSystemView exact lookup with "city=Beijing" returns no base file, while lookup with "Beijing"
+        // returns one split whose BE partition carrier contains the unprefixed value "Beijing".
+        List<String> hmsPartitionNames = Arrays.asList("city=Beijing", "city=Shanghai");
+        List<String> physicalPartitionPaths = Arrays.asList("Beijing", "Shanghai");
+        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+                new FakeHmsClient(hmsPartitionNames),
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                new StubMetaClientExecutor(new AbstractMap.SimpleImmutableEntry<>(
+                        false, physicalPartitionPaths)));
+        HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Collections.singletonList("city"))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(eq("city", "Beijing")));
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Collections.singletonList("Beijing"), prunedPaths(result));
+
+        List<String> lookupPaths = new ArrayList<>();
+        List<ConnectorScanRange> ranges = new ArrayList<>();
+        for (String partitionPath : prunedPaths(result)) {
+            Map<String, String> partitionValues = HudiScanPlanProvider.parsePartitionValues(
+                    partitionPath, Collections.singletonList("city"), false);
+            ranges.addAll(HudiScanPlanProvider.buildCowSnapshotRanges(
+                    partitionPath, "20240101120000", partitionValues, null, path -> path,
+                    (lookupPath, instant) -> {
+                        lookupPaths.add(lookupPath);
+                        return "Beijing".equals(lookupPath)
+                                ? Collections.singletonList(new HoodieBaseFile(
+                                        "s3://b/t/Beijing/fileid-1_0_20240101000000.parquet")).stream()
+                                : Collections.<HoodieBaseFile>emptyList().stream();
+                    }));
+        }
+
+        Assertions.assertEquals(Collections.singletonList("Beijing"), lookupPaths);
+        Assertions.assertEquals(1, ranges.size());
+        HudiScanRange range = (HudiScanRange) ranges.get(0);
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        range.populateRangeParams(new TTableFormatFileDesc(), rangeDesc);
+        Assertions.assertEquals(Collections.singletonList("city"), rangeDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("Beijing"), rangeDesc.getColumnsFromPath());
     }
 
     @Test

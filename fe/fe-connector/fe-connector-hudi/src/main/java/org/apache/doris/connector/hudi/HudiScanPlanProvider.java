@@ -70,9 +70,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Scan plan provider for Hudi tables.
@@ -306,7 +308,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
             if (useNativeCowPath) {
                 collectCowSplits(fsView, partitionPath, queryInstant,
-                        basePath, partValues, ranges, schemaIdResolver);
+                        partValues, ranges, schemaIdResolver);
             } else {
                 collectMorSplits(fsView, partitionPath, queryInstant,
                         basePath, inputFormat, serdeLib,
@@ -451,30 +453,44 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     private void collectCowSplits(
             HoodieTableFileSystemView fsView,
             String partitionPath, String queryInstant,
-            String basePath,
             Map<String, String> partValues,
             List<ConnectorScanRange> ranges,
             Function<String, Long> schemaIdResolver) {
-        fsView.getLatestBaseFilesBeforeOrOn(partitionPath, queryInstant)
-                .forEach(baseFile -> {
-                    String filePath = baseFile.getPath();
-                    long fileSize = baseFile.getFileSize();
-                    String format = detectFileFormat(filePath);
+        ranges.addAll(buildCowSnapshotRanges(partitionPath, queryInstant, partValues, schemaIdResolver,
+                this::normalizeNativeUri, fsView::getLatestBaseFilesBeforeOrOn));
+    }
 
-                    HudiScanRange.Builder builder = new HudiScanRange.Builder()
-                            .path(normalizeNativeUri(filePath))
-                            .start(0)
-                            .length(fileSize)
-                            .fileSize(fileSize)
-                            .fileFormat(format)
-                            .partitionValues(partValues);
-                    // COW base files always read native -> stamp the per-file schema version for BE's field-id path.
-                    Long schemaId = schemaIdResolver == null ? null : schemaIdResolver.apply(filePath);
-                    if (schemaId != null) {
-                        builder.schemaId(schemaId);
-                    }
-                    ranges.add(builder.build());
-                });
+    /**
+     * Looks up and builds COW snapshot ranges for one physical relative partition path. Keeping the exact
+     * FileSystemView lookup in this package-private helper makes the Hive Sync + positional-layout contract
+     * offline-testable: an HMS name such as {@code city=Beijing} must already have been translated to the
+     * physical key {@code Beijing} before reaching {@code baseFileLookup}.
+     */
+    static List<ConnectorScanRange> buildCowSnapshotRanges(
+            String partitionPath, String queryInstant, Map<String, String> partValues,
+            Function<String, Long> schemaIdResolver, UnaryOperator<String> nativePathNormalizer,
+            BiFunction<String, String, Stream<HoodieBaseFile>> baseFileLookup) {
+        List<ConnectorScanRange> ranges = new ArrayList<>();
+        baseFileLookup.apply(partitionPath, queryInstant).forEach(baseFile -> {
+            String filePath = baseFile.getPath();
+            long fileSize = baseFile.getFileSize();
+            String format = detectFileFormat(filePath);
+
+            HudiScanRange.Builder builder = new HudiScanRange.Builder()
+                    .path(nativePathNormalizer.apply(filePath))
+                    .start(0)
+                    .length(fileSize)
+                    .fileSize(fileSize)
+                    .fileFormat(format)
+                    .partitionValues(partValues);
+            // COW base files always read native -> stamp the per-file schema version for BE's field-id path.
+            Long schemaId = schemaIdResolver == null ? null : schemaIdResolver.apply(filePath);
+            if (schemaId != null) {
+                builder.schemaId(schemaId);
+            }
+            ranges.add(builder.build());
+        });
+        return ranges;
     }
 
     /**

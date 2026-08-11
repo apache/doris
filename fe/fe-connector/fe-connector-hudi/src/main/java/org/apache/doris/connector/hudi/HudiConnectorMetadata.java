@@ -265,50 +265,60 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         }
 
         // H3: candidate partition paths MUST be the SAME shape the scan feeds fsView (Hudi RELATIVE STORAGE
-        // paths), and use_hive_sync_partition-aware (mirroring collectPartitions). The old code fed HMS hive-style
-        // names ("year=2024/month=01") unconditionally; for a non-hive-style table (Hudi default) the physical
-        // layout is positional ("2024/01"), so fsView (keyed by relative storage paths) matched nothing -> 0
-        // splits for any filtered query. Keep maxParts=-1 (unlimited): no silent partition truncation.
+        // paths), and use_hive_sync_partition-aware (mirroring collectPartitions). HMS always exposes hive-style
+        // names ("year=2024/month=01"), even when Hudi's physical layout is positional ("2024/01"). FileSystemView
+        // is keyed by the physical relative paths, so a filtered hive-sync scan must translate the HMS matches
+        // back to that shape before carrying them on the handle. Keep maxParts=-1 (unlimited): no silent partition
+        // truncation.
         boolean hiveSync = useHiveSyncPartition();
-        List<String> allPartPaths;
+        int allPartitionCount;
         List<String> matchedPartPaths;
         if (hiveSync) {
-            // hive-sync: HMS registers the hive-style names, which ARE the relative storage layout, so fsView
-            // accepts them directly (no relativization, matching legacy / collectPartitions). Prune the HMS names.
-            allPartPaths = hmsClient.listPartitionNames(
+            // Hive Sync is authoritative for predicate matching, but its names do not encode whether the Hudi
+            // storage layout is hive-style or positional. Prune those names first, then match their canonical
+            // value maps against a physical Hudi listing whose layout flag comes from the same metaClient.
+            List<String> allHmsPartitionNames = hmsClient.listPartitionNames(
                     hudiHandle.getDbName(), hudiHandle.getTableName(), -1);
-            if (allPartPaths == null || allPartPaths.isEmpty()) {
+            if (allHmsPartitionNames == null || allHmsPartitionNames.isEmpty()) {
                 return Optional.empty();
             }
-            matchedPartPaths = prunePartitionNames(allPartPaths, partKeyNames, partitionPredicates);
+            List<String> matchedHmsPartitionNames = prunePartitionNames(
+                    allHmsPartitionNames, partKeyNames, partitionPredicates);
+            if (matchedHmsPartitionNames.size() == allHmsPartitionNames.size()) {
+                // No pruning effect
+                return Optional.empty();
+            }
+            if (matchedHmsPartitionNames.isEmpty()) {
+                matchedPartPaths = Collections.emptyList();
+            } else {
+                Map.Entry<Boolean, List<String>> listing = listPhysicalPartitionPaths(hudiHandle);
+                matchedPartPaths = matchPhysicalPartitionPaths(
+                        matchedHmsPartitionNames, listing.getValue(), partKeyNames, listing.getKey());
+            }
+            allPartitionCount = allHmsPartitionNames.size();
         } else {
             // non-hive-sync (Hudi default): list the RELATIVE storage paths from Hudi metadata -- the SAME source
             // the unpruned scan (resolvePartitions -> listAllPartitionPaths) uses -- under the plugin auth + TCCL
             // pin. Carry the table-config layout from the SAME metaClient as the paths: a positional value may
             // legally contain '=', so inferring the layout from path text would corrupt pruning. Net-neutral:
             // resolvePartitions short-circuits once prunedPaths is set, so a filtered query lists exactly once.
-            Map.Entry<Boolean, List<String>> listing = metaClientExecutor.execute(() -> {
-                HoodieTableMetaClient metaClient = HudiScanPlanProvider.buildMetaClient(
-                        buildHadoopConf(), hudiHandle.getBasePath());
-                return new AbstractMap.SimpleImmutableEntry<>(
-                        HudiScanPlanProvider.hiveStylePartitioning(metaClient),
-                        HudiScanPlanProvider.listAllPartitionPaths(metaClient));
-            });
-            allPartPaths = listing.getValue();
+            Map.Entry<Boolean, List<String>> listing = listPhysicalPartitionPaths(hudiHandle);
+            List<String> allPartPaths = listing.getValue();
             if (allPartPaths == null || allPartPaths.isEmpty()) {
                 return Optional.empty();
             }
             matchedPartPaths = prunePartitionPaths(
                     allPartPaths, partKeyNames, partitionPredicates, listing.getKey());
-        }
-        if (matchedPartPaths.size() == allPartPaths.size()) {
-            // No pruning effect
-            return Optional.empty();
+            if (matchedPartPaths.size() == allPartPaths.size()) {
+                // No pruning effect
+                return Optional.empty();
+            }
+            allPartitionCount = allPartPaths.size();
         }
 
         LOG.info("Partition pruning: {}.{} hiveSync={} all={} pruned={}",
                 hudiHandle.getDbName(), hudiHandle.getTableName(),
-                hiveSync, allPartPaths.size(), matchedPartPaths.size());
+                hiveSync, allPartitionCount, matchedPartPaths.size());
 
         // Build updated handle carrying only the matched (relative-shape) partition paths for scan planning.
         HudiTableHandle updatedHandle = hudiHandle.toBuilder()
@@ -316,6 +326,16 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 .build();
 
         return Optional.of(new FilterApplicationResult<>(updatedHandle, constraint.getExpression(), false));
+    }
+
+    private Map.Entry<Boolean, List<String>> listPhysicalPartitionPaths(HudiTableHandle handle) {
+        return metaClientExecutor.execute(() -> {
+            HoodieTableMetaClient metaClient = HudiScanPlanProvider.buildMetaClient(
+                    buildHadoopConf(), handle.getBasePath());
+            return new AbstractMap.SimpleImmutableEntry<>(
+                    HudiScanPlanProvider.hiveStylePartitioning(metaClient),
+                    HudiScanPlanProvider.listAllPartitionPaths(metaClient));
+        });
     }
 
     @Override
@@ -1200,6 +1220,28 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             }
         }
         return matched;
+    }
+
+    /**
+     * Translates Hive Sync partition names to the relative physical paths accepted by Hudi's FileSystemView.
+     * HMS names are always hive-style, while the physical paths follow {@code hiveStylePartitioning}; matching
+     * their canonical unescaped value maps preserves the HMS-pruned set without passing HMS-only names into the
+     * scan. Static + package-private for the offline Hive Sync + positional-layout regression test.
+     */
+    static List<String> matchPhysicalPartitionPaths(List<String> matchedHmsPartitionNames,
+            List<String> physicalPartitionPaths, List<String> partKeyNames, boolean hiveStylePartitioning) {
+        Set<Map<String, String>> matchedValues = matchedHmsPartitionNames.stream()
+                .map(partitionName -> parsePartitionName(partitionName, partKeyNames))
+                .collect(Collectors.toSet());
+        List<String> matchedPaths = new ArrayList<>();
+        for (String physicalPath : physicalPartitionPaths) {
+            Map<String, String> physicalValues = HudiScanPlanProvider.parsePartitionValues(
+                    physicalPath, partKeyNames, hiveStylePartitioning);
+            if (matchedValues.contains(physicalValues)) {
+                matchedPaths.add(physicalPath);
+            }
+        }
+        return matchedPaths;
     }
 
     static Map<String, String> parsePartitionName(String partName,
