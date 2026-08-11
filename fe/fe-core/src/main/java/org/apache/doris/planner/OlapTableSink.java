@@ -1168,7 +1168,8 @@ public class OlapTableSink extends DataSink {
 
     // In non-cloud mode the binlog tablet must be on the same disk as its base tablet (cloud mode
     // does not need this), so keep only the (backend, pathHash) entries shared by both tablets.
-    private Multimap<Long, Long> getBinlogColocatedReplicaBackendPathMap(Tablet baseTablet, Tablet rowBinlogTablet)
+    public static Multimap<Long, Long> getBinlogColocatedReplicaBackendPathMap(
+            Tablet baseTablet, Tablet rowBinlogTablet)
             throws UserException {
         Multimap<Long, Long> baseBePathsMap = baseTablet.getNormalReplicaBackendPathMap();
         Multimap<Long, Long> binlogBePathsMap = rowBinlogTablet.getNormalReplicaBackendPathMap();
