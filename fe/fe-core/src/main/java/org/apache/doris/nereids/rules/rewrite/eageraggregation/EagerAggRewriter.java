@@ -422,17 +422,26 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         Set<AggregateFunction> aggFunctions = new LinkedHashSet<>();
-        Map<AggregateFunction, AggregateFunction> aggFunctionsMap = new HashMap<>();
         Map<AggregateFunction, Alias> aliasMap = new HashMap<>();
         boolean newContainsNullToNonNull = context.containsNullToNonNull;
-        for (AggregateFunction aggFunc : context.getAggFunctions()) {
-            AggregateFunction newAggFunc =
-                    (AggregateFunction) project.pushDownExpressionPastProject(aggFunc);
-            aggFunctions.add(newAggFunc);
-            aggFunctionsMap.put(aggFunc, newAggFunc);
-            Alias alias = context.getAliasMap().get(aggFunc);
-            aliasMap.put(newAggFunc, (Alias) alias.withChildren(newAggFunc));
 
+        for (AggregateFunction aggFunc : context.getAggFunctions()) {
+            AggregateFunction newAggFunc = (AggregateFunction) project.pushDownExpressionPastProject(aggFunc);
+            Alias alias = context.getAliasMap().get(aggFunc);
+            Alias aliasForChild;
+            if (aliasMap.containsKey(newAggFunc)) {
+                aliasForChild = aliasMap.get(newAggFunc);
+            } else {
+                aliasForChild = (Alias) alias.withChildren(newAggFunc);
+                aliasMap.put(newAggFunc, aliasForChild);
+            }
+            projectToChildExprIdMap.put(alias.getExprId(), aliasForChild.getExprId());
+            aggFunctions.add(newAggFunc);
+
+            // After pushing expressions past the project, the agg functions may now
+            // contain NullToNonNull expressions that were hidden behind slot references before.
+            // e.g. count(#slot) where #slot = coalesce(a, 0) in the project.
+            // We must re-check and update containsNullToNonNull accordingly.
             if (!newContainsNullToNonNull
                     && newAggFunc.children().stream().anyMatch(
                             arg -> arg.anyMatch(e ->
@@ -441,18 +450,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
         }
 
-        boolean needDifferentExprId =
-                aggFunctions.size() != context.getAliasMap().size();
-        if (needDifferentExprId) {
-            aliasMap.clear();
-            for (AggregateFunction aggFunc : context.getAggFunctions()) {
-                AggregateFunction newAggFunc = aggFunctionsMap.get(aggFunc);
-                Alias aliasForChild = aliasMap.computeIfAbsent(
-                        newAggFunc, func -> new Alias(func, func.getName()));
-                Alias alias = context.getAliasMap().get(aggFunc);
-                projectToChildExprIdMap.put(alias.getExprId(), aliasForChild.getExprId());
-            }
-        }
         return new PushDownAggContext(ImmutableList.copyOf(aggFunctions), groupKeys, aliasMap,
                 context.getCascadesContext(), context.isPassThroughHeavyJoin(),
                 context.hasDecomposedAggIf, newContainsNullToNonNull,
@@ -723,23 +720,21 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             */
             List<NamedExpression> newProjections = new ArrayList<>();
             BilateralState state = context.getBilateralState();
-            if (projectToChildExprIdMap.isEmpty()) {
-                for (AggregateFunction aggFunc : context.getAggFunctions()) {
-                    Alias alias = context.getAliasMap().get(aggFunc);
-                    NamedExpression namedExpression = state.getPushedAggFuncSlot(alias.getExprId());
-                    newProjections.add(namedExpression.toSlot());
-                }
-            } else {
-                for (AggregateFunction aggFunc : context.getAggFunctions()) {
-                    Alias alias = context.getAliasMap().get(aggFunc);
-                    ExprId childExprId = projectToChildExprIdMap.get(alias.getExprId());
-                    NamedExpression namedExpression = state.getPushedAggFuncSlot(childExprId);
-                    Alias output = (Alias) alias.withChildren(namedExpression.toSlot());
-                    newProjections.add(output);
+            for (AggregateFunction aggFunc : context.getAggFunctions()) {
+                Alias alias = context.getAliasMap().get(aggFunc);
+                ExprId childExprId = projectToChildExprIdMap.get(alias.getExprId());
+                NamedExpression namedExpression = state.getPushedAggFuncSlot(childExprId);
+                NamedExpression output;
+                if (namedExpression.getExprId().equals(alias.getExprId())) {
+                    output = namedExpression.toSlot();
+                } else {
+                    output = (Alias) alias.withChildren(namedExpression.toSlot());
                     state.registerAggFuncOutput(alias.getExprId(), output.toSlot(),
                             state.isAggFuncActuallyPushed(childExprId));
                 }
+                newProjections.add(output);
             }
+
             for (SlotReference slot : context.getGroupKeys()) {
                 boolean valid = false;
                 for (NamedExpression ne : project.getProjects()) {
