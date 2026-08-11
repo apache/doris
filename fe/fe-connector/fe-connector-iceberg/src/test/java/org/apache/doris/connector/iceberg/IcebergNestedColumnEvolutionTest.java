@@ -342,33 +342,125 @@ public class IcebergNestedColumnEvolutionTest {
     }
 
     @Test
-    public void testDropRetriesAfterConcurrentNonDefaultSpecAddition() {
+    public void testDropRejectsRestSpecRebaseBeforeCommit() {
         createTable("d_concurrent_spec", flatNestedSchema());
         Table original = ops.loadTable("db1", "d_concurrent_spec");
-        ConcurrentSpecTableOperations concurrentOps = new ConcurrentSpecTableOperations(
+        RestTableOperations concurrentOps = new RestTableOperations(
                 ((HasTableOperations) original).operations(), "s.a");
         Table racedTable = new BaseTable(concurrentOps, original.name());
 
-        assertFailsLoud(() -> IcebergNestedColumnEvolution.dropColumn(
-                racedTable, path("s", "a")), "partition spec");
-
-        Assertions.assertTrue(concurrentOps.sawLastAssignedPartitionIdRequirement,
-                "schema drop must fence REST rebases on partition-spec generation");
-        Assertions.assertEquals(1, concurrentOps.commitAttempts,
-                "the retry must refresh and reject the new spec before a second commit");
+        assertFailsLoud(() -> IcebergNestedColumnEvolution.dropColumn(racedTable, path("s", "a")),
+                "REST");
+        Assertions.assertEquals(0, concurrentOps.commitAttempts,
+                "REST cannot atomically fence the spec-ID namespace, so DROP must fail before commit");
         original.refresh();
         Assertions.assertNotNull(original.schema().findField("s.a"));
     }
 
-    /** Injects a non-default spec, then applies the same requirements a REST server validates on rebase. */
-    private static final class ConcurrentSpecTableOperations implements TableOperations {
+    @Test
+    public void testDropAllowsSchemaContainingOldSyntheticFenceName() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "_doris_schema_drop_fence_1000", Types.StringType.get()),
+                Types.NestedField.optional(2, "drop_me", Types.IntegerType.get()));
+        createTable("d_fence_name", schema);
+
+        ops.dropColumn("db1", "d_fence_name", "drop_me");
+
+        Schema updated = reload("d_fence_name");
+        Assertions.assertNotNull(updated.findField("_doris_schema_drop_fence_1000"));
+        Assertions.assertNull(updated.findField("drop_me"));
+    }
+
+    @Test
+    public void testFormatV1DropPreservesFirstPartitionFieldId() {
+        createTable("d_v1_first_partition", flatNestedSchema(), PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "1"));
+
+        ops.dropNestedColumn("db1", "d_v1_first_partition", path("s", "a"));
+        Table table = ops.loadTable("db1", "d_v1_first_partition");
+        Assertions.assertDoesNotThrow(() -> table.updateSpec().addField("s.x").commit());
+        Assertions.assertEquals(1000, table.spec().fields().get(0).fieldId());
+    }
+
+    @Test
+    public void testDropRemovesColumnScopedWriterProperties() {
+        createTable("d_column_props", flatNestedSchema());
+        Table table = ops.loadTable("db1", "d_column_props");
+        String metricsKey = TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "s.a";
+        String bloomKey = TableProperties.PARQUET_BLOOM_FILTER_COLUMN_ENABLED_PREFIX + "s.a";
+        String statsKey = TableProperties.PARQUET_COLUMN_STATS_ENABLED_PREFIX + "s.a";
+        table.updateProperties()
+                .set(metricsKey, "full")
+                .set(bloomKey, "true")
+                .set(statsKey, "true")
+                .commit();
+
+        ops.dropNestedColumn("db1", "d_column_props", path("s", "a"));
+
+        Map<String, String> properties = ops.loadTable("db1", "d_column_props").properties();
+        Assertions.assertFalse(properties.containsKey(metricsKey));
+        Assertions.assertFalse(properties.containsKey(bloomKey));
+        Assertions.assertFalse(properties.containsKey(statsKey));
+    }
+
+    @Test
+    public void testDropRejectsTableReplacementDuringInitialRefresh() {
+        createTable("d_original_identity", flatNestedSchema());
+        createTable("d_replacement_identity", flatNestedSchema());
+        Table original = ops.loadTable("db1", "d_original_identity");
+        Table replacement = ops.loadTable("db1", "d_replacement_identity");
+        RefreshingTableOperations refreshing = new RefreshingTableOperations(
+                ((HasTableOperations) original).operations().current(),
+                ((HasTableOperations) replacement).operations().current(),
+                ((HasTableOperations) original).operations());
+
+        assertFailsLoud(() -> IcebergNestedColumnEvolution.dropColumn(
+                new BaseTable(refreshing, original.name()), path("s", "a")), "changed concurrently");
+        Assertions.assertEquals(0, refreshing.commitAttempts);
+    }
+
+    @Test
+    public void testDropRejectsSamePathFieldReplacementDuringRefresh() {
+        createTable("d_field_identity", flatNestedSchema());
+        Table table = ops.loadTable("db1", "d_field_identity");
+        TableOperations delegate = ((HasTableOperations) table).operations();
+        TableMetadata loaded = delegate.current();
+        int originalFieldId = loaded.schema().findField("s.a").fieldId();
+        table.updateSchema().deleteColumn("s.a").commit();
+        table.updateSchema().addColumn("s", "a", Types.IntegerType.get()).commit();
+        TableMetadata replacement = delegate.refresh();
+        Assertions.assertNotEquals(originalFieldId, replacement.schema().findField("s.a").fieldId());
+        RefreshingTableOperations refreshing = new RefreshingTableOperations(loaded, replacement, delegate);
+
+        assertFailsLoud(() -> IcebergNestedColumnEvolution.dropColumn(
+                new BaseTable(refreshing, table.name()), path("s", "a")), "changed concurrently");
+        Assertions.assertEquals(0, refreshing.commitAttempts);
+    }
+
+    @Test
+    public void testDropParentRejectsSubtreeReplacementDuringRefresh() {
+        createTable("d_subtree_identity", flatNestedSchema());
+        Table table = ops.loadTable("db1", "d_subtree_identity");
+        TableOperations delegate = ((HasTableOperations) table).operations();
+        TableMetadata loaded = delegate.current();
+        table.updateSchema().deleteColumn("s.a").commit();
+        table.updateSchema().addColumn("s", "a", Types.IntegerType.get()).commit();
+        RefreshingTableOperations refreshing = new RefreshingTableOperations(
+                loaded, delegate.refresh(), delegate);
+
+        assertFailsLoud(() -> IcebergNestedColumnEvolution.dropTopLevelColumn(
+                new BaseTable(refreshing, table.name()), "s"), "changed concurrently");
+        Assertions.assertEquals(0, refreshing.commitAttempts);
+    }
+
+    /** Simulates the REST spec rebase that cannot assert the spec-ID namespace. */
+    private static final class RestTableOperations implements TableOperations {
         private final TableOperations delegate;
         private final String sourceColumn;
         private boolean injectConcurrentSpec = true;
-        private boolean sawLastAssignedPartitionIdRequirement;
         private int commitAttempts;
 
-        private ConcurrentSpecTableOperations(TableOperations delegate, String sourceColumn) {
+        private RestTableOperations(TableOperations delegate, String sourceColumn) {
             this.delegate = delegate;
             this.sourceColumn = sourceColumn;
         }
@@ -392,8 +484,6 @@ public class IcebergNestedColumnEvolutionTest {
             }
             injectConcurrentSpec = false;
             List<UpdateRequirement> requirements = UpdateRequirements.forUpdateTable(base, metadata.changes());
-            sawLastAssignedPartitionIdRequirement = requirements.stream()
-                    .anyMatch(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance);
 
             int newSpecId = base.specs().stream().mapToInt(PartitionSpec::specId).max().orElse(-1) + 1;
             PartitionSpec concurrentSpec = PartitionSpec.builderFor(base.schema())
@@ -405,6 +495,57 @@ public class IcebergNestedColumnEvolutionTest {
                 requirement.validate(rebased);
             }
             throw new CommitFailedException("Schema drop did not detect a concurrent partition spec");
+        }
+
+        @Override
+        public FileIO io() {
+            return delegate.io();
+        }
+
+        @Override
+        public EncryptionManager encryption() {
+            return delegate.encryption();
+        }
+
+        @Override
+        public String metadataFileLocation(String fileName) {
+            return delegate.metadataFileLocation(fileName);
+        }
+
+        @Override
+        public LocationProvider locationProvider() {
+            return delegate.locationProvider();
+        }
+    }
+
+    private static final class RefreshingTableOperations implements TableOperations {
+        private final TableMetadata loaded;
+        private final TableMetadata refreshed;
+        private final TableOperations delegate;
+        private boolean didRefresh;
+        private int commitAttempts;
+
+        private RefreshingTableOperations(
+                TableMetadata loaded, TableMetadata refreshed, TableOperations delegate) {
+            this.loaded = loaded;
+            this.refreshed = refreshed;
+            this.delegate = delegate;
+        }
+
+        @Override
+        public TableMetadata current() {
+            return didRefresh ? refreshed : loaded;
+        }
+
+        @Override
+        public TableMetadata refresh() {
+            didRefresh = true;
+            return refreshed;
+        }
+
+        @Override
+        public void commit(TableMetadata base, TableMetadata metadata) {
+            commitAttempts++;
         }
 
         @Override

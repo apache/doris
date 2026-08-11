@@ -23,20 +23,15 @@ import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.HasTableOperations;
-import org.apache.iceberg.MetadataUpdate;
-import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
-import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdateSchema;
-import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
-import org.apache.iceberg.util.Tasks;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -96,56 +91,80 @@ public final class IcebergNestedColumnEvolution {
 
     /** Drops the nested field at {@code path}; its parent must resolve to a struct that contains the leaf. */
     public static void dropColumn(Table table, ConnectorColumnPath path) {
-        dropColumnWithPartitionSpecFence(table, path, true);
+        dropColumnSafely(table, path, true);
     }
 
     static void dropTopLevelColumn(Table table, String columnName) {
-        dropColumnWithPartitionSpecFence(table, ConnectorColumnPath.of(columnName), false);
+        dropColumnSafely(table, ConnectorColumnPath.of(columnName), false);
     }
 
-    private static void dropColumnWithPartitionSpecFence(
+    private static void dropColumnSafely(
             Table table, ConnectorColumnPath path, boolean nested) {
         TableOperations operations = ((HasTableOperations) table).operations();
-        TableMetadata initial = operations.refresh();
-        // A commit conflict must rerun resolution and retained-spec validation against refreshed metadata.
-        Tasks.foreach(operations)
-                .retry(initial.propertyAsInt(
-                        TableProperties.COMMIT_NUM_RETRIES, TableProperties.COMMIT_NUM_RETRIES_DEFAULT))
-                .exponentialBackoff(
-                        initial.propertyAsInt(TableProperties.COMMIT_MIN_RETRY_WAIT_MS,
-                                TableProperties.COMMIT_MIN_RETRY_WAIT_MS_DEFAULT),
-                        initial.propertyAsInt(TableProperties.COMMIT_MAX_RETRY_WAIT_MS,
-                                TableProperties.COMMIT_MAX_RETRY_WAIT_MS_DEFAULT),
-                        initial.propertyAsInt(TableProperties.COMMIT_TOTAL_RETRY_TIME_MS,
-                                TableProperties.COMMIT_TOTAL_RETRY_TIME_MS_DEFAULT),
-                        2.0)
-                .onlyRetryOn(CommitFailedException.class)
-                .run(ops -> commitDropAttempt(ops, table.name(), path, nested));
-    }
+        TableMetadata loaded = operations.current();
+        if (loaded == null) {
+            throw new DorisConnectorException("Cannot drop column from an unloaded Iceberg table: " + table.name());
+        }
+        ResolvedColumnPath loadedPath = resolveDropPath(loaded.schema(), path, nested);
+        Set<Integer> loadedSubtreeIds = fieldSubtreeIds(loadedPath);
 
-    private static void commitDropAttempt(
-            TableOperations operations, String tableName, ConnectorColumnPath path, boolean nested) {
         TableMetadata base = operations.refresh();
-        ResolvedColumnPath resolvedPath = nested
-                ? validateNestedStructFieldPath(base.schema(), path, "drop")
-                : resolveColumnPath(base.schema(), path, "drop");
+        ResolvedColumnPath resolvedPath = validatePinnedDropIdentity(
+                table.name(), path, nested, loaded, loadedSubtreeIds, base);
         validateNotUsedByRetainedPartitionSpec(base, resolvedPath);
 
-        Table attemptTable = new BaseTable(operations.temp(base), tableName);
-        Schema updatedSchema = attemptTable.updateSchema()
-                .deleteColumn(resolvedPath.getFullPath()).apply();
-        int fenceSpecId = base.specs().stream().mapToInt(PartitionSpec::specId).max().orElse(-1) + 1;
-        String fenceFieldName = "_doris_schema_drop_fence_" + (base.lastAssignedPartitionId() + 1);
-        PartitionSpec fenceSpec = PartitionSpec.builderFor(base.schema())
-                .withSpecId(fenceSpecId)
-                .alwaysNull(resolvedPath.getFullPath(), fenceFieldName)
-                .build();
-        TableMetadata.Builder builder = TableMetadata.buildFrom(base).addPartitionSpec(fenceSpec);
-        new MetadataUpdate.RemovePartitionSpecs(Set.of(fenceSpecId)).applyTo(builder);
-        builder.setCurrentSchema(updatedSchema, base.lastColumnId());
-        // The transient spec leaves no readable metadata behind, but forces REST commits to assert the
-        // last partition-field ID so a concurrent non-default spec cannot be silently rebased past validation.
-        operations.commit(base, builder.build());
+        // Iceberg REST has no requirement for the partition-spec ID namespace. Allowing its server-side rebase
+        // could therefore add a spec that references this field after validation and corrupt the replacement
+        // schema; fail closed until the protocol can express that invariant.
+        if (isRestTableOperations(operations)) {
+            throw new DorisConnectorException(
+                    "Cannot safely drop a column from an Iceberg REST table: " + table.name());
+        }
+
+        // Use Iceberg's standard commit so column-scoped writer properties and name mappings are transformed.
+        // Direct catalogs atomically reject any metadata change after the refresh through their metadata CAS.
+        new BaseTable(operations, table.name()).updateSchema()
+                .deleteColumn(resolvedPath.getFullPath()).commit();
+    }
+
+    private static ResolvedColumnPath validatePinnedDropIdentity(
+            String tableName, ConnectorColumnPath path, boolean nested, TableMetadata loaded,
+            Set<Integer> loadedSubtreeIds, TableMetadata refreshed) {
+        if (!Objects.equals(loaded.uuid(), refreshed.uuid())) {
+            throw concurrentDropTargetChange(tableName, path);
+        }
+        try {
+            ResolvedColumnPath refreshedPath = resolveDropPath(refreshed.schema(), path, nested);
+            // A parent DROP pins every descendant ID as well as the parent ID, preventing a same-path subtree
+            // replacement from turning an old request into deletion of a newly created object.
+            if (!loadedSubtreeIds.equals(fieldSubtreeIds(refreshedPath))) {
+                throw concurrentDropTargetChange(tableName, path);
+            }
+            return refreshedPath;
+        } catch (DorisConnectorException e) {
+            throw concurrentDropTargetChange(tableName, path);
+        }
+    }
+
+    private static ResolvedColumnPath resolveDropPath(
+            Schema schema, ConnectorColumnPath path, boolean nested) {
+        return nested
+                ? validateNestedStructFieldPath(schema, path, "drop")
+                : resolveColumnPath(schema, path, "drop");
+    }
+
+    private static Set<Integer> fieldSubtreeIds(ResolvedColumnPath path) {
+        return new TreeSet<>(TypeUtil.indexById(Types.StructType.of(path.getField())).keySet());
+    }
+
+    private static DorisConnectorException concurrentDropTargetChange(
+            String tableName, ConnectorColumnPath path) {
+        return new DorisConnectorException("Iceberg table or drop target changed concurrently: "
+                + tableName + "." + path.getFullPath());
+    }
+
+    private static boolean isRestTableOperations(TableOperations operations) {
+        return "RESTTableOperations".equalsIgnoreCase(operations.getClass().getSimpleName());
     }
 
     private static void validateNotUsedByRetainedPartitionSpec(
