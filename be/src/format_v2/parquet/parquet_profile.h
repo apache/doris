@@ -153,8 +153,11 @@ struct ParquetProfile {
     RuntimeProfile::Counter* selected_row_ranges = nullptr;
     RuntimeProfile::Counter* filtered_group_rows = nullptr;
     RuntimeProfile::Counter* filtered_page_rows = nullptr;
-    // File-level Variant access paths that safely retained a physical typed-leaf projection.
+    // Variant access paths eligible for a row-group physical typed-leaf projection.
     RuntimeProfile::Counter* variant_leaf_projections = nullptr;
+    // Row-group outcomes for candidate Variant projections, counted per projected column opened.
+    RuntimeProfile::Counter* variant_leaf_projection_row_group_columns = nullptr;
+    RuntimeProfile::Counter* variant_full_projection_row_group_columns = nullptr;
 
     // ======== Page Skip ========
     RuntimeProfile::Counter* pages_skipped_by_data_page_filter = nullptr;

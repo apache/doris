@@ -2161,10 +2161,14 @@ TEST(ParquetScanConditionCacheTest, HitKeepsCachedBaseWhenCurrentPlanStartsLater
              .row_group_rows = ConditionCacheContext::GRANULE_SIZE,
              .selected_ranges = {{.start = 0, .length = ConditionCacheContext::GRANULE_SIZE}},
              .page_skip_plans = {},
-             .offset_indexes = {}});
+             .offset_indexes = {},
+             .full_variant_projection_ordinals = {},
+             .variant_leaf_projection_columns = 0,
+             .variant_full_projection_columns = 0,
+             .expensive_pruning_pending = false});
 
     format::parquet::ParquetScanScheduler scheduler;
-    scheduler.set_plan(std::move(plan));
+    scheduler.set_plan(std::make_shared<format::parquet::RowGroupScanPlan>(std::move(plan)));
     auto ctx = std::make_shared<ConditionCacheContext>();
     ctx->is_hit = true;
     ctx->base_granule = 0;

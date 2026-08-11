@@ -35,6 +35,10 @@
 2	BOB	21	2.5	false	7	sh
 9	CAROL	41	4.5	true	11	bj
 
+-- !variant_deep_object_fallback --
+1	CN	1
+2	US	2
+
 -- !variant_filter --
 11	null	60
 3	same	30

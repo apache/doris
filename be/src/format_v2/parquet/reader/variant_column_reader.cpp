@@ -789,6 +789,14 @@ public:
                 if (typed_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
                     check_and_get_column<ColumnNullable>(*typed) == nullptr) {
                     update_counter(_profile.variant_direct_leaf_unsupported_fallbacks, 1);
+                    if (!_complete) {
+                        // Binary element_at evaluates complex prefixes before the validated leaf.
+                        // Serialize only retained descendants so projected-out fields stay hidden.
+                        if (auto normalized = find_normalized_value(path); normalized.has_value()) {
+                            return VariantShreddedTypedValue {
+                                    .column = nullptr, .type = nullptr, .normalized = *normalized};
+                        }
+                    }
                     return std::nullopt;
                 }
                 if (!supports_direct_typed_variant_state(*typed_schema)) {
@@ -862,10 +870,12 @@ public:
                 return normalize_projected_primitive_leaf(*typed_schema, typed);
             }
         }
-        if (!_complete) {
-            return std::nullopt;
+        if (_complete) {
+            return normalize_materialized_path(materialized_column(), path);
         }
-        return normalize_materialized_path(materialized_column(), path);
+        // Binary element_at chains request complex prefixes before their validated primitive leaf.
+        // Reconstruct only retained descendants so an omitted field can never become observable.
+        return normalize_materialized_path(serialized_column(), path);
     }
 
     const ColumnVariantV2& materialized_column() const override {
