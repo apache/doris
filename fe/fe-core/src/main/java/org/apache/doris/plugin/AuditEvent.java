@@ -84,6 +84,8 @@ public class AuditEvent {
     // execution info
     @AuditField(value = "Time(ms)", colName = "query_time")
     public long queryTime = -1;
+    @AuditField(value = "QueueTimeMs", colName = "queue_time_ms")
+    public long queueTimeMs = -1;
     @AuditField(value = "CpuTimeMS", colName = "cpu_time_ms")
     public long cpuTimeMs = -1;
     @AuditField(value = "PeakMemoryBytes", colName = "peak_memory_bytes")
@@ -228,6 +230,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setQueryTime(long queryTime) {
             auditEvent.queryTime = queryTime;
+            return this;
+        }
+
+        public AuditEventBuilder setQueueTimeMs(long queueTimeMs) {
+            auditEvent.queueTimeMs = queueTimeMs;
             return this;
         }
 
