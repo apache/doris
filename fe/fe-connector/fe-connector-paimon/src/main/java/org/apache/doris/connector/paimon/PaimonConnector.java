@@ -374,7 +374,13 @@ public class PaimonConnector implements Connector {
                 // connector-wide: it holds for every paimon DATA table. The narrower question of which
                 // SYSTEM table can honor the clause is answered per table by
                 // PaimonScanPlanProvider.supportsSystemTableOptions.
-                ConnectorCapability.SUPPORTS_SCAN_PARAM_OPTIONS);
+                ConnectorCapability.SUPPORTS_SCAN_PARAM_OPTIONS,
+                // SUPPORTS_NESTED_COLUMN_PRUNE: the paimon JNI scanner mirrors a pruned nested type onto
+                // paimon's own types and pushes it down (ReadBuilder.withReadType), and the native
+                // parquet/orc split path resolves the access paths by name. NOT
+                // SUPPORTS_FIELD_ID_ACCESS_PATH: paimon carries no field id on the Doris column tree, so
+                // rewriting the paths to ids would make every segment "-1".
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
     }
 
     /** Test-only: the derived listPartitions view cache (PERF-06). Never null (paimon has no session=user gate). */
