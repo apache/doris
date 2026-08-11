@@ -19,6 +19,7 @@ package org.apache.doris.fluss;
 
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.common.jni.vec.NestedProjection;
 
 import org.apache.fluss.row.DataGetters;
 import org.apache.fluss.row.InternalArray;
@@ -84,6 +85,7 @@ public class FlussColumnValue implements ColumnValue {
     private int idx;
     private ColumnType dorisType;
     private DataType flussType;
+    private NestedProjection<DataType> shape;
     private ZoneId timeZone;
 
     // Lazy: a scalar column never pays for the nested-reuse bookkeeping.
@@ -97,11 +99,12 @@ public class FlussColumnValue implements ColumnValue {
     }
 
     private FlussColumnValue(DataGetters record, int idx, ColumnType dorisType, DataType flussType,
-            ZoneId timeZone) {
+            NestedProjection<DataType> shape, ZoneId timeZone) {
         this.record = record;
         this.idx = idx;
         this.dorisType = dorisType;
         this.flussType = flussType;
+        this.shape = shape;
         this.timeZone = timeZone;
     }
 
@@ -110,11 +113,17 @@ public class FlussColumnValue implements ColumnValue {
         this.record = record;
     }
 
-    /** Points this value at one column of that row. */
-    public void setIdx(int idx, ColumnType dorisType, DataType flussType) {
+    /**
+     * Points this value at one column of that row, and at how the requested type maps onto the fluss
+     * one. {@code shape} is null when the whole column was requested, which is every query that does not
+     * reach into a complex column — the decode below then behaves exactly as it did before pruning.
+     */
+    public void setIdx(int idx, ColumnType dorisType, DataType flussType,
+            NestedProjection<DataType> shape) {
         this.idx = idx;
         this.dorisType = dorisType;
         this.flussType = flussType;
+        this.shape = shape;
     }
 
     @Override
@@ -223,8 +232,9 @@ public class FlussColumnValue implements ColumnValue {
         }
         ColumnType elementDorisType = dorisType.getChildTypes().get(0);
         DataType elementFlussType = ((ArrayType) flussType).getElementType();
+        NestedProjection<DataType> elementShape = shape == null ? null : shape.elementProjection();
         for (int i = 0; i < array.size(); i++) {
-            values.add(reuse(arrayValues, i, array, i, elementDorisType, elementFlussType));
+            values.add(reuse(arrayValues, i, array, i, elementDorisType, elementFlussType, elementShape));
         }
         trim(arrayValues, array.size());
     }
@@ -239,16 +249,18 @@ public class FlussColumnValue implements ColumnValue {
         InternalArray keyArray = map.keyArray();
         ColumnType keyDorisType = dorisType.getChildTypes().get(0);
         DataType keyFlussType = ((MapType) flussType).getKeyType();
+        NestedProjection<DataType> keyShape = shape == null ? null : shape.keyProjection();
         for (int i = 0; i < keyArray.size(); i++) {
-            keys.add(reuse(mapKeys, i, keyArray, i, keyDorisType, keyFlussType));
+            keys.add(reuse(mapKeys, i, keyArray, i, keyDorisType, keyFlussType, keyShape));
         }
         trim(mapKeys, keyArray.size());
 
         InternalArray valueArray = map.valueArray();
         ColumnType valueDorisType = dorisType.getChildTypes().get(1);
         DataType valueFlussType = ((MapType) flussType).getValueType();
+        NestedProjection<DataType> valueShape = shape == null ? null : shape.valueProjection();
         for (int i = 0; i < valueArray.size(); i++) {
-            values.add(reuse(mapValues, i, valueArray, i, valueDorisType, valueFlussType));
+            values.add(reuse(mapValues, i, valueArray, i, valueDorisType, valueFlussType, valueShape));
         }
         trim(mapValues, valueArray.size());
     }
@@ -262,8 +274,12 @@ public class FlussColumnValue implements ColumnValue {
             structValues = new ArrayList<>();
         }
         for (int i : structFieldIndex) {
-            values.add(reuse(structValues, i, row, i, dorisType.getChildTypes().get(i),
-                    rowType.getTypeAt(i)));
+            // Doris child i is not fluss field i once the engine has pruned the struct: fluss cannot push
+            // a nested projection down (its Projection is top-level only), so the row still carries every
+            // field and the shape says where the requested one actually sits.
+            int sourceIndex = shape == null ? i : shape.sourceChildIndex(i);
+            values.add(reuse(structValues, i, row, sourceIndex, dorisType.getChildTypes().get(i),
+                    rowType.getTypeAt(sourceIndex), shape == null ? null : shape.child(i)));
         }
     }
 
@@ -292,19 +308,22 @@ public class FlussColumnValue implements ColumnValue {
     }
 
     private FlussColumnValue reuse(List<FlussColumnValue> cache, int cacheIndex,
-            DataGetters childRecord, int childIndex, ColumnType childDorisType, DataType childFlussType) {
+            DataGetters childRecord, int childIndex, ColumnType childDorisType, DataType childFlussType,
+            NestedProjection<DataType> childShape) {
         while (cache.size() <= cacheIndex) {
             cache.add(null);
         }
         FlussColumnValue value = cache.get(cacheIndex);
         if (value == null) {
-            value = new FlussColumnValue(childRecord, childIndex, childDorisType, childFlussType, timeZone);
+            value = new FlussColumnValue(childRecord, childIndex, childDorisType, childFlussType,
+                    childShape, timeZone);
             cache.set(cacheIndex, value);
         } else {
             value.record = childRecord;
             value.idx = childIndex;
             value.dorisType = childDorisType;
             value.flussType = childFlussType;
+            value.shape = childShape;
             value.timeZone = timeZone;
         }
         return value;
