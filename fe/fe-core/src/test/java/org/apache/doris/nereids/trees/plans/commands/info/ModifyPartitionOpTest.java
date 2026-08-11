@@ -23,8 +23,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class ModifyPartitionOpTest {
 
@@ -35,12 +35,12 @@ public class ModifyPartitionOpTest {
         ModifyPartitionOp cooldownTime = ModifyPartitionOp.createStarClause(
                 ImmutableMap.of("Storage_Cooldown_Time", "2026-01-01 00:00:00"), false);
 
-        Assert.assertFalse(storageMedium.allowOpRowBinlog());
-        Assert.assertFalse(cooldownTime.allowOpRowBinlog());
+        Assertions.assertFalse(storageMedium.allowOpRowBinlog());
+        Assertions.assertFalse(cooldownTime.allowOpRowBinlog());
         AlterOperations alterOperations = new AlterOperations();
-        Assert.assertThrows(DdlException.class,
+        Assertions.assertThrows(DdlException.class,
                 () -> alterOperations.checkRowBinlogAllow(Lists.newArrayList(storageMedium)));
-        Assert.assertThrows(DdlException.class,
+        Assertions.assertThrows(DdlException.class,
                 () -> alterOperations.checkRowBinlogAllow(Lists.newArrayList(cooldownTime)));
     }
 
@@ -49,7 +49,7 @@ public class ModifyPartitionOpTest {
         ModifyPartitionOp replication = new ModifyPartitionOp(Lists.newArrayList("p0"),
                 ImmutableMap.of(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "3"), false);
 
-        Assert.assertTrue(replication.allowOpRowBinlog());
+        Assertions.assertTrue(replication.allowOpRowBinlog());
         new AlterOperations().checkRowBinlogAllow(Lists.newArrayList(replication));
     }
 
@@ -62,11 +62,11 @@ public class ModifyPartitionOpTest {
         ModifyTablePropertiesOp cooldownTime = new ModifyTablePropertiesOp(
                 ImmutableMap.of("Storage_Cooldown_Time", "2026-01-01 00:00:00"));
 
-        Assert.assertFalse(storageMedium.allowOpRowBinlog());
-        Assert.assertFalse(upperCaseStorageMedium.allowOpRowBinlog());
-        Assert.assertFalse(cooldownTime.allowOpRowBinlog());
+        Assertions.assertFalse(storageMedium.allowOpRowBinlog());
+        Assertions.assertFalse(upperCaseStorageMedium.allowOpRowBinlog());
+        Assertions.assertFalse(cooldownTime.allowOpRowBinlog());
         AlterOperations alterOperations = new AlterOperations();
-        Assert.assertThrows(DdlException.class,
+        Assertions.assertThrows(DdlException.class,
                 () -> alterOperations.checkRowBinlogAllow(Lists.newArrayList(storageMedium)));
     }
 
@@ -75,7 +75,7 @@ public class ModifyPartitionOpTest {
         ModifyTablePropertiesOp replication = new ModifyTablePropertiesOp(
                 ImmutableMap.of(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "3"));
 
-        Assert.assertTrue(replication.allowOpRowBinlog());
+        Assertions.assertTrue(replication.allowOpRowBinlog());
         new AlterOperations().checkRowBinlogAllow(Lists.newArrayList(replication));
     }
 }
