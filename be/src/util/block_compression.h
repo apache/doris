@@ -94,6 +94,11 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type, int level
 // Test-only: drops all pooled level-aware codec instances.
 void clear_leveled_compression_codec_pool_for_test();
 
+// Test-only: returns the aggregate idle context state across level-aware codecs.
+size_t leveled_compression_idle_context_count_for_test();
+size_t leveled_compression_retained_buffer_bytes_for_test();
+size_t leveled_compression_idle_context_limit_for_test();
+
 Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_codec,
                                    BlockCompressionCodec** codec);
 

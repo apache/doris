@@ -22,11 +22,17 @@
 #include <gtest/gtest-test-part.h>
 #include <stdlib.h>
 
+#include <barrier>
 #include <string>
+#include <thread>
+#include <vector>
 
+#include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/faststring.h"
 
 namespace doris {
@@ -305,6 +311,63 @@ TEST_F(BlockCompressionTest, WideSchemaSharesLeveledInstanceAndTrackerIsBalanced
         int64_t after = tracker->consumption();
         EXPECT_EQ(after, warm) << "shared pool must not grow per column on the compression tracker";
     }
+}
+
+TEST_F(BlockCompressionTest, LeveledIdleContextsAreBoundedAcrossLevels) {
+    clear_leveled_compression_codec_pool_for_test();
+    ASSERT_EQ(leveled_compression_idle_context_count_for_test(), 0);
+    ASSERT_EQ(leveled_compression_retained_buffer_bytes_for_test(), 0);
+
+    constexpr int kThreadsPerLevel = 4;
+    constexpr int kLevelCount = 6;
+    constexpr int kThreadCount = kThreadsPerLevel * kLevelCount;
+    const std::vector<std::pair<segment_v2::CompressionTypePB, int>> levels = {
+            {segment_v2::ZSTD, 1},  {segment_v2::ZSTD, 3},  {segment_v2::ZSTD, 5},
+            {segment_v2::LZ4HC, 1}, {segment_v2::LZ4HC, 6}, {segment_v2::LZ4HC, 12}};
+    std::vector<BlockCompressionCodec*> codecs(kLevelCount);
+    for (int level_index = 0; level_index < kLevelCount; ++level_index) {
+        ASSERT_TRUE(get_block_compression_codec(levels[level_index].first,
+                                                levels[level_index].second, &codecs[level_index])
+                            .ok());
+    }
+
+    const bool original_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    Defer cleanup {[&]() {
+        DebugPoints::instance()->remove("BlockCompressionCodec.compress.after_acquire_context");
+        config::enable_debug_points = original_enable_debug_points;
+        clear_leveled_compression_codec_pool_for_test();
+    }};
+
+    std::barrier acquired_contexts(kThreadCount);
+    DebugPoints::instance()->add_with_callback(
+            "BlockCompressionCodec.compress.after_acquire_context",
+            std::function<void()>([&]() { acquired_contexts.arrive_and_wait(); }));
+
+    std::string input(2 * 1024 * 1024, 'a');
+    std::vector<Status> statuses(kThreadCount);
+    std::vector<std::thread> threads;
+    threads.reserve(kThreadCount);
+    for (int level_index = 0; level_index < kLevelCount; ++level_index) {
+        for (int thread_index = 0; thread_index < kThreadsPerLevel; ++thread_index) {
+            const int result_index = level_index * kThreadsPerLevel + thread_index;
+            threads.emplace_back([&, level_index, result_index]() {
+                faststring compressed;
+                statuses[result_index] = codecs[level_index]->compress(Slice(input), &compressed);
+            });
+        }
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    for (const auto& status : statuses) {
+        ASSERT_TRUE(status.ok()) << status;
+    }
+
+    const size_t idle_context_limit = leveled_compression_idle_context_limit_for_test();
+    EXPECT_EQ(leveled_compression_idle_context_count_for_test(), idle_context_limit);
+    EXPECT_LE(leveled_compression_retained_buffer_bytes_for_test(),
+              idle_context_limit * faststring::kInitialCapacity);
 }
 
 } // namespace doris
