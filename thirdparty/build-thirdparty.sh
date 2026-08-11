@@ -2285,9 +2285,13 @@ build_icu() {
 # mecab-ipadic
 build_mecab_ipadic() {
     check_if_source_exist "${MECAB_IPADIC_SOURCE}"
-    rm -rf "${TP_INSTALL_DIR}/share/${MECAB_IPADIC_SOURCE}"
     mkdir -p "${TP_INSTALL_DIR}/share"
-    cp -r "${TP_SOURCE_DIR}/${MECAB_IPADIC_SOURCE}" "${TP_INSTALL_DIR}/share/${MECAB_IPADIC_SOURCE}"
+    local dest="${TP_INSTALL_DIR}/share/${MECAB_IPADIC_SOURCE}"
+    # Copy into a temporary directory and publish with an atomic rename, so an
+    # interrupted copy never leaves a half-populated.
+    rm -rf "${dest}" "${dest}.tmp"
+    cp -r "${TP_SOURCE_DIR}/${MECAB_IPADIC_SOURCE}" "${dest}.tmp"
+    mv "${dest}.tmp" "${dest}"
 }
 
 # jindofs
