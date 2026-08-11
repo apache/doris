@@ -92,6 +92,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.cooldown.CooldownConfHandler;
@@ -1434,7 +1435,9 @@ public class Env {
                     }
                     String remoteToken = conn.getHeaderField(MetaBaseAction.TOKEN);
                     if (token == null && remoteToken != null) {
-                        LOG.info("get token from helper node. token={}.", remoteToken);
+                        // Masked: the cluster token authenticates meta access, so it must not
+                        // reach fe.log. The prefix is enough to tell which token was adopted.
+                        LOG.info("get token from helper node. token={}.", TokenMasker.maskPrefix(remoteToken));
                         token = remoteToken;
                         storage.writeClusterIdAndToken();
                         storage.reload();
