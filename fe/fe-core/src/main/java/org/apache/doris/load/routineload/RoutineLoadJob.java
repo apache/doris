@@ -263,7 +263,8 @@ public abstract class RoutineLoadJob
     @SerializedName("ld")
     protected RoutineLoadDefinition loadDefinition;
 
-    // Legacy recovery input for images written before loadDefinition was persisted.
+    // Keep the original CREATE statement for downgrade compatibility. Older FEs ignore loadDefinition
+    // and restore from this field, so ALTER semantics are not guaranteed after rollback.
     @SerializedName("ostmt")
     protected OriginStatement origStmt;
     // User who submit this job. Maybe null for the old version job(before v1.1)

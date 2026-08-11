@@ -29,6 +29,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
@@ -56,6 +57,8 @@ import org.apache.doris.thrift.TRoutineLoadTask;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -366,6 +369,10 @@ public class KafkaRoutineLoadJobTest {
                 1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
         Deencapsulation.setField(routineLoadJob, "desireTaskConcurrentNum", 1);
+        String originalCreateSql = "CREATE ROUTINE LOAD db1.job1 ON table1 "
+                + "COLUMNS TERMINATED BY '|' "
+                + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9020', 'kafka_topic' = 'topic1')";
+        Deencapsulation.setField(routineLoadJob, "origStmt", new OriginStatement(originalCreateSql, 0));
         routineLoadJob.updateLoadDefinition(null);
 
         RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(
@@ -406,6 +413,14 @@ public class KafkaRoutineLoadJobTest {
             Assert.assertEquals(",", restored.getColumnSeparator().getSeparator());
             Assert.assertEquals(2, (int) Deencapsulation.getField(restored, "desireTaskConcurrentNum"));
             Assert.assertNotNull(Deencapsulation.getField(restored, "loadDefinition"));
+
+            // Simulate an older FE ignoring the unknown loadDefinition field. It can read the image
+            // through origStmt, but the ALTERed load clauses are intentionally not preserved on rollback.
+            RoutineLoadJob rollbackRestored = imageRoundTripWithoutLoadDefinition(routineLoadJob);
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, rollbackRestored.getState());
+            Assert.assertEquals("|", rollbackRestored.getColumnSeparator().getSeparator());
+            Assert.assertNull(rollbackRestored.getSequenceCol());
+            Assert.assertNull(Deencapsulation.getField(rollbackRestored, "loadDefinition"));
         }
     }
 
@@ -456,6 +471,29 @@ public class KafkaRoutineLoadJobTest {
             routineLoadJob.write(out);
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return RoutineLoadJob.read(in);
+        }
+    }
+
+    private static RoutineLoadJob imageRoundTripWithoutLoadDefinition(RoutineLoadJob routineLoadJob)
+            throws Exception {
+        ByteArrayOutputStream image = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(image)) {
+            routineLoadJob.write(out);
+        }
+
+        String json;
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(image.toByteArray()))) {
+            json = Text.readString(in);
+        }
+        JsonObject jobJson = JsonParser.parseString(json).getAsJsonObject();
+        Assert.assertNotNull(jobJson.remove("ld"));
+
+        ByteArrayOutputStream legacyImage = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(legacyImage)) {
+            Text.writeString(out, jobJson.toString());
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(legacyImage.toByteArray()))) {
             return RoutineLoadJob.read(in);
         }
     }
