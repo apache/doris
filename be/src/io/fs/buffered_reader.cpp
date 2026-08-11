@@ -235,8 +235,9 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         if (merge_index < _random_access_ranges.size() - 1 && merge_start < merge_end) {
             size_t gap = _random_access_ranges[merge_index + 1].start_offset -
                          _random_access_ranges[merge_index].end_offset;
-            if ((content_size + hollow_size) > SMALL_IO && gap >= SMALL_IO) {
-                // too large gap
+            // An amplification ratio alone can approve multi-megabyte holes when useful ranges are
+            // large; cap physical adjacency to keep merged IO amplification bounded.
+            if (gap > MAX_MERGE_GAP) {
                 break;
             }
             if (gap < merge_end - merge_start && content_size < _remaining &&

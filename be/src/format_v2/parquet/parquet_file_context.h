@@ -101,19 +101,13 @@ bool is_serialized_index_span_safe(int64_t span_offset, int64_t span_end);
 std::vector<ParquetPageCacheRange> valid_prefetch_ranges(
         const std::vector<ParquetPageCacheRange>& ranges);
 
-// Average projected column-chunk size for one row group. V2 uses this signal to decide whether the
-// row group is dominated by small random IOs before installing MergeRangeFileReader. Example:
-// chunks of 512KB and 1MB average below SMALL_IO and are good merge-reader candidates, while two
-// 8MB chunks should stay on the raw random-access reader.
-size_t average_prefetch_range_size(const std::vector<ParquetPageCacheRange>& ranges);
-
 // Decide whether native data-page ReadAt() should be routed through MergeRangeFileReader for the
-// current row group. This is intentionally stricter than the background warm-up path:
+// current row group:
 // - no valid projected chunks -> nothing to merge;
 // - in-memory file readers already avoid remote random IO;
-// - average chunk size >= MergeRangeFileReader::SMALL_IO would make merged reading wasteful.
+// - every other row group keeps a bounded merge plan, independent of average chunk size.
 bool should_use_merge_range_reader(const std::vector<ParquetPageCacheRange>& ranges,
-                                   size_t avg_io_size, bool is_in_memory_reader);
+                                   bool is_in_memory_reader);
 
 // HTTP range servers may reject an overlong range near EOF even after accepting the capability
 // probe. Staging a bounded small HTTP object also turns all native page reads into memory copies.
@@ -132,8 +126,8 @@ struct ParquetFileContext {
     // Native metadata, index, and data-page paths share Doris' FileReader without transferring
     // ownership to an external metadata tree.
     io::FileReaderSPtr native_file;
-    // Row-group-scoped view of native_file. Small projected chunks use MergeRangeFileReader;
-    // large chunks and in-memory files keep native_file.
+    // Row-group-scoped view of native_file. Projected chunks use MergeRangeFileReader; in-memory
+    // files keep native_file.
     io::FileReaderSPtr native_row_group_file;
     io::IOContext* native_io_ctx = nullptr;
     // V2-owned Thrift footer/schema used to construct native page/encoding readers. Generated
@@ -178,8 +172,7 @@ struct ParquetFileContext {
     // probes must run before this method because their native ReadAt order is independent of the
     // sequential projected chunk ranges consumed by MergeRangeFileReader.
     bool set_native_random_access_ranges(const std::vector<ParquetPageCacheRange>& ranges,
-                                         size_t avg_io_size, RuntimeProfile* profile,
-                                         int64_t merge_read_slice_size,
+                                         RuntimeProfile* profile, int64_t merge_read_slice_size,
                                          bool expose_ranges_immediately = true);
     bool native_file_should_defer_merge_ranges() const;
     const io::FileReaderSPtr& native_data_file() const {

@@ -11398,7 +11398,7 @@ TEST_F(BlockFileCacheTest, external_cache_key_includes_file_system_identity) {
     EXPECT_NE(first_reader._cache_hash, second_reader._cache_hash);
 }
 
-TEST_F(BlockFileCacheTest, reader_local_cache_does_not_evict_another_reader) {
+TEST_F(BlockFileCacheTest, reader_local_cache_capacity_is_independent_per_stream) {
     constexpr size_t reader_block_size = 256_kb;
     const std::string content(600_kb, 'x');
     const fs::path first_file_path =
@@ -11469,10 +11469,11 @@ TEST_F(BlockFileCacheTest, reader_local_cache_does_not_evict_another_reader) {
                         .ok());
     ASSERT_TRUE(cache_hit);
     EXPECT_EQ(second_stats.num_reader_local_cache_evict, 0);
-    EXPECT_EQ(second_stats.num_reader_local_cache_fill, 0);
+    EXPECT_EQ(second_stats.num_reader_local_cache_admission_reject, 0);
+    EXPECT_EQ(second_stats.num_reader_local_cache_fill, 1);
     EXPECT_EQ(second_stats.num_reader_local_cache_miss, 1);
-    EXPECT_EQ(shared_cache->entry_count(), 1);
-    EXPECT_LE(shared_cache->memory_usage(), reader_block_size);
+    EXPECT_EQ(shared_cache->entry_count(), 2);
+    EXPECT_EQ(shared_cache->memory_usage(), 2 * reader_block_size);
     EXPECT_EQ(shared_cache->tracked_memory(), shared_cache->memory_usage());
 }
 

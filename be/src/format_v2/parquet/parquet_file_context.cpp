@@ -164,22 +164,11 @@ std::vector<ParquetPageCacheRange> valid_prefetch_ranges(
     return valid_ranges;
 }
 
-size_t average_prefetch_range_size(const std::vector<ParquetPageCacheRange>& ranges) {
-    const auto valid_ranges = valid_prefetch_ranges(ranges);
-    if (valid_ranges.empty()) {
-        return 0;
-    }
-    size_t total_size = 0;
-    for (const auto& range : valid_ranges) {
-        total_size += static_cast<size_t>(range.size);
-    }
-    return total_size / valid_ranges.size();
-}
-
 bool should_use_merge_range_reader(const std::vector<ParquetPageCacheRange>& ranges,
-                                   size_t avg_io_size, bool is_in_memory_reader) {
-    return !is_in_memory_reader && !valid_prefetch_ranges(ranges).empty() &&
-           avg_io_size < io::MergeRangeFileReader::SMALL_IO;
+                                   bool is_in_memory_reader) {
+    // Large column chunks still contain page-level reads, so dropping their row-group plan would
+    // bypass bounded buffering and turn them back into independent cache IOs.
+    return !is_in_memory_reader && !valid_prefetch_ranges(ranges).empty();
 }
 
 bool should_stage_small_http_file(std::string_view path, size_t file_size,
@@ -580,12 +569,11 @@ bool ParquetFileContext::native_file_should_defer_merge_ranges() const {
 }
 
 bool ParquetFileContext::set_native_random_access_ranges(
-        const std::vector<ParquetPageCacheRange>& ranges, size_t avg_io_size,
-        RuntimeProfile* profile, int64_t merge_read_slice_size, bool expose_ranges_immediately) {
+        const std::vector<ParquetPageCacheRange>& ranges, RuntimeProfile* profile,
+        int64_t merge_read_slice_size, bool expose_ranges_immediately) {
     DORIS_CHECK(native_file != nullptr);
     if (!detail::should_use_merge_range_reader(
-                ranges, avg_io_size,
-                typeid_cast<io::InMemoryFileReader*>(native_file.get()) != nullptr)) {
+                ranges, typeid_cast<io::InMemoryFileReader*>(native_file.get()) != nullptr)) {
         native_row_group_file = native_file;
         return false;
     }

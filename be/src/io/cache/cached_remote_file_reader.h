@@ -64,8 +64,9 @@ using PeerFetchedBlockSet = std::unordered_set<const FileBlock*>;
 
 class FileScannerV2ReaderLocalFileCache;
 
-// Scanner-scoped memory budget for File Scanner V2 reader-local caches. Every physical reader owns
-// its block map, matching the lifetime of the corresponding external-file stream.
+// Scanner-scoped owner for File Scanner V2 reader-local caches. Every physical reader owns its
+// block map and capacity, matching the lifetime of the corresponding external-file stream. The
+// owner retains aggregate memory accounting and query/global memory admission checks.
 class FileScannerV2ReaderLocalCache
         : public std::enable_shared_from_this<FileScannerV2ReaderLocalCache> {
 public:
@@ -95,10 +96,10 @@ private:
     friend class FileScannerV2ReaderLocalFileCache;
 
     bool _reserve(size_t bytes, FileScannerV2ReaderLocalFileCache* requester, size_t* evicted);
-    bool _try_reserve(size_t bytes);
-    void _commit(size_t bytes);
-    void _cancel_reservation(size_t bytes);
-    void _release(size_t bytes);
+    bool _try_reserve(size_t bytes, FileScannerV2ReaderLocalFileCache* requester);
+    void _commit(size_t bytes, FileScannerV2ReaderLocalFileCache* requester);
+    void _cancel_reservation(size_t bytes, FileScannerV2ReaderLocalFileCache* requester);
+    void _release(size_t bytes, FileScannerV2ReaderLocalFileCache* requester);
     std::vector<std::shared_ptr<FileScannerV2ReaderLocalFileCache>> _file_caches() const;
 
     const size_t _capacity;
@@ -154,6 +155,10 @@ private:
     mutable std::shared_mutex _mutex;
     std::map<size_t, std::shared_ptr<Entry>> _entries;
     std::list<size_t> _lru;
+    // Protected by the owner's budget mutex so per-stream admission and aggregate accounting are
+    // updated atomically.
+    size_t _memory_bytes = 0;
+    size_t _reserved_bytes = 0;
     static constexpr uint32_t LRU_TOUCH_INTERVAL = 64;
 };
 

@@ -59,19 +59,7 @@ TEST(ParquetPageCacheRangeTest, SerializedIndexesAreBoundedIndividuallyAndWhenCo
     EXPECT_FALSE(detail::is_serialized_index_span_safe(100, 101 + budget));
 }
 
-TEST(ParquetPageCacheRangeTest, AveragePrefetchRangeSizeUsesOnlyValidRanges) {
-    const std::vector<ParquetPageCacheRange> ranges = {
-            {0, 512},
-            {512, 1536},
-            {-1, 1024},
-            {2048, 0},
-    };
-
-    EXPECT_EQ(detail::average_prefetch_range_size(ranges), 1024);
-    EXPECT_EQ(detail::average_prefetch_range_size({{-1, 1024}, {0, 0}}), 0);
-}
-
-TEST(ParquetPageCacheRangeTest, MergeRangeReaderDecisionMatchesV1SmallIoThreshold) {
+TEST(ParquetPageCacheRangeTest, MergeRangeReaderPlansAllProjectedRanges) {
     const std::vector<ParquetPageCacheRange> ranges = {
             {0, 512 * 1024},
             {512 * 1024, 1024 * 1024},
@@ -79,12 +67,15 @@ TEST(ParquetPageCacheRangeTest, MergeRangeReaderDecisionMatchesV1SmallIoThreshol
 
     // Two sub-2MB column chunks are the intended merge-reader case: Arrow may issue many page-level
     // ReadAt calls inside these chunks, so v2 should route them through MergeRangeFileReader.
-    EXPECT_TRUE(detail::should_use_merge_range_reader(
-            ranges, detail::average_prefetch_range_size(ranges), false));
+    EXPECT_TRUE(detail::should_use_merge_range_reader(ranges, false));
 
-    // The v1 threshold is strict: a 2MB average chunk is no longer considered "small IO".
-    EXPECT_FALSE(detail::should_use_merge_range_reader(ranges, io::MergeRangeFileReader::SMALL_IO,
-                                                       false));
+    // Large column chunks still contain page-level reads. Keep the row-group range plan installed
+    // so those reads can share bounded buffers instead of falling back to independent cache IO.
+    const std::vector<ParquetPageCacheRange> large_ranges = {
+            {0, 8 * 1024 * 1024},
+            {8 * 1024 * 1024, 8 * 1024 * 1024},
+    };
+    EXPECT_TRUE(detail::should_use_merge_range_reader(large_ranges, false));
 }
 
 TEST(ParquetPageCacheRangeTest, MergeRangeReaderDecisionRejectsEmptyInvalidAndInMemoryInputs) {
@@ -96,10 +87,9 @@ TEST(ParquetPageCacheRangeTest, MergeRangeReaderDecisionRejectsEmptyInvalidAndIn
             {0, 128 * 1024},
     };
 
-    EXPECT_FALSE(detail::should_use_merge_range_reader({}, 0, false));
-    EXPECT_FALSE(detail::should_use_merge_range_reader(invalid_ranges, 128, false));
-    EXPECT_FALSE(detail::should_use_merge_range_reader(
-            valid_ranges, detail::average_prefetch_range_size(valid_ranges), true));
+    EXPECT_FALSE(detail::should_use_merge_range_reader({}, false));
+    EXPECT_FALSE(detail::should_use_merge_range_reader(invalid_ranges, false));
+    EXPECT_FALSE(detail::should_use_merge_range_reader(valid_ranges, true));
 }
 
 TEST(ParquetPageCacheRangeTest, DeferredMergeRangesRetainPredicateAndLazyColumns) {

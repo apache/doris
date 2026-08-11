@@ -513,6 +513,22 @@ TEST_F(BufferedReaderTest, test_read_amplify) {
     EXPECT_EQ(merge_reader.statistics().merged_bytes, 1024 * kb + 12 * kb);
 }
 
+TEST_F(BufferedReaderTest, merge_range_does_not_cross_gap_larger_than_one_mb) {
+    constexpr size_t MB = 1024 * 1024;
+    auto offset_reader = std::make_shared<MockOffsetFileReader>(8 * MB);
+    std::vector<io::PrefetchRange> ranges {{0, 2 * MB},
+                                           {2 * MB + 1536 * 1024, 4 * MB + 1536 * 1024}};
+    io::MergeRangeFileReader merge_reader(nullptr, offset_reader, ranges);
+
+    std::vector<char> data(256 * 1024);
+    size_t bytes_read = 0;
+    ASSERT_TRUE(merge_reader.read_at(0, Slice(data.data(), data.size()), &bytes_read).ok());
+
+    EXPECT_EQ(bytes_read, data.size());
+    EXPECT_EQ(merge_reader.statistics().merged_bytes, 2 * MB);
+    EXPECT_EQ(merge_reader.statistics().merged_gap_bytes, 0);
+}
+
 TEST_F(BufferedReaderTest, cache_hit_bypasses_merged_read) {
     constexpr size_t KB = 1024;
     auto inner = std::make_shared<CacheAwareMockFileReader>(64 * KB, true);

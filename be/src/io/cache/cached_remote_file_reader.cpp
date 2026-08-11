@@ -165,12 +165,16 @@ FileScannerV2ReaderLocalCache::create_file_cache() {
     return file_cache;
 }
 
-bool FileScannerV2ReaderLocalCache::_try_reserve(size_t bytes) {
+bool FileScannerV2ReaderLocalCache::_try_reserve(size_t bytes,
+                                                 FileScannerV2ReaderLocalFileCache* requester) {
+    DORIS_CHECK(requester != nullptr);
     std::lock_guard lock(_budget_mutex);
     if (bytes > _capacity) {
         return false;
     }
-    if (_memory_bytes + _reserved_bytes + bytes > _capacity) {
+    // One busy stream must not consume another stream's reuse window; StarRocks' block map also
+    // follows the physical stream instead of sharing an LRU capacity across a scanner.
+    if (requester->_memory_bytes + requester->_reserved_bytes + bytes > _capacity) {
         return false;
     }
     if (_query_mem_tracker != nullptr && _query_mem_tracker->limit() >= 0 &&
@@ -182,6 +186,7 @@ bool FileScannerV2ReaderLocalCache::_try_reserve(size_t bytes) {
                 cast_set<int64_t>(_reserved_bytes + bytes))) {
         return false;
     }
+    requester->_reserved_bytes += bytes;
     _reserved_bytes += bytes;
     return true;
 }
@@ -189,40 +194,53 @@ bool FileScannerV2ReaderLocalCache::_try_reserve(size_t bytes) {
 bool FileScannerV2ReaderLocalCache::_reserve(size_t bytes,
                                              FileScannerV2ReaderLocalFileCache* requester,
                                              size_t* evicted) {
-    if (_try_reserve(bytes)) {
+    if (_try_reserve(bytes, requester)) {
         return true;
     }
     // A stream may recycle its own cold blocks, but it must never evict another stream's hot
     // block map; physical-stream ownership provides that isolation without a global registry.
     while (requester->_evict_one()) {
         ++*evicted;
-        if (_try_reserve(bytes)) {
+        if (_try_reserve(bytes, requester)) {
             return true;
         }
     }
     return false;
 }
 
-void FileScannerV2ReaderLocalCache::_commit(size_t bytes) {
+void FileScannerV2ReaderLocalCache::_commit(size_t bytes,
+                                            FileScannerV2ReaderLocalFileCache* requester) {
+    DORIS_CHECK(requester != nullptr);
     {
         std::lock_guard lock(_budget_mutex);
+        DORIS_CHECK(requester->_reserved_bytes >= bytes);
         DORIS_CHECK(_reserved_bytes >= bytes);
+        requester->_reserved_bytes -= bytes;
+        requester->_memory_bytes += bytes;
         _reserved_bytes -= bytes;
         _memory_bytes += bytes;
     }
     _memory_tracker->consume(cast_set<int64_t>(bytes));
 }
 
-void FileScannerV2ReaderLocalCache::_cancel_reservation(size_t bytes) {
+void FileScannerV2ReaderLocalCache::_cancel_reservation(
+        size_t bytes, FileScannerV2ReaderLocalFileCache* requester) {
+    DORIS_CHECK(requester != nullptr);
     std::lock_guard lock(_budget_mutex);
+    DORIS_CHECK(requester->_reserved_bytes >= bytes);
     DORIS_CHECK(_reserved_bytes >= bytes);
+    requester->_reserved_bytes -= bytes;
     _reserved_bytes -= bytes;
 }
 
-void FileScannerV2ReaderLocalCache::_release(size_t bytes) {
+void FileScannerV2ReaderLocalCache::_release(size_t bytes,
+                                             FileScannerV2ReaderLocalFileCache* requester) {
+    DORIS_CHECK(requester != nullptr);
     {
         std::lock_guard lock(_budget_mutex);
+        DORIS_CHECK(requester->_memory_bytes >= bytes);
         DORIS_CHECK(_memory_bytes >= bytes);
+        requester->_memory_bytes -= bytes;
         _memory_bytes -= bytes;
     }
     _memory_tracker->release(cast_set<int64_t>(bytes));
@@ -294,10 +312,10 @@ void FileScannerV2ReaderLocalFileCache::_drain(FileScannerV2ReaderLocalCache* ow
         clear_entries();
     }
     if (memory_bytes > 0) {
-        owner->_release(memory_bytes);
+        owner->_release(memory_bytes, this);
     }
     if (reserved_bytes > 0) {
-        owner->_cancel_reservation(reserved_bytes);
+        owner->_cancel_reservation(reserved_bytes, this);
     }
 }
 
@@ -348,7 +366,7 @@ bool FileScannerV2ReaderLocalFileCache::_evict_one() {
     } catch (...) {
         data.reset();
     }
-    owner->_release(bytes);
+    owner->_release(bytes, this);
     return true;
 }
 
@@ -367,7 +385,7 @@ void FileScannerV2ReaderLocalFileCache::_abort_load(size_t block_offset,
     }
     if (reserved_bytes != 0) {
         if (const auto owner = _owner.lock(); owner != nullptr) {
-            owner->_cancel_reservation(reserved_bytes);
+            owner->_cancel_reservation(reserved_bytes, this);
         }
     }
     // A loader must publish every exit, including allocation and tracker exceptions, otherwise a
@@ -487,7 +505,7 @@ Status FileScannerV2ReaderLocalFileCache::get_or_load(size_t block_offset, size_
                 }
                 if (!load) {
                     lock.unlock();
-                    owner->_release(retired_data->size());
+                    owner->_release(retired_data->size(), this);
                     return Status::OK();
                 }
             } else {
@@ -501,7 +519,7 @@ Status FileScannerV2ReaderLocalFileCache::get_or_load(size_t block_offset, size_
     if (retired_data != nullptr) {
         const size_t retired_size = retired_data->size();
         retired_data.reset();
-        owner->_release(retired_size);
+        owner->_release(retired_size, this);
     }
 
     if (!load) {
@@ -541,7 +559,7 @@ Status FileScannerV2ReaderLocalFileCache::get_or_load(size_t block_offset, size_
                 try {
                     _lru.push_front(block_offset);
                 } catch (...) {
-                    owner->_cancel_reservation(entry->reserved_bytes);
+                    owner->_cancel_reservation(entry->reserved_bytes, this);
                     entry->reserved_bytes = 0;
                     entry->data.reset();
                     data.reset();
@@ -552,11 +570,11 @@ Status FileScannerV2ReaderLocalFileCache::get_or_load(size_t block_offset, size_
                 }
                 entry->lru_position = _lru.begin();
                 entry->in_lru = true;
-                owner->_commit(entry->reserved_bytes);
+                owner->_commit(entry->reserved_bytes, this);
                 entry->reserved_bytes = 0;
                 lookup->data = std::move(data);
             } else {
-                owner->_cancel_reservation(entry->reserved_bytes);
+                owner->_cancel_reservation(entry->reserved_bytes, this);
                 entry->reserved_bytes = 0;
                 _entries.erase(block_offset);
             }

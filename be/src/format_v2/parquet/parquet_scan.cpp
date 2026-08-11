@@ -1574,11 +1574,10 @@ Status ParquetScanScheduler::open_next_row_group(
             detail::needs_independent_merge_range_readers(request);
     if (!_current_independent_merge_range_readers) {
         _current_merge_range_active = file_context.set_native_random_access_ranges(
-                native_ranges, detail::average_prefetch_range_size(native_ranges), _profile,
-                _merge_read_slice_size, !defer_merge_ranges);
+                native_ranges, _profile, _merge_read_slice_size, !defer_merge_ranges);
     } else {
         _current_merge_range_active = detail::should_use_merge_range_reader(
-                native_ranges, detail::average_prefetch_range_size(native_ranges),
+                native_ranges,
                 typeid_cast<io::InMemoryFileReader*>(file_context.native_file.get()) != nullptr);
         if (_current_merge_range_active) {
             auto build_independent_reader =

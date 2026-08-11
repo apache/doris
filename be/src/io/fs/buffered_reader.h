@@ -282,6 +282,7 @@ public:
     static constexpr size_t TOTAL_BUFFER_SIZE = 128 * 1024 * 1024;  // 128MB
     static constexpr size_t READ_SLICE_SIZE = 8 * 1024 * 1024;      // 8MB
     static constexpr size_t BOX_SIZE = 1 * 1024 * 1024;             // 1MB
+    static constexpr size_t MAX_MERGE_GAP = 1 * 1024 * 1024;        // 1MB
     static constexpr size_t SMALL_IO = 2 * 1024 * 1024;             // 2MB
     static constexpr size_t NUM_BOX = TOTAL_BUFFER_SIZE / BOX_SIZE; // 128
 
