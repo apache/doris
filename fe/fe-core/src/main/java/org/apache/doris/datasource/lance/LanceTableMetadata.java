@@ -68,18 +68,30 @@ public class LanceTableMetadata {
     public static class LanceFragmentInfo {
         private final long id;
         private final long rowCount;
+        private final long physicalRows;
 
-        public LanceFragmentInfo(long id, long rowCount) {
+        public LanceFragmentInfo(long id, long rowCount, long physicalRows) {
             this.id = id;
             this.rowCount = rowCount;
+            this.physicalRows = physicalRows;
         }
 
         public long getId() {
             return id;
         }
 
+        /** Logical rows after deletions, used for row-count statistics. */
         public long getRowCount() {
             return rowCount;
+        }
+
+        /**
+         * Physical rows on disk before deletions. The pinned BE legacy reader reads and merges
+         * physical batches before applying the deletion vector, so scan work scales with this
+         * value rather than the post-deletion row count. Used for split scheduling weight.
+         */
+        public long getPhysicalRows() {
+            return physicalRows;
         }
     }
 }
