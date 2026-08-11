@@ -342,19 +342,76 @@ public class IcebergNestedColumnEvolutionTest {
     }
 
     @Test
-    public void testDropRejectsRestSpecRebaseBeforeCommit() {
-        createTable("d_concurrent_spec", flatNestedSchema());
+    public void testRestDropSurvivesSpecIdRebaseWithoutRemovingConcurrentSpec() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "drop_me", Types.IntegerType.get()));
+        createTable("d_concurrent_spec", schema,
+                PartitionSpec.builderFor(schema).identity("id").build(), Collections.emptyMap());
         Table original = ops.loadTable("db1", "d_concurrent_spec");
+        String metricsKey = TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "drop_me";
+        original.updateProperties().set(metricsKey, "full").commit();
         RestTableOperations concurrentOps = new RestTableOperations(
-                ((HasTableOperations) original).operations(), "s.a");
+                ((HasTableOperations) original).operations(), null);
         Table racedTable = new BaseTable(concurrentOps, original.name());
 
-        assertFailsLoud(() -> IcebergNestedColumnEvolution.dropColumn(racedTable, path("s", "a")),
-                "REST");
-        Assertions.assertEquals(0, concurrentOps.commitAttempts,
-                "REST cannot atomically fence the spec-ID namespace, so DROP must fail before commit");
+        IcebergNestedColumnEvolution.dropTopLevelColumn(racedTable, "drop_me");
+
+        Assertions.assertEquals(1, concurrentOps.commitAttempts);
+        Assertions.assertTrue(concurrentOps.requirements.stream()
+                .anyMatch(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance));
+        Assertions.assertFalse(concurrentOps.clientChanges.stream()
+                .anyMatch(MetadataUpdate.RemovePartitionSpecs.class::isInstance));
         original.refresh();
-        Assertions.assertNotNull(original.schema().findField("s.a"));
+        Assertions.assertNull(original.schema().findField("drop_me"));
+        Assertions.assertFalse(original.properties().containsKey(metricsKey),
+                "the REST path must preserve SchemaUpdate's column-property cleanup");
+        Assertions.assertEquals(3, original.specs().size(),
+                "both the rebased concurrent spec and the durable fence must be retained");
+        Assertions.assertTrue(original.specs().values().stream().anyMatch(PartitionSpec::isUnpartitioned));
+        Assertions.assertTrue(original.specs().values().stream().flatMap(spec -> spec.fields().stream())
+                .anyMatch(field -> field.name().startsWith("_doris_schema_drop_fence_")
+                        && field.sourceId() == schema.findField("id").fieldId()
+                        && field.transform().isVoid()));
+    }
+
+    @Test
+    public void testRestDropRejectsConcurrentSpecUsingDropTarget() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "drop_me", Types.IntegerType.get()));
+        createTable("d_target_spec_race", schema);
+        Table original = ops.loadTable("db1", "d_target_spec_race");
+        RestTableOperations concurrentOps = new RestTableOperations(
+                ((HasTableOperations) original).operations(), "drop_me");
+        Table racedTable = new BaseTable(concurrentOps, original.name());
+
+        Assertions.assertThrows(CommitFailedException.class,
+                () -> IcebergNestedColumnEvolution.dropTopLevelColumn(racedTable, "drop_me"));
+
+        Assertions.assertEquals(1, concurrentOps.commitAttempts);
+        original.refresh();
+        Assertions.assertNotNull(original.schema().findField("drop_me"));
+        Assertions.assertTrue(original.specs().values().stream().flatMap(spec -> spec.fields().stream())
+                .anyMatch(field -> field.sourceId() == schema.findField("drop_me").fieldId()));
+    }
+
+    @Test
+    public void testRestFormatV1DropFailsBeforeCommit() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "drop_me", Types.IntegerType.get()));
+        createTable("d_rest_v1", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "1"));
+        Table original = ops.loadTable("db1", "d_rest_v1");
+        RestTableOperations concurrentOps = new RestTableOperations(
+                ((HasTableOperations) original).operations(), null);
+
+        assertFailsLoud(() -> IcebergNestedColumnEvolution.dropTopLevelColumn(
+                new BaseTable(concurrentOps, original.name()), "drop_me"), "format-v1");
+
+        Assertions.assertEquals(0, concurrentOps.commitAttempts);
+        Assertions.assertNotNull(original.schema().findField("drop_me"));
     }
 
     @Test
@@ -363,12 +420,18 @@ public class IcebergNestedColumnEvolutionTest {
                 Types.NestedField.optional(1, "_doris_schema_drop_fence_1000", Types.StringType.get()),
                 Types.NestedField.optional(2, "drop_me", Types.IntegerType.get()));
         createTable("d_fence_name", schema);
+        Table original = ops.loadTable("db1", "d_fence_name");
+        RestTableOperations restOps = new RestTableOperations(
+                ((HasTableOperations) original).operations(), null);
 
-        ops.dropColumn("db1", "d_fence_name", "drop_me");
+        IcebergNestedColumnEvolution.dropTopLevelColumn(
+                new BaseTable(restOps, original.name()), "drop_me");
 
-        Schema updated = reload("d_fence_name");
-        Assertions.assertNotNull(updated.findField("_doris_schema_drop_fence_1000"));
-        Assertions.assertNull(updated.findField("drop_me"));
+        original.refresh();
+        Assertions.assertNotNull(original.schema().findField("_doris_schema_drop_fence_1000"));
+        Assertions.assertNull(original.schema().findField("drop_me"));
+        Assertions.assertTrue(original.specs().values().stream().flatMap(spec -> spec.fields().stream())
+                .anyMatch(field -> field.name().equals("_doris_schema_drop_fence_1001")));
     }
 
     @Test
@@ -453,12 +516,14 @@ public class IcebergNestedColumnEvolutionTest {
         Assertions.assertEquals(0, refreshing.commitAttempts);
     }
 
-    /** Simulates the REST spec rebase that cannot assert the spec-ID namespace. */
+    /** Simulates REST applying the client updates after a concurrent partition-spec commit. */
     private static final class RestTableOperations implements TableOperations {
         private final TableOperations delegate;
         private final String sourceColumn;
         private boolean injectConcurrentSpec = true;
         private int commitAttempts;
+        private List<UpdateRequirement> requirements = Collections.emptyList();
+        private List<MetadataUpdate> clientChanges = Collections.emptyList();
 
         private RestTableOperations(TableOperations delegate, String sourceColumn) {
             this.delegate = delegate;
@@ -483,18 +548,24 @@ public class IcebergNestedColumnEvolutionTest {
                 return;
             }
             injectConcurrentSpec = false;
-            List<UpdateRequirement> requirements = UpdateRequirements.forUpdateTable(base, metadata.changes());
+            clientChanges = metadata.changes();
+            requirements = UpdateRequirements.forUpdateTable(base, clientChanges);
 
             int newSpecId = base.specs().stream().mapToInt(PartitionSpec::specId).max().orElse(-1) + 1;
-            PartitionSpec concurrentSpec = PartitionSpec.builderFor(base.schema())
-                    .withSpecId(newSpecId).identity(sourceColumn).build();
+            PartitionSpec concurrentSpec = sourceColumn == null
+                    ? PartitionSpec.builderFor(base.schema()).withSpecId(newSpecId).build()
+                    : PartitionSpec.builderFor(base.schema()).withSpecId(newSpecId).identity(sourceColumn).build();
             TableMetadata.Builder concurrent = TableMetadata.buildFrom(base).addPartitionSpec(concurrentSpec);
             delegate.commit(base, concurrent.build());
             TableMetadata rebased = delegate.refresh();
             for (UpdateRequirement requirement : requirements) {
                 requirement.validate(rebased);
             }
-            throw new CommitFailedException("Schema drop did not detect a concurrent partition spec");
+            TableMetadata.Builder rebasedUpdate = TableMetadata.buildFrom(rebased);
+            for (MetadataUpdate update : clientChanges) {
+                update.applyTo(rebasedUpdate);
+            }
+            delegate.commit(rebased, rebasedUpdate.build());
         }
 
         @Override
