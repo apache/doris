@@ -26,9 +26,11 @@ import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BooleanType;
 
 import com.google.common.collect.Lists;
@@ -149,6 +151,46 @@ public class InferMarkSlotNotNullMapTest extends ExpressionRewriteTestHelper {
         // predicate or(markSlot1, slot) taking false evaluates to the slot, which is
         // neither false nor null, so pair.second is false
         assertMarkSlotPair(new Or(markSlot1, slot), markSlot1, true, false);
+    }
+
+    @Test
+    public void testMarkFreeSubtreeUnderNullObservingWrapper() {
+        MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");
+        SlotReference slot = new SlotReference("slot", BooleanType.INSTANCE);
+
+        // nvl(markSlot1, slot or false): the mark-free subtree (slot or false) is observed
+        // by nvl when the mark slot is null, so TrySimplifyPredicateWithMarkJoinSlot must
+        // NOT simplify it to false. otherwise the simplified predicate nvl(markSlot1, false)
+        // would make pair.first true, but in the original predicate markSlot1 taking null
+        // with slot = true evaluates to true (the filter keeps the row) while markSlot1
+        // taking false evaluates to false, so both fields must be false
+        assertMarkSlotPair(new Nvl(markSlot1, new Or(slot, BooleanLiteral.FALSE)),
+                markSlot1, false, false);
+
+        // sanity check: the same mark-free subtree at the top level of an Or IS simplified
+        // (it is in a boolean predicate position), so pair.first stays true
+        assertMarkSlotPair(new Or(markSlot1, new Or(slot, BooleanLiteral.FALSE)),
+                markSlot1, true, false);
+    }
+
+    @Test
+    public void testNoneMovableFunctionFencesMarkJoinElimination() {
+        MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");
+        SlotReference guard = new SlotReference("guard", BooleanType.INSTANCE);
+
+        // ifnull(ifnull(M, false) and assert_true(guard, 'bad'), false)
+        Expression predicate = new Nvl(
+                new And(new Nvl(markSlot1, BooleanLiteral.FALSE),
+                        new AssertTrue(guard, new VarcharLiteral("bad"))),
+                BooleanLiteral.FALSE);
+
+        // although M = false and M = null both fold the whole predicate to false (so the
+        // row-truth proof on the original predicate would make pair.second true), dropping
+        // the mark join changes which rows reach assert_true, a NoneMovableFunction: the
+        // semi join prunes the unmatched rows before the filter, so assert_true is no
+        // longer evaluated on them and its error is suppressed, violating the
+        // NoneMovableFunction contract. pair.second must therefore be fenced to false
+        assertMarkSlotPair(predicate, markSlot1, true, false);
     }
 
     @Test

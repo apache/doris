@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -797,6 +798,20 @@ public class ExpressionUtils {
             if (!sameResultForFalseAndNull && !simplifiedForFalseAndNull) {
                 break;
             }
+        }
+        /*
+         * pair.second is a row-truth proof: it only proves that the filter treats the target
+         * mark slot taking false or null identically. dropping the mark join (turning the
+         * Apply into a plain semi join) also changes which rows reach the other expressions
+         * in the predicate. for a NoneMovableFunction (e.g. assert_true) or a volatile
+         * expression, the evaluation domain matters: the semi join prunes the unmatched rows
+         * before the filter, so these expressions may no longer be evaluated on the same
+         * rows, which changes error behavior or results. fence pair.second to false in this
+         * case so that the mark join is never eliminated across such expressions.
+         */
+        if (predicate.containsType(NoneMovableFunction.class)
+                || predicate.containsVolatileExpression()) {
+            sameResultForFalseAndNull = false;
         }
         return Pair.of(simplifiedForFalseAndNull, sameResultForFalseAndNull);
     }

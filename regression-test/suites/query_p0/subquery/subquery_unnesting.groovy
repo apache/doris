@@ -16,6 +16,7 @@
 // under the License.
 
 suite ("subquery_unnesting") {
+    sql "set enable_sql_cache=false;"
 
     sql "drop table if exists t1"
     sql "drop table if exists t2"
@@ -221,4 +222,32 @@ suite ("subquery_unnesting") {
     qt_select67 """select t1.* from t1 inner join t2 on t1.k2 = t2.k3 and t1.k1 not in (select t3.k1 from t3 where t1.k2 = t3.k2) order by t1.k1, t1.k2;"""
     // left semi join with IN subquery in the ON condition (mark join eliminated)
     qt_select68 """select t1.* from t1 left semi join t2 on t1.k2 = t2.k3 and t1.k1 in (select t3.k1 from t3 where t1.k2 = t3.k2) order by t1.k1, t1.k2;"""
+
+    // error-behavior regression: the mark join must NOT be eliminated when the filter
+    // contains assert_true (a NoneMovableFunction). although M = false and M = null both
+    // fold the predicate to false (the row-truth proof), eliminating the mark join changes
+    // which rows reach assert_true: the semi join prunes the unmatched rows before the
+    // filter, so assert_true is no longer evaluated on them and its error is suppressed.
+    // with the mark join kept, all rows reach the filter and assert_true throws on the
+    // unmatched guard = false rows.
+    // data: M = assert_t.k1 in (assert_s.k1 where assert_s.k2 = assert_t.k2), so only
+    // row (2,2) matches; guard = assert_t.k2 = 2 is false exactly on the unmatched rows
+    // (1,1) and (3,3)
+    sql "drop table if exists assert_t"
+    sql "drop table if exists assert_s"
+    sql """create table assert_t (k1 bigint, k2 bigint) DUPLICATE KEY(k1)
+            DISTRIBUTED BY HASH(k2) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table assert_s (k1 bigint, k2 bigint) DUPLICATE KEY(k1)
+            DISTRIBUTED BY HASH(k2) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into assert_t values (1,1),(2,2),(3,3);"""
+    sql """insert into assert_s values (2,2);"""
+    test {
+        sql """select assert_t.k1 from assert_t
+                where ifnull(
+                    ifnull(assert_t.k1 in (select assert_s.k1 from assert_s
+                        where assert_s.k2 = assert_t.k2), false)
+                    and assert_true(assert_t.k2 = 2, 'assert failed'),
+                    false);"""
+        exception "assert failed"
+    }
 }

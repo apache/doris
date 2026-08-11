@@ -37,6 +37,21 @@ public class TrySimplifyPredicateWithMarkJoinSlot extends AbstractExpressionRewr
             new TrySimplifyPredicateWithMarkJoinSlot();
 
     @Override
+    public Expression visit(Expression expr, ExpressionRewriteContext context) {
+        /*
+         * the And/Or neutral-element simplification in visitAnd/visitOr is only sound in a
+         * boolean predicate position, i.e. the top level of the predicate or directly
+         * nested under another And/Or. do not descend into other expressions: a mark-free
+         * subtree nested under a NULL-observing wrapper (e.g. ifnull(M, flag OR FALSE)) is
+         * observed by the wrapper when the mark slot is null, so replacing it with the
+         * neutral element would change the semantics and make the inference unsound.
+         * see ExpressionUtils.inferMarkSlotNotNullMap for how the simplified predicate
+         * is used.
+         */
+        return expr;
+    }
+
+    @Override
     public Expression visitAnd(And and, ExpressionRewriteContext context) {
         /*
          *  predicate(with mark slot) and   predicate(no mark slot)
