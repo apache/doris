@@ -45,6 +45,15 @@ if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && 
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 
+parquet_microbenchmark_mode="${PARQUET_MICROBENCHMARK_MODE:-off}"
+case "${parquet_microbenchmark_mode}" in
+    off | report | gate) ;;
+    *)
+        echo "ERROR: PARQUET_MICROBENCHMARK_MODE must be off, report, or gate"
+        exit 2
+        ;;
+esac
+
 merge_pr_to_target_branch_latest() {
     local pr_num_from_trigger="$1"
     local target_branch="$2"
@@ -116,18 +125,24 @@ if ${merge_target_branch_latest:-true}; then
 else
     echo "INFO: skip merge_pr_to_target_branch_latest"
 fi
-if [[ -z "${parquet_benchmark_base_sha:-}" ]]; then
-    if [[ -n "${PARQUET_BENCHMARK_BASE_SHA:-}" ]]; then
-        parquet_benchmark_base_sha="${PARQUET_BENCHMARK_BASE_SHA}"
-    else
-        parquet_benchmark_base_sha=$(
-            git -C "${teamcity_build_checkoutDir}" rev-parse "origin/${target_branch}"
-        )
+if [[ "${parquet_microbenchmark_mode}" != off ]]; then
+    if [[ -z "${parquet_benchmark_base_sha:-}" ]]; then
+        if [[ -n "${PARQUET_BENCHMARK_BASE_SHA:-}" ]]; then
+            parquet_benchmark_base_sha="${PARQUET_BENCHMARK_BASE_SHA}"
+        else
+            parquet_benchmark_base_sha=$(
+                git -C "${teamcity_build_checkoutDir}" rev-parse "origin/${target_branch}"
+            )
+        fi
     fi
-fi
-if [[ ! "${parquet_benchmark_base_sha}" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "ERROR: invalid Parquet benchmark base SHA: ${parquet_benchmark_base_sha}"
-    exit 1
+    if [[ ! "${parquet_benchmark_base_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "ERROR: invalid Parquet benchmark base SHA: ${parquet_benchmark_base_sha}"
+        if [[ "${parquet_microbenchmark_mode}" == gate ]]; then
+            exit 1
+        fi
+        echo "##teamcity[message text='Parquet microbenchmark base SHA is unavailable; report step will not block the build' status='WARNING']"
+        unset parquet_benchmark_base_sha
+    fi
 fi
 mount_swapfile=""
 if [[ -f /root/swapfile ]]; then mount_swapfile="-v /root/swapfile:/swapfile --memory-swap -1"; fi
@@ -158,6 +173,13 @@ rm -rf "${teamcity_build_checkoutDir}"/output
 USE_CUSTOM_LDB="wget -c -t3 -q https://doris-regression-hk.oss-cn-hongkong-internal.aliyuncs.com/tools/ldb-toolchain/v0.26/ldb_toolchain_gen.sh && rm -rf /usr/local/ldb-toolchain-v0.26 && bash ldb_toolchain_gen.sh /usr/local/ldb-toolchain-v0.26 && export PATH=/usr/local/ldb-toolchain-v0.26/bin:\$PATH"
 bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh \
     'set' "export performance_docker_image=${docker_image}"
+if [[ "${parquet_microbenchmark_mode}" != off &&
+        -n "${parquet_benchmark_base_sha:-}" ]]; then
+    bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh \
+        'set' "export parquet_benchmark_base_sha=${parquet_benchmark_base_sha}"
+    bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh \
+        'set' "export performance_remote_ccache=${REMOTE_CCACHE}"
+fi
 set -x
 # shellcheck disable=SC2086
 sudo docker run -i --rm \
@@ -183,15 +205,11 @@ sudo docker run -i --rm \
                     && export ENABLE_PCH=OFF \
                     && export CUSTOM_NPM_REGISTRY=https://registry.npmjs.org \
                     && ${install_maven_cmd} ${USE_CUSTOM_LDB} \
-                    && bash build.sh --fe --be --clean --benchmark 2>&1 | tee build.log \
-                    && bash regression-test/pipeline/performance/build-parquet-microbenchmark.sh ${parquet_benchmark_base_sha}"
+                    && bash build.sh --fe --be --clean 2>&1 | tee build.log"
 docker_status=$?
 set +x
-if [[ -d "${teamcity_build_checkoutDir}/parquet-benchmark-results" ]]; then
-    echo "##teamcity[publishArtifacts 'parquet-benchmark-results => parquet-microbenchmark']"
-fi
 if [[ "${docker_status}" -ne 0 ]]; then
-    echo "ERROR: performance or benchmark build failed"
+    echo "ERROR: performance build failed"
     exit "${docker_status}"
 fi
 set -x

@@ -51,32 +51,75 @@ if [[ "${PARQUET_MICROBENCHMARK_IN_CONTAINER:-false}" != true ]]; then
         exit 0
     fi
 
-    docker_image="${performance_docker_image:-apache/doris:build-env-ldb-toolchain-latest}"
-    docker_name="parquet-microbenchmark-${TEAMCITY_BUILD_ID:-${commit_id_from_trigger:-manual}}"
-    docker_environment=(-e PARQUET_MICROBENCHMARK_IN_CONTAINER=true)
-    for variable in \
-        PARQUET_BENCHMARK_CPU \
-        PARQUET_BENCHMARK_MIN_TIME \
-        PARQUET_BENCHMARK_WARMUP_TIME \
-        PARQUET_REGRESSION_THRESHOLD_PCT \
-        PARQUET_WARNING_THRESHOLD_PCT \
-        PARQUET_CONFIDENCE_MARGIN_PCT \
-        PARQUET_MAX_CV_PCT; do
-        if [[ -n "${!variable:-}" ]]; then
-            docker_environment+=(-e "${variable}=${!variable}")
+    parquet_microbenchmark_mode="${PARQUET_MICROBENCHMARK_MODE:-off}"
+    case "${parquet_microbenchmark_mode}" in
+        off)
+            echo "INFO: Parquet microbenchmark is disabled"
+            exit 0
+            ;;
+        report | gate) ;;
+        *)
+            echo "ERROR: PARQUET_MICROBENCHMARK_MODE must be off, report, or gate"
+            exit 2
+            ;;
+    esac
+    run_on_host() {
+        if [[ ! "${parquet_benchmark_base_sha:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "ERROR: invalid or missing Parquet benchmark base SHA"
+            return 2
         fi
-    done
+        if [[ -z "${performance_remote_ccache:-}" ]]; then
+            echo "ERROR: performance remote ccache path is missing"
+            return 2
+        fi
 
-    if sudo docker run -i --rm \
-        --name "${docker_name}" \
-        "${docker_environment[@]}" \
-        -v "${teamcity_build_checkoutDir}":/root/doris \
-        "${docker_image}" \
-        /bin/bash /root/doris/regression-test/pipeline/performance/run-parquet-microbenchmark.sh; then
-        benchmark_status=0
-    else
-        benchmark_status=$?
-    fi
+        local docker_image="${performance_docker_image:-apache/doris:build-env-ldb-toolchain-latest}"
+        local docker_name="parquet-microbenchmark-${TEAMCITY_BUILD_ID:-${commit_id_from_trigger:-manual}}"
+        local git_storage_path
+        git_storage_path=$(grep storage "${teamcity_build_checkoutDir}"/.git/config |
+            rev | cut -d ' ' -f 1 | rev | awk -F '/lfs' '{print $1}')
+        if [[ -z "${git_storage_path}" ]]; then
+            echo "ERROR: TeamCity git storage path is missing"
+            return 2
+        fi
+
+        local docker_environment=(
+            -e PARQUET_MICROBENCHMARK_IN_CONTAINER=true
+            -e "PARQUET_BENCHMARK_BASE_SHA=${parquet_benchmark_base_sha}"
+            -e CCACHE_REMOTE_STORAGE=file:///root/ccache
+            -e EXTRA_CXX_FLAGS=-O3
+            -e USE_JEMALLOC=ON
+            -e ENABLE_PCH=OFF
+        )
+        local variable
+        for variable in \
+            PARQUET_BENCHMARK_CPU \
+            PARQUET_BENCHMARK_MIN_TIME \
+            PARQUET_BENCHMARK_WARMUP_TIME \
+            PARQUET_REGRESSION_THRESHOLD_PCT \
+            PARQUET_WARNING_THRESHOLD_PCT \
+            PARQUET_CONFIDENCE_MARGIN_PCT \
+            PARQUET_MAX_CV_PCT; do
+            if [[ -n "${!variable:-}" ]]; then
+                docker_environment+=(-e "${variable}=${!variable}")
+            fi
+        done
+
+        sudo docker run -i --rm \
+            --name "${docker_name}" \
+            "${docker_environment[@]}" \
+            -v /mnt/ccache/.ccache:/root/.ccache \
+            -v "${performance_remote_ccache}":/root/ccache \
+            -v "${git_storage_path}":/root/git \
+            -v "${teamcity_build_checkoutDir}":/root/doris \
+            "${docker_image}" \
+            /bin/bash -o pipefail -c "mkdir -p ${git_storage_path} \
+                && cp -r /root/git/* ${git_storage_path}/ \
+                && bash /root/doris/regression-test/pipeline/performance/run-parquet-microbenchmark.sh"
+    }
+
+    benchmark_status=0
+    run_on_host || benchmark_status=$?
 
     if [[ -d "${teamcity_build_checkoutDir}/parquet-benchmark-results" ]]; then
         # The TeamCity step invokes this script with bash -x. Disable tracing before the
@@ -84,7 +127,29 @@ if [[ "${PARQUET_MICROBENCHMARK_IN_CONTAINER:-false}" != true ]]; then
         { set +x; } 2>/dev/null
         echo "##teamcity[publishArtifacts 'parquet-benchmark-results => parquet-microbenchmark']"
     fi
+    if [[ "${benchmark_status}" -ne 0 && "${parquet_microbenchmark_mode}" == report ]]; then
+        echo "##teamcity[message text='Parquet microbenchmark observation failed; see parquet-microbenchmark artifacts' status='WARNING']"
+        echo "WARN: report mode ignores Parquet microbenchmark exit code ${benchmark_status}"
+        exit 0
+    fi
     exit "${benchmark_status}"
+fi
+
+if [[ ! "${PARQUET_BENCHMARK_BASE_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "ERROR: invalid or missing Parquet benchmark base SHA"
+    exit 2
+fi
+
+build_status=0
+if bash "${script_dir}/build-parquet-microbenchmark.sh" \
+    "${PARQUET_BENCHMARK_BASE_SHA}"; then
+    echo "INFO: Parquet benchmark binaries built successfully"
+else
+    build_status=$?
+fi
+if [[ "${build_status}" -ne 0 ]]; then
+    echo "ERROR: Parquet benchmark build failed with exit code ${build_status}"
+    exit "${build_status}"
 fi
 
 if command -v python3 >/dev/null 2>&1; then

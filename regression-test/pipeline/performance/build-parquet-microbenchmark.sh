@@ -37,17 +37,25 @@ cleanup() {
 trap cleanup EXIT
 
 rm -rf "${result_dir}" "${output_dir}/head" "${output_dir}/base"
-mkdir -p "${result_dir}" "${output_dir}/head/be/lib"
+mkdir -p "${result_dir}"
 printf '%s\n' "${base_sha}" >"${result_dir}/base-sha.txt"
 git -C "${doris_home}" rev-parse HEAD >"${result_dir}/head-sha.txt"
 
-head_binary="${doris_home}/output/be/lib/benchmark_test"
-if [[ ! -x "${head_binary}" ]]; then
-    echo "ERROR: PR benchmark binary was not produced by the main compile: ${head_binary}"
-    exit 1
-fi
-cp -p "${head_binary}" "${output_dir}/head/be/lib/benchmark_test"
-echo "INFO: reuse Parquet benchmark from the PR compile" |
+build_benchmark() {
+    local source_dir="$1"
+    local benchmark_output="$2"
+    local benchmark_cxx="${CXX:-g++}"
+    (
+        cd "${source_dir}"
+        if "${benchmark_cxx}" --version 2>/dev/null | head -n 1 | grep -Eq 'g\+\+|GCC'; then
+            export EXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS:-} -Wno-error=class-memaccess"
+        fi
+        bash build.sh --benchmark --output "${benchmark_output}"
+    )
+}
+
+echo "INFO: build Parquet benchmark for PR revision $(git -C "${doris_home}" rev-parse HEAD)"
+build_benchmark "${doris_home}" "${output_dir}/head" 2>&1 |
     tee "${result_dir}/build-head.log"
 
 echo "INFO: build Parquet benchmark for target-branch revision ${base_sha}"
@@ -55,10 +63,7 @@ git -C "${doris_home}" worktree add --detach "${base_worktree}" "${base_sha}"
 (
     cd "${base_worktree}"
     ROOT_WORKSPACE_PATH="${doris_home}" bash hooks/setup_worktree.sh
-    git submodule update --init --recursive --depth 1
-    benchmark_cxx="${CXX:-g++}"
-    if "${benchmark_cxx}" --version 2>/dev/null | head -n 1 | grep -Eq 'g\+\+|GCC'; then
-        export EXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS:-} -Wno-error=class-memaccess"
-    fi
-    bash build.sh --benchmark --output "${output_dir}/base"
-) 2>&1 | tee "${result_dir}/build-base.log"
+)
+git -C "${base_worktree}" submodule update --init --recursive --depth 1
+build_benchmark "${base_worktree}" "${output_dir}/base" 2>&1 |
+    tee "${result_dir}/build-base.log"
