@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
@@ -285,8 +286,10 @@ class IvmAggDeltaHandler {
                 rawMvScan, ctx.getConnectContext(), ctx.getMtmv());
         Slot mvRowId = helper.findSlotByName(rawMvScan.getOutput(), Column.IVM_ROW_ID_COL);
         // MV (large) on left as probe side, delta (small) on right as build side.
+        // With ivm_use_full_keys, the join also matches on identity key columns (null-safe equality) so that
+        // a row_id hash collision between distinct groups cannot conflate MV rows with delta rows.
         LogicalJoin<Plan, Plan> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
-                ImmutableList.of(new EqualTo(mvRowId, delta.rowIdSlot)),
+                buildApplyJoinConjuncts(ctx, rawMvScan, mvRowId, delta),
                 mvPlan, delta.topDeltaProject, JoinReorderContext.EMPTY);
         Plan joinInput = aggMeta.isScalarAgg() ? join : buildNetZeroFilter(join, delta, mvRowId);
 
@@ -334,6 +337,50 @@ class IvmAggDeltaHandler {
         finalOutputs.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
         finalOutputs.add(new Alias(rewriteState.toSequence(maxDeltaIndex), Column.SEQUENCE_COL));
         return new LogicalProject<>(ImmutableList.copyOf(finalOutputs), joinInput);
+    }
+
+    private ImmutableList<Expression> buildApplyJoinConjuncts(IvmIncrRefreshContext ctx,
+            LogicalOlapScan rawMvScan, Slot mvRowId, DeltaPlanParts delta) {
+        ImmutableList.Builder<Expression> conjuncts = ImmutableList.builder();
+        IvmRewriteResult rewriteResult = ctx.getRewriteResult();
+        List<Slot> identityKeys = rewriteResult == null ? null : rewriteResult.getIdentityKeySlots();
+        if (identityKeys != null) {
+            for (Slot identityKey : identityKeys) {
+                Slot mvKey = helper.findSlotByNameOrNull(rawMvScan.getOutput(), identityKey.getName());
+                if (mvKey == null) {
+                    continue;
+                }
+                Slot deltaKey = findDeltaKeyByName(delta, identityKey.getName());
+                if (deltaKey == null) {
+                    continue;
+                }
+                conjuncts.add(new NullSafeEqual(mvKey, deltaKey));
+            }
+        }
+        conjuncts.add(new EqualTo(mvRowId, delta.rowIdSlot));
+        return conjuncts.build();
+    }
+
+    private Slot findDeltaKeyByName(DeltaPlanParts delta, String name) {
+        Slot direct = delta.groupKeySlotsByName.get(name);
+        if (direct != null) {
+            return direct;
+        }
+        String original = parseHiddenKeyOriginalName(name);
+        return original == null ? null : delta.groupKeySlotsByName.get(original);
+    }
+
+    private String parseHiddenKeyOriginalName(String hiddenName) {
+        if (hiddenName == null || !hiddenName.startsWith(Column.IVM_KEY_COL_PREFIX)) {
+            return null;
+        }
+        String body = hiddenName.substring(Column.IVM_KEY_COL_PREFIX.length());
+        int firstUnderscore = body.indexOf('_');
+        if (firstUnderscore <= 0 || !body.endsWith("_COL__")) {
+            return null;
+        }
+        String rest = body.substring(firstUnderscore + 1);
+        return rest.substring(0, rest.length() - "_COL__".length());
     }
 
     private LogicalFilter<Plan> buildNetZeroFilter(LogicalJoin<Plan, Plan> join, DeltaPlanParts delta, Slot mvRowId) {

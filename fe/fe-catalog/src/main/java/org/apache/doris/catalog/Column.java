@@ -62,6 +62,12 @@ public class Column implements GsonPostProcessable {
     public static final String IVM_DML_FACTOR_COL = "__DORIS_IVM_DML_FACTOR_COL__";
     public static final String IVM_BASE_OP_COL = "__DORIS_IVM_BASE_OP_COL__";
     public static final String IVM_DELTA_GROUP_COUNT_COL = "__DORIS_IVM_DELTA_GROUP_COUNT_COL__";
+    // Prefix for sink-level IVM identity key hidden columns (__DORIS_IVM_KEY_).
+    public static final String IVM_KEY_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "KEY_";
+    // Prefix for union arm-index columns (__DORIS_IVM_UNION_ARM_INDEX_).
+    public static final String IVM_UNION_ARM_INDEX_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "UNION_ARM_INDEX_";
+    // Prefix for union positional key columns (__DORIS_IVM_UNION_KEY_).
+    public static final String IVM_UNION_KEY_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "UNION_KEY_";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";

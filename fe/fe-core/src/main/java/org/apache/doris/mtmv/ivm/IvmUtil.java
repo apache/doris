@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -113,6 +114,9 @@ public class IvmUtil {
      * to ensure row-id derivation is identical.
      */
     public static Expression buildRowIdHash(List<? extends Expression> keyExprs) {
+        if (DebugPointUtil.isEnable("IvmUtil.buildRowIdHash.force_collision")) {
+            return new LargeIntLiteral(BigInteger.ONE);
+        }
         if (keyExprs.isEmpty()) {
             return new LargeIntLiteral(BigInteger.ZERO);
         }

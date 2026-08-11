@@ -217,6 +217,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_USE_FOR_REWRITE =
             "use_for_rewrite";
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
+    public static final String PROPERTIES_IVM_USE_FULL_KEYS = "ivm_use_full_keys";
 
     public static final String ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES =
             "async_mv.query_rewrite.consistency_relaxed_tables";

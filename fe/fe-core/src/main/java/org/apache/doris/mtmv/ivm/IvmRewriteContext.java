@@ -60,6 +60,9 @@ public class IvmRewriteContext {
     private final Optional<DryRunLimit> dryRunLimit;
     private final Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds;
     private final Optional<StreamReadMode> fullRefreshNonPctReadMode;
+    // Set by MTMVPlanUtil before normalization: true means the MV unique keys include identity key columns.
+    // Null when the rewrite context is created outside the analyzeQuery flow.
+    private Boolean useFullKeys;
 
     public IvmRewriteContext(Mode mode, MTMV mtmv, boolean includeExhaustedStreams) {
         this(mode, mtmv, null, includeExhaustedStreams, false, Optional.empty(),
@@ -155,5 +158,13 @@ public class IvmRewriteContext {
 
     public Optional<StreamReadMode> getFullRefreshNonPctReadMode() {
         return fullRefreshNonPctReadMode;
+    }
+
+    public Boolean getUseFullKeys() {
+        return useFullKeys;
+    }
+
+    public void setUseFullKeys(boolean useFullKeys) {
+        this.useFullKeys = useFullKeys;
     }
 }
