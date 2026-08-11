@@ -20,6 +20,7 @@ package org.apache.doris.spi;
 import org.apache.doris.datasource.SplitWeight;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Split interface. e.g. Tablet for Olap Table.
@@ -36,6 +37,10 @@ public interface Split {
 
     default boolean isRemotelyAccessible() {
         return true;
+    }
+
+    default Optional<String> getFileAffinityKey() {
+        return Optional.empty();
     }
 
     String getPathString();

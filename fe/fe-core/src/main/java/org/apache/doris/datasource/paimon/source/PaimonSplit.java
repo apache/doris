@@ -80,6 +80,11 @@ public class PaimonSplit extends FileSplit {
         return getPathString();
     }
 
+    @Override
+    public Optional<String> getFileAffinityKey() {
+        return paimonSplit == null ? super.getFileAffinityKey() : Optional.empty();
+    }
+
     /**
      * Returns the underlying Paimon split.
      * For JNI reader serialization.

@@ -44,6 +44,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitGenerator;
@@ -57,6 +58,7 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TScanRangeParams;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
@@ -132,6 +134,40 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             columns = desc.getTable().getBaseSchema();
         }
         return columns;
+    }
+
+    /** Whether this scan node has ranges that must stay together in one fragment instance. */
+    public boolean hasScanRangeInstanceAffinity() {
+        return false;
+    }
+
+    /**
+     * Split this scan node's ranges into the requested number of fragment instances.
+     * Subclasses may keep related ranges in the same partition by overriding this method.
+     */
+    public List<List<Integer>> splitScanRangeParamsByInstance(
+            List<TScanRangeParams> scanRangeParams, int expectedInstanceNum) {
+        List<Integer> rangeIndexes = IntStream.range(0, scanRangeParams.size()).boxed().collect(Collectors.toList());
+        return ListUtil.splitBySize(rangeIndexes, expectedInstanceNum);
+    }
+
+    /** Materialize the instance partitions used by the legacy coordinator. */
+    public List<List<TScanRangeParams>> materializeScanRangeParamsByInstance(
+            List<TScanRangeParams> scanRangeParams, int expectedInstanceNum) {
+        if (!hasScanRangeInstanceAffinity()) {
+            return ListUtil.splitBySize(scanRangeParams, expectedInstanceNum);
+        }
+        List<List<Integer>> rangeIndexesPerInstance
+                = splitScanRangeParamsByInstance(scanRangeParams, expectedInstanceNum);
+        List<List<TScanRangeParams>> result = Lists.newArrayListWithCapacity(rangeIndexesPerInstance.size());
+        for (List<Integer> rangeIndexes : rangeIndexesPerInstance) {
+            List<TScanRangeParams> instanceScanRanges = Lists.newArrayListWithCapacity(rangeIndexes.size());
+            for (Integer rangeIndex : rangeIndexes) {
+                instanceScanRanges.add(scanRangeParams.get(rangeIndex));
+            }
+            result.add(instanceScanRanges);
+        }
+        return result;
     }
 
     public TupleDescriptor getTupleDesc() {

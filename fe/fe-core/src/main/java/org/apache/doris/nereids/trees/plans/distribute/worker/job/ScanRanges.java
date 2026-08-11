@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TScanRangeParams;
 
@@ -72,6 +73,20 @@ public class ScanRanges implements Splittable<ScanRanges> {
     @Override
     public ScanRanges newSplittable() {
         return new ScanRanges();
+    }
+
+    /** Split ranges into instances while honoring scan-node-specific affinity groups. */
+    public List<ScanRanges> split(ScanNode scanNode, int splitSize) {
+        List<List<Integer>> rangeIndexes = scanNode.splitScanRangeParamsByInstance(params, splitSize);
+        List<ScanRanges> result = Lists.newArrayListWithCapacity(rangeIndexes.size());
+        for (List<Integer> oneInstanceRangeIndexes : rangeIndexes) {
+            ScanRanges oneInstanceRanges = new ScanRanges();
+            for (Integer rangeIndex : oneInstanceRangeIndexes) {
+                oneInstanceRanges.addItem(this, rangeIndex);
+            }
+            result.add(oneInstanceRanges);
+        }
+        return result;
     }
 
     @Override

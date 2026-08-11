@@ -1135,6 +1135,25 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testPositionDeleteFileAffinityClassification() {
+        String path = "s3://bucket/table/delete.parquet";
+        IcebergSplit positionDelete = IcebergSplit.newPositionDeleteSysTableSplit(
+                LocationPath.of(path), 0, 128, 256, Collections.emptyMap(), path);
+        positionDelete.setPositionDeleteContent(IcebergDeleteFileFilter.PositionDelete.type());
+        positionDelete.setPositionDeleteFileFormat(TFileFormatType.FORMAT_PARQUET);
+        Assert.assertFalse(positionDelete.getFileAffinityKey().isPresent());
+        positionDelete.setFileAffinitySupported(true);
+        Assert.assertTrue(positionDelete.getFileAffinityKey().isPresent());
+
+        IcebergSplit deletionVector = IcebergSplit.newPositionDeleteSysTableSplit(
+                LocationPath.of(path), 0, 128, 256, Collections.emptyMap(), path);
+        deletionVector.setPositionDeleteContent(IcebergDeleteFileFilter.DeletionVector.type());
+        deletionVector.setPositionDeleteFileFormat(TFileFormatType.FORMAT_PARQUET);
+        deletionVector.setFileAffinitySupported(true);
+        Assert.assertFalse(deletionVector.getFileAffinityKey().isPresent());
+    }
+
+    @Test
     public void testPositionDeleteSystemTableValidatesDeletionVectorMetadata() throws Exception {
         DeleteFile deleteFile = Mockito.mock(DeleteFile.class);
         Mockito.when(deleteFile.path()).thenReturn("file:///tmp/delete-shared.puffin");

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -26,6 +27,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 import mockit.Expectations;
 import mockit.Injectable;
+import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -187,6 +189,24 @@ public class SplitAssignmentTest {
     void testAddToQueueWithEmptyList() throws Exception {
         // Test
         Assertions.assertDoesNotThrow(() -> splitAssignment.addToQueue(Collections.emptyList()));
+    }
+
+    @Test
+    void testEagerAssignmentEnablesFileAffinity() throws Exception {
+        FileSplit split = new FileSplit(LocationPath.of("s3://bucket/table/data.parquet"),
+                0, 128, 256, 0, null, Collections.emptyList());
+        Multimap<Backend, Split> batch = ArrayListMultimap.create();
+        batch.put(mockBackend, split);
+        new MockUp<FederationBackendPolicy>() {
+            @Mock
+            Multimap<Backend, Split> computeScanRangeAssignment(List<Split> splits) {
+                Assertions.assertTrue(splits.get(0).getFileAffinityKey().isPresent());
+                return batch;
+            }
+        };
+
+        Assertions.assertEquals(batch, SplitAssignment.computeScanRangeAssignment(
+                mockBackendPolicy, Collections.singletonList(split), true));
     }
 
     @Test

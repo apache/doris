@@ -22,6 +22,7 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.TableFormatType;
 
 import java.nio.ByteBuffer;
+import java.util.Optional;
 
 public class RemoteDorisSplit extends FileSplit {
     private static final LocationPath DUMMY_PATH = LocationPath.of("/dummyPath");
@@ -41,6 +42,11 @@ public class RemoteDorisSplit extends FileSplit {
 
     public String getLocation() {
         return location;
+    }
+
+    @Override
+    public Optional<String> getFileAffinityKey() {
+        return Optional.empty();
     }
 
     public TableFormatType getTableFormatType() {

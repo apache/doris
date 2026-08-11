@@ -41,6 +41,7 @@ import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.planner.AffinityAwareInstanceSplitter;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -65,6 +66,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TSplitSource;
 
 import com.google.common.base.Preconditions;
@@ -81,6 +83,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -114,6 +117,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected FileSplitter fileSplitter;
     protected SummaryProfile summaryProfile;
+
+    // Populated while scan ranges are created, then read by the instance scheduler. Identity keys are sufficient
+    // because both the legacy coordinator and the Nereids distributor retain the original TScanRange objects.
+    private final Map<TScanRange, String> scanRangeToFileAffinityKey = new IdentityHashMap<>();
 
     // The data cache function only works for queries on Hive, Iceberg, Hudi(via HMS), and Paimon tables.
     // See: https://doris.incubator.apache.org/docs/dev/lakehouse/data-cache
@@ -356,6 +363,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             executor.getSummaryProfile().setGetSplitsStartTime();
         }
         TFileFormatType fileFormatType = getFileFormatType();
+        boolean fileAffinitySupported = fileFormatType == TFileFormatType.FORMAT_PARQUET
+                || fileFormatType == TFileFormatType.FORMAT_ORC || supportsPerRangeFileAffinity();
         if (fileFormatType == TFileFormatType.FORMAT_ORC) {
             genSlotToSchemaIdMapForOrc();
         }
@@ -409,6 +418,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
+            // Do not enable file affinity here. The current fetch protocol uses an empty split list as EOS, so it
+            // cannot safely represent a non-owner source that is temporarily empty while scheduling is still active.
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
                     locationProperties, pathPartitionKeys, admissionResult);
             splitAssignment.init();
@@ -461,7 +472,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 return;
             }
             Set<String> distinctFilePaths = new HashSet<>();
-            Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
+            Multimap<Backend, Split> assignment = SplitAssignment.computeScanRangeAssignment(
+                    backendPolicy, inputSplits, fileAffinitySupported);
             for (Backend backend : assignment.keySet()) {
                 Collection<Split> splits = assignment.get(backend);
                 for (Split split : splits) {
@@ -492,7 +504,36 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
     }
 
-    private TScanRangeLocations splitToScanRange(
+    protected boolean supportsPerRangeFileAffinity() {
+        return false;
+    }
+
+    @Override
+    public boolean hasScanRangeInstanceAffinity() {
+        return !scanRangeToFileAffinityKey.isEmpty();
+    }
+
+    @Override
+    public List<List<Integer>> splitScanRangeParamsByInstance(
+            List<TScanRangeParams> scanRangeParams, int expectedInstanceNum) {
+        return AffinityAwareInstanceSplitter.split(scanRangeParams, expectedInstanceNum,
+                param -> Optional.ofNullable(scanRangeToFileAffinityKey.get(param.getScanRange())),
+                this::getScanRangeSize);
+    }
+
+    private long getScanRangeSize(TScanRangeParams param) {
+        long size = 0;
+        for (TFileRangeDesc range : param.getScanRange().getExtScanRange().getFileScanRange().getRanges()) {
+            size = Math.addExact(size, Math.max(range.getSize(), 0));
+        }
+        return size;
+    }
+
+    void recordScanRangeFileAffinity(TScanRange scanRange, String affinityKey) {
+        scanRangeToFileAffinityKey.put(scanRange, affinityKey);
+    }
+
+    TScanRangeLocations splitToScanRange(
             Backend backend,
             Map<String, String> locationProperties,
             Split split,
@@ -524,6 +565,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         rangeDesc.setFileCacheAdmission(admissionResult);
 
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+        Optional<String> fileAffinityKey = split.getFileAffinityKey();
+        fileAffinityKey.ifPresent(key -> recordScanRangeFileAffinity(curLocations.getScanRange(), key));
         TScanRangeLocation location = new TScanRangeLocation();
         setLocationPropertiesIfNecessary(backend, fileSplit.getLocationType(), locationProperties);
         location.setBackendId(backend.getId());

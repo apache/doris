@@ -154,6 +154,18 @@ public class SplitAssignment {
         appendBatch(batch);
     }
 
+    public static void enableFileAffinity(List<Split> splits, boolean supported) {
+        splits.stream().filter(FileSplit.class::isInstance).map(FileSplit.class::cast)
+                .forEach(split -> split.setFileAffinitySupported(supported));
+    }
+
+    public static Multimap<Backend, Split> computeScanRangeAssignment(
+            FederationBackendPolicy backendPolicy, List<Split> splits, boolean fileAffinitySupported)
+            throws UserException {
+        enableFileAffinity(splits, fileAffinitySupported);
+        return backendPolicy.computeScanRangeAssignment(splits);
+    }
+
     private void notifyAssignment() {
         synchronized (assignLock) {
             assignLock.notify();

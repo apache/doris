@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Data
 public class IcebergSplit extends FileSplit {
@@ -97,5 +98,19 @@ public class IcebergSplit extends FileSplit {
         split.setPositionDeleteSystemTableSplit(true);
         split.setSelfSplitWeight(Math.max(length, 1L));
         return split;
+    }
+
+    @Override
+    public Optional<String> getFileAffinityKey() {
+        if (positionDeleteSystemTableSplit) {
+            return isFileAffinitySupported()
+                    && positionDeleteContent == IcebergDeleteFileFilter.PositionDelete.type()
+                    && (positionDeleteFileFormat == TFileFormatType.FORMAT_PARQUET
+                            || positionDeleteFileFormat == TFileFormatType.FORMAT_ORC)
+                    && getHosts().length == 0 && getFileLength() > getLength()
+                    ? Optional.of(getPathString()) : Optional.empty();
+        }
+        return splitFileFormat != null && splitFileFormat != FileFormat.PARQUET && splitFileFormat != FileFormat.ORC
+                ? Optional.empty() : super.getFileAffinityKey();
     }
 }

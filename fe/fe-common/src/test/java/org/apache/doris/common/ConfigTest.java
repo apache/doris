@@ -98,4 +98,19 @@ public class ConfigTest {
         ConfigBase.setMutableConfig("s3_load_endpoint_white_list", "");
         Assert.assertEquals("array length should be 0", 0, Config.s3_load_endpoint_white_list.length);
     }
+
+    @Test
+    public void testSplitAssignerVirtualNodeNumberMustBePositive() throws ConfigException {
+        int originalValue = Config.split_assigner_virtual_node_number;
+        try {
+            Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("split_assigner_virtual_node_number", "0"));
+            Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("split_assigner_virtual_node_number", "-1"));
+            ConfigBase.setMutableConfig("split_assigner_virtual_node_number", "1");
+            Assert.assertEquals(1, Config.split_assigner_virtual_node_number);
+        } finally {
+            Config.split_assigner_virtual_node_number = originalValue;
+        }
+    }
 }

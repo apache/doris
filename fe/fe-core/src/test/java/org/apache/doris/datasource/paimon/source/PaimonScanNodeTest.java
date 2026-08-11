@@ -35,6 +35,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -269,7 +270,7 @@ public class PaimonScanNodeTest {
         Mockito.when(paimonTable.partitionKeys()).thenReturn(Collections.emptyList());
         paimonScanNode.setSource(source);
 
-        DataFileMeta dfm1 = DataFileMeta.forAppend("f1.parquet", 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
+        DataFileMeta dfm1 = DataFileMeta.forAppend("f1.parquet", 128L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
                 1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
                 Collections.<String>emptyList(), null, null, Collections.<String>emptyList());
         BinaryRow binaryRow1 = BinaryRow.singleColumn(1);
@@ -328,17 +329,31 @@ public class PaimonScanNodeTest {
         Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
         Mockito.when(sv.getMaxInitialSplitSize()).thenReturn(maxInitialSplitSize);
         Mockito.when(sv.getMaxSplitSize()).thenReturn(maxSplitSize);
+        Mockito.when(sv.getMaxInitialSplitNum()).thenReturn(1);
+        Mockito.when(sv.getMaxFileSplitNum()).thenReturn(100000);
 
         // native
         mockNativeReader(spyPaimonScanNode);
         List<org.apache.doris.spi.Split> s1 = spyPaimonScanNode.getSplits(1);
+        Assert.assertEquals(3, s1.size());
         PaimonSplit s11 = (PaimonSplit) s1.get(0);
         PaimonSplit s12 = (PaimonSplit) s1.get(1);
-        Assert.assertEquals(2, s1.size());
+        PaimonSplit s13 = (PaimonSplit) s1.get(2);
         Assert.assertEquals(100, s11.getSplitWeight().getRawValue());
         Assert.assertNull(s11.getSplit());
-        Assert.assertEquals(50, s12.getSplitWeight().getRawValue());
+        Assert.assertEquals(s11.getPathString(), s12.getPathString());
+        Assert.assertEquals(0, s11.getStart());
+        Assert.assertEquals(64L * 1024 * 1024, s12.getStart());
+        Assert.assertEquals(128L * 1024 * 1024, s11.getFileLength());
+        Assert.assertEquals(64L * 1024 * 1024, s11.getLength());
+        Assert.assertFalse(s11.getFileAffinityKey().isPresent());
+        SplitAssignment.enableFileAffinity(Arrays.asList(s11, s12), true);
+        Assert.assertTrue(s11.getFileAffinityKey().isPresent());
+        Assert.assertEquals(s11.getFileAffinityKey(), s12.getFileAffinityKey());
+        Assert.assertEquals(100, s12.getSplitWeight().getRawValue());
         Assert.assertNull(s12.getSplit());
+        Assert.assertEquals(50, s13.getSplitWeight().getRawValue());
+        Assert.assertNull(s13.getSplit());
 
         // jni
         mockJniReader(spyPaimonScanNode);
@@ -347,6 +362,8 @@ public class PaimonScanNodeTest {
         PaimonSplit s22 = (PaimonSplit) s2.get(1);
         Assert.assertEquals(2, s2.size());
         Assert.assertNotNull(s21.getSplit());
+        SplitAssignment.enableFileAffinity(Collections.singletonList(s21), true);
+        Assert.assertFalse(s21.getFileAffinityKey().isPresent());
         Assert.assertNotNull(s22.getSplit());
         Assert.assertEquals(100, s21.getSplitWeight().getRawValue());
         Assert.assertEquals(50, s22.getSplitWeight().getRawValue());

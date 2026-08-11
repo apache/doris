@@ -1598,6 +1598,11 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected boolean supportsPerRangeFileAffinity() {
+        return true;
+    }
+
+    @Override
     public List<String> getPathPartitionKeys() throws UserException {
         return getOrderedPathPartitionKeys();
     }

@@ -66,7 +66,9 @@ public class DefaultScanSource extends ScanSource {
             return ImmutableList.of();
         }
 
-        List<ScanRanges> scanRangesPerInstance = scanRanges.split(instanceNum);
+        List<ScanRanges> scanRangesPerInstance = scanNode.hasScanRangeInstanceAffinity()
+                ? scanRanges.split(scanNode, instanceNum)
+                : scanRanges.split(instanceNum);
 
         ImmutableList.Builder<ScanSource> instancesSource
                 = ImmutableList.builderWithExpectedSize(scanRangesPerInstance.size());

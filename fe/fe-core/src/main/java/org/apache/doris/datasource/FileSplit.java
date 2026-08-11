@@ -22,8 +22,10 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TFileType;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 import java.util.List;
+import java.util.Optional;
 
 @Data
 public class FileSplit implements Split {
@@ -49,6 +51,8 @@ public class FileSplit implements Split {
 
     public Long selfSplitWeight;
     public Long targetSplitSize;
+    @EqualsAndHashCode.Exclude
+    private boolean fileAffinitySupported;
 
     public FileSplit(LocationPath path, long start, long length, long fileLength,
             long modificationTime, String[] hosts, List<String> partitionValues) {
@@ -74,6 +78,12 @@ public class FileSplit implements Split {
     @Override
     public Object getInfo() {
         return null;
+    }
+
+    @Override
+    public Optional<String> getFileAffinityKey() {
+        return hosts.length == 0 && fileLength > length && fileAffinitySupported
+                ? Optional.of(getPathString()) : Optional.empty();
     }
 
     @Override

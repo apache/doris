@@ -2922,7 +2922,7 @@ public class Config extends ConfigBase {
             "Whether to disable LocalDeployManager drop node"})
     public static boolean disable_local_deploy_manager_drop_node = true;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(mutable = true, callback = PositiveIntConfHandler.class, description = {
             "开启 file cache 后，一致性哈希算法中，每个节点的虚拟节点数。"
                     + "该值越大，哈希算法的分布越均匀，但是会增加内存开销。",
             "When file cache is enabled, the number of virtual nodes of each node in the consistent hash algorithm. "

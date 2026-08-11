@@ -840,6 +840,11 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected boolean supportsPerRangeFileAffinity() {
+        return true;
+    }
+
+    @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
         return getOrderedPathPartitionKeys();
     }
