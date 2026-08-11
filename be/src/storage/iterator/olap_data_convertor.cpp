@@ -474,10 +474,15 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
     assert(_typed_column.column);
     const ColumnHLL* column_hll = nullptr;
     if (_nullmap) {
-        return Status::NotSupported("QuantileState column does not support nullable");
+        // PR #53124 removed the previous nullable HLL conversion. ROW Binlog still wraps
+        // BEFORE/AFTER value columns in Nullable internally, so support that representation here;
+        // this does not change the user-visible restriction that HLL columns cannot be nullable.
+        const auto* nullable_column =
+                assert_cast<const ColumnNullable*>(_typed_column.column.get());
+        column_hll = assert_cast<const ColumnHLL*>(nullable_column->get_nested_column_ptr().get());
+    } else {
+        column_hll = assert_cast<const ColumnHLL*>(_typed_column.column.get());
     }
-
-    column_hll = assert_cast<const ColumnHLL*>(_typed_column.column.get());
 
     assert(column_hll);
     const HyperLogLog* hll_value = column_hll->get_data().data() + _row_pos;
@@ -485,9 +490,20 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
     const HyperLogLog* hll_value_end = hll_value_cur + _num_rows;
 
     size_t total_size = 0;
-    while (hll_value_cur != hll_value_end) {
-        total_size += hll_value_cur->max_serialized_size();
-        ++hll_value_cur;
+    if (_nullmap) {
+        const UInt8* nullmap_cur = _nullmap + _row_pos;
+        while (hll_value_cur != hll_value_end) {
+            if (!*nullmap_cur) {
+                total_size += hll_value_cur->max_serialized_size();
+            }
+            ++nullmap_cur;
+            ++hll_value_cur;
+        }
+    } else {
+        while (hll_value_cur != hll_value_end) {
+            total_size += hll_value_cur->max_serialized_size();
+            ++hll_value_cur;
+        }
     }
     _raw_data.resize(total_size);
 
@@ -496,17 +512,37 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
     Slice* slice = _slice.data();
 
     hll_value_cur = hll_value;
-    while (hll_value_cur != hll_value_end) {
-        slice_size = hll_value_cur->serialize((uint8_t*)raw_data);
+    if (_nullmap) {
+        const UInt8* nullmap_cur = _nullmap + _row_pos;
+        while (hll_value_cur != hll_value_end) {
+            if (!*nullmap_cur) {
+                slice_size = hll_value_cur->serialize((uint8_t*)raw_data);
 
-        slice->data = raw_data;
-        slice->size = slice_size;
-        raw_data += slice_size;
+                slice->data = raw_data;
+                slice->size = slice_size;
+                raw_data += slice_size;
+            } else {
+                slice->data = nullptr;
+                slice->size = 0;
+            }
+            ++slice;
+            ++nullmap_cur;
+            ++hll_value_cur;
+        }
+        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
+    } else {
+        while (hll_value_cur != hll_value_end) {
+            slice_size = hll_value_cur->serialize((uint8_t*)raw_data);
 
-        ++slice;
-        ++hll_value_cur;
+            slice->data = raw_data;
+            slice->size = slice_size;
+            raw_data += slice_size;
+
+            ++slice;
+            ++hll_value_cur;
+        }
+        assert(slice == _slice.get_end_ptr());
     }
-    assert(slice == _slice.get_end_ptr());
     return Status::OK();
 }
 

@@ -133,6 +133,21 @@ struct TypeCase {
     std::array<std::string_view, 3> values;
 };
 
+constexpr TypeCase kHllType {.name = "hll",
+                             .storage_type = "HLL",
+                             .length = 16387,
+                             .index_length = 16387,
+                             .precision = 0,
+                             .scale = 0,
+                             .values = {}};
+constexpr TypeCase kBitmapType {.name = "bitmap",
+                                .storage_type = "BITMAP",
+                                .length = 16,
+                                .index_length = 16,
+                                .precision = 0,
+                                .scale = 0,
+                                .values = {}};
+
 // These are all types accepted by FE as an OLAP key and supported by BE's KeyCoder.
 constexpr std::array kKeyTypes {
         TypeCase {"bool", "BOOLEAN", 1, 1, 0, 0, {"0", "1", "1"}},
@@ -900,7 +915,6 @@ ComplexRowBinlogSchemas create_complex_row_binlog_schemas() {
                                     .precision = 0,
                                     .scale = 0,
                                     .values = {}};
-
     TabletSchemaPB source_pb;
     source_pb.set_keys_type(UNIQUE_KEYS);
     source_pb.set_num_short_key_columns(1);
@@ -916,13 +930,15 @@ ComplexRowBinlogSchemas create_complex_row_binlog_schemas() {
     auto* structure = add_column(&source_pb, 3, "v_struct", struct_type, false, false);
     add_child_column(structure, 301, "f_int", kKeyTypes[3], true);
     add_child_column(structure, 302, "f_text", kKeyTypes[12], true);
-    add_hidden_column(&source_pb, 4, DELETE_SIGN, kKeyTypes[1], "NONE", "0");
-    source_pb.set_delete_sign_idx(4);
-    add_hidden_column(&source_pb, 5, VERSION_COL, kKeyTypes[4], "NONE", "0");
-    source_pb.set_version_col_idx(5);
-    add_hidden_column(&source_pb, 6, COMMIT_TSO_COL, kKeyTypes[4], "NONE", "0");
-    source_pb.set_commit_tso_col_idx(6);
-    source_pb.set_next_column_unique_id(7);
+    add_column(&source_pb, 4, "v_hll", kHllType, false, false);
+    add_column(&source_pb, 5, "v_bitmap", kBitmapType, false, false);
+    add_hidden_column(&source_pb, 6, DELETE_SIGN, kKeyTypes[1], "NONE", "0");
+    source_pb.set_delete_sign_idx(6);
+    add_hidden_column(&source_pb, 7, VERSION_COL, kKeyTypes[4], "NONE", "0");
+    source_pb.set_version_col_idx(7);
+    add_hidden_column(&source_pb, 8, COMMIT_TSO_COL, kKeyTypes[4], "NONE", "0");
+    source_pb.set_commit_tso_col_idx(8);
+    source_pb.set_next_column_unique_id(9);
 
     TabletSchemaPB row_binlog_pb;
     row_binlog_pb.set_keys_type(DUP_KEYS);
@@ -930,28 +946,52 @@ ComplexRowBinlogSchemas create_complex_row_binlog_schemas() {
     row_binlog_pb.set_num_rows_per_row_block(2);
     row_binlog_pb.set_compression_type(LZ4F);
     row_binlog_pb.set_storage_format(TABLET_STORAGE_FORMAT_V2);
-    for (int cid = 0; cid < 4; ++cid) {
+    for (int cid = 0; cid < 6; ++cid) {
         row_binlog_pb.add_column()->CopyFrom(source_pb.column(cid));
     }
-    for (int cid = 1; cid < 4; ++cid) {
+    for (int cid = 1; cid < 6; ++cid) {
         row_binlog_pb.mutable_column(cid)->set_is_nullable(true);
     }
-    auto* tso = add_column(&row_binlog_pb, 4, BINLOG_TSO_COL, kKeyTypes[4], false, true);
+    auto* tso = add_column(&row_binlog_pb, 6, BINLOG_TSO_COL, kKeyTypes[4], false, true);
     tso->set_visible(false);
-    row_binlog_pb.set_binlog_tso_col_idx(4);
-    auto* lsn = add_column(&row_binlog_pb, 5, BINLOG_LSN_COL, kKeyTypes[4], false, false);
+    row_binlog_pb.set_binlog_tso_col_idx(6);
+    auto* lsn = add_column(&row_binlog_pb, 7, BINLOG_LSN_COL, kKeyTypes[4], false, false);
     lsn->set_visible(false);
-    row_binlog_pb.set_binlog_lsn_col_idx(5);
-    auto* op = add_column(&row_binlog_pb, 6, BINLOG_OP_COL, kKeyTypes[4], false, false);
+    row_binlog_pb.set_binlog_lsn_col_idx(7);
+    auto* op = add_column(&row_binlog_pb, 8, BINLOG_OP_COL, kKeyTypes[4], false, false);
     op->set_visible(false);
-    row_binlog_pb.set_binlog_op_col_idx(6);
-    row_binlog_pb.set_next_column_unique_id(7);
+    row_binlog_pb.set_binlog_op_col_idx(8);
+    row_binlog_pb.set_next_column_unique_id(9);
 
     auto source = std::make_shared<TabletSchema>();
     source->init_from_pb(source_pb);
     auto row_binlog = std::make_shared<TabletSchema>();
     row_binlog->init_from_pb(row_binlog_pb);
     return {.source = std::move(source), .row_binlog = std::move(row_binlog)};
+}
+
+void append_row_binlog_hll(Block* block, size_t column_index, int segment_ordinal, size_t row,
+                           size_t rows_per_segment) {
+    HyperLogLog hll;
+    const auto cardinality = static_cast<size_t>(segment_ordinal) * rows_per_segment + row + 1;
+    for (size_t value = 0; value < cardinality; ++value) {
+        hll.update(segment_ordinal * 100 + value);
+    }
+    auto* hll_column = assert_cast<ColumnHLL*>(
+            block->get_by_position(column_index).column->assert_mutable().get());
+    hll_column->insert_value(std::move(hll));
+}
+
+void append_row_binlog_bitmap(Block* block, size_t column_index, int segment_ordinal, size_t row,
+                              size_t rows_per_segment) {
+    BitmapValue bitmap;
+    const auto cardinality = static_cast<size_t>(segment_ordinal) * rows_per_segment + row + 1;
+    for (size_t value = 0; value < cardinality; ++value) {
+        bitmap.add(segment_ordinal * 100 + value);
+    }
+    auto* bitmap_column = assert_cast<ColumnBitmap*>(
+            block->get_by_position(column_index).column->assert_mutable().get());
+    bitmap_column->insert_value(std::move(bitmap));
 }
 
 Result<Block> create_complex_row_binlog_block(
@@ -980,6 +1020,10 @@ Result<Block> create_complex_row_binlog_block(
             } else if (name == "v_struct") {
                 RETURN_IF_ERROR_RESULT(
                         append_text_value(&block, column_index, structs[value_index]));
+            } else if (name == "v_hll") {
+                append_row_binlog_hll(&block, column_index, segment_ordinal, row, arrays.size());
+            } else if (name == "v_bitmap") {
+                append_row_binlog_bitmap(&block, column_index, segment_ordinal, row, arrays.size());
             } else {
                 block.get_by_position(column_index).column->assert_mutable()->insert_default();
             }
@@ -2293,6 +2337,55 @@ Status verify_row_binlog_partial_update_segment(const TabletSharedPtr& tablet,
     return Status::OK();
 }
 
+Status verify_complex_row_binlog_hll(const Block& actual, const Block& expected,
+                                     std::string_view case_name, uint32_t segment_id) {
+    const auto actual_hll_position = actual.get_position_by_name("v_hll");
+    const auto expected_hll_position = expected.get_position_by_name("v_hll");
+    if (actual_hll_position < 0 || expected_hll_position < 0) {
+        return Status::InternalError("{} segment {} is missing column v_hll", case_name,
+                                     segment_id);
+    }
+    const auto& actual_nullable_hll =
+            assert_cast<const ColumnNullable&>(*actual.get_by_position(actual_hll_position).column);
+    const auto& actual_hll = assert_cast<const ColumnHLL&>(actual_nullable_hll.get_nested_column());
+    const auto& expected_hll =
+            assert_cast<const ColumnHLL&>(*expected.get_by_position(expected_hll_position).column);
+    for (size_t row = 0; row < expected.rows(); ++row) {
+        if (actual_nullable_hll.is_null_at(row) ||
+            actual_hll.get_element(row).estimate_cardinality() !=
+                    expected_hll.get_element(row).estimate_cardinality()) {
+            return Status::InternalError("{} segment {} column v_hll row {} has value mismatch",
+                                         case_name, segment_id, row);
+        }
+    }
+    return Status::OK();
+}
+
+Status verify_complex_row_binlog_bitmap(const Block& actual, const Block& expected,
+                                        std::string_view case_name, uint32_t segment_id) {
+    const auto actual_position = actual.get_position_by_name("v_bitmap");
+    const auto expected_position = expected.get_position_by_name("v_bitmap");
+    if (actual_position < 0 || expected_position < 0) {
+        return Status::InternalError("{} segment {} is missing column v_bitmap", case_name,
+                                     segment_id);
+    }
+    const auto& actual_nullable =
+            assert_cast<const ColumnNullable&>(*actual.get_by_position(actual_position).column);
+    const auto& actual_bitmap =
+            assert_cast<const ColumnBitmap&>(actual_nullable.get_nested_column());
+    const auto& expected_bitmap =
+            assert_cast<const ColumnBitmap&>(*expected.get_by_position(expected_position).column);
+    for (size_t row = 0; row < expected.rows(); ++row) {
+        if (actual_nullable.is_null_at(row) ||
+            actual_bitmap.get_element(row).to_string() !=
+                    expected_bitmap.get_element(row).to_string()) {
+            return Status::InternalError("{} segment {} column v_bitmap row {} has value mismatch",
+                                         case_name, segment_id, row);
+        }
+    }
+    return Status::OK();
+}
+
 Status verify_complex_row_binlog_segment(const TabletSharedPtr& tablet, std::string_view case_name,
                                          uint32_t segment_id, const Block& expected) {
     auto block_result = read_row_binlog_segment(tablet, case_name, segment_id);
@@ -2322,6 +2415,8 @@ Status verify_complex_row_binlog_segment(const TabletSharedPtr& tablet, std::str
             }
         }
     }
+    RETURN_IF_ERROR(verify_complex_row_binlog_hll(actual, expected, case_name, segment_id));
+    RETURN_IF_ERROR(verify_complex_row_binlog_bitmap(actual, expected, case_name, segment_id));
 
     const auto path = fmt::format("{}/{}/segment_{}.dat", kTestDir, case_name, segment_id);
     auto footer_result = read_segment_footer(path);
@@ -2343,6 +2438,17 @@ Status verify_complex_row_binlog_segment(const TabletSharedPtr& tablet, std::str
             return Status::InternalError(
                     "{} segment {} column {} null child has {} rows, expected {}", case_name,
                     segment_id, cid, null_meta.num_rows(), column_meta->num_rows());
+        }
+    }
+    for (uint32_t cid = 4; cid <= 5; ++cid) {
+        const auto column_meta =
+                std::find_if(footer.columns().begin(), footer.columns().end(),
+                             [cid](const auto& meta) { return meta.column_id() == cid; });
+        if (column_meta == footer.columns().end() || !column_meta->is_nullable() ||
+            column_meta->num_rows() != expected.rows()) {
+            return Status::InternalError(
+                    "{} segment {} has invalid nullable object metadata for column {}", case_name,
+                    segment_id, cid);
         }
     }
     return Status::OK();
@@ -3147,10 +3253,10 @@ TEST_F(SegmentFlusherTransformFormatTest,
                                                    full_update_tablets.binlog_tablet);
                                        })
                         .ok());
-    ASSERT_TRUE(verify_complex_row_binlog_segment(full_update_tablets.binlog_tablet,
-                                                  "complex_row_binlog_full_update", 0,
-                                                  expected_full_update)
-                        .ok());
+    auto full_update_verify_status = verify_complex_row_binlog_segment(
+            full_update_tablets.binlog_tablet, "complex_row_binlog_full_update", 0,
+            expected_full_update);
+    ASSERT_TRUE(full_update_verify_status.ok()) << full_update_verify_status;
 
     auto partial_update_tablets = create_complex_row_binlog_tablets(schemas, 22006);
     auto partial_update_info = std::make_shared<PartialUpdateInfo>();
@@ -3158,7 +3264,8 @@ TEST_F(SegmentFlusherTransformFormatTest,
                         ->init(partial_update_tablets.source_tablet->tablet_id(), 1,
                                *schemas.source, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
                                PartialUpdateNewRowPolicyPB::APPEND,
-                               {"k1", "v_array", "v_map", "v_struct"}, false, 0, 0, "UTC", "")
+                               {"k1", "v_array", "v_map", "v_struct", "v_hll", "v_bitmap"}, false,
+                               0, 0, "UTC", "")
                         .ok());
     auto partial_update_block_result =
             create_complex_row_binlog_block(schemas.source, 1, partial_update_info);
@@ -3175,10 +3282,10 @@ TEST_F(SegmentFlusherTransformFormatTest,
                                                    partial_update_info);
                                        })
                         .ok());
-    ASSERT_TRUE(verify_complex_row_binlog_segment(partial_update_tablets.binlog_tablet,
-                                                  "complex_row_binlog_partial_update", 0,
-                                                  expected_partial_update)
-                        .ok());
+    auto partial_update_verify_status = verify_complex_row_binlog_segment(
+            partial_update_tablets.binlog_tablet, "complex_row_binlog_partial_update", 0,
+            expected_partial_update);
+    ASSERT_TRUE(partial_update_verify_status.ok()) << partial_update_verify_status;
 
     auto missing_update_tablets = create_complex_row_binlog_tablets(schemas, 22007);
     auto history_block_result = create_complex_row_binlog_block(schemas.source, 0);
@@ -3211,10 +3318,10 @@ TEST_F(SegmentFlusherTransformFormatTest,
                                                    missing_update_info, history);
                                        })
                         .ok());
-    ASSERT_TRUE(verify_complex_row_binlog_segment(missing_update_tablets.binlog_tablet,
-                                                  "complex_row_binlog_missing_update", 0,
-                                                  expected_missing_update_result.value())
-                        .ok());
+    auto missing_update_verify_status = verify_complex_row_binlog_segment(
+            missing_update_tablets.binlog_tablet, "complex_row_binlog_missing_update", 0,
+            expected_missing_update_result.value());
+    ASSERT_TRUE(missing_update_verify_status.ok()) << missing_update_verify_status;
 }
 
 TEST_F(SegmentFlusherFormatTest, VariantLogicalComparisonPreservesScalarTypes) {
