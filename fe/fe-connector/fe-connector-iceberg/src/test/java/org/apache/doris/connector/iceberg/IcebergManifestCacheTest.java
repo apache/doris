@@ -32,6 +32,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Unit tests for {@link IcebergManifestCache} (T08). Uses a real {@link InMemoryCatalog} table so the cache is
@@ -79,6 +81,49 @@ public class IcebergManifestCacheTest {
     }
 
     @Test
+    public void equalityDeleteFieldIdsLoadOncePerSnapshot() {
+        IcebergManifestCache cache = new IcebergManifestCache();
+        AtomicInteger loads = new AtomicInteger();
+
+        Set<Integer> first = cache.getOrLoadEqualityDeleteFieldIds("/warehouse/db/t", 10L, () -> {
+            loads.incrementAndGet();
+            return Collections.singleton(7);
+        });
+        Set<Integer> second = cache.getOrLoadEqualityDeleteFieldIds("/warehouse/db/t", 10L, () -> {
+            loads.incrementAndGet();
+            return Collections.singleton(8);
+        });
+        Set<Integer> nextSnapshot = cache.getOrLoadEqualityDeleteFieldIds("/warehouse/db/t", 11L, () -> {
+            loads.incrementAndGet();
+            return Collections.singleton(9);
+        });
+
+        Assertions.assertEquals(Collections.singleton(7), first);
+        Assertions.assertEquals(first, second, "the same immutable snapshot must reuse its field-id set");
+        Assertions.assertEquals(Collections.singleton(9), nextSnapshot);
+        Assertions.assertEquals(2, loads.get(), "only one manifest walk is allowed per snapshot");
+    }
+
+    @Test
+    public void equalityDeleteFieldIdFailureIsNotCached() {
+        IcebergManifestCache cache = new IcebergManifestCache();
+        AtomicInteger loads = new AtomicInteger();
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> cache.getOrLoadEqualityDeleteFieldIds("/warehouse/db/t", 10L, () -> {
+                    loads.incrementAndGet();
+                    throw new IllegalStateException("transient manifest failure");
+                }));
+        Set<Integer> retry = cache.getOrLoadEqualityDeleteFieldIds("/warehouse/db/t", 10L, () -> {
+            loads.incrementAndGet();
+            return Collections.singleton(7);
+        });
+
+        Assertions.assertEquals(Collections.singleton(7), retry);
+        Assertions.assertEquals(2, loads.get(), "a failed manifest walk must be retried, not memoized");
+    }
+
+    @Test
     public void capacityOverflowFlushesWholesale() {
         Table table = tableWithTwoDataFiles();
         ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
@@ -97,11 +142,21 @@ public class IcebergManifestCacheTest {
         ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
         IcebergManifestCache cache = new IcebergManifestCache();
         cache.getManifestCacheValue(manifest, table);
+        AtomicInteger equalityLoads = new AtomicInteger();
+        cache.getOrLoadEqualityDeleteFieldIds(table.location(), table.currentSnapshot().snapshotId(), () -> {
+            equalityLoads.incrementAndGet();
+            return Collections.singleton(1);
+        });
         Assertions.assertEquals(1, cache.size());
         // REFRESH CATALOG hook (H-5): invalidateAll drops every cached manifest (legacy catalog-wide
         // group.invalidateAll parity). MUTATION: a no-op invalidateAll -> size stays 1 -> red.
         cache.invalidateAll();
         Assertions.assertEquals(0, cache.size());
+        cache.getOrLoadEqualityDeleteFieldIds(table.location(), table.currentSnapshot().snapshotId(), () -> {
+            equalityLoads.incrementAndGet();
+            return Collections.singleton(1);
+        });
+        Assertions.assertEquals(2, equalityLoads.get(), "catalog refresh must also clear the snapshot projection");
     }
 
     @Test

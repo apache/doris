@@ -33,23 +33,28 @@ import org.apache.iceberg.Table;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /**
  * Per-catalog cache of an iceberg manifest's parsed files, keyed by {@link IcebergManifestEntryKey}
  * (manifest path + content). Ported from the legacy fe-core {@code IcebergExternalMetaCache} manifest entry +
- * {@code IcebergManifestCacheLoader}, now backed by the shared {@link MetaCacheEntry} framework
- * (independent-copy meta-cache migration).
+ * {@code IcebergManifestCacheLoader}, now backed by the shared {@link MetaCache} framework.
  *
  * <p>Consumed by {@link IcebergScanPlanProvider}'s manifest-level planning path (gated by
  * {@code meta.cache.iceberg.manifest.enable}, default off — the default scan path is the iceberg SDK
  * {@code planFiles()}). The external enable-gate lives in the scan provider (which decides whether to take the
- * manifest-planning path at all); this cache is unconditionally on when consulted. Within one catalog the same
- * manifest file is parsed once and shared across queries (and across tables that reference it).
+ * full manifest-planning path); the compact equality-delete field-id projection is always reused per immutable
+ * snapshot. Within one catalog the same manifest file is parsed once and shared across queries (and across
+ * tables that reference it).
  *
  * <p><b>No TTL; capacity-bounded; cleared on REFRESH CATALOG.</b> This mirrors the legacy entry's
  * {@code contextualOnly(CacheSpec.of(false, CACHE_NO_TTL, 100_000))} default spec: a manifest's content is
@@ -71,6 +76,35 @@ final class IcebergManifestCache {
 
     private final CatalogMetaCache owner;
     private final MetaCache<IcebergManifestEntryKey, ManifestCacheValue> entry;
+    private final MetaCache<SnapshotKey, Set<Integer>> equalityDeleteFieldIds;
+
+    /** Immutable snapshot key for the compact equality-delete field-id projection. */
+    private static final class SnapshotKey {
+        private final String tableLocation;
+        private final long snapshotId;
+
+        private SnapshotKey(String tableLocation, long snapshotId) {
+            this.tableLocation = tableLocation;
+            this.snapshotId = snapshotId;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof SnapshotKey)) {
+                return false;
+            }
+            SnapshotKey that = (SnapshotKey) o;
+            return snapshotId == that.snapshotId && Objects.equals(tableLocation, that.tableLocation);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(tableLocation, snapshotId);
+        }
+    }
 
     // Per-scan manifest-cache access tally, keyed by the statement's stable queryId
     // (ConnectorSession.getQueryId()), so VERBOSE EXPLAIN can report THIS scan's hits/misses/failures (the
@@ -125,8 +159,24 @@ final class IcebergManifestCache {
                 .<IcebergManifestEntryKey, ManifestCacheValue>builder(
                         "iceberg-manifest", spec, ignored -> ScopePath.catalog())
                 .build());
+        this.equalityDeleteFieldIds = owner.create(MetaCacheDefinition
+                .<SnapshotKey, Set<Integer>>builder(
+                        "iceberg-equality-delete-field-ids", spec, ignored -> ScopePath.catalog())
+                .build());
         this.statsTtlNanos = TimeUnit.SECONDS.toNanos(Math.max(1L, statsTtlSeconds));
         this.nanoClock = nanoClock;
+    }
+
+    /**
+     * Returns the equality-delete field ids for one immutable snapshot. Unlike the optional full manifest-file
+     * cache, this compact projection is always reused so scan properties do not re-read every delete manifest on
+     * every query. Loader failures are deliberately not cached, preserving retry after transient storage errors.
+     */
+    Set<Integer> getOrLoadEqualityDeleteFieldIds(
+            String tableLocation, long snapshotId, Supplier<Set<Integer>> loader) {
+        SnapshotKey key = new SnapshotKey(tableLocation, snapshotId);
+        return equalityDeleteFieldIds.get(key,
+                ignored -> Collections.unmodifiableSet(new HashSet<>(loader.get())));
     }
 
     /**

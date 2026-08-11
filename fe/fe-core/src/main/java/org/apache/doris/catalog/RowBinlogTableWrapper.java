@@ -22,6 +22,7 @@ import org.apache.doris.common.Pair;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 
@@ -37,8 +38,13 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
     }
 
     public RowBinlogTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap) {
+        this(originTable, partitionOffsetMap, Collections.emptyMap());
+    }
+
+    public RowBinlogTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap,
+            Map<Long, Long> partitionVisibleVersionMap) {
         super(originTable, originTable.getName(), originTable.getRowBinlogMeta().getSchema(), KeysType.DUP_KEYS,
-                partitionOffsetMap);
+                partitionOffsetMap, partitionVisibleVersionMap);
         this.rowBinlogMeta = originTable.getRowBinlogMeta();
         Preconditions.checkNotNull(rowBinlogMeta, "row binlog meta is null, table=%s", originTable.getName());
         this.setBaseIndexId(rowBinlogMeta.getIndexId());

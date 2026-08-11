@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -1473,6 +1474,38 @@ TEST(IcebergV2ReaderTest, AnnotateBuildsTypedNestedInitialDefault) {
     Field value;
     literal->get_column_ptr()->get(0, value);
     EXPECT_EQ(value.get<TYPE_INT>(), 7);
+}
+
+TEST(IcebergV2ReaderTest, PreparesIcebergNonFiniteInitialDefaults) {
+    struct Case {
+        DataTypePtr type;
+        std::string value;
+        bool nan;
+        bool negative;
+    };
+    std::vector<Case> cases {{std::make_shared<DataTypeFloat32>(), "NaN", true, false},
+                             {std::make_shared<DataTypeFloat64>(), "Infinity", false, false},
+                             {std::make_shared<DataTypeFloat64>(), "-Infinity", false, true}};
+    for (const auto& test_case : cases) {
+        ColumnDefinition column;
+        column.name = "value";
+        column.type = test_case.type;
+        column.initial_default_value = test_case.value;
+        ASSERT_TRUE(iceberg::prepare_iceberg_initial_default_exprs(&column).ok());
+        ASSERT_NE(column.default_expr, nullptr);
+        const auto* literal = dynamic_cast<const VLiteral*>(column.default_expr->root().get());
+        ASSERT_NE(literal, nullptr);
+        Field value;
+        literal->get_column_ptr()->get(0, value);
+        const double number = test_case.type->get_primitive_type() == TYPE_FLOAT
+                                      ? value.get<TYPE_FLOAT>()
+                                      : value.get<TYPE_DOUBLE>();
+        EXPECT_EQ(std::isnan(number), test_case.nan);
+        if (!test_case.nan) {
+            EXPECT_TRUE(std::isinf(number));
+            EXPECT_EQ(std::signbit(number), test_case.negative);
+        }
+    }
 }
 
 TEST(IcebergV2ReaderTest, AnnotateBuildsComplexInitialDefaults) {

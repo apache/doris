@@ -55,6 +55,8 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
@@ -66,7 +68,6 @@ import org.apache.iceberg.ScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
-import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SplittableScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
@@ -100,10 +101,8 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.ZoneId;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -230,8 +229,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // null in offline unit tests via the 2-arg ctor, in which case resolveTable resolves directly.
     private final ConnectorContext context;
     // T08: per-catalog manifest cache, owned by the long-lived IcebergConnector and injected via getScanPlanProvider.
-    // Nullable — null via the 2-/3-arg ctors (offline tests, default-disabled gate); when null the gate is
-    // forced off and planScan uses the SDK splitFiles path.
+    // Its compact equality-delete field-id projection is used regardless of the full-cache feature gate. Nullable
+    // via the 2-/3-arg ctors (offline tests); when null the projection is loaded directly, the full-cache gate is
+    // forced off, and planScan uses the SDK splitFiles path.
     private final IcebergManifestCache manifestCache;
     // PERF-01: cross-query RAW-table cache shared with the metadata layer, owned by the long-lived
     // IcebergConnector and injected via getScanPlanProvider. Nullable — null via the offline-test ctors and
@@ -1601,11 +1601,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         boolean systemTable = iceHandle.isSystemTable();
         Schema scanSchema = null;
         TableScan exactScan = null;
+        Set<Integer> applicableEqualityDeleteFieldIds = Collections.emptySet();
         boolean hasApplicableEqualityDeletes = false;
         if (!systemTable) {
             scanSchema = pinnedSchema(table, iceHandle);
             exactScan = buildScan(table, iceHandle, filter, session);
-            hasApplicableEqualityDeletes = hasApplicableEqualityDeletes(exactScan);
+            applicableEqualityDeleteFieldIds = cachedApplicableEqualityDeleteFieldIds(table, exactScan);
+            hasApplicableEqualityDeletes = !applicableEqualityDeleteFieldIds.isEmpty();
             Optional<Map<Integer, List<String>>> nameMapping = IcebergSchemaUtils.extractNameMapping(table);
             if (requiresCurrentScanSemantics(
                     table, exactScan, scanSchema, columns, hasApplicableEqualityDeletes, nameMapping)) {
@@ -1701,7 +1703,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // every branch so the default and current field type match BE's read.
             if (hasApplicableEqualityDeletes) {
                 List<NestedField> equalityFields = schemaForPotentialEqualityDeletes(
-                        table, exactScan, scanSchema);
+                        table, scanSchema, applicableEqualityDeleteFieldIds);
                 dict = IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
                         table, equalityFields, appendRowLineage,
                         enableVarbinary, enableTimestampTz);
@@ -1725,6 +1727,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
             props.put(SCHEMA_EVOLUTION_PROP, dict);
         } else if (isPositionDeletesSysTable(iceHandle)) {
+            // The native position-delete row reader depends on the current nested-default and requiredness
+            // semantics, so rolling upgrades must not route this system-table scan to an older backend.
+            // Metadata-only projections never materialize `row`, so fencing those scans needlessly reduces
+            // rolling-upgrade availability without preserving a reader invariant.
+            if (requestsColumn(columns, "row")) {
+                props.put(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS,
+                        "Current Iceberg position delete semantics");
+            }
             // [D-065] narrowed: $position_deletes is the ONE system table BE reads with a NATIVE reader, so
             // the "schema rides inside the serialized FileScanTask" rationale above does not hold for it — no
             // FileScanTask is serialized on this path. Both native readers resolve the `row` column through
@@ -1801,47 +1811,77 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return names;
     }
 
-    @VisibleForTesting
-    static boolean hasApplicableEqualityDeletes(TableScan scan) {
-        Snapshot snapshot = scan.snapshot();
-        if (snapshot == null
-                || "0".equals(snapshot.summary().get(TOTAL_EQUALITY_DELETES))) {
-            return false;
+    private static boolean requestsColumn(List<ConnectorColumnHandle> columns, String requestedName) {
+        if (columns == null || columns.isEmpty()) {
+            return true;
         }
-        // planFiles binds delete files to the exact filtered data-file tasks after partition and sequence
-        // pruning. A snapshot summary of zero returns above without planning; a positive or missing summary
-        // needs this exact proof. Iterate whole-file tasks lazily and stop at the first equality delete: this
-        // keeps memory O(1), does not create or retain byte-split tasks, and avoids snapshot-wide delete
-        // counters forcing new-BE-only semantics when no dispatched task can consume an equality delete.
-        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
-            for (FileScanTask task : tasks) {
-                for (DeleteFile delete : task.deletes()) {
-                    if (delete.content() == FileContent.EQUALITY_DELETES) {
-                        return true;
-                    }
-                }
+        for (ConnectorColumnHandle column : columns) {
+            if (requestedName.equalsIgnoreCase(((IcebergColumnHandle) column).getName())) {
+                return true;
             }
-        } catch (IOException e) {
-            throw new DorisConnectorException(
-                    "Failed to inspect applicable Iceberg equality deletes: " + e.getMessage(), e);
         }
         return false;
     }
 
+    @VisibleForTesting
+    static Set<Integer> applicableEqualityDeleteFieldIds(Table table, TableScan scan) {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null || "0".equals(snapshot.summary().get(TOTAL_EQUALITY_DELETES))) {
+            return Collections.emptySet();
+        }
+        Set<Integer> fieldIds = new HashSet<>();
+        for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
+            if (!manifest.hasAddedFiles() && !manifest.hasExistingFiles()) {
+                continue;
+            }
+            try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
+                    manifest, table.io(), table.specs())) {
+                for (DeleteFile deleteFile : reader) {
+                    if (deleteFile.content() == FileContent.EQUALITY_DELETES) {
+                        fieldIds.addAll(deleteFile.equalityFieldIds());
+                    }
+                }
+            } catch (IOException e) {
+                throw new DorisConnectorException(
+                        "Failed to read iceberg delete manifest " + manifest.path() + ": " + e.getMessage(), e);
+            }
+        }
+        return fieldIds;
+    }
+
+    private Set<Integer> cachedApplicableEqualityDeleteFieldIds(Table table, TableScan scan) {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null || "0".equals(snapshot.summary().get(TOTAL_EQUALITY_DELETES))) {
+            return Collections.emptySet();
+        }
+        if (manifestCache == null) {
+            return applicableEqualityDeleteFieldIds(table, scan);
+        }
+        // Snapshot contents are immutable, so this compact projection can be shared even when the optional
+        // full manifest cache is disabled; a loader failure must still escape and remain retryable.
+        return manifestCache.getOrLoadEqualityDeleteFieldIds(
+                table.location(), snapshot.snapshotId(), () -> applicableEqualityDeleteFieldIds(table, scan));
+    }
+
     /**
-     * Build a schema carrier that can resolve any equality key reachable before the selected schema without
-     * enumerating data files, manifests, or byte-split tasks. Its retained state is bounded by table schema
-     * history rather than scan cardinality. At execution time BE looks fields up by the exact IDs on each
-     * {@link FileScanTask#deletes()}; unrelated carrier fields never participate in delete matching.
+     * Build a schema carrier that can resolve the field IDs referenced by live equality delete files. Reading
+     * delete manifests does not enumerate data files or byte-split tasks, and retained state is bounded by the
+     * number of equality keys rather than the table's entire schema history.
      *
-     * <p>The selected snapshot lineage wins when a field was renamed. The metadata schema list, in its actual
-     * chronology up to the selected schema (schema IDs are identifiers, not a sequence), fills schema-only
-     * changes and expired ancestors. Current fields remain first, so a dropped/re-added name still resolves the
-     * projected current field by name while a historical equality key resolves by its stable field ID.</p>
+     * <p>The metadata schema list is searched in reverse chronology up to the selected schema (schema IDs are
+     * identifiers, not a sequence), so the latest definition of each stable field ID wins. Current fields remain
+     * first, allowing a dropped/re-added name to resolve the projected field by name while a live historical
+     * equality key resolves by its stable field ID.</p>
      */
     @VisibleForTesting
     static List<NestedField> schemaForPotentialEqualityDeletes(
             Table table, TableScan scan, Schema scanSchema) {
+        return schemaForPotentialEqualityDeletes(
+                table, scanSchema, applicableEqualityDeleteFieldIds(table, scan));
+    }
+
+    private static List<NestedField> schemaForPotentialEqualityDeletes(
+            Table table, Schema scanSchema, Set<Integer> equalityFieldIds) {
         List<Schema> metadataSchemas = metadataSchemaHistory(table);
         int selectedSchemaIndex = -1;
         for (int index = 0; index < metadataSchemas.size(); index++) {
@@ -1851,45 +1891,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         int lastRelevantIndex = selectedSchemaIndex >= 0
                 ? selectedSchemaIndex : metadataSchemas.size() - 1;
-        Set<Integer> missing = new HashSet<>();
-        for (int index = 0; index <= lastRelevantIndex; index++) {
-            Schema schema = metadataSchemas.get(index);
-            for (NestedField field : TypeUtil.indexById(schema.asStruct()).values()) {
-                if (field.type().isPrimitiveType()) {
-                    missing.add(field.fieldId());
-                }
-            }
-        }
+        Set<Integer> missing = new HashSet<>(equalityFieldIds);
         missing.removeAll(TypeUtil.indexById(scanSchema.asStruct()).keySet());
         if (missing.isEmpty()) {
             return scanSchema.columns();
         }
 
         List<NestedField> fields = new ArrayList<>(scanSchema.columns());
-        Map<Integer, Schema> schemasById = table.schemas();
-        Snapshot snapshot = scan.snapshot();
-        while (snapshot != null && !missing.isEmpty()) {
-            Integer schemaId = snapshot.schemaId();
-            if (schemaId != null) {
-                Schema historicalSchema = schemasById.get(schemaId);
-                if (historicalSchema == null) {
-                    throw new IllegalStateException(
-                            "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
-                }
-                addHistoricalEqualityFields(fields, missing, historicalSchema);
-            }
-            if (missing.isEmpty()) {
-                break;
-            }
-            Long parentId = snapshot.parentId();
-            snapshot = parentId == null ? null : table.snapshot(parentId);
-        }
         for (int index = lastRelevantIndex; index >= 0 && !missing.isEmpty(); index--) {
             addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index));
         }
         if (!missing.isEmpty()) {
             throw new IllegalStateException(
-                    "Iceberg historical primitive fields are absent from schema history: " + missing);
+                    "Iceberg equality-delete fields are absent from schema history: " + missing);
         }
         return fields;
     }
@@ -2081,62 +2095,22 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     static boolean selectedHistoryRequiresMissingRequiredFieldRejection(
             Table table, Schema scanSchema, Set<Integer> projectedFieldIds,
             Snapshot selectedSnapshot) {
-        Map<Integer, Schema> schemasById = table.schemas();
-        Set<Integer> relevantSchemaIds = schemaIdsRequiringMissingRequiredFieldRejection(
-                scanSchema, projectedFieldIds, schemasById.values());
-        if (relevantSchemaIds.isEmpty()) {
+        if (!schemaHistoryRequiresMissingRequiredFieldRejection(
+                scanSchema, projectedFieldIds, table.schemas().values())) {
             return false;
         }
-        Deque<Snapshot> snapshots = new ArrayDeque<>();
-        if (selectedSnapshot != null) {
-            snapshots.add(selectedSnapshot);
-        }
-        Set<Long> visitedSnapshotIds = new HashSet<>();
-        while (!snapshots.isEmpty()) {
-            Snapshot snapshot = snapshots.removeFirst();
-            if (!visitedSnapshotIds.add(snapshot.snapshotId())) {
-                continue;
-            }
-            Integer schemaId = snapshot.schemaId();
-            if (schemaId != null) {
-                Schema historical = schemasById.get(schemaId);
-                if (historical == null) {
-                    throw new IllegalStateException(
-                            "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
-                }
-                if (relevantSchemaIds.contains(schemaId)) {
-                    return true;
-                }
-            }
-            Long parentId = snapshot.parentId();
-            if (parentId != null) {
-                Snapshot parent = table.snapshot(parentId);
-                if (parent == null) {
-                    return true;
-                }
-                snapshots.addLast(parent);
-            }
-            String sourceSnapshotId =
-                    snapshot.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP);
-            if (sourceSnapshotId != null) {
-                Snapshot source = table.snapshot(Long.parseLong(sourceSnapshotId));
-                if (source == null) {
-                    return true;
-                }
-                snapshots.addLast(source);
-            }
-        }
-        return false;
+        // Snapshot schema IDs are optional and proving ancestry is O(snapshot count). Once schema history
+        // exposes a requiredness hazard, conservatively fence every non-empty selected snapshot.
+        return selectedSnapshot != null;
     }
 
-    private static Set<Integer> schemaIdsRequiringMissingRequiredFieldRejection(
+    private static boolean schemaHistoryRequiresMissingRequiredFieldRejection(
             Schema scanSchema, Set<Integer> projectedFieldIds,
             Iterable<Schema> historicalSchemas) {
         Map<Integer, NestedField> currentFields = TypeUtil.indexById(scanSchema.asStruct());
         Map<Integer, Integer> parentById = TypeUtil.indexParents(scanSchema.asStruct());
         Set<Integer> collectionWrapperIds = new HashSet<>();
         collectCollectionWrapperFieldIds(scanSchema.asStruct(), collectionWrapperIds);
-        Set<Integer> schemaIds = new HashSet<>();
         for (Schema historicalSchema : historicalSchemas) {
             Map<Integer, NestedField> historicalFields =
                     TypeUtil.indexById(historicalSchema.asStruct());
@@ -2149,8 +2123,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 NestedField historicalField = historicalFields.get(fieldId);
                 if (historicalField != null) {
                     if (historicalField.isOptional()) {
-                        schemaIds.add(historicalSchema.schemaId());
-                        break;
+                        return true;
                     }
                     continue;
                 }
@@ -2164,12 +2137,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 if (!collectionWrapperIds.contains(highestMissing.fieldId())
                         && highestMissing.isRequired()
                         && highestMissing.initialDefault() == null) {
-                    schemaIds.add(historicalSchema.schemaId());
-                    break;
+                    return true;
                 }
             }
         }
-        return schemaIds;
+        return false;
     }
 
     private static void collectCollectionWrapperFieldIds(Type type, Set<Integer> result) {

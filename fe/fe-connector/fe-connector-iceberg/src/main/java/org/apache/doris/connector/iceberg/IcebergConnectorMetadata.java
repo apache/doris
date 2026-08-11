@@ -709,7 +709,31 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // metadata-table columns (t$snapshots -> committed_at/...) so the generic scan node can look up
         // its pruned sys-table slots by name; a data handle resolves the base table's columns.
         Table table = iceHandle.isSystemTable() ? loadSysTable(session, iceHandle) : loadTable(session, iceHandle);
-        List<Types.NestedField> fields = table.schema().columns();
+        return buildColumnHandles(table.schema());
+    }
+
+    @Override
+    public Map<String, ConnectorColumnHandle> getColumnHandles(
+            ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isSystemTable() || snapshot == null || snapshot.getSchemaId() < 0) {
+            return getColumnHandles(session, handle);
+        }
+        Table table = loadTable(session, iceHandle);
+        Schema schema = table.currentSnapshot() == null
+                ? table.schema() : table.schemas().get((int) snapshot.getSchemaId());
+        // Keep the handle-schema fallback identical to getTableSchema so slots and handles cannot diverge.
+        return buildColumnHandles(schema == null ? table.schema() : schema);
+    }
+
+    @Override
+    public boolean supportsColumnHandleSnapshotPin(ConnectorSession session) {
+        return true;
+    }
+
+    private static Map<String, ConnectorColumnHandle> buildColumnHandles(Schema schema) {
+        List<Types.NestedField> fields = schema.columns();
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
         for (Types.NestedField field : fields) {
             String name = field.name();
