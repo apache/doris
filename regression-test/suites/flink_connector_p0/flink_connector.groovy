@@ -28,17 +28,17 @@ suite("flink_connector") {
     sql """DROP TABLE IF EXISTS ${tableName}"""
     sql new File("""${context.file.parent}/ddl/create.sql""").text
     logger.info("start delete local flink doris case jar...")
-    def delete_local_flink_jar = "rm -rf flink-doris-case.jar".execute()
+    def delete_local_flink_jar = "rm -rf flink-doris-regression-case.jar".execute()
     logger.info("start download flink doris case ...")
     logger.info("getS3Url ==== ${getS3Url()}")
-    def download_flink_jar = "wget --quiet --continue --tries=3 ${getS3Url()}/regression/flink-doris-case.jar".execute().getText()
-    def file = new File('flink-doris-case.jar')
+    def download_flink_jar = "wget --quiet --continue --tries=3 ${getS3Url()}/regression/flink-doris-regression-case.jar".execute().getText()
+    def file = new File('flink-doris-regression-case.jar')
     if (file.exists()) {
         def fileSize = file.length()
         assertTrue(fileSize > 0)
         logger.info("finish download flink doris case ...")
     } else {
-        logger.info("flink-doris-case.jar does not exist, skip this case")
+        logger.info("flink-doris-regression-case.jar does not exist, skip this case")
         return
     }
 
@@ -52,7 +52,7 @@ suite("flink_connector") {
     def javaVersion = System.getProperty("java.version")
     logger.info("Runtime java version: ${javaVersion}")
 
-    def run_cmd = [javaPath, "-cp", "flink-doris-case.jar", "org.apache.doris.DorisFlinkDfSinkDemo",
+    def run_cmd = [javaPath, "-cp", "flink-doris-regression-case.jar", "org.apache.doris.DorisFlinkDfSinkDemo",
             "--doris-fe-address", context.config.feHttpAddress,
             "--doris-table-identifier", "regression_test_flink_connector_p0.${tableName}",
             "--doris-user", context.config.feHttpUser,

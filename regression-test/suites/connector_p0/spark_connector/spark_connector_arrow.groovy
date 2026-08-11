@@ -126,7 +126,7 @@ suite("spark_connector_for_arrow", "connector") {
     sql """DELETE FROM spark_connector_map where id > 0"""
     sql """DELETE FROM spark_connector_struct where id > 0"""
 
-    def jar_name = "spark-doris-case.jar"
+    def jar_name = "spark-doris-regression-case.jar"
 
     logger.info("start delete local spark doris demo jar...")
     def delete_local_spark_jar = "rm -rf ${jar_name}".execute()
