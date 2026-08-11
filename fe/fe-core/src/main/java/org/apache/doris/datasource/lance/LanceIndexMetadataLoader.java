@@ -46,7 +46,7 @@ import java.util.TreeMap;
 
 /** Loads and normalizes logical index metadata from one latest Lance dataset snapshot. */
 public final class LanceIndexMetadataLoader {
-    private static final int MAX_LOGICAL_INDEXES = 10_000;
+    private static final int MAX_LOGICAL_INDEXES = 256;
     private static final int MAX_COLUMNS_PER_INDEX = 64;
     private static final int MAX_COLUMN_NAMES_BYTES = 16 * 1024;
     private static final int MAX_EXTERNAL_STRING_BYTES = 1024;
