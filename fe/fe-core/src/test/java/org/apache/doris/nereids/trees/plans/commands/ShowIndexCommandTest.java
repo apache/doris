@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogMgr;
@@ -239,6 +240,35 @@ public class ShowIndexCommandTest extends TestWithFeService {
 
             Assertions.assertEquals(
                     "SHOW INDEX is not supported for Lance REST catalogs", exception.getDetailMessage());
+        }
+    }
+
+    @Test
+    void testNonLanceTableInLanceCatalogRejected() throws Exception {
+        Env mockedEnvironment = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        LanceExternalCatalog catalog = Mockito.mock(LanceExternalCatalog.class);
+        LanceExternalDatabase database = Mockito.mock(LanceExternalDatabase.class);
+        TableIf notLanceTable = Mockito.mock(TableIf.class);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(mockedEnvironment);
+            Mockito.when(mockedEnvironment.getAccessManager()).thenReturn(accessManager);
+            Mockito.when(accessManager.checkTblPriv(
+                    Mockito.any(ConnectContext.class), Mockito.eq("lance_fs"), Mockito.eq("db"),
+                    Mockito.eq("table"),
+                    Mockito.eq(PrivPredicate.SHOW))).thenReturn(true);
+            Mockito.when(mockedEnvironment.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalogOrAnalysisException("lance_fs")).thenReturn(catalog);
+            Mockito.doReturn(database).when(catalog).getDbOrAnalysisException("db");
+            Mockito.doReturn(notLanceTable).when(database).getTableOrAnalysisException("table");
+            ShowIndexCommand command = new ShowIndexCommand(
+                    new TableNameInfo("lance_fs", "db", "table"));
+
+            AnalysisException exception = Assertions.assertThrows(
+                    AnalysisException.class, () -> command.doRun(connectContext, null));
+
+            Assertions.assertEquals("Table table is not a Lance table", exception.getDetailMessage());
         }
     }
 
