@@ -50,7 +50,7 @@ public:
     virtual ~VGenericIteratorsTest() {}
 };
 
-static ReadSchema create_schema() {
+static std::vector<TabletColumnPtr> create_col_schemas() {
     std::vector<TabletColumnPtr> col_schemas;
     auto c1 = std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
                                              FieldType::OLAP_FIELD_TYPE_SMALLINT, true);
@@ -65,7 +65,11 @@ static ReadSchema create_schema() {
     col_schemas.emplace_back(
             std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
                                            FieldType::OLAP_FIELD_TYPE_BIGINT, true));
-    return ReadSchema(std::move(col_schemas));
+    return col_schemas;
+}
+
+static ReadSchema create_schema() {
+    return ReadSchema(create_col_schemas());
 }
 
 static void create_block(ReadSchema& schema, Block& block) {
@@ -472,6 +476,163 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumnSmallSeqFirst) {
     auto seq_col = block.get_by_position(seq_column_id).column;
     size_t actual_value = (*seq_col)[0].get<TYPE_BIGINT>();
     EXPECT_EQ(0, actual_value);
+}
+
+// Models the row-binlog quick-merge read path: the merge output rowset holds the
+// same user key across multiple segments, each carrying a distinct binlog event
+// (distinct TSO). A row-binlog scan reads it with is_unique=false and the TSO as
+// the sequence column with small_seq_first=true. Unlike the is_unique=true cases
+// above (which collapse same-key rows to one), the merge iterator must keep EVERY
+// event and emit them ordered by ascending TSO, so a table-stream query over a
+// quick-merge rowset returns the complete, ordered change chain without dropping
+// any event.
+TEST(VGenericIteratorsTest, MergeKeepsAllBinlogEventsOrderedByTso) {
+    auto schema = create_schema();
+    auto output_schema = std::make_shared<ReadSchema>(schema);
+    std::vector<RowwiseIteratorUPtr> inputs;
+
+    int seq_column_id = 2; // BIGINT column stands in for __DORIS_BINLOG_TSO__.
+    int num_rows = 1;
+    int rows_begin = 0;
+    // Same key in every segment, each carrying a distinct TSO. The children are fed in a
+    // deterministic SHUFFLED TSO order (not ascending), so the test only passes if the
+    // merge actually orders by the TSO sequence column; a comparator that ignored the
+    // sequence and fell back to child/data-id arrival order would emit this shuffled
+    // sequence unchanged and fail the ascending-order assertion below.
+    const std::vector<int> tso_feed_order = {7, 1, 9, 0, 5, 8, 2, 6, 4, 3};
+    int seg_iter_num = static_cast<int>(tso_feed_order.size());
+    for (int tso : tso_feed_order) {
+        inputs.push_back(std::make_unique<SeqColumnUtIterator>(schema, num_rows, rows_begin,
+                                                               seq_column_id, tso));
+    }
+
+    // is_unique=false keeps every same-key event; small_seq_first=true orders by
+    // ascending TSO. This mirrors beta_rowset_reader's row-binlog merge setup.
+    auto iter = new_merge_iterator(std::move(inputs), seq_column_id, /*is_unique=*/false,
+                                   /*is_reverse=*/false, /*merged_rows=*/nullptr, output_schema,
+                                   /*small_seq_first=*/true);
+    StorageReadOptions opts;
+    auto st = iter->init(opts);
+    EXPECT_TRUE(st.ok());
+
+    Block block;
+    std::vector<bool> row_is_same;
+    BlockWithSameBit block_with_same_bit {.block = &block, .same_bit = row_is_same};
+    create_block(schema, block);
+
+    do {
+        st = iter->next_batch(&block_with_same_bit);
+    } while (st.ok());
+
+    EXPECT_TRUE(st.is<END_OF_FILE>());
+    // Every event survives: no per-key dedup.
+    EXPECT_EQ(block.rows(), seg_iter_num);
+
+    // Despite the shuffled input order, events are emitted in ascending TSO order.
+    auto seq_col = block.get_by_position(seq_column_id).column;
+    for (int i = 0; i < seg_iter_num; ++i) {
+        EXPECT_EQ(i, (*seq_col)[i].get<TYPE_BIGINT>());
+    }
+}
+
+// Emits num_rows rows for a schema whose projection (col_ids) may be narrower than the
+// full tablet schema. The filled block layout follows the projection, matching how
+// VMergeIteratorContext::block_reset builds its block from the output schema.
+class ProjectedColumnsUtIterator : public RowwiseIterator {
+public:
+    ProjectedColumnsUtIterator(ReadSchema schema, size_t num_rows)
+            : _schema(std::move(schema)), _num_rows(num_rows) {}
+    ~ProjectedColumnsUtIterator() override = default;
+
+    Status init(const StorageReadOptions& opts) override { return Status::OK(); }
+
+    Status next_batch(Block* block) override {
+        if (_rows_returned >= _num_rows) {
+            return Status::EndOfFile("End of ProjectedColumnsUtIterator");
+        }
+        while (_rows_returned < _num_rows) {
+            for (size_t j = 0; j < _schema.num_block_columns(); ++j) {
+                ColumnWithTypeAndName& vc = block->get_by_position(j);
+                IColumn& vi = (IColumn&)(*vc.column);
+
+                char data[16] = {};
+                size_t data_len = 0;
+                const auto* col_schema = _schema.column(j);
+                switch (col_schema->type()) {
+                case FieldType::OLAP_FIELD_TYPE_SMALLINT:
+                    *(int16_t*)data = static_cast<int16_t>(_rows_returned);
+                    data_len = sizeof(int16_t);
+                    break;
+                case FieldType::OLAP_FIELD_TYPE_INT:
+                    *(int32_t*)data = static_cast<int32_t>(_rows_returned);
+                    data_len = sizeof(int32_t);
+                    break;
+                case FieldType::OLAP_FIELD_TYPE_BIGINT:
+                    *(int64_t*)data = static_cast<int64_t>(_rows_returned);
+                    data_len = sizeof(int64_t);
+                    break;
+                default:
+                    break;
+                }
+
+                vi.insert_data(data, data_len);
+            }
+            ++_rows_returned;
+        }
+        return Status::OK();
+    }
+
+    const ReadSchema& schema() const override { return _schema; }
+
+private:
+    ReadSchema _schema;
+    size_t _num_rows;
+    size_t _rows_returned = 0;
+};
+
+// The merge-heap comparator compares the leading num_key_columns() block positions when no
+// explicit compare columns are given. The read schema must therefore place its key columns as
+// the leading prefix; if a non-key column precedes a key column, init() must reject the merge
+// with a "compare contract violated" error instead of silently comparing a value column as a key
+// (issue #66390: a ROW-binlog APPEND_ONLY scan projected value columns ahead of a key).
+TEST(VGenericIteratorsTest, MergeRejectsProjectionMissingKeyPrefix) {
+    // Full tablet schema: k0(smallint), k1(int), v2(bigint). Project {v2, k0}: the schema has
+    // one key column (k0) but it is not the leading column, so ordinal 0 is a non-key column.
+    ReadSchema projected(
+            project_columns_by_ordinal(create_col_schemas(), std::vector<ColumnId> {2, 0}));
+    auto output_schema = std::make_shared<ReadSchema>(projected);
+
+    std::vector<RowwiseIteratorUPtr> inputs;
+    inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
+    inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
+
+    auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
+    StorageReadOptions opts;
+    auto st = iter->init(opts);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.to_string().find("compare contract violated") != std::string::npos)
+            << st.to_string();
+}
+
+// Same contract, a different non-leading-key layout: project {v2, k1}. num_key_columns() is 1
+// (k1), but position 0 is the value column v2, so the merge comparator would compare v2 as if it
+// were the leading key. init() must reject it.
+TEST(VGenericIteratorsTest, MergeRejectsProjectionWithoutLeadingKey) {
+    // Full tablet schema: k0(smallint), k1(int), v2(bigint); project {v2, k1}.
+    ReadSchema projected(
+            project_columns_by_ordinal(create_col_schemas(), std::vector<ColumnId> {2, 1}));
+    auto output_schema = std::make_shared<ReadSchema>(projected);
+
+    std::vector<RowwiseIteratorUPtr> inputs;
+    inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
+    inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
+
+    auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
+    StorageReadOptions opts;
+    auto st = iter->init(opts);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.to_string().find("compare contract violated") != std::string::npos)
+            << st.to_string();
 }
 
 } // namespace doris

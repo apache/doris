@@ -455,4 +455,58 @@ TEST_F(RowsetMetaTest, TestSegmentsKeyBoundsAggregationTruncation) {
     EXPECT_TRUE(rs_meta.is_segments_key_bounds_truncated());
 }
 
+// is_segments_overlapping() is decided by segment count, the segments_overlap flag,
+// and whether the rowset is a singleton delta (start_version == end_version) or a
+// row-binlog rowset. For a singleton delta the ambiguous OVERLAP_UNKNOWN flag is still
+// treated as overlapping (a freshly ingested delta may have overlapping segments only
+// tagged OVERLAP_UNKNOWN). Row-binlog LMax quick merge produces non-singleton rowsets
+// whose segments overlap, but it writes segments_overlap = OVERLAPPING explicitly, so
+// it is recognized only via the explicit-OVERLAPPING branch; a row-binlog rowset left
+// as OVERLAP_UNKNOWN is NOT treated as overlapping. A plain non-singleton rowset (e.g. a
+// compaction output) keeps the original semantics and stays non-overlapping regardless
+// of the flag, so that old metadata written before the flag was always set does not
+// inflate compaction score / merge ways or degrade ordered reads after an upgrade.
+TEST_F(RowsetMetaTest, TestIsSegmentsOverlapping) {
+    auto check = [](int64_t num_segments, SegmentsOverlapPB overlap, int64_t start_version,
+                    int64_t end_version, bool is_row_binlog, bool expected) {
+        RowsetMeta rs_meta;
+        rs_meta.set_num_segments(num_segments);
+        rs_meta.set_segments_overlap(overlap);
+        rs_meta.set_version({start_version, end_version});
+        if (is_row_binlog) {
+            rs_meta.mark_row_binlog();
+        }
+        EXPECT_EQ(rs_meta.is_segments_overlapping(), expected);
+    };
+
+    // Single segment is never overlapping, regardless of the flag.
+    check(1, OVERLAPPING, 2, 2, false, false);
+    check(1, OVERLAP_UNKNOWN, 2, 2, false, false);
+
+    // Multiple segments explicitly marked NONOVERLAPPING are not overlapping.
+    check(3, NONOVERLAPPING, 2, 2, false, false);
+    check(3, NONOVERLAPPING, 2, 5, false, false);
+
+    // Singleton delta (start == end) with overlapping / unknown segments is overlapping:
+    // a freshly ingested delta may have overlapping segments only tagged OVERLAP_UNKNOWN.
+    check(3, OVERLAPPING, 2, 2, false, true);
+    check(3, OVERLAP_UNKNOWN, 2, 2, false, true);
+
+    // Plain (non row-binlog) non-singleton + OVERLAPPING keeps the original semantics: a
+    // compaction output (start < end) is treated as non-overlapping.
+    check(3, OVERLAPPING, 2, 5, false, false);
+
+    // Row-binlog non-singleton explicitly marked OVERLAPPING is overlapping: this is the
+    // row-binlog LMax quick-merge output, which sets the flag explicitly.
+    check(3, OVERLAPPING, 2, 5, true, true);
+
+    // Row-binlog non-singleton left as OVERLAP_UNKNOWN must NOT be treated as overlapping.
+    check(3, OVERLAP_UNKNOWN, 2, 5, true, false);
+
+    // Old-metadata compatibility: a plain compaction output (start < end) left as
+    // OVERLAP_UNKNOWN must stay non-overlapping to avoid inflating
+    // get_compaction_score()/get_merge_way_num() and degrading ordered reads after upgrade.
+    check(3, OVERLAP_UNKNOWN, 2, 5, false, false);
+}
+
 } // namespace doris

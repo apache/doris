@@ -36,9 +36,10 @@ namespace doris {
 class TabletReaderTest : public testing::Test {
 protected:
     static TabletSchemaSPtr create_schema(
-            const std::vector<std::pair<std::string, int32_t>>& name_and_uid) {
+            const std::vector<std::pair<std::string, int32_t>>& name_and_uid,
+            KeysType keys_type = KeysType::DUP_KEYS) {
         TabletSchemaPB schema_pb;
-        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        schema_pb.set_keys_type(keys_type);
         bool first = true;
         for (const auto& [name, uid] : name_and_uid) {
             auto* col = schema_pb.add_column();
@@ -134,5 +135,4 @@ TEST_F(TabletReaderTest, remove_delete_columns_keeps_unrelated_paths) {
 
     EXPECT_EQ(size_t(2), access_paths.size());
 }
-
 } // namespace doris
