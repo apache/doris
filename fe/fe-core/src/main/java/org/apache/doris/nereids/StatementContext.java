@@ -1294,6 +1294,7 @@ public class StatementContext implements Closeable {
                 return true;
             }
             if (tableIf instanceof BaseTableStream) {
+                // Mirror addTablesToLock(): a stream needs no plan lock itself, but its stable-ID base may need one.
                 TableIf baseTable = ((BaseTableStream) tableIf).getBaseTableNullable();
                 if (baseTable != null && baseTable.needReadLockWhenPlan()) {
                     return true;
@@ -1303,6 +1304,11 @@ public class StatementContext implements Closeable {
         return false;
     }
 
+    /**
+     * Add explicit relations and stable-ID stream bases to the local ID-ordered lock queue. Stream bases must not be
+     * added to the qualifier relation maps because a concurrent rename can make a base qualifier collide with an
+     * explicitly resolved relation.
+     */
     private void addTablesToLock(PriorityQueue<TableIf> tableIfs, Collection<TableIf> tables) {
         tableIfs.addAll(tables);
         for (TableIf tableIf : tables) {

@@ -235,7 +235,6 @@ public class CollectRelation implements AnalysisRuleFactory {
         if (table instanceof View) {
             parseAndCollectFromView(tableQualifier, (View) table, cascadesContext);
         }
-        // we need to collect stream table's base table as well
         if (table instanceof BaseTableStream) {
             collectFromTableStream((BaseTableStream) table);
         }
@@ -313,6 +312,11 @@ public class CollectRelation implements AnalysisRuleFactory {
         parentContext.addPlanProcesses(viewContext.getPlanProcesses());
     }
 
+    /**
+     * Validate the stream base by stable ID without caching it under display qualifiers. A concurrent rename can
+     * make that qualifier belong to an explicitly resolved relation; stream lock dependencies are expanded separately
+     * in {@link StatementContext#lock()}.
+     */
     private void collectFromTableStream(BaseTableStream tableStream) {
         if (tableStream.getBaseTableNullable() == null) {
             throw new AnalysisException("Table ["
