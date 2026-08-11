@@ -151,7 +151,8 @@ int main(int argc, char** argv) {
                   });
         sys.surfaces.emplace_back(kv.first, std::move(kv.second));
     }
-    if (Status st = KuromojiDictionaryBuilder::write_system(out + "/system.bin", sys); !st.ok()) {
+    if (Status st = KuromojiDictionaryBuilder::write_system(out + "/system.bin.tmp", sys);
+        !st.ok()) {
         std::fprintf(stderr, "write_system failed: %s\n", st.to_string().c_str());
         return 1;
     }
@@ -161,7 +162,7 @@ int main(int argc, char** argv) {
     MatrixInput matrix;
     if (!read_file(src + "/matrix.def", &matrix_txt) ||
         !parse_matrix_def(matrix_txt, &matrix).ok() ||
-        !KuromojiDictionaryBuilder::write_matrix(out + "/matrix.bin", matrix).ok()) {
+        !KuromojiDictionaryBuilder::write_matrix(out + "/matrix.bin.tmp", matrix).ok()) {
         std::fprintf(stderr, "matrix.def build failed\n");
         return 1;
     }
@@ -170,7 +171,7 @@ int main(int argc, char** argv) {
     std::string char_txt;
     CharDefInput chardef;
     if (!read_file(src + "/char.def", &char_txt) || !parse_char_def(char_txt, &chardef).ok() ||
-        !KuromojiDictionaryBuilder::write_chardef(out + "/chardef.bin", chardef).ok()) {
+        !KuromojiDictionaryBuilder::write_chardef(out + "/chardef.bin.tmp", chardef).ok()) {
         std::fprintf(stderr, "char.def build failed\n");
         return 1;
     }
@@ -179,9 +180,18 @@ int main(int argc, char** argv) {
     std::string unk_txt;
     UnkDictInput unk;
     if (!read_file(src + "/unk.def", &unk_txt) || !parse_unk_def(unk_txt, &unk).ok() ||
-        !KuromojiDictionaryBuilder::write_unkdict(out + "/unkdict.bin", unk).ok()) {
+        !KuromojiDictionaryBuilder::write_unkdict(out + "/unkdict.bin.tmp", unk).ok()) {
         std::fprintf(stderr, "unk.def build failed\n");
         return 1;
+    }
+
+    for (const char* name : {"system.bin", "matrix.bin", "chardef.bin", "unkdict.bin"}) {
+        std::error_code rec;
+        fs::rename(out + "/" + name + ".tmp", out + "/" + name, rec);
+        if (rec) {
+            std::fprintf(stderr, "failed to publish %s: %s\n", name, rec.message().c_str());
+            return 1;
+        }
     }
 
     std::fprintf(stderr,

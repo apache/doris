@@ -575,7 +575,7 @@ if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_
     exit 0
 fi
 
-if [[ "${BUILD_BE}" -eq 1 ]]; then
+if [[ "${BUILD_BE}" -eq 1 || "${COMPILE_BENCH}" -eq 1 ]]; then
     MECAB_IPADIC_DIR="${DORIS_THIRDPARTY}/installed/share/mecab-ipadic-2.7.0-20250920"
     if [[ ! -d "${MECAB_IPADIC_DIR}" ]]; then
         echo "Staging mecab-ipadic (kuromoji dictionary source) into thirdparty ..."
