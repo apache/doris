@@ -235,6 +235,7 @@ under the License.
         <module>hive-udf</module>
         <module>be-java-extensions</module>
         <module>fe-authentication</module>
+        <module>fe-authorization</module>
         <module>fe-thrift</module>
         <module>fe-type</module>
         <module>fe-grpc</module>
