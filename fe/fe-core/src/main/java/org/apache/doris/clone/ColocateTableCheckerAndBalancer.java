@@ -81,6 +81,30 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         return INSTANCE;
     }
 
+    static final class TabletHealthDecision {
+        final boolean countAsUnhealthy;
+        final boolean scheduleRepair;
+        final boolean markGroupUnstable;
+        final Priority repairPriority;
+
+        TabletHealthDecision(boolean countAsUnhealthy, boolean scheduleRepair,
+                boolean markGroupUnstable, Priority repairPriority) {
+            this.countAsUnhealthy = countAsUnhealthy;
+            this.scheduleRepair = scheduleRepair;
+            this.markGroupUnstable = markGroupUnstable;
+            this.repairPriority = repairPriority;
+        }
+    }
+
+    static TabletHealthDecision evaluateTabletHealth(MaterializedIndex index, TabletHealth tabletHealth) {
+        boolean unhealthy = tabletHealth.status != TabletStatus.HEALTHY;
+        return new TabletHealthDecision(
+                unhealthy,
+                unhealthy && tabletHealth.status != TabletStatus.UNRECOVERABLE,
+                unhealthy && !index.isRowBinlog(),
+                tabletHealth.priority);
+    }
+
     public static class BucketStatistic {
         public int tabletOrderIdx;
         public int totalReplicaNum;
@@ -543,19 +567,22 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                 } else {
                                     tabletHealth = tablet.getColocateHealth(visibleVersion, replicaAlloc, bucketsSeq);
                                 }
-                                if (tabletHealth.status != TabletStatus.HEALTHY) {
+                                TabletHealthDecision healthDecision = evaluateTabletHealth(index, tabletHealth);
+                                if (healthDecision.countAsUnhealthy) {
                                     counter.unhealthyTabletNum++;
-                                    unstableReason = String.format("get unhealthy tablet %d in colocate table."
-                                            + " status: %s", tablet.getId(), tabletHealth.status);
-                                    if (LOG.isDebugEnabled()) {
-                                        LOG.debug(unstableReason);
+                                    if (healthDecision.markGroupUnstable) {
+                                        unstableReason = String.format("get unhealthy tablet %d in colocate table."
+                                                + " status: %s", tablet.getId(), tabletHealth.status);
+                                        if (LOG.isDebugEnabled()) {
+                                            LOG.debug(unstableReason);
+                                        }
                                     }
 
-                                    if (tabletHealth.status == TabletStatus.UNRECOVERABLE) {
+                                    if (!healthDecision.scheduleRepair) {
                                         continue;
                                     }
 
-                                    if (!tablet.readyToBeRepaired(infoService, Priority.NORMAL)) {
+                                    if (!tablet.readyToBeRepaired(infoService, healthDecision.repairPriority)) {
                                         counter.tabletNotReady++;
                                         continue;
                                     }

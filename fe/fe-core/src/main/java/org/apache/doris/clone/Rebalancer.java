@@ -130,7 +130,8 @@ public abstract class Rebalancer {
                 && !alterTableIds.contains(tabletMeta.getTableId())
                 && (canBalanceColocateTable || !colocateTableIndex.isColocateTable(tabletMeta.getTableId()))
                 && (recycleBin == null || !recycleBin.isRecyclePartition(tabletMeta.getDbId(),
-                        tabletMeta.getTableId(), tabletMeta.getPartitionId()));
+                        tabletMeta.getTableId(), tabletMeta.getPartitionId()))
+                && RowBinlogTabletLocality.canMoveTabletIndependently(tabletMeta);
     }
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)

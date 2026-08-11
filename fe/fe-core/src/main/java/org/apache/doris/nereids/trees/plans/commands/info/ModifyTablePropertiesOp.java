@@ -70,14 +70,18 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
 
     @Override
     public boolean allowOpRowBinlog() {
-        // Only allow table property changes that are not related to bloom filter
-        // when row binlog is enabled.
+        // Row-binlog tables forbid bloom-filter changes and storage relocation.
         if (properties == null || properties.isEmpty()) {
             return true;
         }
         // BF related properties are forbidden on row binlog tables.
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
+            return false;
+        }
+        if (properties.keySet().stream().anyMatch(key ->
+                key.equalsIgnoreCase(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)
+                        || key.equalsIgnoreCase(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME))) {
             return false;
         }
         // Other properties are allowed.

@@ -129,7 +129,7 @@ public class RowBinlogTabletLocalityTest {
     }
 
     @Test
-    public void rowBinlogVersionIncompleteOnlyWhenPathMatches() {
+    public void rowBinlogVersionIncompleteTakesPriorityOverWrongPath() {
         TabletPair incompletePair = createTabletPair(
                 replicas(1, 2, 3),
                 replicas(replicaSpec(1, 10), replicaSpec(2, 20, VISIBLE_VERSION - 1, -1), replicaSpec(3, 30)));
@@ -140,7 +140,20 @@ public class RowBinlogTabletLocalityTest {
                 replicas(1, 2, 3),
                 replicas(replicaSpec(1, 10), replicaSpec(2, 200, VISIBLE_VERSION - 1, -1), replicaSpec(3, 30)));
 
-        Assertions.assertEquals(TabletStatus.COLOCATE_REDUNDANT, getHealth(wrongPathPair).getTabletHealth().status);
+        Assertions.assertEquals(TabletStatus.VERSION_INCOMPLETE, getHealth(wrongPathPair).getTabletHealth().status);
+    }
+
+    @Test
+    public void singleReplicaWrongPathUsesRepairableRedundantStatus() {
+        TabletPair pair = createTabletPair(
+                replicas(1),
+                replicas(replicaSpec(1, 100)));
+
+        TabletHealth health = RowBinlogTabletLocality.getRowBinlogHealth(
+                pair.partition, pair.rowBinlogTablet, new ReplicaAllocation((short) 1), VISIBLE_VERSION)
+                .getTabletHealth();
+
+        Assertions.assertEquals(TabletStatus.COLOCATE_REDUNDANT, health.status);
     }
 
     @Test
@@ -238,6 +251,65 @@ public class RowBinlogTabletLocalityTest {
         Assertions.assertNull(RowBinlogTabletLocality.getRowBinlogTablet(partition, baseTablet));
         Assertions.assertTrue(RowBinlogTabletLocality.getPreferredBaseRepairPathByBackend(
                 partition, baseTablet, VISIBLE_VERSION).isEmpty());
+    }
+
+    @Test
+    public void inconsistentDirectionalLinksAreRejected() {
+        TabletPair pair = createTabletPair(
+                replicas(1, 2, 3),
+                replicas(1, 2, 3));
+        pair.baseTablet.setRowBinlogTabletId(9999L);
+
+        RowBinlogTabletLocality.RowBinlogHealthResult healthResult = getHealth(pair);
+        Assertions.assertEquals(TabletStatus.UNRECOVERABLE, healthResult.getTabletHealth().status);
+        TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.REPAIR,
+                1L, 2L, 3L, 4L, pair.rowBinlogTablet.getId(), new ReplicaAllocation((short) 3),
+                System.currentTimeMillis());
+        tabletCtx.setRowBinlogRequiredDestPathHashByBackend(ImmutableMap.of(1L, 10L));
+        healthResult.applyTo(tabletCtx);
+        Assertions.assertTrue(tabletCtx.getRowBinlogRequiredDestPathHashByBackend().isEmpty());
+        Assertions.assertTrue(tabletCtx.getColocateBackendsSet().isEmpty());
+
+        IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
+                () -> RowBinlogTabletLocality.getRowBinlogTablet(pair.partition, pair.baseTablet));
+        Assertions.assertTrue(exception.getMessage().contains("invalid row binlog tablet pair"));
+    }
+
+    @Test
+    public void crossedExistingDirectionalLinksAreRejected() {
+        TabletPair pair = createTabletPair(
+                replicas(1, 2, 3),
+                replicas(1, 2, 3));
+        Tablet otherBaseTablet = new LocalTablet(BASE_TABLET_ID + 1);
+        Tablet otherRowBinlogTablet = new LocalTablet(ROW_BINLOG_TABLET_ID + 1);
+        otherBaseTablet.setRowBinlogTabletId(otherRowBinlogTablet.getId());
+        otherRowBinlogTablet.setRowBinlogBaseTabletId(otherBaseTablet.getId());
+        pair.partition.getBaseIndex().addTablet(otherBaseTablet, null, true);
+        pair.partition.getIndex(20L).addTablet(otherRowBinlogTablet, null, true);
+        pair.baseTablet.setRowBinlogTabletId(otherRowBinlogTablet.getId());
+
+        Assertions.assertEquals(TabletStatus.UNRECOVERABLE, getHealth(pair).getTabletHealth().status);
+        IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
+                () -> RowBinlogTabletLocality.getRowBinlogTablet(pair.partition, pair.baseTablet));
+        Assertions.assertTrue(exception.getMessage().contains("points to base tablet"));
+    }
+
+    @Test
+    public void missingDirectionalLinkIsRejectedWithoutUnboxingNull() {
+        MaterializedIndex baseIndex = new MaterializedIndex(10L, IndexState.NORMAL);
+        MaterializedIndex rowBinlogIndex = new MaterializedIndex(20L, IndexState.NORMAL);
+        rowBinlogIndex.setIsRowBinlog(true);
+        Tablet baseTablet = new LocalTablet(BASE_TABLET_ID);
+        Tablet rowBinlogTablet = new LocalTablet(ROW_BINLOG_TABLET_ID);
+        rowBinlogTablet.setRowBinlogBaseTabletId(BASE_TABLET_ID);
+        baseIndex.addTablet(baseTablet, null, true);
+        rowBinlogIndex.addTablet(rowBinlogTablet, null, true);
+        Partition partition = new Partition(1L, "p1", baseIndex, null);
+        partition.createRollupIndex(rowBinlogIndex);
+
+        IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
+                () -> RowBinlogTabletLocality.getRowBinlogTablet(partition, baseTablet));
+        Assertions.assertTrue(exception.getMessage().contains("has no row binlog tablet link"));
     }
 
     @Test

@@ -17,27 +17,95 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Set;
 
 public class RowBinlogTabletLocality {
+    private static final Logger LOG = LogManager.getLogger(RowBinlogTabletLocality.class);
+
     private RowBinlogTabletLocality() {
+    }
+
+    /**
+     * Returns whether a local tablet may be moved without coordinating another tablet.
+     * Callers must not hold the tablet inverted-index lock while this method takes the table read lock.
+     */
+    public static boolean canMoveTabletIndependently(TabletMeta tabletMeta) {
+        if (tabletMeta == null) {
+            return false;
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
+        if (db == null) {
+            return false;
+        }
+        Table table = db.getTableNullable(tabletMeta.getTableId());
+        if (!(table instanceof OlapTable)) {
+            return false;
+        }
+
+        OlapTable olapTable = (OlapTable) table;
+        olapTable.readLock();
+        try {
+            Partition partition = olapTable.getPartition(tabletMeta.getPartitionId());
+            if (partition == null) {
+                return false;
+            }
+            MaterializedIndex index = partition.getIndex(tabletMeta.getIndexId());
+            return canMoveTabletIndependently(partition, index);
+        } finally {
+            olapTable.readUnlock();
+        }
+    }
+
+    static boolean canMoveTabletIndependently(Partition partition, MaterializedIndex index) {
+        if (index == null || index.isRowBinlog()) {
+            return false;
+        }
+        if (index.getId() != partition.getBaseIndex().getId()) {
+            return true;
+        }
+        return partition.getMaterializedIndices(IndexExtState.ALL, true).stream()
+                .noneMatch(MaterializedIndex::isRowBinlog);
+    }
+
+    static class RowBinlogTabletPair {
+        private final Tablet baseTablet;
+        private final Tablet rowBinlogTablet;
+
+        private RowBinlogTabletPair(Tablet baseTablet, Tablet rowBinlogTablet) {
+            this.baseTablet = baseTablet;
+            this.rowBinlogTablet = rowBinlogTablet;
+        }
+
+        Tablet getBaseTablet() {
+            return baseTablet;
+        }
+
+        Tablet getRowBinlogTablet() {
+            return rowBinlogTablet;
+        }
     }
 
     public static class RowBinlogHealthResult {
@@ -76,12 +144,18 @@ public class RowBinlogTabletLocality {
 
     public static RowBinlogHealthResult getRowBinlogHealth(Partition partition, Tablet rowBinlogTablet,
             ReplicaAllocation replicaAlloc, long visibleVersion) {
-        Tablet baseTablet = partition.getBaseIndex().getTablet(rowBinlogTablet.getRowBinlogBaseTabletId());
-        if (baseTablet == null) {
+        RowBinlogTabletPair tabletPair;
+        try {
+            tabletPair = resolvePairForRowBinlogTablet(partition, rowBinlogTablet);
+        } catch (IllegalStateException e) {
+            LOG.warn("invalid row binlog tablet pair for tablet {} in partition {}: {}",
+                    rowBinlogTablet.getId(), partition.getId(), e.getMessage());
             TabletHealth tabletHealth = new TabletHealth();
             tabletHealth.status = TabletStatus.UNRECOVERABLE;
             return new RowBinlogHealthResult(tabletHealth, null, Maps.newHashMap());
         }
+        Tablet baseTablet = tabletPair.getBaseTablet();
+        rowBinlogTablet = tabletPair.getRowBinlogTablet();
 
         Map<Long, Long> requiredDestPathHashByBackend = getEffectiveBaseReplicaPathByBackend(
                 baseTablet, visibleVersion, false);
@@ -92,7 +166,7 @@ public class RowBinlogTabletLocality {
         } else {
             tabletHealth = rowBinlogTablet.getColocateHealth(
                     visibleVersion, replicaAlloc, requiredDestPathHashByBackend.keySet());
-            if (tabletHealth.status != TabletStatus.UNRECOVERABLE
+            if (tabletHealth.status == TabletStatus.HEALTHY
                     && hasWrongPathReplica(rowBinlogTablet, requiredDestPathHashByBackend)) {
                 tabletHealth.status = TabletStatus.COLOCATE_REDUNDANT;
             }
@@ -119,11 +193,12 @@ public class RowBinlogTabletLocality {
 
     public static Map<Long, Long> getPreferredBaseRepairPathByBackend(Partition partition, Tablet baseTablet,
             long visibleVersion) {
-        Tablet rowBinlogTablet = getRowBinlogTablet(partition, baseTablet);
+        RowBinlogTabletPair tabletPair = resolvePairForBaseTablet(partition, baseTablet);
         Map<Long, Long> preferredPathHashByBackend = Maps.newHashMap();
-        if (rowBinlogTablet == null) {
+        if (tabletPair == null) {
             return preferredPathHashByBackend;
         }
+        Tablet rowBinlogTablet = tabletPair.getRowBinlogTablet();
         for (Replica replica : rowBinlogTablet.getReplicas()) {
             if (!isEffectiveReplica(replica, visibleVersion, false, false)) {
                 continue;
@@ -134,12 +209,88 @@ public class RowBinlogTabletLocality {
     }
 
     public static Tablet getRowBinlogTablet(Partition partition, Tablet baseTablet) {
+        RowBinlogTabletPair tabletPair = resolvePairForBaseTablet(partition, baseTablet);
+        return tabletPair == null ? null : tabletPair.getRowBinlogTablet();
+    }
+
+    static RowBinlogTabletPair resolvePairForRowBinlogTablet(Partition partition, Tablet rowBinlogTablet) {
+        MaterializedIndex rowBinlogIndex = getRowBinlogIndex(partition);
+        if (rowBinlogIndex == null) {
+            throw invalidPair(partition, "row binlog index does not exist");
+        }
+        Tablet indexedRowBinlogTablet = rowBinlogIndex.getTablet(rowBinlogTablet.getId());
+        if (indexedRowBinlogTablet == null) {
+            throw invalidPair(partition, "row binlog tablet " + rowBinlogTablet.getId() + " does not exist");
+        }
+        if (!indexedRowBinlogTablet.hasRowBinlogBaseTabletId()) {
+            throw invalidPair(partition, "row binlog tablet " + indexedRowBinlogTablet.getId()
+                    + " has no base tablet link");
+        }
+        Tablet baseTablet = partition.getBaseIndex().getTablet(indexedRowBinlogTablet.getRowBinlogBaseTabletId());
+        if (baseTablet == null) {
+            throw invalidPair(partition, "base tablet " + indexedRowBinlogTablet.getRowBinlogBaseTabletId()
+                    + " does not exist");
+        }
+        validateBidirectionalPair(partition, baseTablet, indexedRowBinlogTablet);
+        return new RowBinlogTabletPair(baseTablet, indexedRowBinlogTablet);
+    }
+
+    static RowBinlogTabletPair resolvePairForBaseTablet(Partition partition, Tablet baseTablet) {
+        MaterializedIndex rowBinlogIndex = getRowBinlogIndex(partition);
+        if (rowBinlogIndex == null) {
+            return null;
+        }
+        Tablet indexedBaseTablet = partition.getBaseIndex().getTablet(baseTablet.getId());
+        if (indexedBaseTablet == null) {
+            throw invalidPair(partition, "base tablet " + baseTablet.getId() + " does not exist");
+        }
+        if (!indexedBaseTablet.hasRowBinlogTabletId()) {
+            throw invalidPair(partition, "base tablet " + indexedBaseTablet.getId()
+                    + " has no row binlog tablet link");
+        }
+        Tablet rowBinlogTablet = rowBinlogIndex.getTablet(indexedBaseTablet.getRowBinlogTabletId());
+        if (rowBinlogTablet == null) {
+            throw invalidPair(partition, "row binlog tablet " + indexedBaseTablet.getRowBinlogTabletId()
+                    + " does not exist");
+        }
+        validateBidirectionalPair(partition, indexedBaseTablet, rowBinlogTablet);
+        return new RowBinlogTabletPair(indexedBaseTablet, rowBinlogTablet);
+    }
+
+    private static MaterializedIndex getRowBinlogIndex(Partition partition) {
+        MaterializedIndex rowBinlogIndex = null;
         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
             if (index.isRowBinlog()) {
-                return index.getTablet(baseTablet.getRowBinlogTabletId());
+                if (rowBinlogIndex != null) {
+                    throw invalidPair(partition, "multiple row binlog indexes exist");
+                }
+                rowBinlogIndex = index;
             }
         }
-        return null;
+        return rowBinlogIndex;
+    }
+
+    private static void validateBidirectionalPair(Partition partition, Tablet baseTablet, Tablet rowBinlogTablet) {
+        if (!baseTablet.hasRowBinlogTabletId()) {
+            throw invalidPair(partition, "base tablet " + baseTablet.getId() + " has no row binlog tablet link");
+        }
+        if (baseTablet.getRowBinlogTabletId() != rowBinlogTablet.getId()) {
+            throw invalidPair(partition, "base tablet " + baseTablet.getId() + " points to row binlog tablet "
+                    + baseTablet.getRowBinlogTabletId() + " instead of " + rowBinlogTablet.getId());
+        }
+        if (!rowBinlogTablet.hasRowBinlogBaseTabletId()) {
+            throw invalidPair(partition, "row binlog tablet " + rowBinlogTablet.getId()
+                    + " has no base tablet link");
+        }
+        if (rowBinlogTablet.getRowBinlogBaseTabletId() != baseTablet.getId()) {
+            throw invalidPair(partition, "row binlog tablet " + rowBinlogTablet.getId() + " points to base tablet "
+                    + rowBinlogTablet.getRowBinlogBaseTabletId() + " instead of " + baseTablet.getId());
+        }
+    }
+
+    private static IllegalStateException invalidPair(Partition partition, String reason) {
+        return new IllegalStateException("invalid row binlog tablet pair in partition " + partition.getId()
+                + ": " + reason);
     }
 
     public static int getCompletePairCount(Tablet baseTablet, Tablet rowBinlogTablet, long visibleVersion,

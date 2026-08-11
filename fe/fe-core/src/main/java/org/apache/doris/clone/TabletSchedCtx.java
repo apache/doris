@@ -386,6 +386,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return createTime;
     }
 
+    public long getVisibleVersion() {
+        return visibleVersion;
+    }
+
     public long getCommittedVersion() {
         return visibleVersion;
     }
@@ -539,6 +543,38 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     LOG.debug("replica's backend {} is same as dest backend {}, skip. tablet: {}",
                             replicaBeId, beId, tabletId);
                 }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /*
+     * Row-binlog repair must use the backend selected by its base tablet. A replica on an
+     * unrelated backend at the same host is only a temporary conflict: allow cloning to the
+     * required backend first, then remove the unrelated replica after the clone is complete.
+     */
+    public boolean filterRowBinlogRequiredDestBE(long beId) {
+        if (!rowBinlogRequiredDestPathHashByBackend.containsKey(beId)) {
+            return true;
+        }
+        Backend backend = infoService.getBackend(beId);
+        if (backend == null) {
+            return true;
+        }
+        String host = backend.getHost();
+        for (Replica replica : tablet.getReplicas()) {
+            long replicaBeId = replica.getBackendIdWithoutException();
+            if (replicaBeId == beId) {
+                return true;
+            }
+            Backend replicaBackend = infoService.getBackend(replicaBeId);
+            if (replicaBackend == null) {
+                continue;
+            }
+            if (!Config.allow_replica_on_same_host && !FeConstants.runningUnitTest
+                    && host.equals(replicaBackend.getHost())
+                    && rowBinlogRequiredDestPathHashByBackend.containsKey(replicaBeId)) {
                 return true;
             }
         }

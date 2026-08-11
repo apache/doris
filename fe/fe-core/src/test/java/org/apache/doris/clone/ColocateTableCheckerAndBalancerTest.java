@@ -37,10 +37,14 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Tablet.TabletHealth;
+import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer.BackendBuckets;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer.BucketStatistic;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer.GlobalColocateStatistic;
+import org.apache.doris.clone.ColocateTableCheckerAndBalancer.TabletHealthDecision;
+import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -163,6 +167,47 @@ public class ColocateTableCheckerAndBalancerTest {
             Assert.assertEquals(1, bucketStatistics.size());
             Assert.assertEquals(1, bucketStatistics.get(0).totalReplicaNum);
         }
+    }
+
+    @Test
+    public void testRowBinlogHealthDecisionSchedulesWithoutMarkingGroupUnstable() {
+        MaterializedIndex rowBinlogIndex = new MaterializedIndex(10001L, IndexState.NORMAL);
+        rowBinlogIndex.setIsRowBinlog(true);
+        TabletHealth tabletHealth = new TabletHealth();
+        tabletHealth.status = TabletStatus.COLOCATE_MISMATCH;
+        tabletHealth.priority = Priority.HIGH;
+
+        TabletHealthDecision decision = ColocateTableCheckerAndBalancer.evaluateTabletHealth(
+                rowBinlogIndex, tabletHealth);
+
+        Assert.assertTrue(decision.countAsUnhealthy);
+        Assert.assertTrue(decision.scheduleRepair);
+        Assert.assertFalse(decision.markGroupUnstable);
+        Assert.assertEquals(Priority.HIGH, decision.repairPriority);
+
+        tabletHealth.status = TabletStatus.VERSION_INCOMPLETE;
+        tabletHealth.priority = Priority.VERY_HIGH;
+        decision = ColocateTableCheckerAndBalancer.evaluateTabletHealth(rowBinlogIndex, tabletHealth);
+
+        Assert.assertTrue(decision.countAsUnhealthy);
+        Assert.assertTrue(decision.scheduleRepair);
+        Assert.assertFalse(decision.markGroupUnstable);
+        Assert.assertEquals(Priority.VERY_HIGH, decision.repairPriority);
+    }
+
+    @Test
+    public void testQueryableTabletHealthDecisionMarksGroupUnstable() {
+        MaterializedIndex baseIndex = new MaterializedIndex(10001L, IndexState.NORMAL);
+        TabletHealth tabletHealth = new TabletHealth();
+        tabletHealth.status = TabletStatus.COLOCATE_MISMATCH;
+        tabletHealth.priority = Priority.HIGH;
+
+        TabletHealthDecision decision = ColocateTableCheckerAndBalancer.evaluateTabletHealth(baseIndex, tabletHealth);
+
+        Assert.assertTrue(decision.countAsUnhealthy);
+        Assert.assertTrue(decision.scheduleRepair);
+        Assert.assertTrue(decision.markGroupUnstable);
+        Assert.assertEquals(Priority.HIGH, decision.repairPriority);
     }
 
     private Tablet createColocateTablet(long tabletId, List<Long> backendIds) {
