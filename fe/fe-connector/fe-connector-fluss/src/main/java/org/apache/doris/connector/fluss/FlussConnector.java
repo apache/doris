@@ -18,6 +18,7 @@
 package org.apache.doris.connector.fluss;
 
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -32,8 +33,10 @@ import org.apache.fluss.config.Configuration;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Fluss connector: one instance per catalog, owning that catalog's single fluss {@link Connection}.
@@ -116,6 +119,19 @@ public class FlussConnector implements Connector {
     @Override
     public boolean ownsHandle(ConnectorTableHandle handle) {
         return handle instanceof FlussTableHandle;
+    }
+
+    /**
+     * Nested-column pruning, and only that. The scanner honours a pruned nested type by remapping the
+     * requested sub-fields onto the fluss row while decoding — fluss projects top-level fields only, so
+     * there is nothing to push down — and the lake half of a union read is served by the paimon sibling,
+     * which pushes the same shape down for real. NOT SUPPORTS_FIELD_ID_ACCESS_PATH: this connector puts no
+     * field id on the Doris column tree, so rewriting the access paths to ids would make every segment
+     * "-1", which BE matches neither as an id nor as a name.
+     */
+    @Override
+    public Set<ConnectorCapability> getCapabilities() {
+        return EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
     }
 
     /**
