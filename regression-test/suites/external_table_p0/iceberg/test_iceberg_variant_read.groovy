@@ -522,7 +522,7 @@ public class AppendVariantEqualityDelete {
             ) ENGINE=ICEBERG
             PROPERTIES ('format-version'='3', 'write.format.default'='parquet')
         """
-        exception "Iceberg VARIANT DDL currently supports only top-level columns"
+        exception "STRUCT unsupported sub-type: variant"
     }
 
     sql """DROP TABLE IF EXISTS variant_doris_write"""
@@ -550,6 +550,41 @@ public class AppendVariantEqualityDelete {
             (12, PARSE_TO_VARIANT('{}')),
             (13, PARSE_TO_VARIANT('[]'))
     """
+    sql """set enable_variant_v2=false"""
+
+    // CREATE/ADD followed by top-level MODIFY must remain metadata-only for Iceberg Variant.
+    sql """DROP TABLE IF EXISTS variant_doris_modify"""
+    sql """
+        CREATE TABLE variant_doris_modify (
+            id INT,
+            created_payload VARIANT NOT NULL
+        ) ENGINE=ICEBERG
+        PROPERTIES ('format-version'='3', 'write.format.default'='parquet')
+    """
+    sql """
+        ALTER TABLE variant_doris_modify
+        MODIFY COLUMN created_payload VARIANT NULL COMMENT 'created variant'
+    """
+    sql """ALTER TABLE variant_doris_modify ADD COLUMN added_payload VARIANT"""
+    sql """
+        ALTER TABLE variant_doris_modify
+        MODIFY COLUMN added_payload VARIANT COMMENT 'added variant' FIRST
+    """
+    sql """set enable_variant_v2=true"""
+    sql """
+        INSERT INTO variant_doris_modify (id, created_payload, added_payload)
+        VALUES (1, PARSE_TO_VARIANT('{"source":"create"}'),
+                PARSE_TO_VARIANT('{"source":"add"}'))
+    """
+    List<List<Object>> sparkModifiedVariantRows = spark_iceberg """
+        SELECT id,
+               variant_get(created_payload, '\$.source', 'string'),
+               variant_get(added_payload, '\$.source', 'string')
+        FROM demo.${dbName}.variant_doris_modify
+    """
+    assertEquals([["1", "create", "add"]], sparkModifiedVariantRows.collect { row ->
+        row.collect { value -> value == null ? null : value.toString() }
+    })
     sql """set enable_variant_v2=false"""
 
     List<List<Object>> sparkDorisVariantRows = spark_iceberg """
@@ -768,6 +803,37 @@ public class AppendVariantEqualityDelete {
     ], sparkOperationRows.collect { row ->
         row.collect { value -> value == null ? null : value.toString() }
     })
+
+    // Coerce each MERGE action to the Iceberg target before building the action IF. Otherwise
+    // the unchanged object Variant and primitive insert value may first be coerced to DECIMAL,
+    // turning the object into SQL NULL before the sink sees it.
+    sql """
+        MERGE INTO variant_doris_write t
+        USING (
+            SELECT 1 AS id
+            UNION ALL
+            SELECT 14 AS id
+        ) s
+        ON t.id = s.id
+        WHEN MATCHED THEN UPDATE SET payload = t.payload
+        WHEN NOT MATCHED THEN INSERT (id, payload) VALUES (s.id, 1)
+    """
+    List<List<Object>> sparkUnchangedMergeVariant = spark_iceberg """
+        SELECT variant_get(payload, '\$.name', 'string'),
+               variant_get(payload, '\$.n', 'int'),
+               variant_get(payload, '\$.nested.city', 'string')
+        FROM demo.${dbName}.variant_doris_write
+        WHERE id = 1
+    """
+    assertEquals([["doris", "20", "hangzhou"]], sparkUnchangedMergeVariant.collect { row ->
+        row.collect { value -> value == null ? null : value.toString() }
+    })
+    List<List<Object>> sparkPrimitiveMergeVariant = spark_iceberg """
+        SELECT to_json(payload)
+        FROM demo.${dbName}.variant_doris_write
+        WHERE id = 14
+    """
+    assertEquals("1", sparkPrimitiveMergeVariant[0][0].toString())
 
     // An OLAP VARIANT column uses the legacy physical representation. Do not silently convert it
     // when the Iceberg sink requires the compute-only Variant V2 representation.

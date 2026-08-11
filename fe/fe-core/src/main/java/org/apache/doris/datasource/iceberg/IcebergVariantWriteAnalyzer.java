@@ -20,7 +20,11 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
@@ -50,6 +54,40 @@ public final class IcebergVariantWriteAnalyzer {
                         targetColumns.get(i).getName());
             }
         }
+    }
+
+    /** Validates every MERGE action before its target cast can hide a legacy Variant source. */
+    public static void validateMergeActions(
+            List<Column> targetColumns, List<? extends NamedExpression> sourceColumns) {
+        if (targetColumns.size() != sourceColumns.size()) {
+            throw new AnalysisException("Iceberg Variant write target and source columns are not aligned");
+        }
+        for (int i = 0; i < targetColumns.size(); ++i) {
+            DataType targetType = DataType.fromCatalogType(targetColumns.get(i).getType());
+            if (VariantType.containsVariant(targetType)) {
+                validateMergeActionExpression(
+                        sourceColumns.get(i), targetType, targetColumns.get(i).getName());
+            }
+        }
+    }
+
+    private static void validateMergeActionExpression(
+            Expression expression, DataType targetType, String path) {
+        if (expression instanceof Alias) {
+            validateMergeActionExpression(expression.child(0), targetType, path);
+            return;
+        }
+        if (expression instanceof If && expression.getDataType().equals(targetType)) {
+            If ifExpression = (If) expression;
+            validateMergeActionExpression(ifExpression.getTrueValue(), targetType, path);
+            validateMergeActionExpression(ifExpression.getFalseValue(), targetType, path);
+            return;
+        }
+        if (expression instanceof Cast && expression.getDataType().equals(targetType)) {
+            validateVariantConversion(expression.child(0).getDataType(), targetType, path);
+            return;
+        }
+        validateVariantConversion(expression.getDataType(), targetType, path);
     }
 
     /**

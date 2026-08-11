@@ -27,6 +27,9 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.DataType;
@@ -94,6 +97,31 @@ public class IcebergVariantWriteAnalyzerTest {
                 new Cast(new StringLiteral("{}"), VariantType.INSTANCE), "payload");
         Assert.assertFalse(IcebergVariantWriteAnalyzer.resolveInlineCoercionTarget(
                 targetType, legacyVariantValue).isPresent());
+    }
+
+    @Test
+    public void testMergeActionValidationInspectsSourcesBeforeTargetCasts() {
+        Type targetCatalogType = icebergVariantType();
+        DataType targetType = DataType.fromCatalogType(targetCatalogType);
+        Column targetColumn = new Column("payload", targetCatalogType);
+        NamedExpression acceptedOutput = new Alias(new If(
+                BooleanLiteral.TRUE,
+                new Cast(new SlotReference("target_payload", targetType), targetType),
+                new Cast(new IntegerLiteral(1), targetType)), "payload");
+
+        IcebergVariantWriteAnalyzer.validateMergeActions(
+                ImmutableList.of(targetColumn), ImmutableList.of(acceptedOutput));
+
+        NamedExpression legacyOutput = new Alias(new If(
+                BooleanLiteral.TRUE,
+                new Cast(new SlotReference("target_payload", targetType), targetType),
+                new Cast(new SlotReference("legacy_payload", VariantType.INSTANCE), targetType)),
+                "payload");
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> IcebergVariantWriteAnalyzer.validateMergeActions(
+                        ImmutableList.of(targetColumn), ImmutableList.of(legacyOutput)));
+        Assert.assertTrue(exception.getMessage(), exception.getMessage().contains("legacy Doris VARIANT"));
+        Assert.assertTrue(exception.getMessage(), exception.getMessage().contains("payload"));
     }
 
     private static void assertLegacyRejected(Type targetType, DataType sourceType, String path) {

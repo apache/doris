@@ -333,7 +333,7 @@ public class BindExpression implements AnalysisRuleFactory {
             }
         }
         if (writesDataFiles) {
-            IcebergVariantWriteAnalyzer.validate(visibleColumns, visibleOutputExprs);
+            IcebergVariantWriteAnalyzer.validateMergeActions(visibleColumns, visibleOutputExprs);
         }
 
         List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());

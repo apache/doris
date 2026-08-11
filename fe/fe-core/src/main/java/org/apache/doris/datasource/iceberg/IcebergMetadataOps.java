@@ -965,9 +965,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 currentCol.type(), currentCol);
 
         validateModifyColumnMetadata(column, resolvedPath.getFullPath(), true);
+        boolean variantModify = validateVariantTypeChange(
+                currentCol.type(), column.getType(), resolvedPath.getFullPath());
         validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), false);
         org.apache.iceberg.types.Type targetType;
-        if (column.getType().isComplexType()) {
+        if (variantModify) {
+            validateForModifyVariantColumn(column, currentCol, resolvedPath.getFullPath());
+            targetType = currentCol.type();
+        } else if (column.getType().isComplexType()) {
             validateForModifyComplexColumn(column, currentCol);
             targetType = currentCol.type();
         } else {
@@ -979,7 +984,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         UpdateSchema updateSchema = icebergTable.updateSchema();
         // Preserve the Iceberg doc when MODIFY COLUMN omits COMMENT; only an explicit COMMENT may change it.
         String targetComment = resolveTargetComment(currentCol, column);
-        if (column.getType().isComplexType()) {
+        if (variantModify) {
+            if (!Objects.equals(currentCol.doc(), targetComment)) {
+                updateSchema.updateColumnDoc(resolvedPath.getFullPath(), targetComment);
+            }
+        } else if (column.getType().isComplexType()) {
             applyComplexTypeChange(updateSchema, resolvedPath.getFullPath(), currentCol.type(),
                     column.getType());
             if (!Objects.equals(currentCol.doc(), targetComment)) {
@@ -1145,6 +1154,25 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Modify column type from complex to primitive is not supported: " + columnPath);
         }
         // check nullable
+        if (currentCol.isOptional() && !column.isAllowNull()) {
+            throw new UserException("Can not change nullable column " + columnPath + " to not null");
+        }
+    }
+
+    private boolean validateVariantTypeChange(org.apache.iceberg.types.Type currentType,
+            org.apache.doris.catalog.Type requestedType, String columnPath) throws UserException {
+        boolean currentIsVariant = currentType.isVariantType();
+        boolean requestedIsVariant = requestedType.isVariantType();
+        if (currentIsVariant != requestedIsVariant) {
+            throw new UserException("Cannot change column type involving Iceberg VARIANT: "
+                    + columnPath + ": " + mappedDorisType(currentType).toSql()
+                    + " -> " + requestedType.toSql());
+        }
+        return currentIsVariant;
+    }
+
+    private void validateForModifyVariantColumn(Column column, NestedField currentCol, String columnPath)
+            throws UserException {
         if (currentCol.isOptional() && !column.isAllowNull()) {
             throw new UserException("Can not change nullable column " + columnPath + " to not null");
         }
