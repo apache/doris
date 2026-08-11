@@ -19,6 +19,7 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.common.jni.vec.JniSchemaParams;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
@@ -55,12 +56,10 @@ import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -555,47 +554,15 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     static String[] requiredFields(Map<String, String> params) {
-        String encodedFields = params.get("required_fields_base64");
-        if (encodedFields == null) {
-            return splitParam(params.get("required_fields"), ",");
-        }
-        if (encodedFields.isEmpty()) {
-            return new String[0];
-        }
-        // Each identifier is encoded independently, so delimiters in quoted identifiers cannot
-        // change field cardinality. The legacy parameter remains the rolling-upgrade fallback.
-        return decodeSchemaValues(encodedFields);
+        return JniSchemaParams.requiredFields(params);
     }
 
     static String[] requiredTypes(Map<String, String> params) {
-        String encodedTypes = params.get("columns_types_base64");
-        return encodedTypes == null
-                ? splitParam(params.get("columns_types"), "#")
-                : decodeSchemaValues(encodedTypes);
+        return JniSchemaParams.requiredTypes(params);
     }
 
     private static boolean usesEncodedSchema(Map<String, String> params) {
-        boolean hasFields = params.containsKey("required_fields_base64");
-        boolean hasTypes = params.containsKey("columns_types_base64");
-        // Both halves describe one schema version; accepting a mixed pair would reintroduce the
-        // cardinality and nested-name ambiguity this protocol is intended to remove.
-        Preconditions.checkArgument(hasFields == hasTypes,
-                "required_fields_base64 and columns_types_base64 must be provided together");
-        return hasFields;
-    }
-
-    private static String[] decodeSchemaValues(String encodedValues) {
-        if (encodedValues.isEmpty()) {
-            return new String[0];
-        }
-        return Arrays.stream(encodedValues.split(",", -1))
-                .map(encoded -> {
-                    // A marker on every token preserves list arity when the encoded value itself is empty.
-                    Preconditions.checkArgument(encoded.startsWith("$"),
-                            "Encoded JNI schema token is missing its version marker");
-                    return new String(Base64.getDecoder().decode(encoded.substring(1)), StandardCharsets.UTF_8);
-                })
-                .toArray(String[]::new);
+        return JniSchemaParams.usesEncodedSchema(params);
     }
 
     static int countThreadsByNamePrefix(String threadNamePrefix) {
@@ -933,10 +900,4 @@ public class PaimonJniScanner extends JniScanner {
         }
     }
 
-    private static String[] splitParam(String value, String delimiter) {
-        if (value == null || value.isEmpty()) {
-            return new String[0];
-        }
-        return value.split(delimiter);
-    }
 }
