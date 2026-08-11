@@ -418,8 +418,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
-        return planScanInternal(session, request.getTableHandle(), request.getColumns(),
-                request.getFilter(), request.isCountPushdown());
+        IcebergTableHandle handle = (IcebergTableHandle) request.getTableHandle();
+        try {
+            return planScanInternal(session, handle, request.getColumns(),
+                    request.getFilter(), request.isCountPushdown());
+        } catch (RuntimeException e) {
+            // Normal data scans and native position_deletes run on File Scanner V2. Keep the serialized JNI
+            // system-table route untouched because its deferred reads belong to the V1 scanner contract.
+            if (!handle.isSystemTable() || isPositionDeletesSysTable(handle)) {
+                throw IcebergExceptionUtils.wrapMetadataReadFailure(handle, e);
+            }
+            throw e;
+        }
     }
 
     /**
@@ -465,8 +475,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 fileCount += (added == null ? 0 : added) + (existing == null ? 0 : existing);
             }
         } catch (IOException e) {
-            throw new RuntimeException("Failed to count iceberg manifest files for batch decision, error message is:"
-                    + e.getMessage(), e);
+            throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
+                    "Failed to count iceberg manifest files for batch decision, error message is:");
+        } catch (RuntimeException e) {
+            throw IcebergExceptionUtils.wrapMetadataReadFailure(iceHandle, e);
         }
         return fileCount >= threshold ? fileCount : -1;
     }
@@ -501,9 +513,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
         long sliceSize = fileSplitSize > 0 ? fileSplitSize
                 : sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
-        CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(scan, session, table, filter, sliceSize);
-        return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
-                orderedPartitionKeys, zone, uriNormalizer, sliceSize, iceHandle.getRewriteFileScope());
+        try {
+            CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(
+                    scan, session, table, filter, sliceSize);
+            return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
+                    orderedPartitionKeys, zone, uriNormalizer, sliceSize,
+                    iceHandle.getRewriteFileScope(), iceHandle);
+        } catch (RuntimeException e) {
+            throw IcebergExceptionUtils.wrapMetadataReadFailure(iceHandle, e);
+        }
     }
 
     private static ConnectorSplitSource emptySplitSource() {
@@ -564,6 +582,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private final UnaryOperator<String> uriNormalizer;
         private final long sliceSize;
         private final Set<String> rewriteScope;
+        private final IcebergTableHandle handle;
         // Lazily opened on first hasNext() so the ctor never throws — iceberg's ParallelIterable submits
         // manifest readers in tasks.iterator(), which can fail; opening it eagerly here would throw out of
         // streamSplits() BEFORE the source is returned, leaking the planFiles() iterable (the engine pump's
@@ -578,7 +597,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
         IcebergStreamingSplitSource(CloseableIterable<FileScanTask> tasks, Table table, int formatVersion,
                 boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-                UnaryOperator<String> uriNormalizer, long sliceSize, Set<String> rewriteScope) {
+                UnaryOperator<String> uriNormalizer, long sliceSize, Set<String> rewriteScope,
+                IcebergTableHandle handle) {
             this.tasks = tasks;
             this.table = table;
             this.formatVersion = formatVersion;
@@ -588,25 +608,31 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             this.uriNormalizer = uriNormalizer;
             this.sliceSize = sliceSize;
             this.rewriteScope = rewriteScope;
+            this.handle = handle;
         }
 
         @Override
         public boolean hasNext() {
-            if (buffered != null) {
-                return true;
-            }
-            if (iterator == null) {
-                iterator = tasks.iterator();
-            }
-            while (iterator.hasNext()) {
-                IcebergScanRange range = buildRangeForTask(iterator.next(), table, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null, scratch);
-                if (range != null) {
-                    buffered = range;
+            try {
+                if (buffered != null) {
                     return true;
                 }
+                if (iterator == null) {
+                    iterator = tasks.iterator();
+                }
+                while (iterator.hasNext()) {
+                    IcebergScanRange range = buildRangeForTask(iterator.next(), table, formatVersion, partitioned,
+                            orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null, scratch);
+                    if (range != null) {
+                        buffered = range;
+                        return true;
+                    }
+                }
+                return false;
+            } catch (RuntimeException e) {
+                // Lazy manifest opening happens on the split-pump thread, after streamSplits has returned.
+                throw IcebergExceptionUtils.wrapMetadataReadFailure(handle, e);
             }
-            return false;
         }
 
         @Override
@@ -1606,7 +1632,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (!systemTable) {
             scanSchema = pinnedSchema(table, iceHandle);
             exactScan = buildScan(table, iceHandle, filter, session);
-            applicableEqualityDeleteFieldIds = cachedApplicableEqualityDeleteFieldIds(table, exactScan);
+            try {
+                applicableEqualityDeleteFieldIds = cachedApplicableEqualityDeleteFieldIds(table, exactScan);
+            } catch (RuntimeException e) {
+                throw IcebergExceptionUtils.wrapMetadataReadFailure(iceHandle, e);
+            }
             hasApplicableEqualityDeletes = !applicableEqualityDeleteFieldIds.isEmpty();
             Optional<Map<Integer, List<String>>> nameMapping = IcebergSchemaUtils.extractNameMapping(table);
             if (requiresCurrentScanSemantics(
@@ -1625,11 +1655,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // PERF-03: the non-system format resolution falls back to an unfiltered whole-table planFiles() when the
         // table sets neither write-format nor write.format.default; memoize that inference per (table, snapshot)
         // across queries via formatCache (pure metadata, no credential gate). Null cache (offline) resolves live.
-        props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE,
-                systemTable ? "jni"
-                        : IcebergWriterHelper.getFileFormat(table,
+        String fileFormatType = "jni";
+        if (!systemTable) {
+            try {
+                fileFormatType = IcebergWriterHelper.getFileFormat(table,
                                 TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), formatCache)
-                        .name().toLowerCase(Locale.ROOT));
+                        .name().toLowerCase(Locale.ROOT);
+            } catch (RuntimeException e) {
+                throw IcebergExceptionUtils.wrapMetadataReadFailure(iceHandle, e);
+            }
+        }
+        props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, fileFormatType);
         // [D-065] System (metadata) tables ($snapshots/$files/...) read via the JNI serialized-split path
         // (planSystemTableScan): the metadata-table schema travels INSIDE the serialized FileScanTask, so BE
         // needs neither the base-table path_partition_keys (a metadata table is not base-spec partitioned ->

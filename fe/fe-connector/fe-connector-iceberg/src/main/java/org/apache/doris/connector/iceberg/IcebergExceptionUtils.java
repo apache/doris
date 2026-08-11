@@ -31,15 +31,31 @@ final class IcebergExceptionUtils {
 
     static RuntimeException wrapTableLoadFailure(
             IcebergTableHandle handle, Exception failure, String fallbackPrefix) {
-        // Iceberg and FileIO implementations wrap missing metadata differently. Inspect every cause so all
-        // read paths preserve the stable table-format contract instead of exposing a filesystem wrapper message.
-        boolean metadataNotFound = ExceptionUtils.getThrowableList(failure).stream()
-                .anyMatch(cause -> cause instanceof NotFoundException
-                        || cause instanceof FileNotFoundException);
-        if (metadataNotFound) {
-            return new DorisConnectorException("Metadata not found in metadata location for table "
-                    + handle.getDbName() + "." + handle.getTableName(), failure);
+        if (isMetadataNotFound(failure)) {
+            return metadataNotFound(handle, failure);
         }
         return new RuntimeException(fallbackPrefix + failure.getMessage(), failure);
+    }
+
+    static RuntimeException wrapMetadataReadFailure(
+            IcebergTableHandle handle, RuntimeException failure) {
+        if (isMetadataNotFound(failure)) {
+            return metadataNotFound(handle, failure);
+        }
+        return failure;
+    }
+
+    private static boolean isMetadataNotFound(Throwable failure) {
+        // Iceberg and FileIO implementations wrap missing metadata differently. Inspect every cause so eager
+        // planners and background lazy split iteration preserve one stable table-scoped error contract.
+        return ExceptionUtils.getThrowableList(failure).stream()
+                .anyMatch(cause -> cause instanceof NotFoundException
+                        || cause instanceof FileNotFoundException);
+    }
+
+    private static DorisConnectorException metadataNotFound(
+            IcebergTableHandle handle, Throwable failure) {
+        return new DorisConnectorException("Metadata not found in metadata location for table "
+                + handle.getDbName() + "." + handle.getTableName(), failure);
     }
 }
