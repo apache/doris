@@ -649,6 +649,17 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
+    public void fieldIdAccessPathIsIndependentOfNestedColumnPrune() {
+        // A connector that prunes by NAME (paimon, fluss) declares the prune capability alone. Rewriting
+        // its access paths to field ids would produce "-1" segments that match nothing in BE.
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE)).usesFieldIdAccessPath());
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                        ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH)).usesFieldIdAccessPath());
+    }
+
+    @Test
     public void scanCapabilityHonorsPerTableSetWhenConnectorWideAbsent() {
         // WHY: a heterogeneous connector (hive) cannot declare Top-N lazy / nested-column-prune connector-wide
         // because eligibility is per-table file-format gated (orc/parquet only) — blanket-declaring would

@@ -609,6 +609,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE,
                     ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                    ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE));
 
     /**
