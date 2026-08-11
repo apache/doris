@@ -464,7 +464,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
 
-    public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
     public static final String ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES = "enable_fast_analyze_into_values";
 
@@ -2136,10 +2135,6 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VarAttrDef.VarAttr(name = SESSION_CONTEXT, needForward = true)
     public String sessionContext = "";
-
-    @VarAttrDef.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT,
-            needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public boolean enableSingleReplicaInsert = false;
 
     @VarAttrDef.VarAttr(
             name = ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES, fuzzy = true,
@@ -5140,14 +5135,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableExprTrace() {
         return enableExprTrace;
-    }
-
-    public boolean isEnableSingleReplicaInsert() {
-        return enableSingleReplicaInsert;
-    }
-
-    public void setEnableSingleReplicaInsert(boolean enableSingleReplicaInsert) {
-        this.enableSingleReplicaInsert = enableSingleReplicaInsert;
     }
 
     public boolean isEnableFastAnalyzeInsertIntoValues() {
