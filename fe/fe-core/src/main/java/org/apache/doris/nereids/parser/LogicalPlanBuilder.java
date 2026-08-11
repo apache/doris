@@ -77,7 +77,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
-import org.apache.doris.mtmv.ivm.DryRunLimit;
+import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AddBackendClauseContext;
 import org.apache.doris.nereids.DorisParser.AddBrokerClauseContext;
@@ -1889,10 +1889,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(
                 new TableNameInfo(nameParts), ImmutableList.of(), RefreshMode.INCREMENTAL);
-        Optional<DryRunLimit> dryRunLimit = Optional.empty();
+        Optional<IvmDryRunLimit> dryRunLimit = Optional.empty();
         if (ctx.limitClause() != null) {
             Pair<Long, Long> limitAndOffset = parseLimitClause(ctx.limitClause());
-            dryRunLimit = Optional.of(new DryRunLimit(limitAndOffset.second, limitAndOffset.first));
+            dryRunLimit = Optional.of(new IvmDryRunLimit(limitAndOffset.second, limitAndOffset.first));
         }
         return new RefreshMTMVCommand(refreshMTMVInfo, false, true, dryRunLimit);
     }
