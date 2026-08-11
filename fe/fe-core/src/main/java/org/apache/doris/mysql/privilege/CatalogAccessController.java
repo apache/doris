@@ -19,6 +19,8 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.common.AuthorizationException;
 
 import java.util.List;
@@ -88,8 +90,16 @@ public interface CatalogAccessController {
 
     boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted);
 
-    Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+    /**
+     * How {@code col} must be rewritten before {@code currentUser} may read it, or empty when it is not masked.
+     * The returned payload carries a SQL expression, never a parsed one: see {@link DataMaskSpec}.
+     */
+    Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
             String col);
 
-    List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db, String tbl);
+    /**
+     * The row-level filters that apply to {@code tbl} for {@code currentUser}, empty when there are none.
+     * The engine combines them per {@link org.apache.doris.authorization.RowFilterMergeType}.
+     */
+    List<RowFilterSpec> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db, String tbl);
 }

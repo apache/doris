@@ -18,17 +18,16 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.DataMaskPolicy;
-import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -180,10 +179,10 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
         boolean hasDataMask = false;
         for (Slot slot : logicalPlan.getOutput()) {
-            Optional<DataMaskPolicy> dataMaskPolicy = accessManager.evalDataMaskPolicy(
+            Optional<DataMaskSpec> dataMaskPolicy = accessManager.evalDataMaskPolicy(
                     currentUserIdentity, ctlName, dbName, tableName, slot.getName());
             if (dataMaskPolicy.isPresent()) {
-                Expression unboundExpr = nereidsParser.parseExpression(dataMaskPolicy.get().getMaskTypeDef());
+                Expression unboundExpr = nereidsParser.parseExpression(dataMaskPolicy.get().getMaskSql());
                 Expression childOfAlias
                         = unboundExpr instanceof UnboundAlias ? unboundExpr.child(0) : unboundExpr;
                 Alias alias = new Alias(
@@ -201,7 +200,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             }
         }
 
-        List<? extends RowFilterPolicy> rowPolicies = accessManager.evalRowFilterPolicies(
+        List<RowFilterSpec> rowPolicies = accessManager.evalRowFilterPolicies(
                 currentUserIdentity, ctlName, dbName, tableName);
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().setRowFilterPolicy(ctlName, dbName, tableName, rowPolicies);
@@ -223,17 +222,15 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         return RelatedPolicy.NO_POLICY;
     }
 
-    private Expression mergeRowPolicy(List<? extends RowFilterPolicy> policies) {
+    private Expression mergeRowPolicy(List<RowFilterSpec> policies) {
         List<Expression> orList = new ArrayList<>();
         List<Expression> andList = new ArrayList<>();
-        for (RowFilterPolicy policy : policies) {
-            Expression wherePredicate = null;
-            try {
-                wherePredicate = policy.getFilterExpression();
-            } catch (org.apache.doris.common.AnalysisException e) {
-                throw new AnalysisException(e.getMessage(), e);
-            }
-            switch (policy.getFilterType()) {
+        NereidsParser nereidsParser = new NereidsParser();
+        for (RowFilterSpec policy : policies) {
+            // The authorization source hands us the predicate as SQL text - the form both a Ranger policy and
+            // a CREATE ROW POLICY statement natively have - and parsing it is the engine's job.
+            Expression wherePredicate = nereidsParser.parseExpression(policy.getFilterSql());
+            switch (policy.getMergeType()) {
                 case PERMISSIVE:
                     orList.add(wherePredicate);
                     break;

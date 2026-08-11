@@ -19,6 +19,8 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -450,16 +452,16 @@ public class AccessControllerManager {
         return true;
     }
 
-    public Map<String, Optional<DataMaskPolicy>> evalDataMaskPolicies(UserIdentity currentUser, String
+    public Map<String, Optional<DataMaskSpec>> evalDataMaskPolicies(UserIdentity currentUser, String
             ctl, String db, String tbl, Set<String> cols) {
-        Map<String, Optional<DataMaskPolicy>> res = Maps.newHashMap();
+        Map<String, Optional<DataMaskSpec>> res = Maps.newHashMap();
         for (String col : cols) {
             res.put(col, evalDataMaskPolicy(currentUser, ctl, db, tbl, col));
         }
         return res;
     }
 
-    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String
+    public Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String
             ctl, String db, String tbl, String col) {
         Objects.requireNonNull(currentUser, "require currentUser object");
         Objects.requireNonNull(ctl, "require ctl object");
@@ -469,7 +471,7 @@ public class AccessControllerManager {
         return getAccessControllerOrDefault(ctl).evalDataMaskPolicy(currentUser, ctl, db, tbl, col.toLowerCase());
     }
 
-    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String
+    public List<RowFilterSpec> evalRowFilterPolicies(UserIdentity currentUser, String
             ctl, String db, String tbl) {
         Objects.requireNonNull(currentUser, "require currentUser object");
         Objects.requireNonNull(ctl, "require ctl object");

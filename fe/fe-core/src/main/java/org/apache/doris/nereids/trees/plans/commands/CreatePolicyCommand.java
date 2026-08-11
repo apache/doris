@@ -61,6 +61,8 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
     private final UserIdentity user;
     private final String roleName;
     private final Optional<Expression> wherePredicate;
+    // The row predicate exactly as written, null for a storage policy.
+    private final String wherePredicateSql;
     private final Map<String, String> properties;
 
     /**
@@ -68,7 +70,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
      */
     public CreatePolicyCommand(PolicyTypeEnum policyType, String policyName, boolean ifNotExists,
             TableNameInfo tableNameInfo, Optional<FilterType> filterType, UserIdentity user, String roleName,
-            Optional<Expression> wherePredicate, Map<String, String> properties) {
+            Optional<Expression> wherePredicate, String wherePredicateSql, Map<String, String> properties) {
         super(PlanType.CREATE_POLICY_COMMAND);
         this.policyType = policyType;
         this.policyName = policyName;
@@ -78,11 +80,16 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         this.user = user;
         this.roleName = roleName;
         this.wherePredicate = wherePredicate;
+        this.wherePredicateSql = wherePredicateSql;
         this.properties = properties;
     }
 
     public Optional<Expression> getWherePredicate() {
         return wherePredicate;
+    }
+
+    public String getWherePredicateSql() {
+        return wherePredicateSql;
     }
 
     public Map<String, String> getProperties() {
