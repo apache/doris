@@ -386,6 +386,11 @@ AWS_SDK_MD5SUM="80aa616efe1a3e7a9bf0dfbc44a97864"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
+# Not every CI runner can reach gcc.gnu.org, and download_func() spends the first
+# of its two passes re-checking the file that is already on disk, so an
+# unreachable host costs a single attempt and then fails the build. The gcc-7
+# branch is closed, so this mirror serves a byte identical file.
+TSAN_HEADER_FALLBACK_DOWNLOAD="https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-7/libsanitizer/include/sanitizer/tsan_interface_atomic.h"
 TSAN_HEADER_NAME="tsan_interface_atomic.h"
 TSAN_HEADER_FILE="tsan_interface_atomic.h"
 TSAN_HEADER_MD5SUM="d72679bea167d6a513d959f5abd149dc"
