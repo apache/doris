@@ -50,6 +50,9 @@ public:
 
     void check_instance(const std::string& instance_id, MetaServiceCode& code, std::string& msg);
 
+    void check_tablet(const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
+                      std::string& msg, std::string& body);
+
     std::shared_ptr<TxnKv> txn_kv() { return txn_kv_; }
     Recycler* recycler() { return recycler_; }
     Checker* checker() { return checker_; }
