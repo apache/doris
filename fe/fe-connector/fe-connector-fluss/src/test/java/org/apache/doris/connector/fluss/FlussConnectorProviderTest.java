@@ -18,6 +18,7 @@
 package org.apache.doris.connector.fluss;
 
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
@@ -28,6 +29,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Set;
 
 /**
  * Guards the fluss connector's identity and its discovery wiring.
@@ -89,5 +91,24 @@ public class FlussConnectorProviderTest {
         Connector connector = new FlussConnectorProvider().create(properties, context());
         Assertions.assertTrue(connector instanceof FlussConnector);
         connector.close();
+    }
+
+    @Test
+    public void declaresNestedColumnPruneButNotFieldIdAccessPath() throws IOException {
+        // The scanner honours a pruned nested type by remapping the requested sub-fields while decoding.
+        // It carries no field id on the Doris column tree, so rewriting the access paths to ids would
+        // make every segment "-1" — which BE matches neither as an id nor as a name, and the pruned
+        // leaves would read back NULL.
+        Map<String, String> properties = new HashMap<>();
+        properties.put(FlussCatalogProperties.BOOTSTRAP_SERVERS, "localhost:9123");
+
+        Connector connector = new FlussConnectorProvider().create(properties, context());
+        try {
+            Set<ConnectorCapability> capabilities = connector.getCapabilities();
+            Assertions.assertTrue(capabilities.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE));
+            Assertions.assertFalse(capabilities.contains(ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH));
+        } finally {
+            connector.close();
+        }
     }
 }
