@@ -1382,6 +1382,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_task_min_timeout_sec = 300;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Minimum interval in seconds between snapshot offset persistence operations"})
+    public static int streaming_job_snapshot_offset_persist_interval_sec = 300;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_light_rpc_timeout_sec = 90;
 
