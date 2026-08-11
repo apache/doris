@@ -41,8 +41,17 @@ if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger 
 if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 2; fi
 if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 2; fi
 
+performance_dir="${teamcity_build_checkoutDir}/regression-test/pipeline/performance"
+tmp_env_helper="${teamcity_build_checkoutDir}/regression-test/pipeline/common/get-or-set-tmp-env.sh"
+set_performance_tmp_env() {
+    (
+        cd "${performance_dir}" || exit 1
+        bash "${tmp_env_helper}" 'set' "$1"
+    )
+}
+
 # shellcheck source=/dev/null
-source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
+source "$(cd "${performance_dir}" && bash "${tmp_env_helper}" 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 
 parquet_microbenchmark_mode="${PARQUET_MICROBENCHMARK_MODE:-off}"
@@ -171,14 +180,11 @@ if [[ "${target_branch}" == "master" ]]; then
 fi
 rm -rf "${teamcity_build_checkoutDir}"/output
 USE_CUSTOM_LDB="wget -c -t3 -q https://doris-regression-hk.oss-cn-hongkong-internal.aliyuncs.com/tools/ldb-toolchain/v0.26/ldb_toolchain_gen.sh && rm -rf /usr/local/ldb-toolchain-v0.26 && bash ldb_toolchain_gen.sh /usr/local/ldb-toolchain-v0.26 && export PATH=/usr/local/ldb-toolchain-v0.26/bin:\$PATH"
-bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh \
-    'set' "export performance_docker_image=${docker_image}"
+set_performance_tmp_env "export performance_docker_image=${docker_image}"
 if [[ "${parquet_microbenchmark_mode}" != off &&
         -n "${parquet_benchmark_base_sha:-}" ]]; then
-    bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh \
-        'set' "export parquet_benchmark_base_sha=${parquet_benchmark_base_sha}"
-    bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh \
-        'set' "export performance_remote_ccache=${REMOTE_CCACHE}"
+    set_performance_tmp_env "export parquet_benchmark_base_sha=${parquet_benchmark_base_sha}"
+    set_performance_tmp_env "export performance_remote_ccache=${REMOTE_CCACHE}"
 fi
 set -x
 # shellcheck disable=SC2086
