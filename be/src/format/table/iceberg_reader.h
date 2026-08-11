@@ -143,6 +143,36 @@ protected:
     Status _expand_block_if_need(Block* block);
     // Remove the added delete columns
     Status _shrink_block_if_need(Block* block);
+    Status _materialize_missing_table_columns(Block* block, size_t rows);
+    const schema::external::TStructField* _current_schema_root() const;
+    const schema::external::TField* _find_current_schema_field(const std::string& name) const;
+    static bool _find_schema_field_path_in_field(
+            const schema::external::TField* field, int32_t field_id,
+            std::vector<const schema::external::TField*>* path);
+    static bool _find_schema_field_path_in_root(const schema::external::TStructField* root,
+                                                int32_t field_id,
+                                                std::vector<const schema::external::TField*>* path);
+    std::vector<const schema::external::TField*> _find_schema_field_path(int32_t field_id) const;
+    Status _create_missing_equality_delete_value(int32_t field_id,
+                                                 const DataTypePtr& delete_key_type,
+                                                 size_t physical_path_size, ColumnPtr* value) const;
+    Status _register_missing_equality_delete_column(int32_t field_id, const std::string& name,
+                                                    const DataTypePtr& delete_key_type);
+    Status _materialize_missing_equality_delete_columns(Block* block, size_t rows);
+    struct NestedEqualityDeleteColumn {
+        int32_t field_id = -1;
+        std::string block_name;
+        DataTypePtr source_leaf_type;
+        DataTypePtr leaf_type;
+        std::vector<size_t> child_indexes;
+        ColumnPtr missing_value;
+        VExprContextSPtr cast_context;
+    };
+    Status _prepare_nested_equality_delete_column(NestedEqualityDeleteColumn* nested_field) const;
+    Status _extract_nested_equality_delete_column(const ColumnPtr& root_column,
+                                                  const NestedEqualityDeleteColumn& nested_field,
+                                                  ColumnPtr* leaf_column) const;
+    Status _materialize_nested_equality_delete_columns(Block* block);
 
     // owned by scan node
     ShardedKVCache* _kv_cache;
@@ -167,7 +197,11 @@ protected:
 
     // extra equality delete name and type
     std::vector<std::string> _expand_col_names;
+    std::vector<int32_t> _expand_col_field_ids;
     std::vector<ColumnWithTypeAndName> _expand_columns;
+    std::unordered_map<std::string, ColumnPtr> _missing_initial_default_values;
+    std::unordered_map<std::string, ColumnPtr> _missing_equality_delete_values;
+    std::vector<NestedEqualityDeleteColumn> _nested_equality_delete_columns;
 
     // all ids that need read for eq delete (from all qe delte file.)
     std::set<int> _equality_delete_col_ids;
@@ -211,8 +245,9 @@ public:
     }
 
 private:
-    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
-                                             const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids(
+            const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor,
+            const std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node);
     Status _process_equality_delete(const std::vector<TIcebergDeleteFileDesc>& delete_files) final;
 
     const FieldDescriptor* _data_file_field_desc = nullptr;
@@ -245,8 +280,9 @@ public:
 private:
     Status _process_equality_delete(const std::vector<TIcebergDeleteFileDesc>& delete_files) final;
 
-    static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
-                                             const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids(
+            const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor,
+            const std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node);
 
 private:
     static const std::string ICEBERG_ORC_ATTRIBUTE;

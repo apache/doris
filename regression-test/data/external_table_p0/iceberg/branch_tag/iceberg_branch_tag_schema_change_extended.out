@@ -11,7 +11,7 @@
 1	10
 
 -- !b3_with_new_col --
-3	30	test
+3	30	\N
 
 -- !t1_no_new_col --
 1	a

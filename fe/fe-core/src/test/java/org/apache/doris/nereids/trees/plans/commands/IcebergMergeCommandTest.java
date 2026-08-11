@@ -17,10 +17,17 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class IcebergMergeCommandTest {
 
@@ -51,5 +58,18 @@ public class IcebergMergeCommandTest {
 
         Assertions.assertEquals("expected", exception.getMessage());
         Assertions.assertFalse(ctx.getSessionVariable().enableExternalTableBatchMode);
+    }
+
+    @Test
+    public void mergeBranchesUseThePinnedWriterType() {
+        VarBinaryType uuidType = VarBinaryType.createVarBinaryType(16);
+        Cast cachedTargetValue = new Cast(new StringLiteral("target"), uuidType);
+        Cast unboundedDefault = new Cast(new StringLiteral("default"), VarBinaryType.MAX_VARBINARY_TYPE);
+
+        List<NamedExpression> projections = IcebergMergeCommand.generateFinalProjections(
+                ImmutableList.of("uuid_col"), ImmutableList.of(uuidType),
+                ImmutableList.of(ImmutableList.of(cachedTargetValue), ImmutableList.of(unboundedDefault)));
+
+        Assertions.assertEquals(uuidType, projections.get(0).child(0).getDataType());
     }
 }

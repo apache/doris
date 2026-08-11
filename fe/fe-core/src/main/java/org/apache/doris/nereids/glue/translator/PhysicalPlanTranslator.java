@@ -617,7 +617,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         IcebergTableSink sink = new IcebergTableSink(
                 (IcebergExternalTable) icebergTableSink.getTargetTable(),
-                icebergTableSink.getTargetIcebergTable());
+                icebergTableSink.getTargetIcebergTable(),
+                icebergTableSink.getWriteSchemaContext());
         rootFragment.setSink(sink);
         sink.setOutputExprs(outputExprs);
         return rootFragment;
@@ -692,7 +693,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 icebergMergeSink.getTargetIcebergTable(),
                 icebergMergeSink.getDeleteContext(),
                 icebergMergeSink.isWritesDataFiles(),
-                icebergMergeSink.isRequireMergeCardinalityCheck());
+                icebergMergeSink.isRequireMergeCardinalityCheck(),
+                icebergMergeSink.getWriteSchemaContext());
         rootFragment.setSink(sink);
         return rootFragment;
     }

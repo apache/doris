@@ -340,6 +340,9 @@ struct TIcebergFileDesc {
     // Only for format_version >= 3, the sequence number which last updated this file.
     11: optional i64 last_updated_sequence_number;
     12: optional string serialized_split;
+    // Historical schema fragments required by equality-delete keys attached to this exact split.
+    // Keeping this split-local preserves lazy batch planning without widening the query schema.
+    13: optional ExternalTableSchema.TSchema equality_delete_schema;
 }
 
 struct TPaimonDeletionFileDesc {

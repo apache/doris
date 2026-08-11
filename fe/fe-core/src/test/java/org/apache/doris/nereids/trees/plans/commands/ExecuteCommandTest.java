@@ -174,6 +174,29 @@ public class ExecuteCommandTest {
         Mockito.verify(table, Mockito.times(2)).loadSnapshot(Optional.empty(), Optional.empty());
     }
 
+    @Test
+    public void testIcebergWriteSchemaContextIsResetForEveryExecute() throws Exception {
+        String sql = "select 1";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        statementContext.setIcebergWriteSchemaContext(Optional.of(Mockito.mock(
+                org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext.class)));
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+
+        Assertions.assertFalse(statementContext.getIcebergWriteSchemaContext().isPresent());
+    }
+
     private String resolveNextSnapshot(TableScanParams scanParams, AtomicInteger snapshotId) {
         return scanParams.getOrResolveMapParams(ignored -> ImmutableMap.of(
                 "scan.snapshot-id", String.valueOf(snapshotId.incrementAndGet())))
