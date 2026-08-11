@@ -19,6 +19,8 @@ package org.apache.doris.fluss;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.common.jni.vec.JniSchemaParams;
+import org.apache.doris.common.jni.vec.NestedProjection;
 
 import org.apache.fluss.client.Connection;
 import org.apache.fluss.client.ConnectionFactory;
@@ -64,6 +66,12 @@ import java.util.TimeZone;
  * {@code required_fields} and fills them from the range itself, so the projection this builds covers
  * only the data columns — the same division the paimon scanner works under, and the one a union read
  * needs both halves to agree on.
+ *
+ * <p><b>Nested pruning happens here, not in fluss.</b> Fluss projects top-level fields only
+ * ({@code Projection} states as much), so a query reading one sub-field of a STRUCT still receives
+ * the whole struct. What the engine pruned is honoured while decoding instead: {@code projectedShapes}
+ * says where each requested sub-field sits in the fluss row. That saves decoding and materialization,
+ * not IO — the bytes were already in the batch.
  */
 public class FlussJniScanner extends JniScanner {
 
@@ -116,6 +124,13 @@ public class FlussJniScanner extends JniScanner {
     /** Fluss types of the projected columns, positionally aligned with {@link #fields}. */
     private List<DataType> projectedTypes;
 
+    /**
+     * Per projected column, how the requested type maps onto the fluss one — or null when the whole
+     * column was requested. Built once at open time: resolving a field name per row would put a hash
+     * lookup on the hot path for a mapping that cannot change mid-scan.
+     */
+    private List<NestedProjection<DataType>> projectedShapes;
+
     private CloseableIterator<InternalRow> currentBatch;
     private boolean finished;
     private long rowsRead;
@@ -153,15 +168,21 @@ public class FlussJniScanner extends JniScanner {
         String partition = params.get(PARTITION_ID);
         this.partitionId = partition == null ? null : Long.parseLong(partition);
 
-        String[] requiredFields = splitOn(params.get("required_fields"), ",");
-        String[] requiredTypes = splitOn(params.get("columns_types"), "#");
+        // The encoded payload is what keeps a nested field's spelling: the legacy grammar lowercases
+        // STRUCT keys, and this scanner now resolves those keys by name while decoding. The legacy
+        // parameters stay as the rolling-upgrade fallback for a BE that predates the override.
+        boolean encodedSchema = JniSchemaParams.usesEncodedSchema(params);
+        String[] requiredFields = JniSchemaParams.requiredFields(params);
+        String[] requiredTypes = JniSchemaParams.requiredTypes(params);
         if (requiredFields.length != requiredTypes.length) {
             throw new IllegalArgumentException("required_fields size " + requiredFields.length
                     + " does not match columns_types size " + requiredTypes.length);
         }
         ColumnType[] columnTypes = new ColumnType[requiredTypes.length];
         for (int i = 0; i < requiredTypes.length; i++) {
-            columnTypes[i] = ColumnType.parseType(requiredFields[i], requiredTypes[i]);
+            columnTypes[i] = encodedSchema
+                    ? ColumnType.parseTypeWithEncodedStructFields(requiredFields[i], requiredTypes[i])
+                    : ColumnType.parseType(requiredFields[i], requiredTypes[i]);
         }
         initTableInfo(columnTypes, requiredFields, batchSize);
         this.columnValue = new FlussColumnValue(
@@ -184,6 +205,12 @@ public class FlussJniScanner extends JniScanner {
             projectedTypes = new ArrayList<>(projection.length);
             for (int index : projection) {
                 projectedTypes.add(rowType.getTypeAt(index));
+            }
+            projectedShapes = new ArrayList<>(projection.length);
+            for (int i = 0; i < projection.length; i++) {
+                NestedProjection<DataType> shape = NestedProjection.of(
+                        types[i], projectedTypes.get(i), FlussNestedTypeSource.INSTANCE);
+                projectedShapes.add(shape.isIdentity() ? null : shape);
             }
 
             long tableId = table.getTableInfo().getTableId();
@@ -300,7 +327,7 @@ public class FlussJniScanner extends JniScanner {
             }
             columnValue.setRow(currentBatch.next());
             for (int i = 0; i < fields.length; i++) {
-                columnValue.setIdx(i, types[i], projectedTypes.get(i));
+                columnValue.setIdx(i, types[i], projectedTypes.get(i), projectedShapes.get(i));
                 appendData(i, columnValue);
             }
             rows++;
@@ -381,12 +408,5 @@ public class FlussJniScanner extends JniScanner {
                     "fluss scanner parameter '" + key + "' is missing; got keys " + params.keySet());
         }
         return value;
-    }
-
-    private static String[] splitOn(String value, String separator) {
-        if (value == null || value.isEmpty()) {
-            return new String[0];
-        }
-        return value.split(separator);
     }
 }
