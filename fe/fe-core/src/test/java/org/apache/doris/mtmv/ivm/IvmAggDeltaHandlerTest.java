@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
@@ -65,6 +66,25 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
     private AggRewriteResult rewriteAgg(LogicalAggregate<? extends Plan> agg) {
         PlanBundle bundle = normalizeAggPlan(agg);
+        MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
+        mtmv.getIvmInfo().advanceRefreshVersion();
+        mtmv.getIvmInfo().advanceRefreshVersion();
+        Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
+                bundle.normalizedPlan, bundle.rewriteResult,
+                IvmRewriteContext.incremental(mtmv, false), bundle.connectContext);
+        Assertions.assertNotNull(rewritten);
+        InsertIntoTableCommand command = new IvmIncrRefreshManager()
+                .buildInsertCommand((LogicalPlan) rewritten, mtmv);
+        UnboundTableSink<?> sink = getSink(command);
+        return new AggRewriteResult(bundle, mtmv, sink, (LogicalProject<?>) sink.child());
+    }
+
+    // Same as rewriteAgg, but simulates ivm_use_full_keys by publishing the identity key slots
+    // on the rewrite result before the incremental rewrite runs.
+    private AggRewriteResult rewriteAggWithIdentityKeys(LogicalAggregate<? extends Plan> agg,
+            List<Slot> identityKeys) {
+        PlanBundle bundle = normalizeAggPlan(agg);
+        bundle.rewriteResult.setIdentityKeySlots(identityKeys);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         mtmv.getIvmInfo().advanceRefreshVersion();
         mtmv.getIvmInfo().advanceRefreshVersion();
@@ -358,6 +378,26 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         Expression joinCondition = join.getHashJoinConjuncts().get(0);
         Assertions.assertInstanceOf(EqualTo.class, joinCondition);
         Assertions.assertTrue(joinCondition.toSql().contains(Column.IVM_ROW_ID_COL));
+    }
+
+    @Test
+    void testGroupedAggApplyJoinAddsIdentityKeyNullSafeEqual() {
+        LogicalOlapScan scan = buildScan();
+        AggRewriteResult result = rewriteAggWithIdentityKeys(buildGroupedAgg(scan),
+                ImmutableList.of(scan.getOutput().get(0)));
+        LogicalJoin<?, ?> join = getJoin(result);
+
+        // Identity key conjuncts use null-safe equality so NULL group keys still match.
+        Assertions.assertTrue(join.getHashJoinConjuncts().stream()
+                        .anyMatch(condition -> condition instanceof NullSafeEqual
+                                && condition.toSql().contains(scan.getOutput().get(0).getName())),
+                "apply join should include a NullSafeEqual on the identity key, but got: "
+                        + join.getHashJoinConjuncts());
+        // The row_id conjunct is kept as well.
+        Assertions.assertTrue(join.getHashJoinConjuncts().stream()
+                        .anyMatch(condition -> condition instanceof EqualTo
+                                && condition.toSql().contains(Column.IVM_ROW_ID_COL)),
+                "apply join should keep the row_id conjunct, but got: " + join.getHashJoinConjuncts());
     }
 
     @Test

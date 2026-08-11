@@ -59,6 +59,10 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
     }
 
     private void analyzeProperties() {
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS)) {
+            throw new AnalysisException("Property '" + PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS
+                    + "' cannot be altered. It is fixed at creation time.");
+        }
         for (String key : properties.keySet()) {
             MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
         }

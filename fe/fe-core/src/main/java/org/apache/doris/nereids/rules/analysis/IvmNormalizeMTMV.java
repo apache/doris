@@ -43,6 +43,7 @@ import org.apache.doris.mtmv.ivm.agg.IvmAggTargetSpec;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -53,9 +54,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -70,7 +74,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -79,6 +87,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -183,6 +192,10 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     private IvmRewriteResult rewriteResult;
     private final IvmAggFunctionRegistry aggFunctionRegistry = IvmAggFunctionRegistry.INSTANCE;
     private StatementContext statementContext;
+    private boolean useFullKeys;
+    private final IdentityHashMap<Plan, List<Slot>> identityKeysByNode = new IdentityHashMap<>();
+    private int sinkKeyCounter;
+    private int unionIdxCounter;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -199,6 +212,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         rewriteResult.setNormalizeRewritten(true);
         this.rewriteResult = rewriteResult;
         statementContext = jobContext.getCascadesContext().getStatementContext();
+        this.useFullKeys = resolveUseFullKeys();
         Plan result = plan.accept(this, NormalizeContext.ROOT);
         rewriteResult.setNormalizedPlan(result);
         IvmPlanSignature planSignature = new IvmPlanSignatureGenerator().generate(result);
@@ -212,6 +226,20 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                     planSignature.getSha256());
         }
         return result;
+    }
+
+    private boolean resolveUseFullKeys() {
+        if (statementContext == null || !statementContext.getIvmRewriteContext().isPresent()) {
+            return false;
+        }
+        IvmRewriteContext rewriteContext = statementContext.getIvmRewriteContext().get();
+        if (rewriteContext.getUseFullKeys() != null) {
+            return rewriteContext.getUseFullKeys();
+        }
+        if (rewriteContext.getMtmv() != null && rewriteContext.getMtmv().getIvmInfo() != null) {
+            return rewriteContext.getMtmv().getIvmInfo().isUseFullKeys();
+        }
+        return false;
     }
 
     // unsupported: any plan node not explicitly whitelisted below
@@ -235,7 +263,16 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                         .filter(slot -> !IvmUtil.isIvmHiddenColumn(slot.getName()))
                         .collect(ImmutableList.toImmutableList()))
                 .build();
-        return new LogicalProject<>(outputs, scan);
+        LogicalProject<?> result = new LogicalProject<>(outputs, scan);
+        if (useFullKeys && !context.isInsideAggregate) {
+            identityKeysByNode.put(result, scanIdentityKeys(table, scan));
+        }
+        return result;
+    }
+
+    private List<Slot> scanIdentityKeys(OlapTable table, LogicalOlapScan scan) {
+        Pair<List<Slot>, Boolean> identity = computeBaseIdentityKeys(table, scan);
+        return identity.second ? identity.first : ImmutableList.of();
     }
 
     @Override
@@ -264,22 +301,69 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                     "IVM does not support DISTINCT project.");
         }
         Plan newChild = project.child().accept(this, context);
-        List<NamedExpression> newOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, project.getProjects(),
+        List<NamedExpression> baseOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, project.getProjects(),
                 context.isFirstNonSink);
-        if (newChild == project.child() && newOutputs.equals(project.getProjects())) {
-            return project;
+
+        List<Slot> childKeys = useFullKeys && !context.isInsideAggregate
+                ? identityKeysByNode.get(newChild) : null;
+        List<Slot> projectKeys = ImmutableList.of();
+        List<NamedExpression> finalOutputs = baseOutputs;
+        if (childKeys != null && !childKeys.isEmpty()) {
+            List<NamedExpression> extendedOutputs = new ArrayList<>(baseOutputs);
+            List<Slot> survivingKeys = new ArrayList<>();
+            for (Slot keySlot : childKeys) {
+                NamedExpression projected = findProjectedKey(baseOutputs, keySlot);
+                if (projected != null) {
+                    survivingKeys.add(projected.toSlot());
+                } else {
+                    extendedOutputs.add(keySlot);
+                    survivingKeys.add(keySlot);
+                }
+            }
+            finalOutputs = ImmutableList.copyOf(extendedOutputs);
+            projectKeys = survivingKeys;
         }
-        return project.withProjectsAndChild(newOutputs, newChild);
+
+        Plan result;
+        if (newChild == project.child() && finalOutputs.equals(project.getProjects())) {
+            result = project;
+        } else {
+            result = project.withProjectsAndChild(finalOutputs, newChild);
+        }
+        if (useFullKeys && !context.isInsideAggregate) {
+            identityKeysByNode.put(result, projectKeys);
+        }
+        return result;
+    }
+
+    private NamedExpression findProjectedKey(List<NamedExpression> outputs, Slot keySlot) {
+        for (NamedExpression output : outputs) {
+            if (output instanceof Slot && output.getExprId().equals(keySlot.getExprId())) {
+                return output;
+            }
+            if (output instanceof Alias && ((Alias) output).child().equals(keySlot)) {
+                return output;
+            }
+        }
+        return null;
     }
 
     @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, NormalizeContext context) {
-        return filter.withChildren(child -> child.accept(this, context.afterNonSink()));
+        Plan result = filter.withChildren(child -> child.accept(this, context.afterNonSink()));
+        if (useFullKeys && !context.isInsideAggregate) {
+            identityKeysByNode.put(result, identityKeysByNode.get(result.child(0)));
+        }
+        return result;
     }
 
     @Override
     public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias, NormalizeContext context) {
-        return alias.withChildren(child -> child.accept(this, context.afterNonSink()));
+        Plan result = alias.withChildren(child -> child.accept(this, context.afterNonSink()));
+        if (useFullKeys && !context.isInsideAggregate) {
+            identityKeysByNode.put(result, identityKeysByNode.get(result.child(0)));
+        }
+        return result;
     }
 
     /**
@@ -351,7 +435,20 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
 
         // Add composed row_id to map (don't clear — child entries are kept for strategy lookup)
         rewriteResult.addRowId(joinRowIdAlias.toSlot(), leftDet && rightDet);
-        return new LogicalProject<>(projectOutputs.build(), newJoin);
+        LogicalProject<?> result = new LogicalProject<>(projectOutputs.build(), newJoin);
+        if (useFullKeys && !context.isInsideAggregate) {
+            List<Slot> joinKeys = new ArrayList<>();
+            List<Slot> leftKeys = identityKeysByNode.get(newLeft);
+            if (leftKeys != null) {
+                joinKeys.addAll(leftKeys);
+            }
+            List<Slot> rightKeys = identityKeysByNode.get(newRight);
+            if (rightKeys != null) {
+                joinKeys.addAll(rightKeys);
+            }
+            identityKeysByNode.put(result, joinKeys);
+        }
+        return result;
     }
 
     /**
@@ -381,24 +478,56 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                     "IVM does not support UNION ALL with constant expressions.");
         }
 
+        NormalizeContext childContext = context.afterNonSink();
+        boolean useUnionKeys = useFullKeys && !context.isInsideAggregate;
+        int unionIdx = useUnionKeys ? unionIdxCounter++ : -1;
+
+        // Pass 1: normalize children and collect each arm's identity keys.
+        List<Plan> normalizedChildren = new ArrayList<>();
+        List<List<Slot>> armKeys = new ArrayList<>();
+        int maxKeys = 0;
+        for (int i = 0; i < union.children().size(); i++) {
+            Plan normalizedChild = union.child(i).accept(this, childContext);
+            normalizedChildren.add(normalizedChild);
+            List<Slot> keys = useUnionKeys ? identityKeysByNode.get(normalizedChild) : ImmutableList.of();
+            if (keys == null) {
+                keys = ImmutableList.of();
+            }
+            armKeys.add(keys);
+            maxKeys = Math.max(maxKeys, keys.size());
+        }
+        List<DataType> posTypes = useUnionKeys ? computeUnionPositionalTypes(armKeys, maxKeys) : ImmutableList.of();
+
+        // Pass 2: wrap each arm with row_id + arm_index + positional keys.
         List<Plan> newChildren = new ArrayList<>();
         List<List<SlotReference>> newChildrenOutputs = new ArrayList<>();
         boolean allDet = true;
-        NormalizeContext childContext = context.afterNonSink();
-
-        for (int i = 0; i < union.children().size(); i++) {
-            Plan normalizedChild = union.child(i).accept(this, childContext);
+        for (int i = 0; i < normalizedChildren.size(); i++) {
+            Plan normalizedChild = normalizedChildren.get(i);
             Slot childRowId = IvmUtil.findRowIdSlot(normalizedChild.getOutput(),
                     "child " + i + " of union");
             allDet &= rewriteResult.isDeterministic(childRowId);
 
-            // Wrap with Project: hash(arm_index, child_row_id) as row_id, plus other cols
             Expression hashExpr = IvmUtil.buildRowIdHash(
                     ImmutableList.of(new IntegerLiteral(i), childRowId));
             Alias hashAlias = new Alias(hashExpr, Column.IVM_ROW_ID_COL);
 
             ImmutableList.Builder<NamedExpression> projOutputs = ImmutableList.builder();
             projOutputs.add(hashAlias);
+            if (useUnionKeys) {
+                projOutputs.add(new Alias(new TinyIntLiteral((byte) i),
+                        Column.IVM_UNION_ARM_INDEX_COL_PREFIX + unionIdx + "_COL__"));
+                for (int p = 0; p < maxKeys; p++) {
+                    DataType posType = posTypes.get(p);
+                    String posName = Column.IVM_UNION_KEY_COL_PREFIX + unionIdx + "_" + p + "_COL__";
+                    Expression keyExpr = p < armKeys.get(i).size()
+                            ? armKeys.get(i).get(p) : new NullLiteral(posType);
+                    if (!keyExpr.getDataType().equals(posType)) {
+                        keyExpr = new Cast(keyExpr, posType);
+                    }
+                    projOutputs.add(new Alias(keyExpr, posName));
+                }
+            }
             for (Slot slot : normalizedChild.getOutput()) {
                 if (!Column.IVM_ROW_ID_COL.equals(slot.getName())) {
                     projOutputs.add(slot);
@@ -407,12 +536,16 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             LogicalProject<Plan> hashedChild = new LogicalProject<>(projOutputs.build(), normalizedChild);
             newChildren.add(hashedChild);
 
-            // Build child's regularChildrenOutputs: [hashed_row_id, ...original_mapping...]
-            SlotReference hashedRowIdSlot = (SlotReference) hashedChild.getOutput().get(0);
-            ImmutableList.Builder<SlotReference> childMapping = ImmutableList.builder();
-            childMapping.add(hashedRowIdSlot);
+            List<SlotReference> childMapping = new ArrayList<>();
+            childMapping.add((SlotReference) hashedChild.getOutput().get(0));
+            if (useUnionKeys) {
+                childMapping.add((SlotReference) hashedChild.getOutput().get(1));
+                for (int p = 0; p < maxKeys; p++) {
+                    childMapping.add((SlotReference) hashedChild.getOutput().get(2 + p));
+                }
+            }
             childMapping.addAll(union.getRegularChildrenOutputs().get(i));
-            newChildrenOutputs.add(childMapping.build());
+            newChildrenOutputs.add(childMapping);
         }
 
         // Create union-level row_id output
@@ -421,13 +554,48 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                 Column.IVM_ROW_ID_COL, LargeIntType.INSTANCE, false, ImmutableList.of());
         rewriteResult.addRowId(unionRowId, allDet);
 
-        // Rebuild UNION: [union_row_id, ...original_outputs...]
+        // Rebuild UNION: [union_row_id, (arm_index, positional keys), ...original_outputs]
         ImmutableList.Builder<NamedExpression> newOutputs = ImmutableList.builder();
         newOutputs.add(unionRowId);
+        List<Slot> unionIdentityKeys = new ArrayList<>();
+        if (useUnionKeys) {
+            SlotReference armIdxOut = new SlotReference(StatementScopeIdGenerator.newExprId(),
+                    Column.IVM_UNION_ARM_INDEX_COL_PREFIX + unionIdx + "_COL__",
+                    TinyIntType.INSTANCE, false, ImmutableList.of());
+            newOutputs.add(armIdxOut);
+            unionIdentityKeys.add(armIdxOut);
+            for (int p = 0; p < maxKeys; p++) {
+                SlotReference posOut = new SlotReference(StatementScopeIdGenerator.newExprId(),
+                        Column.IVM_UNION_KEY_COL_PREFIX + unionIdx + "_" + p + "_COL__",
+                        posTypes.get(p), true, ImmutableList.of());
+                newOutputs.add(posOut);
+                unionIdentityKeys.add(posOut);
+            }
+        }
         newOutputs.addAll(union.getOutputs());
 
-        return union.withNewOutputsChildrenAndConstExprsList(
+        Plan result = union.withNewOutputsChildrenAndConstExprsList(
                 newOutputs.build(), newChildren, newChildrenOutputs, union.getConstantExprsList());
+        if (useUnionKeys) {
+            identityKeysByNode.put(result, unionIdentityKeys);
+        }
+        return result;
+    }
+
+    private List<DataType> computeUnionPositionalTypes(List<List<Slot>> armKeys, int maxKeys) {
+        List<DataType> posTypes = new ArrayList<>(maxKeys);
+        for (int p = 0; p < maxKeys; p++) {
+            List<DataType> typesAtPos = new ArrayList<>();
+            for (List<Slot> keys : armKeys) {
+                if (p < keys.size()) {
+                    typesAtPos.add(keys.get(p).getDataType());
+                }
+            }
+            DataType commonType = TypeCoercionUtils.findWiderCommonType(typesAtPos, false, false)
+                    .orElse(VarcharType.SYSTEM_DEFAULT);
+            posTypes.add(ColumnDefinition.isEligibleKeyType(commonType) ? commonType : VarcharType.SYSTEM_DEFAULT);
+        }
+        return posTypes;
     }
 
     @Override
@@ -557,7 +725,11 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                 groupCountSlot, resolvedTargets);
         rewriteResult.setAggMeta(aggMeta);
 
-        return new LogicalProject<>(projectOutputs.build(), newAgg);
+        LogicalProject<?> result = new LogicalProject<>(projectOutputs.build(), newAgg);
+        if (useFullKeys) {
+            identityKeysByNode.put(result, resolvedGroupKeys);
+        }
+        return result;
     }
 
     private void checkOuterJoinDeterministicRowId(JoinType joinType, boolean leftDet, boolean rightDet) {
@@ -628,12 +800,42 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, NormalizeContext context) {
         validateUserOutputColumnNames(sink.getOutputExprs());
         Plan newChild = sink.child().accept(this, context);
-        List<NamedExpression> newOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, sink.getOutputExprs(),
+        List<NamedExpression> baseOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, sink.getOutputExprs(),
                 context.isFirstNonSink);
-        if (newChild == sink.child() && newOutputs.equals(sink.getOutputExprs())) {
-            return sink;
+
+        List<Slot> childKeys = useFullKeys ? identityKeysByNode.get(newChild) : null;
+        List<Slot> sinkKeys = new ArrayList<>();
+        List<NamedExpression> finalOutputs = new ArrayList<>(baseOutputs);
+        if (childKeys != null && !childKeys.isEmpty()) {
+            Set<String> outputNames = finalOutputs.stream()
+                    .map(NamedExpression::getName)
+                    .collect(Collectors.toSet());
+            for (Slot keySlot : childKeys) {
+                String keyName = keySlot.getName();
+                if (IvmUtil.isIvmHiddenColumn(keyName)) {
+                    sinkKeys.add(keySlot);
+                } else if (outputNames.contains(keyName)) {
+                    sinkKeys.add(keySlot);
+                } else {
+                    String hiddenName = Column.IVM_KEY_COL_PREFIX + (++sinkKeyCounter) + "_"
+                            + keyName + "_COL__";
+                    Alias hiddenAlias = new Alias(keySlot, hiddenName);
+                    finalOutputs.add(hiddenAlias);
+                    sinkKeys.add(hiddenAlias.toSlot());
+                }
+            }
         }
-        return sink.withOutputExprs(newOutputs).withChildren(ImmutableList.of(newChild));
+
+        Plan result;
+        if (newChild == sink.child() && finalOutputs.equals(sink.getOutputExprs())) {
+            result = sink;
+        } else {
+            result = sink.withOutputExprs(finalOutputs).withChildren(ImmutableList.of(newChild));
+        }
+        if (useFullKeys) {
+            rewriteResult.setIdentityKeySlots(sinkKeys);
+        }
+        return result;
     }
 
     private void validateUserOutputColumnNames(List<NamedExpression> outputs) {
@@ -650,11 +852,21 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> sink,
             NormalizeContext context) {
         Plan newChild = sink.child().accept(this, context);
+        Plan result;
         if (newChild == sink.child()) {
-            return sink;
+            result = sink;
+        } else {
+            result = sink.withChildAndUpdateOutput(newChild, sink.getPartitionExprList(),
+                    sink.getSyncMvWhereClauses(), sink.getTargetTableSlots());
         }
-        return sink.withChildAndUpdateOutput(newChild, sink.getPartitionExprList(),
-                sink.getSyncMvWhereClauses(), sink.getTargetTableSlots());
+        if (useFullKeys) {
+            List<Slot> childKeys = identityKeysByNode.get(newChild);
+            identityKeysByNode.put(result, childKeys);
+            // Incremental/full refresh plans root at an olap table sink (no ResultSink above),
+            // so the identity keys must be published here for the agg apply join.
+            rewriteResult.setIdentityKeySlots(childKeys);
+        }
+        return result;
     }
 
     /**
@@ -739,10 +951,26 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
      * - Other key types: throws IvmException (unless excluded trigger table)
      */
     private Pair<Expression, Boolean> buildRowId(OlapTable table, LogicalOlapScan scan) {
+        Pair<List<Slot>, Boolean> identity = computeBaseIdentityKeys(table, scan);
+        if (!identity.second) {
+            return Pair.of(new UuidNumeric(), false);
+        }
+        return Pair.of(IvmUtil.buildRowIdHash(identity.first), true);
+    }
+
+    /**
+     * Computes the base-table identity key slots and whether the row-id is deterministic.
+     * Returns (identityKeySlots, deterministic):
+     * - UNIQUE_KEYS (MOW or excluded): (uk slots, true)
+     * - DUP_KEYS: (empty, false)
+     * - Excluded AGG_KEYS: (agg-key slots, true)
+     * - Other key types: throws IvmException
+     */
+    private Pair<List<Slot>, Boolean> computeBaseIdentityKeys(OlapTable table, LogicalOlapScan scan) {
         KeysType keysType = table.getKeysType();
-        boolean isExcludedTriggerTable = isExcludedTriggerTable(scan);
+        boolean isExcluded = isExcludedTriggerTable(scan);
         if (keysType == KeysType.UNIQUE_KEYS) {
-            if (!table.getEnableUniqueKeyMergeOnWrite() && !isExcludedTriggerTable) {
+            if (!table.getEnableUniqueKeyMergeOnWrite() && !isExcluded) {
                 throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                         "INCREMENTAL materialized view requires UNIQUE_KEYS base tables "
                                 + "to enable Merge-On-Write. Table '"
@@ -750,13 +978,13 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                                 + " If this table does not participate in incremental refresh, "
                                 + "add it to 'excluded_trigger_tables'.");
             }
-            return buildDeterministicRowIdFromBaseKeys(table, scan);
+            return Pair.of(baseKeySlots(table, scan), true);
         }
         if (keysType == KeysType.DUP_KEYS) {
-            return Pair.of(new UuidNumeric(), false);
+            return Pair.of(ImmutableList.of(), false);
         }
-        if (keysType == KeysType.AGG_KEYS && isExcludedTriggerTable) {
-            return buildDeterministicRowIdFromBaseKeys(table, scan);
+        if (keysType == KeysType.AGG_KEYS && isExcluded) {
+            return Pair.of(baseKeySlots(table, scan), true);
         }
         throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                 "INCREMENTAL materialized view requires base tables to be "
@@ -766,21 +994,21 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                         + "add it to 'excluded_trigger_tables'.");
     }
 
-    private Pair<Expression, Boolean> buildDeterministicRowIdFromBaseKeys(OlapTable table, LogicalOlapScan scan) {
+    private List<Slot> baseKeySlots(OlapTable table, LogicalOlapScan scan) {
         // Use full schema because MTMV key columns (row-id) are hidden.
         Set<String> keyColNames = table.getBaseSchema(true).stream()
                 .filter(Column::isKey)
                 .map(Column::getName)
                 .collect(Collectors.toSet());
-        List<Expression> keySlots = scan.getOutput().stream()
+        List<Slot> keySlots = scan.getOutput().stream()
                 .filter(slot -> keyColNames.contains(slot.getName()))
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
         if (keySlots.isEmpty()) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM: no key columns found for "
                     + table.getKeysType() + " table: " + table.getName());
         }
-        return Pair.of(IvmUtil.buildRowIdHash(keySlots), true);
+        return keySlots;
     }
 
     private void validateBinlogEnabled(LogicalOlapScan scan) {

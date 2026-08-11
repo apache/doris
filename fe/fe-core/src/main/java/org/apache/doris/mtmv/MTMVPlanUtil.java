@@ -569,6 +569,8 @@ public class MTMVPlanUtil {
         try (StatementContext statementContext = ctx.getStatementContext()) {
             statementContext.setIvmRewriteContext(ivmRewriteContext);
             statementContext.setExcludedTriggerTables(excludedTriggerTables);
+            ivmRewriteContext.ifPresent(rewriteContext -> rewriteContext.setUseFullKeys(
+                    MTMVPropertyUtil.isIvmUseFullKeys(mvProperties)));
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             // this is for expression column name infer when not use alias
             LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
@@ -618,7 +620,7 @@ public class MTMVPlanUtil {
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
             Optional<IvmRewriteResult> ivmRewriteResult = planner.getCascadesContext().getIvmRewriteResult();
-            keys = analyzeKeys(keys, properties, columns, isIvm, mvPartitionInfo, distribution,
+            keys = analyzeKeys(keys, properties, mvProperties, columns, isIvm, mvPartitionInfo, distribution,
                     ivmRewriteResult.orElse(null));
             properties = CreateTableInfo.addOlapHiddenColumns(
                     columns, isIvm ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS,
@@ -690,10 +692,11 @@ public class MTMVPlanUtil {
     }
 
     private static List<String> analyzeKeys(List<String> keys, Map<String, String> properties,
-            List<ColumnDefinition> columns, boolean isIvm, MTMVPartitionInfo mvPartitionInfo,
-            DistributionDescriptor distribution, IvmRewriteResult ivmRewriteResult) {
+            Map<String, String> mvProperties, List<ColumnDefinition> columns, boolean isIvm,
+            MTMVPartitionInfo mvPartitionInfo, DistributionDescriptor distribution,
+            IvmRewriteResult ivmRewriteResult) {
         if (isIvm) {
-            return analyzeIvmKeys(keys, columns, mvPartitionInfo, distribution, ivmRewriteResult);
+            return analyzeIvmKeys(keys, columns, mvPartitionInfo, distribution, ivmRewriteResult, mvProperties);
         }
         boolean enableDuplicateWithoutKeysByDefault = false;
         try {
@@ -737,7 +740,7 @@ public class MTMVPlanUtil {
 
     private static List<String> analyzeIvmKeys(List<String> keys, List<ColumnDefinition> columns,
             MTMVPartitionInfo mvPartitionInfo, DistributionDescriptor distribution,
-            IvmRewriteResult ivmRewriteResult) {
+            IvmRewriteResult ivmRewriteResult, Map<String, String> mvProperties) {
         Map<String, ColumnDefinition> columnMap = columns.stream()
                 .collect(Collectors.toMap(ColumnDefinition::getName, column -> column,
                         (left, right) -> left, () -> new TreeMap<>(String.CASE_INSENSITIVE_ORDER)));
@@ -770,12 +773,55 @@ public class MTMVPlanUtil {
                 }
             }
         }
+
+        boolean useFullKeys = MTMVPropertyUtil.isIvmUseFullKeys(mvProperties);
+        List<Slot> identityKeySlots = useFullKeys && ivmRewriteResult != null
+                ? ivmRewriteResult.getIdentityKeySlots() : null;
+        LinkedHashSet<String> hiddenIdentityKeys = new LinkedHashSet<>();
+        if (identityKeySlots != null && !identityKeySlots.isEmpty()) {
+            Set<String> visibleKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            visibleKeySet.addAll(visibleKeys);
+            for (int i = visibleKeys.size(); i < visibleOutputNames.size(); i++) {
+                String columnName = visibleOutputNames.get(i);
+                if (!visibleKeySet.contains(columnName) && isVisibleIdentityKey(identityKeySlots, columnMap,
+                        columnName)) {
+                    addIvmFinalKey(visibleKeys, columnName);
+                } else {
+                    break;
+                }
+            }
+            for (Slot keySlot : identityKeySlots) {
+                String slotName = keySlot.getName();
+                if (Column.IVM_ROW_ID_COL.equalsIgnoreCase(slotName) || !IvmUtil.isIvmHiddenColumn(slotName)) {
+                    continue;
+                }
+                ColumnDefinition keyColumn = columnMap.get(slotName);
+                if (keyColumn == null || !ColumnDefinition.isEligibleKeyType(keyColumn.getType())) {
+                    continue;
+                }
+                addIvmFinalKey(hiddenIdentityKeys, slotName);
+            }
+        }
+
         LinkedHashSet<String> finalKeys = new LinkedHashSet<>(visibleKeys);
+        finalKeys.addAll(hiddenIdentityKeys);
         addIvmFinalKey(finalKeys, Column.IVM_ROW_ID_COL);
         validateIvmAggregateKeys(finalKeys, visibleColumns, ivmRewriteResult);
         validateIvmVisibleKeyPrefix(Lists.newArrayList(visibleKeys), visibleOutputNames, hasExplicitKeys);
-        applyIvmPhysicalKeyLayout(columns, columnMap, Lists.newArrayList(visibleKeys), Lists.newArrayList(finalKeys));
+        applyIvmPhysicalKeyLayout(columns, columnMap, Lists.newArrayList(visibleKeys),
+                Lists.newArrayList(finalKeys));
         return Lists.newArrayList(finalKeys);
+    }
+
+    private static boolean isVisibleIdentityKey(List<Slot> identityKeySlots,
+            Map<String, ColumnDefinition> columnMap, String columnName) {
+        for (Slot keySlot : identityKeySlots) {
+            if (keySlot.getName().equalsIgnoreCase(columnName)) {
+                ColumnDefinition keyColumn = columnMap.get(columnName);
+                return keyColumn != null && ColumnDefinition.isEligibleKeyType(keyColumn.getType());
+            }
+        }
+        return false;
     }
 
     private static void addIvmHashDistributionKeysIfNeeded(Set<String> requiredVisibleKeys,
@@ -825,26 +871,21 @@ public class MTMVPlanUtil {
 
     private static void applyIvmPhysicalKeyLayout(List<ColumnDefinition> columns,
             Map<String, ColumnDefinition> columnMap, List<String> visibleKeys, List<String> finalKeys) {
-        Set<String> visibleKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        visibleKeySet.addAll(visibleKeys);
+        Set<String> keyNameSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        keyNameSet.addAll(finalKeys);
         List<ColumnDefinition> reorderedColumns = new ArrayList<>(columns.size());
-        for (String key : visibleKeys) {
+        for (String key : finalKeys) {
             ColumnDefinition keyColumn = columnMap.get(key);
-            Preconditions.checkState(keyColumn != null && keyColumn.isVisible(),
-                    "visible IVM key column must exist: %s", key);
+            Preconditions.checkState(keyColumn != null, "IVM key column must exist: %s", key);
+            boolean isHidden = IvmUtil.isIvmHiddenColumn(key);
+            Preconditions.checkState(keyColumn.isVisible() != isHidden,
+                    "IVM key column visibility mismatch: %s", key);
             keyColumn.setIsKey(true);
             reorderedColumns.add(keyColumn);
         }
 
-        ColumnDefinition rowIdColumn = columnMap.get(Column.IVM_ROW_ID_COL);
-        Preconditions.checkState(rowIdColumn != null && !rowIdColumn.isVisible(),
-                "IVM row-id column must exist and be hidden");
-        rowIdColumn.setIsKey(true);
-        reorderedColumns.add(rowIdColumn);
-
         for (ColumnDefinition column : columns) {
-            if (Column.IVM_ROW_ID_COL.equalsIgnoreCase(column.getName())
-                    || visibleKeySet.contains(column.getName())) {
+            if (keyNameSet.contains(column.getName())) {
                 continue;
             }
             column.setIsKey(false);

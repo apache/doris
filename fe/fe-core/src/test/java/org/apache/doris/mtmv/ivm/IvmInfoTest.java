@@ -42,10 +42,20 @@ class IvmInfoTest {
     }
 
     @Test
+    void testUseFullKeysPersistsThroughGson() {
+        IvmInfo info = new IvmInfo();
+        info.setUseFullKeys(true);
+
+        IvmInfo recovered = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(info), IvmInfo.class);
+        Assertions.assertTrue(recovered.isUseFullKeys());
+    }
+
+    @Test
     void testCopyConstructor() {
         IvmInfo info = new IvmInfo();
         info.setEnableIvm(true);
         info.setBinlogBroken(true);
+        info.setUseFullKeys(true);
         info.setPlanSignature("abc123");
         info.advanceRefreshVersion();
         info.increaseBinlogBrokenGeneration();
@@ -54,6 +64,7 @@ class IvmInfoTest {
 
         Assertions.assertTrue(copy.isEnableIvm());
         Assertions.assertTrue(copy.isBinlogBroken());
+        Assertions.assertTrue(copy.isUseFullKeys());
         Assertions.assertEquals("abc123", copy.getPlanSignature());
         Assertions.assertEquals(1, copy.getRefreshVersion());
         Assertions.assertEquals(1, copy.getBinlogBrokenGeneration());

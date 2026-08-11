@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -40,6 +41,7 @@ public class IvmRewriteResult {
     private IvmPlanSignature planSignature;
     private boolean normalizeRewritten;
     private boolean incrRefreshRewritten;
+    private List<Slot> identityKeySlots;
 
     public void addRowId(Slot rowIdSlot, boolean deterministic) {
         rowIdDeterminism.put(rowIdSlot, deterministic);
@@ -100,5 +102,14 @@ public class IvmRewriteResult {
 
     public void setIncrRefreshRewritten(boolean incrRefreshRewritten) {
         this.incrRefreshRewritten = incrRefreshRewritten;
+    }
+
+    /** Returns the identity key slots computed during normalization, or null if not computed. */
+    public List<Slot> getIdentityKeySlots() {
+        return identityKeySlots;
+    }
+
+    public void setIdentityKeySlots(List<Slot> identityKeySlots) {
+        this.identityKeySlots = identityKeySlots;
     }
 }
