@@ -19,14 +19,14 @@ package org.apache.doris.catalog.authorizer.ranger.hive;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.RowFilterPolicy;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -259,7 +259,7 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     @Override
-    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
+    public List<RowFilterSpec> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
             String tbl) {
         lifecycleLock.readLock().lock();
         try {
@@ -270,7 +270,7 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     @Override
-    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+    public Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
             String col) {
         lifecycleLock.readLock().lock();
         try {

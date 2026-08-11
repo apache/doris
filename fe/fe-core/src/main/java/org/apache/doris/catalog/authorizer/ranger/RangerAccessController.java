@@ -18,13 +18,11 @@
 package org.apache.doris.catalog.authorizer.ranger;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.authorizer.ranger.doris.DorisAccessType;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
-import org.apache.doris.mysql.privilege.DataMaskPolicy;
-import org.apache.doris.mysql.privilege.RangerDataMaskPolicy;
-import org.apache.doris.mysql.privilege.RangerRowFilterPolicy;
-import org.apache.doris.mysql.privilege.RowFilterPolicy;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -88,8 +86,17 @@ public abstract class RangerAccessController implements CatalogAccessController 
         }
     }
 
+    /**
+     * Identifies a Ranger policy for auditing and for the SQL cache's change detection. The version is part of
+     * it on purpose: an administrator editing a policy in place keeps its id, and without the version an
+     * updated policy would compare equal to the one the cached result was planned with.
+     */
+    private static String policyIdent(RangerAccessResult policy) {
+        return policy.getPolicyId() + ":" + policy.getPolicyVersion();
+    }
+
     @Override
-    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
+    public List<RowFilterSpec> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
             String tbl) {
         RangerAccessResourceImpl resource = createResource(ctl, db, tbl);
         RangerAccessRequestImpl request = createRequest(currentUser);
@@ -103,7 +110,7 @@ public abstract class RangerAccessController implements CatalogAccessController 
         if (LOG.isDebugEnabled()) {
             LOG.debug("ranger request: {}", request);
         }
-        List<RangerRowFilterPolicy> res = Lists.newArrayList();
+        List<RowFilterSpec> res = Lists.newArrayList();
         RangerAccessResult policy = getPlugin().evalRowFilterPolicies(request, getAccessResultProcessor());
         if (LOG.isDebugEnabled()) {
             LOG.debug("ranger response: {}", policy);
@@ -115,13 +122,13 @@ public abstract class RangerAccessController implements CatalogAccessController 
         if (StringUtils.isEmpty(filterExpr)) {
             return res;
         }
-        res.add(new RangerRowFilterPolicy(currentUser, ctl, db, tbl, policy.getPolicyId(), policy.getPolicyVersion(),
-                filterExpr));
+        // Ranger row filters are always restrictive: it returns at most one expression and the row must match it.
+        res.add(RowFilterSpec.restrictive(policyIdent(policy), filterExpr));
         return res;
     }
 
     @Override
-    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+    public Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
             String col) {
         RangerAccessResourceImpl resource = createResource(ctl, db, tbl, col);
         RangerAccessRequestImpl request = createRequest(currentUser);
@@ -144,8 +151,7 @@ public abstract class RangerAccessController implements CatalogAccessController 
         }
         switch (maskType) {
             case "MASK_NULL":
-                return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
-                        policy.getPolicyVersion(), maskType, "NULL"));
+                return Optional.of(new DataMaskSpec(policyIdent(policy), "NULL"));
             case "MASK_NONE":
                 return Optional.empty();
             case "CUSTOM":
@@ -153,15 +159,13 @@ public abstract class RangerAccessController implements CatalogAccessController 
                 if (StringUtils.isEmpty(maskedValue)) {
                     return Optional.empty();
                 }
-                return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
-                        policy.getPolicyVersion(), maskType, maskedValue.replace("{col}", col)));
+                return Optional.of(new DataMaskSpec(policyIdent(policy), maskedValue.replace("{col}", col)));
             default:
                 String transformer = policy.getMaskTypeDef().getTransformer();
                 if (StringUtils.isEmpty(transformer)) {
                     return Optional.empty();
                 }
-                return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
-                        policy.getPolicyVersion(), maskType, transformer.replace("{col}", col)));
+                return Optional.of(new DataMaskSpec(policyIdent(policy), transformer.replace("{col}", col)));
         }
     }
 

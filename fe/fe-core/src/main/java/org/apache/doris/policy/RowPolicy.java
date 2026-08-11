@@ -21,7 +21,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
@@ -30,6 +29,8 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.ToString;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -43,7 +44,7 @@ import java.util.Optional;
  * Save policy for filtering data.
  **/
 @Data
-public class RowPolicy extends Policy implements RowFilterPolicy {
+public class RowPolicy extends Policy {
 
     public static final ShowResultSetMetaData ROW_META_DATA =
             ShowResultSetMetaData.builder()
@@ -100,6 +101,13 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
     private int stmtIdx;
 
     private Expression wherePredicate = null;
+
+    // Derived from originStmt on first use, never persisted: see getFilterSql(). Excluded from equality and
+    // toString because it is a lazily filled cache - two policies created from the same statement must not
+    // compare differently depending on whether a query has already asked for the predicate text.
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private volatile String wherePredicateSql = null;
 
     public RowPolicy() {
         super(PolicyTypeEnum.ROW);
@@ -221,15 +229,39 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
         return (wherePredicate == null);
     }
 
-    @Override
-    public Expression getFilterExpression() throws AnalysisException {
+    /**
+     * The predicate as SQL text, which is the form the authorization layer hands to the planner.
+     *
+     * <p>It is the text the administrator wrote, recovered from the stored statement - not a rendering of
+     * the parsed predicate. Rendering would not survive the round trip: {@code toSql()} on a compound
+     * predicate produces the diagnostic form {@code AND[a,b]}, which does not parse back, so any policy
+     * combining two conditions would break.</p>
+     */
+    public String getFilterSql() throws AnalysisException {
         if (wherePredicate == null) {
             throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "], " + getOriginStmt());
         }
-        return wherePredicate;
+        if (wherePredicateSql == null) {
+            wherePredicateSql = parseWherePredicateSql();
+        }
+        return wherePredicateSql;
     }
 
-    @Override
+    private String parseWherePredicateSql() throws AnalysisException {
+        try {
+            CreatePolicyCommand command = (CreatePolicyCommand) new NereidsParser().parseSingle(getOriginStmt());
+            if (!StringUtils.isEmpty(command.getWherePredicateSql())) {
+                return command.getWherePredicateSql();
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to recover the predicate text of row policy [{}]", getPolicyIdent(), e);
+        }
+        // The statement parsed once already (that is where wherePredicate came from), so reaching here means
+        // the stored statement no longer matches what the parser produces. Refuse the query rather than let
+        // the table be read unfiltered.
+        throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "], " + getOriginStmt());
+    }
+
     public String getPolicyIdent() {
         return getPolicyName();
     }

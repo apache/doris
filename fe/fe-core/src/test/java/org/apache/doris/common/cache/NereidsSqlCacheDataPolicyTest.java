@@ -18,13 +18,11 @@
 package org.apache.doris.common.cache;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.DataMaskPolicy;
-import org.apache.doris.mysql.privilege.RangerDataMaskPolicy;
-import org.apache.doris.mysql.privilege.RangerRowFilterPolicy;
-import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.SqlCacheContext;
 
 import com.google.common.collect.ImmutableList;
@@ -45,9 +43,9 @@ import java.util.Optional;
  *
  * <p>An authorization source builds its policy objects fresh on every evaluation (it is answering a request,
  * not handing out a cached object), so value equality is the source's obligation, and the "unchanged" tests
- * below are what enforce it. They are RED for the Ranger policy types, which have no equals: the comparison
- * degrades to identity, every lookup reads as a policy change, and a user with any row filter or column mask
- * configured never gets a cache hit at all.</p>
+ * below are what enforce it. They were RED before the payload rework: the Ranger policy types carried no
+ * equals, so the comparison degraded to identity, every lookup read as a policy change, and a user with any
+ * row filter or column mask configured never got a cache hit at all.</p>
  *
  * <p>The "changed" tests pin the other half of the contract, so a fix cannot buy cache hits by weakening the
  * comparison: an edited policy must still invalidate, or the cache keeps serving rows the user may no longer
@@ -61,12 +59,13 @@ public class NereidsSqlCacheDataPolicyTest {
     private static final String COL = "phone";
     private static final UserIdentity USER = UserIdentity.ROOT;
 
-    private RowFilterPolicy rowFilter(long policyVersion, String filterExpr) {
-        return new RangerRowFilterPolicy(USER, CTL, DB, TBL, 7L, policyVersion, filterExpr);
+    /** Shaped like what a Ranger controller returns: a fresh object per evaluation, identified by id:version. */
+    private RowFilterSpec rowFilter(long policyVersion, String filterExpr) {
+        return RowFilterSpec.restrictive("7:" + policyVersion, filterExpr);
     }
 
-    private DataMaskPolicy dataMask(long policyVersion, String maskTypeDef) {
-        return new RangerDataMaskPolicy(USER, CTL, DB, TBL, COL, 7L, policyVersion, "CUSTOM", maskTypeDef);
+    private DataMaskSpec dataMask(long policyVersion, String maskSql) {
+        return new DataMaskSpec("7:" + policyVersion, maskSql);
     }
 
     /**
@@ -74,11 +73,11 @@ public class NereidsSqlCacheDataPolicyTest {
      * invoked per call so every evaluation yields a distinct object, exactly as a live authorization source
      * behaves.
      */
-    private Env mockEnvEvaluating(java.util.function.Supplier<RowFilterPolicy> rowFilterSupplier,
-            java.util.function.Supplier<Optional<DataMaskPolicy>> dataMaskSupplier) {
+    private Env mockEnvEvaluating(java.util.function.Supplier<RowFilterSpec> rowFilterSupplier,
+            java.util.function.Supplier<Optional<DataMaskSpec>> dataMaskSupplier) {
         AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
         Mockito.doAnswer(invocation -> {
-            RowFilterPolicy evaluated = rowFilterSupplier.get();
+            RowFilterSpec evaluated = rowFilterSupplier.get();
             return evaluated == null ? ImmutableList.of() : ImmutableList.of(evaluated);
         })
                 .when(accessManager).evalRowFilterPolicies(ArgumentMatchers.any(UserIdentity.class),
@@ -101,14 +100,14 @@ public class NereidsSqlCacheDataPolicyTest {
         return Deencapsulation.invoke(new NereidsSqlCacheManager(), "dataMaskPoliciesChanged", USER, env, context);
     }
 
-    private SqlCacheContext contextWithRowFilter(RowFilterPolicy policy) {
+    private SqlCacheContext contextWithRowFilter(RowFilterSpec policy) {
         SqlCacheContext context = new SqlCacheContext(USER);
-        List<RowFilterPolicy> policies = policy == null ? ImmutableList.of() : ImmutableList.of(policy);
+        List<RowFilterSpec> policies = policy == null ? ImmutableList.of() : ImmutableList.of(policy);
         context.setRowFilterPolicy(CTL, DB, TBL, policies);
         return context;
     }
 
-    private SqlCacheContext contextWithDataMask(Optional<DataMaskPolicy> policy) {
+    private SqlCacheContext contextWithDataMask(Optional<DataMaskSpec> policy) {
         SqlCacheContext context = new SqlCacheContext(USER);
         context.addDataMaskPolicy(CTL, DB, TBL, COL, policy);
         return context;

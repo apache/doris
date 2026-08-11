@@ -2538,7 +2538,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx.EXISTS() != null, new TableNameInfo(nameParts), Optional.of(filterType),
                 ctx.user == null ? null : visitUserIdentify(ctx.user),
                 ctx.roleName == null ? null : ctx.roleName.getText(),
-                Optional.of(getExpression(ctx.booleanExpression())), ImmutableMap.of());
+                Optional.of(getExpression(ctx.booleanExpression())),
+                // The predicate is kept as the user wrote it, because that text - not a rendering of the
+                // parsed tree - is what the authorization layer hands back to the planner.
+                getOriginSql(ctx.booleanExpression()), ImmutableMap.of());
     }
 
     @Override
@@ -2548,7 +2551,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 : Maps.newHashMap();
         return new CreatePolicyCommand(PolicyTypeEnum.STORAGE, ctx.name.getText(),
                 ctx.EXISTS() != null, null, Optional.empty(),
-                null, null, Optional.empty(), properties);
+                null, null, Optional.empty(), null, properties);
     }
 
     @Override

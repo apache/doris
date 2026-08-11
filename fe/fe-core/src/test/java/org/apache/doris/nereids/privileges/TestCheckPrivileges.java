@@ -19,6 +19,8 @@ package org.apache.doris.nereids.privileges;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
@@ -30,21 +32,16 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.test.TestExternalCatalog.TestCatalogProvider;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
-import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.GeneratedMemoPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.policy.FilterType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -388,7 +385,7 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         }
 
         @Override
-        public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+        public Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
                 String col) {
             List<CustomDataMaskingPolicy> dataMaskingPolicies = dataMaskings.get();
             if (dataMaskingPolicies == null) {
@@ -397,32 +394,21 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
 
             for (CustomDataMaskingPolicy dataMaskingPolicy : dataMaskingPolicies) {
                 if (dataMaskingPolicy.column.equalsIgnoreCase(col)) {
-                    return Optional.of(dataMaskingPolicy);
+                    return Optional.of(dataMaskingPolicy.toSpec());
                 }
             }
             return Optional.empty();
         }
 
         @Override
-        public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
+        public List<RowFilterSpec> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
                 String tbl) {
             List<CustomRowPolicy> customRowPolicies = rowPolicies.get();
             if (customRowPolicies == null) {
                 return ImmutableList.of();
             }
-            NereidsParser nereidsParser = new NereidsParser();
             return customRowPolicies.stream()
-                    .map(p -> new RowFilterPolicy() {
-                        @Override
-                        public Expression getFilterExpression() {
-                            return nereidsParser.parseExpression(p.filter);
-                        }
-
-                        @Override
-                        public String getPolicyIdent() {
-                            return "custom policy: " + p.filter;
-                        }
-                    })
+                    .map(CustomRowPolicy::toSpec)
                     .collect(Collectors.toList());
         }
     }
@@ -529,7 +515,7 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         }
     }
 
-    private static class CustomRowPolicy implements RowFilterPolicy {
+    private static class CustomRowPolicy {
         private final String user;
         private final String filter;
 
@@ -542,23 +528,14 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
             return user;
         }
 
-        @Override
-        public Expression getFilterExpression() {
-            return new NereidsParser().parseExpression(filter);
-        }
-
-        @Override
-        public String getPolicyIdent() {
-            return "custom policy: " + filter;
-        }
-
-        @Override
-        public FilterType getFilterType() {
-            return FilterType.PERMISSIVE;
+        // Restrictive, which is what this fixture has always produced: the policy object the controller used
+        // to return took the interface default and never carried the PERMISSIVE the fixture declared.
+        public RowFilterSpec toSpec() {
+            return RowFilterSpec.restrictive("custom policy: " + filter, filter);
         }
     }
 
-    private static class CustomDataMaskingPolicy implements DataMaskPolicy {
+    private static class CustomDataMaskingPolicy {
         private final String user;
         private final String column;
         private final String project;
@@ -573,14 +550,8 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
             return user;
         }
 
-        @Override
-        public String getMaskTypeDef() {
-            return project;
-        }
-
-        @Override
-        public String getPolicyIdent() {
-            return "custom policy: " + project;
+        public DataMaskSpec toSpec() {
+            return new DataMaskSpec("custom policy: " + project, project);
         }
     }
 }

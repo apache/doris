@@ -19,6 +19,7 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisResource;
 import org.apache.doris.common.AuthorizationException;
@@ -222,14 +223,14 @@ public class RangerTest {
         RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
         UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
         // MASK_NULL
-        Optional<DataMaskPolicy> policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col1");
-        Assertions.assertEquals("NULL", policy.get().getMaskTypeDef());
+        Optional<DataMaskSpec> policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col1");
+        Assertions.assertEquals("NULL", policy.get().getMaskSql());
         // MASK_NONE
         policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col2");
         Assertions.assertTrue(!policy.isPresent());
         // CUSTOM
         policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col3");
-        Assertions.assertEquals("hex(col3)", policy.get().getMaskTypeDef());
+        Assertions.assertEquals("hex(col3)", policy.get().getMaskSql());
         // Others
         policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col4");
         Assertions.assertTrue(!policy.isPresent());
