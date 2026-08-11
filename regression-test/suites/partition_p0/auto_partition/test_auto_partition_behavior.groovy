@@ -133,9 +133,11 @@ suite("test_auto_partition_behavior") {
     qt_sql2 """ select * from agg_dt6 where k1 <= '2020-12-12 12:12:12.123456' order by k0, k1 """
     qt_sql3 """ select * from agg_dt6 partition (p2010) order by k0, k1 """
     // add partition
-    test {
+    try {
         sql """ alter table agg_dt6 add partition padd values [("2013-05-05"), ("2014-05-05")) """
-        exception "is intersected with range"
+        fail()
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("is intersected with range: [types: [DATETIMEV2]; keys: [2013-01-01 00:00:00]; ..types: [DATETIMEV2]; keys: [2014-01-01 00:00:00];"))
     }
     // modify partition
     sql """ alter table agg_dt6 drop partition p2010 """

@@ -148,7 +148,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             DateTimeV2Literal datetime = (DateTimeV2Literal) castToDateTime(
                     DateTimeV2Type.MAX, strictCast);
             return TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, datetime);
-        } else if (targetType.isDateTimeV2Type()) {
+        } else if (targetType.isTimeStampNsType() || targetType.isDateTimeV2Type()) {
             return castToDateTime(targetType, strictCast);
         } else if (targetType.isFloatType()) {
             return castToFloat();
