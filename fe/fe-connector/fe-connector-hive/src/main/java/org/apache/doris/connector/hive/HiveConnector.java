@@ -354,7 +354,7 @@ public class HiveConnector implements Connector {
 
     /**
      * REFRESH TABLE hook: drop this table's connector-owned scan caches. Clears BOTH cache layers for the table —
-     * the metastore-metadata entries ({@link CachingHmsClient#flush}: table meta, partition names, partition
+     * the metastore-metadata entries (table meta, partition names, partition
      * objects, column stats) AND the {@link HiveFileListingCache} directory listings — because a hive table's
      * schema, partitions AND files are all mutable, so a REFRESH must re-read all of them (unlike iceberg, whose
      * manifests are immutable and kept across REFRESH TABLE). fe-core already routes {@code REFRESH TABLE} to
@@ -363,52 +363,32 @@ public class HiveConnector implements Connector {
      */
     @Override
     public void invalidateTable(String dbName, String tableName) {
-        // Read the client field WITHOUT building it (getOrCreateClient would force a real ThriftHmsClient just to
-        // flush an empty cache): a never-built client means no metastore cache exists to flush. The file cache is
-        // a final field and always present.
-        invalidateTable(hmsClient, dbName, tableName);
-        forEachBuiltSibling(sibling -> sibling.invalidateTable(dbName, tableName));
-    }
-
-    // Package-private seam: the metastore half needs an observable CachingHmsClient, which a unit test can build
-    // via wrapWithCache (the hmsClient field is otherwise only set by getOrCreateClient building a real client).
-    void invalidateTable(HmsClient client, String dbName, String tableName) {
         metaCache.invalidateTable(dbName, tableName);
+        forEachBuiltSibling(sibling -> sibling.invalidateTable(dbName, tableName));
     }
 
     /**
      * REFRESH DATABASE hook: drop the connector-owned scan caches for EVERY table in this database — both cache
-     * layers ({@link CachingHmsClient#flushDb} metastore-metadata + {@link HiveFileListingCache#invalidateDb}
+     * layers (metastore-metadata + {@link HiveFileListingCache#invalidateDb}
      * directory listings). Same no-force-build read of the client as {@link #invalidateTable(String, String)}.
      * fe-core routes {@code REFRESH DATABASE} to {@code connector.invalidateDb} for a plugin-driven catalog.
      * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
      */
     @Override
     public void invalidateDb(String dbName) {
-        invalidateDb(hmsClient, dbName);
-        forEachBuiltSibling(sibling -> sibling.invalidateDb(dbName));
-    }
-
-    // Package-private seam (see invalidateTable above).
-    void invalidateDb(HmsClient client, String dbName) {
         metaCache.invalidateDatabase(dbName);
+        forEachBuiltSibling(sibling -> sibling.invalidateDb(dbName));
     }
 
     /**
      * REFRESH CATALOG hook: drop ALL of this catalog's connector-owned scan caches — every metastore-metadata
-     * entry ({@link CachingHmsClient#flushAll}) and every directory listing. Same no-force-build read of the
-     * client as {@link #invalidateTable(String, String)}.
+     * entry and every directory listing.
      * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
      */
     @Override
     public void invalidateAll() {
-        invalidateAll(hmsClient);
-        forEachBuiltSibling(Connector::invalidateAll);
-    }
-
-    // Package-private seam (see invalidateTable above).
-    void invalidateAll(HmsClient client) {
         metaCache.invalidateCatalog();
+        forEachBuiltSibling(Connector::invalidateAll);
     }
 
     /**
@@ -416,7 +396,7 @@ public class HiveConnector implements Connector {
      * {@code HiveExternalMetaCache}'s per-partition invalidation. The partition NAMES are parsed into VALUES
      * purely ({@link HiveWriteUtils#toPartitionValues}, no metastore round-trip), which key both connector
      * caches: the directory-listing cache ({@link HiveFileListingCache#invalidatePartitions}) and the metastore
-     * partition-metadata cache ({@link CachingHmsClient#invalidatePartitions}). Deriving values from the name
+     * partition-metadata cache. Deriving values from the name
      * (rather than looking the partition up) is exactly what stops an evicted partition-metadata entry from
      * leaving a stale file listing — the #65334 failure mode. Table-level column stats and the table object are
      * intentionally left intact (legacy did not drop them on a partition-level refresh). Also forwarded to the
@@ -424,24 +404,12 @@ public class HiveConnector implements Connector {
      */
     @Override
     public void invalidatePartition(String dbName, String tableName, List<String> partitionNames) {
-        invalidatePartition(hmsClient, dbName, tableName, partitionNames);
-        forEachBuiltSibling(sibling -> sibling.invalidatePartition(dbName, tableName, partitionNames));
-    }
-
-    // Package-private seam (mirrors invalidateTable): the metastore half needs an observable CachingHmsClient.
-    void invalidatePartition(HmsClient client, String dbName, String tableName, List<String> partitionNames) {
         Set<List<String>> partitionValues = new HashSet<>();
         for (String name : partitionNames) {
             partitionValues.add(HiveWriteUtils.toPartitionValues(name));
         }
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).invalidatePartitions(dbName, tableName, partitionValues);
-        } else {
-            metaCache.invalidatePartitionCollection(dbName, tableName);
-            for (List<String> values : partitionValues) {
-                metaCache.invalidatePartition(dbName, tableName, values);
-            }
-        }
+        metaCache.invalidatePartitions(dbName, tableName, partitionValues);
+        forEachBuiltSibling(sibling -> sibling.invalidatePartition(dbName, tableName, partitionNames));
     }
 
     /**

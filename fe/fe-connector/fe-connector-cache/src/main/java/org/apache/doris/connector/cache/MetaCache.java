@@ -19,6 +19,7 @@ package org.apache.doris.connector.cache;
 
 import java.util.Objects;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 /** One typed physical cache owned by a {@link CatalogMetaCache}. */
@@ -48,6 +49,18 @@ public final class MetaCache<K, V> {
         return delegate.get(nonNullKey, definition.scope(nonNullKey), loader);
     }
 
+    /**
+     * Loads a missing value while allowing an adapter to publish an auxiliary side effect immediately before the
+     * cache value at the same guarded commit point. The coordinator must invoke the supplied commit callback once;
+     * the callback argument is run only if the load is still current and is fenced with cache publication.
+     */
+    public V getWithPublicationAction(K key, Function<K, V> loader,
+            BiConsumer<V, Consumer<Runnable>> publicationCoordinator) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.getWithPublicationAction(nonNullKey, definition.scope(nonNullKey), loader,
+                publicationCoordinator);
+    }
+
     public V getIfPresent(K key) {
         K nonNullKey = Objects.requireNonNull(key, "key can not be null");
         return delegate.getIfPresent(nonNullKey, definition.scope(nonNullKey));
@@ -56,6 +69,11 @@ public final class MetaCache<K, V> {
     public void put(K key, V value) {
         K nonNullKey = Objects.requireNonNull(key, "key can not be null");
         delegate.put(nonNullKey, definition.scope(nonNullKey), value);
+    }
+
+    public boolean compareAndSet(K key, V expectedValue, V updatedValue) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.compareAndSet(nonNullKey, definition.scope(nonNullKey), expectedValue, updatedValue);
     }
 
     public void invalidateKey(K key) {

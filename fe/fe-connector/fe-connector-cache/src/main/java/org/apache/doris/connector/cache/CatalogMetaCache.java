@@ -17,6 +17,9 @@
 
 package org.apache.doris.connector.cache;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -77,6 +80,19 @@ public final class CatalogMetaCache implements AutoCloseable {
 
     public void invalidatePartitionCollection(String database, String table) {
         registry.invalidate(ScopePath.partitionCollection(database, table));
+    }
+
+    /**
+     * Atomically invalidates the partition collection and the specified partition identities for one table.
+     * Logical invalidation has one publication linearization point; physical cleanup runs after publication is
+     * released so unrelated cache operations do not wait for Caffeine removal callbacks.
+     */
+    public void invalidatePartitions(String database, String table, Collection<?> partitions) {
+        Objects.requireNonNull(partitions, "partitions can not be null");
+        List<ScopePath> paths = new ArrayList<>(partitions.size() + 1);
+        paths.add(ScopePath.partitionCollection(database, table));
+        partitions.forEach(partition -> paths.add(ScopePath.partition(database, table, partition)));
+        registry.invalidate(paths);
     }
 
     public ScopedMetaCacheRegistry.ScopeMetrics metrics() {

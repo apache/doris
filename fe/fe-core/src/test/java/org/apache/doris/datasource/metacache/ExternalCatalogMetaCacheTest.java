@@ -34,7 +34,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class AbstractExternalMetaCacheTest {
+public class ExternalCatalogMetaCacheTest {
 
     @Test
     public void testEntryRequiresExplicitInit() {
@@ -145,7 +145,7 @@ public class AbstractExternalMetaCacheTest {
         }
     }
 
-    private static final class TestExternalMetaCache extends AbstractExternalMetaCache {
+    private static final class TestExternalMetaCache extends ExternalCatalogMetaCache {
         private TestExternalMetaCache(ExecutorService refreshExecutor) {
             super("test_engine", refreshExecutor);
             registerEntry(MetaCacheEntryDef.of(

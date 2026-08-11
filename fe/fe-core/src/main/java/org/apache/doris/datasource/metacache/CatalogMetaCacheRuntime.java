@@ -31,33 +31,33 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Catalog scoped entry container.
  */
-public class CatalogEntryGroup {
+final class CatalogMetaCacheRuntime {
     private final CatalogMetaCache owner = new CatalogMetaCache();
     private final Map<String, MetaCache<?, ?>> entries = new ConcurrentHashMap<>();
 
-    public CatalogMetaCache owner() {
+    CatalogMetaCache owner() {
         return owner;
     }
 
-    public MetaCache<?, ?> get(String entryName) {
+    MetaCache<?, ?> get(String entryName) {
         return entries.get(entryName);
     }
 
-    public void put(String entryName, MetaCache<?, ?> entry) {
+    void put(String entryName, MetaCache<?, ?> entry) {
         entries.put(Objects.requireNonNull(entryName, "entryName"), Objects.requireNonNull(entry, "entry"));
     }
 
-    public Map<String, MetaCacheEntryStats> stats() {
+    Map<String, MetaCacheEntryStats> stats() {
         Map<String, MetaCacheEntryStats> result = Maps.newHashMap();
         entries.forEach((name, entry) -> result.put(name, stats(entry)));
         return result;
     }
 
-    public void invalidateAll() {
+    void invalidateAll() {
         owner.invalidateCatalog();
     }
 
-    public void close() {
+    void close() {
         owner.close();
     }
 

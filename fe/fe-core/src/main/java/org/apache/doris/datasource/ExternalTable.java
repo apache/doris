@@ -243,10 +243,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     /**
      * Returns the effective meta cache engine for this table.
      */
-    public String getMetaCacheEngine() {
-        return "default";
-    }
-
     public String getHiveParquetTimeZone() throws UserException {
         if (catalog == null || !("hms".equalsIgnoreCase(catalog.getType())
                 || "hudi".equalsIgnoreCase(catalog.getType()))) {

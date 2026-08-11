@@ -112,6 +112,28 @@ public class ScopedMetaCacheHierarchyTest {
     }
 
     @Test
+    public void batchInvalidationReplacesEveryScopeBeforeReadersResume() {
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCache("test", ENABLED);
+            ScopePath collection = ScopePath.partitionCollection("db", "tbl");
+            ScopePath first = ScopePath.partition("db", "tbl", "p=1");
+            ScopePath second = ScopePath.partition("db", "tbl", "p=2");
+            cache.put("collection", collection, "collection-v1");
+            cache.put("first", first, "first-v1");
+            cache.put("second", second, "second-v1");
+
+            registry.invalidate(Arrays.asList(collection, first), () -> {
+                Assertions.assertNull(cache.getIfPresent("collection", collection));
+                Assertions.assertNull(cache.getIfPresent("first", first));
+                Assertions.assertEquals("second-v1", cache.getIfPresent("second", second));
+            });
+
+            Assertions.assertEquals(1, registry.metrics().getRegistrationCount());
+            Assertions.assertEquals(1, registry.metrics().getPartitionNodeCount());
+        }
+    }
+
+    @Test
     public void exactKeyInvalidationAffectsOnlyOneKeyInOnePhysicalCache() {
         try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
             ScopedMetaCache<String, String> first = registry.createCache("first", ENABLED);

@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Queue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,6 +66,30 @@ class CatalogMetaCacheTest {
 
             Assertions.assertNull(cache.getIfPresent(first));
             Assertions.assertEquals("second", cache.getIfPresent(second));
+        }
+    }
+
+    @Test
+    void partitionInvalidationCoversCollectionAndSelectedPartitionsOnly() {
+        try (CatalogMetaCache catalog = new CatalogMetaCache()) {
+            MetaCache<String, String> collection = catalog.create(MetaCacheDefinition
+                    .<String, String>builder("partition-collection", SPEC,
+                            ignored -> ScopePath.partitionCollection("db", "table"))
+                    .build());
+            MetaCache<String, String> partitions = catalog.create(MetaCacheDefinition
+                    .<String, String>builder("partitions", SPEC,
+                            partition -> ScopePath.partition("db", "table", partition))
+                    .build());
+            collection.put("all", "collection-v1");
+            partitions.put("p1", "partition-1-v1");
+            partitions.put("p2", "partition-2-v1");
+
+            catalog.invalidatePartitions("db", "table", Arrays.asList("p1"));
+
+            Assertions.assertNull(collection.getIfPresent("all"));
+            Assertions.assertNull(partitions.getIfPresent("p1"));
+            Assertions.assertEquals("partition-2-v1", partitions.getIfPresent("p2"));
+            Assertions.assertEquals(1, catalog.metrics().getRegistrationCount());
         }
     }
 

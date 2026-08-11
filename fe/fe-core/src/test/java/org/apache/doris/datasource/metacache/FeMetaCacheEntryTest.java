@@ -23,16 +23,19 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class MetaCacheEntryTest {
+public class FeMetaCacheEntryTest {
     private static final CacheSpec ENABLED = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 100L);
 
     @Test
@@ -40,7 +43,7 @@ public class MetaCacheEntryTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         AtomicInteger loads = new AtomicInteger();
         try {
-            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, Integer> entry = new FeMetaCacheEntry<>(
                     "objects", key -> loads.incrementAndGet(), ENABLED, executor, false, 8);
 
             Assert.assertEquals(Integer.valueOf(1), entry.get("key"));
@@ -65,14 +68,14 @@ public class MetaCacheEntryTest {
     public void testContextualOnlyAndDisabledEntry() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            MetaCacheEntry<String, Integer> contextual = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, Integer> contextual = new FeMetaCacheEntry<>(
                     "contextual", null, ENABLED, executor, false, true);
             Assert.assertThrows(UnsupportedOperationException.class, () -> contextual.get("key"));
             Assert.assertEquals(Integer.valueOf(3), contextual.get("key", String::length));
 
             CacheSpec disabledSpec = CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 100L);
             AtomicInteger actions = new AtomicInteger();
-            MetaCacheEntry<String, Integer> disabled = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, Integer> disabled = new FeMetaCacheEntry<>(
                     "disabled", String::length, disabledSpec, executor, false);
             Assert.assertEquals(Integer.valueOf(3), disabled.getAndRunIfCurrent(
                     "key", (key, value) -> actions.incrementAndGet()));
@@ -88,7 +91,7 @@ public class MetaCacheEntryTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         List<String> index = new ArrayList<>();
         try {
-            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, Integer> entry = new FeMetaCacheEntry<>(
                     "objects", String::length, ENABLED, executor, false);
 
             entry.computeAndRun("table", (key, value) -> 5, () -> index.add("table"));
@@ -107,7 +110,7 @@ public class MetaCacheEntryTest {
     public void testFailedFinalValidationDoesNotModifyCachedObject() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, Integer> entry = new FeMetaCacheEntry<>(
                     "objects", String::length, ENABLED, executor, false);
             entry.put("table", 1);
 
@@ -130,7 +133,7 @@ public class MetaCacheEntryTest {
         CountDownLatch prechecksComplete = new CountDownLatch(2);
         CountDownLatch startPublication = new CountDownLatch(1);
         try {
-            MetaCacheEntry<String, Long> entry = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, Long> entry = new FeMetaCacheEntry<>(
                     "objects", key -> -1L, ENABLED, refreshExecutor, false);
             IdNameIndex index = new IdNameIndex("table");
 
@@ -165,7 +168,7 @@ public class MetaCacheEntryTest {
         CountDownLatch continueAction = new CountDownLatch(1);
         AtomicInteger actions = new AtomicInteger();
         try {
-            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+            FeMetaCacheEntry<String, Integer> entry = new FeMetaCacheEntry<String, Integer>(
                     "objects", String::length, ENABLED, refreshExecutor, false) {
                 @Override
                 protected void beforeCurrentValueActionForTest(String key, Integer value) {
@@ -192,6 +195,132 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testColdValueRemainsHiddenUntilAuxiliaryIndexPublication() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch stripeHeld = new CountDownLatch(1);
+        CountDownLatch releaseStripe = new CountDownLatch(1);
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        CountDownLatch publicationReady = new CountDownLatch(1);
+        List<String> index = new ArrayList<>();
+        try {
+            FeMetaCacheEntry<String, Integer> entry = new FeMetaCacheEntry<String, Integer>(
+                    "objects", key -> {
+                        loaderStarted.countDown();
+                        await(releaseLoader);
+                        return key.length();
+                    }, ENABLED, refreshExecutor, false, 1) {
+                @Override
+                void beforePublicMutationWriteForTest(String key) {
+                    if ("blocker".equals(key)) {
+                        stripeHeld.countDown();
+                        await(releaseStripe);
+                    }
+                }
+
+                @Override
+                protected void beforeCurrentValueActionForTest(String key, Integer value) {
+                    publicationReady.countDown();
+                }
+            };
+
+            Future<Integer> load = workers.submit(() -> entry.getAndRunIfCurrent(
+                    "table", (key, value) -> index.add(key)));
+            await(loaderStarted);
+            Future<Integer> blocker = workers.submit(() -> entry.compute("blocker", (key, value) -> 1));
+            await(stripeHeld);
+            releaseLoader.countDown();
+            await(publicationReady);
+
+            Assert.assertNull(entry.getIfPresent("table"));
+            Assert.assertTrue(index.isEmpty());
+
+            releaseStripe.countDown();
+            Assert.assertEquals(Integer.valueOf(1), blocker.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(Integer.valueOf(5), load.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(Integer.valueOf(5), entry.getIfPresent("table"));
+            Assert.assertEquals(List.of("table"), index);
+        } finally {
+            releaseLoader.countDown();
+            releaseStripe.countDown();
+            workers.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testDatabaseNameRemapRetriesAfterConcurrentRefresh() throws Exception {
+        assertNameRemapRetriesAfterConcurrentRefresh("databaseNames");
+    }
+
+    @Test
+    public void testTableNameRemapRetriesAfterConcurrentRefresh() throws Exception {
+        assertNameRemapRetriesAfterConcurrentRefresh("tableNames");
+    }
+
+    @Test
+    public void testOuterNameRetryDoesNotRemoveIdentityPreservingObject() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        CountDownLatch firstObjectPublished = new CountDownLatch(1);
+        CountDownLatch continueNamePublication = new CountDownLatch(1);
+        AtomicInteger nameAttempts = new AtomicInteger();
+        AtomicInteger objectRemovals = new AtomicInteger();
+        AtomicBoolean objectInitialized = new AtomicBoolean();
+        Object database = new Object();
+        try {
+            FeMetaCacheEntry<String, Object> objects = FeMetaCacheEntry.withSyncRemovalListener(
+                    "databases", ignored -> database, ENABLED, refreshExecutor, 1,
+                    (key, value, cause) -> {
+                        objectRemovals.incrementAndGet();
+                        objectInitialized.set(false);
+                    });
+            FeMetaCacheEntry<String, Set<String>> names = new FeMetaCacheEntry<String, Set<String>>(
+                    "databaseNames", key -> Set.of(), ENABLED, refreshExecutor, false, 1) {
+                @Override
+                void beforePublicMutationWriteForTest(String key) {
+                    if (nameAttempts.incrementAndGet() == 1) {
+                        firstObjectPublished.countDown();
+                        await(continueNamePublication);
+                    }
+                }
+            };
+            names.putSharedForTest("names", Set.of("initial"));
+
+            Future<Set<String>> update = worker.submit(() -> names.computeAfterValidation(
+                    "names",
+                    (key, current) -> {
+                        Set<String> updated = new HashSet<>(current);
+                        updated.add("incremental");
+                        return Set.copyOf(updated);
+                    },
+                    () -> objects.computeAfterValidation(
+                            "db", (key, current) -> database, () -> {
+                            })));
+            await(firstObjectPublished);
+            Assert.assertSame(database, objects.getIfPresent("db"));
+            objectInitialized.set(true);
+
+            // Model an auto-refresh replacing the outer name snapshot after the first nested object publish.
+            // The outer CAS retries, so its validation republishes the already-current database identity.
+            names.putSharedForTest("names", Set.of("initial", "refreshed"));
+            continueNamePublication.countDown();
+
+            Assert.assertEquals(Set.of("initial", "refreshed", "incremental"),
+                    update.get(3L, TimeUnit.SECONDS));
+            Assert.assertSame(database, objects.getIfPresent("db"));
+            Assert.assertTrue(objectInitialized.get());
+            Assert.assertEquals(0, objectRemovals.get());
+            Assert.assertEquals(2, nameAttempts.get());
+        } finally {
+            continueNamePublication.countDown();
+            worker.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testFailedValidationDoesNotCancelCurrentAuxiliaryIndexAction() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -199,7 +328,7 @@ public class MetaCacheEntryTest {
         CountDownLatch continueAction = new CountDownLatch(1);
         AtomicInteger actions = new AtomicInteger();
         try {
-            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+            FeMetaCacheEntry<String, Integer> entry = new FeMetaCacheEntry<String, Integer>(
                     "objects", String::length, ENABLED, refreshExecutor, false) {
                 @Override
                 protected void beforeCurrentValueActionForTest(String key, Integer value) {
@@ -233,7 +362,7 @@ public class MetaCacheEntryTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         List<String> removals = new ArrayList<>();
         try {
-            MetaCacheEntry<String, Integer> entry = MetaCacheEntry.withSyncRemovalListener(
+            FeMetaCacheEntry<String, Integer> entry = FeMetaCacheEntry.withSyncRemovalListener(
                     "objects", String::length, ENABLED, executor, 8,
                     (key, value, cause) -> removals.add(key + "=" + value));
             Assert.assertEquals(0, entry.initializedStripeCountForTest());
@@ -257,7 +386,46 @@ public class MetaCacheEntryTest {
         }
     }
 
-    private static long publishIdentity(MetaCacheEntry<String, Long> entry, IdNameIndex index, long id,
+    private static void assertNameRemapRetriesAfterConcurrentRefresh(String entryName) throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        CountDownLatch remapCalculated = new CountDownLatch(1);
+        CountDownLatch continuePublication = new CountDownLatch(1);
+        AtomicInteger attempts = new AtomicInteger();
+        try {
+            FeMetaCacheEntry<String, Set<String>> entry = new FeMetaCacheEntry<String, Set<String>>(
+                    entryName, key -> Set.of(), ENABLED, refreshExecutor, false, 1) {
+                @Override
+                void beforePublicMutationWriteForTest(String key) {
+                    if (attempts.incrementAndGet() == 1) {
+                        remapCalculated.countDown();
+                        await(continuePublication);
+                    }
+                }
+            };
+            entry.putSharedForTest("names", Set.of("initial"));
+
+            Future<Set<String>> remap = worker.submit(() -> entry.compute("names", (key, current) -> {
+                Set<String> updated = new HashSet<>(current);
+                updated.add("incremental");
+                return Set.copyOf(updated);
+            }));
+            await(remapCalculated);
+            entry.putSharedForTest("names", Set.of("initial", "refreshed"));
+            continuePublication.countDown();
+
+            Set<String> expected = Set.of("initial", "refreshed", "incremental");
+            Assert.assertEquals(expected, remap.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(expected, entry.getIfPresent("names"));
+            Assert.assertEquals(2, attempts.get());
+        } finally {
+            continuePublication.countDown();
+            worker.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    private static long publishIdentity(FeMetaCacheEntry<String, Long> entry, IdNameIndex index, long id,
             CountDownLatch prechecksComplete, CountDownLatch startPublication) {
         index.checkCanPut(id, "table");
         prechecksComplete.countDown();
