@@ -666,7 +666,7 @@ const ParquetColumnSchema* child_named(const ParquetColumnSchema& parent, std::s
 }
 
 struct ResolvedVariantShredding {
-    const ParquetColumnSchema* fallback_value = nullptr;
+    std::vector<const ParquetColumnSchema*> fallback_values;
     const ParquetColumnSchema* typed_value = nullptr;
 };
 
@@ -768,6 +768,7 @@ std::optional<ResolvedVariantShredding> resolve_variant_shredding(
     if (wrapper == nullptr || wrapper->kind != ParquetColumnSchemaKind::VARIANT) {
         return std::nullopt;
     }
+    std::vector<const ParquetColumnSchema*> fallbacks;
     for (const auto& component : predicate.path) {
         const auto* typed_object = child_named(*wrapper, "typed_value");
         if (typed_object == nullptr || typed_object->kind != ParquetColumnSchemaKind::STRUCT) {
@@ -777,14 +778,19 @@ std::optional<ResolvedVariantShredding> resolve_variant_shredding(
         if (wrapper == nullptr || wrapper->kind != ParquetColumnSchemaKind::STRUCT) {
             return std::nullopt;
         }
+        const auto* fallback = child_named(*wrapper, "value");
+        if (fallback == nullptr || fallback->kind != ParquetColumnSchemaKind::PRIMITIVE) {
+            return std::nullopt;
+        }
+        // A residual at any wrapper can contribute to the descendant path, so deepest-leaf
+        // bounds are safe only when every fallback encountered during descent is absent.
+        fallbacks.push_back(fallback);
     }
-    const auto* fallback = child_named(*wrapper, "value");
     const auto* typed = child_named(*wrapper, "typed_value");
     const auto typed_primitive = typed == nullptr || typed->type == nullptr
                                          ? INVALID_TYPE
                                          : remove_nullable(typed->type)->get_primitive_type();
-    if (fallback == nullptr || typed == nullptr ||
-        fallback->kind != ParquetColumnSchemaKind::PRIMITIVE ||
+    if (fallbacks.empty() || typed == nullptr ||
         typed->kind != ParquetColumnSchemaKind::PRIMITIVE || typed->max_repetition_level != 0 ||
         // Parquet float statistics do not prove that a page contains no NaN. Min/max pruning in
         // the presence of NaN is not order preserving, so keep those pages until such proof exists.
@@ -793,7 +799,7 @@ std::optional<ResolvedVariantShredding> resolve_variant_shredding(
         !expr_zonemap::data_types_compatible(predicate.comparison_type, predicate.literal_type)) {
         return std::nullopt;
     }
-    return ResolvedVariantShredding {.fallback_value = fallback, .typed_value = typed};
+    return ResolvedVariantShredding {.fallback_values = std::move(fallbacks), .typed_value = typed};
 }
 
 bool fallback_is_all_null(const tparquet::RowGroup& row_group,
@@ -807,6 +813,13 @@ bool fallback_is_all_null(const tparquet::RowGroup& row_group,
            chunk.meta_data.num_values == row_group.num_rows && chunk.meta_data.__isset.statistics &&
            chunk.meta_data.statistics.__isset.null_count &&
            chunk.meta_data.statistics.null_count == chunk.meta_data.num_values;
+}
+
+bool fallbacks_are_all_null(const tparquet::RowGroup& row_group,
+                            const std::vector<const ParquetColumnSchema*>& fallbacks) {
+    return std::ranges::all_of(fallbacks, [&](const auto* fallback) {
+        return fallback != nullptr && fallback_is_all_null(row_group, *fallback);
+    });
 }
 
 bool variant_statistics_exclude(const VariantShreddedPredicate& predicate,
@@ -1091,7 +1104,7 @@ bool check_shredded_variant_statistics(
         const auto shredding = resolve_variant_shredding(file_schema, request, *predicate);
         if (!shredding.has_value() || shredding->typed_value->leaf_column_id < 0 ||
             shredding->typed_value->leaf_column_id >= static_cast<int>(row_group.columns.size()) ||
-            !fallback_is_all_null(row_group, *shredding->fallback_value) ||
+            !fallbacks_are_all_null(row_group, shredding->fallback_values) ||
             !variant_metadata_predicate_is_type_safe(*shredding->typed_value) ||
             !detail::has_supported_type_defined_order(metadata,
                                                       shredding->typed_value->leaf_column_id)) {
@@ -2050,7 +2063,7 @@ Status select_row_group_ranges_by_native_page_index(
         }
         const auto shredding = resolve_variant_shredding(file_schema, request, *predicate);
         if (!shredding.has_value() || shredding->typed_value->leaf_column_id < 0 ||
-            !fallback_is_all_null(row_group, *shredding->fallback_value) ||
+            !fallbacks_are_all_null(row_group, shredding->fallback_values) ||
             !variant_metadata_predicate_is_type_safe(*shredding->typed_value) ||
             !detail::has_supported_type_defined_order(metadata,
                                                       shredding->typed_value->leaf_column_id)) {

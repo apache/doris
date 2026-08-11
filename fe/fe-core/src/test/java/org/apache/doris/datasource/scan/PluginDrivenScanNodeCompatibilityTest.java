@@ -17,11 +17,19 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.datasource.connector.converter.ConnectorComputeVariantType;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.system.Backend;
 
 import org.junit.Assert;
@@ -68,6 +76,28 @@ public class PluginDrivenScanNodeCompatibilityTest {
             Assert.assertTrue(exception.getMessage().contains("execution version"));
         } finally {
             Config.be_exec_version = original;
+        }
+    }
+
+    @Test
+    public void translatedScanTuplePreservesNestedComputeVariantCarrier() {
+        boolean originalEnableVariantV2 = Config.enable_variant_v2;
+        try {
+            Config.enable_variant_v2 = false;
+            Column column = new Column("payload",
+                    ArrayType.create(new ConnectorComputeVariantType(), true));
+            SlotReference slot = SlotReference.fromColumn(
+                    StatementScopeIdGenerator.newExprId(), org.mockito.Mockito.mock(TableIf.class), column,
+                    Collections.emptyList());
+            PlanTranslatorContext context = new PlanTranslatorContext();
+            TupleDescriptor tuple = context.generateTupleDesc();
+            context.createSlotDesc(tuple, slot);
+
+            Assert.assertTrue(PluginDrivenScanNode.projectsComputeVariant(tuple));
+            Assert.assertTrue(tuple.getSlots().get(0).getType().toThrift()
+                    .types.get(1).scalar_type.variant_is_v2);
+        } finally {
+            Config.enable_variant_v2 = originalEnableVariantV2;
         }
     }
 

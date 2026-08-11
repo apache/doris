@@ -1395,6 +1395,17 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertDoesNotThrow(() -> providerFor(table, contextWithStorage()).planWrite(
                 sessionFor(table, contextWithStorage()), currentBeWrite));
 
+        WriteHandle oldBeRewrite = new WriteHandle(new IcebergTableHandle("db1", "nested_partition"))
+                .writeOperation(WriteOperation.REWRITE).beExecVersion(11);
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> providerFor(table, contextWithStorage()).planWrite(
+                        sessionFor(table, contextWithStorage()), oldBeRewrite));
+
+        WriteHandle currentBeRewrite = new WriteHandle(new IcebergTableHandle("db1", "nested_partition"))
+                .writeOperation(WriteOperation.REWRITE).beExecVersion(12);
+        Assertions.assertDoesNotThrow(() -> providerFor(table, contextWithStorage()).planWrite(
+                sessionFor(table, contextWithStorage()), currentBeRewrite));
+
         WriteHandle deleteOnlyMerge = new WriteHandle(new IcebergTableHandle("db1", "nested_partition"))
                 .writeOperation(WriteOperation.MERGE).writesDataFiles(false).beExecVersion(11);
         Assertions.assertDoesNotThrow(() -> providerFor(table, contextWithStorage()).planWrite(

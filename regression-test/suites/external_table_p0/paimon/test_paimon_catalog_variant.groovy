@@ -34,7 +34,6 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
                 "s3.path.style.access" = "true"
             );"""
         sql """use `${catalogName}`.`test_paimon_spark`"""
-        sql """set enable_variant_v2 = true"""
         sql """set force_jni_scanner = true"""
 
         explain {

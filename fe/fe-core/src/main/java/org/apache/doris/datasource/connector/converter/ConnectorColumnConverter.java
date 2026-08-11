@@ -210,7 +210,11 @@ public final class ConnectorColumnConverter {
      * This is the inverse of {@link #convertType(ConnectorType)}.
      */
     public static ConnectorType toConnectorType(Type dorisType) {
-        if (dorisType instanceof ArrayType) {
+        if (dorisType instanceof ConnectorComputeVariantType) {
+            // Preserve the execution carrier on the reverse write-schema path; reporting ordinary
+            // VARIANT would make an unchanged external schema look concurrently modified.
+            return ConnectorType.of("VARIANT_COMPUTE_V2");
+        } else if (dorisType instanceof ArrayType) {
             ArrayType arr = (ArrayType) dorisType;
             // Carry the element's nullability so a connector can preserve a NOT NULL ARRAY element
             // (e.g. iceberg CREATE TABLE / complex MODIFY COLUMN); legacy lost it (defaulted optional).

@@ -436,6 +436,31 @@ VExprContextSPtr variant_path_gt_conjunct(int32_t literal_value,
     return VExprContext::create_shared(std::move(gt));
 }
 
+VExprContextSPtr nested_variant_path_gt_conjunct(int32_t literal_value) {
+    auto slot = VSlotRef::create_shared(0, 0, -1,
+                                        make_nullable(std::make_shared<DataTypeVariantV2>()), "v");
+    auto element_at = [](VExprSPtr parent, std::string key_name) {
+        auto key = VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                           Field::create_field<TYPE_STRING>(std::move(key_name)));
+        auto result = std::make_shared<VariantPathTestExpr>(
+                "element_at", make_nullable(std::make_shared<DataTypeVariantV2>()));
+        result->add_child(std::move(parent));
+        result->add_child(std::move(key));
+        return result;
+    };
+    auto nested = element_at(element_at(slot, "a"), "b");
+    auto cast = std::make_shared<VariantPathTestExpr>(
+            "CAST", make_nullable(std::make_shared<DataTypeInt32>()), TExprNodeType::CAST_EXPR);
+    cast->add_child(std::move(nested));
+    auto literal = VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
+                                           Field::create_field<TYPE_INT>(literal_value));
+    auto gt = std::make_shared<VariantPathTestExpr>("gt", std::make_shared<DataTypeUInt8>(),
+                                                    TExprNodeType::BINARY_PRED);
+    gt->add_child(std::move(cast));
+    gt->add_child(std::move(literal));
+    return VExprContext::create_shared(std::move(gt));
+}
+
 VExprContextSPtr variant_path_float_gt_conjunct(float literal_value) {
     auto slot = VSlotRef::create_shared(0, 0, -1,
                                         make_nullable(std::make_shared<DataTypeVariantV2>()), "v");
@@ -2188,6 +2213,126 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
     // typed bounds cannot prove anything about the SQL comparison, so all pages must be read.
     metadata.row_groups[0].columns[2].meta_data.statistics.__set_null_count(99);
     request.conjuncts = {variant_path_gt_conjunct(50)};
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, metadata.row_groups[0], page_indexes, schema, request, 100,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 100);
+}
+
+TEST(NativeParquetStatisticsTest, ShreddedVariantAncestorFallbackDisablesPruning) {
+    auto encode_int32 = [](int32_t value) {
+        std::string bytes(sizeof(value), '\0');
+        memcpy(bytes.data(), &value, sizeof(value));
+        return bytes;
+    };
+    auto primitive = [](std::string name, int local_id, int leaf_id, DataTypePtr type) {
+        auto schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+        schema->name = std::move(name);
+        schema->local_id = local_id;
+        schema->leaf_column_id = leaf_id;
+        schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+        schema->type = make_nullable(std::move(type));
+        schema->type_descriptor.doris_type = schema->type;
+        schema->type_descriptor.physical_type =
+                leaf_id == 4 ? tparquet::Type::INT32 : tparquet::Type::BYTE_ARRAY;
+        return schema;
+    };
+
+    auto variant = std::make_unique<format::parquet::ParquetColumnSchema>();
+    variant->name = "v";
+    variant->local_id = 0;
+    variant->kind = format::parquet::ParquetColumnSchemaKind::VARIANT;
+    variant->contains_variant = true;
+    variant->type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    variant->children.push_back(primitive("metadata", 0, 0, std::make_shared<DataTypeString>()));
+    variant->children.push_back(primitive("value", 1, 1, std::make_shared<DataTypeString>()));
+
+    auto root_typed = std::make_unique<format::parquet::ParquetColumnSchema>();
+    root_typed->name = "typed_value";
+    root_typed->local_id = 2;
+    root_typed->kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
+    auto ancestor = std::make_unique<format::parquet::ParquetColumnSchema>();
+    ancestor->name = "a";
+    ancestor->local_id = 0;
+    ancestor->kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
+    ancestor->children.push_back(primitive("value", 0, 2, std::make_shared<DataTypeString>()));
+    auto ancestor_typed = std::make_unique<format::parquet::ParquetColumnSchema>();
+    ancestor_typed->name = "typed_value";
+    ancestor_typed->local_id = 1;
+    ancestor_typed->kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
+    auto leaf_wrapper = std::make_unique<format::parquet::ParquetColumnSchema>();
+    leaf_wrapper->name = "b";
+    leaf_wrapper->local_id = 0;
+    leaf_wrapper->kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
+    leaf_wrapper->children.push_back(primitive("value", 0, 3, std::make_shared<DataTypeString>()));
+    leaf_wrapper->children.push_back(
+            primitive("typed_value", 1, 4, std::make_shared<DataTypeInt32>()));
+    ancestor_typed->children.push_back(std::move(leaf_wrapper));
+    ancestor->children.push_back(std::move(ancestor_typed));
+    root_typed->children.push_back(std::move(ancestor));
+    variant->children.push_back(std::move(root_typed));
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(variant));
+
+    auto chunk = [&](tparquet::Type::type type, int64_t null_count,
+                     std::optional<int32_t> min_value = std::nullopt,
+                     std::optional<int32_t> max_value = std::nullopt) {
+        tparquet::Statistics statistics;
+        statistics.__set_null_count(null_count);
+        if (min_value.has_value() && max_value.has_value()) {
+            statistics.__set_min_value(encode_int32(*min_value));
+            statistics.__set_max_value(encode_int32(*max_value));
+        }
+        tparquet::ColumnMetaData column_metadata;
+        column_metadata.__set_type(type);
+        column_metadata.__set_num_values(100);
+        column_metadata.__set_statistics(std::move(statistics));
+        tparquet::ColumnChunk result;
+        result.__set_meta_data(std::move(column_metadata));
+        return result;
+    };
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(100);
+    row_group.__set_columns(
+            {chunk(tparquet::Type::BYTE_ARRAY, 0), chunk(tparquet::Type::BYTE_ARRAY, 100),
+             chunk(tparquet::Type::BYTE_ARRAY, 99), chunk(tparquet::Type::BYTE_ARRAY, 100),
+             chunk(tparquet::Type::INT32, 0, 1, 2)});
+    tparquet::ColumnOrder order;
+    order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+    tparquet::FileMetaData metadata;
+    metadata.__set_row_groups({row_group});
+    metadata.__set_column_orders({order, order, order, order, order});
+
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    request.conjuncts = {nested_variant_path_gt_conjunct(50)};
+
+    std::vector<int> selected_row_groups;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        metadata, schema, request, nullptr, &selected_row_groups, false, nullptr,
+                        nullptr, nullptr, nullptr, {},
+                        format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                        .ok());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+
+    format::parquet::NativeParquetPageIndex typed_pages;
+    typed_pages.column_index.__set_min_values({encode_int32(1)});
+    typed_pages.column_index.__set_max_values({encode_int32(2)});
+    typed_pages.column_index.__set_null_pages({false});
+    typed_pages.column_index.__set_null_counts({0});
+    tparquet::PageLocation location;
+    location.__set_offset(0);
+    location.__set_compressed_page_size(10);
+    location.__set_first_row_index(0);
+    typed_pages.offset_index.__set_page_locations({location});
+    std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+    page_indexes.emplace(4, std::move(typed_pages));
+    std::vector<format::parquet::RowRange> selected_ranges;
+    std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
     ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
                         metadata, metadata.row_groups[0], page_indexes, schema, request, 100,
                         &selected_ranges, &skip_plans, nullptr)

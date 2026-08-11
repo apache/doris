@@ -154,6 +154,15 @@ class ConnectorColumnConverterTest {
             Assertions.assertInstanceOf(ConnectorComputeVariantType.class, type);
             Assertions.assertTrue(type.toThrift().types.get(0).scalar_type.variant_is_v2,
                     "external compute carriers must remain V2 independently of storage defaults");
+
+            Type nested = ArrayType.create(type, true);
+            ConnectorType connectorType = ConnectorColumnConverter.toConnectorType(nested);
+            Assertions.assertEquals("VARIANT_COMPUTE_V2",
+                    connectorType.getChildren().get(0).getTypeName(),
+                    "nested execution carriers must not become persisted VARIANT schemas on the write path");
+            Type roundTripped = ConnectorColumnConverter.convertType(connectorType);
+            Assertions.assertInstanceOf(ConnectorComputeVariantType.class,
+                    ((ArrayType) roundTripped).getItemType());
         } finally {
             Config.enable_variant_v2 = originalEnableVariantV2;
         }

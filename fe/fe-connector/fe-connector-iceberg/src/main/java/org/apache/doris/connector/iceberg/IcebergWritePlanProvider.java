@@ -765,9 +765,13 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         if (handle.isOverwrite()) {
             throw new DorisConnectorException("REWRITE writes cannot be overwrite operations");
         }
-        TIcebergTableSink tSink = buildSink(table, tableHandle, handle,
-                IcebergWriteSchemaContext.create(table, tableHandle.getTableName(), Optional.empty(),
-                        mappingVarbinaryEnabled(), mappingTimestampTzEnabled()));
+        IcebergWriteSchemaContext rewriteSchemaContext = IcebergWriteSchemaContext.create(
+                table, tableHandle.getTableName(), Optional.empty(),
+                mappingVarbinaryEnabled(), mappingTimestampTzEnabled());
+        // REWRITE resolves its schema after beginWrite, so its rolling-upgrade fence must run here
+        // against the same partition spec that the compaction sink will actually use.
+        validateNestedPartitionWriteCompatibility(handle, rewriteSchemaContext);
+        TIcebergTableSink tSink = buildSink(table, tableHandle, handle, rewriteSchemaContext);
         tSink.setWriteType(TIcebergWriteType.REWRITE);
         if (IcebergWriterHelper.getFormatVersion(table) >= 3) {
             // iceberg v3 format requires the row-lineage fields when rewriting data files.

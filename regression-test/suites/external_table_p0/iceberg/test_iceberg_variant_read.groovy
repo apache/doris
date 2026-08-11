@@ -30,7 +30,6 @@ suite("test_iceberg_variant_read",
         logger.info("disable iceberg test")
         return
     }
-    sql "SET ENABLE_VARIANT_V2=true"
 
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
