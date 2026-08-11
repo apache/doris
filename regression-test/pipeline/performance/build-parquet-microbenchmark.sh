@@ -50,7 +50,10 @@ build_benchmark() {
         if "${benchmark_cxx}" --version 2>/dev/null | head -n 1 | grep -Eq 'g\+\+|GCC'; then
             export EXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS:-} -Wno-error=class-memaccess"
         fi
-        bash build.sh --benchmark --output "${benchmark_output}"
+        # The main Performance compile leaves a CMake cache in the head checkout.
+        # Reconfigure from a clean build directory so it cannot retain that
+        # container's compiler path or non-benchmark build options.
+        bash build.sh --benchmark --clean --output "${benchmark_output}"
     )
 }
 
