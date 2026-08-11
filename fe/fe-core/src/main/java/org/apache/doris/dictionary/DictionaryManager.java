@@ -482,7 +482,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             // avoid to generate EmptySetNode making us not able to get base table version.
             ctx.getSessionVariable().setVarOnce(SessionVariable.DISABLE_NEREIDS_RULES,
                     "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
-            command.run(ctx, executor);
+            command.execute(ctx, executor);
         } catch (Exception e) {
             // wait next shedule.
             dictionary.trySetStatus(oldStatus);

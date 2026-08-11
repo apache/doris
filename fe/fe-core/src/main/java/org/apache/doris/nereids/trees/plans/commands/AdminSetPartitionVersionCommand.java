@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -37,7 +36,7 @@ import java.util.Map;
  * admin set table {table_name} partition version properties ("key" = "value");
  * key and value may be : "partition_id" = "10075", "visible_version" = "100");
  */
-public class AdminSetPartitionVersionCommand extends Command implements ForwardWithSync {
+public class AdminSetPartitionVersionCommand extends Command implements ForwardWithSync, CloudUnsupportedCommand {
     private long partitionId = -1;
     private long visibleVersion = -1;
     private final TableNameInfo tableName;
@@ -101,8 +100,4 @@ public class AdminSetPartitionVersionCommand extends Command implements ForwardW
         }
     }
 
-    @Override
-    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
-        throw new DdlException("Unsupported operation");
-    }
 }

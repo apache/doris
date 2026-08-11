@@ -28,7 +28,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.info.TableRefInfo;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -38,22 +37,19 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
 /**
  * show replica distribution command
  */
-public class ShowReplicaDistributionCommand extends ShowCommand {
+public class ShowReplicaDistributionCommand extends ShowCommand implements CloudRootOnlyCommand {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BackendId").add("ReplicaNum").add("ReplicaSize")
             .add("NumGraph").add("NumPercent")
             .add("SizeGraph").add("SizePercent")
             .add("CloudClusterName").add("CloudClusterId")
             .build();
-    private static final Logger LOG = LogManager.getLogger(ShowReplicaDistributionCommand.class);
     private final TableRefInfo tableRefInfo;
 
     /**
@@ -106,11 +102,4 @@ public class ShowReplicaDistributionCommand extends ShowCommand {
         }
     }
 
-    @Override
-    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
-        if (!ctx.getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
-            LOG.info("ShowReplicaDistributionCommand not supported in cloud mode");
-            throw new DdlException("Unsupported operation");
-        }
-    }
 }

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -30,8 +29,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.commons.collections4.CollectionUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -40,8 +37,7 @@ import java.util.Objects;
 /**
  * drop user command
  */
-public class AdminCheckTabletsCommand extends Command implements ForwardNoSync {
-    private static final Logger LOG = LogManager.getLogger(AdminCheckTabletsCommand.class);
+public class AdminCheckTabletsCommand extends Command implements ForwardNoSync, CloudUnsupportedCommand {
     private final List<Long> tabletIds;
     private final Map<String, String> properties;
 
@@ -94,12 +90,6 @@ public class AdminCheckTabletsCommand extends Command implements ForwardNoSync {
         if (Objects.requireNonNull(checkType) == CheckType.CONSISTENCY) {
             Env.getCurrentEnv().getConsistencyChecker().addTabletsToCheck(tabletIds);
         }
-    }
-
-    @Override
-    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
-        LOG.info("AdminCheckTabletsCommand not supported in cloud mode");
-        throw new DdlException("Unsupported operation");
     }
 
     @Override

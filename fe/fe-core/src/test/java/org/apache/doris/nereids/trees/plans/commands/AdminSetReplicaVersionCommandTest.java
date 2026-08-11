@@ -159,7 +159,7 @@ public class AdminSetReplicaVersionCommandTest extends TestWithFeService {
             AdminSetReplicaVersionCommand command = new AdminSetReplicaVersionCommand(properties);
 
             DdlException ex = Assertions.assertThrows(DdlException.class,
-                    () -> command.verifyCommandSupported(connectContext));
+                    () -> command.execute(connectContext, null));
             Assertions.assertTrue(ex.getMessage().contains("Unsupported operation"));
         } finally {
             Config.deploy_mode = originDeployMode;

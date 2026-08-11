@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -36,8 +35,6 @@ import org.apache.doris.task.AgentClient;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
 
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,8 +42,7 @@ import java.util.List;
 /**
  * show tablet storage format command
  */
-public class ShowTabletStorageFormatCommand extends ShowCommand {
-    public static final Logger LOG = LogManager.getLogger(ShowTabletStorageFormatCommand.class);
+public class ShowTabletStorageFormatCommand extends ShowCommand implements CloudUnsupportedCommand {
     private final boolean verbose;
 
     /**
@@ -121,9 +117,4 @@ public class ShowTabletStorageFormatCommand extends ShowCommand {
         return visitor.visitShowTabletStorageFormatCommand(this, context);
     }
 
-    @Override
-    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
-        LOG.info("show tablet storage format not supported in cloud mode");
-        throw new DdlException("Unsupported operation");
-    }
 }

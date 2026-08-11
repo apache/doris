@@ -133,7 +133,7 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             if (!FeConstants.runningUnitTest) {
                 insertCommand = new InsertIntoTableCommand(sinkQuery, Optional.empty(),
                         Optional.empty(), Optional.empty(), true, Optional.empty());
-                insertCommand.run(ctx, executor);
+                insertCommand.execute(ctx, executor);
                 if (ctx.getState().getStateType() == MysqlStateType.OK) {
                     LineageUtils.submitLineageEventIfNeeded(executor, insertCommand.getLineagePlan(),
                             insertCommand.getLogicalQuery(), getClass());

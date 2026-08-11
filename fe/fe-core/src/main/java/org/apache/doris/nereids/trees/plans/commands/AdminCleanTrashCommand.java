@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.NetUtils;
@@ -45,7 +44,7 @@ import java.util.Map;
 /**
  * admin clean trash
  */
-public class AdminCleanTrashCommand extends Command implements NoForward {
+public class AdminCleanTrashCommand extends Command implements NoForward, CloudUnsupportedCommand {
     private static final Logger LOG = LogManager.getLogger(AdminCleanTrashCommand.class);
     private List<String> backendsQuery;
 
@@ -105,12 +104,6 @@ public class AdminCleanTrashCommand extends Command implements NoForward {
             LOG.info("clean trash in be {}, beId {}", backend.getHost(), backend.getId());
         }
         AgentTaskExecutor.submit(batchTask);
-    }
-
-    @Override
-    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
-        LOG.info("AdminCleanTrashCommand not supported in cloud mode");
-        throw new DdlException("Unsupported operation");
     }
 
     @Override

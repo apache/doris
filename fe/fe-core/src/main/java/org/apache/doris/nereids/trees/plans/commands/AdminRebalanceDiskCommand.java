@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.NetUtils;
@@ -42,7 +41,7 @@ import java.util.Map;
 /**
  * admin rebalance disk
  */
-public class AdminRebalanceDiskCommand extends Command implements NoForward {
+public class AdminRebalanceDiskCommand extends Command implements NoForward, CloudUnsupportedCommand {
     private static final Logger LOG = LogManager.getLogger(AdminRebalanceDiskCommand.class);
     private final long timeoutS = 24 * 3600; // default 24 hours
     private List<String> backends;
@@ -94,12 +93,6 @@ public class AdminRebalanceDiskCommand extends Command implements NoForward {
             }
         }
         return needRebalanceDiskBackends;
-    }
-
-    @Override
-    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
-        LOG.info("AdminRebalanceDiskCommand not supported in cloud mode");
-        throw new DdlException("Unsupported operation");
     }
 
     @Override
