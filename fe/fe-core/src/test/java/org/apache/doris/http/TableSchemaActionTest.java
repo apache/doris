@@ -47,5 +47,17 @@ public class TableSchemaActionTest extends DorisHttpTestCase {
         JSONArray propArray = (JSONArray) ((JSONObject) object.get("data")).get("properties");
         // k1, k2
         Assert.assertEquals(2, propArray.size());
+
+        JSONObject column = (JSONObject) propArray.get(0);
+        Assert.assertEquals("BIGINT", column.get("type"));
+        Assert.assertEquals("bigint", column.get("type_sql"));
+        Assert.assertEquals("BIGINT", ((JSONObject) column.get("type_desc")).get("kind"));
+
+        JSONObject materializedIndexes =
+                (JSONObject) ((JSONObject) object.get("data")).get("materialized_indexes");
+        JSONObject baseIndex = (JSONObject) materializedIndexes.get("testIndex");
+        JSONArray indexColumns = (JSONArray) baseIndex.get("columns");
+        Assert.assertEquals("BIGINT",
+                ((JSONObject) ((JSONObject) indexColumns.get(0)).get("type_desc")).get("kind"));
     }
 }
