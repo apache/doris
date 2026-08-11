@@ -27,6 +27,8 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.Ticker;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.math.BigInteger;
 import java.time.Duration;
@@ -49,6 +51,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
@@ -60,7 +64,7 @@ import java.util.function.Function;
  * scope bucket and key node, so delayed callbacks cannot delete a replacement.
  */
 public final class ScopedMetaCache<K, V> implements AutoCloseable {
-    private static final System.Logger LOG = System.getLogger(ScopedMetaCache.class.getName());
+    private static final Logger LOG = LogManager.getLogger(ScopedMetaCache.class);
     private static final Runnable NO_OP = () -> {
     };
 
@@ -144,13 +148,34 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     }
 
     public V get(K key, ScopePath path, Function<K, V> loader) {
+        return getWithPublicationAction(key, path, loader,
+                (loaded, commit) -> commit.accept(NO_OP));
+    }
+
+    public V getWithPublicationAction(K key, ScopePath path, Function<K, V> loader,
+            BiConsumer<V, Consumer<Runnable>> publicationCoordinator) {
         Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(path, "path can not be null");
         Function<K, V> loadFunction = Objects.requireNonNull(loader, "loader can not be null");
+        BiConsumer<V, Consumer<Runnable>> coordinator = Objects.requireNonNull(
+                publicationCoordinator, "publicationCoordinator can not be null");
         checkOpen();
         if (!effectiveEnabled) {
             recordAccess(false);
-            return loadAndRecord(key, loadFunction);
+            V loaded = loadAndRecord(key, loadFunction);
+            if (loaded != null) {
+                AtomicBoolean commitInvoked = new AtomicBoolean(false);
+                coordinator.accept(loaded, beforePublication -> {
+                    if (!commitInvoked.compareAndSet(false, true)) {
+                        throw new IllegalStateException("Metadata cache publication callback was invoked twice");
+                    }
+                    Objects.requireNonNull(beforePublication, "beforePublication can not be null").run();
+                });
+                if (!commitInvoked.get()) {
+                    throw new IllegalStateException("Metadata cache publication callback was not invoked");
+                }
+            }
+            return loaded;
         }
 
         VersionedValue<K, V> presentVersioned = currentVersionedValue(key, path);
@@ -178,8 +203,15 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 }
                 V loaded = loadAndRecord(key, loadFunction);
                 if (loaded != null) {
-                    synchronized (lease.keyNode) {
-                        publishCommitted(lease, key, loaded);
+                    AtomicBoolean commitInvoked = new AtomicBoolean(false);
+                    coordinator.accept(loaded, beforePublication -> {
+                        if (!commitInvoked.compareAndSet(false, true)) {
+                            throw new IllegalStateException("Metadata cache publication callback was invoked twice");
+                        }
+                        commitLoaded(lease, key, loaded, beforePublication);
+                    });
+                    if (!commitInvoked.get()) {
+                        throw new IllegalStateException("Metadata cache publication callback was not invoked");
                     }
                 }
                 ownLoad.complete(loaded);
@@ -234,6 +266,37 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 lease.keyNode.loadPublicationState.set(new Object());
                 publishCommitted(lease, key, value);
             }
+        }
+    }
+
+    public boolean compareAndSet(K key, ScopePath path, V expectedValue, V updatedValue) {
+        Objects.requireNonNull(key, "key can not be null");
+        Objects.requireNonNull(path, "path can not be null");
+        checkOpen();
+        if (!effectiveEnabled) {
+            return true;
+        }
+        try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, false)) {
+            return guardedCommit(lease, () -> {
+                VersionedValue<K, V> current = currentVersionedValue(key, path);
+                V currentValue = current == null ? null : current.value;
+                if (currentValue != expectedValue) {
+                    return false;
+                }
+                lease.keyNode.loadPublicationState.set(new Object());
+                if (updatedValue == currentValue) {
+                    return true;
+                }
+                if (updatedValue == null) {
+                    if (current != null) {
+                        data.asMap().remove(key, current);
+                        lease.keyNode.registration.compareAndSet(current, null);
+                    }
+                } else {
+                    publishCommitted(lease, key, updatedValue);
+                }
+                return true;
+            });
         }
     }
 
@@ -452,6 +515,24 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         return publish(lease, key, value);
     }
 
+    private boolean commitLoaded(PublicationLease<K, V> lease, K key, V value, Runnable beforePublication) {
+        Runnable action = Objects.requireNonNull(beforePublication, "beforePublication can not be null");
+        return guardedCommit(lease, () -> {
+            action.run();
+            return publishCommitted(lease, key, value) != null;
+        });
+    }
+
+    private boolean guardedCommit(PublicationLease<K, V> lease, BooleanSupplier commitAction) {
+        return deferRemovals(() -> bulkInvalidationGate.readBoolean(
+                () -> lease.scopeLease.commitIfPublicationCurrent(
+                        lease.scopePublicationState, () -> {
+                            synchronized (lease.keyNode) {
+                                return lease.isCurrent() && commitAction.getAsBoolean();
+                            }
+                        })));
+    }
+
     private VersionedValue<K, V> newVersionedValue(
             PublicationLease<K, V> lease, K key, V value) {
         CacheAddress address = new CacheAddress(this, key);
@@ -485,12 +566,10 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                     }
                     V refreshed = loadAndRecord(key, loader);
                     if (refreshed != null) {
-                        synchronized (lease.keyNode) {
-                            publishCommitted(lease, key, refreshed);
-                        }
+                        replaceRefreshExpected(lease, key, current, refreshed);
                     }
                 } catch (RuntimeException | Error throwable) {
-                    LOG.log(System.Logger.Level.WARNING, "Scoped metadata cache refresh failed", throwable);
+                    LOG.warn("Scoped metadata cache refresh failed", throwable);
                 } finally {
                     refreshing.remove(key, current);
                 }
@@ -508,6 +587,27 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         data.asMap().put(versioned.key, versioned);
     }
 
+    private boolean replaceRefreshExpected(PublicationLease<K, V> lease, K key,
+            VersionedValue<K, V> expected, V refreshed) {
+        return guardedCommit(lease, () -> {
+            if (data.getIfPresent(key) != expected || !expected.isCurrent(registry, keyNodes)) {
+                return false;
+            }
+            VersionedValue<K, V> replacement = newVersionedValue(lease, key, refreshed);
+            registry.register(replacement.address, replacement, replacement.scopeSnapshot);
+            if (!lease.keyNode.registration.compareAndSet(expected, replacement)) {
+                registry.unregister(replacement.address, replacement, replacement.scopeSnapshot);
+                return false;
+            }
+            if (!data.asMap().replace(key, expected, replacement)) {
+                lease.keyNode.registration.compareAndSet(replacement, null);
+                registry.unregister(replacement.address, replacement, replacement.scopeSnapshot);
+                return false;
+            }
+            return true;
+        });
+    }
+
     private boolean tryCommitBulk(
             BulkLoadHandle handle,
             Object rawKey,
@@ -519,23 +619,27 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         PublicationLease<K, V> lease = (PublicationLease<K, V>) rawLease;
         @SuppressWarnings("unchecked")
         VersionedValue<K, V> staged = (VersionedValue<K, V>) rawStaged;
+        return deferRemovals(() -> bulkInvalidationGate.readBoolean(() -> {
+            if (!isBulkKeyCurrent(handle, key)) {
+                return false;
+            }
+            return handle.scopeLease.commitIfPublicationCurrent(
+                    handle.scopePublicationState, () -> {
+                        if (!lease.isCurrent()) {
+                            return false;
+                        }
+                        lease.keyNode.loadPublicationState.set(new Object());
+                        install(staged, lease);
+                        return true;
+                    });
+        }));
+    }
+
+    private boolean deferRemovals(BooleanSupplier action) {
         RemovalDeferral<K, V> removalDeferral = removalDeferrals.get();
         removalDeferral.depth++;
         try {
-            return bulkInvalidationGate.readBoolean(() -> {
-                if (!isBulkKeyCurrent(handle, key)) {
-                    return false;
-                }
-                return handle.scopeLease.commitIfPublicationCurrent(
-                        handle.scopePublicationState, () -> {
-                            if (!lease.isCurrent()) {
-                                return false;
-                            }
-                            lease.keyNode.loadPublicationState.set(new Object());
-                            install(staged, lease);
-                            return true;
-                        });
-            });
+            return action.getAsBoolean();
         } finally {
             removalDeferral.depth--;
             if (removalDeferral.depth == 0 && !removalDeferral.draining) {
@@ -669,7 +773,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             try {
                 beforeRemoval.onRemoval(key, versioned.value, cause);
             } catch (Throwable t) {
-                LOG.log(System.Logger.Level.WARNING, "Scoped metadata cache removal callback failed", t);
+                LOG.warn("Scoped metadata cache removal callback failed", t);
             }
         }
         registry.unregister(versioned.address, versioned, versioned.scopeSnapshot);
@@ -911,6 +1015,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private final KeyNode<K, V> keyNode;
         private final KeyState keyState;
         private final Object loadPublicationState;
+        private final PublicationState scopePublicationState;
         private final AtomicBoolean released = new AtomicBoolean(false);
 
         private PublicationLease(
@@ -926,6 +1031,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             this.keyNode = keyNode;
             this.keyState = keyState;
             this.loadPublicationState = loadPublicationState;
+            this.scopePublicationState = scopeLease.publicationState();
         }
 
         private boolean isCurrent() {

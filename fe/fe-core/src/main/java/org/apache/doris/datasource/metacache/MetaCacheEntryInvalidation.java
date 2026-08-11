@@ -28,7 +28,7 @@ import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
 /**
- * Entry-level invalidation metadata used by {@link AbstractExternalMetaCache}.
+ * Entry-level invalidation metadata used by {@link ExternalCatalogMetaCache}.
  */
 public final class MetaCacheEntryInvalidation<K> {
     @FunctionalInterface

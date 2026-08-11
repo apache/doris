@@ -29,8 +29,8 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
+import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.metacache.IdNameIndex;
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
@@ -209,8 +209,8 @@ public class ExternalDatabaseTest extends TestWithFeService {
             TestExternalTable table = db.getTableNullable("tbl_base");
             Assertions.assertNotNull(table);
 
-            MetaCacheEntry<String, TestExternalTable> objectEntry =
-                    new MetaCacheEntry<String, TestExternalTable>(
+            FeMetaCacheEntry<String, TestExternalTable> objectEntry =
+                    new FeMetaCacheEntry<String, TestExternalTable>(
                             "table_hot_lookup_race",
                             ignored -> table,
                             CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
@@ -252,8 +252,8 @@ public class ExternalDatabaseTest extends TestWithFeService {
             TestExternalTable table = db.getTableNullable("tbl_base");
             Assertions.assertNotNull(table);
 
-            MetaCacheEntry<String, TestExternalTable> objectEntry =
-                    new MetaCacheEntry<String, TestExternalTable>(
+            FeMetaCacheEntry<String, TestExternalTable> objectEntry =
+                    new FeMetaCacheEntry<String, TestExternalTable>(
                             "table_skip_lock_when_mapped",
                             ignored -> table,
                             CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
@@ -297,7 +297,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
             TestExternalTable table = db.getTableNullable("tbl_base");
             Assertions.assertNotNull(table);
 
-            MetaCacheEntry<String, TestExternalTable> objectEntry = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, TestExternalTable> objectEntry = new FeMetaCacheEntry<>(
                     "table_miss_load_race",
                     ignored -> {
                         loaderStarted.countDown();
@@ -326,6 +326,68 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
+    public void testColdTableIsNotVisibleByNameBeforeIdNavigationIsPublished() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        CountDownLatch publicationReady = new CountDownLatch(1);
+        CountDownLatch stripeHeld = new CountDownLatch(1);
+        CountDownLatch releaseStripe = new CountDownLatch(1);
+        try {
+            InspectableCatalog catalog = new InspectableCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 244L, "db1", "db1");
+            db.setInitializedForTest(true);
+            TestExternalTable table = db.getTableNullable("tbl_base");
+            Assertions.assertNotNull(table);
+
+            FeMetaCacheEntry<String, TestExternalTable> objectEntry =
+                    new FeMetaCacheEntry<String, TestExternalTable>(
+                            "table_cold_publication",
+                            ignored -> {
+                                loaderStarted.countDown();
+                                awaitLatch(releaseLoader);
+                                return table;
+                            },
+                            CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                            refreshExecutor,
+                            false,
+                            FeMetaCacheEntry.singleKeyStripeCount()) {
+                        @Override
+                        protected void beforeCurrentValueActionForTest(String key, TestExternalTable value) {
+                            publicationReady.countDown();
+                        }
+                    };
+            setTablesEntryForTest(db, objectEntry);
+            extractTableIdNameIndex(db).clear();
+
+            Future<TestExternalTable> lookup = workers.submit(() -> db.getTableNullable(table.getName()));
+            Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            Future<TestExternalTable> blocker = workers.submit(() -> objectEntry.compute("blocker", (key, value) -> {
+                stripeHeld.countDown();
+                awaitLatch(releaseStripe);
+                return table;
+            }));
+            Assertions.assertTrue(stripeHeld.await(3L, TimeUnit.SECONDS));
+            releaseLoader.countDown();
+            Assertions.assertTrue(publicationReady.await(3L, TimeUnit.SECONDS));
+
+            Assertions.assertNull(objectEntry.getIfPresent(table.getName()));
+            Assertions.assertNull(db.getTableNullable(table.getId()));
+
+            releaseStripe.countDown();
+            Assertions.assertSame(table, blocker.get(3L, TimeUnit.SECONDS));
+            Assertions.assertSame(table, lookup.get(3L, TimeUnit.SECONDS));
+            Assertions.assertSame(table, db.getTableNullable(table.getId()));
+        } finally {
+            releaseLoader.countDown();
+            releaseStripe.countDown();
+            workers.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testUnrelatedSameStripeInvalidationKeepsTableIdNavigation() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
@@ -338,7 +400,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
             TestExternalTable table = db.getTableNullable("tbl_base");
             Assertions.assertNotNull(table);
 
-            MetaCacheEntry<String, TestExternalTable> objectEntry = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, TestExternalTable> objectEntry = new FeMetaCacheEntry<>(
                     "table_unrelated_invalidation_race",
                     ignored -> {
                         loaderStarted.countDown();
@@ -348,7 +410,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
                     CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
                     refreshExecutor,
                     false,
-                    MetaCacheEntry.singleKeyStripeCount());
+                    FeMetaCacheEntry.singleKeyStripeCount());
             setTablesEntryForTest(db, objectEntry);
             extractTableIdNameIndex(db).clear();
 
@@ -417,7 +479,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
             TestExternalTable table = db.getTableNullable("tbl_base");
             Assertions.assertNotNull(table);
 
-            MetaCacheEntry<String, TestExternalTable> disabledEntry = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, TestExternalTable> disabledEntry = new FeMetaCacheEntry<>(
                     "table_disabled_lookup_race",
                     ignored -> {
                         loaderStarted.countDown();
@@ -884,7 +946,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
             NameCacheValue staleSnapshot = createEvent ? namesSnapshot("Bar") : namesSnapshot("Foo");
             NameCacheValue currentSnapshot = createEvent
                     ? namesSnapshot("Bar", "Foo") : NameCacheValue.empty();
-            MetaCacheEntry<String, NameCacheValue> namesEntry = new MetaCacheEntry<>(
+            FeMetaCacheEntry<String, NameCacheValue> namesEntry = new FeMetaCacheEntry<>(
                     "table_names_event_test",
                     ignored -> {
                         if (loadCount.incrementAndGet() == 1) {
@@ -897,7 +959,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
                     CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 1L),
                     refreshExecutor,
                     false,
-                    MetaCacheEntry.singleKeyStripeCount());
+                    FeMetaCacheEntry.singleKeyStripeCount());
             setTableNamesEntryForTest(db, namesEntry);
 
             Future<Set<String>> staleLoad = queryExecutor.submit(db::getTableNamesWithLock);
@@ -946,14 +1008,14 @@ public class ExternalDatabaseTest extends TestWithFeService {
         }
     }
 
-    private MetaCacheEntry<String, TestExternalTable> extractTablesEntry(InspectableDatabase db) throws Exception {
+    private FeMetaCacheEntry<String, TestExternalTable> extractTablesEntry(InspectableDatabase db) throws Exception {
         Field tablesField = ExternalDatabase.class.getDeclaredField("tables");
         tablesField.setAccessible(true);
-        return (MetaCacheEntry<String, TestExternalTable>) tablesField.get(db);
+        return (FeMetaCacheEntry<String, TestExternalTable>) tablesField.get(db);
     }
 
     private void setTablesEntryForTest(InspectableDatabase db,
-            MetaCacheEntry<String, TestExternalTable> tablesEntry) throws Exception {
+            FeMetaCacheEntry<String, TestExternalTable> tablesEntry) throws Exception {
         Field tablesField = ExternalDatabase.class.getDeclaredField("tables");
         tablesField.setAccessible(true);
         tablesField.set(db, tablesEntry);
@@ -966,7 +1028,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     private void setTableNamesEntryForTest(InspectableDatabase db,
-            MetaCacheEntry<String, NameCacheValue> namesEntry) throws Exception {
+            FeMetaCacheEntry<String, NameCacheValue> namesEntry) throws Exception {
         Field namesField = ExternalDatabase.class.getDeclaredField("tableNames");
         namesField.setAccessible(true);
         namesField.set(db, namesEntry);

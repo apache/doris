@@ -31,8 +31,7 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
-import org.apache.doris.datasource.metacache.ExternalMetaCacheRegistry;
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
+import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -82,8 +81,9 @@ public class RefreshManagerTest {
         engineCache = new RecordingExternalMetaCache();
         databaseObjectLoadCalls = new AtomicInteger();
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
-        ExternalMetaCacheRegistry cacheRegistry = Deencapsulation.getField(metaCacheMgr, "cacheRegistry");
-        cacheRegistry.resetForTest(Collections.singletonList(engineCache));
+        Map<String, ExternalMetaCache> cacheTypes = Deencapsulation.getField(metaCacheMgr, "cacheTypes");
+        cacheTypes.clear();
+        cacheTypes.put(engineCache.engine(), engineCache);
         constraintManager = new RecordingConstraintManager();
         testingCatalogMgr = new TestingCatalogMgr(catalog);
         originalEnv = replaceEnvSingleton(
@@ -291,7 +291,7 @@ public class RefreshManagerTest {
 
     private void disableDatabaseObjectCacheWithTtlZero(
             ExternalCatalog targetCatalog, ExternalDatabase<? extends ExternalTable> targetDatabase) {
-        MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> disabledDatabases = new MetaCacheEntry<>(
+        FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> disabledDatabases = new FeMetaCacheEntry<>(
                 "ttl_zero_databases",
                 ignored -> {
                     databaseObjectLoadCalls.incrementAndGet();

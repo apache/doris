@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
@@ -50,7 +51,7 @@ import javax.annotation.Nullable;
  * adapter only retains the short per-key publication window needed to update FE's auxiliary ID/name indexes together
  * with a database or table object.
  */
-public class MetaCacheEntry<K, V> {
+public class FeMetaCacheEntry<K, V> {
     private static final int SINGLE_KEY_STRIPES = 1;
 
     private static final class StripeState<K> {
@@ -86,45 +87,45 @@ public class MetaCacheEntry<K, V> {
     private final CatalogMetaCache owner = new CatalogMetaCache();
     private final MetaCache<K, V> data;
 
-    public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor) {
+    public FeMetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor) {
         this(name, loader, cacheSpec, refreshExecutor, true, false, defaultObjectStripeCount(), null);
     }
 
-    public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor,
+    public FeMetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor,
             boolean autoRefresh) {
         this(name, loader, cacheSpec, refreshExecutor, autoRefresh, false, defaultObjectStripeCount(), null);
     }
 
-    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+    public FeMetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly) {
         this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
                 defaultObjectStripeCount(), null);
     }
 
-    public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor,
+    public FeMetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor,
             boolean autoRefresh, int stripeCount) {
         this(name, loader, cacheSpec, refreshExecutor, autoRefresh, false, stripeCount, null);
     }
 
-    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+    public FeMetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly, int stripeCount) {
         this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly, stripeCount, null);
     }
 
-    public static <K, V> MetaCacheEntry<K, V> withSyncRemovalListener(String name, Function<K, V> loader,
+    public static <K, V> FeMetaCacheEntry<K, V> withSyncRemovalListener(String name, Function<K, V> loader,
             CacheSpec cacheSpec, ExecutorService refreshExecutor, RemovalListener<K, V> removalListener) {
         return withSyncRemovalListener(name, loader, cacheSpec, refreshExecutor,
                 defaultObjectStripeCount(), removalListener);
     }
 
-    public static <K, V> MetaCacheEntry<K, V> withSyncRemovalListener(String name, Function<K, V> loader,
+    public static <K, V> FeMetaCacheEntry<K, V> withSyncRemovalListener(String name, Function<K, V> loader,
             CacheSpec cacheSpec, ExecutorService refreshExecutor, int stripeCount,
             RemovalListener<K, V> removalListener) {
-        return new MetaCacheEntry<>(name, loader, cacheSpec, refreshExecutor, false, false, stripeCount,
+        return new FeMetaCacheEntry<>(name, loader, cacheSpec, refreshExecutor, false, false, stripeCount,
                 Objects.requireNonNull(removalListener, "removalListener can not be null"));
     }
 
-    private MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+    private FeMetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly, int stripeCount,
             @Nullable RemovalListener<K, V> removalListener) {
         this.name = Objects.requireNonNull(name, "name can not be null");
@@ -195,6 +196,7 @@ public class MetaCacheEntry<K, V> {
             BiConsumer<K, V> currentValueAction) {
         BiPredicate<K, V> required = Objects.requireNonNull(actionRequired, "actionRequired can not be null");
         BiConsumer<K, V> action = Objects.requireNonNull(currentValueAction, "currentValueAction can not be null");
+        Function<K, V> loadFunction = Objects.requireNonNull(loader, "loader can not be null");
         V cached = data.getIfPresent(key);
         if (cached != null && !required.test(key, cached)) {
             return cached;
@@ -205,9 +207,27 @@ public class MetaCacheEntry<K, V> {
             token = beginAction(stripe, key);
         }
         try {
-            V value = cached == null ? get(key) : cached;
+            AtomicBoolean actionPublished = new AtomicBoolean(false);
+            V value = cached == null
+                    ? data.getWithPublicationAction(key, loadKey -> loadAndPause(loadKey, loadFunction),
+                            (loaded, commit) -> {
+                                beforeCurrentValueActionForTest(key, loaded);
+                                synchronized (stripe) {
+                                    if (isCurrent(stripe, token) && required.test(key, loaded)) {
+                                        commit.accept(() -> action.accept(key, loaded));
+                                        actionPublished.set(true);
+                                    } else {
+                                        commit.accept(() -> {
+                                        });
+                                    }
+                                }
+                            })
+                    : cached;
             if (value == null) {
                 return null;
+            }
+            if (actionPublished.get()) {
+                return value;
             }
             if (!required.test(key, value)) {
                 return value;
@@ -270,14 +290,15 @@ public class MetaCacheEntry<K, V> {
         StripeState<K> stripe = stripeState(key);
         synchronized (stripe) {
             bumpAction(stripe, key);
-            beforePublicMutationWriteForTest(key);
-            V updated = effectiveEnabled ? remapper.apply(key, data.getIfPresent(key)) : null;
-            data.invalidateKey(key);
-            if (updated != null) {
-                data.put(key, updated);
+            while (true) {
+                V current = data.getIfPresent(key);
+                V updated = effectiveEnabled ? remapper.apply(key, current) : null;
+                beforePublicMutationWriteForTest(key);
+                if (data.compareAndSet(key, current, updated)) {
+                    action.run();
+                    return updated;
+                }
             }
-            action.run();
-            return updated;
         }
     }
 
@@ -286,15 +307,16 @@ public class MetaCacheEntry<K, V> {
         Runnable validation = Objects.requireNonNull(validationAction, "validationAction can not be null");
         StripeState<K> stripe = stripeState(key);
         synchronized (stripe) {
-            V updated = effectiveEnabled ? remapper.apply(key, data.getIfPresent(key)) : null;
-            validation.run();
-            bumpAction(stripe, key);
-            beforePublicMutationWriteForTest(key);
-            data.invalidateKey(key);
-            if (updated != null) {
-                data.put(key, updated);
+            while (true) {
+                V current = data.getIfPresent(key);
+                V updated = effectiveEnabled ? remapper.apply(key, current) : null;
+                validation.run();
+                bumpAction(stripe, key);
+                beforePublicMutationWriteForTest(key);
+                if (data.compareAndSet(key, current, updated)) {
+                    return updated;
+                }
             }
-            return updated;
         }
     }
 
@@ -382,6 +404,10 @@ public class MetaCacheEntry<K, V> {
             }
         }
         return references;
+    }
+
+    void putSharedForTest(K key, V value) {
+        data.put(key, value);
     }
 
     void beforeManualCachePutForTest(K key, V loaded) {

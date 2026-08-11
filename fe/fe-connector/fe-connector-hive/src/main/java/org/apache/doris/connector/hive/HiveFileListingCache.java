@@ -62,7 +62,7 @@ import java.util.Set;
  * fail to resolve its impl.</p>
  *
  * <p><b>Failures are not cached, and are split by blast radius.</b> The loader never caches a failed load (matching
- * {@code MetaCacheEntry}'s null-is-a-miss / exception-propagates contract). A SYSTEMIC filesystem-resolution failure
+ * the shared MetaCache's null-is-a-miss / exception-propagates contract). A SYSTEMIC filesystem-resolution failure
  * ({@link FileSystem#forLocation} unresolvable scheme/storage, or a lazily-surfaced {@code "No FileSystem for
  * scheme"} — it fails for every partition of the table) is thrown as a plain {@link DorisConnectorException} and the
  * scan path lets it propagate to fail the query loud. A LOCAL per-directory failure ({@link FileSystem#list}: this

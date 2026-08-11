@@ -105,6 +105,42 @@ public class ScopedMetaCacheConcurrencyTest {
     }
 
     @Test
+    public void evictedRefreshDoesNotOverwriteNewerMissValue() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch refreshStarted = new CountDownLatch(1);
+        CountDownLatch releaseRefresh = new CountDownLatch(1);
+        CacheSpec capacityOne = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 1L);
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCacheWithRefresh(
+                    "test", capacityOne, Duration.ofNanos(1L), refreshExecutor, () -> {
+                    });
+            Assertions.assertEquals("v1", cache.get("key", TABLE, ignored -> "v1"));
+            Assertions.assertEquals("v1", cache.get("key", TABLE, ignored -> {
+                refreshStarted.countDown();
+                await(releaseRefresh);
+                return "stale-refresh";
+            }));
+            await(refreshStarted);
+
+            cache.put("other", ScopePath.table("db", "other"), "other");
+            cache.cleanUp();
+            Assertions.assertNull(cache.getIfPresent("key", TABLE));
+            Assertions.assertEquals("v2", cache.get("key", TABLE, ignored -> "v2"));
+
+            releaseRefresh.countDown();
+            refreshExecutor.shutdown();
+            Assertions.assertTrue(refreshExecutor.awaitTermination(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            Assertions.assertEquals("v2", cache.getIfPresent("key", TABLE));
+            Assertions.assertEquals(1, registry.metrics().getRegistrationCount());
+            Assertions.assertEquals(0, registry.metrics().getActiveLoadCount());
+            Assertions.assertEquals(0, cache.refreshingCountForTest());
+        } finally {
+            releaseRefresh.countDown();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void everyContainingInvalidationFencesAnInFlightSingleKeyLoad() throws Exception {
         List<ScopePath> invalidations = Arrays.asList(
                 ScopePath.catalog(),
@@ -581,6 +617,32 @@ public class ScopedMetaCacheConcurrencyTest {
             try (BulkLoadHandle handle = cache.beginBulkLoad(TABLE)) {
                 Assertions.assertTrue(cache.publish(handle, "key", TABLE, "new"));
             }
+
+            Assertions.assertTrue(reentered.get());
+            Assertions.assertNull(cache.getIfPresent("key", TABLE));
+            assertEmpty(registry, cache);
+        }
+    }
+
+    @Test
+    public void compareAndSetReplacementRemovalCanReenterInvalidation() {
+        AtomicBoolean reentered = new AtomicBoolean(false);
+        AtomicReference<ScopedMetaCache<String, String>> cacheReference = new AtomicReference<>();
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCache(
+                    "test",
+                    ENABLED,
+                    null,
+                    (key, value) -> {
+                        if ("old".equals(value) && reentered.compareAndSet(false, true)) {
+                            cacheReference.get().invalidateKey(key);
+                            registry.invalidate(TABLE);
+                        }
+                    });
+            cacheReference.set(cache);
+            cache.put("key", TABLE, "old");
+
+            Assertions.assertTrue(cache.compareAndSet("key", TABLE, "old", "new"));
 
             Assertions.assertTrue(reentered.get());
             Assertions.assertNull(cache.getIfPresent("key", TABLE));

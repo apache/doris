@@ -22,10 +22,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
-import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
+import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
+import org.apache.doris.datasource.metacache.ExternalCatalogMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
-import org.apache.doris.datasource.metacache.ExternalMetaCacheRegistry;
-import org.apache.doris.datasource.metacache.ExternalMetaCacheRouteResolver;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
@@ -37,7 +36,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -82,8 +83,7 @@ public class ExternalMetaCacheMgr {
     private ExecutorService fileListingExecutor;
     // This executor is used to schedule the getting split tasks
     private ExecutorService scheduleExecutor;
-    private final ExternalMetaCacheRegistry cacheRegistry;
-    private final ExternalMetaCacheRouteResolver routeResolver;
+    private final Map<String, ExternalMetaCache> cacheTypes = Maps.newConcurrentMap();
 
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
@@ -115,9 +115,7 @@ public class ExternalMetaCacheMgr {
 
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
-        cacheRegistry = new ExternalMetaCacheRegistry();
-        routeResolver = new ExternalMetaCacheRouteResolver(cacheRegistry);
-        initEngineCaches();
+        registerBuiltinEngineCaches();
     }
 
     private ExecutorService newThreadPool(boolean isCheckpointCatalog, int numThread, int queueSize,
@@ -144,7 +142,11 @@ public class ExternalMetaCacheMgr {
     }
 
     ExternalMetaCache engine(String engine) {
-        return cacheRegistry.resolve(engine);
+        ExternalMetaCache cache = cacheTypes.get(engine);
+        if (cache == null) {
+            throw new IllegalArgumentException(String.format("unsupported external meta cache engine '%s'", engine));
+        }
+        return cache;
     }
 
     public DorisExternalMetaCache doris(long catalogId) {
@@ -259,7 +261,7 @@ public class ExternalMetaCacheMgr {
 
     public List<CatalogMetaCacheStats> getCatalogCacheStats(long catalogId) {
         List<CatalogMetaCacheStats> stats = new ArrayList<>();
-        cacheRegistry.allCaches().forEach(externalMetaCache -> externalMetaCache.stats(catalogId)
+        allCacheTypes().forEach(externalMetaCache -> externalMetaCache.stats(catalogId)
                 .forEach((entryName, entryStats) -> stats.add(
                         new CatalogMetaCacheStats(externalMetaCache.engine(), entryName, entryStats))));
         stats.sort(Comparator.comparing(CatalogMetaCacheStats::getEngineName)
@@ -291,17 +293,20 @@ public class ExternalMetaCacheMgr {
         }
     }
 
-    private void initEngineCaches() {
-        registerBuiltinEngineCaches();
-    }
-
     private void registerBuiltinEngineCaches() {
-        cacheRegistry.register(new DefaultExternalMetaCache(ENGINE_DEFAULT, commonRefreshExecutor));
-        cacheRegistry.register(new DorisExternalMetaCache(commonRefreshExecutor));
+        registerCacheType(new DefaultExternalMetaCache(ENGINE_DEFAULT, commonRefreshExecutor));
+        registerCacheType(new DorisExternalMetaCache(commonRefreshExecutor));
     }
 
     private void routeCatalogEngines(long catalogId, Consumer<ExternalMetaCache> action) {
-        routeResolver.resolveCatalogCaches(catalogId, getCatalog(catalogId)).forEach(action);
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        if (catalog instanceof RemoteDorisExternalCatalog) {
+            action.accept(engine(ENGINE_DORIS));
+        } else if (catalog instanceof ExternalCatalog) {
+            action.accept(engine(ENGINE_DEFAULT));
+        } else if (catalog == null) {
+            allCacheTypes().stream().filter(cache -> cache.isCatalogInitialized(catalogId)).forEach(action);
+        }
     }
 
     private void routeSpecifiedEngine(String engine, Consumer<ExternalMetaCache> action) {
@@ -310,7 +315,14 @@ public class ExternalMetaCacheMgr {
 
     List<String> resolveCatalogEngineNamesForTest(@Nullable CatalogIf<?> catalog, long catalogId) {
         List<String> resolved = new ArrayList<>();
-        routeResolver.resolveCatalogCaches(catalogId, catalog).forEach(cache -> resolved.add(cache.engine()));
+        if (catalog instanceof RemoteDorisExternalCatalog) {
+            resolved.add(ENGINE_DORIS);
+        } else if (catalog instanceof ExternalCatalog) {
+            resolved.add(ENGINE_DEFAULT);
+        } else if (catalog == null) {
+            allCacheTypes().stream().filter(cache -> cache.isCatalogInitialized(catalogId))
+                    .forEach(cache -> resolved.add(cache.engine()));
+        }
         return new ArrayList<>(resolved);
     }
 
@@ -360,7 +372,8 @@ public class ExternalMetaCacheMgr {
     @SuppressWarnings("unchecked")
     public Optional<SchemaCacheValue> getSchemaCacheValue(ExternalTable table, SchemaCacheKey key) {
         long catalogId = table.getCatalog().getId();
-        String resolvedEngine = table.getMetaCacheEngine();
+        String resolvedEngine = table.getCatalog() instanceof RemoteDorisExternalCatalog
+                ? ENGINE_DORIS : ENGINE_DEFAULT;
         prepareCatalogByEngine(catalogId, resolvedEngine);
         try {
             return ((ExternalMetaCache) engine(resolvedEngine)).getSchemaValue(catalogId, key);
@@ -406,12 +419,17 @@ public class ExternalMetaCacheMgr {
         return stats;
     }
 
-    void replaceEngineCachesForTest(List<? extends ExternalMetaCache> caches) {
-        cacheRegistry.resetForTest(caches);
+    private void registerCacheType(ExternalMetaCache cache) {
+        cacheTypes.put(cache.engine(), cache);
+        cache.aliases().forEach(alias -> cacheTypes.put(alias, cache));
+    }
+
+    private Collection<ExternalMetaCache> allCacheTypes() {
+        return new LinkedHashSet<>(cacheTypes.values());
     }
 
     /**
-     * Fallback implementation of {@link AbstractExternalMetaCache} for engines that do not
+     * Fallback implementation of {@link ExternalCatalogMetaCache} for engines that do not
      * provide dedicated cache entries.
      *
      * <p>Registered entries:
@@ -422,7 +440,7 @@ public class ExternalMetaCacheMgr {
      * <p>This class keeps compatibility for generic external engines and routes only schema
      * loading/invalidation. No engine-specific metadata (partitions/files/snapshots) is cached.
      */
-    private static class DefaultExternalMetaCache extends AbstractExternalMetaCache {
+    private static class DefaultExternalMetaCache extends ExternalCatalogMetaCache {
         DefaultExternalMetaCache(String engine, ExecutorService refreshExecutor) {
             super(engine, refreshExecutor);
             registerEntry(MetaCacheEntryDef.of(

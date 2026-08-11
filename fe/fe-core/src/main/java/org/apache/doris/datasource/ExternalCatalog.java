@@ -43,8 +43,8 @@ import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.metacache.IdNameIndex;
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -167,8 +167,8 @@ public abstract class ExternalCatalog
 
     private boolean objectCreated = false;
     protected TransactionManager transactionManager;
-    protected MetaCacheEntry<String, NameCacheValue> databaseNames;
-    protected MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databases;
+    protected FeMetaCacheEntry<String, NameCacheValue> databaseNames;
+    protected FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databases;
     protected transient IdNameIndex dbIdNameIndex = new IdNameIndex("external database");
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
@@ -395,25 +395,25 @@ public abstract class ExternalCatalog
                 Config.external_cache_expire_time_seconds_after_access,
                 1);
         // Build one immutable names snapshot so list and lower-case index share the same cache version.
-        databaseNames = new MetaCacheEntry<>(
+        databaseNames = new FeMetaCacheEntry<>(
                 name + ".database_names",
                 ignored -> NameCacheValue.of(getFilteredDatabaseNames()),
                 namesSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
                 true,
-                MetaCacheEntry.singleKeyStripeCount());
+                FeMetaCacheEntry.singleKeyStripeCount());
 
         CacheSpec objectSpec = CacheSpec.of(
                 true,
                 Config.external_cache_expire_time_seconds_after_access,
                 Math.max(Config.max_meta_object_cache_num, 1));
         // Object entries keep the sync removal listener semantics and therefore do not enable auto refresh.
-        databases = MetaCacheEntry.withSyncRemovalListener(
+        databases = FeMetaCacheEntry.withSyncRemovalListener(
                 name + ".databases",
                 localDbName -> buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType, true),
                 objectSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
-                MetaCacheEntry.defaultObjectStripeCount(),
+                FeMetaCacheEntry.defaultObjectStripeCount(),
                 (key, value, cause) -> value.resetMetaToUninitialized());
     }
 

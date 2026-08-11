@@ -139,7 +139,7 @@ under the License.
             <scope>test</scope>
         </dependency>
 
-        <!-- TEST ONLY: CachingHmsClientTest constructs the decorator, which builds MetaCacheEntry (backed by
+        <!-- TEST ONLY: CachingHmsClientTest constructs the decorator, which builds shared MetaCache entries (backed by
              Caffeine). fe-connector-cache declares Caffeine `provided` (non-transitive), and this library
              module carries no Caffeine of its own — in production it runs inside the assembled hive plugin
              whose zip bundles Caffeine 2.9.3 (C-a), but the -hms unit-test classpath needs its own copy.

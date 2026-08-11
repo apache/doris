@@ -23,6 +23,7 @@ import com.github.benmanes.caffeine.cache.Ticker;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -170,6 +171,10 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         invalidate(path, NO_OP);
     }
 
+    void invalidate(List<ScopePath> paths) {
+        invalidate(paths, NO_OP);
+    }
+
     void invalidate(ScopePath path, Runnable afterStateReplacement) {
         Objects.requireNonNull(path, "path can not be null");
         Objects.requireNonNull(afterStateReplacement, "afterStateReplacement can not be null");
@@ -189,6 +194,36 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         afterStateReplacement.run();
         cleanDetachedState(invalidated.oldState);
         tryPrune(invalidated.existing);
+    }
+
+    void invalidate(List<ScopePath> paths, Runnable afterStateReplacement) {
+        Objects.requireNonNull(paths, "paths can not be null");
+        Objects.requireNonNull(afterStateReplacement, "afterStateReplacement can not be null");
+        checkOpen();
+        List<InvalidatedScope> invalidated = publicationGate.write(() -> {
+            List<List<ScopeNode>> resolvedScopes = new ArrayList<>(paths.size());
+            Set<ScopeNode> targets = Collections.newSetFromMap(new IdentityHashMap<>());
+            Set<ScopeNode> publicationNodes = Collections.newSetFromMap(new IdentityHashMap<>());
+            for (ScopePath path : paths) {
+                Objects.requireNonNull(path, "path can not be null");
+                List<ScopeNode> existing = resolveExisting(path);
+                publicationNodes.addAll(existing);
+                if (existing.size() == path.level().ordinal() + 1) {
+                    ScopeNode target = existing.get(existing.size() - 1);
+                    if (targets.add(target)) {
+                        resolvedScopes.add(existing);
+                    }
+                }
+            }
+            bumpPublicationStates(new ArrayList<>(publicationNodes));
+            List<InvalidatedScope> result = new ArrayList<>(resolvedScopes.size());
+            resolvedScopes.forEach(existing -> result.add(new InvalidatedScope(
+                    existing, replaceState(existing.get(existing.size() - 1)))));
+            return result;
+        });
+        afterStateReplacement.run();
+        invalidated.forEach(scope -> cleanDetachedState(scope.oldState));
+        invalidated.forEach(scope -> tryPrune(scope.existing));
     }
 
     public ScopeMetrics metrics() {

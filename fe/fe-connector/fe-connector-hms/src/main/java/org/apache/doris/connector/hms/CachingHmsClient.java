@@ -32,7 +32,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -71,10 +70,9 @@ import java.util.function.Function;
  * </ul>
  *
  * <p><b>Pass-through.</b> Every other read, plus every write / DDL / ACID method, is passed straight
- * through to the delegate. A later invalidation step arms {@link #flush(String, String)} /
- * {@link #flushDb(String)} / {@link #flushAll()} onto {@code REFRESH TABLE} / {@code REFRESH DATABASE} /
- * {@code REFRESH CATALOG}. This decorator does NOT
- * self-invalidate around writes — coarse REFRESH + TTL bound staleness.</p>
+ * through to the delegate. Cache invalidation belongs to the connector's shared {@link CatalogMetaCache}
+ * owner, not to this read decorator. This decorator does NOT self-invalidate around writes — coarse REFRESH
+ * + TTL bound staleness.</p>
  *
  * <p><b>Cache-value safety.</b> {@code HmsTableInfo} / {@code HmsPartitionInfo} / {@code HmsColumnStatistics}
  * are immutable (all fields final, collections unmodifiable), so caching them by reference is safe. The
@@ -114,18 +112,13 @@ public class CachingHmsClient implements HmsClient {
     static final long DEFAULT_PARTITION_CAPACITY = 100000L;
     static final long DEFAULT_COLUMN_STATS_CAPACITY = 10000L;
     private final HmsClient delegate;
-    private final CatalogMetaCache owner;
     private final MetaCache<TableKey, HmsTableInfo> tableCache;
     private final MetaCache<PartitionNamesKey, List<String>> partitionNamesCache;
     private final MetaCache<PartitionKey, HmsPartitionInfo> partitionsCache;
     private final MetaCache<ColumnStatsKey, List<HmsColumnStatistics>> columnStatsCache;
 
-    public CachingHmsClient(HmsClient delegate, Map<String, String> properties) {
-        this(new CatalogMetaCache(), delegate, properties);
-    }
-
     public CachingHmsClient(CatalogMetaCache owner, HmsClient delegate, Map<String, String> properties) {
-        this.owner = Objects.requireNonNull(owner, "owner can not be null");
+        Objects.requireNonNull(owner, "owner can not be null");
         this.delegate = Objects.requireNonNull(delegate, "delegate can not be null");
         Map<String, String> props = applyLegacyTtlCompatibility(
                 properties == null ? Collections.emptyMap() : properties);
@@ -289,38 +282,6 @@ public class CachingHmsClient implements HmsClient {
                 key -> delegate.getTableColumnStatistics(key.dbName, key.tableName, key.columns));
     }
 
-    // ========== Coarse invalidation (wired onto REFRESH TABLE / REFRESH CATALOG in a later step) ==========
-
-    /** Drop every cached entry for one table. Backs {@code REFRESH TABLE}. */
-    public void flush(String dbName, String tableName) {
-        owner.invalidateTable(dbName, tableName);
-    }
-
-    /**
-     * Per-partition invalidation for a partition add/drop/alter refresh, mirroring legacy
-     * {@code HiveExternalMetaCache}'s per-partition metadata invalidation. Drops exactly the given partitions
-     * from the partition-metadata cache (keyed by values) and re-fetches the partition-NAME list (its membership
-     * may have changed on add/drop, so it must be refreshed whole). Deliberately does NOT touch {@code tableCache}
-     * or {@code columnStatsCache} — legacy did not invalidate the table object or its column statistics on a
-     * partition-level refresh.
-     */
-    public void invalidatePartitions(String dbName, String tableName, Set<List<String>> partitionValues) {
-        owner.invalidatePartitionCollection(dbName, tableName);
-        for (List<String> values : partitionValues) {
-            owner.invalidatePartition(dbName, tableName, values);
-        }
-    }
-
-    /** Drop every cached entry for one database (all its tables). Backs {@code REFRESH DATABASE}. */
-    public void flushDb(String dbName) {
-        owner.invalidateDatabase(dbName);
-    }
-
-    /** Drop the whole cache. Backs {@code REFRESH CATALOG}. */
-    public void flushAll() {
-        owner.invalidateCatalog();
-    }
-
     // ========== Pass-through: everything else is delegated verbatim ==========
 
     @Override
@@ -459,7 +420,7 @@ public class CachingHmsClient implements HmsClient {
     }
 
     // ========== Cache keys ==========
-    // All keys carry (db, table) so flush(db, table) can select every entry for one table.
+    // All keys carry (db, table) so the connector owner can invalidate every entry for one table.
 
     static final class TableKey {
         private final String dbName;
@@ -468,10 +429,6 @@ public class CachingHmsClient implements HmsClient {
         TableKey(String dbName, String tableName) {
             this.dbName = dbName;
             this.tableName = tableName;
-        }
-
-        boolean matchesDb(String db) {
-            return Objects.equals(dbName, db);
         }
 
         @Override
@@ -501,14 +458,6 @@ public class CachingHmsClient implements HmsClient {
             this.dbName = dbName;
             this.tableName = tableName;
             this.maxParts = maxParts;
-        }
-
-        boolean matches(String db, String table) {
-            return Objects.equals(dbName, db) && Objects.equals(tableName, table);
-        }
-
-        boolean matchesDb(String db) {
-            return Objects.equals(dbName, db);
         }
 
         @Override
@@ -547,19 +496,6 @@ public class CachingHmsClient implements HmsClient {
                     : Collections.unmodifiableList(new ArrayList<>(values));
         }
 
-        boolean matches(String db, String table) {
-            return Objects.equals(dbName, db) && Objects.equals(tableName, table);
-        }
-
-        boolean matchesDb(String db) {
-            return Objects.equals(dbName, db);
-        }
-
-        /** This partition (its db, table and values) is one of {@code valueSet}. Backs per-partition invalidation. */
-        boolean matchesPartitions(String db, String table, Set<List<String>> valueSet) {
-            return matches(db, table) && valueSet.contains(values);
-        }
-
         @Override
         public boolean equals(Object o) {
             if (this == o) {
@@ -593,14 +529,6 @@ public class CachingHmsClient implements HmsClient {
             this.columns = columns == null
                     ? Collections.emptyList()
                     : Collections.unmodifiableList(new ArrayList<>(columns));
-        }
-
-        boolean matches(String db, String table) {
-            return Objects.equals(dbName, db) && Objects.equals(tableName, table);
-        }
-
-        boolean matchesDb(String db) {
-            return Objects.equals(dbName, db);
         }
 
         @Override

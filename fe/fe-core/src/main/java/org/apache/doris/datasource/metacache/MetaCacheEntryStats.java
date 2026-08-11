@@ -22,7 +22,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import java.util.Objects;
 
 /**
- * Immutable stats snapshot of one {@link MetaCacheEntry}.
+ * Immutable stats snapshot of one {@link FeMetaCacheEntry}.
  *
  * <p>Time fields use the following units:
  * <ul>
