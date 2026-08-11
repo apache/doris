@@ -33,7 +33,6 @@ import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.RuntimeProfile;
@@ -60,6 +59,7 @@ import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.connector.converter.ConnectorComputeVariantType;
 import org.apache.doris.datasource.connector.converter.ExprToConnectorExpressionConverter;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -234,8 +234,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     private static boolean containsComputeVariant(Type type) {
-        if (type instanceof VariantType) {
-            return ((VariantType) type).isComputeV2();
+        if (type instanceof ConnectorComputeVariantType) {
+            // Only the connector-specific subtype guarantees a V2 execution carrier when the
+            // global storage-format switch is disabled.
+            return true;
         }
         if (type instanceof ArrayType) {
             return containsComputeVariant(((ArrayType) type).getItemType());

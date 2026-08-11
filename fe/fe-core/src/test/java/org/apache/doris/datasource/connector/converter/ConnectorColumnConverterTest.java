@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorType;
 
@@ -146,9 +147,16 @@ class ConnectorColumnConverterTest {
 
     @Test
     void testComputeVariantCarrierConversion() {
-        Type type = ConnectorColumnConverter.convertType(ConnectorType.of("VARIANT_COMPUTE_V2"));
-        Assertions.assertTrue(type instanceof org.apache.doris.catalog.VariantType);
-        Assertions.assertTrue(((org.apache.doris.catalog.VariantType) type).isComputeV2());
+        boolean originalEnableVariantV2 = Config.enable_variant_v2;
+        try {
+            Config.enable_variant_v2 = false;
+            Type type = ConnectorColumnConverter.convertType(ConnectorType.of("VARIANT_COMPUTE_V2"));
+            Assertions.assertInstanceOf(ConnectorComputeVariantType.class, type);
+            Assertions.assertTrue(type.toThrift().types.get(0).scalar_type.variant_is_v2,
+                    "external compute carriers must remain V2 independently of storage defaults");
+        } finally {
+            Config.enable_variant_v2 = originalEnableVariantV2;
+        }
     }
 
     @Test
