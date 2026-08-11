@@ -163,11 +163,14 @@ uint32_t VariantMetadataBuilder::register_key(StringRef key) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Cannot register a Variant metadata key after seal");
     }
-    validate_utf8_string_ref(key, "metadata key");
+    // Hashing still requires a valid pointer. Interned keys were already UTF-8 validated, so only
+    // a dictionary miss needs another byte scan.
+    validate_string_ref(key, "metadata key");
     const auto existing = _impl->key_to_temporary_id.find(key);
     if (existing != _impl->key_to_temporary_id.end()) {
         return existing->second;
     }
+    validate_utf8_string_ref(key, "metadata key");
     if (_impl->keys.size() == std::numeric_limits<uint32_t>::max()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant metadata dictionary exceeds the uint32 key limit");

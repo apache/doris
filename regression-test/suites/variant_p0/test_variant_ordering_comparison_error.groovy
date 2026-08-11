@@ -16,9 +16,9 @@
 // under the License.
 
 suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
-    sql "SET enable_variant_v2 = true"
 
     test {
         sql """

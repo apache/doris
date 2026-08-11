@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_predefine_multi_var", "variant_type"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def table_name = "multi_variants"
 
     sql "DROP TABLE IF EXISTS ${table_name}"
@@ -28,17 +29,17 @@ suite("regression_test_variant_predefine_multi_var", "variant_type"){
         DISTRIBUTED BY HASH(k) BUCKETS 4
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
-    sql """INSERT INTO ${table_name} SELECT *, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}' FROM numbers("number" = "101")"""
-    sql """INSERT INTO ${table_name} SELECT *, '{"k7":123, "k8": "elden ring", "k9" : 1.1112, "k10" : [1.12], "k11" : ["moon"]}' FROM numbers("number" = "203") where number > 100"""
-    sql """INSERT INTO ${table_name} SELECT *, '{"k7":123, "k8": "elden ring", "k9" : 1.1112, "k10" : [1.12], "k11" : ["moon"]}' FROM numbers("number" = "411") where number > 200"""
+    sql """INSERT INTO ${table_name} SELECT *, ${variantV2Function}('{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}') FROM numbers("number" = "101")"""
+    sql """INSERT INTO ${table_name} SELECT *, ${variantV2Function}('{"k7":123, "k8": "elden ring", "k9" : 1.1112, "k10" : [1.12], "k11" : ["moon"]}') FROM numbers("number" = "203") where number > 100"""
+    sql """INSERT INTO ${table_name} SELECT *, ${variantV2Function}('{"k7":123, "k8": "elden ring", "k9" : 1.1112, "k10" : [1.12], "k11" : ["moon"]}') FROM numbers("number" = "411") where number > 200"""
     trigger_and_wait_compaction(table_name, "cumulative", 1800)
     sql """alter table ${table_name} add column v2 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double> default null"""
-    sql """INSERT INTO ${table_name} select k, v, cast(v as string) from ${table_name}"""
+    sql """INSERT INTO ${table_name} select k, v, ${variantV2Function}(cast(v as string)) from ${table_name}"""
 
     sql """alter table ${table_name} add column v3 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double> default null"""
-    sql """INSERT INTO ${table_name} select k, v, cast(v as string), cast(v as string) from ${table_name}"""
+    sql """INSERT INTO ${table_name} select k, v, ${variantV2Function}(cast(v as string)), ${variantV2Function}(cast(v as string)) from ${table_name}"""
     sql "alter table ${table_name} add column ss string default null"
-    sql """INSERT INTO ${table_name} select k, v,  cast(v as string),  cast(v as string),  cast(v as string) from ${table_name}"""
+    sql """INSERT INTO ${table_name} select k, v, ${variantV2Function}(cast(v as string)), ${variantV2Function}(cast(v as string)), cast(v as string) from ${table_name}"""
     sql """DELETE FROM ${table_name} where k = 1"""
     trigger_and_wait_compaction(table_name, "cumulative", 1800)
     qt_sql """select cast(v["k1"] as tinyint), cast(v2["k2"] as text), cast(v3["k3"] as string), cast(v["k7"] as tinyint), cast(v2["k8"] as text), cast(v3["k9"] as double) from ${table_name} order by k, 1, 2, 3, 4, 5, 6 limit 10"""
@@ -47,7 +48,7 @@ suite("regression_test_variant_predefine_multi_var", "variant_type"){
 
     sql "alter table ${table_name} add column v4 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double> default null"
     for (int i = 0; i < 20; i++) {
-        sql """insert into ${table_name}  values (1, '{"a" : 1}', '{"a" : 1}', '{"a" : 1}', '{"a" : 1}', '{"a" : 1}')"""
+        sql """insert into ${table_name}  values (1, ${variantV2Function}('{"a" : 1}'), ${variantV2Function}('{"a" : 1}'), ${variantV2Function}('{"a" : 1}'), '{"a" : 1}', ${variantV2Function}('{"a" : 1}'))"""
     }
     trigger_and_wait_compaction(table_name, "cumulative", 1800)
 }

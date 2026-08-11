@@ -3542,6 +3542,9 @@ public class Config extends ConfigBase {
             + "variant.")
     public static boolean enable_inverted_index_v1_for_variant = false;
 
+    @ConfField(mutable = true, description = "Whether to enable ColumnVariantV2 for Variant execution and storage.")
+    public static boolean enable_variant_v2 = false;
+
     @ConfField(mutable = true, description = "Prometheus output table dimension metric count limit.")
     public static int prom_output_table_metrics_limit = 10000;
 
