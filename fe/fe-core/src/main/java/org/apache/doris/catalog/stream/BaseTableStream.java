@@ -117,15 +117,20 @@ public abstract class BaseTableStream extends Table {
 
     public TableIf getBaseTableNullable() {
         TableIf cachedBaseTable = baseTable;
-        if (cachedBaseTable instanceof Table && ((Table) cachedBaseTable).isDropped) {
-            baseTable = null;
+        if (cachedBaseTable != null) {
+            if (cachedBaseTable instanceof Table && ((Table) cachedBaseTable).isDropped) {
+                baseTable = null;
+                return null;
+            }
+            return cachedBaseTable;
+        }
+        TableIf resolvedBaseTable = baseTableInfo.getTableNullable();
+        // Recovery publishes the table into database maps before clearing its dropped flag.
+        if (resolvedBaseTable instanceof Table && ((Table) resolvedBaseTable).isDropped) {
             return null;
         }
-        if (cachedBaseTable == null) {
-            cachedBaseTable = baseTableInfo.getTableNullable();
-            baseTable = cachedBaseTable;
-        }
-        return cachedBaseTable;
+        baseTable = resolvedBaseTable;
+        return resolvedBaseTable;
     }
 
     public void setProperties(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {

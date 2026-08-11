@@ -20,13 +20,25 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Set;
+
 public class MTMVRelationTest extends TestWithFeService {
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        Config.enable_table_stream = true;
+        Config.enable_feature_binlog = true;
+    }
+
     // t1 => v1 => v2
     // t2 => mv1
     // mv1 join v2 => mv2
@@ -113,5 +125,43 @@ public class MTMVRelationTest extends TestWithFeService {
 
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseView(v1));
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseView(v2));
+    }
+
+    @Test
+    public void testMTMVRelationIncludesStreamBaseDependency() throws Exception {
+        createDatabaseAndUse("stream_mtmv_db");
+        createTables(
+                "CREATE TABLE stream_base (k1 int, k2 int)\n"
+                        + "UNIQUE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true',\n"
+                        + "'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true')",
+                "CREATE STREAM stream_source ON TABLE stream_base\n"
+                        + "PROPERTIES ('show_initial_rows' = 'true')");
+        createMvByNereids("CREATE MATERIALIZED VIEW stream_mv BUILD DEFERRED\n"
+                + "REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT k1, k2 FROM stream_source");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("stream_mtmv_db");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("stream_mv");
+        TableIf stream = db.getTableOrAnalysisException("stream_source");
+        TableIf baseTable = db.getTableOrAnalysisException("stream_base");
+        BaseTableInfo streamInfo = new BaseTableInfo(stream);
+        BaseTableInfo baseTableInfo = new BaseTableInfo(baseTable);
+        BaseTableInfo mtmvInfo = new BaseTableInfo(mtmv);
+
+        Assertions.assertEquals(Sets.newHashSet(streamInfo, baseTableInfo), mtmv.getRelation().getBaseTables());
+        Assertions.assertEquals(Sets.newHashSet(streamInfo), mtmv.getRelation().getBaseTablesOneLevel());
+        Assertions.assertEquals(Sets.newHashSet(streamInfo, baseTableInfo),
+                mtmv.getRelation().getBaseTablesOneLevelAndFromView());
+        Assertions.assertEquals(Sets.newHashSet(mtmvInfo), Env.getCurrentEnv().getMtmvService().getRelationManager()
+                .getMtmvsByBaseTable(baseTableInfo));
+
+        Pair<Set<TableIf>, Set<TableIf>> queryTables = MTMVPlanUtil.getBaseTableFromQuery(
+                mtmv.getQuerySql(), connectContext);
+        Assertions.assertEquals(Sets.newHashSet(stream, baseTable), queryTables.first);
+        Assertions.assertEquals(Sets.newHashSet(stream), queryTables.second);
     }
 }

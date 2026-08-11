@@ -713,7 +713,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
             Assertions.assertSame(explicitTable,
                     statementContext.getTables().get(List.of("internal", "test_stream", explicitTableName)));
-            Assertions.assertSame(baseTable, blockingStream.getBaseTableNullable());
+            Assertions.assertTrue(statementContext.getImplicitTableDependencies().contains(baseTable));
         } finally {
             renamesFinished.countDown();
             plannerExecutor.shutdownNow();

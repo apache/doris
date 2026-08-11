@@ -33,9 +33,15 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public class DropTableStreamTest extends TestWithFeService {
 
@@ -176,6 +182,42 @@ public class DropTableStreamTest extends TestWithFeService {
         Assertions.assertFalse(stream.isDisabled());
         Assertions.assertFalse(stream.isStale());
         Assertions.assertEquals("N/A", stream.getStaleReason());
+    }
+
+    @Test
+    public void testRecoveringBaseTableRemainsUnavailableUntilUnmarkedDropped() throws Exception {
+        createBaseTableAndStream("tbl_recovery_publish", "s_recovery_publish");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_recovery_publish");
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s_recovery_publish");
+
+        baseTable.markDropped();
+        db.unregisterTable(baseTable.getId());
+        Assertions.assertNull(stream.getBaseTableNullable());
+
+        OlapTable recoveringBaseTable = Mockito.spy(baseTable);
+        CountDownLatch tablePublished = new CountDownLatch(1);
+        CountDownLatch allowUnmarkDropped = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            tablePublished.countDown();
+            Assertions.assertTrue(allowUnmarkDropped.await(10, TimeUnit.SECONDS));
+            return invocation.callRealMethod();
+        }).when(recoveringBaseTable).unmarkDropped();
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Boolean> registerFuture = executor.submit(() -> db.registerTable(recoveringBaseTable));
+            Assertions.assertTrue(tablePublished.await(10, TimeUnit.SECONDS));
+
+            Assertions.assertNull(stream.getBaseTableNullable());
+
+            allowUnmarkDropped.countDown();
+            Assertions.assertTrue(registerFuture.get(10, TimeUnit.SECONDS));
+            Assertions.assertSame(recoveringBaseTable, stream.getBaseTableNullable());
+        } finally {
+            allowUnmarkDropped.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test

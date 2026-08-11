@@ -224,7 +224,10 @@ public class MTMVPlanUtil {
             try {
                 NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
                 planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
-                return Pair.of(Sets.newHashSet(ctx.getStatementContext().getTables().values()),
+                Set<TableIf> baseTables = Sets.newHashSet(ctx.getStatementContext().getTables().values());
+                // Implicit dependencies are all-level tables, not relations written at the first query level.
+                baseTables.addAll(ctx.getStatementContext().getImplicitTableDependencies());
+                return Pair.of(baseTables,
                         Sets.newHashSet(ctx.getStatementContext().getOneLevelTables().values()));
             } finally {
                 ctx.setStatementContext(original);
@@ -448,6 +451,8 @@ public class MTMVPlanUtil {
             }
 
             Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
+            // Implicit dependencies are all-level tables, not relations written at the first query level.
+            baseTables.addAll(statementContext.getImplicitTableDependencies());
             Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
             for (TableIf table : baseTables) {
                 if (table.isTemporary()) {

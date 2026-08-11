@@ -184,7 +184,6 @@ public class StatementContextTest {
         Mockito.when(explicitTable.tryReadLock(Mockito.anyLong(), Mockito.any())).thenReturn(true);
         Mockito.when(stream.getId()).thenReturn(12L);
         Mockito.when(stream.needReadLockWhenPlan()).thenReturn(false);
-        Mockito.when(stream.getBaseTableOrNereidsAnalysisException()).thenReturn(baseTable);
         Mockito.when(baseTable.getId()).thenReturn(13L);
         Mockito.when(baseTable.getName()).thenReturn("base");
         Mockito.when(baseTable.getNameWithFullQualifiers()).thenReturn("internal.db.base");
@@ -196,12 +195,17 @@ public class StatementContextTest {
         try {
             statementContext.getTables().put(ImmutableList.of("internal", "db", "explicit"), explicitTable);
             statementContext.getTables().put(ImmutableList.of("internal", "db", "stream"), stream);
+            statementContext.getTables().put(ImmutableList.of("internal", "db", "base"), baseTable);
+            statementContext.addImplicitTableDependency(baseTable);
+            statementContext.addImplicitTableDependency(baseTable);
 
             statementContext.lock();
 
-            Mockito.verify(explicitTable).tryReadLock(Mockito.anyLong(), Mockito.any());
-            Mockito.verify(baseTable).tryReadLock(Mockito.anyLong(), Mockito.any());
+            InOrder lockOrder = Mockito.inOrder(explicitTable, baseTable);
+            lockOrder.verify(explicitTable, Mockito.times(1)).tryReadLock(Mockito.anyLong(), Mockito.any());
+            lockOrder.verify(baseTable, Mockito.times(1)).tryReadLock(Mockito.anyLong(), Mockito.any());
             Mockito.verify(stream, Mockito.never()).tryReadLock(Mockito.anyLong(), Mockito.any());
+            Mockito.verify(stream, Mockito.never()).getBaseTableNullable();
             org.junit.jupiter.api.Assertions.assertSame(
                     explicitTable, statementContext.getTables().get(ImmutableList.of("internal", "db", "explicit")));
         } finally {
@@ -210,10 +214,11 @@ public class StatementContextTest {
     }
 
     @Test
-    public void testPreloadRecognizesStreamBaseTablePlanReadLock() {
+    public void testPreloadAndLockUseSameStreamBaseSnapshot() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         BaseTableStream stream = Mockito.mock(BaseTableStream.class);
         TableIf baseTable = Mockito.mock(TableIf.class);
+        TableIf recoveredBaseTable = Mockito.mock(TableIf.class);
         PluginDrivenExternalTable externalTable = Mockito.mock(PluginDrivenExternalTable.class);
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setEnablePreloadExternalMetadata(true);
@@ -221,8 +226,12 @@ public class StatementContextTest {
         Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
         Mockito.when(connectContext.getQueryIdentifier()).thenReturn("stream-preload");
         Mockito.when(stream.needReadLockWhenPlan()).thenReturn(false);
-        Mockito.when(stream.getBaseTableNullable()).thenReturn(baseTable);
+        Mockito.when(stream.getBaseTableNullable()).thenReturn(recoveredBaseTable);
+        Mockito.when(baseTable.getId()).thenReturn(20L);
+        Mockito.when(baseTable.getName()).thenReturn("base");
+        Mockito.when(baseTable.getNameWithFullQualifiers()).thenReturn("internal.db.base");
         Mockito.when(baseTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(baseTable.tryReadLock(Mockito.anyLong(), Mockito.any())).thenReturn(true);
         Mockito.when(externalTable.getId()).thenReturn(21L);
         Mockito.when(externalTable.supportsExternalMetadataPreload()).thenReturn(true);
         Mockito.when(externalTable.getBaseSchema()).thenReturn(Collections.emptyList());
@@ -232,12 +241,17 @@ public class StatementContextTest {
                 new OriginStatement("select * from db.stream join ext", 0));
         try {
             statementContext.getTables().put(ImmutableList.of("internal", "db", "stream"), stream);
+            statementContext.addImplicitTableDependency(baseTable);
             statementContext.registerExternalTableForPreload(externalTable, Optional.empty(), Optional.empty());
 
             ExternalMetadataPreloadResult result = executePreload(statementContext);
+            statementContext.lock();
 
             org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
             Mockito.verify(externalTable).getBaseSchema();
+            Mockito.verify(stream, Mockito.never()).getBaseTableNullable();
+            Mockito.verify(baseTable, Mockito.times(1)).tryReadLock(Mockito.anyLong(), Mockito.any());
+            Mockito.verifyNoInteractions(recoveredBaseTable);
         } finally {
             statementContext.close();
         }

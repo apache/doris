@@ -27,7 +27,6 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -220,6 +219,9 @@ public class StatementContext implements Closeable {
 
     // tables in this query directly
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
+    // Underlying tables resolved while collecting explicit relations. They are not independently named by SQL, so
+    // keep them out of the qualifier-keyed relation maps and reuse the same snapshot through planning.
+    private final Set<TableIf> implicitTableDependencies = Sets.newIdentityHashSet();
     // onelevel tables in this query directly,
     // if
     // create v1 as select * from t1
@@ -441,6 +443,14 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getTables() {
         return tables;
+    }
+
+    public void addImplicitTableDependency(TableIf table) {
+        implicitTableDependencies.add(table);
+    }
+
+    public Set<TableIf> getImplicitTableDependencies() {
+        return implicitTableDependencies;
     }
 
     public Map<List<String>, TableIf> getOneLevelTables() {
@@ -960,16 +970,20 @@ public class StatementContext implements Closeable {
      */
     public synchronized void lock() {
         if (!needLockTables
-                || (tables.isEmpty() && mtmvRelatedTables.isEmpty() && insertTargetTables.isEmpty())
+                || (tables.isEmpty() && mtmvRelatedTables.isEmpty() && insertTargetTables.isEmpty()
+                        && implicitTableDependencies.isEmpty())
                 || !plannerResources.isEmpty()) {
             return;
         }
+        // The same object can be both an explicit relation and an implicit dependency; lock it only once.
+        Set<TableIf> tablesToLock = Sets.newIdentityHashSet();
+        tablesToLock.addAll(tables.values());
+        tablesToLock.addAll(mtmvRelatedTables.values());
+        tablesToLock.addAll(insertTargetTables.values());
+        tablesToLock.addAll(implicitTableDependencies);
         PriorityQueue<TableIf> tableIfs = new PriorityQueue<>(
-                tables.size() + mtmvRelatedTables.size() + insertTargetTables.size(),
-                Comparator.comparing(TableIf::getId));
-        addTablesToLock(tableIfs, tables.values());
-        addTablesToLock(tableIfs, mtmvRelatedTables.values());
-        addTablesToLock(tableIfs, insertTargetTables.values());
+                tablesToLock.size(), Comparator.comparing(TableIf::getId));
+        tableIfs.addAll(tablesToLock);
         while (!tableIfs.isEmpty()) {
             TableIf tableIf = tableIfs.poll();
             if (!tableIf.needReadLockWhenPlan()) {
@@ -1277,7 +1291,8 @@ public class StatementContext implements Closeable {
     public boolean hasAnyPlanReadLockTable() {
         return containsPlanReadLockTable(tables.values())
                 || containsPlanReadLockTable(mtmvRelatedTables.values())
-                || containsPlanReadLockTable(insertTargetTables.values());
+                || containsPlanReadLockTable(insertTargetTables.values())
+                || containsPlanReadLockTable(implicitTableDependencies);
     }
 
     public Optional<ExternalMetadataPreloadResult> getExternalMetadataPreloadResult() {
@@ -1293,29 +1308,8 @@ public class StatementContext implements Closeable {
             if (tableIf.needReadLockWhenPlan()) {
                 return true;
             }
-            if (tableIf instanceof BaseTableStream) {
-                // Mirror addTablesToLock(): a stream needs no plan lock itself, but its stable-ID base may need one.
-                TableIf baseTable = ((BaseTableStream) tableIf).getBaseTableNullable();
-                if (baseTable != null && baseTable.needReadLockWhenPlan()) {
-                    return true;
-                }
-            }
         }
         return false;
-    }
-
-    /**
-     * Add explicit relations and stable-ID stream bases to the local ID-ordered lock queue. Stream bases must not be
-     * added to the qualifier relation maps because a concurrent rename can make a base qualifier collide with an
-     * explicitly resolved relation.
-     */
-    private void addTablesToLock(PriorityQueue<TableIf> tableIfs, Collection<TableIf> tables) {
-        tableIfs.addAll(tables);
-        for (TableIf tableIf : tables) {
-            if (tableIf instanceof BaseTableStream) {
-                tableIfs.add(((BaseTableStream) tableIf).getBaseTableOrNereidsAnalysisException());
-            }
-        }
     }
 
     private static class CloseableResource implements Closeable {
