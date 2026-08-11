@@ -26,6 +26,7 @@
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "olap/field.h"
@@ -3026,8 +3027,13 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         for (const auto& value : values) {
-            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&value),
-                                               1);
+            if constexpr (std::is_same_v<T, bool>) {
+                const bool materialized_value = value;
+                status = column_writer->add_values(column.name(), &materialized_value, 1);
+            } else {
+                status = column_writer->add_values(column.name(),
+                                                   reinterpret_cast<const void*>(&value), 1);
+            }
             EXPECT_TRUE(status.ok()) << status;
         }
 
