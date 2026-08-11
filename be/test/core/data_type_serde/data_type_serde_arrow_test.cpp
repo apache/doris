@@ -627,6 +627,85 @@ TEST(DataTypeSerDeArrowTest, StringToLargeBinary) {
     EXPECT_EQ(0, std::memcmp(raw, "binary-value", 12));
 }
 
+TEST(DataTypeSerDeArrowTest, FixedWidthValuesZeroCopy) {
+    auto column = ColumnInt64::create();
+    column->get_data().push_back(10);
+    column->get_data().push_back(20);
+    column->get_data().push_back(30);
+    column->get_data().push_back(40);
+    const auto* values = column->get_data().data();
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(column->get_ptr(), std::make_shared<DataTypeInt64>(), "c"));
+    auto schema = arrow::schema({arrow::field("c", arrow::int64(), false)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone timezone;
+    ASSERT_TRUE(convert_to_arrow_batch(block, schema, arrow::default_memory_pool(), &record_batch,
+                                       timezone, 1, 3)
+                        .ok());
+
+    auto array = std::static_pointer_cast<arrow::Int64Array>(record_batch->column(0));
+    EXPECT_EQ(values + 1, array->raw_values());
+    EXPECT_EQ(2, array->length());
+    EXPECT_EQ(20, array->Value(0));
+    EXPECT_EQ(30, array->Value(1));
+}
+
+TEST(DataTypeSerDeArrowTest, NullableFixedWidthValuesZeroCopy) {
+    auto nested_column = ColumnInt64::create();
+    nested_column->get_data().push_back(10);
+    nested_column->get_data().push_back(20);
+    nested_column->get_data().push_back(30);
+    const auto* values = nested_column->get_data().data();
+
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data().push_back(0);
+    null_map->get_data().push_back(1);
+    null_map->get_data().push_back(0);
+    auto nullable_column = ColumnNullable::create(std::move(nested_column), std::move(null_map));
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(nullable_column->get_ptr(),
+                                       make_nullable(std::make_shared<DataTypeInt64>()), "c"));
+    auto schema = arrow::schema({arrow::field("c", arrow::int64(), true)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone timezone;
+    ASSERT_TRUE(convert_to_arrow_batch(block, schema, arrow::default_memory_pool(), &record_batch,
+                                       timezone)
+                        .ok());
+
+    auto array = std::static_pointer_cast<arrow::Int64Array>(record_batch->column(0));
+    EXPECT_EQ(values, array->raw_values());
+    EXPECT_EQ(1, array->null_count());
+    EXPECT_FALSE(array->IsNull(0));
+    EXPECT_TRUE(array->IsNull(1));
+    EXPECT_FALSE(array->IsNull(2));
+}
+
+TEST(DataTypeSerDeArrowTest, ZeroCopyArrayOwnsDorisColumn) {
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    {
+        auto column = ColumnInt64::create();
+        column->get_data().push_back(10);
+        column->get_data().push_back(20);
+
+        Block block;
+        block.insert(
+                ColumnWithTypeAndName(column->get_ptr(), std::make_shared<DataTypeInt64>(), "c"));
+        auto schema = arrow::schema({arrow::field("c", arrow::int64(), false)});
+        cctz::time_zone timezone;
+        ASSERT_TRUE(convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
+                                           &record_batch, timezone)
+                            .ok());
+    }
+
+    auto array = std::static_pointer_cast<arrow::Int64Array>(record_batch->column(0));
+    EXPECT_EQ(10, array->Value(0));
+    EXPECT_EQ(20, array->Value(1));
+}
+
 TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
     std::vector<PrimitiveType> cols = {
             TYPE_INT,       TYPE_INT,        TYPE_STRING, TYPE_DECIMAL128I, TYPE_BOOLEAN,

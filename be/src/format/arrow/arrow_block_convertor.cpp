@@ -17,14 +17,18 @@
 
 #include "format/arrow/arrow_block_convertor.h"
 
+#include <arrow/array/array_base.h>
 #include <arrow/array/builder_base.h>
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_decimal.h>
 #include <arrow/array/builder_nested.h>
 #include <arrow/array/builder_primitive.h>
+#include <arrow/array/util.h>
+#include <arrow/buffer.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
+#include <arrow/util/bit_util.h>
 #include <arrow/util/decimal.h>
 #include <arrow/util/key_value_metadata.h>
 #include <arrow/visit_type_inline.h>
@@ -45,6 +49,7 @@
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
@@ -62,6 +67,105 @@ namespace {
 
 constexpr const char* ICEBERG_ORIGINAL_TYPE_KEY = "originalType";
 constexpr const char* ICEBERG_UUID_TYPE_VALUE = "uuid";
+
+class DorisColumnBuffer final : public arrow::Buffer {
+public:
+    DorisColumnBuffer(const uint8_t* data, int64_t size, ColumnPtr owner)
+            : arrow::Buffer(data, size), _owner(std::move(owner)) {}
+
+private:
+    ColumnPtr _owner;
+};
+
+template <PrimitiveType T>
+Status make_zero_copy_fixed_width_array(const ColumnPtr& owner, const IColumn& data_column,
+                                        const NullMap* null_map,
+                                        const std::shared_ptr<arrow::DataType>& arrow_type,
+                                        arrow::MemoryPool* pool, size_t start, size_t end,
+                                        std::shared_ptr<arrow::Array>* result) {
+    const auto& data = assert_cast<const ColumnVector<T>&>(data_column).get_data();
+    DCHECK_LE(end, data.size());
+
+    const auto row_count = end - start;
+    std::shared_ptr<arrow::Buffer> validity_buffer;
+    int64_t null_count = 0;
+    if (null_map != nullptr) {
+        RETURN_DORIS_STATUS_IF_RESULT_ERROR(validity_buffer,
+                                            arrow::AllocateEmptyBitmap(row_count, pool));
+        auto* validity_data = validity_buffer->mutable_data();
+        for (size_t row = start; row < end; ++row) {
+            if ((*null_map)[row]) {
+                ++null_count;
+            } else {
+                arrow::bit_util::SetBit(validity_data, row - start);
+            }
+        }
+    }
+
+    using ValueType = typename ColumnVector<T>::value_type;
+    auto values_buffer = std::make_shared<DorisColumnBuffer>(
+            reinterpret_cast<const uint8_t*>(data.data() + start),
+            cast_set<int64_t>(row_count * sizeof(ValueType)), owner);
+    auto array_data = arrow::ArrayData::Make(arrow_type, cast_set<int64_t>(row_count),
+                                             {validity_buffer, values_buffer}, null_count);
+    *result = arrow::MakeArray(std::move(array_data));
+    return Status::OK();
+}
+
+Status try_make_zero_copy_fixed_width_array(const ColumnPtr& column, const DataTypePtr& type,
+                                            const std::shared_ptr<arrow::DataType>& arrow_type,
+                                            arrow::MemoryPool* pool, size_t start, size_t end,
+                                            std::shared_ptr<arrow::Array>* result) {
+    const IColumn* data_column = column.get();
+    const NullMap* null_map = nullptr;
+    if (type->is_nullable()) {
+        const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+        data_column = &nullable_column.get_nested_column();
+        null_map = &nullable_column.get_null_map_data();
+    }
+
+    switch (remove_nullable(type)->get_primitive_type()) {
+    case TYPE_TINYINT:
+        if (arrow_type->id() == arrow::Type::INT8) {
+            return make_zero_copy_fixed_width_array<TYPE_TINYINT>(
+                    column, *data_column, null_map, arrow_type, pool, start, end, result);
+        }
+        break;
+    case TYPE_SMALLINT:
+        if (arrow_type->id() == arrow::Type::INT16) {
+            return make_zero_copy_fixed_width_array<TYPE_SMALLINT>(
+                    column, *data_column, null_map, arrow_type, pool, start, end, result);
+        }
+        break;
+    case TYPE_INT:
+        if (arrow_type->id() == arrow::Type::INT32) {
+            return make_zero_copy_fixed_width_array<TYPE_INT>(column, *data_column, null_map,
+                                                              arrow_type, pool, start, end, result);
+        }
+        break;
+    case TYPE_BIGINT:
+        if (arrow_type->id() == arrow::Type::INT64) {
+            return make_zero_copy_fixed_width_array<TYPE_BIGINT>(
+                    column, *data_column, null_map, arrow_type, pool, start, end, result);
+        }
+        break;
+    case TYPE_FLOAT:
+        if (arrow_type->id() == arrow::Type::FLOAT) {
+            return make_zero_copy_fixed_width_array<TYPE_FLOAT>(
+                    column, *data_column, null_map, arrow_type, pool, start, end, result);
+        }
+        break;
+    case TYPE_DOUBLE:
+        if (arrow_type->id() == arrow::Type::DOUBLE) {
+            return make_zero_copy_fixed_width_array<TYPE_DOUBLE>(
+                    column, *data_column, null_map, arrow_type, pool, start, end, result);
+        }
+        break;
+    default:
+        break;
+    }
+    return Status::OK();
+}
 
 bool is_iceberg_uuid_field(const std::shared_ptr<arrow::Field>& field) {
     if (field == nullptr || !field->HasMetadata()) {
@@ -206,6 +310,12 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         } else if (arrow_type->id() == arrow::Type::BINARY &&
                    column->byte_size() >= MAX_ARROW_UTF8) {
             arrow_type = arrow::large_binary();
+        }
+        RETURN_IF_ERROR(try_make_zero_copy_fixed_width_array(column, _cur_type, arrow_type, _pool,
+                                                             _cur_start, _cur_start + _cur_rows,
+                                                             &_arrays[_cur_field_idx]));
+        if (_arrays[_cur_field_idx] != nullptr) {
+            continue;
         }
         std::unique_ptr<arrow::ArrayBuilder> builder;
         auto arrow_st = arrow::MakeBuilder(_pool, arrow_type, &builder);
