@@ -214,6 +214,10 @@ public abstract class Tablet {
                 continue;
             }
 
+            if (replica.isBinlogMissing()) {
+                continue;
+            }
+
             ReplicaState state = replica.getState();
             if (state.canLoad()
                     || (state == ReplicaState.DECOMMISSION

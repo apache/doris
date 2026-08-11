@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -27,6 +28,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Sets;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -154,6 +157,37 @@ public class TabletTest {
     }
 
     @Test
+    public void testLocalReplicaBinlogMissingTimeoutAndCount() {
+        long originTimeoutSecond = Config.tablet_binlog_missing_timeout_second;
+        int originMaxTimes = Config.tablet_binlog_missing_max_times;
+        try {
+            Config.tablet_binlog_missing_timeout_second = 60;
+            Config.tablet_binlog_missing_max_times = 2;
+
+            replica1.setBinlogMissing(true);
+            Assert.assertTrue(replica1.isBinlogMissing());
+
+            replica1.incrBinlogMissingCount();
+            Assert.assertTrue(replica1.isBinlogMissing());
+            replica1.incrBinlogMissingCount();
+            Assert.assertFalse(replica1.isBinlogMissing());
+
+            replica1.setBinlogMissing(true);
+            Assert.assertTrue(replica1.isBinlogMissing());
+            replica1.setBinlogMissing(false);
+            Assert.assertFalse(replica1.isBinlogMissing());
+
+            Config.tablet_binlog_missing_timeout_second = 0;
+            replica1.setBinlogMissing(true);
+            Assert.assertFalse(replica1.isBinlogMissing());
+        } finally {
+            Config.tablet_binlog_missing_timeout_second = originTimeoutSecond;
+            Config.tablet_binlog_missing_max_times = originMaxTimes;
+            replica1.setBinlogMissing(false);
+        }
+    }
+
+    @Test
     public void testIterateReplicasWhileMutatingDoesNotThrow() {
         // Iterating the snapshot returned by getReplicas() must not throw
         // ConcurrentModificationException even when the tablet is structurally modified
@@ -250,6 +284,30 @@ public class TabletTest {
 
         dis.close();
         Files.delete(path);
+    }
+
+    @Test
+    public void testRowBinlogTabletIdsGsonUpgradeCompatibility() {
+        Tablet baseTablet = new LocalTablet(10L);
+        baseTablet.setRowBinlogTabletId(20L);
+        JsonObject baseTabletJson = JsonParser.parseString(GsonUtils.GSON.toJson(baseTablet)).getAsJsonObject();
+        Tablet deserializedBaseTablet = GsonUtils.GSON.fromJson(baseTabletJson, Tablet.class);
+        Assert.assertEquals(20L, deserializedBaseTablet.getRowBinlogTabletId());
+        Assert.assertNull(deserializedBaseTablet.rowBinlogBaseTabletId);
+
+        Tablet rowBinlogTablet = new LocalTablet(20L);
+        rowBinlogTablet.setRowBinlogBaseTabletId(10L);
+        JsonObject rowBinlogTabletJson = JsonParser.parseString(GsonUtils.GSON.toJson(rowBinlogTablet))
+                .getAsJsonObject();
+        Tablet deserializedRowBinlogTablet = GsonUtils.GSON.fromJson(rowBinlogTabletJson, Tablet.class);
+        Assert.assertEquals(10L, deserializedRowBinlogTablet.getRowBinlogBaseTabletId());
+        Assert.assertNull(deserializedRowBinlogTablet.rowBinlogTabletId);
+
+        baseTabletJson.remove("rbti");
+        baseTabletJson.remove("rbbti");
+        Tablet deserializedLegacyTablet = GsonUtils.GSON.fromJson(baseTabletJson, Tablet.class);
+        Assert.assertNull(deserializedLegacyTablet.rowBinlogTabletId);
+        Assert.assertNull(deserializedLegacyTablet.rowBinlogBaseTabletId);
     }
 
     /**

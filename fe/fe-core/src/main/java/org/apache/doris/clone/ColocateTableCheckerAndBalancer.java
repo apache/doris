@@ -519,8 +519,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     for (Partition partition : olapTable.getPartitions()) {
                         short replicationNum = replicaAlloc.getTotalReplicaNum();
                         long visibleVersion = partition.getVisibleVersion();
-                        // Here we only get VISIBLE indexes. All other indexes are not queryable.
-                        // So it does not matter if tablets of other indexes are not matched.
+                        // Colocate tables are skipped by TabletChecker, so row-binlog companion tablets
+                        // must also be checked here. Their locality follows the base tablet instead of
+                        // the colocate group layout.
                         for (MaterializedIndex index
                                 : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
@@ -533,8 +534,15 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                 Preconditions.checkState(bucketsSeq.size() == replicationNum,
                                         bucketsSeq.size() + " vs. " + replicationNum);
                                 Tablet tablet = index.getTablet(tabletId);
-                                TabletHealth tabletHealth = tablet.getColocateHealth(
-                                        visibleVersion, replicaAlloc, bucketsSeq);
+                                RowBinlogTabletLocality.RowBinlogHealthResult rowBinlogHealthResult = null;
+                                TabletHealth tabletHealth;
+                                if (index.isRowBinlog()) {
+                                    rowBinlogHealthResult = RowBinlogTabletLocality.getRowBinlogHealth(
+                                            partition, tablet, replicaAlloc, visibleVersion);
+                                    tabletHealth = rowBinlogHealthResult.getTabletHealth();
+                                } else {
+                                    tabletHealth = tablet.getColocateHealth(visibleVersion, replicaAlloc, bucketsSeq);
+                                }
                                 if (tabletHealth.status != TabletStatus.HEALTHY) {
                                     counter.unhealthyTabletNum++;
                                     unstableReason = String.format("get unhealthy tablet %d in colocate table."
@@ -558,6 +566,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                             replicaAlloc, System.currentTimeMillis());
                                     // the tablet status will be set again when being scheduled
                                     tabletCtx.setTabletHealth(tabletHealth);
+                                    if (rowBinlogHealthResult != null) {
+                                        rowBinlogHealthResult.applyTo(tabletCtx);
+                                    }
                                     tabletCtx.setTabletOrderIdx(idx);
                                     tabletCtx.setIsUniqKeyMergeOnWrite(isUniqKeyMergeOnWrite);
 
@@ -645,8 +656,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                         // Here we only get VISIBLE indexes. All other indexes are not queryable.
                         // So it does not matter if tablets of other indexes are not matched.
 
-                        for (MaterializedIndex index
-                                : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+                        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
                                     backendBucketsSeq.size() + " vs. " + index.getTablets().size());
                             int tabletOrderIdx = 0;
