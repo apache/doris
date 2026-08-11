@@ -2558,7 +2558,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Whether to disable LocalDeployManager drop node.")
     public static boolean disable_local_deploy_manager_drop_node = true;
 
-    @ConfField(mutable = true, description = "When file cache is enabled, the number of virtual nodes of each node in "
+    @ConfField(mutable = true, callback = PositiveIntConfHandler.class,
+            description = "When file cache is enabled, the number of virtual nodes of each node in "
             + "the consistent hash algorithm. The larger the value, the more uniform "
             + "the distribution of the hash algorithm, but it will increase the memory " + "overhead.")
     public static int split_assigner_virtual_node_number = 256;

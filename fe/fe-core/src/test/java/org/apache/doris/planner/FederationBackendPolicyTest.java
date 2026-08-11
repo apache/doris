@@ -21,9 +21,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.datasource.doris.source.RemoteDorisSplit;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.datasource.scan.NodeSelectionStrategy;
 import org.apache.doris.datasource.split.FileSplit;
+import org.apache.doris.datasource.split.PluginDrivenSplit;
+import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -40,14 +44,18 @@ import org.junit.jupiter.api.Assertions;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
@@ -112,6 +120,391 @@ public class FederationBackendPolicyTest {
             }
             System.out.printf("%s -> %d splits, %d bytes\n", backend, assignedSplits.size(), scanBytes);
         }
+    }
+
+    @Test
+    public void testSplitsOfSameFileStayOnOneBackendAcrossBatches() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        for (int i = 0; i < 3; i++) {
+            Backend backend = new Backend(20000L + i, "172.30.0." + (100 + i), 9050);
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+
+        ComputeGroupMgr computeGroupMgr = new ComputeGroupMgr(service);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(computeGroupMgr);
+
+        String path = "hdfs://namenode/warehouse/table/data.parquet";
+        FederationBackendPolicy policy = new FederationBackendPolicy();
+        policy.init();
+
+        Set<Long> assignedBackendIds = new HashSet<>();
+        int assignedSplitCount = 0;
+        for (int batch = 0; batch < 2; batch++) {
+            List<Split> splits = new ArrayList<>();
+            for (int splitIndex = 0; splitIndex < 3; splitIndex++) {
+                long start = (batch * 3L + splitIndex) * 128;
+                splits.add(fileSplit(path, start, 128, 768));
+            }
+            Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
+            assignedSplitCount += assignment.size();
+            assignment.keySet().forEach(backend -> assignedBackendIds.add(backend.getId()));
+        }
+
+        Assert.assertEquals(1, assignedBackendIds.size());
+        Assert.assertEquals(6, assignedSplitCount);
+    }
+
+    @Test
+    public void testFileAffinityDoesNotDependOnBatchOrder() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        for (int i = 0; i < 3; i++) {
+            Backend backend = new Backend(20500L + i, "172.30.1." + (100 + i), 9050);
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+
+        ComputeGroupMgr computeGroupMgr = new ComputeGroupMgr(service);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(computeGroupMgr);
+
+        String pathA = "s3://bucket/table/a.parquet";
+        String pathB = "s3://bucket/table/b.parquet";
+        FederationBackendPolicy policy = new FederationBackendPolicy();
+        policy.init();
+
+        List<List<Split>> batches = new ArrayList<>();
+        batches.add(Collections.singletonList(fileSplit(pathA, 0, 128, 256)));
+        batches.add(Collections.singletonList(fileSplit(pathB, 0, 128, 256)));
+        batches.add(Collections.singletonList(fileSplit(pathA, 128, 128, 256)));
+
+        Set<Long> pathABackends = new HashSet<>();
+        for (List<Split> batch : batches) {
+            Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(batch);
+            Assert.assertEquals(1, assignment.size());
+            for (Map.Entry<Backend, Split> entry : assignment.entries()) {
+                if (pathA.equals(entry.getValue().getPathString())) {
+                    pathABackends.add(entry.getKey().getId());
+                }
+            }
+        }
+
+        Assert.assertEquals(1, pathABackends.size());
+    }
+
+    @Test
+    public void testNewFileBatchDoesNotRedistributeFromPreviousBatch() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        for (int i = 0; i < 3; i++) {
+            Backend backend = new Backend(20700L + i, "172.30.2." + (100 + i), 9050);
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+
+        ComputeGroupMgr computeGroupMgr = new ComputeGroupMgr(service);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(computeGroupMgr);
+
+        FederationBackendPolicy policy = new FederationBackendPolicy();
+        policy.init();
+        List<Split> firstBatch = new ArrayList<>();
+        for (int i = 0; i < Config.split_assigner_max_split_num_variance + 3; i++) {
+            firstBatch.add(fileSplit("s3://bucket/table/a.parquet", i * 128L, 128, 4096));
+        }
+        Assert.assertEquals(firstBatch.size(), policy.computeScanRangeAssignment(firstBatch).size());
+
+        long firstOwner = ownerId(policy.computeScanRangeAssignment(
+                Collections.singletonList(fileSplit("s3://bucket/table/a.parquet", 0, 128, 4096))));
+        String secondPath = null;
+        FederationBackendPolicy probePolicy = new FederationBackendPolicy();
+        probePolicy.init();
+        for (int fileIndex = 0; fileIndex < 100; fileIndex++) {
+            String candidate = "s3://bucket/table/b-" + fileIndex + ".parquet";
+            long candidateOwner = ownerId(probePolicy.computeScanRangeAssignment(
+                    Collections.singletonList(fileSplit(candidate, 0, 128, 256))));
+            if (candidateOwner != firstOwner) {
+                secondPath = candidate;
+                break;
+            }
+        }
+        Assert.assertNotNull(secondPath);
+
+        Multimap<Backend, Split> secondAssignment = policy.computeScanRangeAssignment(
+                Collections.singletonList(fileSplit(secondPath, 0, 128, 256)));
+        Assert.assertEquals(1, secondAssignment.size());
+        Assert.assertNotEquals(firstOwner, ownerId(secondAssignment));
+    }
+
+    @Test
+    public void testDifferentFilesRemainDistributedAcrossBackends() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        for (int i = 0; i < 3; i++) {
+            Backend backend = new Backend(21000L + i, "172.31.0." + (100 + i), 9050);
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+
+        ComputeGroupMgr computeGroupMgr = new ComputeGroupMgr(service);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(computeGroupMgr);
+
+        List<Split> splits = new ArrayList<>();
+        for (int fileIndex = 0; fileIndex < 6; fileIndex++) {
+            String path = "s3://bucket/table/file-" + fileIndex + ".parquet";
+            splits.add(fileSplit(path, 0, 128, 256));
+            splits.add(fileSplit(path, 128, 128, 256));
+        }
+
+        FederationBackendPolicy policy = new FederationBackendPolicy();
+        policy.init();
+        Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
+
+        Assert.assertEquals(12, assignment.size());
+        Assert.assertTrue(assignment.keySet().size() > 1);
+        Map<String, Set<Long>> backendsPerFile = new HashMap<>();
+        for (Map.Entry<Backend, Split> entry : assignment.entries()) {
+            backendsPerFile.computeIfAbsent(entry.getValue().getPathString(), key -> new HashSet<>())
+                    .add(entry.getKey().getId());
+        }
+        backendsPerFile.values().forEach(backendIds -> Assert.assertEquals(1, backendIds.size()));
+    }
+
+    @Test
+    public void testVirtualSplitsWithDummyPathRemainDistributed() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        for (int i = 0; i < 3; i++) {
+            Backend backend = new Backend(22000L + i, "172.32.0." + (100 + i), 9050);
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+
+        ComputeGroupMgr computeGroupMgr = new ComputeGroupMgr(service);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(computeGroupMgr);
+
+        List<Split> splits = new ArrayList<>();
+        for (int splitIndex = 0; splitIndex < 6; splitIndex++) {
+            splits.add(new RemoteDorisSplit("remote-" + splitIndex, ByteBuffer.allocate(0)));
+        }
+
+        FederationBackendPolicy policy = new FederationBackendPolicy();
+        policy.init();
+        Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
+
+        Assert.assertEquals(6, assignment.size());
+        Assert.assertTrue(assignment.keySet().size() > 1);
+    }
+
+    @Test
+    public void testPluginVirtualPathDoesNotEnableFileAffinity() {
+        PluginDrivenSplit split = pluginSplit("/byte_size", 0, false);
+        Assert.assertFalse(split.getFileAffinityKey().isPresent());
+    }
+
+    @Test
+    public void testPluginPhysicalFileEnablesFileAffinity() {
+        PluginDrivenSplit split = pluginSplit("s3a://bucket/table/data.parquet", 0, true);
+        split.setFileAffinitySupported(true);
+        Assert.assertEquals(split.getPathString(), split.getFileAffinityKey().get());
+    }
+
+    @Test
+    public void testPluginPhysicalFileRequiresFileAffinityEnablement() {
+        PluginDrivenSplit split = pluginSplit("s3a://bucket/table/data.parquet", 0, true);
+        Assert.assertFalse(split.getFileAffinityKey().isPresent());
+    }
+
+    @Test
+    public void testFileAffinityDoesNotOverrideBlockLocality() {
+        FileSplit first = new FileSplit(LocationPath.of("hdfs://namenode/table/data.parquet"),
+                0, 128, 256, 0, new String[] {"host-a"}, Collections.emptyList());
+        FileSplit second = new FileSplit(LocationPath.of("hdfs://namenode/table/data.parquet"),
+                128, 128, 256, 0, new String[] {"host-b"}, Collections.emptyList());
+        SplitAssignment.enableFileAffinity(Arrays.asList(first, second), true);
+        Assert.assertFalse(first.getFileAffinityKey().isPresent());
+        Assert.assertFalse(second.getFileAffinityKey().isPresent());
+    }
+
+    @Test
+    public void testFileAffinityRequiresSupportedFormat() {
+        FileSplit split = new FileSplit(LocationPath.of("s3://bucket/table/data-without-extension"),
+                0, 128, 256, 0, null, Collections.emptyList());
+        Assert.assertFalse(split.getFileAffinityKey().isPresent());
+        SplitAssignment.enableFileAffinity(Collections.singletonList(split), true);
+        Assert.assertTrue(split.getFileAffinityKey().isPresent());
+        SplitAssignment.enableFileAffinity(Collections.singletonList(split), false);
+        Assert.assertFalse(split.getFileAffinityKey().isPresent());
+    }
+
+    @Test
+    public void testVirtualNodeNumberMustBePositiveAndCanRecover() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        Backend backend = new Backend(22400L, "172.32.1.100", 9050);
+        backend.setAlive(true);
+        service.addBackend(backend);
+        mockEnv(service);
+
+        int originalVirtualNodeNumber = Config.split_assigner_virtual_node_number;
+        try {
+            Config.split_assigner_virtual_node_number = 0;
+            UserException zeroException = Assert.assertThrows(UserException.class,
+                    () -> new FederationBackendPolicy().init());
+            Assert.assertTrue(zeroException.getMessage().contains("split_assigner_virtual_node_number"));
+
+            Config.split_assigner_virtual_node_number = -1;
+            UserException negativeException = Assert.assertThrows(UserException.class,
+                    () -> new FederationBackendPolicy().init());
+            Assert.assertTrue(negativeException.getMessage().contains("must be positive"));
+
+            Config.split_assigner_virtual_node_number = 1;
+            FederationBackendPolicy recoveredPolicy = new FederationBackendPolicy();
+            recoveredPolicy.init();
+            Assert.assertEquals(1, recoveredPolicy.computeScanRangeAssignment(Collections.singletonList(
+                    fileSplit("s3://bucket/table/recovered.parquet", 0, 128, 256))).size());
+        } finally {
+            Config.split_assigner_virtual_node_number = originalVirtualNodeNumber;
+        }
+    }
+
+    @Test
+    public void testConsistentHashCacheIncludesVirtualNodeNumber() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        Backend backend = new Backend(22450L, "172.32.2.100", 9050);
+        backend.setAlive(true);
+        service.addBackend(backend);
+        mockEnv(service);
+
+        int originalVirtualNodeNumber = Config.split_assigner_virtual_node_number;
+        try {
+            Config.split_assigner_virtual_node_number = 1;
+            TestFederationBackendPolicy first = new TestFederationBackendPolicy();
+            first.init();
+
+            Config.split_assigner_virtual_node_number = 2;
+            TestFederationBackendPolicy second = new TestFederationBackendPolicy();
+            second.init();
+            TestFederationBackendPolicy third = new TestFederationBackendPolicy();
+            third.init();
+
+            Assert.assertNotSame(first.getConsistentHash(), second.getConsistentHash());
+            Assert.assertSame(second.getConsistentHash(), third.getConsistentHash());
+        } finally {
+            Config.split_assigner_virtual_node_number = originalVirtualNodeNumber;
+        }
+    }
+
+    @Test
+    public void testRedistributionKeepsFileAffinitySplitsFixed() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        for (int i = 0; i < 3; i++) {
+            Backend backend = new Backend(22500L + i, "172.33.0." + (100 + i), 9050);
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+
+        ComputeGroupMgr computeGroupMgr = new ComputeGroupMgr(service);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(computeGroupMgr);
+
+        String path = "s3://bucket/table/large.parquet";
+        List<Split> splits = new ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            splits.add(fileSplit(path, i * 128L, 128, 1152));
+        }
+        for (int i = 0; i < 6; i++) {
+            splits.add(new RemoteDorisSplit("remote-" + i, ByteBuffer.allocate(0)));
+        }
+
+        FederationBackendPolicy policy = new FederationBackendPolicy();
+        policy.init();
+        Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
+
+        Set<Long> fileBackendIds = new HashSet<>();
+        Set<Long> movableBackendIds = new HashSet<>();
+        Set<Split> assignedSplits = Collections.newSetFromMap(new IdentityHashMap<>());
+        Map<Backend, Long> finalWeights = new HashMap<>();
+        for (Map.Entry<Backend, Split> entry : assignment.entries()) {
+            if (path.equals(entry.getValue().getPathString())) {
+                fileBackendIds.add(entry.getKey().getId());
+            } else {
+                movableBackendIds.add(entry.getKey().getId());
+            }
+            Assert.assertTrue(assignedSplits.add(entry.getValue()));
+            finalWeights.merge(entry.getKey(), entry.getValue().getSplitWeight().getRawValue(), Long::sum);
+        }
+        Assert.assertEquals(1, fileBackendIds.size());
+        Assert.assertTrue(movableBackendIds.size() > 1);
+        Assert.assertEquals(splits.size(), assignedSplits.size());
+        Assert.assertTrue(assignedSplits.containsAll(splits));
+        for (Backend backend : policy.getBackends()) {
+            Assert.assertEquals(finalWeights.getOrDefault(backend, 0L),
+                    policy.getAssignedWeightPerBackend().get(backend));
+        }
+        Assert.assertEquals(15, assignment.size());
+    }
+
+    private static long ownerId(Multimap<Backend, Split> assignment) {
+        Assert.assertEquals(1, assignment.keySet().size());
+        return assignment.keySet().iterator().next().getId();
+    }
+
+    private void mockEnv(SystemInfoService service) {
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(service));
+    }
+
+    private static class TestFederationBackendPolicy extends FederationBackendPolicy {
+        private Object getConsistentHash() {
+            return consistentHash;
+        }
+    }
+
+    private static FileSplit fileSplit(String path, long start, long length, long fileLength) {
+        FileSplit split = new FileSplit(LocationPath.of(path), start, length, fileLength,
+                0, null, Collections.emptyList());
+        split.setFileAffinitySupported(true);
+        return split;
+    }
+
+    private static PluginDrivenSplit pluginSplit(String path, long start, boolean physicalFile) {
+        ConnectorScanRange range = new ConnectorScanRange() {
+            @Override
+            public Optional<String> getPath() {
+                return Optional.of(path);
+            }
+
+            @Override
+            public boolean isNativeReadRange() {
+                return physicalFile;
+            }
+
+            @Override
+            public String getFileFormat() {
+                return physicalFile ? "parquet" : "jni";
+            }
+
+            @Override
+            public long getStart() {
+                return start;
+            }
+
+            @Override
+            public long getLength() {
+                return 128;
+            }
+
+            @Override
+            public long getFileSize() {
+                return 256;
+            }
+
+            @Override
+            public Map<String, String> getProperties() {
+                return Collections.emptyMap();
+            }
+        };
+        return new PluginDrivenSplit(range);
     }
 
     @Test

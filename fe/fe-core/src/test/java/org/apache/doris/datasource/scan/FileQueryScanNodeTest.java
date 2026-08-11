@@ -28,31 +28,49 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
+import org.apache.doris.datasource.split.FileSplit;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanRanges;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.FileTableValuedFunction;
 import org.apache.doris.tablefunction.PluginDrivenQueryTableValueFunction;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TScanRangeParams;
+import org.apache.doris.thrift.TSplitSource;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class FileQueryScanNodeTest {
     private static final long MB = 1024L * 1024L;
@@ -295,6 +313,166 @@ public class FileQueryScanNodeTest {
         Assert.assertSame(slotInfo, updatedSlotInfo);
         Assert.assertTrue(updatedSlotInfo.isSetDefaultValueExpr());
         Assert.assertSame(defaultExpr, updatedSlotInfo.getDefaultValueExpr());
+    }
+
+    @Test
+    public void testFileAffinityRangesStayInOneNereidsInstance() {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        List<TScanRangeParams> params = Arrays.asList(
+                scanRangeParams(100), scanRangeParams(100), scanRangeParams(100),
+                scanRangeParams(50), scanRangeParams(50), scanRangeParams(200));
+        node.recordScanRangeFileAffinity(params.get(0).getScanRange(), "s3://bucket/a.parquet");
+        node.recordScanRangeFileAffinity(params.get(1).getScanRange(), "s3://bucket/a.parquet");
+        node.recordScanRangeFileAffinity(params.get(2).getScanRange(), "s3://bucket/a.parquet");
+        node.recordScanRangeFileAffinity(params.get(3).getScanRange(), "s3://bucket/b.parquet");
+        node.recordScanRangeFileAffinity(params.get(4).getScanRange(), "s3://bucket/b.parquet");
+
+        ScanRanges scanRanges = new ScanRanges(params, Arrays.asList(100L, 100L, 100L, 50L, 50L, 200L));
+        DefaultScanSource source = new DefaultScanSource(ImmutableMap.of(node, scanRanges));
+        List<ScanSource> instances = source.parallelize(Collections.singletonList(node), 3);
+
+        Assert.assertEquals(3, instances.size());
+        List<List<TScanRangeParams>> rangesPerInstance = instances.stream()
+                .map(instance -> ((DefaultScanSource) instance).scanNodeToScanRanges.get(node).params)
+                .collect(Collectors.toList());
+        assertSameInstance(rangesPerInstance, params.subList(0, 3));
+        assertSameInstance(rangesPerInstance, params.subList(3, 5));
+        List<Long> instanceWeights = rangesPerInstance.stream()
+                .map(instance -> instance.stream()
+                        .mapToLong(param -> param.getScanRange().getExtScanRange()
+                                .getFileScanRange().getRanges().get(0).getSize())
+                        .sum())
+                .sorted()
+                .collect(Collectors.toList());
+        Assert.assertEquals(Arrays.asList(100L, 200L, 300L), instanceWeights);
+        Set<TScanRangeParams> assigned = Collections.newSetFromMap(new IdentityHashMap<>());
+        rangesPerInstance.forEach(assigned::addAll);
+        Assert.assertEquals(params.size(), assigned.size());
+        Assert.assertTrue(assigned.containsAll(params));
+    }
+
+    @Test
+    public void testInstanceSplitRemainsRoundRobinWithoutFileAffinity() {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        List<TScanRangeParams> params = Arrays.asList(
+                scanRangeParams(100), scanRangeParams(100), scanRangeParams(100),
+                scanRangeParams(100), scanRangeParams(100));
+
+        List<List<Integer>> instances = node.splitScanRangeParamsByInstance(params, 2);
+
+        Assert.assertEquals(Arrays.asList(0, 2, 4), instances.get(0));
+        Assert.assertEquals(Arrays.asList(1, 3), instances.get(1));
+    }
+
+    @Test
+    public void testSplitSourceOnlyRangesRemainRoundRobinForLegacyAndNereids() {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        List<TScanRangeParams> params = Arrays.asList(
+                splitSourceScanRangeParams(1), splitSourceScanRangeParams(2), splitSourceScanRangeParams(3));
+
+        List<List<TScanRangeParams>> legacyInstances = node.materializeScanRangeParamsByInstance(params, 2);
+
+        Assert.assertEquals(2, legacyInstances.size());
+        Assert.assertSame(params.get(0), legacyInstances.get(0).get(0));
+        Assert.assertSame(params.get(2), legacyInstances.get(0).get(1));
+        Assert.assertSame(params.get(1), legacyInstances.get(1).get(0));
+
+        ScanRanges scanRanges = new ScanRanges(params, Arrays.asList(0L, 0L, 0L));
+        DefaultScanSource source = new DefaultScanSource(ImmutableMap.of(node, scanRanges));
+        List<ScanSource> nereidsInstances = source.parallelize(Collections.singletonList(node), 2);
+        List<List<TScanRangeParams>> nereidsRanges = nereidsInstances.stream()
+                .map(instance -> ((DefaultScanSource) instance).scanNodeToScanRanges.get(node).params)
+                .collect(Collectors.toList());
+
+        Assert.assertEquals(legacyInstances, nereidsRanges);
+    }
+
+    @Test
+    public void testUnknownSizeAffinityGroupsRemainDistributed() {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        List<TScanRangeParams> params = Arrays.asList(scanRangeParams(-1), scanRangeParams(-1), scanRangeParams(-1));
+        node.recordScanRangeFileAffinity(params.get(0).getScanRange(), "s3://bucket/a.parquet");
+        node.recordScanRangeFileAffinity(params.get(1).getScanRange(), "s3://bucket/b.parquet");
+        node.recordScanRangeFileAffinity(params.get(2).getScanRange(), "s3://bucket/c.parquet");
+
+        List<List<Integer>> instances = node.splitScanRangeParamsByInstance(params, 3);
+
+        Assert.assertEquals(3, instances.size());
+        Assert.assertTrue(instances.stream().allMatch(instance -> instance.size() == 1));
+    }
+
+    @Test
+    public void testProductionRangeCreationRecordsInstanceAffinity() throws Exception {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        node.params = new TFileScanRangeParams();
+        node.params.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(backend.getId()).thenReturn(1L);
+        Mockito.when(backend.getHost()).thenReturn("127.0.0.1");
+        Mockito.when(backend.getBePort()).thenReturn(9060);
+        FileSplit first = new FileSplit(LocationPath.of("s3://bucket/a.parquet"),
+                0, 100, 200, 0, null, Collections.emptyList());
+        FileSplit second = new FileSplit(LocationPath.of("s3://bucket/a.parquet"),
+                100, 100, 200, 0, null, Collections.emptyList());
+        first.setFileAffinitySupported(true);
+        second.setFileAffinitySupported(true);
+
+        TScanRangeLocations firstRange = node.splitToScanRange(
+                backend, Collections.emptyMap(), first, Collections.emptyList(), true);
+        TScanRangeLocations secondRange = node.splitToScanRange(
+                backend, Collections.emptyMap(), second, Collections.emptyList(), true);
+        List<TScanRangeParams> params = Arrays.asList(
+                new TScanRangeParams().setScanRange(firstRange.getScanRange()),
+                new TScanRangeParams().setScanRange(secondRange.getScanRange()));
+
+        List<List<TScanRangeParams>> instances = node.materializeScanRangeParamsByInstance(params, 2);
+
+        Assert.assertEquals(1, instances.size());
+        Assert.assertSame(params.get(0), instances.get(0).get(0));
+        Assert.assertSame(params.get(1), instances.get(0).get(1));
+    }
+
+    private static TScanRangeParams scanRangeParams(long size) {
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        rangeDesc.setSize(size);
+        TFileScanRange fileScanRange = new TFileScanRange();
+        fileScanRange.addToRanges(rangeDesc);
+        TExternalScanRange externalScanRange = new TExternalScanRange();
+        externalScanRange.setFileScanRange(fileScanRange);
+        TScanRange scanRange = new TScanRange();
+        scanRange.setExtScanRange(externalScanRange);
+        TScanRangeParams params = new TScanRangeParams();
+        params.setScanRange(scanRange);
+        return params;
+    }
+
+    private static TScanRangeParams splitSourceScanRangeParams(long splitSourceId) {
+        TFileScanRange fileScanRange = new TFileScanRange();
+        fileScanRange.setSplitSource(new TSplitSource().setSplitSourceId(splitSourceId));
+        TExternalScanRange externalScanRange = new TExternalScanRange();
+        externalScanRange.setFileScanRange(fileScanRange);
+        TScanRange scanRange = new TScanRange();
+        scanRange.setExtScanRange(externalScanRange);
+        return new TScanRangeParams().setScanRange(scanRange);
+    }
+
+    private static void assertSameInstance(
+            List<List<TScanRangeParams>> rangesPerInstance, List<TScanRangeParams> expectedRanges) {
+        List<Integer> matchingInstances = new ArrayList<>();
+        for (int i = 0; i < rangesPerInstance.size(); i++) {
+            if (containsIdentity(rangesPerInstance.get(i), expectedRanges.get(0))) {
+                matchingInstances.add(i);
+            }
+        }
+        Assert.assertEquals(1, matchingInstances.size());
+        List<TScanRangeParams> matchingInstance = rangesPerInstance.get(matchingInstances.get(0));
+        for (TScanRangeParams expectedRange : expectedRanges) {
+            Assert.assertTrue(containsIdentity(matchingInstance, expectedRange));
+        }
+    }
+
+    private static boolean containsIdentity(List<TScanRangeParams> ranges, TScanRangeParams expected) {
+        return ranges.stream().anyMatch(range -> range == expected);
     }
 
 }

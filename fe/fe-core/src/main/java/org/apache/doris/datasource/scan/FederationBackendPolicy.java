@@ -67,6 +67,7 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class FederationBackendPolicy {
@@ -100,19 +101,21 @@ public class FederationBackendPolicy {
                     @Override
                     public ConsistentHash<Split, Backend> load(HashCacheKey key) {
                         return new ConsistentHash<>(Hashing.murmur3_128(), new SplitHash(),
-                                new BackendHash(), key.bes, Config.split_assigner_virtual_node_number);
+                                new BackendHash(), key.bes, key.virtualNodeNumber);
                     }
                 });
     }
 
     private static class HashCacheKey {
         // sorted backend ids as key
-        private List<String> beHashKeys;
+        private final List<String> beHashKeys;
         // backends is not part of key, just an attachment
-        private List<Backend> bes;
+        private final List<Backend> bes;
+        private final int virtualNodeNumber;
 
-        HashCacheKey(List<Backend> backends) {
+        HashCacheKey(List<Backend> backends, int virtualNodeNumber) {
             this.bes = backends;
+            this.virtualNodeNumber = virtualNodeNumber;
             this.beHashKeys = backends.stream().map(b ->
                             String.format("id: %d, host: %s, port: %d", b.getId(), b.getHost(), b.getHeartbeatPort()))
                     .sorted()
@@ -127,17 +130,19 @@ public class FederationBackendPolicy {
             if (!(obj instanceof HashCacheKey)) {
                 return false;
             }
-            return Objects.equals(beHashKeys, ((HashCacheKey) obj).beHashKeys);
+            HashCacheKey other = (HashCacheKey) obj;
+            return virtualNodeNumber == other.virtualNodeNumber && Objects.equals(beHashKeys, other.beHashKeys);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(beHashKeys);
+            return Objects.hash(beHashKeys, virtualNodeNumber);
         }
 
         @Override
         public String toString() {
-            return "HashCache{" + "beHashKeys=" + beHashKeys + '}';
+            return "HashCache{" + "beHashKeys=" + beHashKeys
+                    + ", virtualNodeNumber=" + virtualNodeNumber + '}';
         }
     }
 
@@ -196,8 +201,13 @@ public class FederationBackendPolicy {
         }
 
         backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
+        int virtualNodeNumber = Config.split_assigner_virtual_node_number;
+        if (virtualNodeNumber <= 0) {
+            throw new UserException("split_assigner_virtual_node_number must be positive, but is "
+                    + virtualNodeNumber);
+        }
         try {
-            consistentHash = consistentHashCache.get(new HashCacheKey(backends));
+            consistentHash = consistentHashCache.get(new HashCacheKey(backends, virtualNodeNumber));
         } catch (ExecutionException e) {
             throw new UserException("failed to get consistent hash", e);
         }
@@ -239,6 +249,11 @@ public class FederationBackendPolicy {
         if (Config.split_assigner_optimized_local_scheduling) {
             remainingSplits = new ArrayList<>(splits.size());
             for (Split split : splits) {
+                Backend assignedBackend = getFileAffinityBackend(split);
+                if (assignedBackend != null) {
+                    assignSplit(assignment, assignedBackend, split);
+                    continue;
+                }
                 if (split.isRemotelyAccessible() && (split.getHosts() != null && split.getHosts().length > 0)) {
                     List<Backend> candidateNodes = selectExactNodes(backendMap, split.getHosts());
 
@@ -247,9 +262,7 @@ public class FederationBackendPolicy {
 
                     if (chosenNode.isPresent()) {
                         Backend selectedBackend = chosenNode.get();
-                        assignment.put(selectedBackend, split);
-                        assignedWeightPerBackend.put(selectedBackend,
-                                assignedWeightPerBackend.get(selectedBackend) + split.getSplitWeight().getRawValue());
+                        assignSplit(assignment, selectedBackend, split);
                         continue;
                     }
                 }
@@ -260,6 +273,11 @@ public class FederationBackendPolicy {
         }
 
         for (Split split : remainingSplits) {
+            Backend assignedBackend = getFileAffinityBackend(split);
+            if (assignedBackend != null) {
+                assignSplit(assignment, assignedBackend, split);
+                continue;
+            }
             List<Backend> candidateNodes;
             if (!split.isRemotelyAccessible()) {
                 candidateNodes = selectExactNodes(backendMap, split.getHosts());
@@ -299,15 +317,31 @@ public class FederationBackendPolicy {
             alternativeBackends.remove(selectedBackend);
             split.setAlternativeHosts(
                     alternativeBackends.stream().map(each -> each.getHost()).collect(Collectors.toList()));
-            assignment.put(selectedBackend, split);
-            assignedWeightPerBackend.put(selectedBackend,
-                    assignedWeightPerBackend.get(selectedBackend) + split.getSplitWeight().getRawValue());
+            assignSplit(assignment, selectedBackend, split);
         }
 
         if (enableSplitsRedistribution) {
             equateDistribution(assignment);
         }
         return assignment;
+    }
+
+    private void assignSplit(ListMultimap<Backend, Split> assignment, Backend backend, Split split) {
+        assignment.put(backend, split);
+        assignedWeightPerBackend.put(backend,
+                assignedWeightPerBackend.get(backend) + split.getSplitWeight().getRawValue());
+    }
+
+    private Backend getFileAffinityBackend(Split split) {
+        if (!isFileAffinityEligible(split)) {
+            return null;
+        }
+        return consistentHash.getNode(split, 1).get(0);
+    }
+
+    private boolean isFileAffinityEligible(Split split) {
+        return split.getFileAffinityKey().isPresent() && split.isRemotelyAccessible()
+                && (split.getHosts() == null || split.getHosts().length == 0);
     }
 
     /**
@@ -322,6 +356,23 @@ public class FederationBackendPolicy {
             return;
         }
 
+        ListMultimap<Backend, Split> movableAssignment = ArrayListMultimap.create();
+        ListMultimap<Backend, Split> fixedAssignment = ArrayListMultimap.create();
+        for (Map.Entry<Backend, Split> entry : assignment.entries()) {
+            (isFileAffinityEligible(entry.getValue()) ? fixedAssignment : movableAssignment)
+                    .put(entry.getKey(), entry.getValue());
+        }
+        if (movableAssignment.isEmpty()) {
+            return;
+        }
+        equateMovableDistribution(movableAssignment);
+        assignment.clear();
+        assignment.putAll(fixedAssignment);
+        assignment.putAll(movableAssignment);
+    }
+
+    private void equateMovableDistribution(ListMultimap<Backend, Split> assignment) {
+
         List<Backend> allNodes = new ArrayList<>();
         for (List<Backend> backendList : backendMap.values()) {
             allNodes.addAll(backendList);
@@ -334,7 +385,9 @@ public class FederationBackendPolicy {
 
         IndexedPriorityQueue<Backend> maxNodes = new IndexedPriorityQueue<>();
         for (Backend node : allNodes) {
-            maxNodes.addOrUpdate(node, assignedWeightPerBackend.get(node));
+            if (!assignment.get(node).isEmpty()) {
+                maxNodes.addOrUpdate(node, assignedWeightPerBackend.get(node));
+            }
         }
 
         IndexedPriorityQueue<Backend> minNodes = new IndexedPriorityQueue<>();
@@ -369,12 +422,14 @@ public class FederationBackendPolicy {
                     assignedWeightPerBackend.get(minNode), redistributedSplit.getSplitWeight().getRawValue()));
 
             // add max back into maxNodes only if it still has assignments
-            if (assignment.containsKey(maxNode)) {
+            if (!assignment.get(maxNode).isEmpty()) {
                 maxNodes.addOrUpdate(maxNode, assignedWeightPerBackend.get(maxNode));
             }
 
             // Add or update both the Priority Queues with the updated node priorities
-            maxNodes.addOrUpdate(minNode, assignedWeightPerBackend.get(minNode));
+            if (!assignment.get(minNode).isEmpty()) {
+                maxNodes.addOrUpdate(minNode, assignedWeightPerBackend.get(minNode));
+            }
             minNodes.addOrUpdate(minNode, Long.MAX_VALUE - assignedWeightPerBackend.get(minNode));
             minNodes.addOrUpdate(maxNode, Long.MAX_VALUE - assignedWeightPerBackend.get(maxNode));
         }
@@ -388,34 +443,48 @@ public class FederationBackendPolicy {
     @VisibleForTesting
     public static Split redistributeSplit(Multimap<Backend, Split> assignment, Backend fromNode,
             Backend toNode) {
+        return redistributeSplit(assignment, fromNode, toNode, split -> true);
+    }
+
+    private static Split redistributeSplit(Multimap<Backend, Split> assignment, Backend fromNode,
+            Backend toNode, Predicate<Split> canRedistribute) {
         Iterator<Split> splitIterator = assignment.get(fromNode).iterator();
         Split splitToBeRedistributed = null;
         while (splitIterator.hasNext()) {
             Split split = splitIterator.next();
             // Try to select non-local split for redistribution
-            if (split.getHosts() != null && !isSplitLocal(
+            if (canRedistribute.test(split) && split.getHosts() != null && !isSplitLocal(
                     split.getHosts(), fromNode.getHost())) {
                 splitToBeRedistributed = split;
                 break;
             }
         }
+        if (splitToBeRedistributed != null) {
+            splitIterator.remove();
+            assignment.put(toNode, splitToBeRedistributed);
+            return splitToBeRedistributed;
+        }
         // Select split if maxNode has no non-local splits in the current batch of assignment
-        if (splitToBeRedistributed == null) {
-            splitIterator = assignment.get(fromNode).iterator();
-            while (splitIterator.hasNext()) {
-                splitToBeRedistributed = splitIterator.next();
-                // if toNode has split replication, transfer this split firstly
-                if (splitToBeRedistributed.getHosts() != null && isSplitLocal(
-                        splitToBeRedistributed.getHosts(), toNode.getHost())) {
-                    break;
-                }
-                // if toNode is split alternative host, transfer this split firstly
-                if (splitToBeRedistributed.getAlternativeHosts() != null && isSplitLocal(
-                        splitToBeRedistributed.getAlternativeHosts(), toNode.getHost())) {
-                    break;
-                }
+        splitIterator = assignment.get(fromNode).iterator();
+        while (splitIterator.hasNext()) {
+            Split split = splitIterator.next();
+            if (!canRedistribute.test(split)) {
+                continue;
+            }
+            splitToBeRedistributed = split;
+            // if toNode has split replication, transfer this split firstly
+            if (splitToBeRedistributed.getHosts() != null && isSplitLocal(
+                    splitToBeRedistributed.getHosts(), toNode.getHost())) {
+                break;
+            }
+            // if toNode is split alternative host, transfer this split firstly
+            if (splitToBeRedistributed.getAlternativeHosts() != null && isSplitLocal(
+                    splitToBeRedistributed.getAlternativeHosts(), toNode.getHost())) {
+                break;
             }
         }
+        Preconditions.checkState(splitToBeRedistributed != null,
+                "No redistributable split on backend %s", fromNode.getId());
         splitIterator.remove();
         assignment.put(toNode, splitToBeRedistributed);
         return splitToBeRedistributed;
@@ -495,10 +564,13 @@ public class FederationBackendPolicy {
     private static class SplitHash implements Funnel<Split> {
         @Override
         public void funnel(Split split, PrimitiveSink primitiveSink) {
-            primitiveSink.putBytes(split.getConsistentHashString().getBytes(StandardCharsets.UTF_8));
-            primitiveSink.putLong(split.getStart());
-            primitiveSink.putLong(split.getLength());
+            Optional<String> fileAffinityKey = split.getFileAffinityKey();
+            primitiveSink.putBytes(fileAffinityKey.orElseGet(split::getConsistentHashString)
+                    .getBytes(StandardCharsets.UTF_8));
+            if (!fileAffinityKey.isPresent()) {
+                primitiveSink.putLong(split.getStart());
+                primitiveSink.putLong(split.getLength());
+            }
         }
     }
 }
-

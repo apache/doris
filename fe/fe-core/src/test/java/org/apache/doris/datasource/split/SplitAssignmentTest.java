@@ -200,6 +200,57 @@ public class SplitAssignmentTest {
     }
 
     @Test
+    void testEagerAssignmentEnablesFileAffinity() throws Exception {
+        PluginDrivenSplit split = pluginSplit("s3://bucket/table/data.parquet");
+        Multimap<Backend, Split> batch = ArrayListMultimap.create();
+        batch.put(mockBackend, split);
+        Mockito.when(mockBackendPolicy.computeScanRangeAssignment(Mockito.any())).thenAnswer(invocation -> {
+            List<Split> assignedSplits = invocation.getArgument(0);
+            Assertions.assertTrue(assignedSplits.get(0).getFileAffinityKey().isPresent());
+            return batch;
+        });
+
+        Multimap<Backend, Split> assignment = SplitAssignment.computeScanRangeAssignment(
+                mockBackendPolicy, Collections.singletonList(split), true);
+
+        Assertions.assertEquals(batch, assignment);
+    }
+
+    private static PluginDrivenSplit pluginSplit(String path) {
+        return new PluginDrivenSplit(new org.apache.doris.connector.spi.scan.ConnectorScanRange() {
+            @Override
+            public java.util.Optional<String> getPath() {
+                return java.util.Optional.of(path);
+            }
+
+            @Override
+            public long getLength() {
+                return 128;
+            }
+
+            @Override
+            public long getFileSize() {
+                return 256;
+            }
+
+            @Override
+            public boolean isNativeReadRange() {
+                return true;
+            }
+
+            @Override
+            public String getFileFormat() {
+                return "parquet";
+            }
+
+            @Override
+            public Map<String, String> getProperties() {
+                return Collections.emptyMap();
+            }
+        });
+    }
+
+    @Test
     void testAddToQueueSampleSplitAlreadySet() throws Exception {
         Multimap<Backend, Split> batch = ArrayListMultimap.create();
         batch.put(mockBackend, mockSplit);

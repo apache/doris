@@ -127,6 +127,11 @@ import java.util.stream.Collectors;
  */
 public class PluginDrivenScanNode extends FileQueryScanNode {
 
+    @Override
+    protected boolean supportsPerRangeFileAffinity() {
+        return true;
+    }
+
     private static final Logger LOG = LogManager.getLogger(PluginDrivenScanNode.class);
 
     private static final String TABLE_FORMAT_TYPE = "plugin_driven";

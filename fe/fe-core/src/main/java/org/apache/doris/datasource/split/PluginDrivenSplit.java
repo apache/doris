@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * A {@link FileSplit} that wraps a {@link ConnectorScanRange} from the SPI layer.
@@ -66,6 +67,16 @@ public class PluginDrivenSplit extends FileSplit {
     @Override
     public Object getInfo() {
         return null;
+    }
+
+    @Override
+    public Optional<String> getFileAffinityKey() {
+        String fileFormat = connectorScanRange.getFileFormat();
+        boolean supportedFormat = "parquet".equalsIgnoreCase(fileFormat) || "orc".equalsIgnoreCase(fileFormat);
+        return isFileAffinitySupported() && connectorScanRange.isNativeReadRange() && supportedFormat
+                && getHosts().length == 0 && getFileLength() > getLength()
+                ? connectorScanRange.getPath()
+                : Optional.empty();
     }
 
     @Override

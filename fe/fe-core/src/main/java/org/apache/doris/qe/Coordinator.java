@@ -2090,8 +2090,8 @@ public class Coordinator implements CoordInterface {
                                 expectedInstanceNum = perNodeScanRanges.size();
                             }
 
-                            perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
-                                    expectedInstanceNum);
+                            perInstanceScanRanges = node.get()
+                                    .materializeScanRangeParamsByInstance(perNodeScanRanges, expectedInstanceNum);
                             sharedScan = false;
                         }
 

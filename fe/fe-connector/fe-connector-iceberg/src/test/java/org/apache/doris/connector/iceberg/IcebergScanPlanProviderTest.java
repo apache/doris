@@ -90,6 +90,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 
 /**
  * Tests for {@link IcebergScanPlanProvider}. T01 pinned the capability constants + that {@code planScan}
@@ -1433,8 +1434,13 @@ public class IcebergScanPlanProviderTest {
     }
 
     private static List<ConnectorScanRange> planPositionDeletes(Table table, List<ConnectorColumnHandle> cols) {
+        return planPositionDeletes(table, cols, Collections.emptyMap());
+    }
+
+    private static List<ConnectorScanRange> planPositionDeletes(Table table, List<ConnectorColumnHandle> cols,
+            Map<String, String> sessionProperties) {
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
-        return provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+        return provider.planScan(new FakeScanSession("UTC", sessionProperties),
                 ConnectorScanRequest.builder(
                         IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
                         cols)
@@ -1494,6 +1500,29 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void planScanPositionDeletesSplitsRemainNativeFileRanges() {
+        DeleteFile deleteFile = FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())
+                .ofPositionDeletes()
+                .withPath("s3://b/db/t1/large-pos.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(384L)
+                .withRecordCount(12L)
+                .withSplitOffsets(Arrays.asList(0L, 128L, 256L))
+                .build();
+        Table table = tableWithPositionDelete(deleteFile);
+
+        List<ConnectorScanRange> ranges = planPositionDeletes(table, Collections.emptyList(),
+                Collections.singletonMap("file_split_size", "128"));
+
+        Assertions.assertTrue(ranges.size() > 1);
+        Assertions.assertTrue(ranges.stream().allMatch(ConnectorScanRange::isNativeReadRange));
+        Assertions.assertTrue(ranges.stream().allMatch(range -> "parquet".equals(range.getFileFormat())));
+        Assertions.assertEquals(Collections.singleton("s3://b/db/t1/large-pos.parquet"),
+                ranges.stream().map(range -> range.getPath().orElse(null)).collect(Collectors.toSet()));
+        Assertions.assertTrue(ranges.stream().map(ConnectorScanRange::getStart).distinct().count() > 1);
+    }
+
+    @Test
     public void planScanPositionDeletesDeletionVectorEmitsContent3AndBlobLocation() {
         // WHY: a V3 deletion vector is a puffin blob, and BE distinguishes it from a plain position-delete
         // file by content==3 ALONE — never by file format, which is why a DV still travels as FORMAT_PARQUET
@@ -1505,7 +1534,10 @@ public class IcebergScanPlanProviderTest {
         // dropping referenced_data_file_path/offset/size -> red.
         Table table = tableWithPositionDeleteV3(deletionVectorFile("s3://b/db/t1/dv.puffin", 4L, 40L));
 
-        TFileRangeDesc rangeDesc = positionDeleteRangeDesc(planPositionDeletes(table, Collections.emptyList()));
+        List<ConnectorScanRange> ranges = planPositionDeletes(table, Collections.emptyList());
+        Assertions.assertFalse(ranges.get(0).isNativeReadRange(),
+                "a Puffin deletion vector must not be treated as a native Parquet file range");
+        TFileRangeDesc rangeDesc = positionDeleteRangeDesc(ranges);
         TIcebergFileDesc fileDesc = rangeDesc.getTableFormatParams().getIcebergParams();
 
         Assertions.assertEquals(3, fileDesc.getContent(), "3 = DELETION_VECTOR (top-level routing)");

@@ -154,6 +154,15 @@ public class IcebergScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public boolean isNativeReadRange() {
+        if (positionDeleteSystemTableSplit) {
+            return positionDeleteContent == FileContent.POSITION_DELETES.id();
+        }
+        return serializedSplit == null
+                && ("parquet".equalsIgnoreCase(fileFormat) || "orc".equalsIgnoreCase(fileFormat));
+    }
+
+    @Override
     public long getStart() {
         return start;
     }
@@ -192,6 +201,9 @@ public class IcebergScanRange implements ConnectorScanRange {
 
     @Override
     public String getFileFormat() {
+        if (positionDeleteSystemTableSplit) {
+            return positionDeleteFileFormat == TFileFormatType.FORMAT_ORC ? "orc" : "parquet";
+        }
         return fileFormat;
     }
 

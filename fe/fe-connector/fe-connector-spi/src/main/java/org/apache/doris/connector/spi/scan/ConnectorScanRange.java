@@ -170,10 +170,9 @@ public interface ConnectorScanRange extends Serializable {
     /**
      * Whether this range is read by BE's NATIVE (ORC/Parquet) reader rather than the JNI scanner.
      *
-     * <p>Used by a connector that distinguishes native vs JNI sub-splits (e.g. Paimon) so the scan
-     * node can accumulate the native/total split counts for the EXPLAIN
-     * {@code paimonNativeReadSplits=<native>/<total>} line. The default is {@code false} (JNI), so
-     * connectors without a native read path are unaffected.</p>
+     * <p>Used by the engine for native/JNI split accounting and native-file placement. A connector must only
+     * return true for a physical range that BE reads with the native file reader; the default is false so JNI,
+     * virtual, and third-party ranges do not opt into native placement accidentally.</p>
      */
     default boolean isNativeReadRange() {
         return false;

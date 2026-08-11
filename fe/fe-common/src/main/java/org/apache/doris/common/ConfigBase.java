@@ -82,6 +82,17 @@ public class ConfigBase {
         }
     }
 
+    public static class PositiveIntConfHandler extends DefaultConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            String trimmedValue = confVal.trim();
+            if (Integer.parseInt(trimmedValue) <= 0) {
+                throw new ConfigException(field.getName() + " must be positive");
+            }
+            super.handle(field, trimmedValue);
+        }
+    }
+
     static class CommaSeparatedIntersectConfHandler implements ConfHandler {
         @Override
         public void handle(Field field, String newVal) throws Exception {

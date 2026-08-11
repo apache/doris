@@ -83,6 +83,11 @@ public class HiveScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public boolean isNativeReadRange() {
+        return "parquet".equalsIgnoreCase(fileFormat) || "orc".equalsIgnoreCase(fileFormat);
+    }
+
+    @Override
     public long getStart() {
         return start;
     }

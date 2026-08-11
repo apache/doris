@@ -148,6 +148,12 @@ public class HudiScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public boolean isNativeReadRange() {
+        return !forceJni
+                && ("parquet".equalsIgnoreCase(fileFormat) || "orc".equalsIgnoreCase(fileFormat));
+    }
+
+    @Override
     public String getTableFormatType() {
         return "hudi";
     }
