@@ -118,6 +118,38 @@ private:
     std::vector<fs::path> _paths;
 };
 
+class OneShotSyncPointGate {
+public:
+    void arrive_and_wait() {
+        std::unique_lock lock(_mutex);
+        if (_arrived) {
+            return;
+        }
+        _arrived = true;
+        _cv.notify_all();
+        _cv.wait(lock, [&]() { return _released; });
+    }
+
+    bool wait_until_arrived() {
+        std::unique_lock lock(_mutex);
+        return _cv.wait_for(lock, std::chrono::seconds(5), [&]() { return _arrived; });
+    }
+
+    void release() {
+        {
+            std::lock_guard lock(_mutex);
+            _released = true;
+        }
+        _cv.notify_all();
+    }
+
+private:
+    std::mutex _mutex;
+    std::condition_variable _cv;
+    bool _arrived {false};
+    bool _released {false};
+};
+
 TEST(AsyncCacheWriteConfigTest, ResolveMaxPendingBytesPerDisk) {
     constexpr int64_t kMiB = 1024 * 1024;
     constexpr int64_t kGiB = 1024 * kMiB;
@@ -1457,6 +1489,54 @@ TEST_F(AsyncCacheWriteServiceTest, UpdateOptionsValidatesAndAppliesAtRuntime) {
     EXPECT_EQ(service->options().worker_count, 1);
 }
 
+TEST_F(AsyncCacheWriteServiceTest, ResizePublishesStopUnderQueueMutex) {
+    OneShotSyncPointGate worker_before_wait;
+    OneShotSyncPointGate resize_before_request_stop;
+    std::promise<void> stop_requested;
+    auto stop_requested_future = stop_requested.get_future();
+    std::unique_ptr<BlockFileCache> cache;
+    std::future<Status> resize_future;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard worker_guard;
+    SyncPoint::CallbackGuard resize_before_guard;
+    SyncPoint::CallbackGuard resize_after_guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::Worker::_run:before_wait",
+            [&](auto&&) { worker_before_wait.arrive_and_wait(); }, &worker_guard);
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_resize_workers_locked:before_request_stop",
+            [&](auto&&) { resize_before_request_stop.arrive_and_wait(); }, &resize_before_guard);
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_resize_workers_locked:after_request_stop",
+            [&](auto&&) { stop_requested.set_value(); }, &resize_after_guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        worker_before_wait.release();
+        resize_before_request_stop.release();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    cache = create_cache("async_write_service_resize_wait_wakeup");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+    ASSERT_GT(service->options().worker_count, 1);
+    ASSERT_TRUE(worker_before_wait.wait_until_arrived());
+
+    resize_future =
+            std::async(std::launch::async, [service]() { return service->resize_workers(1); });
+    ASSERT_TRUE(resize_before_request_stop.wait_until_arrived());
+    resize_before_request_stop.release();
+    EXPECT_EQ(stop_requested_future.wait_for(std::chrono::milliseconds(500)),
+              std::future_status::timeout);
+
+    worker_before_wait.release();
+    ASSERT_EQ(stop_requested_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    ASSERT_EQ(resize_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    ASSERT_TRUE(resize_future.get().ok());
+    EXPECT_EQ(service->options().worker_count, 1);
+}
+
 TEST_F(AsyncCacheWriteServiceTest, ResizeWorkersPreservesActiveTaskOwnership) {
     auto cache = create_cache("async_write_service_resize_workers");
     auto* service = cache->async_write_service();
@@ -1876,6 +1956,53 @@ TEST_F(AsyncCacheWriteServiceTest, ShutdownWaitsForConcurrentReplacementAndDrain
     EXPECT_EQ(service->pending_count(), 0);
     EXPECT_EQ(service->queued_count(), 0);
     EXPECT_EQ(service->active_task_count(), 0);
+}
+
+TEST_F(AsyncCacheWriteServiceTest, ShutdownPublishesStopUnderQueueMutex) {
+    OneShotSyncPointGate worker_before_wait;
+    OneShotSyncPointGate shutdown_after_stop_accepting;
+    std::promise<void> stop_requested;
+    auto stop_requested_future = stop_requested.get_future();
+    std::unique_ptr<BlockFileCache> cache;
+    std::future<void> shutdown_future;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard worker_guard;
+    SyncPoint::CallbackGuard shutdown_before_guard;
+    SyncPoint::CallbackGuard shutdown_after_guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::Worker::_run:before_wait",
+            [&](auto&&) { worker_before_wait.arrive_and_wait(); }, &worker_guard);
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::shutdown:after_stop_accepting",
+            [&](auto&&) { shutdown_after_stop_accepting.arrive_and_wait(); },
+            &shutdown_before_guard);
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::shutdown:after_request_stop",
+            [&](auto&&) { stop_requested.set_value(); }, &shutdown_after_guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        worker_before_wait.release();
+        shutdown_after_stop_accepting.release();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    cache = create_cache("async_write_service_shutdown_wait_wakeup");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+    ASSERT_TRUE(worker_before_wait.wait_until_arrived());
+
+    shutdown_future = std::async(std::launch::async, [service]() { service->shutdown(); });
+    ASSERT_TRUE(shutdown_after_stop_accepting.wait_until_arrived());
+    shutdown_after_stop_accepting.release();
+    EXPECT_EQ(stop_requested_future.wait_for(std::chrono::milliseconds(500)),
+              std::future_status::timeout);
+
+    worker_before_wait.release();
+    ASSERT_EQ(stop_requested_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    ASSERT_EQ(shutdown_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    shutdown_future.get();
+    EXPECT_EQ(service->running_worker_count(), 0);
 }
 
 TEST_F(AsyncCacheWriteServiceTest, ShutdownWaitsForRegisteredSubmitterAndRejectsItsTask) {

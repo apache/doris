@@ -208,6 +208,8 @@ public:
         return _service._worker_pool->submit_func([self = std::move(self)]() { self->_run(); });
     }
 
+    // The caller must hold the service queue mutex so changing the wait predicate cannot race
+    // with a worker between evaluating it and blocking on the condition variable.
     void request_stop() { _stop_requested.store(true, std::memory_order_release); }
 
     void wait_until_stopped() { _stopped.wait(); }
@@ -234,6 +236,7 @@ private:
                 return;
             }
             std::unique_lock lock(_service._queue_mutex);
+            TEST_SYNC_POINT("AsyncCacheWriteService::Worker::_run:before_wait");
             _service._queue_cv.wait(lock, [this]() {
                 const bool shutdown_requested =
                         _service._shutdown_requested.load(std::memory_order_acquire);
@@ -797,8 +800,13 @@ Status AsyncCacheWriteService::resize_workers(size_t worker_count) {
 Status AsyncCacheWriteService::_resize_workers_locked(size_t worker_count) {
     DORIS_CHECK(_worker_pool != nullptr);
     if (worker_count < _workers.size()) {
-        for (size_t index = worker_count; index < _workers.size(); ++index) {
-            _workers[index]->request_stop();
+        TEST_SYNC_POINT("AsyncCacheWriteService::_resize_workers_locked:before_request_stop");
+        {
+            std::lock_guard queue_lock(_queue_mutex);
+            for (size_t index = worker_count; index < _workers.size(); ++index) {
+                _workers[index]->request_stop();
+            }
+            TEST_SYNC_POINT("AsyncCacheWriteService::_resize_workers_locked:after_request_stop");
         }
         _queue_cv.notify_all();
         for (size_t index = worker_count; index < _workers.size(); ++index) {
@@ -864,7 +872,11 @@ void AsyncCacheWriteService::shutdown() {
     while (_active_submitters.load(std::memory_order_acquire) != 0) {
         std::this_thread::yield();
     }
-    _shutdown_requested.store(true, std::memory_order_release);
+    {
+        std::lock_guard queue_lock(_queue_mutex);
+        _shutdown_requested.store(true, std::memory_order_release);
+        TEST_SYNC_POINT("AsyncCacheWriteService::shutdown:after_request_stop");
+    }
     _queue_cv.notify_all();
 
     if (_worker_pool) {
