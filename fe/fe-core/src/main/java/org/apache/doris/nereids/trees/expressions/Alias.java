@@ -130,6 +130,11 @@ public class Alias extends NamedExpression implements UnaryExpression {
     }
 
     @Override
+    public String shapeInfo() {
+        return child().shapeInfo() + " AS `" + name.get() + "`";
+    }
+
+    @Override
     public boolean nullable() throws UnboundException {
         return child().nullable();
     }

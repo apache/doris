@@ -27,7 +27,9 @@ import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
 
+import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 
 import java.lang.reflect.Field;
 import java.net.URI;
@@ -187,6 +189,12 @@ public final class AzureFileSystemProperties
     }
 
     @Override
+    public java.util.Set<String> getSupportedSchemes() {
+        // fe-core parity (AzureProperties.schemas()): wasb/wasbs/abfs/abfss.
+        return java.util.Set.of("wasb", "wasbs", "abfs", "abfss");
+    }
+
+    @Override
     public StorageKind kind() {
         return StorageKind.OBJECT_STORAGE;
     }
@@ -229,7 +237,7 @@ public final class AzureFileSystemProperties
         // S3-style params. Mirrors legacy AzureProperties.getBackendConfigProperties();
         // native-SDK OAuth2 support may replace this in the future.
         if (isOauth2Auth()) {
-            return toHadoopConfigurationMap();
+            return oauth2BackendProperties();
         }
         Map<String, String> s3Props = new HashMap<>();
         s3Props.put("AWS_ENDPOINT", endpoint);
@@ -267,6 +275,51 @@ public final class AzureFileSystemProperties
             cfg.put("fs.azure.account.key", accountKey);
         }
         return Collections.unmodifiableMap(cfg);
+    }
+
+    /**
+     * BE property map for OAuth2, key-for-key equal to what legacy fe-core
+     * {@code AzureProperties.getBackendConfigProperties()} produced: it dumped its whole
+     * {@link Configuration}, so on top of {@link #toHadoopConfigurationMap()} the map also carries
+     * hadoop's {@code core-default.xml} and any {@code core-site.xml} reachable on the FE
+     * classpath ({@code start_fe.sh} puts {@code ${DORIS_HOME}/conf} and {@code ${HADOOP_CONF_DIR}}
+     * there, so this is a real operator-facing channel, not just hadoop's built-in defaults).
+     *
+     * <p>The live consumer is Microsoft Fabric OneLake: {@code LocationPath.getTFileTypeForBE()}
+     * routes {@code abfs[s]://...dfs.fabric.microsoft.com} to {@code FILE_HDFS}, and BE's
+     * {@code hdfs_builder.cpp} feeds every entry of this map into its JNI hadoop builder — which is
+     * how the {@code fs.azure.account.oauth2.*} keys reach the ABFS connector.
+     *
+     * <p>Ordering is load-bearing and mirrors the legacy sequence: hadoop defaults first, then the
+     * provider's own {@code fs.azure.*} view, then user {@code fs.*} passthrough (so an explicit
+     * user value wins), then cache-disable normalization last.
+     *
+     * <p>The plugin bundles hadoop, but {@code FileSystemPluginManager.FS_PARENT_FIRST_PREFIXES}
+     * makes {@code org.apache.hadoop.} parent-first, so whenever the FE host ships hadoop this
+     * resolves to the host copy and the bundled one is only a {@code findClass} fallback. That also
+     * means the XML defaults below come from wherever the context classloader finds them — hadoop's
+     * {@code Configuration} looks up {@code core-default.xml}/{@code core-site.xml} through the
+     * TCCL, not through this class's loader. A host that stops shipping hadoop would therefore need
+     * the TCCL pinned to the plugin loader here, not just the bundled jars.
+     */
+    private Map<String, String> oauth2BackendProperties() {
+        Configuration conf = new Configuration();
+        toHadoopConfigurationMap().forEach(conf::set);
+        rawProperties.forEach((key, value) -> {
+            if (key.startsWith("fs.") && StringUtils.isNotBlank(value)) {
+                conf.set(key, value);
+            }
+        });
+        for (String scheme : legacyCacheSchemes()) {
+            String key = "fs." + scheme + ".impl.disable.cache";
+            String userValue = rawProperties.get(key);
+            // An explicit user value wins but is normalized to true/false ("yes"/"1" would reach BE
+            // verbatim through the fs.* passthrough above otherwise).
+            conf.setBoolean(key, StringUtils.isNotBlank(userValue) ? BooleanUtils.toBoolean(userValue) : true);
+        }
+        Map<String, String> dump = new HashMap<>();
+        conf.forEach(entry -> dump.put(entry.getKey(), entry.getValue()));
+        return Collections.unmodifiableMap(dump);
     }
 
     public String getEndpoint() {
@@ -412,4 +465,10 @@ public final class AzureFileSystemProperties
     public String toString() {
         return ConnectorPropertiesUtils.toMaskedString(this);
     }
+
+    @Override
+    public Set<String> legacyCacheSchemes() {
+        return Set.of("wasb", "wasbs", "abfs", "abfss");
+    }
+
 }

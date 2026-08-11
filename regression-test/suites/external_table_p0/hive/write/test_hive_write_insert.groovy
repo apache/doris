@@ -892,7 +892,8 @@ INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03
             sql """create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                'hive.parquet.time-zone' = 'Asia/Shanghai'
             );"""
             sql """use `${catalog_name}`.`write_test`"""
             logger.info("hive sql: " + """ use `write_test` """)

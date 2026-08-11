@@ -19,7 +19,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
@@ -32,6 +34,7 @@
 #include "core/column/column_const.h"
 #include "exec/common/util.hpp"
 #include "exprs/function_context.h"
+#include "exprs/lambda_function/lambda_execution_context.h"
 #include "exprs/vexpr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -45,6 +48,8 @@ class RowDescriptor;
 
 namespace doris {
 
+VExprContext::VExprContext(VExprSPtr expr) : _root(std::move(expr)) {}
+
 VExprContext::~VExprContext() {
     // In runtime filter, only create expr context to get expr root, will not call
     // prepare or open, so that it is not need to call close. And call close may core
@@ -57,6 +62,13 @@ VExprContext::~VExprContext() {
     } catch (const Exception& e) {
         LOG(WARNING) << "Exception occurs when expr context deconstruct: " << e.to_string();
     }
+}
+
+LambdaExecutionContext& VExprContext::lambda_execution_context() {
+    if (!_lambda_execution_context) {
+        _lambda_execution_context = std::make_unique<LambdaExecutionContext>();
+    }
+    return *_lambda_execution_context;
 }
 
 Status VExprContext::execute(Block* block, int* result_column_id) {
@@ -197,6 +209,38 @@ ZoneMapFilterResult VExprContext::evaluate_zonemap_filter(const VExprContextSPtr
             continue;
         }
         if (root->evaluate_zonemap_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
+}
+
+ZoneMapFilterResult VExprContext::evaluate_dictionary_filter(const VExprContextSPtrs& conjuncts,
+                                                             const DictionaryEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_dictionary_filter()) {
+            continue;
+        }
+        if (root->evaluate_dictionary_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
+}
+
+ZoneMapFilterResult VExprContext::evaluate_bloom_filter(const VExprContextSPtrs& conjuncts,
+                                                        const BloomFilterEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_bloom_filter()) {
+            continue;
+        }
+        if (root->evaluate_bloom_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
             return ZoneMapFilterResult::kNoMatch;
         }
     }

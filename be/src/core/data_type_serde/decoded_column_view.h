@@ -33,8 +33,9 @@ namespace doris {
 
 class IColumn;
 
-// 已解码 column batch 的物理值来源类型。
-// 该枚举只描述通用内存布局，不包含 Parquet/ORC/Arrow 等格式专有类型。
+// Physical value source type for a decoded column batch.
+// This enum describes only generic memory layouts, not format-specific types such as
+// Parquet/ORC/Arrow.
 enum class DecodedValueKind {
     BOOL,
     INT32,

@@ -45,10 +45,13 @@ endif ()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     set (OS_LINUX 1)
-    add_definitions(-D OS_LINUX)
+    # No space after -D: "-D OS_LINUX" becomes two argv entries in some
+    # generators, and the dangling "-D" then swallows the next flag
+    # (doris_be_test lost its -fno-access-control this way).
+    add_definitions(-DOS_LINUX)
 elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     set (OS_MACOSX 1)
-    add_definitions(-D OS_MACOSX)
+    add_definitions(-DOS_MACOSX)
 endif ()
 
 if (OS_MACOSX)
@@ -76,12 +79,13 @@ add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 # Options
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 option(USE_LIBCPP "Use libc++" OFF)
-option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
     set(USE_UNWIND OFF)
+else()
+    set(USE_UNWIND ON)
 endif()
 
 if (DISPLAY_BUILD_TIME)
@@ -181,27 +185,6 @@ if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
     set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
 endif()
 
-option(BUILD_RUST_READERS "Build Rust-based format readers (Lance, etc.)" OFF)
-if (DEFINED ENV{BUILD_RUST_READERS})
-    set(BUILD_RUST_READERS "$ENV{BUILD_RUST_READERS}" CACHE BOOL "" FORCE)
-endif()
-# Auto-enable if pre-built Rust library exists (from zigbuild or manylinux2014)
-if (NOT BUILD_RUST_READERS)
-    if (EXISTS "${SRC_DIR}/rust/doris-native/target/x86_64-unknown-linux-gnu/release/libdoris_ffi.a"
-        OR EXISTS "${SRC_DIR}/rust/doris-native/target/release/libdoris_ffi.a")
-        set(BUILD_RUST_READERS ON)
-        message(STATUS "Auto-enabling BUILD_RUST_READERS: pre-built library found")
-    endif()
-endif()
-if (BUILD_RUST_READERS)
-    # rust.cmake detects pre-built .a or builds via Corrosion.
-    # If neither exists, it sets BUILD_RUST_READERS=OFF and returns.
-    include(cmake/rust.cmake)
-endif()
-if (BUILD_RUST_READERS)
-    add_definitions(-DBUILD_RUST_READERS)
-endif()
-
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -259,6 +242,16 @@ find_package(ZLIB)
 SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
 SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
+
+set(BUILD_TESTS OFF)
+add_subdirectory(
+    ${CONTRIB_PATH}/datasketches-cpp
+    ${PROJECT_BINARY_DIR}/datasketches-cpp
+    EXCLUDE_FROM_ALL)
+target_include_directories(
+    hll SYSTEM INTERFACE $<BUILD_INTERFACE:${CONTRIB_PATH}/datasketches-cpp/hll/include>)
+target_include_directories(
+    common SYSTEM INTERFACE $<BUILD_INTERFACE:${CONTRIB_PATH}/datasketches-cpp/common/include>)
 
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
@@ -456,7 +449,7 @@ if (USE_JEMALLOC)
     add_definitions(-DUSE_JEMALLOC)
 endif()
 
-# Compile with libunwind
+# libunwind symbolization uses DWARF aranges for fast address-to-line lookup.
 if (USE_UNWIND)
     add_definitions(-DUSE_UNWIND)
     if (COMPILER_CLANG)
@@ -686,7 +679,7 @@ endif()
 set(PAIMON_FACTORY_REGISTRY_LIBS)
 if (ENABLE_PAIMON_CPP)
     # Plan B: Doris Arrow is now built with COMPUTE/DATASET/ACERO/FILESYSTEM,
-    # so arrow, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
+    # so arrow, arrow_compute, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
     # thirdparty.cmake.  paimon-cpp reuses the same Arrow (no paimon_deps).
     # No dual-stack selection needed — single Arrow for everything.
 
@@ -736,10 +729,6 @@ if (ENABLE_PAIMON_CPP)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} tbb_paimon)
 endif()
 
-if (BUILD_RUST_READERS)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} doris_ffi_lib)
-endif()
-
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
 # Add all external dependencies. They should come after the palo libs.
@@ -787,9 +776,34 @@ endif ()
 
 # Add sanitize static link flags
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
+    if (OS_MACOSX AND ARCH_ARM AND (MAKE_TEST OR BUILD_BENCHMARK))
+        # doris_be_test's and benchmark_test's .text exceeds arm64's +/-128MB
+        # BL reach (BE_TEST/BE_BENCHMARK macros inflate it further) and Apple's
+        # linker emits no branch islands for tcmalloc's prebuilt archive
+        # ("fixup error ... B/BL out of range"). Tests and benchmarks don't
+        # need a custom allocator; fall back to system malloc here. ASAN
+        # builds never linked ${MALLOCLIB} anyway, which is why they never
+        # hit this. gperftools_stubs.cpp supplies the few symbols still
+        # referenced unconditionally.
+    else()
+        set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
+    endif()
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN" OR "${CMAKE_BUILD_TYPE}" STREQUAL "ASAN_UT")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
+    if (OS_LINUX)
+        # The fully static link resolves __cxa_throw/__cxa_rethrow/
+        # _Unwind_RaiseException to libstdc++.a's/libgcc_eh.a's strong
+        # definitions, silently bypassing the ASAN runtime's weak interceptors,
+        # so __asan_handle_no_return() never runs when un-instrumented
+        # third-party code (libthrift, ...) throws. The unwound instrumented
+        # frames keep their stack-shadow poison and the next deep call over the
+        # same stack range aborts with the kCurrentStackFrameMagic CHECK
+        # (the thrift retry/reopen crashes; same family as google/glog#978 and
+        # google/sanitizers#1010). Redirect every reference to wrappers that
+        # restore the shadow cleanup. See be/src/common/asan_cxa_throw_wrap.cpp.
+        set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -Wl,--wrap=__cxa_throw -Wl,--wrap=__cxa_rethrow
+            -Wl,--wrap=_Unwind_RaiseException)
+    endif()
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${LSAN_LIBS})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")
@@ -1031,7 +1045,10 @@ if (BUILD_BENCHMARK)
     if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "RELEASE")
         message(FATAL_ERROR "Benchmark should be built with RELEASE build type, current build type is ${CMAKE_BUILD_TYPE}")
     endif()
-    add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp)
+    add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp
+        # No-ops everywhere except macOS/arm64, where benchmark_test links
+        # without tcmalloc (see the MALLOCLIB branch above).
+        ${BASE_DIR}/test/testutil/gperftools_stubs.cpp)
     set_target_properties(benchmark_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
     message(STATUS "Add benchmark to build")

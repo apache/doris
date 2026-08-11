@@ -46,7 +46,6 @@ import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.plugin.CloudPluginDownloader;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -225,6 +224,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         analyze(ctx);
         if (SetType.GLOBAL.equals(setType)) {
+            // TODO: Register global table functions as normal/_outer pairs when global UDTFs are supported.
             Env.getCurrentEnv().getGlobalFunctionMgr().addFunction(function, ifNotExists);
         } else {
             String dbName = functionName.getDb();
@@ -233,15 +233,10 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 functionName.setDb(dbName);
             }
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-            db.addFunction(function, ifNotExists);
             if (function.isUDTFunction()) {
-                // all of the table function in doris will have two function
-                // one is the noraml, and another is outer, the different of them is deal with
-                // empty: whether need to insert NULL result value
-                Function outerFunction = function.clone();
-                FunctionName name = outerFunction.getFunctionName();
-                name.setFn(name.getFunction() + "_outer");
-                db.addFunction(outerFunction, ifNotExists);
+                db.addTableFunction(function, ifNotExists);
+            } else {
+                db.addFunction(function, ifNotExists);
             }
         }
     }
@@ -489,21 +484,6 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
 
     private String checkAndReturnDefaultJavaUdfUrl(String url) {
         String defaultUrl = EnvUtils.getDorisHome() + "/plugins/java_udf";
-        // In cloud mode, try cloud download first
-        if (Config.isCloudMode()) {
-            String targetPath = defaultUrl + "/" + url;
-            try {
-                String downloadedPath = CloudPluginDownloader.downloadFromCloud(
-                        CloudPluginDownloader.PluginType.JAVA_UDF, url, targetPath);
-                if (!downloadedPath.isEmpty()) {
-                    return "file://" + downloadedPath;
-                }
-            } catch (Exception e) {
-                throw new RuntimeException("Cannot download UDF from cloud: " + url
-                        + ". Please retry later or check your UDF has been uploaded to cloud.");
-            }
-        }
-        // Return the file path (original UDF behavior)
         return "file://" + defaultUrl + "/" + url;
     }
 

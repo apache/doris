@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.jdbc.client;
 
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.jdbc.JdbcDbType;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.apache.logging.log4j.LogManager;
@@ -43,7 +43,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
@@ -66,20 +65,17 @@ public abstract class JdbcConnectorClient implements Closeable {
     protected static final int JDBC_DATETIME_SCALE = 6;
     protected static final int MAX_DECIMAL128_PRECISION = 38;
 
-    private static final Map<URL, RefCountedClassLoader> CLASS_LOADER_MAP = new ConcurrentHashMap<>();
-
-    /**
-     * Pairs a ClassLoader with a reference count so the map entry can be removed
-     * when the last client using that driver URL is closed.
-     */
-    static final class RefCountedClassLoader {
-        final ClassLoader loader;
-        final AtomicInteger refCount = new AtomicInteger(1);
-
-        RefCountedClassLoader(ClassLoader loader) {
-            this.loader = loader;
-        }
-    }
+    // Keep-alive cache of driver classloaders: one per distinct driver URL, shared across all catalogs
+    // and never evicted. A JDBC driver self-registers into the static java.sql.DriverManager when its
+    // class is loaded, which strong-references the driver's classloader (and all its classes) for the
+    // life of the FE process. Evicting a URL's classloader while DriverManager still pins it frees NO
+    // Metaspace; it only forces the NEXT catalog for that URL to build a fresh, separately-pinned
+    // classloader -- so create/drop/recreate churn leaked one driver's worth of Metaspace per cycle
+    // (FE Metaspace 165MB->1565MB, external regression 986696 OOM). Keeping one loader per URL forever
+    // is bounded by the number of distinct driver jars (a handful) and mirrors the pre-SPI JdbcClient.
+    // Do NOT reintroduce per-close eviction here without first deregistering the drivers loaded by the
+    // classloader (java.sql.DriverManager.deregisterDriver) and closing the URLClassLoader.
+    private static final Map<URL, ClassLoader> CLASS_LOADER_MAP = new ConcurrentHashMap<>();
 
     protected final String catalogName;
     protected final JdbcDbType dbType;
@@ -90,13 +86,13 @@ public abstract class JdbcConnectorClient implements Closeable {
     protected final boolean enableMappingVarbinary;
     protected final boolean enableMappingTimestampTz;
     protected ClassLoader classLoader;
-    private URL classLoaderUrl;
     protected HikariDataSource dataSource;
 
     /**
      * Factory method to create the correct client subclass for the given DB type.
      *
-     * @param urlSanitizer engine-level JDBC URL sanitizer (e.g., SSRF protection).
+     * @param urlSanitizer engine-level outbound URL sanitizer (e.g., SSRF protection). Applied here because
+     *                     this is where the connector itself opens the connection.
      *                     Applied before passing the URL to HikariCP. Pass
      *                     {@link UnaryOperator#identity()} if no sanitization is needed.
      */
@@ -183,12 +179,21 @@ public abstract class JdbcConnectorClient implements Closeable {
             default:
                 throw new DorisConnectorException("Unsupported JDBC DB type: " + dbType);
         }
-        client.initializeClassLoader(driverUrl);
-        String sanitizedUrl = urlSanitizer.apply(jdbcUrl);
-        client.initializeDataSource(sanitizedUrl, user, password, driverClass,
-                poolMinSize, poolMaxSize, poolMaxWaitTime, poolMaxLifeTime);
-        client.postInitialize();
-        return client;
+        try {
+            client.initializeClassLoader(driverUrl);
+            String sanitizedUrl = urlSanitizer.apply(jdbcUrl);
+            client.initializeDataSource(sanitizedUrl, user, password, driverClass,
+                    poolMinSize, poolMaxSize, poolMaxWaitTime, poolMaxLifeTime);
+            client.postInitialize();
+            return client;
+        } catch (RuntimeException | Error e) {
+            try {
+                client.close();
+            } catch (RuntimeException | Error closeFailure) {
+                e.addSuppressed(closeFailure);
+            }
+            throw e;
+        }
     }
 
     protected JdbcConnectorClient(
@@ -223,7 +228,14 @@ public abstract class JdbcConnectorClient implements Closeable {
         try {
             Thread.currentThread().setContextClassLoader(this.classLoader);
             dataSource = new HikariDataSource();
-            dataSource.setDriverClassName(driverClass);
+            // driver_class is optional. When absent, let HikariCP resolve the driver from the JDBC URL via
+            // DriverManager rather than passing null to setDriverClassName — a null there NPEs deep inside
+            // HikariCP (loadClass(null) -> ClassLoader lock map -> ConcurrentHashMap null key), which this
+            // method's catch re-wraps into an opaque "Failed to initialize JDBC data source: null" that hides
+            // the real "driver_class not provided" cause.
+            if (driverClass != null && !driverClass.isEmpty()) {
+                dataSource.setDriverClassName(driverClass);
+            }
             dataSource.setJdbcUrl(url);
             dataSource.setUsername(user);
             dataSource.setPassword(password);
@@ -242,27 +254,30 @@ public abstract class JdbcConnectorClient implements Closeable {
         }
     }
 
-    private synchronized void initializeClassLoader(String driverUrl) {
+    private void initializeClassLoader(String driverUrl) {
         if (driverUrl == null || driverUrl.isEmpty()) {
             this.classLoader = getClass().getClassLoader();
             return;
         }
         try {
-            URL[] urls = {new URL(resolveDriverUrl(driverUrl))};
-            this.classLoaderUrl = urls[0];
-            RefCountedClassLoader entry = CLASS_LOADER_MAP.compute(urls[0], (key, existing) -> {
-                if (existing != null) {
-                    existing.refCount.incrementAndGet();
-                    return existing;
-                }
-                ClassLoader parent = getClass().getClassLoader();
-                return new RefCountedClassLoader(URLClassLoader.newInstance(urls, parent));
-            });
-            this.classLoader = entry.loader;
+            URL url = new URL(resolveDriverUrl(driverUrl));
+            this.classLoader = getOrCreateDriverClassLoader(url);
         } catch (MalformedURLException e) {
             throw new DorisConnectorException(
                     "Failed to load JDBC driver from path: " + driverUrl, e);
         }
+    }
+
+    /**
+     * Returns the shared driver classloader for {@code url}, creating and caching it on first use.
+     * The classloader is kept for the life of the process and reused by every catalog that references
+     * the same driver URL (see {@link #CLASS_LOADER_MAP} for why it is never evicted).
+     *
+     * <p>Visible for testing.</p>
+     */
+    static ClassLoader getOrCreateDriverClassLoader(URL url) {
+        return CLASS_LOADER_MAP.computeIfAbsent(url, key ->
+                URLClassLoader.newInstance(new URL[]{key}, JdbcConnectorClient.class.getClassLoader()));
     }
 
     private static String resolveDriverUrl(String driverUrl) {
@@ -279,18 +294,9 @@ public abstract class JdbcConnectorClient implements Closeable {
             dataSource.close();
             dataSource = null;
         }
-        releaseClassLoader();
-    }
-
-    private void releaseClassLoader() {
-        if (classLoaderUrl == null) {
-            return;
-        }
-        CLASS_LOADER_MAP.computeIfPresent(classLoaderUrl, (key, entry) -> {
-            int remaining = entry.refCount.decrementAndGet();
-            return remaining <= 0 ? null : entry;
-        });
-        classLoaderUrl = null;
+        // The shared driver classloader is intentionally NOT released here: it stays cached in
+        // CLASS_LOADER_MAP and is reused by the next catalog for the same driver URL. Releasing it
+        // per-close would leak Metaspace rather than free it (see CLASS_LOADER_MAP).
     }
 
     // Visible for testing

@@ -43,8 +43,8 @@ TEST_F(VectorSearchTest, TestAnnIndexStatsInitialization) {
     EXPECT_EQ(stats.range_fallback_small_candidate_rows, 0);
 
     // Test setting values
-    stats.search_costs_ns.set(1000L);
-    stats.load_index_costs_ns.set(2000L);
+    stats.search_costs_ns.set(int64_t(1000));
+    stats.load_index_costs_ns.set(int64_t(2000));
     stats.range_fallback_by_small_candidate_cnt = 1;
     stats.range_fallback_small_candidate_rows = 3;
 
@@ -56,8 +56,8 @@ TEST_F(VectorSearchTest, TestAnnIndexStatsInitialization) {
 
 TEST_F(VectorSearchTest, TestAnnIndexStatsCopyConstructor) {
     doris::segment_v2::AnnIndexStats original;
-    original.search_costs_ns.set(1500L);
-    original.load_index_costs_ns.set(2500L);
+    original.search_costs_ns.set(int64_t(1500));
+    original.load_index_costs_ns.set(int64_t(2500));
     original.range_fallback_by_small_candidate_cnt = 1;
     original.range_fallback_small_candidate_rows = 3;
 

@@ -31,6 +31,12 @@ import java.util.stream.Collectors;
 public class BinlogUtils {
     private static final String ROW_BINLOG_NAME = "binlog<Row>";
 
+    // Row binlog stream-change op codes. Must match BE binlog_block_reader_utils.h (STREAM_CHANGE_*).
+    public static final long ROW_BINLOG_APPEND = 0;
+    public static final long ROW_BINLOG_DELETE = 1;
+    public static final long ROW_BINLOG_UPDATE_BEFORE = 2;
+    public static final long ROW_BINLOG_UPDATE_AFTER = 3;
+
     public static String wrapBinlogName(String originTableName) {
         return ROW_BINLOG_NAME + "(" + originTableName + ")";
     }

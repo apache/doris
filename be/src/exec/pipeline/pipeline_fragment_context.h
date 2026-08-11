@@ -48,6 +48,7 @@ class ExecEnv;
 class RuntimeFilterMergeControllerEntity;
 class TDataSink;
 class TPipelineFragmentParams;
+class QueryCacheRuntime;
 
 class Dependency;
 struct LocalExchangeSharedState;
@@ -378,6 +379,12 @@ private:
 
     TPipelineFragmentParams _params;
     int32_t _parallel_instances = 0;
+
+    // Query cache context of this fragment, shared by the olap scan operator
+    // and the cache source operator so both consume the same per-instance
+    // cache decision (HIT / INCREMENTAL / MISS). Created lazily when the
+    // fragment carries a query_cache_param. See QueryCacheRuntime.
+    std::shared_ptr<QueryCacheRuntime> _query_cache_runtime;
 
     std::atomic<bool> _need_notify_close = false;
     // Holds the brpc ClosureGuard for async wait-close during recursive CTE rerun.

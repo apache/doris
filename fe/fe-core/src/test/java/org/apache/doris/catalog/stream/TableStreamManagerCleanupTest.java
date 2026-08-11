@@ -20,6 +20,7 @@ package org.apache.doris.catalog.stream;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -32,6 +33,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class TableStreamManagerCleanupTest extends TestWithFeService {
@@ -137,6 +139,22 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
                 Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db).contains(streamId));
     }
 
+    @Test
+    public void testGetCloudTableStreamsForBaseTable() throws Exception {
+        StreamContext context = createStreamContext("cloud_identity");
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream_cleanup");
+
+        List<Cloud.TableStreamIdentityPB> identities = Env.getCurrentEnv().getTableStreamManager()
+                .getCloudTableStreamsForBaseTable(db.getId(), context.baseTable.getId());
+
+        Assertions.assertEquals(1, identities.size());
+        Cloud.TableStreamIdentityPB identity = identities.get(0);
+        Assertions.assertEquals(db.getId(), identity.getBaseDbId());
+        Assertions.assertEquals(context.baseTable.getId(), identity.getBaseTableId());
+        Assertions.assertEquals(db.getId(), identity.getStreamDbId());
+        Assertions.assertEquals(context.stream.getId(), identity.getStreamId());
+    }
+
     private StreamContext createStreamContext(String suffix) throws Exception {
         String tableName = "tbl_" + suffix;
         String streamName = "s_" + suffix;
@@ -167,15 +185,11 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         Map<Long, Long> partitionConsumptionTime = new HashMap<>();
         partitionConsumptionTime.put(keptPartitionId, 111L);
         partitionConsumptionTime.put(removedPartitionId, 222L);
-        Map<Long, Long> historicalPartitionOffset = new HashMap<>();
-        historicalPartitionOffset.put(keptPartitionId, 101L);
-        historicalPartitionOffset.put(removedPartitionId, 202L);
         Map<Long, Long> historicalPartitionTSO = new HashMap<>();
         historicalPartitionTSO.put(keptPartitionId, 1001L);
         historicalPartitionTSO.put(removedPartitionId, 2002L);
         Deencapsulation.setField(stream, "partitionOffset", partitionOffset);
         Deencapsulation.setField(stream, "partitionConsumptionTime", partitionConsumptionTime);
-        Deencapsulation.setField(stream, "historicalPartitionOffset", historicalPartitionOffset);
         Deencapsulation.setField(stream, "historicalPartitionTSO", historicalPartitionTSO);
     }
 
@@ -183,16 +197,13 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             boolean removedExpected) {
         Map<Long, Long> partitionOffset = Deencapsulation.getField(stream, "partitionOffset");
         Map<Long, Long> partitionConsumptionTime = Deencapsulation.getField(stream, "partitionConsumptionTime");
-        Map<Long, Long> historicalPartitionOffset = Deencapsulation.getField(stream, "historicalPartitionOffset");
         Map<Long, Long> historicalPartitionTSO = Deencapsulation.getField(stream, "historicalPartitionTSO");
 
         Assertions.assertTrue(partitionOffset.containsKey(keptPartitionId));
         Assertions.assertTrue(partitionConsumptionTime.containsKey(keptPartitionId));
-        Assertions.assertTrue(historicalPartitionOffset.containsKey(keptPartitionId));
         Assertions.assertTrue(historicalPartitionTSO.containsKey(keptPartitionId));
         Assertions.assertEquals(!removedExpected, partitionOffset.containsKey(removedPartitionId));
         Assertions.assertEquals(!removedExpected, partitionConsumptionTime.containsKey(removedPartitionId));
-        Assertions.assertEquals(!removedExpected, historicalPartitionOffset.containsKey(removedPartitionId));
         Assertions.assertEquals(!removedExpected, historicalPartitionTSO.containsKey(removedPartitionId));
     }
 

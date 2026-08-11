@@ -33,7 +33,7 @@ PhysicalResultSink
 ------------------------------------filter((date_dim.d_moy <= 4) and (date_dim.d_moy >= 2) and (date_dim.d_year = 2003))
 --------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalProject
-------------------------------filter(ca_state IN ('AZ', 'MN', 'MO'))
+------------------------------filter(ca.ca_state IN ('AZ', 'MN', 'MO'))
 --------------------------------PhysicalOlapScan[customer_address(ca)]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer_demographics]

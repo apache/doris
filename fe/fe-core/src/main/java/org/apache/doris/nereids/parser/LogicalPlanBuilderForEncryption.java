@@ -24,7 +24,6 @@ import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.InsertTableContext;
 import org.apache.doris.nereids.DorisParser.JobFromToClauseContext;
-import org.apache.doris.nereids.DorisParser.SupportedDmlStatementContext;
 import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
@@ -203,6 +202,17 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitAlterAuthenticationIntegrationProperties(ctx);
     }
 
+    @Override
+    public LogicalPlan visitAlterResource(DorisParser.AlterResourceContext ctx) {
+        if (ctx.propertyClause() != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.propertyClause();
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitAlterResource(ctx);
+    }
+
     // select from tvf
     @Override
     public LogicalPlan visitTableValuedFunction(DorisParser.TableValuedFunctionContext ctx) {
@@ -217,9 +227,8 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     // create job select tvf
     @Override
     public LogicalPlan visitCreateScheduledJob(DorisParser.CreateScheduledJobContext ctx) {
-        if (ctx.supportedDmlStatement() != null) {
-            SupportedDmlStatementContext supportedDmlStatementContext = ctx.supportedDmlStatement();
-            visitInsertTable((InsertTableContext) supportedDmlStatementContext);
+        if (ctx.supportedDmlStatement() instanceof InsertTableContext) {
+            visitInsertTable((InsertTableContext) ctx.supportedDmlStatement());
         } else if (ctx.jobFromToClause() != null) {
             JobFromToClauseContext jobFromToClauseContext = ctx.jobFromToClause();
             encryptProperty(visitPropertyItemList(jobFromToClauseContext.sourceProperties),
@@ -233,9 +242,8 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     // alter job select tvf
     @Override
     public LogicalPlan visitAlterJob(DorisParser.AlterJobContext ctx) {
-        SupportedDmlStatementContext supportedDmlStatementContext = ctx.supportedDmlStatement();
-        if (ctx.supportedDmlStatement() != null) {
-            visitInsertTable((InsertTableContext) supportedDmlStatementContext);
+        if (ctx.supportedDmlStatement() instanceof InsertTableContext) {
+            visitInsertTable((InsertTableContext) ctx.supportedDmlStatement());
         } else if (ctx.jobFromToClause() != null) {
             JobFromToClauseContext jobFromToClauseContext = ctx.jobFromToClause();
             encryptProperty(visitPropertyItemList(jobFromToClauseContext.sourceProperties),
@@ -244,6 +252,17 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
 
         }
         return super.visitAlterJob(ctx);
+    }
+
+    @Override
+    public LogicalPlan visitCreateResource(DorisParser.CreateResourceContext ctx) {
+        if (ctx.properties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitCreateResource(ctx);
     }
 
     private void encryptProperty(Map<String, String> properties, int start, int stop) {

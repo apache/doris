@@ -41,7 +41,23 @@ suite("test_incomplete_commit_info", "nonConcurrent") {
             ) engine=olap
             DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
             """
-        GetDebugPoint().enableDebugPointForAllBEs("VNodeChannel.add_block_success_callback.incomplete_commit_info")
+
+        streamLoad {
+            table "${tableName}"
+            db "regression_test_fault_injection_p0"
+            set 'column_separator', ','
+            file "baseall.txt"
+        }
+
+        def tabletIds = sql_return_maparray("SHOW TABLETS FROM ${tableName}")
+                .collect { it.TabletId }
+                .unique()
+        def tabletId = tabletIds.find {
+            sql("SELECT COUNT(*) FROM ${tableName} TABLET(${it})")[0][0].toLong() > 0
+        }
+        GetDebugPoint().enableDebugPointForAllBEs(
+                "VNodeChannel.add_block_success_callback.incomplete_commit_info",
+                [tablet_id: "${tabletId}"])
         streamLoad {
             table "${tableName}"
             db "regression_test_fault_injection_p0"
@@ -55,6 +71,8 @@ suite("test_incomplete_commit_info", "nonConcurrent") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
+                assertTrue(json.Message.contains("Failed to commit txn"))
+                assertTrue(json.Message.contains("succ replica num 0 < load required replica num 1"))
             }
         }
     } finally {

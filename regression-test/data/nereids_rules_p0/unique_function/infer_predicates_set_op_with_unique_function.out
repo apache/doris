@@ -3,7 +3,7 @@
 PhysicalResultSink
 --PhysicalExcept
 ----PhysicalProject[t1.id]
-------filter(((cast(id as DOUBLE) + random()) > 5.0))
+------filter(((cast(t1.id as DOUBLE) + random()) > 5.0))
 --------PhysicalOlapScan[t1]
 ----PhysicalProject[t2.id]
 ------PhysicalOlapScan[t2]
@@ -12,7 +12,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalIntersect
 ----PhysicalProject[t1.id]
-------filter(((cast(id as DOUBLE) + random()) > 5.0))
+------filter(((cast(t1.id as DOUBLE) + random()) > 5.0))
 --------PhysicalOlapScan[t1]
 ----PhysicalProject[t2.id]
 ------PhysicalOlapScan[t2]
@@ -21,7 +21,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalExcept
 ----PhysicalProject[t1.id]
-------filter(((uuid_to_int(uuid()) + cast(id as LARGEINT)) > 5))
+------filter(((uuid_to_int(uuid()) + cast(t1.id as LARGEINT)) > 5))
 --------PhysicalOlapScan[t1]
 ----PhysicalProject[t2.id]
 ------PhysicalOlapScan[t2]
@@ -30,7 +30,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalIntersect
 ----PhysicalProject[t1.id]
-------filter(((uuid_to_int(uuid()) + cast(id as LARGEINT)) > 5))
+------filter(((uuid_to_int(uuid()) + cast(t1.id as LARGEINT)) > 5))
 --------PhysicalOlapScan[t1]
 ----PhysicalProject[t2.id]
 ------PhysicalOlapScan[t2]

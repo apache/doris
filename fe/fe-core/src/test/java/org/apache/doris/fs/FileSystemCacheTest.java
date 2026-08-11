@@ -17,7 +17,7 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -120,8 +120,8 @@ public class FileSystemCacheTest {
     }
 
     private static FileSystemCache.FileSystemCacheKey key(String fsIdent) {
-        return new FileSystemCache.FileSystemCacheKey(fsIdent, StorageProperties.createPrimary(
-                Collections.singletonMap(StorageProperties.FS_HDFS_SUPPORT, "true")));
+        return new FileSystemCache.FileSystemCacheKey(fsIdent, StorageAdapter.of(
+                Collections.singletonMap("fs.hdfs.support", "true")));
     }
 
     private static class CountingFileSystem extends MemoryFileSystem {

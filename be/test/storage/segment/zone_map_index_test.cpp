@@ -762,9 +762,8 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
 
     auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::lowest()),
-              segment_zone_map.min());
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::max()), segment_zone_map.max());
+    EXPECT_EQ("-3.4028235e+38", segment_zone_map.min());
+    EXPECT_EQ("3.4028235e+38", segment_zone_map.max());
     EXPECT_EQ(true, segment_zone_map.has_null());
     EXPECT_EQ(true, segment_zone_map.has_not_null());
     EXPECT_EQ(true, segment_zone_map.has_positive_inf());
@@ -778,8 +777,8 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
     EXPECT_EQ(3, zone_maps.size());
 
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::lowest()), zone_maps[0].min());
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::max()), zone_maps[0].max());
+    EXPECT_EQ("-3.4028235e+38", zone_maps[0].min());
+    EXPECT_EQ("3.4028235e+38", zone_maps[0].max());
     EXPECT_EQ(false, zone_maps[0].has_null());
     EXPECT_EQ(true, zone_maps[0].has_not_null());
     EXPECT_EQ(true, zone_maps[0].has_positive_inf());
@@ -851,10 +850,8 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
 
     auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::lowest()),
-              segment_zone_map.min());
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::max()),
-              segment_zone_map.max());
+    EXPECT_EQ("-1.7976931348623157e+308", segment_zone_map.min());
+    EXPECT_EQ("1.7976931348623157e+308", segment_zone_map.max());
     EXPECT_EQ(true, segment_zone_map.has_null());
     EXPECT_EQ(true, segment_zone_map.has_not_null());
     EXPECT_EQ(true, segment_zone_map.has_positive_inf());
@@ -868,8 +865,8 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
     EXPECT_EQ(3, zone_maps.size());
 
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::lowest()), zone_maps[0].min());
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::max()), zone_maps[0].max());
+    EXPECT_EQ("-1.7976931348623157e+308", zone_maps[0].min());
+    EXPECT_EQ("1.7976931348623157e+308", zone_maps[0].max());
     EXPECT_EQ(false, zone_maps[0].has_null());
     EXPECT_EQ(true, zone_maps[0].has_not_null());
     EXPECT_EQ(true, zone_maps[0].has_positive_inf());
@@ -883,6 +880,67 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
 
     EXPECT_EQ(true, zone_maps[2].has_null());
     EXPECT_EQ(false, zone_maps[2].has_not_null());
+}
+
+// A DOUBLE page whose min/max are exactly ±DBL_MAX (with NO ±inf/NaN in the
+// page) must round-trip through to_proto/from_proto. When min/max formatting
+// used digits10+1 (16g), DBL_MAX serialized as "1.797693134862316e+308" — larger
+// than the largest finite double — so from_olap_string parsed it to ±inf,
+// rejected it, and ZoneMap::from_proto returned non-OK, leaving the segment
+// without a usable zone map (field_types_compatible CHECK / silent prune).
+TEST_F(ColumnZoneMapTest, DoubleFiniteExtremesRoundTrip) {
+    auto column = create_float_column<FieldType::OLAP_FIELD_TYPE_DOUBLE>(0, true);
+    const TabletColumn* field = &(*column);
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
+
+    std::unique_ptr<ZoneMapIndexWriter> builder;
+    ASSERT_TRUE(ZoneMapIndexWriter::create(data_type_ptr, field, builder).ok());
+    // Page holds ONLY finite values (incl. ±DBL_MAX) — no ±inf/NaN — so the
+    // has_*_inf / has_nan flags stay false and from_proto must rebuild min/max
+    // by parsing the stored strings (exactly the path that broke).
+    double values[] = {
+            std::numeric_limits<double>::lowest(), // -DBL_MAX
+            std::numeric_limits<double>::max(),    // +DBL_MAX
+            -1e308,
+            0.0,
+            3.141592653589793,
+    };
+    for (double v : values) {
+        builder->add_values(reinterpret_cast<const uint8_t*>(&v), 1);
+    }
+    ASSERT_TRUE(builder->flush().ok());
+
+    std::string file_path = kTestDir + "/double_finite_extremes";
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(file_path, &file_writer).ok());
+    ColumnIndexMetaPB index_meta;
+    ASSERT_TRUE(builder->finish(file_writer.get(), &index_meta).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    const auto& seg_zm = index_meta.zone_map_index().segment_zone_map();
+    EXPECT_TRUE(seg_zm.has_not_null());
+    EXPECT_FALSE(seg_zm.has_positive_inf());
+    EXPECT_FALSE(seg_zm.has_negative_inf());
+    EXPECT_FALSE(seg_zm.has_nan());
+
+    ZoneMap zm;
+    ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type_ptr, zm).ok())
+            << "±DBL_MAX zone map failed to deserialize";
+    EXPECT_EQ(zm.min_value.get<TYPE_DOUBLE>(), std::numeric_limits<double>::lowest());
+    EXPECT_EQ(zm.max_value.get<TYPE_DOUBLE>(), std::numeric_limits<double>::max());
+    EXPECT_FALSE(zm.has_positive_inf);
+    EXPECT_FALSE(zm.has_negative_inf);
+    EXPECT_FALSE(zm.has_nan);
+
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(_fs->open_file(file_path, &file_reader).ok());
+    ZoneMapIndexReader reader(file_reader, index_meta.zone_map_index().page_zone_maps());
+    ASSERT_TRUE(reader.load(true, false).ok());
+    ASSERT_EQ(reader.num_pages(), 1);
+    ZoneMap pzm;
+    ASSERT_TRUE(ZoneMap::from_proto(reader.page_zone_maps()[0], data_type_ptr, pzm).ok());
+    EXPECT_EQ(pzm.min_value.get<TYPE_DOUBLE>(), std::numeric_limits<double>::lowest());
+    EXPECT_EQ(pzm.max_value.get<TYPE_DOUBLE>(), std::numeric_limits<double>::max());
 }
 
 TabletColumnPtr create_timestamptz_column(int32_t id, bool is_nullable) {

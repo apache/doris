@@ -36,8 +36,10 @@ suite("test_multi_match_null_query", "p0") {
     // Disable FE constant folding so NULL is not optimized to VEMPTYSET,
     // forcing the predicate to reach the BE inverted index path (pushAggOp=COUNT_ON_INDEX).
     sql "SET disable_nereids_expression_rules = 'FOLD_CONSTANT_ON_FE'"
-    sql "SET enable_fold_constant_by_be = 'true'"
-    sql "SET enable_sql_cache = 0"
+    sql "SET enable_fold_constant_by_be = true"
+    sql "SET enable_sql_cache = false"
+    sql "SET enable_common_expr_pushdown = true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index = true"
 
     qt_sql "SELECT count() FROM test_multi_match_null_query WHERE body MATCH_ALL NULL"
     qt_sql "SELECT count() FROM test_multi_match_null_query WHERE body MATCH_ANY NULL"

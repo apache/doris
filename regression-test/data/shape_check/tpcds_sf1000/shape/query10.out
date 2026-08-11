@@ -42,6 +42,6 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[customer(c)] apply RFs: RF0
 ----------------------------------PhysicalProject
-------------------------------------filter(ca_county IN ('Campbell County', 'Cleburne County', 'Escambia County', 'Fairfield County', 'Washtenaw County'))
+------------------------------------filter(ca.ca_county IN ('Campbell County', 'Cleburne County', 'Escambia County', 'Fairfield County', 'Washtenaw County'))
 --------------------------------------PhysicalOlapScan[customer_address(ca)]
 

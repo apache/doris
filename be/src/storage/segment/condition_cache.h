@@ -48,6 +48,7 @@ struct ConditionCacheContext {
     bool is_hit = false;
     std::shared_ptr<std::vector<bool>> filter_result; // per-granule: true = has surviving rows
     int64_t base_granule = 0;                         // global granule index of filter_result[0]
+    size_t num_granules = 0; // authoritative bitmap length; excludes allocation-only guard bits
     static constexpr int GRANULE_SIZE = 2048;
 };
 
@@ -80,35 +81,44 @@ public:
     class CacheValue : public LRUCacheValueBase {
     public:
         std::shared_ptr<std::vector<bool>> filter_result;
+        // The bitmap coordinate system is part of the cached result. A later scan may prune a
+        // different first row group, so it must not derive this origin from its current plan.
+        int64_t base_granule = 0;
     };
 
     // Cache key for external tables (Hive ORC/Parquet)
     struct ExternalCacheKey {
+        static constexpr uint8_t BASE_GRANULE_AWARE_VERSION = 1;
+
         ExternalCacheKey() = default;
         ExternalCacheKey(const std::string& path_, int64_t modification_time_, int64_t file_size_,
-                         uint64_t digest_, int64_t start_offset_, int64_t size_)
+                         uint64_t digest_, int64_t start_offset_, int64_t size_,
+                         uint8_t format_version_ = 0)
                 : path(path_),
                   modification_time(modification_time_),
                   file_size(file_size_),
                   digest(digest_),
                   start_offset(start_offset_),
-                  size(size_) {}
+                  size(size_),
+                  format_version(format_version_) {}
         std::string path;
         int64_t modification_time = 0;
         int64_t file_size = 0;
         uint64_t digest = 0;
         int64_t start_offset = 0;
         int64_t size = 0;
+        uint8_t format_version = 0;
 
         [[nodiscard]] std::string encode() const {
             std::string key = path;
-            char buf[40];
+            char buf[41];
             memcpy(buf, &modification_time, 8);
             memcpy(buf + 8, &file_size, 8);
             memcpy(buf + 16, &digest, 8);
             memcpy(buf + 24, &start_offset, 8);
             memcpy(buf + 32, &size, 8);
-            key.append(buf, 40);
+            buf[40] = static_cast<char>(format_version);
+            key.append(buf, 41);
             return key;
         }
     };
@@ -135,7 +145,8 @@ public:
     bool lookup(const KeyType& key, ConditionCacheHandle* handle);
 
     template <typename KeyType>
-    void insert(const KeyType& key, std::shared_ptr<std::vector<bool>> filter_result);
+    void insert(const KeyType& key, std::shared_ptr<std::vector<bool>> filter_result,
+                int64_t base_granule = 0);
 };
 
 class ConditionCacheHandle {
@@ -170,6 +181,11 @@ public:
             return nullptr;
         }
         return ((ConditionCache::CacheValue*)_cache->value(_handle))->filter_result;
+    }
+
+    int64_t get_base_granule() const {
+        DORIS_CHECK(_cache != nullptr);
+        return ((ConditionCache::CacheValue*)_cache->value(_handle))->base_granule;
     }
 
 private:

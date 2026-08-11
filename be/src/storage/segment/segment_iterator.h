@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/block/adaptive_block_size_predictor.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
@@ -52,7 +53,6 @@
 #include "storage/predicate/column_predicate.h"
 #include "storage/row_cursor.h"
 #include "storage/schema.h"
-#include "storage/segment/adaptive_block_size_predictor.h"
 #include "storage/segment/common.h"
 #include "storage/segment/segment.h"
 #include "util/slice.h"
@@ -217,7 +217,6 @@ private:
                                        MutableColumns& column_block, size_t nrows);
     [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint16_t& nrows_read);
     void _replace_version_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
-    void _update_lsn_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     void _update_tso_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);

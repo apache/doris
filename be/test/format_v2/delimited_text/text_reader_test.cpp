@@ -41,6 +41,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/desc_tbl_builder.h"
@@ -414,13 +415,40 @@ TEST_F(TextV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
     EXPECT_NE(_profile.get_counter("DeleteConjunctFilterTime"), nullptr);
     EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), 3);
     EXPECT_EQ(counter_value(&_profile, "RowsReadBeforeFilter"), 3);
-    EXPECT_EQ(counter_value(&_profile, "RowsFilteredByConjunct"), 2);
+    EXPECT_EQ(counter_value(&_profile, "DelimitedRowsFilteredByConjunct"), 2);
     EXPECT_EQ(io_ctx->predicate_filtered_rows, 2);
     EXPECT_EQ(counter_value(&_profile, "RowsFilteredByDeleteConjunct"), 0);
     EXPECT_EQ(counter_value(&_profile, "RowsReturned"), 1);
     EXPECT_EQ(counter_value(&_profile, "EmptyLinesRead"), 1);
     EXPECT_EQ(counter_value(&_profile, "SkippedLines"), 0);
     EXPECT_EQ(counter_value(&_profile, "CellsDeserialized"), 6);
+}
+
+TEST_F(TextV2ReaderTest, FormatProfilesKeepDistinctCountersInBothInitializationOrders) {
+    auto expect_format_children = [](RuntimeProfile* profile) {
+        TRuntimeProfileTree tree;
+        profile->to_thrift(&tree, 3);
+        ASSERT_FALSE(tree.nodes.empty());
+        const auto& children = tree.nodes.front().child_counters_map;
+        ASSERT_TRUE(children.contains("DelimitedTextReader"));
+        EXPECT_TRUE(children.at("DelimitedTextReader").contains("DelimitedRowsFilteredByConjunct"));
+        EXPECT_FALSE(children.at("DelimitedTextReader").contains("RowsFilteredByConjunct"));
+        ASSERT_TRUE(children.contains("ParquetReader"));
+        EXPECT_TRUE(children.at("ParquetReader").contains("RowsFilteredByConjunct"));
+        EXPECT_FALSE(children.at("ParquetReader").contains("DelimitedRowsFilteredByConjunct"));
+    };
+
+    RuntimeProfile parquet_first("parquet_first");
+    parquet::ParquetProfile parquet_first_counters;
+    parquet_first_counters.init(&parquet_first);
+    auto parquet_first_text = create_reader(_file_path, &_params, _slots, &_state, &parquet_first);
+    expect_format_children(&parquet_first);
+
+    RuntimeProfile text_first("text_first");
+    auto text_first_reader = create_reader(_file_path, &_params, _slots, &_state, &text_first);
+    parquet::ParquetProfile text_first_parquet_counters;
+    text_first_parquet_counters.init(&text_first);
+    expect_format_children(&text_first);
 }
 
 // Scenario: Hive text has no embedded nested schema, but TableColumnMapper still needs semantic
@@ -483,6 +511,35 @@ TEST_F(TextV2ReaderTest, EscapedSeparatorStaysInsideStringField) {
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
     ASSERT_EQ(rows, 1);
     EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "alice,team");
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 0), 10);
+}
+
+// Hive LazySimpleSerDe treats an even-length escape run as escaped escape characters, so the
+// following delimiter remains structural. V1 and V2 must both split the row at that delimiter.
+TEST_F(TextV2ReaderTest, DoubleEscapeBeforeSeparatorStillSplitsField) {
+    const auto escaped_path = (_test_dir / "double_escaped.text").string();
+    std::ofstream output(escaped_path, std::ios::binary);
+    output << R"(1|alice\\|10)" << '\n';
+    output.close();
+
+    _params.file_attributes.text_params.__set_column_separator("|");
+    auto reader = create_reader(escaped_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(1)),
+                                      LocalColumnIndex::top_level(LocalColumnId(2))};
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(2), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {1, 2});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), R"(alice\)");
     EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 0), 10);
 }
 
@@ -878,6 +935,20 @@ TEST_F(TextV2ReaderTest, CountAggregateScansRows) {
     FileAggregateResult aggregate_result;
     ASSERT_TRUE(reader->get_aggregate_result(aggregate_request, &aggregate_result).ok());
     EXPECT_EQ(aggregate_result.count, 2);
+}
+
+TEST_F(TextV2ReaderTest, CountNullableColumnFallsBackToRowMaterialization) {
+    auto reader = create_reader(_file_path, &_params, _slots, &_state, &_profile);
+    auto request = std::make_shared<FileScanRequest>();
+    ASSERT_TRUE(reader->open(request).ok());
+
+    FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::COUNT;
+    aggregate_request.columns.push_back(
+            {.projection = LocalColumnIndex::top_level(LocalColumnId(1))});
+    FileAggregateResult aggregate_result;
+    EXPECT_TRUE(reader->get_aggregate_result(aggregate_request, &aggregate_result)
+                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
 }
 
 // Scenario: a non-first split starts inside a text record and must skip the partial first line.

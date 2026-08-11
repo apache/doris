@@ -36,7 +36,7 @@ PhysicalResultSink
 ------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------------hashAgg[LOCAL]
 ----------------------------------------------------PhysicalProject
-------------------------------------------------------filter((store_sales.ss_store_sk = 4) and ss_hdemo_sk IS NULL)
+------------------------------------------------------filter((store_sales.ss_store_sk = 4) and store_sales.ss_hdemo_sk IS NULL)
 --------------------------------------------------------PhysicalOlapScan[store_sales]
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((i2.i_item_sk = descending.item_sk)) otherCondition=() build RFs:RF0 item_sk->i_item_sk
@@ -66,6 +66,6 @@ PhysicalResultSink
 ------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------------hashAgg[LOCAL]
 ----------------------------------------------------PhysicalProject
-------------------------------------------------------filter((store_sales.ss_store_sk = 4) and ss_hdemo_sk IS NULL)
+------------------------------------------------------filter((store_sales.ss_store_sk = 4) and store_sales.ss_hdemo_sk IS NULL)
 --------------------------------------------------------PhysicalOlapScan[store_sales]
 

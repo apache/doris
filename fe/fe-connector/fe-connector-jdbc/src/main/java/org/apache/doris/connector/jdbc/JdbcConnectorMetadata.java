@@ -17,60 +17,65 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.ConnectorTableStatistics;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorInsertHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
-import org.apache.doris.connector.api.write.ConnectorWriteConfig;
-import org.apache.doris.connector.api.write.ConnectorWriteType;
 import org.apache.doris.connector.jdbc.client.JdbcConnectorClient;
 import org.apache.doris.connector.jdbc.client.JdbcFieldInfo;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPassthroughSqlOps;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScopes;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorTableStatistics;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.NoOpConnectorTransaction;
+import org.apache.doris.connector.spi.handle.PassthroughQueryTableHandle;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * {@link ConnectorMetadata} implementation for JDBC sources.
  * Delegates metadata discovery to {@link JdbcConnectorClient}.
  */
-public class JdbcConnectorMetadata implements ConnectorMetadata {
+public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassthroughSqlOps {
 
     private static final Logger LOG = LogManager.getLogger(JdbcConnectorMetadata.class);
 
-    private final JdbcConnectorClient client;
-    private final Map<String, String> properties;
+    /**
+     * Namespace for jdbc's per-statement RAW remote-columns memo (a {@code List<JdbcFieldInfo>}), shared by the
+     * schema path ({@link #getTableSchema}), the scan column-handle path ({@link #getColumnHandles}) and the write
+     * INSERT-SQL shaping ({@code JdbcWritePlanProvider#buildInsertSql}). Source-prefixed with the connector type
+     * ("jdbc") so it stays distinct across a heterogeneous gateway; see {@link ConnectorStatementScopes}.
+     */
+    static final String COLUMNS_NAMESPACE = "jdbc.columns";
 
-    public JdbcConnectorMetadata(JdbcConnectorClient client, Map<String, String> properties) {
+    private final JdbcConnectorClient client;
+    private final JdbcCatalogProperties props;
+
+    public JdbcConnectorMetadata(JdbcConnectorClient client, JdbcCatalogProperties props) {
         this.client = client;
-        this.properties = properties;
+        this.props = props;
     }
 
     private JdbcIdentifierMapper getIdentifierMapper(ConnectorSession session) {
-        boolean isLowerCaseMetaNames = Boolean.parseBoolean(
-                properties.getOrDefault(
-                        JdbcConnectorProperties.LOWER_CASE_META_NAMES, "false"));
-        String metaNamesMapping = properties.getOrDefault(
-                JdbcConnectorProperties.META_NAMES_MAPPING, "");
+        boolean isLowerCaseMetaNames = props.isLowerCaseMetaNames();
+        String metaNamesMapping = props.getMetaNamesMapping();
         int lowerCaseTableNames = 0;
         if (session != null) {
             String val = session.getSessionProperties().get(
-                    JdbcConnectorProperties.LOWER_CASE_TABLE_NAMES);
+                    // The catalog property of this name is rejected; this is the session variable
+                    // that happens to share it.
+                    JdbcCatalogProperties.LOWER_CASE_TABLE_NAMES);
             if (val != null) {
                 try {
                     lowerCaseTableNames = Integer.parseInt(val);
@@ -114,13 +119,15 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         if (handle instanceof PassthroughQueryTableHandle) {
             return new ConnectorTableSchema("__passthrough_query__",
-                    Collections.emptyList(), "JDBC", properties);
+                    Collections.emptyList(), "JDBC", props.getRaw());
         }
         JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
         String dbName = jdbcHandle.getRemoteDbName();
         String tableName = jdbcHandle.getRemoteTableName();
 
-        List<JdbcFieldInfo> fields = client.getJdbcColumnsInfo(dbName, tableName);
+        List<JdbcFieldInfo> fields = ConnectorStatementScopes.resolveInStatement(
+                session, COLUMNS_NAMESPACE, dbName, tableName,
+                () -> client.getJdbcColumnsInfo(dbName, tableName));
 
         List<ConnectorColumn> columns = new ArrayList<>(fields.size());
         for (JdbcFieldInfo field : fields) {
@@ -135,7 +142,7 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
                     null,
                     true));
         }
-        return new ConnectorTableSchema(tableName, columns, "JDBC", properties);
+        return new ConnectorTableSchema(tableName, columns, "JDBC", props.getRaw());
     }
 
     @Override
@@ -163,7 +170,9 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
         String tableName = jdbcHandle.getRemoteTableName();
 
         JdbcIdentifierMapper mapper = getIdentifierMapper(session);
-        List<JdbcFieldInfo> fields = client.getJdbcColumnsInfo(dbName, tableName);
+        List<JdbcFieldInfo> fields = ConnectorStatementScopes.resolveInStatement(
+                session, COLUMNS_NAMESPACE, dbName, tableName,
+                () -> client.getJdbcColumnsInfo(dbName, tableName));
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
         for (JdbcFieldInfo field : fields) {
             String remoteName = field.getColumnName();
@@ -174,40 +183,25 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
-    @Override
     public org.apache.doris.thrift.TTableDescriptor buildTableDescriptor(
             ConnectorSession session,
             long tableId, String tableName, String dbName,
             String remoteName, int numCols, long catalogId) {
         org.apache.doris.thrift.TJdbcTable tJdbcTable = new org.apache.doris.thrift.TJdbcTable();
         tJdbcTable.setCatalogId(catalogId);
-        tJdbcTable.setJdbcUrl(properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, ""));
-        tJdbcTable.setJdbcUser(properties.getOrDefault(JdbcConnectorProperties.USER, ""));
-        tJdbcTable.setJdbcPassword(properties.getOrDefault(JdbcConnectorProperties.PASSWORD, ""));
+        tJdbcTable.setJdbcUrl(props.getJdbcUrl());
+        tJdbcTable.setJdbcUser(props.getUser());
+        tJdbcTable.setJdbcPassword(props.getPassword());
         tJdbcTable.setJdbcTableName(remoteName);
-        tJdbcTable.setJdbcDriverClass(properties.getOrDefault(JdbcConnectorProperties.DRIVER_CLASS, ""));
-        tJdbcTable.setJdbcDriverUrl(properties.getOrDefault(JdbcConnectorProperties.DRIVER_URL, ""));
+        tJdbcTable.setJdbcDriverClass(props.getDriverClass());
+        tJdbcTable.setJdbcDriverUrl(props.getDriverUrl());
         tJdbcTable.setJdbcResourceName("");
-        tJdbcTable.setJdbcDriverChecksum(properties.getOrDefault(JdbcConnectorProperties.DRIVER_CHECKSUM, ""));
-        tJdbcTable.setConnectionPoolMinSize(JdbcConnectorProperties.getInt(properties,
-                JdbcConnectorProperties.CONNECTION_POOL_MIN_SIZE,
-                JdbcConnectorProperties.DEFAULT_POOL_MIN_SIZE));
-        tJdbcTable.setConnectionPoolMaxSize(JdbcConnectorProperties.getInt(properties,
-                JdbcConnectorProperties.CONNECTION_POOL_MAX_SIZE,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_SIZE));
-        tJdbcTable.setConnectionPoolMaxWaitTime(JdbcConnectorProperties.getInt(properties,
-                JdbcConnectorProperties.CONNECTION_POOL_MAX_WAIT_TIME,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_WAIT_TIME));
-        tJdbcTable.setConnectionPoolMaxLifeTime(JdbcConnectorProperties.getInt(properties,
-                JdbcConnectorProperties.CONNECTION_POOL_MAX_LIFE_TIME,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_LIFE_TIME));
-        tJdbcTable.setConnectionPoolKeepAlive(Boolean.parseBoolean(properties.getOrDefault(
-                JdbcConnectorProperties.CONNECTION_POOL_KEEP_ALIVE,
-                String.valueOf(JdbcConnectorProperties.DEFAULT_POOL_KEEP_ALIVE))));
+        tJdbcTable.setJdbcDriverChecksum(props.getDriverChecksum());
+        tJdbcTable.setConnectionPoolMinSize(props.getConnectionPoolMinSize());
+        tJdbcTable.setConnectionPoolMaxSize(props.getConnectionPoolMaxSize());
+        tJdbcTable.setConnectionPoolMaxWaitTime(props.getConnectionPoolMaxWaitTime());
+        tJdbcTable.setConnectionPoolMaxLifeTime(props.getConnectionPoolMaxLifeTime());
+        tJdbcTable.setConnectionPoolKeepAlive(props.isConnectionPoolKeepAlive());
 
         org.apache.doris.thrift.TTableDescriptor desc = new org.apache.doris.thrift.TTableDescriptor(
                 tableId, org.apache.doris.thrift.TTableType.JDBC_TABLE,
@@ -247,11 +241,6 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public List<String> getPrimaryKeys(ConnectorSession session, String dbName, String tableName) {
-        return client.getPrimaryKeys(dbName, tableName);
-    }
-
-    @Override
     public String getTableComment(ConnectorSession session, String dbName, String tableName) {
         return client.getTableComment(dbName, tableName);
     }
@@ -275,105 +264,18 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
                     null,
                     true));
         }
-        return new ConnectorTableSchema("query_result", columns, "JDBC", properties);
+        return new ConnectorTableSchema("query_result", columns, "JDBC", props.getRaw());
     }
 
     // ========= ConnectorWriteOps =========
 
     @Override
-    public boolean supportsInsert() {
-        return true;
-    }
-
-    @Override
-    public ConnectorWriteConfig getWriteConfig(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumn> columns) {
-        JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
-        String remoteDbName = jdbcHandle.getRemoteDbName();
-        String remoteTableName = jdbcHandle.getRemoteTableName();
-        JdbcDbType dbType = client.getDbType();
-
-        // Build local column name list for INSERT SQL
-        List<String> columnNames = columns.stream()
-                .map(ConnectorColumn::getName)
-                .collect(Collectors.toList());
-
-        // Build local→remote column name mapping via column handles
-        Map<String, ConnectorColumnHandle> colHandles = getColumnHandles(session, handle);
-        Map<String, String> remoteColumnNames = new HashMap<>();
-        for (Map.Entry<String, ConnectorColumnHandle> entry : colHandles.entrySet()) {
-            JdbcColumnHandle ch = (JdbcColumnHandle) entry.getValue();
-            remoteColumnNames.put(ch.getLocalName(), ch.getRemoteName());
-        }
-
-        String insertSql = JdbcIdentifierQuoter.buildInsertSql(
-                dbType, remoteDbName, remoteTableName, remoteColumnNames, columnNames);
-
-        Map<String, String> writeProps = new HashMap<>();
-        writeProps.put("jdbc_url", properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, ""));
-        writeProps.put("jdbc_user", properties.getOrDefault(JdbcConnectorProperties.USER, ""));
-        writeProps.put("jdbc_password", properties.getOrDefault(JdbcConnectorProperties.PASSWORD, ""));
-        writeProps.put("jdbc_driver_url", properties.getOrDefault(JdbcConnectorProperties.DRIVER_URL, ""));
-        writeProps.put("jdbc_driver_class", properties.getOrDefault(JdbcConnectorProperties.DRIVER_CLASS, ""));
-        writeProps.put("jdbc_driver_checksum",
-                properties.getOrDefault(JdbcConnectorProperties.DRIVER_CHECKSUM, ""));
-        writeProps.put("jdbc_table_name", remoteTableName);
-        writeProps.put("jdbc_resource_name", "");
-        writeProps.put("jdbc_table_type", dbType.name());
-        writeProps.put("jdbc_insert_sql", insertSql);
-        writeProps.put("jdbc_use_transaction",
-                session.getSessionProperties().getOrDefault("enable_odbc_transcation", "false"));
-        writeProps.put("jdbc_catalog_id", String.valueOf(session.getCatalogId()));
-
-        // Connection pool settings
-        writeProps.put("connection_pool_min_size", String.valueOf(
-                JdbcConnectorProperties.getInt(properties,
-                        JdbcConnectorProperties.CONNECTION_POOL_MIN_SIZE,
-                        JdbcConnectorProperties.DEFAULT_POOL_MIN_SIZE)));
-        writeProps.put("connection_pool_max_size", String.valueOf(
-                JdbcConnectorProperties.getInt(properties,
-                        JdbcConnectorProperties.CONNECTION_POOL_MAX_SIZE,
-                        JdbcConnectorProperties.DEFAULT_POOL_MAX_SIZE)));
-        writeProps.put("connection_pool_max_wait_time", String.valueOf(
-                JdbcConnectorProperties.getInt(properties,
-                        JdbcConnectorProperties.CONNECTION_POOL_MAX_WAIT_TIME,
-                        JdbcConnectorProperties.DEFAULT_POOL_MAX_WAIT_TIME)));
-        writeProps.put("connection_pool_max_life_time", String.valueOf(
-                JdbcConnectorProperties.getInt(properties,
-                        JdbcConnectorProperties.CONNECTION_POOL_MAX_LIFE_TIME,
-                        JdbcConnectorProperties.DEFAULT_POOL_MAX_LIFE_TIME)));
-        writeProps.put("connection_pool_keep_alive", String.valueOf(
-                Boolean.parseBoolean(properties.getOrDefault(
-                        JdbcConnectorProperties.CONNECTION_POOL_KEEP_ALIVE, "false"))));
-
-        return ConnectorWriteConfig.builder(ConnectorWriteType.JDBC_WRITE)
-                .properties(writeProps)
-                .build();
-    }
-
-    @Override
-    public ConnectorInsertHandle beginInsert(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumn> columns) {
-        // JDBC writes are executed directly by BE via PreparedStatement.
-        // No FE-side transaction to begin — return a no-op handle.
-        return new JdbcInsertHandle();
-    }
-
-    @Override
-    public void finishInsert(ConnectorSession session,
-            ConnectorInsertHandle handle,
-            Collection<byte[]> fragments) {
-        // No-op: BE commits each row via JDBC directly.
-    }
-
-    /**
-     * No-op insert handle for JDBC writes.
-     * JDBC writes don't require FE-side transaction management.
-     */
-    private static class JdbcInsertHandle implements ConnectorInsertHandle {
+    public ConnectorTransaction beginTransaction(ConnectorSession session) {
+        // JDBC writes are auto-committed by BE per row via PreparedStatement; there is no
+        // FE-side transaction to coordinate. Return a degenerate no-op transaction so the
+        // engine's write lifecycle is uniform (single ConnectorTransaction model). Its
+        // getUpdateCnt() returns -1, so the executor keeps the coordinator's row counter
+        // (DPP_NORMAL_ALL) for affected-rows instead of overwriting it with 0.
+        return new NoOpConnectorTransaction(session.allocateTransactionId(), "JDBC");
     }
 }

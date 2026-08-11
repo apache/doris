@@ -163,9 +163,9 @@ private:
 
     bool _is_rowsets_overlapping = true;
 
-    int _binlog_op_pos = -1;
+    int _binlog_tso_pos = -1;
     int _binlog_lsn_pos = -1;
-    int _binlog_timestamp_pos = -1;
+    int _binlog_op_pos = -1;
     bool _binlog_column_pos_inited = false;
 
     bool _has_seq_map = false;

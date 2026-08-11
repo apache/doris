@@ -60,6 +60,15 @@
 
 namespace doris {
 
+const OlapTableIndexSchema* OlapTableSchemaParam::row_binlog_index_schema(int64_t index_id) const {
+    for (auto* schema : _row_binlog_index_schemas) {
+        if (schema->index_id == index_id) {
+            return schema;
+        }
+    }
+    return nullptr;
+}
+
 void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_id(index_id);
     pindex->set_schema_hash(schema_hash);
@@ -225,8 +234,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _indexes.emplace_back(index);
     }
 
-    if (pschema.has_row_binlog_index_schema()) {
-        const auto& p_index = pschema.row_binlog_index_schema();
+    for (const auto& p_index : pschema.row_binlog_index_schemas()) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
@@ -243,7 +251,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
             ti->init_from_pb(pindex_desc);
             index->indexes.emplace_back(ti);
         }
-        _row_binlog_index_schema = index;
+        _row_binlog_index_schemas.emplace_back(index);
     }
 
     std::sort(_indexes.begin(), _indexes.end(),
@@ -402,20 +410,21 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         _indexes.emplace_back(index);
     }
 
-    if (tschema.__isset.row_binlog_index_schema) {
-        const auto& t_index = tschema.row_binlog_index_schema;
-        auto* index = _obj_pool.add(new OlapTableIndexSchema());
-        index->index_id = t_index.id;
-        index->schema_hash = t_index.schema_hash;
-        if (t_index.__isset.row_binlog_id) {
-            index->row_binlog_id = t_index.row_binlog_id;
+    if (tschema.__isset.row_binlog_index_schemas) {
+        for (const auto& t_index : tschema.row_binlog_index_schemas) {
+            auto* index = _obj_pool.add(new OlapTableIndexSchema());
+            index->index_id = t_index.id;
+            index->schema_hash = t_index.schema_hash;
+            if (t_index.__isset.row_binlog_id) {
+                index->row_binlog_id = t_index.row_binlog_id;
+            }
+            for (const auto& tcolumn_desc : t_index.columns_desc) {
+                TabletColumn* tc = _obj_pool.add(new TabletColumn());
+                tc->init_from_thrift(tcolumn_desc);
+                index->columns.emplace_back(tc);
+            }
+            _row_binlog_index_schemas.emplace_back(index);
         }
-        for (const auto& tcolumn_desc : t_index.columns_desc) {
-            TabletColumn* tc = _obj_pool.add(new TabletColumn());
-            tc->init_from_thrift(tcolumn_desc);
-            index->columns.emplace_back(tc);
-        }
-        _row_binlog_index_schema = index;
     }
 
     std::sort(_indexes.begin(), _indexes.end(),
@@ -452,8 +461,8 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     for (auto* index : _indexes) {
         index->to_protobuf(pschema->add_indexes());
     }
-    if (_row_binlog_index_schema != nullptr) {
-        _row_binlog_index_schema->to_protobuf(pschema->mutable_row_binlog_index_schema());
+    for (auto* index : _row_binlog_index_schemas) {
+        index->to_protobuf(pschema->add_row_binlog_index_schemas());
     }
 }
 
@@ -749,9 +758,14 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
     part_result = _obj_pool.add(new VOlapTablePartition(&_partition_block));
     part_result->id = t_part.id;
     part_result->is_mutable = t_part.is_mutable;
-    // only load_to_single_tablet = true will set load_tablet_idx
     if (t_part.__isset.load_tablet_idx) {
         part_result->load_tablet_idx = t_part.load_tablet_idx;
+    }
+    if (t_part.__isset.bucket_be_id) {
+        part_result->bucket_be_id = t_part.bucket_be_id;
+    }
+    if (t_part.__isset.local_bucket_seqs) {
+        part_result->local_bucket_seqs = t_part.local_bucket_seqs;
     }
 
     if (_is_in_partition) {
@@ -839,6 +853,15 @@ Status VOlapTablePartitionParam::add_partitions(
         }
 
         part->num_buckets = t_part.num_buckets;
+        if (t_part.__isset.load_tablet_idx) {
+            part->load_tablet_idx = t_part.load_tablet_idx;
+        }
+        if (t_part.__isset.bucket_be_id) {
+            part->bucket_be_id = t_part.bucket_be_id;
+        }
+        if (t_part.__isset.local_bucket_seqs) {
+            part->local_bucket_seqs = t_part.local_bucket_seqs;
+        }
         auto num_indexes = _schema->indexes().size();
         if (t_part.indexes.size() != num_indexes) {
             return Status::InternalError(
@@ -911,6 +934,15 @@ Status VOlapTablePartitionParam::replace_partitions(
         }
 
         part->num_buckets = t_part.num_buckets;
+        if (t_part.__isset.load_tablet_idx) {
+            part->load_tablet_idx = t_part.load_tablet_idx;
+        }
+        if (t_part.__isset.bucket_be_id) {
+            part->bucket_be_id = t_part.bucket_be_id;
+        }
+        if (t_part.__isset.local_bucket_seqs) {
+            part->local_bucket_seqs = t_part.local_bucket_seqs;
+        }
         auto num_indexes = _schema->indexes().size();
         if (t_part.indexes.size() != num_indexes) {
             return Status::InternalError(

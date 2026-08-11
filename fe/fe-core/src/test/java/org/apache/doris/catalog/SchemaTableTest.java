@@ -143,5 +143,14 @@ public class SchemaTableTest {
         Assertions.assertEquals("CREATE_TIME", roleMappings.getFullSchema().get(5).getName());
         Assertions.assertEquals("ALTER_USER", roleMappings.getFullSchema().get(6).getName());
         Assertions.assertEquals("MODIFY_TIME", roleMappings.getFullSchema().get(7).getName());
+
+        SchemaTable tsoStatus = (SchemaTable) SchemaTable.TABLE_MAP.get("tso_status");
+        Assertions.assertFalse(tsoStatus.shouldFetchAllFe());
+        Assertions.assertFalse(tsoStatus.shouldAddAgg());
+        Assertions.assertEquals(4, tsoStatus.getFullSchema().size());
+        Assertions.assertEquals("WINDOW_END_PHYSICAL_TIME", tsoStatus.getFullSchema().get(0).getName());
+        Assertions.assertEquals("CURRENT_TSO", tsoStatus.getFullSchema().get(1).getName());
+        Assertions.assertEquals("CURRENT_TSO_PHYSICAL_TIME", tsoStatus.getFullSchema().get(2).getName());
+        Assertions.assertEquals("CURRENT_TSO_LOGICAL_COUNTER", tsoStatus.getFullSchema().get(3).getName());
     }
 }

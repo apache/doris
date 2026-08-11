@@ -216,6 +216,9 @@ public class ConnectContext {
 
     // cloud cluster name
     protected volatile String cloudCluster = null;
+    // The compute group selected for the statement currently being executed. Unlike cloudCluster,
+    // this value is query-scoped and remains available after a per-query SET_VAR is reverted.
+    protected volatile String effectiveCloudCluster = null;
 
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
@@ -234,7 +237,7 @@ public class ConnectContext {
 
     private InsertResult insertResult;
 
-    private SessionContext sessionContext;
+    private SessionContext sessionContext = SessionContext.empty();
 
 
     // This context is used for SSL connection between server and mysql client.
@@ -283,11 +286,12 @@ public class ConnectContext {
     }
 
     private StatementContext statementContext;
-    // internal flag to expose Iceberg rowid metadata during analysis/planning.
-    // When set to a valid table ID (>= 0), only that specific table's getFullSchema()
-    // will include __DORIS_ICEBERG_ROWID_COL__. This prevents ambiguity in MERGE INTO
-    // when the source table is also an Iceberg table.
-    private long icebergRowIdTargetTableId = -1;
+    // Internal flag to expose a connector's synthetic write column (the hidden row-identity column a
+    // row-level DML write needs) for a SINGLE target table during analysis/planning. When set to a valid
+    // table ID (>= 0), only that table's getFullSchema() injects its synthetic write column (today the
+    // only consumer is iceberg's __DORIS_ICEBERG_ROWID_COL__). Scoping it to one table prevents ambiguity
+    // in MERGE INTO when the source table is also a write-capable table of the same format.
+    private long syntheticWriteColTargetTableId = -1;
 
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
@@ -314,6 +318,10 @@ public class ConnectContext {
 
     public SessionContext getSessionContext() {
         return sessionContext;
+    }
+
+    public void setSessionContext(SessionContext sessionContext) {
+        this.sessionContext = sessionContext == null ? SessionContext.empty() : sessionContext;
     }
 
     public MysqlSslContext getMysqlSslContext() {
@@ -930,6 +938,40 @@ public class ConnectContext {
         statementContext = null;
     }
 
+    // Arrow Flight SQL only.
+    // Executors of already-planned queries whose results are produced on the BE and pulled later
+    // during the DoGet phase. Their coordinators must stay alive until the BE finishes scanning:
+    // an external-table scan in batch mode lazily fetches splits from the FE (a batch SplitSource
+    // held by the coordinator's scan nodes), so closing the coordinator at the end of
+    // GetFlightInfo would release the SplitSource too early and make the BE's fetchSplitBatch fail
+    // with "Split source X is released". These executors are finalized when the next query starts
+    // on this connection, or when the connection is torn down. See #62259.
+    private final List<StmtExecutor> flightSqlDeferredExecutors = new ArrayList<>();
+
+    public void addFlightSqlDeferredExecutor(StmtExecutor executor) {
+        synchronized (flightSqlDeferredExecutors) {
+            flightSqlDeferredExecutors.add(executor);
+        }
+    }
+
+    public void closeFlightSqlDeferredExecutors() {
+        List<StmtExecutor> toClose;
+        synchronized (flightSqlDeferredExecutors) {
+            if (flightSqlDeferredExecutors.isEmpty()) {
+                return;
+            }
+            toClose = new ArrayList<>(flightSqlDeferredExecutors);
+            flightSqlDeferredExecutors.clear();
+        }
+        for (StmtExecutor deferredExecutor : toClose) {
+            try {
+                deferredExecutor.finalizeArrowFlightQuery();
+            } catch (Throwable t) {
+                LOG.warn("failed to finalize deferred arrow flight executor", t);
+            }
+        }
+    }
+
     /**
      * This method is idempotent.
      */
@@ -1119,24 +1161,24 @@ public class ConnectContext {
         this.statementContext = statementContext;
     }
 
-    /** Backward-compatible: returns true if any Iceberg table is targeted for row_id injection. */
-    public boolean needIcebergRowId() {
-        return icebergRowIdTargetTableId >= 0;
+    /** Returns true if any table is targeted for synthetic write-column injection. */
+    public boolean needsSyntheticWriteCol() {
+        return syntheticWriteColTargetTableId >= 0;
     }
 
-    /** Check if a specific table should include the hidden row_id column. */
-    public boolean needIcebergRowIdForTable(long tableId) {
-        return icebergRowIdTargetTableId >= 0 && icebergRowIdTargetTableId == tableId;
+    /** Check if a specific table should inject its hidden synthetic write column. */
+    public boolean needsSyntheticWriteColForTable(long tableId) {
+        return syntheticWriteColTargetTableId >= 0 && syntheticWriteColTargetTableId == tableId;
     }
 
-    /** Set the target table ID for row_id injection. Use -1 to clear. */
-    public void setIcebergRowIdTargetTableId(long tableId) {
-        this.icebergRowIdTargetTableId = tableId;
+    /** Set the target table ID for synthetic write-column injection. Use -1 to clear. */
+    public void setSyntheticWriteColTargetTableId(long tableId) {
+        this.syntheticWriteColTargetTableId = tableId;
     }
 
-    /** Get the previously saved target table ID (for save/restore pattern). */
-    public long getIcebergRowIdTargetTableId() {
-        return icebergRowIdTargetTableId;
+    /** Get the previously saved target table ID (for the save/restore pattern). */
+    public long getSyntheticWriteColTargetTableId() {
+        return syntheticWriteColTargetTableId;
     }
 
 
@@ -1405,6 +1447,14 @@ public class ConnectContext {
 
     public void setCloudCluster(String cluster) {
         this.getSessionVariable().setCloudCluster(cluster);
+    }
+
+    public String getEffectiveCloudCluster() {
+        return effectiveCloudCluster;
+    }
+
+    public void setEffectiveCloudCluster(String cluster) {
+        this.effectiveCloudCluster = cluster;
     }
 
     public String getCloudCluster() throws ComputeGroupException {

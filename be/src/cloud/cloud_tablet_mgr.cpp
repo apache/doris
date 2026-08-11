@@ -188,6 +188,12 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
     auto* handle = _cache->lookup(key);
 
     if (handle == nullptr) {
+#ifdef BE_TEST
+        if (auto tablet = _tablet_map->get(tablet_id); tablet != nullptr) {
+            set_tablet_access_time_ms(tablet.get());
+            return tablet;
+        }
+#endif
         if (force_use_only_cached) {
             LOG(INFO) << "tablet=" << tablet_id
                       << "does not exists in local tablet cache, because param "
@@ -428,13 +434,21 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
         int n, CompactionType compaction_type, const std::function<bool(CloudTablet*)>& filter_out,
         std::vector<std::shared_ptr<CloudTablet>>* tablets, int64_t* max_score) {
     DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
-           compaction_type == CompactionType::CUMULATIVE_COMPACTION);
+           compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
+           compaction_type == CompactionType::CUMU_BINLOG_COMPACTION);
     *max_score = 0;
     int64_t max_score_tablet_id = 0;
     // clang-format off
     auto score = [compaction_type](CloudTablet* t) {
+        if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION && !t->is_row_binlog_tablet()) {
+            return int64_t {0};
+        }
+        if (compaction_type != CompactionType::CUMU_BINLOG_COMPACTION && t->is_row_binlog_tablet()) {
+            return int64_t {0};
+        }
         return compaction_type == CompactionType::BASE_COMPACTION ? t->get_cloud_base_compaction_score()
-               : compaction_type == CompactionType::CUMULATIVE_COMPACTION ? t->get_cloud_cumu_compaction_score()
+               : (compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
+                  compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) ? t->get_cloud_cumu_compaction_score()
                : 0;
     };
 
@@ -581,7 +595,7 @@ void CloudTabletMgr::get_topn_tablet_delete_bitmap_score(
     buf.reserve(n + 1);
     auto handler = [&](const std::weak_ptr<CloudTablet>& tablet_wk) {
         auto t = tablet_wk.lock();
-        if (!t) return;
+        if (!t || !t->enable_unique_key_merge_on_write()) return;
         uint64_t delete_bitmap_count =
                 t.get()->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
         total_delete_map_count += delete_bitmap_count;

@@ -40,6 +40,9 @@ namespace doris {
 
 class KeyCoder;
 class BlockCompressionCodec;
+namespace io {
+struct IOContext;
+}
 
 namespace segment_v2 {
 
@@ -57,12 +60,14 @@ public:
     ~IndexedColumnReader() override;
 
     Status load(bool use_page_cache, bool kept_in_memory,
-                OlapReaderStatistics* index_load_stats = nullptr);
+                OlapReaderStatistics* index_load_stats = nullptr,
+                const io::IOContext* io_ctx = nullptr);
 
     // read a page specified by `pp' from `file' into `handle'
     Status read_page(const PagePointer& pp, PageHandle* handle, Slice* body, PageFooterPB* footer,
                      PageTypePB type, BlockCompressionCodec* codec, bool pre_decode,
-                     OlapReaderStatistics* stats = nullptr) const;
+                     OlapReaderStatistics* stats = nullptr,
+                     const io::IOContext* io_ctx = nullptr) const;
 
     int64_t num_values() const { return _num_values; }
     const EncodingInfo* encoding_info() const { return _encoding_info; }
@@ -76,7 +81,7 @@ public:
 
 private:
     Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader,
-                           OlapReaderStatistics* index_load_stats);
+                           OlapReaderStatistics* index_load_stats, const io::IOContext* io_ctx);
 
     int64_t get_metadata_size() const override;
 
@@ -108,11 +113,13 @@ private:
 class IndexedColumnIterator {
 public:
     explicit IndexedColumnIterator(const IndexedColumnReader* reader,
-                                   OlapReaderStatistics* stats = nullptr)
+                                   OlapReaderStatistics* stats = nullptr,
+                                   const io::IOContext* io_ctx = nullptr)
             : _reader(reader),
               _ordinal_iter(reader->_ordinal_index_reader.get()),
               _value_iter(reader->_value_index_reader.get()),
-              _stats(stats) {}
+              _stats(stats),
+              _io_ctx(io_ctx) {}
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.
     // Return Status::Error<ENTRY_NOT_FOUND> if provided seek point is past the end.
@@ -162,6 +169,7 @@ private:
     // iterator owned compress codec, should NOT be shared by threads, initialized before used
     BlockCompressionCodec* _compress_codec = nullptr;
     OlapReaderStatistics* _stats = nullptr;
+    const io::IOContext* _io_ctx = nullptr;
 };
 
 } // namespace segment_v2

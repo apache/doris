@@ -22,21 +22,142 @@
 #include <fmt/core.h>
 
 #include <cstdint>
+#include <vector>
 
+#include "common/config.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
+#include "storage/olap_common.h"
 
 namespace doris {
 
-// This number represents the number of days from 0000-01-01 to 1970-01-01
-static const int32_t date_threshold = 719528;
+// This number represents the number of days from 0000-01-01 to 1970-01-01.
+static constexpr int32_t date_threshold = 719528;
+
+namespace {
+
+constexpr int32_t DORIS_DATE_EPOCH_DAYNR = 719528;
+
+Status decode_date_orc_values(const DataTypeSerDe& serde, IColumn& column,
+                              const OrcDecodedColumnView& orc_view) {
+    const auto* orc_batch = dynamic_cast<const ::orc::LongVectorBatch*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC date batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto view = orc_serde_utils::make_orc_decoded_view(orc_view, DecodedValueKind::INT32);
+    NullMap null_map;
+    orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                               orc_view.selected_rows, &null_map);
+    view.null_map = null_map.empty() ? nullptr : null_map.data();
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    std::vector<int32_t> date_values;
+    date_values.resize(output_rows);
+    auto& date_dict = date_day_offset_dict::get();
+    for (size_t row = 0; row < output_rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
+        const auto date = date_dict[cast_set<int>(orc_batch->data[source_row])];
+        date_values[row] = cast_set<int32_t>(date.daynr() - DORIS_DATE_EPOCH_DAYNR);
+    }
+    view.values = reinterpret_cast<const uint8_t*>(date_values.data());
+    RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+    return Status::OK();
+}
+
+Status decode_parquet_date(int32_t encoded_date, DateV2Value<DateV2ValueType>* value) {
+    DORIS_CHECK(value != nullptr);
+    const int64_t day_number = static_cast<int64_t>(encoded_date) + date_threshold;
+    if (day_number < 0 || !value->get_date_from_daynr(static_cast<uint64_t>(day_number))) {
+        return Status::DataQualityError("Parquet DATE value is out of range");
+    }
+    return Status::OK();
+}
+
+class DateV2ParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    explicit DateV2ParquetConsumer(IColumn& column, ParquetMaterializationState* state = nullptr)
+            : DateV2ParquetConsumer(assert_cast<ColumnDateV2&>(column).get_data(), state) {}
+
+    explicit DateV2ParquetConsumer(ColumnDateV2::Container& data,
+                                   ParquetMaterializationState* state = nullptr)
+            : _data(data), _state(state) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        DORIS_CHECK_EQ(value_width, sizeof(int32_t));
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            DateV2Value<DateV2ValueType> value;
+            const auto status = decode_parquet_date(
+                    unaligned_load<int32_t>(values + row * sizeof(int32_t)), &value);
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                    _data[old_size + row] = DateV2Value<DateV2ValueType>();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
+            _data[old_size + row] = value;
+        }
+        return Status::OK();
+    }
+
+private:
+    ColumnDateV2::Container& _data;
+    ParquetMaterializationState* _state;
+};
+
+class RejectDateV2BinaryConsumer final : public ParquetBinaryValueConsumer {
+public:
+    Status consume(const StringRef* values, size_t num_values) override {
+        return Status::NotSupported("Binary Parquet values cannot be materialized as DATEV2");
+    }
+};
+
+class DateV2PredicateParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    DateV2PredicateParquetConsumer(bool enable_strict_mode, ParquetLogicalValueConsumer& consumer,
+                                   ColumnDateV2::Container& logical_values,
+                                   IColumn::Filter& conversion_nulls)
+            : _enable_strict_mode(enable_strict_mode),
+              _consumer(consumer),
+              _logical_values(logical_values),
+              _conversion_nulls(conversion_nulls) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        _logical_values.clear();
+        _conversion_nulls.clear();
+        _conversion_nulls.resize_fill(num_values, 0);
+        ParquetMaterializationState state;
+        state.enable_strict_mode = _enable_strict_mode;
+        state.conversion_failure_null_map = &_conversion_nulls;
+        DateV2ParquetConsumer converter(_logical_values, &state);
+        RETURN_IF_ERROR(converter.consume(values, num_values, value_width));
+        return _consumer.consume(reinterpret_cast<const uint8_t*>(_logical_values.data()),
+                                 num_values, sizeof(DateV2Value<DateV2ValueType>),
+                                 _conversion_nulls.data());
+    }
+
+private:
+    bool _enable_strict_mode;
+    ParquetLogicalValueConsumer& _consumer;
+    ColumnDateV2::Container& _logical_values;
+    IColumn::Filter& _conversion_nulls;
+};
+
+} // namespace
 
 Status DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                      int64_t end_idx, BufferWritable& bw,
@@ -110,17 +231,62 @@ Status DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const N
 Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
     auto& col_data = static_cast<ColumnDateV2&>(column).get_data();
-    const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
-    const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
-    const size_t element_size = sizeof(int32_t);
-    for (auto value_i = start; value_i < end; ++value_i) {
-        const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
-        auto date_value = unaligned_load<int32_t>(raw_byte_ptr);
+    if (arrow_array->type_id() == arrow::Type::DATE64) {
+        static constexpr int64_t MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+        const auto* concrete_array = dynamic_cast<const arrow::Date64Array*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow Date64Array, got {}",
+                                           arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+            check_arrow_fixed_width_buffer(*concrete_array, sizeof(arrow::Date64Array::value_type));
+        }
+        for (int64_t value_i = start; value_i < end; ++value_i) {
+            if (concrete_array->IsNull(value_i)) {
+                col_data.emplace_back(DateV2Value<DateV2ValueType>());
+                continue;
+            }
+            const int64_t milliseconds = concrete_array->Value(value_i);
+            if (milliseconds % MILLISECONDS_PER_DAY != 0) {
+                return Status::InvalidArgument(
+                        "Arrow Date64 value must contain whole days: row={}, milliseconds={}",
+                        value_i, milliseconds);
+            }
+            const int64_t daynr = milliseconds / MILLISECONDS_PER_DAY + date_threshold;
+            DateV2Value<DateV2ValueType> value;
+            if (daynr <= 0 || daynr > DATE_MAX_DAYNR ||
+                !value.get_date_from_daynr(static_cast<uint64_t>(daynr))) {
+                return Status::InvalidArgument(
+                        "Arrow Date64 value is outside the Doris DATE range: "
+                        "row={}, milliseconds={}",
+                        value_i, milliseconds);
+            }
+            col_data.emplace_back(value);
+        }
+    } else if (arrow_array->type_id() == arrow::Type::DATE32) {
+        const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow Date32Array, got {}",
+                                           arrow_array->type()->name());
+        }
+        const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
+        const size_t element_size = sizeof(int32_t);
+        for (auto value_i = start; value_i < end; ++value_i) {
+            const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
+            auto date_value = unaligned_load<int32_t>(raw_byte_ptr);
 
-        DateV2Value<DateV2ValueType> v;
-        v.get_date_from_daynr(date_value + date_threshold);
-        col_data.emplace_back(v);
+            DateV2Value<DateV2ValueType> v;
+            v.get_date_from_daynr(date_value + date_threshold);
+            col_data.emplace_back(v);
+        }
+    } else {
+        return Status::InvalidArgument("Expected Arrow Date32Array or Date64Array, got {}",
+                                       arrow_array->type()->name());
     }
     return Status::OK();
 }
@@ -135,6 +301,7 @@ Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
     auto& data = assert_cast<ColumnDateV2&>(column).get_data();
+    const auto old_size = data.size();
     const auto* values = reinterpret_cast<const int32_t*>(view.values);
     for (int64_t row = 0; row < view.row_count; ++row) {
         if (decoded_column_view_row_is_null(view, row)) {
@@ -142,10 +309,72 @@ Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
             continue;
         }
         DateV2Value<DateV2ValueType> date_v2;
-        date_v2.get_date_from_daynr(values[row] + date_threshold);
+        const auto status = decode_parquet_date(values[row], &date_v2);
+        if (!status.ok()) {
+            // Decoded values back both metadata conversion and native materialization. Preserve
+            // strict errors while allowing nullable non-strict scans to mark only the bad row.
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return status;
+        }
         data.push_back(date_v2);
     }
     return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                                    const ParquetDecodeContext& context) const {
+    DateV2ParquetConsumer consumer(column);
+    RejectDateV2BinaryConsumer binary_consumer;
+    return source.decode_dictionary(consumer, binary_consumer);
+}
+
+Status DataTypeDateV2SerDe::read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                                     const ParquetDecodeContext& context,
+                                                     size_t num_values,
+                                                     ParquetMaterializationState& state) const {
+    if (context.physical_type != ParquetPhysicalType::INT32 ||
+        context.logical_type != ParquetLogicalType::DATE) {
+        return Status::NotSupported("DATEV2 expects Parquet DATE stored as INT32");
+    }
+    DateV2ParquetConsumer consumer(column, &state);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        return source.decode_fixed_values(num_values, consumer);
+    }
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        auto* output_null_map = state.begin_dictionary_conversion(source.dictionary_size());
+        DateV2ParquetConsumer dictionary_consumer(*state.typed_dictionary, &state);
+        RejectDateV2BinaryConsumer binary_consumer;
+        const Status dictionary_status =
+                source.decode_dictionary(dictionary_consumer, binary_consumer);
+        state.end_dictionary_conversion(output_null_map);
+        RETURN_IF_ERROR(dictionary_status);
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    return state.materialize_dictionary(column, source, num_values);
+}
+
+bool DataTypeDateV2SerDe::supports_parquet_raw_predicate(
+        const ParquetDecodeContext& context) const {
+    return context.encoding != ParquetValueEncoding::DICTIONARY &&
+           context.physical_type == ParquetPhysicalType::INT32 &&
+           context.logical_type == ParquetLogicalType::DATE;
+}
+
+Status DataTypeDateV2SerDe::read_parquet_raw_predicate(
+        ParquetDecodeSource& source, const ParquetDecodeContext& context, size_t num_values,
+        bool enable_strict_mode, ParquetLogicalValueConsumer& consumer) const {
+    if (!supports_parquet_raw_predicate(context)) {
+        return Status::NotSupported("Unsupported Parquet raw predicate conversion for DATEV2");
+    }
+    DateV2PredicateParquetConsumer predicate_consumer(
+            enable_strict_mode, consumer, _parquet_predicate_values, _parquet_predicate_nulls);
+    return source.decode_fixed_values(num_values, predicate_consumer);
 }
 
 Status DataTypeDateV2SerDe::write_column_to_mysql_binary(const IColumn& column,
@@ -540,5 +769,16 @@ template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDeci
         const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
 template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
+
+Status DataTypeDateV2SerDe::read_column_from_orc(IColumn& column,
+                                                 const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::DATE);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_date_orc_values(*this, column, view);
+}
 
 } // namespace doris

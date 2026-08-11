@@ -19,13 +19,16 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "common/object_pool.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_nullable.h"
@@ -34,11 +37,13 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/function/functions_comparison.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/runtime_filter_expr.h"
+#include "exprs/vbloom_predicate.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -47,6 +52,7 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/bloom_filter/block_split_bloom_filter.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/segment_iterator.h"
@@ -55,10 +61,8 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
-#define private public
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vin_predicate.h"
-#undef private
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -125,6 +129,36 @@ ZoneMapEvalContext make_context(segment_v2::ZoneMap zone_map, const DataTypePtr&
     slot_zone_map.data_type = data_type;
     slot_zone_map.zone_map = std::make_shared<segment_v2::ZoneMap>(std::move(zone_map));
     ctx.slots.emplace(0, std::move(slot_zone_map));
+    return ctx;
+}
+
+DictionaryEvalContext make_dictionary_context(std::vector<Field> values,
+                                              const DataTypePtr& data_type) {
+    DictionaryEvalContext ctx;
+    ctx.slots.emplace(0, DictionaryEvalContext::SlotDictionary {
+                                 .data_type = data_type,
+                                 .values = std::move(values),
+                         });
+    return ctx;
+}
+
+std::unique_ptr<segment_v2::BlockSplitBloomFilter> make_int_bloom_filter(
+        const std::vector<int32_t>& values) {
+    auto bloom_filter = std::make_unique<segment_v2::BlockSplitBloomFilter>();
+    EXPECT_TRUE(bloom_filter->init(segment_v2::BloomFilter::MINIMUM_BYTES).ok());
+    for (const auto value : values) {
+        bloom_filter->add_bytes(reinterpret_cast<const char*>(&value), sizeof(value));
+    }
+    return bloom_filter;
+}
+
+BloomFilterEvalContext make_bloom_filter_context(const segment_v2::BloomFilter* bloom_filter,
+                                                 const DataTypePtr& data_type) {
+    BloomFilterEvalContext ctx;
+    ctx.slots.emplace(0, BloomFilterEvalContext::SlotBloomFilter {
+                                 .data_type = data_type,
+                                 .bloom_filter = bloom_filter,
+                         });
     return ctx;
 }
 
@@ -335,6 +369,84 @@ TEST(ExprZonemapFilterTest, ComparisonZonemapHandlesNullAndUnsupportedInputs) {
     EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
               equals.evaluate_zonemap_filter(pass_all_ctx, {slot, make_int_literal(10)}));
     EXPECT_EQ(1, pass_all_ctx.stats.unusable_zonemap_eval_count);
+}
+
+TEST(ExprZonemapFilterTest, ComparisonDictionarySupportsTypedRangesWhileBloomUsesEquality) {
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+    FunctionComparison<EqualsOp, NameEquals> equals;
+
+    EXPECT_TRUE(equals.can_evaluate_dictionary_filter({slot, make_int_literal(2)}));
+    auto dictionary_ctx = make_dictionary_context({int_field(1), int_field(3)}, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals.evaluate_dictionary_filter(dictionary_ctx, {slot, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals.evaluate_dictionary_filter(dictionary_ctx, {slot, make_int_literal(3)}));
+
+    EXPECT_TRUE(equals.can_evaluate_bloom_filter({slot, make_int_literal(2)}));
+    auto bloom_filter = make_int_bloom_filter({1, 3});
+    auto bloom_ctx = make_bloom_filter_context(bloom_filter.get(), type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals.evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals.evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(3)}));
+
+    FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
+    FunctionComparison<LessOp, NameLess> less;
+    FunctionComparison<LessOrEqualsOp, NameLessOrEquals> less_equal;
+    FunctionComparison<GreaterOp, NameGreater> greater;
+    FunctionComparison<GreaterOrEqualsOp, NameGreaterOrEquals> greater_equal;
+    EXPECT_TRUE(not_equals.can_evaluate_dictionary_filter({slot, make_int_literal(3)}));
+    EXPECT_TRUE(less.can_evaluate_dictionary_filter({slot, make_int_literal(2)}));
+    EXPECT_TRUE(less_equal.can_evaluate_dictionary_filter({slot, make_int_literal(1)}));
+    EXPECT_TRUE(greater.can_evaluate_dictionary_filter({slot, make_int_literal(2)}));
+    EXPECT_TRUE(greater_equal.can_evaluate_dictionary_filter({slot, make_int_literal(3)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less.evaluate_dictionary_filter(dictionary_ctx, {slot, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less.evaluate_dictionary_filter(dictionary_ctx, {slot, make_int_literal(1)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less.evaluate_dictionary_filter(dictionary_ctx, {make_int_literal(2), slot}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less.evaluate_dictionary_filter(dictionary_ctx, {make_int_literal(4), slot}));
+    EXPECT_FALSE(not_equals.can_evaluate_bloom_filter({slot, make_int_literal(3)}));
+
+    auto string_type = std::make_shared<DataTypeString>();
+    auto string_slot = make_slot(0, string_type);
+    auto string_dictionary = make_dictionary_context({Field::create_field<TYPE_STRING>("alpha"),
+                                                      Field::create_field<TYPE_STRING>("charlie")},
+                                                     string_type);
+    EXPECT_TRUE(less.can_evaluate_dictionary_filter({string_slot, make_string_literal("bravo")}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less.evaluate_dictionary_filter(string_dictionary,
+                                              {string_slot, make_string_literal("bravo")}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              greater.evaluate_dictionary_filter(string_dictionary,
+                                                 {string_slot, make_string_literal("delta")}));
+}
+
+TEST(ExprZonemapFilterTest, DefaultFunctionForwardsDictionaryAndBloomEvaluation) {
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+    auto equals = SimpleFunctionFactory::instance().get_function(
+            "eq", ColumnsWithTypeAndName {{nullptr, type, "slot"}, {nullptr, type, "literal"}},
+            std::make_shared<DataTypeUInt8>());
+    ASSERT_NE(equals, nullptr);
+
+    EXPECT_TRUE(equals->can_evaluate_dictionary_filter({slot, make_int_literal(2)}));
+    auto dictionary_ctx = make_dictionary_context({int_field(1), int_field(3)}, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals->evaluate_dictionary_filter(dictionary_ctx, {slot, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals->evaluate_dictionary_filter(dictionary_ctx, {slot, make_int_literal(3)}));
+
+    EXPECT_TRUE(equals->can_evaluate_bloom_filter({slot, make_int_literal(2)}));
+    auto bloom_filter = make_int_bloom_filter({1, 3});
+    auto bloom_ctx = make_bloom_filter_context(bloom_filter.get(), type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals->evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals->evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(3)}));
 }
 
 TEST(ExprZonemapFilterTest, MissingSlotTypeCountsUnsupportedZonemapEvalOnce) {
@@ -642,6 +754,46 @@ TEST(ExprZonemapFilterTest, VInPredicateMaterializesZonemapValues) {
     EXPECT_TRUE(not_in_with_null->_seg_filter_contains_null);
 }
 
+TEST(ExprZonemapFilterTest, VInPredicateDictionaryAndBloomUseMaterializedValues) {
+    auto type = int_type();
+    ObjectPool obj_pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    auto thrift_desc_tbl = make_k2_scan_desc_tbl();
+    ASSERT_TRUE(DescriptorTbl::create(&obj_pool, thrift_desc_tbl, &desc_tbl).ok());
+
+    RuntimeState runtime_state;
+    runtime_state.set_desc_tbl(desc_tbl);
+    RowDescriptor row_desc(runtime_state.desc_tbl(), {0});
+
+    auto in_predicate = std::make_shared<VInPredicate>(make_in_predicate_node(false, 3));
+    auto in_slot = make_slot(0, type);
+    std::static_pointer_cast<VSlotRef>(in_slot)->set_slot_id(0);
+    in_predicate->add_child(in_slot);
+    in_predicate->add_child(make_int_literal(2));
+    in_predicate->add_child(make_int_literal(4));
+    VExprContext in_context(in_predicate);
+    ASSERT_TRUE(in_context.prepare(&runtime_state, row_desc).ok());
+    ASSERT_TRUE(in_context.open(&runtime_state).ok());
+
+    EXPECT_TRUE(in_predicate->can_evaluate_dictionary_filter());
+    auto missing_dictionary_ctx = make_dictionary_context({int_field(1), int_field(3)}, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              in_predicate->evaluate_dictionary_filter(missing_dictionary_ctx));
+    auto matching_dictionary_ctx = make_dictionary_context({int_field(4), int_field(5)}, type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              in_predicate->evaluate_dictionary_filter(matching_dictionary_ctx));
+
+    EXPECT_TRUE(in_predicate->can_evaluate_bloom_filter());
+    auto missing_bloom_filter = make_int_bloom_filter({1, 3});
+    auto missing_bloom_ctx = make_bloom_filter_context(missing_bloom_filter.get(), type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              in_predicate->evaluate_bloom_filter(missing_bloom_ctx));
+    auto matching_bloom_filter = make_int_bloom_filter({4});
+    auto matching_bloom_ctx = make_bloom_filter_context(matching_bloom_filter.get(), type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              in_predicate->evaluate_bloom_filter(matching_bloom_ctx));
+}
+
 TEST(ExprZonemapFilterTest, DirectInPredicateMaterializesStringSetForZonemap) {
     auto type = std::make_shared<DataTypeString>();
     std::shared_ptr<HybridSetBase> filter(create_set(PrimitiveType::TYPE_STRING, false));
@@ -655,10 +807,12 @@ TEST(ExprZonemapFilterTest, DirectInPredicateMaterializesStringSetForZonemap) {
     direct_in_expr.add_child(slot);
     ASSERT_TRUE(direct_in_expr._materialize_for_zonemap_filter().ok());
 
-    EXPECT_TRUE(direct_in_expr._zonemap_materialized);
-    EXPECT_EQ(2, direct_in_expr._seg_filter_values.size());
-    EXPECT_EQ(Field::create_field<TYPE_STRING>("aaa"), direct_in_expr._seg_filter_min);
-    EXPECT_EQ(Field::create_field<TYPE_STRING>("zzz"), direct_in_expr._seg_filter_max);
+    EXPECT_TRUE(direct_in_expr._pruning_state->zonemap_materialized);
+    EXPECT_EQ(2, direct_in_expr._pruning_state->seg_filter_values.size());
+    EXPECT_EQ(Field::create_field<TYPE_STRING>("aaa"),
+              direct_in_expr._pruning_state->seg_filter_min);
+    EXPECT_EQ(Field::create_field<TYPE_STRING>("zzz"),
+              direct_in_expr._pruning_state->seg_filter_max);
 }
 
 TEST(ExprZonemapFilterTest, DirectInPredicateMaterializesZonemapValuesDuringPrepare) {
@@ -687,11 +841,34 @@ TEST(ExprZonemapFilterTest, DirectInPredicateMaterializesZonemapValuesDuringPrep
     VExprContext context(direct_in_expr);
     ASSERT_TRUE(context.prepare(&runtime_state, row_desc).ok());
 
-    EXPECT_TRUE(direct_in_expr->_zonemap_materialized);
+    EXPECT_TRUE(direct_in_expr->_pruning_state->zonemap_materialized);
     EXPECT_TRUE(direct_in_expr->can_evaluate_zonemap_filter());
-    EXPECT_EQ(2, direct_in_expr->_seg_filter_values.size());
-    EXPECT_EQ(int_field(1), direct_in_expr->_seg_filter_min);
-    EXPECT_EQ(int_field(30), direct_in_expr->_seg_filter_max);
+    EXPECT_EQ(2, direct_in_expr->_pruning_state->seg_filter_values.size());
+    EXPECT_EQ(int_field(1), direct_in_expr->_pruning_state->seg_filter_min);
+    EXPECT_EQ(int_field(30), direct_in_expr->_pruning_state->seg_filter_max);
+}
+
+TEST(ExprZonemapFilterTest, DirectInPredicateDeepCloneReusesMaterializedPruningState) {
+    auto type = int_type();
+    std::shared_ptr<HybridSetBase> filter(create_set(PrimitiveType::TYPE_INT, false));
+    int32_t low_value = 1;
+    int32_t high_value = 30;
+    filter->insert(&low_value);
+    filter->insert(&high_value);
+
+    auto direct_in_expr =
+            std::make_shared<VDirectInPredicate>(make_in_predicate_node(false, 1), filter, true);
+    direct_in_expr->add_child(make_slot(0, type));
+    ASSERT_TRUE(direct_in_expr->_materialize_for_zonemap_filter().ok());
+
+    VExprSPtr cloned_expr;
+    ASSERT_TRUE(direct_in_expr->deep_clone(&cloned_expr).ok());
+    auto cloned_direct_in = std::dynamic_pointer_cast<VDirectInPredicate>(cloned_expr);
+    ASSERT_NE(cloned_direct_in, nullptr);
+    EXPECT_EQ(direct_in_expr->_pruning_state, cloned_direct_in->_pruning_state);
+    EXPECT_TRUE(cloned_direct_in->can_evaluate_zonemap_filter());
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, cloned_direct_in->evaluate_zonemap_filter(
+                                                     make_context(make_int_zonemap(10, 20), type)));
 }
 
 TEST(ExprZonemapFilterTest, DirectInPredicateRewritesStringSetToInPredicate) {
@@ -720,7 +897,7 @@ TEST(ExprZonemapFilterTest, DirectInPredicateSkipsMaterializationWhenSetTypeDiff
     direct_in_expr.add_child(slot);
 
     ASSERT_TRUE(direct_in_expr._materialize_for_zonemap_filter().ok());
-    EXPECT_FALSE(direct_in_expr._zonemap_materialized);
+    EXPECT_FALSE(direct_in_expr._pruning_state->zonemap_materialized);
     VExprSPtr in_expr;
     EXPECT_FALSE(direct_in_expr.get_slot_in_expr(in_expr));
 }
@@ -757,6 +934,97 @@ TEST(ExprZonemapFilterTest, RuntimeFilterExprNullAwareZonemapKeepsZonesWithNull)
     auto only_null_ctx = make_context(std::move(only_null_zonemap), type);
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
               runtime_filter->evaluate_zonemap_filter(only_null_ctx));
+}
+
+TEST(ExprZonemapFilterTest, RuntimeFilterExprDelegatesDirectInDictionaryAndRawEvaluation) {
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+    std::shared_ptr<HybridSetBase> filter(create_set(PrimitiveType::TYPE_INT, false));
+    int32_t two = 2;
+    int32_t four = 4;
+    filter->insert(&two);
+    filter->insert(&four);
+
+    auto direct_in_expr =
+            std::make_shared<VDirectInPredicate>(make_in_predicate_node(false, 1), filter, true);
+    direct_in_expr->add_child(slot);
+    ASSERT_TRUE(direct_in_expr->_materialize_for_zonemap_filter().ok());
+
+    auto runtime_filter = RuntimeFilterExpr::create_shared(make_in_predicate_node(false, 1),
+                                                           direct_in_expr, 0.0, false, 7);
+    EXPECT_TRUE(runtime_filter->can_evaluate_dictionary_filter());
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              runtime_filter->evaluate_dictionary_filter(
+                      make_dictionary_context({int_field(1), int_field(3)}, type)));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              runtime_filter->evaluate_dictionary_filter(
+                      make_dictionary_context({int_field(3), int_field(4)}, type)));
+
+    EXPECT_TRUE(runtime_filter->can_execute_on_raw_fixed_values(type, 0));
+    const std::array<int32_t, 4> values {1, 2, 3, 4};
+    std::array<uint8_t, 4> matches {1, 1, 1, 1};
+    ASSERT_TRUE(runtime_filter
+                        ->execute_on_raw_fixed_values(
+                                reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                sizeof(int32_t), type, 0, matches.data())
+                        .ok());
+    EXPECT_EQ((std::array<uint8_t, 4> {0, 1, 0, 1}), matches);
+
+    auto null_aware_runtime_filter = RuntimeFilterExpr::create_shared(
+            make_in_predicate_node(false, 1), direct_in_expr, 0.0, true, 8);
+    EXPECT_FALSE(null_aware_runtime_filter->can_evaluate_dictionary_filter());
+    EXPECT_FALSE(null_aware_runtime_filter->can_execute_on_raw_fixed_values(type, 0));
+}
+
+TEST(ExprZonemapFilterTest, RuntimeFilterExprDelegatesBloomDictionaryAndRawEvaluation) {
+    auto type = int_type();
+    std::shared_ptr<BloomFilterFuncBase> filter(create_bloom_filter(TYPE_INT, false));
+    RuntimeFilterParams params;
+    params.filter_type = RuntimeFilterType::BLOOM_FILTER;
+    params.column_return_type = TYPE_INT;
+    params.bloom_filter_size = 1024;
+    filter->init_params(&params);
+    ASSERT_TRUE(filter->init_with_fixed_length(1024).ok());
+    auto build_values = ColumnInt32::create();
+    build_values->insert_value(2);
+    build_values->insert_value(4);
+    filter->insert_fixed_len(std::move(build_values), 0);
+
+    auto node = make_in_predicate_node(false, 1);
+    node.__set_node_type(TExprNodeType::BLOOM_PRED);
+    node.__set_opcode(TExprOpcode::RT_FILTER);
+    auto bloom = VBloomPredicate::create_shared(node);
+    bloom->set_filter(filter);
+    bloom->add_child(make_slot(0, type));
+    auto runtime_filter = RuntimeFilterExpr::create_shared(node, bloom, 0.0, false, 9);
+
+    EXPECT_TRUE(runtime_filter->can_evaluate_dictionary_filter());
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              runtime_filter->evaluate_dictionary_filter(
+                      make_dictionary_context({int_field(2)}, type)));
+
+    int32_t missing = 1;
+    while (missing < 10000 && filter->test_field(int_field(missing))) {
+        ++missing;
+    }
+    ASSERT_LT(missing, 10000);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              runtime_filter->evaluate_dictionary_filter(
+                      make_dictionary_context({int_field(missing)}, type)));
+
+    EXPECT_TRUE(runtime_filter->can_execute_on_raw_fixed_values(type, 0));
+    const std::array<int32_t, 3> values {missing, 2, 4};
+    std::array<uint8_t, 3> matches {1, 1, 1};
+    ASSERT_TRUE(runtime_filter
+                        ->execute_on_raw_fixed_values(
+                                reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                sizeof(int32_t), type, 0, matches.data())
+                        .ok());
+    EXPECT_EQ((std::array<uint8_t, 3> {0, 1, 1}), matches);
+
+    auto null_aware_runtime_filter = RuntimeFilterExpr::create_shared(node, bloom, 0.0, true, 10);
+    EXPECT_FALSE(null_aware_runtime_filter->can_evaluate_dictionary_filter());
+    EXPECT_FALSE(null_aware_runtime_filter->can_execute_on_raw_fixed_values(type, 0));
 }
 
 TEST(ExprZonemapFilterTest, CompoundPredicateEvaluatesChildrenForZonemap) {

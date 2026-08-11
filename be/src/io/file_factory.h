@@ -70,6 +70,11 @@ struct FileDescription {
     // modification time of this file.
     // 0 means unset.
     int64_t mtime = 0;
+    // A correctness promise that the bytes at this path never change. This is only used when
+    // mtime is unavailable: immutable table formats may still key process-global caches by
+    // fs/path/size, while mutable files must not do so because the same path and size can refer to
+    // different contents after an overwrite. Generic Hive/local files must keep the default false.
+    bool is_immutable = false;
     // for hdfs, eg: hdfs://nameservices1/
     // because for a hive table, differenet partitions may have different
     // locations(or fs), so different files may have different fs.

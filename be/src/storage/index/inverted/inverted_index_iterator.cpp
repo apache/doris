@@ -273,7 +273,7 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
         return select_for_text(match, query_type, normalized_key);
     }
 
-    if (is_numeric_type(field_type)) {
+    if (field_is_numeric_type(field_type)) {
         return select_for_numeric(match, query_type);
     }
 

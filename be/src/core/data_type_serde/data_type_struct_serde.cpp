@@ -20,12 +20,15 @@
 #include <algorithm>
 
 #include "arrow/array/builder_nested.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_struct.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/string_ref.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
@@ -33,6 +36,58 @@
 namespace doris {
 
 class Arena;
+
+namespace {
+
+int64_t find_struct_child_index(const ::orc::Type& type, const std::string& field_name) {
+    DORIS_CHECK(type.getKind() == ::orc::TypeKind::STRUCT);
+    for (uint64_t child_idx = 0; child_idx < type.getSubtypeCount(); ++child_idx) {
+        if (type.getFieldName(child_idx) == field_name) {
+            return static_cast<int64_t>(child_idx);
+        }
+    }
+    return -1;
+}
+
+Status decode_struct_orc_values(const DataTypeSerDeSPtrs& elem_serdes_ptrs, IColumn& nested_column,
+                                const OrcDecodedColumnView& orc_view) {
+    const auto* orc_struct = dynamic_cast<const ::orc::StructVectorBatch*>(orc_view.batch);
+    if (orc_struct == nullptr) {
+        return Status::InternalError("Unexpected ORC struct batch type {}",
+                                     orc_view.batch->toString());
+    }
+    DORIS_CHECK(orc_view.file_type != nullptr);
+    DORIS_CHECK(orc_view.selected_type != nullptr);
+    DORIS_CHECK(orc_view.selected_type->getSubtypeCount() == orc_struct->fields.size());
+    auto& struct_column = assert_cast<ColumnStruct&>(nested_column);
+    DORIS_CHECK(struct_column.tuple_size() == orc_view.selected_type->getSubtypeCount());
+    DORIS_CHECK(elem_serdes_ptrs.size() == orc_view.selected_type->getSubtypeCount());
+    for (uint64_t selected_idx = 0; selected_idx < orc_view.selected_type->getSubtypeCount();
+         ++selected_idx) {
+        const auto field_name = orc_view.selected_type->getFieldName(selected_idx);
+        const auto file_child_idx = find_struct_child_index(*orc_view.file_type, field_name);
+        if (file_child_idx < 0) {
+            return Status::InternalError("Selected ORC field {} is not in file struct", field_name);
+        }
+        const auto* file_child_type =
+                orc_view.file_type->getSubtype(static_cast<uint64_t>(file_child_idx));
+        const auto* selected_child_type = orc_view.selected_type->getSubtype(selected_idx);
+        DORIS_CHECK(file_child_type != nullptr);
+        DORIS_CHECK(selected_child_type != nullptr);
+        DORIS_CHECK(selected_idx < orc_struct->fields.size());
+        auto child_column =
+                struct_column.get_column_ptr(static_cast<size_t>(selected_idx))->assert_mutable();
+        auto child_view = orc_serde_utils::make_child_orc_view(
+                orc_view, file_child_type, selected_child_type, orc_struct->fields[selected_idx],
+                orc_view.rows, orc_view.selected_rows);
+        RETURN_IF_ERROR(orc_serde_utils::read_orc_child_column(elem_serdes_ptrs[selected_idx],
+                                                               child_column, child_view));
+        struct_column.get_column_ptr(static_cast<size_t>(selected_idx)) = std::move(child_column);
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 std::string DataTypeStructSerDe::get_name() const {
     size_t size = elem_names.size();
@@ -417,6 +472,9 @@ Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const N
 Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
     auto& struct_column = static_cast<ColumnStruct&>(column);
     const auto* concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
     DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
@@ -441,12 +499,18 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
     const auto& struct_col = assert_cast<const ColumnStruct&>(column);
-    for (auto row_id = start; row_id < end; row_id++) {
-        for (int i = 0; i < struct_col.tuple_size(); ++i) {
-            RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
-                    timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
-                    row_id + 1, arena, options));
+    for (int i = 0; i < struct_col.tuple_size(); ++i) {
+        if (null_map != nullptr) {
+            // ORC child writers filter values with the child's presence stream, not only the
+            // incoming parent mask, so propagate parent nulls into every child batch.
+            cur_batch->fields[i]->hasNulls = true;
+            for (auto row_id = start; row_id < end; ++row_id) {
+                cur_batch->fields[i]->notNull[row_id] = !(*null_map)[row_id];
+            }
         }
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(timezone, struct_col.get_column(i),
+                                                                 null_map, cur_batch->fields[i],
+                                                                 start, end, arena, options));
     }
 
     cur_batch->numElements = end - start;
@@ -654,6 +718,17 @@ bool DataTypeStructSerDe::write_column_to_hive_text(const IColumn& column, Buffe
     }
     bw.write("}", 1);
     return true;
+}
+
+Status DataTypeStructSerDe::read_column_from_orc(IColumn& column,
+                                                 const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::STRUCT);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_struct_orc_values(elem_serdes_ptrs, column, view);
 }
 
 } // namespace doris

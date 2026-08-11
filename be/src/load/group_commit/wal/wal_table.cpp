@@ -23,6 +23,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/group_commit/wal/wal_manager.h"
+#include "runtime/cluster_info.h"
 #include "runtime/fragment_mgr.h"
 #include "service/http/action/http_stream.h"
 #include "service/http/action/stream_load.h"
@@ -113,6 +114,12 @@ Status WalTable::_relay_wal_one_by_one() {
             doris::wal_fail << 1;
             LOG(WARNING) << "failed to replay wal=" << wal_info->get_wal_path()
                          << ", st=" << st.to_string();
+            {
+                std::lock_guard<std::mutex> lock(_replay_wal_lock);
+                _last_replay_wal_failed_reason =
+                        "failed to replay wal=" + wal_info->get_wal_path() +
+                        ", st=" + st.to_string().substr(0, 100);
+            }
             need_retry_wals.push_back(wal_info);
         }
     }
@@ -121,6 +128,9 @@ Status WalTable::_relay_wal_one_by_one() {
         _replaying_queue.clear();
         for (auto retry_wal_info : need_retry_wals) {
             _replay_wal_map.emplace(retry_wal_info->get_wal_path(), retry_wal_info);
+        }
+        if (_replay_wal_map.empty()) {
+            _last_replay_wal_failed_reason.clear();
         }
     }
     return Status::OK();
@@ -306,6 +316,11 @@ void WalTable::stop() {
 size_t WalTable::size() {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
     return _replay_wal_map.size() + _replaying_queue.size();
+}
+
+std::string WalTable::get_last_replay_wal_failed_reason() const {
+    std::lock_guard<std::mutex> lock(_replay_wal_lock);
+    return _last_replay_wal_failed_reason;
 }
 
 Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id,

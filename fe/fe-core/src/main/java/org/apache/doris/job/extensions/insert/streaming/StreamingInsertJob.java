@@ -152,6 +152,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @SerializedName("opp")
     // The value to be persisted in offsetProvider
     private String offsetProviderPersist;
+    private transient long lastOffsetPersistTimeMs;
     @Setter
     @Getter
     private long lastScheduleTaskTimestamp = -1L;
@@ -247,9 +248,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     /**
-     * Initialize job from source to database, like multi table mysql to doris.
-     * 1. get mysql connection info from sourceProperties
-     * 2. fetch table list from mysql
+     * Initialize a multi-table job from an external database source to Doris.
+     * 1. get source connection info from sourceProperties
+     * 2. fetch the source table list
      * 3. create doris table if not exists
      * 4. check whether need full data sync
      * 5. need => fetch split and write to system table
@@ -258,6 +259,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             init();
             checkRequiredSourceProperties();
+            DataSourceConfigValidator.validateSourceBeforeTableCreation(
+                    dataSourceType, sourceProperties);
             List<String> createTbls = createTableIfNotExists();
             this.syncTables = createTbls;
             if (sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES) == null) {
@@ -271,7 +274,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.offsetProvider.initOnCreate(this.syncTables);
         } catch (Exception ex) {
             log.warn("init streaming job for {} failed", dataSourceType, ex);
-            throw new RuntimeException(ex.getMessage());
+            throw new RuntimeException(ex.getMessage(), ex);
         }
     }
 
@@ -297,11 +300,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     private List<String> createTableIfNotExists() throws Exception {
         List<String> syncTbls = new ArrayList<>();
-        // Key: source table name (PG/MySQL); Value: CreateTableCommand for the Doris target table.
+        Map<String, String> effectiveSourceProperties = buildConvertedSourceProperties(sourceProperties);
+        // Key: source table name; Value: CreateTableCommand for the Doris target table.
         // The two names differ when "table.<src>.target_table" is configured.
         LinkedHashMap<String, CreateTableCommand> createTblCmds =
                 StreamingJobUtils.generateCreateTableCmds(targetDb,
-                        dataSourceType, sourceProperties, targetProperties);
+                        dataSourceType, effectiveSourceProperties, targetProperties);
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(targetDb);
         Preconditions.checkNotNull(db, "target database %s does not exist", targetDb);
         for (Map.Entry<String, CreateTableCommand> entry : createTblCmds.entrySet()) {
@@ -310,7 +314,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (!db.isTableExist(createTblCmd.getCreateTableInfo().getTableName())) {
                 createTblCmd.run(ConnectContext.get(), null);
             }
-            // Use the source (upstream) table name so CDC monitors the correct PG/MySQL table
+            // Use the upstream table name so CDC monitors the correct source table.
             syncTbls.add(srcTable);
         }
         return syncTbls;
@@ -536,7 +540,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             Map<String, String> mergedSourceProperties = new HashMap<>(this.sourceProperties);
             mergedSourceProperties.putAll(alterJobCommand.getSourceProperties());
             Map<String, String> newConvertedSourceProperties =
-                    StreamingJobUtils.convertCertFile(getDbId(), mergedSourceProperties);
+                    buildConvertedSourceProperties(mergedSourceProperties);
             this.sourceProperties = mergedSourceProperties;
             this.convertedSourceProperties = newConvertedSourceProperties;
             logParts.add("source properties: " + alterJobCommand.getSourceProperties());
@@ -653,10 +657,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return runningStreamTask;
     }
 
-    /**
-     * for From MySQL TO Database
-     * @return
-     */
+    /** Create a task for a FROM source TO DATABASE streaming job. */
     private AbstractStreamingTask createStreamingMultiTblTask() throws JobException {
         return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), dataSourceType,
                 offsetProvider, getConvertedSourceProperties(), targetDb, targetProperties, jobProperties,
@@ -677,9 +678,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     private Map<String, String> getConvertedSourceProperties() throws JobException {
         if (convertedSourceProperties == null) {
-            this.convertedSourceProperties = StreamingJobUtils.convertCertFile(getDbId(), sourceProperties);
+            this.convertedSourceProperties = buildConvertedSourceProperties(sourceProperties);
         }
         return convertedSourceProperties;
+    }
+
+    private Map<String, String> buildConvertedSourceProperties(Map<String, String> inputProperties)
+            throws JobException {
+        Map<String, String> convertedProperties =
+                StreamingJobUtils.convertCertFile(getDbId(), inputProperties);
+        convertedProperties.put(DataSourceConfigKeys.JDBC_URL,
+                StreamingJdbcUrlNormalizer.normalize(dataSourceType,
+                        convertedProperties.get(DataSourceConfigKeys.JDBC_URL)));
+        return convertedProperties;
     }
 
     private Map<String, String> getOriginTvfProps() {
@@ -889,6 +900,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 // offset provider has reached a natural end, mark job as finished
                 log.info("Streaming insert job {} source data fully consumed, marking job as FINISHED", getJobId());
                 updateJobStatus(JobStatus.FINISHED);
+                logUpdateOperation();
                 return;
             }
             AbstractStreamingTask nextTask = createStreamingTask();
@@ -1016,6 +1028,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             // insert TVF does not persist the running state.
             // streaming multi task persists the running state when commitOffset() is called.
             setJobStatus(replayJob.getJobStatus());
+            if (isFinalStatus()) {
+                setFinishTimeMs(replayJob.getFinishTimeMs());
+                Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
+            }
         }
         try {
             modifyPropertiesInternal(replayJob.getProperties());
@@ -1049,6 +1065,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         setFailedTaskCount(replayJob.getFailedTaskCount());
         setCanceledTaskCount(replayJob.getCanceledTaskCount());
         setLastTaskSuccessTime(replayJob.getLastTaskSuccessTime());
+        setStartTimeMs(replayJob.getStartTimeMs());
         this.boundBackendId = replayJob.boundBackendId;
     }
 
@@ -1538,6 +1555,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             throw new JobException("Unsupported commit offset for offset provider type: "
                     + offsetProvider.getClass().getSimpleName());
         }
+        JdbcSourceOffsetProvider jdbcOffsetProvider = (JdbcSourceOffsetProvider) offsetProvider;
 
         writeLock();
         try {
@@ -1565,10 +1583,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 updateNoTxnJobStatisticAndOffset(offsetRequest);
                 offsetProvider.onTaskCommitted(offsetRequest.getScannedRows(), offsetRequest.getLoadBytes());
                 if (offsetRequest.getTableSchemas() != null) {
-                    JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
-                    op.setTableSchemas(offsetRequest.getTableSchemas());
+                    jdbcOffsetProvider.setTableSchemas(offsetRequest.getTableSchemas());
                 }
-                persistOffsetProviderIfNeed();
+                persistOffsetProviderIfNeed(jdbcOffsetProvider, System.currentTimeMillis());
                 log.info("Streaming multi table job {} task {} commit offset successfully, offset: {}",
                         getJobId(), offsetRequest.getTaskId(), offsetRequest.getOffset());
                 ((StreamingMultiTblTask) this.runningStreamTask).successCallback(offsetRequest);
@@ -1628,12 +1645,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    private void persistOffsetProviderIfNeed() {
-        // only for jdbc
-        this.offsetProviderPersist = offsetProvider.getPersistInfo();
-        if (this.offsetProviderPersist != null) {
-            logUpdateOperation();
+    private void persistOffsetProviderIfNeed(
+            JdbcSourceOffsetProvider jdbcOffsetProvider, long currentTimeMs) {
+        this.offsetProviderPersist = jdbcOffsetProvider.getPersistInfo();
+        if (this.offsetProviderPersist == null) {
+            return;
         }
+
+        if (!jdbcOffsetProvider.shouldPersistOffset(lastOffsetPersistTimeMs, currentTimeMs)) {
+            return;
+        }
+
+        logUpdateOperation();
+        lastOffsetPersistTimeMs = currentTimeMs;
     }
 
     public void replayOffsetProviderIfNeed() throws JobException {

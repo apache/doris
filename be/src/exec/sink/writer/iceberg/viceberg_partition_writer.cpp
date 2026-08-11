@@ -36,7 +36,8 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
         const std::string* iceberg_schema_json, std::vector<std::string> write_column_names,
         WriteInfo write_info, std::string file_name, int file_name_index,
         TFileFormatType::type file_format_type, TFileCompressType::type compress_type,
-        const std::map<std::string, std::string>& hadoop_conf)
+        const std::map<std::string, std::string>& hadoop_conf,
+        ClosedFileCallback closed_file_callback)
         : _partition_values(std::move(partition_values)),
           _write_output_expr_ctxs(write_output_expr_ctxs),
           _schema(schema),
@@ -47,7 +48,12 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
           _file_name_index(file_name_index),
           _file_format_type(file_format_type),
           _compress_type(compress_type),
-          _hadoop_conf(hadoop_conf) {}
+          _hadoop_conf(hadoop_conf),
+          _closed_file_callback(std::move(closed_file_callback)) {
+    if (t_sink.iceberg_table_sink.__isset.collect_column_stats) {
+        _collect_column_stats = t_sink.iceberg_table_sink.collect_column_stats;
+    }
+}
 
 Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile,
                                      const RowDescriptor* row_desc) {
@@ -57,9 +63,8 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     if (!_write_info.broker_addresses.empty()) {
         fs_properties.broker_addresses = &(_write_info.broker_addresses);
     }
-    io::FileDescription file_description = {
-            .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
-            .fs_name {}};
+    _path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name());
+    io::FileDescription file_description = {.path = _path, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
@@ -125,16 +130,27 @@ Status VIcebergPartitionWriter::close(const Status& status) {
     bool status_ok = result_status.ok() && status.ok();
     if (!status_ok && _fs != nullptr) {
         // delete the actual created file, otherwise an orphan file is left behind
-        auto path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name());
-        Status st = _fs->delete_file(path);
+        Status st = _fs->delete_file(_path);
         if (!st.ok()) {
-            LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
+            LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", _path, st.to_string());
         }
     }
     if (status_ok) {
         TIcebergCommitData commit_data;
-        RETURN_IF_ERROR(_build_iceberg_commit_data(&commit_data));
+        Status commit_status = _build_iceberg_commit_data(&commit_data);
+        if (!commit_status.ok()) {
+            // A closed object without commit data can never be published, so remove it immediately.
+            Status delete_status = _fs->delete_file(_path);
+            if (!delete_status.ok()) {
+                LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", _path,
+                                            delete_status.to_string());
+            }
+            return commit_status;
+        }
         _state->add_iceberg_commit_datas(commit_data);
+        if (_closed_file_callback) {
+            _closed_file_callback(_fs, _path);
+        }
     }
     return result_status;
 }
@@ -156,6 +172,10 @@ Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* c
     commit_data->__set_file_size(_file_format_transformer->written_len());
     commit_data->__set_file_content(TFileContent::DATA);
     commit_data->__set_partition_values(_partition_values);
+    // ORC collection reopens the file, so honor the FE policy before any footer work.
+    if (!_collect_column_stats) {
+        return Status::OK();
+    }
     if (_file_format_type == TFileFormatType::FORMAT_PARQUET) {
         TIcebergColumnStats column_stats;
         RETURN_IF_ERROR(static_cast<VParquetTransformer*>(_file_format_transformer.get())

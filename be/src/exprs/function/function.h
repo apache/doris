@@ -42,6 +42,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "storage/index/inverted/inverted_index_iterator.h" // IWYU pragma: keep
@@ -56,6 +57,7 @@ namespace doris {
 
 struct FunctionAttr {
     bool new_version_unix_timestamp {false};
+    bool new_version_bitmap_op_count {false};
 };
 
 #define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                             \
@@ -234,6 +236,20 @@ public:
                                                         const VExprSPtrs& function_arguments) const;
 
     virtual bool can_evaluate_zonemap_filter(const VExprSPtrs& /*function_arguments*/) const {
+        return false;
+    }
+
+    virtual ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx, const VExprSPtrs& function_arguments) const;
+
+    virtual bool can_evaluate_dictionary_filter(const VExprSPtrs& /*function_arguments*/) const {
+        return false;
+    }
+
+    virtual ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
+                                                      const VExprSPtrs& function_arguments) const;
+
+    virtual bool can_evaluate_bloom_filter(const VExprSPtrs& /*function_arguments*/) const {
         return false;
     }
 };
@@ -511,6 +527,24 @@ public:
         return function->can_evaluate_zonemap_filter(function_arguments);
     }
 
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx, const VExprSPtrs& function_arguments) const override {
+        return function->evaluate_dictionary_filter(ctx, function_arguments);
+    }
+
+    bool can_evaluate_dictionary_filter(const VExprSPtrs& function_arguments) const override {
+        return function->can_evaluate_dictionary_filter(function_arguments);
+    }
+
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
+                                              const VExprSPtrs& function_arguments) const override {
+        return function->evaluate_bloom_filter(ctx, function_arguments);
+    }
+
+    bool can_evaluate_bloom_filter(const VExprSPtrs& function_arguments) const override {
+        return function->can_evaluate_bloom_filter(function_arguments);
+    }
+
 private:
     std::shared_ptr<IFunction> function;
     DataTypes arguments;
@@ -646,6 +680,9 @@ using FunctionPtr = std::shared_ptr<IFunction>;
   * Or ColumnConst(ColumnNullable) if the result is always NULL or if the result is constant and always not NULL.
   */
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
+                           size_t input_rows_count);
+ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
+                           const NullableColumnInfos& nullable_column_infos,
                            size_t input_rows_count);
 
 } // namespace doris

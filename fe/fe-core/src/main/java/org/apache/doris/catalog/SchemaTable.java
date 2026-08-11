@@ -706,6 +706,7 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("COMPUTE_GROUP", ScalarType.createStringType())
+                                    .column("FIRST_ERROR_MSG", ScalarType.createStringType())
                                     .build())
             )
             // Unified import task view. Covers Broker Load, Insert Into Select, Stream Load, etc.
@@ -860,6 +861,14 @@ public class SchemaTable extends Table {
                             .column("ALTER_USER", ScalarType.createStringType())
                             .column("MODIFY_TIME", ScalarType.createStringType())
                             .build()))
+            .put("extensions",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "extensions", TableType.SCHEMA,
+                        builder().column("EXTENSION_NAME", ScalarType.createStringType())
+                            .column("EXTENSION_TYPE", ScalarType.createStringType())
+                            .column("EXTENSION_VERSION", ScalarType.createStringType())
+                            .column("SOURCE", ScalarType.createStringType())
+                            .column("DESCRIPTION", ScalarType.createStringType())
+                            .build()))
             .put("table_streams",
                     new SchemaTable(SystemIdGenerator.getNextId(), "table_streams", TableType.SCHEMA,
                             builder().column("DB_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
@@ -886,6 +895,16 @@ public class SchemaTable extends Table {
                             .column("LAG", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("LAST_CONSUMPTION_TIME", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))
+            .put("tso_status",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "tso_status", TableType.SCHEMA,
+                            builder().column("WINDOW_END_PHYSICAL_TIME",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_TSO", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_TSO_PHYSICAL_TIME",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_TSO_LOGICAL_COUNTER",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build()))
             .put("be_compaction_tasks",
                     new SchemaTable(SystemIdGenerator.getNextId(), "be_compaction_tasks", TableType.SCHEMA,
                             builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))

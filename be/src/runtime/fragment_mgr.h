@@ -54,6 +54,7 @@ extern bvar::Status<uint64_t> g_fragment_last_active_time;
 class PipelineFragmentContext;
 class QueryContext;
 class ExecEnv;
+struct FrontendInfo;
 class ThreadPool;
 class PExecPlanFragmentStartRequest;
 class PMergeFilterRequest;
@@ -228,8 +229,10 @@ private:
 
     // Saved params and callback for rerunnable (recursive CTE) fragments.
     // Only populated when need_notify_close == true during exec_plan_fragment.
-    // Lifecycle: created in exec_plan_fragment(), used in rerun_fragment(rebuild)
-    // to recreate PFC with fresh state, cleaned up in remove_query_context().
+    // Lifecycle: created in exec_plan_fragment(), retained across wait/rebuild/submit rounds,
+    // and removed after a successful final_close. remove_query_context() and stop() provide
+    // fallback cleanup. Entries are detached under _rerunnable_params_lock and destroyed afterward;
+    // releasing their last QueryContext reference can call FragmentMgr::remove_query_context().
     struct RerunableFragmentInfo {
         // Runtime filter IDs registered by the old PFC, collected during wait_for_destroy.
         // These are deregistered from the RuntimeFilterMgr before the new PFC is created.

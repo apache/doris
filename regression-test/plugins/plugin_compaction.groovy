@@ -20,20 +20,24 @@ import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility;
 
 Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_id  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id))
+    return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id),
+            null, 10, context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 Suite.metaClass.be_get_overall_compaction_status{ String ip, String port  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
+    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port),
+            null, 10, context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 Suite.metaClass.be_show_tablet_status{ String ip, String port, String tablet_id  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id))
+    return curl("GET", String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id),
+            null, 10, context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 Suite.metaClass._be_run_compaction = { String ip, String port, String tablet_id, String compact_type ->
     return curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=%s",
-            ip, port, tablet_id, compact_type))
+            ip, port, tablet_id, compact_type), null, 10,
+            context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 Suite.metaClass.be_run_base_compaction = { String ip, String port, String tablet_id  /* param */->
@@ -52,19 +56,15 @@ Suite.metaClass.be_run_full_compaction = { String ip, String port, String tablet
     return _be_run_compaction(ip, port, tablet_id, "full")
 }
 
-Suite.metaClass.be_run_binlog_compaction = { String ip, String port, String tablet_id  /* param */->
-    return _be_run_compaction(ip, port, tablet_id, "binlog")
-}
-
 Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, String table_id  /* param */->
-    return curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id))
+    return curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id),
+            null, 10, context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 logger.info("Added 'be_run_full_compaction' function to Suite")
-logger.info("Added 'be_run_binlog_compaction' function to Suite")
 Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type, int timeout_seconds=300, String[] ignored_errors=[] ->
-    if (!(compaction_type in ["cumulative", "base", "full", "binlog"])) {
-        throw new IllegalArgumentException("invalid compaction type: ${compaction_type}, supported types: cumulative, base, full, binlog")
+    if (!(compaction_type in ["cumulative", "base", "full"])) {
+        throw new IllegalArgumentException("invalid compaction type: ${compaction_type}, supported types: cumulative, base, full")
     }
 
     def backendId_to_backendIP = [:]
@@ -102,9 +102,6 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             case "full":
                 (exit_code, stdout, stderr) = be_run_full_compaction(be_host, be_port, tablet.TabletId)
                 break
-            case "binlog":
-                (exit_code, stdout, stderr) = be_run_binlog_compaction(be_host, be_port, tablet.TabletId)
-                break
         }
         assert exit_code == 0: "trigger compaction failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
         def trigger_status = parseJson(stdout.trim())
@@ -114,8 +111,14 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 triggered_tablets.add(tablet) // compaction already in queue, treat it as successfully triggered
             } else if (!auto_compaction_disabled) {
                 // ignore the error if auto compaction enabled
-            } else if (status_lower.contains("e-2000") || status_lower.contains("e-2010")) {
+            } else if (status_lower.contains("e-2000") || status_lower.contains("e-2010")
+                    || status_lower.contains("e-808")) {
                 // ignore this tablet compaction.
+                // e-2000/e-2010: cumulative has no suitable version;
+                // e-808 (BE_NO_SUITABLE_VERSION): base compaction has nothing to merge on this
+                // replica (e.g. only [0-1]+[2-y] with an empty [0-1]) — a by-design no-op, the
+                // base analogue of e-2000. Replica layouts can legitimately diverge here when a
+                // lagging publish made an earlier cumulative trigger a no-op on one replica.
             } else if (ignored_errors.any { error -> status_lower.contains(error.toLowerCase()) }) {
                 // ignore this tablet compaction if the error is in the ignored_errors list
             } else {
@@ -163,12 +166,17 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                     def newCumulativePoint = toLongOrNull(tabletStatus["cumulative point"])
                     def lastCumulativeStatus = "${tabletStatus["last cumulative status"]}".toLowerCase()
                     def baseSuccessTimeChanged = oldStatus["last base success time"] != tabletStatus["last base success time"]
+                    def cumulativeSuccessTimeChanged =
+                            oldStatus["last cumulative success time"] != tabletStatus["last cumulative success time"]
                     // E-2010 advances the cumulative point and lets base compaction handle delete-version rowsets.
+                    // In some timing windows, base success is already visible in the cached old status while
+                    // cumulative success advances later, so accept either success signal but not failure time alone.
                     handedOffToBaseCompactionAfterDeleteVersion = lastCumulativeStatus.contains("e-2010") &&
                             oldCumulativePoint != null && newCumulativePoint != null &&
                             newCumulativePoint > oldCumulativePoint
                     completedByBaseCompactionAfterDeleteVersion =
-                            handedOffToBaseCompactionAfterDeleteVersion && baseSuccessTimeChanged
+                            handedOffToBaseCompactionAfterDeleteVersion &&
+                            (baseSuccessTimeChanged || cumulativeSuccessTimeChanged)
                 }
                 def success_time_unchanged = (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
                 def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])

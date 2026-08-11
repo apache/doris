@@ -68,6 +68,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -100,6 +101,11 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
     /** Whether path-style (vs virtual-hosted-style) bucket access is configured. */
     public boolean isUsePathStyle() {
         return properties.isUsePathStyle();
+    }
+
+    /** Returns the URI schemes this provider accepts (e.g. {@code {obs, s3, s3a}}). */
+    public Set<String> getSupportedSchemes() {
+        return properties.getSupportedSchemes();
     }
 
     @Override
@@ -141,7 +147,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     @Override
     public RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         ListObjectsRequest request = new ListObjectsRequest(uri.bucket());
         request.setPrefix(uri.key());
         if (options != null) {
@@ -171,7 +177,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     @Override
     public RemoteObject headObject(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             ObjectMetadata metadata = getClient().getObjectMetadata(uri.bucket(), uri.key());
             return new RemoteObject(uri.key(), uri.key(), metadata.getEtag(), contentLength(metadata),
@@ -186,7 +192,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     @Override
     public void putObject(String remotePath, RequestBody requestBody) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try (InputStream content = requestBody.content()) {
             PutObjectRequest request = new PutObjectRequest(uri.bucket(), uri.key(), content);
             ObjectMetadata metadata = new ObjectMetadata();
@@ -201,7 +207,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     @Override
     public void deleteObject(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             getClient().deleteObject(uri.bucket(), uri.key());
         } catch (ObsException e) {
@@ -214,8 +220,8 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     @Override
     public void copyObject(String srcPath, String dstPath) throws IOException {
-        ObjectStorageUri src = ObjectStorageUri.parse(srcPath, false);
-        ObjectStorageUri dst = ObjectStorageUri.parse(dstPath, false);
+        ObjectStorageUri src = ObjectStorageUri.parse(srcPath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri dst = ObjectStorageUri.parse(dstPath, isUsePathStyle(), getSupportedSchemes());
         try {
             getClient().copyObject(new CopyObjectRequest(
                     src.bucket(), src.key(), dst.bucket(), dst.key()));
@@ -227,7 +233,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     @Override
     public String initiateMultipartUpload(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             InitiateMultipartUploadResult result = getClient().initiateMultipartUpload(
                     new InitiateMultipartUploadRequest(uri.bucket(), uri.key()));
@@ -241,7 +247,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
     @Override
     public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
             RequestBody body) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try (InputStream content = body.content()) {
             com.obs.services.model.UploadPartRequest request =
                     new com.obs.services.model.UploadPartRequest(uri.bucket(), uri.key());
@@ -261,7 +267,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
     @Override
     public void completeMultipartUpload(String remotePath, String uploadId,
             List<UploadPartResult> parts) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         List<PartEtag> partEtags = parts.stream()
                 .map(part -> new PartEtag(part.etag(), part.partNumber()))
                 .collect(Collectors.toList());
@@ -276,7 +282,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     @Override
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             getClient().abortMultipartUpload(new AbortMultipartUploadRequest(
                     uri.bucket(), uri.key(), uploadId));
@@ -288,7 +294,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     @Override
     public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             GetObjectRequest request = new GetObjectRequest(uri.bucket(), uri.key());
             if (fromByte > 0) {
@@ -382,7 +388,7 @@ public class ObsObjStorage implements ObjStorage<ObsClient> {
             request.setHeaders(new HashMap<>());
             TemporarySignatureResponse response = getClient().createTemporarySignature(request);
             String url = response.getSignedUrl();
-            LOG.info("Generated OBS temporary signature URL for key={}", objectKey);
+            LOG.debug("Generated OBS temporary signature URL for key={}", objectKey);
             return url;
         } catch (ObsException e) {
             throw new IOException("Failed to generate OBS presigned URL: " + e.getMessage(), e);

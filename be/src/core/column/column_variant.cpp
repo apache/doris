@@ -51,6 +51,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_column_utils.h"
 #include "core/data_type/convert_field_to_type.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_decimal.h"
@@ -59,6 +60,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/field.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
@@ -72,7 +74,6 @@
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_parser_simd.h"
-#include "util/jsonb_utils.h"
 #include "util/simd/bits.h"
 #include "util/unaligned.h"
 
@@ -141,6 +142,9 @@ size_t get_number_of_dimensions(const IDataType& type) {
 // which indicates NG-originated array<object> data.
 bool is_nested_group_type(const DataTypePtr& type) {
     auto base = get_base_type_of_array(type);
+    if (get_number_of_dimensions(*type) > 0) {
+        base = remove_nullable(base);
+    }
     return typeid_cast<const DataTypeVariant*>(base.get()) != nullptr;
 }
 
@@ -825,6 +829,20 @@ size_t ColumnVariant::allocated_bytes() const {
     return res;
 }
 
+bool ColumnVariant::is_exclusive() const {
+    if (!IColumn::is_exclusive()) {
+        return false;
+    }
+    for (const auto& entry : subcolumns) {
+        for (const auto& part : entry->data.data) {
+            if (!part->is_exclusive()) {
+                return false;
+            }
+        }
+    }
+    return serialized_sparse_column->is_exclusive() && serialized_doc_value_column->is_exclusive();
+}
+
 void ColumnVariant::mutate_subcolumns() {
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
@@ -871,7 +889,7 @@ void ColumnVariant::insert_from(const IColumn& src, size_t n) {
 
 void ColumnVariant::try_insert(const Field& field) {
     size_t old_size = size();
-    const auto& object = field.get<TYPE_VARIANT>();
+    const auto& object = field.get<TYPE_VARIANT>().legacy_map();
     for (const auto& [key, value] : object) {
         if (key.get_path() == "__DORIS_VARIANT_DOC_VALUE__") {
             insert_to_doc_value_column(value.field);
@@ -1062,7 +1080,7 @@ void ColumnVariant::get(size_t n, Field& res) const {
                                size());
     }
     res = Field::create_field<TYPE_VARIANT>(VariantMap());
-    auto& object = res.get<TYPE_VARIANT>();
+    auto& object = res.get<TYPE_VARIANT>().legacy_map();
 
     for (const auto& entry : subcolumns) {
         FieldWithDataType field;
@@ -1110,7 +1128,7 @@ void ColumnVariant::try_get_from_doc_value_column(size_t n, Field& res) const {
     CHECK(subcolumns.size() == 1) << "subcolumns size should be 1";
     FieldWithDataType field_with_data_type;
     serialized_doc_value_column->get(n, field_with_data_type.field);
-    auto& object = res.get<TYPE_VARIANT>();
+    auto& object = res.get<TYPE_VARIANT>().legacy_map();
     object.try_emplace(PathInData("__DORIS_VARIANT_DOC_VALUE__"), std::move(field_with_data_type));
 }
 
@@ -1691,31 +1709,6 @@ enum class NestedJsonSkipKind {
     kInvalidType,
 };
 
-static bool is_semantically_empty_jsonb_value(const JsonbValue* value) {
-    if (value == nullptr || value->isNull()) {
-        return true;
-    }
-    if (value->isArray()) {
-        const auto* array = value->unpack<ArrayVal>();
-        for (auto it = array->begin(); it != array->end(); ++it) {
-            if (!is_semantically_empty_jsonb_value(&*it)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    if (value->isObject()) {
-        const auto* object = value->unpack<ObjectVal>();
-        for (auto it = object->begin(); it != object->end(); ++it) {
-            if (!is_semantically_empty_jsonb_value(it->value())) {
-                return false;
-            }
-        }
-        return true;
-    }
-    return false;
-}
-
 static bool is_semantically_empty_nested_field(const Field& field) {
     switch (field.get_type()) {
     case PrimitiveType::TYPE_NULL:
@@ -1730,7 +1723,7 @@ static bool is_semantically_empty_nested_field(const Field& field) {
         return true;
     }
     case PrimitiveType::TYPE_VARIANT: {
-        const auto& object = field.get<TYPE_VARIANT>();
+        const auto& object = field.get<TYPE_VARIANT>().legacy_map();
         for (const auto& [_, value] : object) {
             if (!is_semantically_empty_nested_field(value.field)) {
                 return false;
@@ -1746,7 +1739,7 @@ static bool is_semantically_empty_nested_field(const Field& field) {
         if (!st.ok() || doc == nullptr) {
             return false;
         }
-        return is_semantically_empty_jsonb_value(doc->getValue());
+        return is_variant_jsonb_value_semantically_empty(doc->getValue());
     }
     default:
         return false;
@@ -1833,6 +1826,11 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
         if (!subcolumn->data.is_null_at(nrow)) {
             return false;
         }
+    }
+
+    const auto& sparse_offsets = serialized_sparse_column_offsets();
+    if (sparse_offsets[nrow - 1] != sparse_offsets[nrow]) {
+        return false;
     }
 
     const auto& doc_value_column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
@@ -2689,64 +2687,12 @@ bool ColumnVariant::try_insert_default_from_nested(const Subcolumns::NodePtr& en
     return true;
 }
 
-size_t ColumnVariant::find_path_lower_bound_in_sparse_data(StringRef path,
-                                                           const ColumnString& sparse_data_paths,
-                                                           size_t start, size_t end) {
-    // Simple random access iterator over values in ColumnString in specified range.
-    class Iterator {
-    public:
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-local-typedefs"
-        using difference_type = std::ptrdiff_t;
-        using value_type = StringRef;
-        using iterator_category = std::random_access_iterator_tag;
-        using pointer = StringRef*;
-        using reference = StringRef&;
-#pragma GCC diagnostic pop
-
-        Iterator() = delete;
-        Iterator(const ColumnString* data_, size_t index_) : data(data_), index(index_) {}
-        Iterator(const Iterator& rhs) = default;
-        Iterator& operator=(const Iterator& rhs) = default;
-        inline Iterator& operator+=(difference_type rhs) {
-            index += rhs;
-            return *this;
-        }
-        inline StringRef operator*() const { return data->get_data_at(index); }
-
-        inline Iterator& operator++() {
-            ++index;
-            return *this;
-        }
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-member-function"
-#endif
-        inline Iterator& operator--() {
-            --index;
-            return *this;
-        }
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
-        inline difference_type operator-(const Iterator& rhs) const { return index - rhs.index; }
-
-        const ColumnString* data;
-        size_t index;
-    };
-
-    Iterator start_it(&sparse_data_paths, start);
-    Iterator end_it(&sparse_data_paths, end);
-    auto it = std::lower_bound(start_it, end_it, path);
-    return it.index;
-}
-
 void ColumnVariant::Subcolumn::deserialize_from_binary_column(const ColumnString* value,
                                                               size_t row) {
     const auto& data_ref = value->get_data_at(row);
     const auto* start_data = reinterpret_cast<const uint8_t*>(data_ref.data);
     const PrimitiveType type =
-            TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*start_data));
+            storage_field_type_to_primitive_type(static_cast<FieldType>(*start_data));
     auto check_end = [&](const uint8_t* end_ptr) {
         DCHECK_EQ(end_ptr - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
     };
@@ -2779,6 +2725,26 @@ void ColumnVariant::Subcolumn::deserialize_from_binary_column(const ColumnString
     }
 }
 
+void ColumnVariant::Subcolumn::deserialize_nullable_from_binary_column(const ColumnString* value,
+                                                                       size_t row) {
+    auto [field, info] = ColumnVariant::deserialize_from_binary_column(value, row);
+    bool is_null = field.get_type() == PrimitiveType::TYPE_NULL;
+    if (field.get_type() == PrimitiveType::TYPE_JSONB) {
+        const auto& jsonb = field.get<TYPE_JSONB>();
+        const JsonbDocument* document = nullptr;
+        const Status status = JsonbDocument::checkAndCreateDocument(jsonb.get_value(),
+                                                                    jsonb.get_size(), &document);
+        DORIS_CHECK(status.ok()) << status;
+        DORIS_CHECK(document != nullptr);
+        is_null = document->getValue()->isNull();
+    }
+    if (is_null) {
+        insert_default();
+    } else {
+        insert(std::move(field), std::move(info));
+    }
+}
+
 void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, NullMap* null_map,
                                                       StringRef path,
                                                       const ColumnPtr& sparse_data_column,
@@ -2801,13 +2767,14 @@ void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, Null
     for (size_t i = start; i != end; ++i) {
         size_t paths_start = sparse_data_offsets[static_cast<ssize_t>(i) - 1];
         size_t paths_end = sparse_data_offsets[static_cast<ssize_t>(i)];
-        auto lower_bound_path_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
-                path, sparse_data_paths, paths_start, paths_end);
+        auto lower_bound_path_index = find_variant_sparse_path_lower_bound(path, sparse_data_paths,
+                                                                           paths_start, paths_end);
         bool is_null = false;
         if (lower_bound_path_index != paths_end &&
             sparse_data_paths.get_data_at(lower_bound_path_index) == path) {
-            subcolumn.deserialize_from_binary_column(&sparse_data_values, lower_bound_path_index);
-            is_null = false;
+            subcolumn.deserialize_nullable_from_binary_column(&sparse_data_values,
+                                                              lower_bound_path_index);
+            is_null = subcolumn.is_null_at(subcolumn.size() - 1);
         } else {
             subcolumn.insert_default();
             is_null = true;

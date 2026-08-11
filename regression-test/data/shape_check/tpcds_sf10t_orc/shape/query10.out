@@ -27,7 +27,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[customer(c)] apply RFs: RF4 RF5
 --------------------------------PhysicalProject
-----------------------------------filter(ca_county IN ('Bonneville County', 'Boone County', 'Brown County', 'Fillmore County', 'McPherson County'))
+----------------------------------filter(ca.ca_county IN ('Bonneville County', 'Boone County', 'Brown County', 'Fillmore County', 'McPherson County'))
 ------------------------------------PhysicalOlapScan[customer_address(ca)]
 ----------------------------PhysicalOlapScan[customer_demographics]
 ------------------------PhysicalProject

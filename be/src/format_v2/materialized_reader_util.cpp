@@ -20,7 +20,9 @@
 #include <utility>
 
 #include "core/block/block.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/types.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/file_reader.h"
 #include "io/io_common.h"
@@ -54,8 +56,28 @@ Status apply_materialized_reader_filters(const FileScanRequest* request, io::IOC
     if (request != nullptr && rows_before_filter > 0 && !request->delete_conjuncts.empty()) {
         {
             SCOPED_TIMER(profile == nullptr ? nullptr : profile->delete_conjunct_filter_time);
-            RETURN_IF_ERROR(VExprContext::filter_block(request->delete_conjuncts, file_block,
-                                                       file_block->columns()));
+            // Delete conjuncts use the opposite polarity from ordinary predicates: TRUE marks a
+            // row for deletion. Multiple delete files are combined as a union, so a row remains
+            // visible only when every delete conjunct returns FALSE.
+            IColumn::Filter keep_filter(rows_before_filter, 1);
+            for (const auto& delete_conjunct : request->delete_conjuncts) {
+                DORIS_CHECK(delete_conjunct != nullptr);
+                int result_column_id = -1;
+                RETURN_IF_ERROR(delete_conjunct->root()->execute(delete_conjunct.get(), file_block,
+                                                                 &result_column_id));
+                DORIS_CHECK(result_column_id >= 0 &&
+                            result_column_id < static_cast<int>(file_block->columns()));
+                const auto& delete_filter =
+                        assert_cast<const ColumnUInt8&>(
+                                *file_block->get_by_position(result_column_id).column)
+                                .get_data();
+                DORIS_CHECK(delete_filter.size() == rows_before_filter);
+                for (size_t row = 0; row < rows_before_filter; ++row) {
+                    keep_filter[row] &= !delete_filter[row];
+                }
+                file_block->erase(result_column_id);
+            }
+            RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(file_block, keep_filter));
         }
         rows_after_delete_filter =
                 file_block->columns() == 0 ? rows_before_filter : file_block->rows();

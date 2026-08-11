@@ -19,6 +19,7 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -65,6 +66,12 @@ public class MTMVPartitionUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVPartitionUtil.class);
     private static final Pattern PARTITION_NAME_PATTERN = Pattern.compile("[^a-zA-Z0-9,]");
     private static final String PARTITION_NAME_PREFIX = "p_";
+    // A genuine-NULL list value and a literal 'NULL' string both render to the text "NULL" once
+    // PartitionKeyDesc quotes every value and PARTITION_NAME_PATTERN strips the quotes, so a column holding
+    // both would generate two partitions named p_NULL and fail the uniqueness check. Null-bearing partitions
+    // use this "pn_" prefix instead: string values always yield a "p_" name (second char '_'), so a "pn_"
+    // name (second char 'n') can never collide, keeping the real-NULL and 'NULL'-string partitions distinct.
+    private static final String PARTITION_NAME_NULL_PREFIX = "pn_";
 
     private static final List<MTMVRelatedPartitionDescGeneratorService> partitionDescGenerators = ImmutableList
             .of(
@@ -363,12 +370,33 @@ public class MTMVPartitionUtil {
      */
     public static String generatePartitionName(PartitionKeyDesc desc) {
         Matcher matcher = PARTITION_NAME_PATTERN.matcher(desc.toSql());
-        String partitionName = PARTITION_NAME_PREFIX + matcher.replaceAll("").replaceAll("\\,", "_");
+        String prefix = hasNullPartitionValue(desc) ? PARTITION_NAME_NULL_PREFIX : PARTITION_NAME_PREFIX;
+        String partitionName = prefix + matcher.replaceAll("").replaceAll("\\,", "_");
         if (partitionName.length() > 50) {
             partitionName = partitionName.substring(0, 30) + Math.abs(Objects.hash(partitionName))
                     + "_" + System.currentTimeMillis();
         }
         return partitionName;
+    }
+
+    /**
+     * Whether the list-partition desc carries a genuine-NULL value ({@link PartitionValue#isNullPartition()}).
+     * Such a partition must be named with {@link #PARTITION_NAME_NULL_PREFIX} so it never collides with a
+     * literal 'NULL' string partition (both otherwise render to the same p_NULL name). Range/other descs have
+     * no in-values and are never null-bearing here.
+     */
+    private static boolean hasNullPartitionValue(PartitionKeyDesc desc) {
+        if (!desc.hasInValues()) {
+            return false;
+        }
+        for (List<PartitionValue> values : desc.getInValues()) {
+            for (PartitionValue value : values) {
+                if (value.isNullPartition()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

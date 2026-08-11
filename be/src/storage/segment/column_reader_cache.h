@@ -16,11 +16,18 @@
 // under the License.
 #pragma once
 
+#include <optional>
+
 #include "agent/be_exec_version_manager.h"
+#include "core/field.h"
 #include "io/fs/file_reader.h"
 #include "storage/segment/stream_reader.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "util/json/path_in_data.h"
+
+namespace doris::io {
+struct IOContext;
+} // namespace doris::io
 
 namespace doris::segment_v2 {
 
@@ -45,11 +52,11 @@ public:
     // Main constructor used in production: cache is bound to a specific segment's
     // ColumnMetaAccessor, TabletSchema, file reader and row count, plus a footer
     // getter callback (Segment::_get_segment_footer).
-    ColumnReaderCache(
-            ColumnMetaAccessor* accessor, TabletSchemaSPtr tablet_schema,
-            io::FileReaderSPtr file_reader, uint64_t num_rows,
-            std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*)>
-                    get_footer_cb);
+    ColumnReaderCache(ColumnMetaAccessor* accessor, TabletSchemaSPtr tablet_schema,
+                      io::FileReaderSPtr file_reader, uint64_t num_rows,
+                      std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*,
+                                           const io::IOContext*)>
+                              get_footer_cb);
     virtual ~ColumnReaderCache();
     // Get all available readers
     // if include_subcolumns is true, return all available readers, including subcolumn readers
@@ -58,13 +65,15 @@ public:
 
     // Get column reader by column unique id
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats);
+                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
+                             std::optional<Field> const_value = std::nullopt);
 
     // Get column reader by column unique id and path(leaf node of variant's subcolumn)
     virtual Status get_path_column_reader(int32_t col_uid, PathInData relative_path,
                                           std::shared_ptr<ColumnReader>* column_reader,
                                           OlapReaderStatistics* stats,
-                                          const SubcolumnColumnMetaInfo::Node* node_hint = nullptr);
+                                          const SubcolumnColumnMetaInfo::Node* node_hint = nullptr,
+                                          const io::IOContext* io_ctx = nullptr);
 
 private:
     // Lookup function remains similar
@@ -91,7 +100,9 @@ private:
     io::FileReaderSPtr _file_reader;
     uint64_t _num_rows = 0;
     // Callback to get footer, usually bound to Segment::_get_segment_footer.
-    std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*)> _get_footer_cb;
+    std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*,
+                         const io::IOContext*)>
+            _get_footer_cb;
 };
 
 } // namespace doris::segment_v2

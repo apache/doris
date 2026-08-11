@@ -23,6 +23,8 @@
 
 #include <vector>
 
+#include "core/custom_allocator.h"
+
 namespace doris {
 
 class TupleDescriptor;
@@ -42,6 +44,8 @@ struct WriteRequest {
     int64_t txn_expiration = 0; // For cloud mode
     int64_t index_id = 0;
     int64_t partition_id = 0;
+    // the row binlog tablet id written together with this base tablet, 0 means no binlog.
+    int64_t binlog_tablet_id = 0;
     PUniqueId load_id;
     TupleDescriptor* tuple_desc = nullptr;
     // slots are in order of tablet's schema
@@ -51,6 +55,12 @@ struct WriteRequest {
     bool write_file_cache = false;
     WriteRequestType write_req_type = WriteRequestType::DATA;
     std::string storage_vault_id;
+    bool enable_table_memtable_backpressure = false;
+};
+
+struct TabletAddRowsPayload {
+    DorisVector<uint32_t> row_idxs;
+    DorisVector<int64_t> row_binlog_lsns = {};
 };
 
 } // namespace doris

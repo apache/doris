@@ -17,7 +17,7 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 ----------------------------PhysicalProject
-------------------------------filter(i_category IN ('Home', 'Men', 'Sports'))
+------------------------------filter(item.i_category IN ('Home', 'Men', 'Sports'))
 --------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalProject
 --------------------------filter((date_dim.d_date <= '2002-02-04') and (date_dim.d_date >= '2002-01-05'))

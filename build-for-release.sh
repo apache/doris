@@ -127,7 +127,6 @@ rm -rf "${ORI_OUTPUT}"
 FE="fe"
 BE="be"
 CLOUD="ms"
-EXT="extensions"
 TOOLS="tools"
 PACKAGE="apache-doris-${VERSION}-bin-${ARCH}"
 
@@ -137,7 +136,6 @@ fi
 
 OUTPUT="${ORI_OUTPUT}/${PACKAGE}"
 OUTPUT_FE="${OUTPUT}/${FE}"
-OUTPUT_EXT="${OUTPUT}/${EXT}"
 OUTPUT_BE="${OUTPUT}/${BE}"
 OUTPUT_CLOUD="${OUTPUT}/${CLOUD}"
 OUTPUT_TOOLS="${OUTPUT}/${TOOLS}"
@@ -146,7 +144,6 @@ echo "Package Name:"
 echo "FE:    ${OUTPUT_FE}"
 echo "BE:    ${OUTPUT_BE}"
 echo "CLOUD: ${OUTPUT_CLOUD}"
-echo "JAR:   ${OUTPUT_EXT}"
 
 sh build.sh --clean &&
     USE_AVX2="${_USE_AVX2}" sh build.sh &&
@@ -154,13 +151,10 @@ sh build.sh --clean &&
 
 echo "Begin to pack"
 rm -rf "${OUTPUT}"
-mkdir -p "${OUTPUT_FE}" "${OUTPUT_BE}" "${OUTPUT_EXT}" "${OUTPUT_CLOUD}" "${OUTPUT_TOOLS}"
+mkdir -p "${OUTPUT_FE}" "${OUTPUT_BE}" "${OUTPUT_CLOUD}" "${OUTPUT_TOOLS}"
 
 # FE
 cp -R "${ORI_OUTPUT}"/fe/* "${OUTPUT_FE}"/
-
-# EXT
-cp -R "${ORI_OUTPUT}"/apache_hdfs_broker "${OUTPUT_EXT}"/apache_hdfs_broker
 
 # BE
 cp -R "${ORI_OUTPUT}"/be/* "${OUTPUT_BE}"/

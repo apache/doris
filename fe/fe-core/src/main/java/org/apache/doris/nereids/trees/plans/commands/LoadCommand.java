@@ -34,7 +34,8 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -394,9 +395,8 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         if (dataDescriptions == null || dataDescriptions.isEmpty()) {
             throw new AnalysisException("No data file in load statement.");
         }
-        // check data descriptions, support 2 cases bellow:
-        // case 1: multi file paths, multi data descriptions
-        // case 2: one hive table, one data description
+        // check data descriptions (multi file paths, multi data descriptions).
+        // note: load-from-external-table (Spark Load) is deprecated and rejected below.
         boolean isLoadFromTable = false;
         for (NereidsDataDescription dataDescription : dataDescriptions) {
             if (brokerDesc == null && resourceDesc == null) {
@@ -456,11 +456,15 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
+            // "Object storage" here means an S3-compatible binding (S3/OSS/OBS/COS/GCS/MinIO/
+            // Ozone) — the exact implementor set of the legacy object-storage marker interface;
+            // Azure deliberately stays excluded, matching the legacy instanceof check.
+            StorageAdapter storageAdapter = brokerDesc.getStorageAdapter();
             if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
-                    && brokerDesc.getStorageProperties() instanceof ObjectStorageProperties) {
+                    && storageAdapter != null
+                    && storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {
                 //@zykkk todo We should use a unified connectivity check — it doesn’t really belong here.
-                ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
-                String endpoint = storageProperties.getEndpoint();
+                String endpoint = ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint();
                 S3Util.validateAndTestEndpoint(endpoint);
             }
         } else {

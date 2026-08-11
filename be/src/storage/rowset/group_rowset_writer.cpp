@@ -68,9 +68,22 @@ Status GroupRowsetWriter::flush_memtable(Block* block, int32_t segment_id, int64
 }
 
 Status GroupRowsetWriter::flush_single_block(const Block* block) {
-    RETURN_IF_ERROR(_txn_rowset_writer->flush_single_block(block));
-    RETURN_IF_ERROR(_row_binlog_rowset_writer->flush_single_block(block));
+    return flush_single_block(block, allocate_segment_id());
+}
+
+Status GroupRowsetWriter::flush_single_block(const Block* block, int32_t segment_id) {
+    RETURN_IF_ERROR(_txn_rowset_writer->flush_single_block(block, segment_id));
+    RETURN_IF_ERROR(_row_binlog_rowset_writer->flush_single_block(block, segment_id));
     return Status::OK();
+}
+
+int32_t GroupRowsetWriter::allocate_segment_id() {
+    DCHECK(_txn_rowset_writer != nullptr);
+    DCHECK(_row_binlog_rowset_writer != nullptr);
+    auto segment_id = _txn_rowset_writer->allocate_segment_id();
+    auto binlog_segment_id = _row_binlog_rowset_writer->allocate_segment_id();
+    DCHECK_EQ(segment_id, binlog_segment_id);
+    return segment_id;
 }
 
 } // namespace doris

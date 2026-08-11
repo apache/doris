@@ -125,6 +125,12 @@ public class DropIndexOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Dropping secondary index is allowed for row binlog tables.
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DROP INDEX ").append(indexName);

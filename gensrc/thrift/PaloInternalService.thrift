@@ -374,6 +374,8 @@ struct TQueryOptions {
 
   148: optional i32 min_scanners_concurrency = 1;
   149: optional i32 min_scan_scheduler_concurrency = 0; //deprecated
+  // Controls runtime-filter partition pruning for readers that honor this option.
+  // FileScannerV2 always enables safe partition pruning.
   150: optional bool enable_runtime_filter_partition_prune = true;
 
   // The minimum memory that an operator required to run.
@@ -501,18 +503,23 @@ struct TQueryOptions {
   // enable plan local exchange node in fe
   223: optional bool enable_local_shuffle_planner;
 
-  // To control whether BE scan readers may apply expression-based ZoneMap pruning.
+  // Controls expression-based ZoneMap pruning for readers that honor this option.
+  // FileScannerV2 always enables safe expression ZoneMap pruning.
   224: optional bool enable_expr_zonemap_filter = true
 
   225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
 
   226: optional bool enable_prune_nested_column = false;
+  227: optional bool new_version_bitmap_op_count = false;
+  228: optional bool enable_local_exchange_before_streaming_agg = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
   1002: optional bool enable_file_scanner_v2 = false
+  1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
+  1004: optional i64 file_cache_query_limit_bytes = -1
 }
 
 
@@ -634,6 +641,7 @@ struct TFoldConstantParams {
 struct TTabletWithPartition {
     1: required i64 partition_id
     2: required i64 tablet_id
+    3: optional i64 binlog_tablet_id
 }
 
 struct TFetchDataResult {
@@ -748,6 +756,7 @@ struct TPipelineFragmentParams {
 
   // For cloud
   1000: optional bool is_mow_table;
+  1001: optional bool enable_tso;
 }
 
 // pull up runtime filter info from instance level to BE level

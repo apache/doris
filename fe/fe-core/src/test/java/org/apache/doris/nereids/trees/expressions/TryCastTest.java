@@ -278,7 +278,9 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", DateTimeType.INSTANCE, false);
             TryCast cast = new TryCast(child, DateTimeType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.originCastNullable());
+            // TRY_CAST stays nullable, but its identity cast cannot produce NULL and BE must use a required
+            // intermediate result, matching Cast.castNullable's exact-type invariant.
+            Assertions.assertFalse(cast.originCastNullable());
         }
     }
 

@@ -16,16 +16,22 @@
 // under the License.
 #include "core/data_type_serde/data_type_serde.h"
 
-#include "common/cast_set.h"
+#include <vector>
+
+#include "common/check.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/data_type_array_serde.h"
 #include "core/data_type_serde/data_type_decimal_serde.h"
 #include "core/data_type_serde/data_type_jsonb_serde.h"
 #include "core/data_type_serde/data_type_number_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/field.h"
 #include "exprs/function/cast/cast_base.h"
 #include "runtime/descriptors.h"
@@ -69,6 +75,34 @@ Status DataTypeSerDe::read_column_from_decoded_values(IColumn& column,
             column, view,
             Status::NotSupported("read_column_from_decoded_values is not supported for {}",
                                  get_name()));
+}
+
+Status DataTypeSerDe::read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                               const ParquetDecodeContext& context,
+                                               size_t num_values,
+                                               ParquetMaterializationState& state) const {
+    return Status::NotSupported("read_column_from_parquet is not supported for {}", get_name());
+}
+
+bool DataTypeSerDe::supports_parquet_raw_predicate(const ParquetDecodeContext& context) const {
+    return false;
+}
+
+Status DataTypeSerDe::read_parquet_raw_predicate(ParquetDecodeSource& source,
+                                                 const ParquetDecodeContext& context,
+                                                 size_t num_values, bool enable_strict_mode,
+                                                 ParquetLogicalValueConsumer& consumer) const {
+    return Status::NotSupported("read_parquet_raw_predicate is not supported for {}", get_name());
+}
+
+Status DataTypeSerDe::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                              const ParquetDecodeContext& context) const {
+    return Status::NotSupported("read_parquet_dictionary is not supported for {}", get_name());
+}
+
+Status DataTypeSerDe::read_column_from_orc(IColumn& column,
+                                           const OrcDecodedColumnView& view) const {
+    return Status::NotSupported("read_column_from_orc is not supported for {}", get_name());
 }
 
 Status DataTypeSerDe::read_field_from_decoded_value(const IDataType& data_type, Field* field,
@@ -252,8 +286,11 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
         HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATE, TYPE_DATE)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL, TYPE_DECIMALV2)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)
@@ -281,7 +318,7 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
 const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, Field& field,
                                                           FieldInfo& info) {
     const FieldType type = static_cast<FieldType>(*data++);
-    info.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
+    info.scalar_type_id = storage_field_type_to_primitive_type(type);
     const uint8_t* end = data;
     switch (type) {
 #define HANDLE_SIMPLE_SERDE(FT, SERDE)                               \
@@ -314,8 +351,11 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
         HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATE, TYPE_DATE)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL, TYPE_DECIMALV2)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)

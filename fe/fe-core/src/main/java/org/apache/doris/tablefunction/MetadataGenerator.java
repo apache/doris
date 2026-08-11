@@ -46,9 +46,11 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.profile.RuntimeProfile;
@@ -57,19 +59,23 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.TablePartitionValues;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveExternalMetaCache;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
+import org.apache.doris.extension.loader.PluginRegistry;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
@@ -97,8 +103,6 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TFrontendsMetadataParams;
-import org.apache.doris.thrift.THudiMetadataParams;
-import org.apache.doris.thrift.THudiQueryType;
 import org.apache.doris.thrift.TJobsMetadataParams;
 import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
@@ -114,6 +118,8 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTasksMetadataParams;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.thrift.TUserIdentity;
+import org.apache.doris.tso.TSOService;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
@@ -122,8 +128,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
-import org.apache.hudi.common.table.timeline.HoodieInstant;
-import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -136,6 +140,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -166,11 +171,15 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> EXTENSIONS_COLUMN_TO_INDEX;
+
     private static final ImmutableMap<String, Integer> ROLE_MAPPINGS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> TABLE_STREAMS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> TSO_STATUS_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -259,6 +268,13 @@ public class MetadataGenerator {
         }
         AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX = authenticationIntegrationsBuilder.build();
 
+        ImmutableMap.Builder<String, Integer> extensionsBuilder = new ImmutableMap.Builder();
+        List<Column> extensionsColList = SchemaTable.TABLE_MAP.get("extensions").getFullSchema();
+        for (int i = 0; i < extensionsColList.size(); i++) {
+            extensionsBuilder.put(extensionsColList.get(i).getName().toLowerCase(), i);
+        }
+        EXTENSIONS_COLUMN_TO_INDEX = extensionsBuilder.build();
+
         ImmutableMap.Builder<String, Integer> roleMappingsBuilder = new ImmutableMap.Builder();
         List<Column> roleMappingsColList = SchemaTable.TABLE_MAP.get("role_mappings").getFullSchema();
         for (int i = 0; i < roleMappingsColList.size(); i++) {
@@ -281,6 +297,13 @@ public class MetadataGenerator {
             tableStreamConsumptionBuilder.put(tableStreamConsumptionBuilderColList.get(i).getName().toLowerCase(), i);
         }
         TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX = tableStreamConsumptionBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> tsoStatusBuilder = new ImmutableMap.Builder();
+        List<Column> tsoStatusColList = SchemaTable.TABLE_MAP.get("tso_status").getFullSchema();
+        for (int i = 0; i < tsoStatusColList.size(); i++) {
+            tsoStatusBuilder.put(tsoStatusColList.get(i).getName().toLowerCase(), i);
+        }
+        TSO_STATUS_COLUMN_TO_INDEX = tsoStatusBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -297,9 +320,6 @@ public class MetadataGenerator {
         TMetadataTableRequestParams params = request.getMetadaTableParams();
         TMetadataType metadataType = request.getMetadaTableParams().getMetadataType();
         switch (metadataType) {
-            case HUDI:
-                result = hudiMetadataResult(params);
-                break;
             case BACKENDS:
                 result = backendsMetadataResult(params);
                 break;
@@ -399,6 +419,10 @@ public class MetadataGenerator {
                 result = authenticationIntegrationsMetadataResult(schemaTableParams);
                 columnIndex = AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
                 break;
+            case EXTENSIONS:
+                result = extensionsMetadataResult(schemaTableParams);
+                columnIndex = EXTENSIONS_COLUMN_TO_INDEX;
+                break;
             case ROLE_MAPPINGS:
                 result = roleMappingsMetadataResult(schemaTableParams);
                 columnIndex = ROLE_MAPPINGS_COLUMN_TO_INDEX;
@@ -410,6 +434,10 @@ public class MetadataGenerator {
             case TABLE_STREAM_CONSUMPTION:
                 result = streamConsumptionMetadataResult(schemaTableParams);
                 columnIndex = TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
+                break;
+            case TSO_STATUS:
+                result = tsoStatusMetadataResult();
+                columnIndex = TSO_STATUS_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -425,61 +453,6 @@ public class MetadataGenerator {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
         result.status.addToErrorMsgs(msg);
-        return result;
-    }
-
-    private static TFetchSchemaTableDataResult hudiMetadataResult(TMetadataTableRequestParams params) {
-        if (!params.isSetHudiMetadataParams()) {
-            return errorResult("Hudi metadata params is not set.");
-        }
-
-        THudiMetadataParams hudiMetadataParams = params.getHudiMetadataParams();
-        THudiQueryType hudiQueryType = hudiMetadataParams.getHudiQueryType();
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(hudiMetadataParams.getCatalog());
-        if (catalog == null) {
-            return errorResult("The specified catalog does not exist:" + hudiMetadataParams.getCatalog());
-        }
-        if (!(catalog instanceof ExternalCatalog)) {
-            return errorResult("The specified catalog is not an external catalog: "
-                    + hudiMetadataParams.getCatalog());
-        }
-
-        ExternalTable dorisTable;
-        try {
-            dorisTable = (ExternalTable) catalog.getDbOrAnalysisException(hudiMetadataParams.getDatabase())
-                    .getTableOrAnalysisException(hudiMetadataParams.getTable());
-        } catch (AnalysisException e) {
-            return errorResult("The specified db or table does not exist");
-        }
-
-        if (!(dorisTable instanceof HMSExternalTable)) {
-            return errorResult("The specified table is not a hudi table: " + hudiMetadataParams.getTable());
-        }
-
-        HMSExternalTable hudiTable = (HMSExternalTable) dorisTable;
-        List<TRow> dataBatch = Lists.newArrayList();
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-
-        switch (hudiQueryType) {
-            case TIMELINE:
-                HoodieTimeline timeline = Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .hudi(catalog.getId())
-                        .getHoodieTableMetaClient(hudiTable.getOrBuildNameMapping())
-                        .getActiveTimeline();
-                for (HoodieInstant instant : timeline.getInstants()) {
-                    TRow trow = new TRow();
-                    trow.addToColumnValue(new TCell().setStringVal(instant.requestedTime()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getAction()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getState().name()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getCompletionTime()));
-                    dataBatch.add(trow);
-                }
-                break;
-            default:
-                return errorResult("Unsupported hudi inspect type: " + hudiQueryType);
-        }
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }
 
@@ -790,6 +763,31 @@ public class MetadataGenerator {
             row.addToColumnValue(new TCell().setStringVal(meta.getCreateTimeString()));
             row.addToColumnValue(new TCell().setStringVal(meta.getAlterUser()));
             row.addToColumnValue(new TCell().setStringVal(meta.getModifyTimeString()));
+            dataBatch.add(row);
+        }
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult extensionsMetadataResult(TSchemaTableRequestParams params) {
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+
+        // Readable by any authenticated user: a registry record only carries load-time
+        // component identity, never extension configuration or credentials.
+        // Registry rows are load-time snapshots of the current FE; no extension code runs here.
+        for (PluginRegistry.PluginRecord record : PluginRegistry.getInstance().list()) {
+            TRow row = new TRow();
+            row.addToColumnValue(new TCell().setStringVal(record.getName()));
+            row.addToColumnValue(new TCell().setStringVal(record.getType()));
+            if (record.getVersion() == null) {
+                row.addToColumnValue(new TCell());
+            } else {
+                row.addToColumnValue(new TCell().setStringVal(record.getVersion()));
+            }
+            row.addToColumnValue(new TCell().setStringVal(record.getSource().name()));
+            row.addToColumnValue(new TCell().setStringVal(record.getDescription()));
             dataBatch.add(row);
         }
         return result;
@@ -1307,10 +1305,8 @@ public class MetadataGenerator {
 
         if (catalog instanceof InternalCatalog) {
             return dealInternalCatalog((Database) db, table);
-        } else if (catalog instanceof MaxComputeExternalCatalog) {
-            return dealMaxComputeCatalog((MaxComputeExternalCatalog) catalog, (ExternalTable) table);
-        } else if (catalog instanceof HMSExternalCatalog) {
-            return dealHMSCatalog((HMSExternalCatalog) catalog, (ExternalTable) table);
+        } else if (catalog instanceof PluginDrivenExternalCatalog) {
+            return dealPluginDrivenCatalog((PluginDrivenExternalCatalog) catalog, (ExternalTable) table);
         }
 
         if (LOG.isDebugEnabled()) {
@@ -1319,29 +1315,19 @@ public class MetadataGenerator {
         return errorResult("not support catalog: " + catalogName);
     }
 
-    private static TFetchSchemaTableDataResult dealHMSCatalog(HMSExternalCatalog catalog, ExternalTable table) {
-        List<TRow> dataBatch = Lists.newArrayList();
-        List<String> partitionNames = catalog.getClient()
-                .listPartitionNames(table.getRemoteDbName(), table.getRemoteName());
-        for (String partition : partitionNames) {
-            TRow trow = new TRow();
-            trow.addToColumnValue(new TCell().setStringVal(partition));
-            dataBatch.add(trow);
-        }
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        return result;
-    }
-
-    private static TFetchSchemaTableDataResult dealMaxComputeCatalog(MaxComputeExternalCatalog catalog,
+    private static TFetchSchemaTableDataResult dealPluginDrivenCatalog(PluginDrivenExternalCatalog catalog,
             ExternalTable table) {
         List<TRow> dataBatch = Lists.newArrayList();
-        List<String> partitionNames = catalog.listPartitionNames(table.getRemoteDbName(), table.getRemoteName());
-        for (String partition : partitionNames) {
-            TRow trow = new TRow();
-            trow.addToColumnValue(new TCell().setStringVal(partition));
-            dataBatch.add(trow);
+        ConnectorSession session = catalog.buildCrossStatementSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
+        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
+                session, table.getRemoteDbName(), table.getRemoteName());
+        if (handle.isPresent()) {
+            for (String partition : metadata.listPartitionNames(session, handle.get())) {
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(partition));
+                dataBatch.add(trow);
+            }
         }
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setDataBatch(dataBatch);
@@ -2079,8 +2065,8 @@ public class MetadataGenerator {
             TableIf table = PartitionValuesTableValuedFunction.analyzeAndGetTable(ctlName, dbName, tblName, false);
             TableType tableType = table.getType();
             switch (tableType) {
-                case HMS_EXTERNAL_TABLE:
-                    dataBatch = partitionValuesMetadataResultForHmsTable((HMSExternalTable) table,
+                case PLUGIN_EXTERNAL_TABLE:
+                    dataBatch = partitionValuesMetadataResultForPluginTable((PluginDrivenExternalTable) table,
                             params.getColumnsName());
                     break;
                 default:
@@ -2096,9 +2082,18 @@ public class MetadataGenerator {
         }
     }
 
-    private static List<TRow> partitionValuesMetadataResultForHmsTable(HMSExternalTable tbl, List<String> colNames)
-            throws AnalysisException {
-        List<Column> partitionCols = tbl.getPartitionColumns();
+    // A flipped hms table (and paimon/iceberg) is a PluginDrivenExternalTable, not an HMSExternalTable; the
+    // partition values come from the connector's listPartitions via the generic SPI, then feed the same row
+    // builder as the HMS path (identical typed-TCell rendering, including the canonical NULL partition name -> NULL).
+    private static List<TRow> partitionValuesMetadataResultForPluginTable(PluginDrivenExternalTable tbl,
+            List<String> colNames) throws AnalysisException {
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(tbl);
+        Map<String, List<String>> valuesMap = tbl.getNameToPartitionValues(snapshot);
+        return partitionValuesRows(tbl.getPartitionColumns(snapshot), colNames, valuesMap, tbl.getName());
+    }
+
+    private static List<TRow> partitionValuesRows(List<Column> partitionCols, List<String> colNames,
+            Map<String, List<String>> valuesMap, String tableName) throws AnalysisException {
         List<Integer> colIdxs = Lists.newArrayList();
         List<Type> types = Lists.newArrayList();
         for (String colName : colNames) {
@@ -2111,12 +2106,9 @@ public class MetadataGenerator {
         }
         if (colIdxs.size() != colNames.size()) {
             throw new AnalysisException(
-                    "column " + colNames + " does not match partition columns of table " + tbl.getName());
+                    "column " + colNames + " does not match partition columns of table " + tableName);
         }
 
-        HiveExternalMetaCache.HivePartitionValues hivePartitionValues = tbl.getHivePartitionValues(
-                MvccUtil.getSnapshotFromContext(tbl));
-        Map<String, List<String>> valuesMap = hivePartitionValues.getNameToPartitionValues();
         List<TRow> dataBatch = Lists.newArrayList();
         for (Map.Entry<String, List<String>> entry : valuesMap.entrySet()) {
             TRow trow = new TRow();
@@ -2128,7 +2120,7 @@ public class MetadataGenerator {
             for (int i = 0; i < colIdxs.size(); ++i) {
                 int idx = colIdxs.get(i);
                 String partitionValue = values.get(idx);
-                if (partitionValue == null || partitionValue.equals(TablePartitionValues.HIVE_DEFAULT_PARTITION)) {
+                if (partitionValue == null || partitionValue.equals(ConnectorPartitionValues.NULL_PARTITION_NAME)) {
                     trow.addToColumnValue(new TCell().setIsNull(true));
                 } else {
                     Type type = types.get(i);
@@ -2189,8 +2181,35 @@ public class MetadataGenerator {
     private static TFetchSchemaTableDataResult streamConsumptionMetadataResult(TSchemaTableRequestParams params) {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
-        Env.getCurrentEnv().getTableStreamManager().fillStreamConsumptionValuesMetadataResult(dataBatch);
+        try {
+            Env.getCurrentEnv().getTableStreamManager().fillStreamConsumptionValuesMetadataResult(dataBatch);
+        } catch (UserException e) {
+            return errorResult(e.getMessage());
+        }
         result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult tsoStatusMetadataResult() {
+        if (!Config.enable_feature_binlog) {
+            return errorResult("TSO feature is disabled, please check enable_feature_binlog");
+        }
+
+        TSOService.TSOStatusSnapshot statusSnapshot = Env.getCurrentEnv().getTSOService().getStatusSnapshot();
+        if (!statusSnapshot.isInitialized()) {
+            return errorResult("TSO timestamp is not calibrated, please check");
+        }
+
+        long currentTso = statusSnapshot.getCurrentTso();
+        TRow row = new TRow();
+        row.addToColumnValue(new TCell().setLongVal(statusSnapshot.getWindowEndPhysicalTime()));
+        row.addToColumnValue(new TCell().setLongVal(currentTso));
+        row.addToColumnValue(new TCell().setLongVal(TSOTimestamp.extractPhysicalTime(currentTso)));
+        row.addToColumnValue(new TCell().setLongVal(TSOTimestamp.extractLogicalCounter(currentTso)));
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        result.setDataBatch(Lists.newArrayList(row));
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }

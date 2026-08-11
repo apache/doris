@@ -31,17 +31,12 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
-#define private public
-#define protected public
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
 #include "io/cache/block_file_cache.h"
-#include "io/cache/fs_file_cache_storage.h"
-#undef private
-#undef protected
-
 #include "io/cache/block_file_cache_test_common.h"
+#include "io/cache/fs_file_cache_storage.h"
 
 namespace doris::io {
 

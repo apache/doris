@@ -51,6 +51,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -104,7 +105,7 @@ public class MetaInfoAction extends RestBaseController {
         if (catalog == null) {
             return ResponseEntityBuilder.badRequest("Unknown catalog " + ns);
         }
-        List<String> dbNames = catalog.getDbNames();
+        List<String> dbNames = new ArrayList<>(catalog.getDbNames());
         List<String> dbNameSet = Lists.newArrayList();
         for (String db : dbNames) {
             if (!Env.getCurrentEnv().getAccessManager()

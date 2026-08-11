@@ -44,7 +44,6 @@ import java.util.Optional;
  * Physical SetOperation.
  */
 public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implements SetOperation {
-    public static final String DISTRIBUTE_TO_CHILD_INDEX = "DistributeToChildIndex";
 
     protected final Qualifier qualifier;
     protected final List<NamedExpression> outputs;

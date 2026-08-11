@@ -89,6 +89,13 @@ public:
         return _tablet_meta->enable_unique_key_merge_on_write();
     }
 
+    bool need_read_delete_bitmap() const {
+        return _tablet_meta->enable_unique_key_merge_on_write() ||
+               _tablet_meta->is_row_binlog_tablet();
+    }
+
+    bool is_row_binlog_tablet() const { return _tablet_meta->is_row_binlog_tablet(); }
+
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() const { return _tablet_meta; }
 
@@ -102,11 +109,6 @@ public:
     TabletSchemaSPtr tablet_schema() const {
         std::shared_lock rlock(_meta_lock);
         return _max_version_schema;
-    }
-
-    TabletSchemaSPtr row_binlog_tablet_schema() const {
-        std::shared_lock rlock(_meta_lock);
-        return _tablet_meta->row_binlog_schema();
     }
 
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
@@ -141,7 +143,6 @@ public:
     // The caller must call hold _meta_lock when call this three function.
     RowsetSharedPtr get_rowset_by_version(const Version& version, bool find_is_stale = false) const;
     RowsetSharedPtr get_stale_rowset_by_version(const Version& version) const;
-    RowsetSharedPtr get_row_binlog_rowset_by_version(const Version& version) const;
     RowsetSharedPtr get_rowset_with_max_version() const;
 
     Status get_all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const;
@@ -149,8 +150,7 @@ public:
 
     // Get the missed versions until the spec_version.
     Versions get_missed_versions(int64_t spec_version) const;
-    Versions get_missed_versions_unlocked(int64_t spec_version,
-                                          bool capture_row_binlog = false) const;
+    Versions get_missed_versions_unlocked(int64_t spec_version) const;
 
     void generate_tablet_meta_copy(TabletMeta& new_tablet_meta, bool cloud_get_rowset_meta) const;
     void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
@@ -170,7 +170,7 @@ public:
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                            RowsetSharedPtr rowset, OlapReaderStatistics& stats, std::string& values,
-                           bool write_to_cache = false);
+                           bool write_to_cache = false, const io::IOContext* io_ctx = nullptr);
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
@@ -181,7 +181,8 @@ public:
                           RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
                           std::string* encoded_seq_value = nullptr,
                           OlapReaderStatistics* stats = nullptr,
-                          DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+                          DeleteBitmapPtr tablet_delete_bitmap = nullptr,
+                          const io::IOContext* io_ctx = nullptr);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -202,12 +203,13 @@ public:
                                       const std::vector<RowsetSharedPtr>& specified_rowsets,
                                       DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                       RowsetWriter* rowset_writer,
-                                      DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+                                      DeleteBitmapPtr tablet_delete_bitmap = nullptr,
+                                      int64_t queue_time_us = 0);
 
     Status calc_delete_bitmap_between_segments(
             TabletSchemaSPtr schema, RowsetId rowset_id,
             const std::vector<segment_v2::SegmentSharedPtr>& segments,
-            DeleteBitmapPtr delete_bitmap);
+            DeleteBitmapPtr delete_bitmap, int64_t queue_time_us = 0);
 
     static Status commit_phase_update_delete_bitmap(
             const BaseTabletSPtr& tablet, const RowsetSharedPtr& rowset,
@@ -373,13 +375,13 @@ protected:
     static bool _key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
                                        bool is_segments_key_bounds_truncated);
 
-    Status sort_block(Block& in_block, Block& output_block);
+    Status sort_block(Block& in_block, Block& output_block,
+                      std::vector<uint32_t>* permutation = nullptr);
 
     Result<CaptureRowsetResult> _remote_capture_rowsets(const Version& version_range) const;
 
     mutable BthreadSharedMutex _meta_lock;
     TimestampedVersionTracker _timestamped_version_tracker;
-    TimestampedVersionTracker _row_binlog_version_tracker;
 
     // After version 0.13, all newly created rowsets are saved in _rs_version_map.
     // And if rowset being compacted, the old rowsets will be saved in _stale_rs_version_map;
@@ -388,8 +390,6 @@ protected:
     // These _stale rowsets are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
-    // for row_binlog
-    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _row_binlog_rs_version_map;
     const TabletMetaSharedPtr _tablet_meta;
     TabletSchemaSPtr _max_version_schema;
 
@@ -463,7 +463,6 @@ struct CaptureRowsetOps {
     bool quiet = false;
     bool include_stale_rowsets = true;
     bool enable_fetch_rowsets_from_peers = false;
-    bool capture_row_binlog = false;
 
     // ======== only take effect in cloud mode ========
 

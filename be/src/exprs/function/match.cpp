@@ -186,10 +186,10 @@ inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_ty
     return doris::segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY;
 }
 
-std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
+std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_query_str_token(
         const InvertedIndexAnalyzerCtx* analyzer_ctx, const std::string& match_query_str,
         const std::string& column_name) const {
-    std::vector<TermInfo> query_tokens;
+    std::vector<segment_v2::TermInfo> query_tokens;
     if (analyzer_ctx == nullptr) {
         return query_tokens;
     }
@@ -224,11 +224,11 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
     return query_tokens;
 }
 
-inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
+inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
         const std::string& column_name, const InvertedIndexAnalyzerCtx* analyzer_ctx,
         const ColumnString* string_col, int32_t current_block_row_idx,
         const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset) const {
-    std::vector<TermInfo> data_tokens;
+    std::vector<segment_v2::TermInfo> data_tokens;
     if (analyzer_ctx == nullptr) {
         return data_tokens;
     }
@@ -308,10 +308,10 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
 
         // TODO: more efficient impl
         for (auto& term_info : query_tokens) {
-            auto it =
-                    std::find_if(data_tokens.begin(), data_tokens.end(), [&](const TermInfo& info) {
-                        return info.get_single_term() == term_info.get_single_term();
-                    });
+            auto it = std::find_if(data_tokens.begin(), data_tokens.end(),
+                                   [&](const segment_v2::TermInfo& info) {
+                                       return info.get_single_term() == term_info.get_single_term();
+                                   });
             if (it != data_tokens.end()) {
                 result[i] = true;
                 break;
@@ -349,10 +349,10 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
         // TODO: more efficient impl
         auto find_count = 0;
         for (auto& term_info : query_tokens) {
-            auto it =
-                    std::find_if(data_tokens.begin(), data_tokens.end(), [&](const TermInfo& info) {
-                        return info.get_single_term() == term_info.get_single_term();
-                    });
+            auto it = std::find_if(data_tokens.begin(), data_tokens.end(),
+                                   [&](const segment_v2::TermInfo& info) {
+                                       return info.get_single_term() == term_info.get_single_term();
+                                   });
             if (it != data_tokens.end()) {
                 ++find_count;
             } else {
@@ -397,9 +397,10 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
         auto data_it = data_tokens.begin();
         while (data_it != data_tokens.end()) {
             // find position of first token
-            data_it = std::find_if(data_it, data_tokens.end(), [&](const TermInfo& info) {
-                return info.get_single_term() == query_tokens[0].get_single_term();
-            });
+            data_it =
+                    std::find_if(data_it, data_tokens.end(), [&](const segment_v2::TermInfo& info) {
+                        return info.get_single_term() == query_tokens[0].get_single_term();
+                    });
             if (data_it != data_tokens.end()) {
                 matched = true;
                 auto data_it_next = ++data_it;

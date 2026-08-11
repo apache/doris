@@ -29,6 +29,8 @@
 
 namespace doris::format::jdbc {
 
+Status validate_non_nullable_special_type_result(const IColumn& result, size_t rows);
+
 class JdbcJniReader final : public format::JniTableReader {
 public:
     ~JdbcJniReader() override = default;

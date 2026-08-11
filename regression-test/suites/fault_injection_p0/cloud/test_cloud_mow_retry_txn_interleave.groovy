@@ -96,13 +96,6 @@ suite("test_cloud_mow_retry_txn_interleave", "multi_cluster,docker") {
             sql """use @${cluster1.cluster}"""
             qt_sql "select * from ${table1} order by k1;"
 
-            def newThreadInDocker = { Closure actionSupplier ->
-                def connInfo = context.threadLocalConn.get()
-                return Thread.start {
-                    connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
-                }
-            }
-
             // let load 1's calc task A response halt before report to FE on cluster0 
             GetDebugPoint().enableDebugPoint(backend0.Host, backend0.HttpPort as int, NodeType.BE, "CloudCalcDbmTask.handle.return.block",
                     [tablet_id: "${tablet_id}"])
@@ -113,7 +106,7 @@ suite("test_cloud_mow_retry_txn_interleave", "multi_cluster,docker") {
 
 
             // load 1 on cluster0
-            def t1 = newThreadInDocker {
+            def t1 = thread("load-1-cluster0") {
                 sql """use @${cluster0.cluster}"""
                 sql "insert into ${table1} values(1,999,999);"
             }
@@ -133,7 +126,7 @@ suite("test_cloud_mow_retry_txn_interleave", "multi_cluster,docker") {
             // let FE recieve task A's response
             GetDebugPoint().disableDebugPoint(backend0.Host, backend0.HttpPort as int, NodeType.BE, "CloudCalcDbmTask.handle.return.block")
             // wait for load 1 finish
-            t1.join()
+            t1.get()
 
             // force it read delete bitmaps from MS rather than BE's cache
             GetDebugPoint().enableDebugPointForAllBEs("CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss")

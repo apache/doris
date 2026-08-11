@@ -53,6 +53,9 @@ public:
     std::string debug_string() const override;
     uint64_t get_digest(uint64_t seed) const override { return 0; }
     const std::string& expr_name() const override { return _expr_name; }
+    // Ordinary CAST can fail for data-dependent input. Localization must retain the same
+    // full-batch error behavior as VCastExpr instead of hiding errors in previously rejected rows.
+    bool is_safe_to_execute_on_selected_rows() const override { return false; }
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
         *cloned_expr = Cast::create_shared(_data_type);

@@ -39,6 +39,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
@@ -83,7 +84,9 @@ int hex_value(char c) {
     return -1;
 }
 
-Status parse_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* bytes) {
+} // namespace
+
+Status parse_iceberg_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* bytes) {
     if (uuid.size == 16) {
         std::memcpy(bytes->data(), uuid.data, bytes->size());
         return Status::OK();
@@ -125,6 +128,8 @@ Status parse_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* bytes) {
     return Status::OK();
 }
 
+namespace {
+
 Status write_iceberg_uuid_string_column_to_arrow(const IColumn& column, const DataTypePtr& type,
                                                  arrow::ArrayBuilder* array_builder, int64_t start,
                                                  int64_t end) {
@@ -152,13 +157,15 @@ Status write_iceberg_uuid_string_column_to_arrow(const IColumn& column, const Da
     }
 
     const auto& string_column = assert_cast<const ColumnString&>(*data_column);
-    for (size_t row = start; row < end; ++row) {
+    const auto begin_row = cast_set<size_t>(start);
+    const auto end_row = cast_set<size_t>(end);
+    for (size_t row = begin_row; row < end_row; ++row) {
         if (null_map != nullptr && (*null_map)[row]) {
             RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
             continue;
         }
         std::array<uint8_t, 16> bytes;
-        RETURN_IF_ERROR(parse_uuid_to_bytes(string_column.get_data_at(row), &bytes));
+        RETURN_IF_ERROR(parse_iceberg_uuid_to_bytes(string_column.get_data_at(row), &bytes));
         RETURN_IF_ERROR(checkArrowStatus(builder.Append(bytes.data()), column, builder));
     }
     return Status::OK();

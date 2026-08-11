@@ -39,10 +39,15 @@
 #endif
 
 #include "common/config.h"
+#include "common/phdr_cache.h"
 #include "common/stack_trace.h"
+#if defined(__ELF__) && !defined(__FreeBSD__)
+#include "common/symbol_index.h"
+#endif
 #include "service/http/ev_http_server.h"
 #include "service/http/http_client.h"
 #include "service/http/http_method.h"
+#include "util/dynamic_util.h"
 
 namespace doris {
 
@@ -249,11 +254,10 @@ TEST_F(BeThreadStackActionTest, ThreadIdSelectorSupportsSingleAndMultipleIds) {
     EXPECT_THAT(body, testing::HasSubstr("service_signal: "));
     EXPECT_THAT(body, testing::HasSubstr("thread_count: 2\n"));
     EXPECT_THAT(body, testing::HasSubstr("dwarf_location_info_mode: disabled\n"));
-    EXPECT_THAT(body,
-                testing::HasSubstr(
-                        "signal_handler_unwinder: "
-                        "frame_pointer_with_coordinator_signal_context_libunwind_fallback\n"));
-    EXPECT_THAT(body, testing::HasSubstr("capture_method="));
+    EXPECT_THAT(body, testing::HasSubstr("signal_handler_unwinder: signal_context_libunwind\n"));
+    EXPECT_THAT(body, testing::HasSubstr("phdr_cache: true\n"));
+    EXPECT_THAT(body, testing::HasSubstr("capture_method=signal_context_libunwind"));
+    EXPECT_THAT(body, testing::HasSubstr("unwind_status="));
     EXPECT_THAT(body, testing::HasSubstr(thread_header(first.tid())));
     EXPECT_THAT(body, testing::HasSubstr(thread_header(second.tid())));
     EXPECT_THAT(body, testing::HasSubstr("summary: captured=2 skipped=0 timed_out=0 "
@@ -277,8 +281,9 @@ TEST_F(BeThreadStackActionTest, TidAliasRemainsSupported) {
     ASSERT_EQ(200, http_status);
     EXPECT_THAT(body, testing::HasSubstr("thread_count: 1\n"));
     EXPECT_THAT(body, testing::HasSubstr(thread_header(marker.tid())));
-    EXPECT_THAT(body, testing::HasSubstr("capture_method="));
-    EXPECT_THAT(body, testing::HasSubstr("fp_status="));
+    EXPECT_THAT(body, testing::HasSubstr("capture_method=signal_context_libunwind"));
+    EXPECT_THAT(body, testing::HasSubstr("phdr_cache=true"));
+    EXPECT_THAT(body, testing::Not(testing::HasSubstr("fp_status=")));
     EXPECT_EQ(1, count_thread_headers(body));
 
     marker.stop();
@@ -312,7 +317,9 @@ TEST_F(BeThreadStackActionTest, BlockingReadSyscallIsCapturedByDefault) {
                     .ok());
     ASSERT_EQ(200, http_status);
     EXPECT_THAT(thread_result_line(body, reader.tid()), testing::HasSubstr("status=ok"));
-    EXPECT_THAT(thread_result_line(body, reader.tid()), testing::HasSubstr("capture_method="));
+    EXPECT_THAT(thread_result_line(body, reader.tid()),
+                testing::HasSubstr("capture_method=signal_context_libunwind"));
+    EXPECT_THAT(thread_result_line(body, reader.tid()), testing::HasSubstr("phdr_cache=true"));
     EXPECT_THAT(body, testing::HasSubstr("summary: captured=1 skipped=0 timed_out=0 "
                                          "remote_signal_attempts=1\n"));
     EXPECT_FALSE(reader.read_finished())
@@ -345,6 +352,33 @@ TEST_F(BeThreadStackActionTest, BlockingReadSyscallCanBeSkippedExplicitly) {
                                          "remote_signal_attempts=0\n"));
 
     reader.stop();
+}
+
+// Covers the dynamic-library refresh hook used by UDF loading. Doris-controlled dlopen/dlclose
+// paths must refresh both PHDR and SymbolIndex snapshots before later diagnostic stack requests
+// depend on newly loaded or unloaded libraries.
+TEST_F(BeThreadStackActionTest, DynamicOpenRefreshesPhdrCache) {
+#if defined(__ELF__) && !defined(__FreeBSD__)
+    auto symbol_index_before_open = SymbolIndex::instance();
+#endif
+    void* handle = nullptr;
+    Status status = dynamic_open("libm.so.6", &handle);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(hasPHDRCache());
+#if defined(__ELF__) && !defined(__FreeBSD__)
+    auto symbol_index_after_open = SymbolIndex::instance();
+    EXPECT_NE(symbol_index_before_open.get(), symbol_index_after_open.get())
+            << "Doris-controlled dlopen should publish a fresh SymbolIndex snapshot";
+#endif
+
+    dynamic_close(handle);
+    EXPECT_TRUE(hasPHDRCache());
+#if defined(__ELF__) && !defined(__FreeBSD__) && !defined(ADDRESS_SANITIZER) && \
+        !defined(LEAK_SANITIZER)
+    auto symbol_index_after_close = SymbolIndex::instance();
+    EXPECT_NE(symbol_index_after_open.get(), symbol_index_after_close.get())
+            << "Doris-controlled dlclose should publish a fresh SymbolIndex snapshot";
+#endif
 }
 
 // Covers request validation for thread filters, timeout, symbolization mode, and the syscall-skip

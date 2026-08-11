@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/field.h"
@@ -35,7 +36,6 @@
 
 namespace doris {
 class Block;
-class ColumnPredicate;
 struct ConditionCacheContext;
 
 namespace io {
@@ -48,16 +48,6 @@ namespace doris::format {
 class TableColumnMapper;
 struct TableColumnMapperOptions;
 
-// File-local single-column predicates for file-layer pruning, such as min/max, page index,
-// dictionary and bloom filter. Predicates must all belong to file_column_id.
-// These predicates are pruning hints only and are not row-level conjuncts.
-struct FileColumnPredicateFilter {
-    LocalColumnId file_column_id = LocalColumnId::invalid();
-    std::vector<std::shared_ptr<ColumnPredicate>> predicates;
-
-    std::string debug_string() const;
-};
-
 enum class FileFormat {
     PARQUET,
     ORC,
@@ -67,6 +57,7 @@ enum class FileFormat {
     JNI,
     NATIVE,
     ARROW,
+    WAL,
 };
 
 struct FileScanRequest {
@@ -80,15 +71,33 @@ struct FileScanRequest {
     // Columns read after row-level filtering. Predicate columns are also available for output and
     // should not be duplicated here.
     std::vector<LocalColumnIndex> non_predicate_columns;
+    // Predicate columns introduced only to evaluate hidden filter slots. Their values are dead
+    // after all file-local predicates run, although the shared file block still needs row-shaped
+    // placeholders until TableReader finalizes projected columns.
+    std::vector<LocalColumnId> predicate_only_columns;
     // file-local column id -> file-local output block position.
     std::map<LocalColumnId, LocalIndex> local_positions;
     // Row-level filters converted to file-local expressions from table-level predicates.
     VExprContextSPtrs conjuncts;
-    // Delete predicates converted to file-local expressions.
+    // Delete predicates converted to file-local expressions. A TRUE result means that the row is
+    // deleted, so readers must invert each result when building their keep filter.
     VExprContextSPtrs delete_conjuncts;
-    // Single-column predicates used only for file-layer pruning, such as statistics, page index,
-    // dictionary and bloom filter. They must not be used for batch row-level filtering.
-    std::vector<FileColumnPredicateFilter> column_predicate_filters;
+    // File-local ids retained only because Nereids keeps a minimum-width output tuple for an
+    // explicit COUNT(*). These columns have no semantic value: for example, after pruning a scan
+    // may retain an unsupported TIME_MILLIS leaf even though COUNT(*) only needs one row per
+    // surviving input row. A reader may synthesize defaults instead of reading a marked column
+    // while it remains non-predicate. If filters or equality deletes promote the same id to
+    // predicate_columns, the value is semantically required and must still be validated and read.
+    std::vector<LocalColumnId> count_star_placeholder_columns;
+
+    bool is_count_star_placeholder(LocalColumnId column_id) const {
+        return std::ranges::find(count_star_placeholder_columns, column_id) !=
+               count_star_placeholder_columns.end();
+    }
+
+    bool is_predicate_only(LocalColumnId column_id) const {
+        return std::ranges::find(predicate_only_columns, column_id) != predicate_only_columns.end();
+    }
 };
 
 // Helper for constructing the scan-column layout in FileScanRequest.
@@ -296,6 +305,15 @@ public:
         return Status::OK();
     }
 
+    // Readers opt in only when they can keep an immutable request for the active physical
+    // granule and switch a newer snapshot at a well-defined boundary.
+    virtual bool supports_scan_request_refresh() const { return false; }
+
+    virtual Status queue_scan_request(std::shared_ptr<FileScanRequest> request) {
+        (void)request;
+        return Status::NotSupported("FileReader does not support scan request refresh");
+    }
+
     virtual Status get_block(Block* file_block, size_t* rows, bool* eof) {
         if (rows != nullptr) {
             *rows = 0;
@@ -333,6 +351,13 @@ public:
 
 protected:
     virtual void _init_profile() {}
+    void _record_scan_rows(int64_t rows) {
+        DORIS_CHECK(rows >= 0);
+        _reader_statistics.read_rows += rows;
+        if (_io_ctx != nullptr && _io_ctx->file_reader_stats != nullptr) {
+            _io_ctx->file_reader_stats->read_rows += cast_set<size_t>(rows);
+        }
+    }
 
     io::FileReaderSPtr _file_reader;
     // _tracing_file_reader wraps _file_reader.

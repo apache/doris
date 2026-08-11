@@ -79,6 +79,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/frontend_info.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/memory/cache_manager.h"
@@ -189,7 +190,7 @@ ThreadPool* ExecEnv::non_block_close_thread_pool() {
     return _non_block_close_thread_pool.get();
 }
 
-ExecEnv::ExecEnv() = default;
+ExecEnv::ExecEnv() : _frontends(std::make_unique<std::map<TNetworkAddress, FrontendInfo>>()) {}
 
 ExecEnv::~ExecEnv() {
     destroy();
@@ -517,7 +518,6 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                 config::file_cache_each_block_size, config::s3_write_buffer_size);
         exit(-1);
     }
-    std::unordered_set<std::string> cache_path_set;
     Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
     if (!rest) {
         throw Exception(
@@ -525,23 +525,16 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                                    doris::config::file_cache_path, rest.msg()));
     }
 
-    doris::Status cache_status;
-    for (auto& cache_path : cache_paths) {
-        if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
-            LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
-            continue;
-        }
-
-        cache_status = doris::io::FileCacheFactory::instance()->create_file_cache(
-                cache_path.path, cache_path.init_settings());
-        if (!cache_status.ok()) {
-            if (!doris::config::ignore_broken_disk) {
-                throw Exception(
-                        Status::FatalError("failed to init file cache, err: {}", cache_status));
-            }
-            LOG(WARNING) << "failed to init file cache, err: " << cache_status;
-        }
-        cache_path_set.emplace(cache_path.path);
+    auto cache_status = doris::io::FileCacheFactory::instance()->create_file_caches(
+            cache_paths, [](const std::string&, const Status& status) {
+                if (!doris::config::ignore_broken_disk) {
+                    return false;
+                }
+                LOG(WARNING) << "failed to init file cache, err: " << status;
+                return true;
+            });
+    if (!cache_status.ok()) {
+        throw Exception(Status::FatalError("failed to init file cache, err: {}", cache_status));
     }
 }
 

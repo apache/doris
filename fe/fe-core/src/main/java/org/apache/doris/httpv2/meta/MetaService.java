@@ -20,11 +20,16 @@ package org.apache.doris.httpv2.meta;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.master.MetaHelper;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.MetaCleaner;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
@@ -55,31 +60,53 @@ public class MetaService extends RestBaseController {
 
     private File imageDir = MetaHelper.getMasterImageDir();
 
-    private boolean isFromValidFe(String clientHost, String clientPortStr) {
+    private Frontend getValidFe(String clientHost, String clientPortStr) {
         Integer clientPort;
         try {
             clientPort = Integer.valueOf(clientPortStr);
         } catch (Exception e) {
             LOG.warn("get clientPort error. clientPortStr: {}", clientPortStr, e.getMessage());
-            return false;
+            return null;
         }
 
         Frontend fe = Env.getCurrentEnv().checkFeExist(clientHost, clientPort);
         if (fe == null) {
             LOG.warn("request is not from valid FE. client: {}, {}", clientHost, clientPortStr);
-            return false;
         }
-        return true;
+        return fe;
     }
 
     private void checkFromValidFe(HttpServletRequest request)
-            throws InvalidClientException {
+            throws UnauthorizedException {
         String clientHost = request.getHeader(Env.CLIENT_NODE_HOST_KEY);
         String clientPort = request.getHeader(Env.CLIENT_NODE_PORT_KEY);
-        if (!isFromValidFe(clientHost, clientPort)) {
-            throw new InvalidClientException("invalid client host: " + clientHost + ":" + clientPort
-                + ", request from " + request.getRemoteHost());
+        Frontend fe = getValidFe(clientHost, clientPort);
+        if (fe == null) {
+            throw unauthorized(clientHost, clientPort, request);
         }
+
+        // If a cluster meta auth token is configured, additionally require the request to
+        // carry a matching token. An empty token keeps the legacy node-host-only behavior,
+        // so existing clusters and rolling upgrades are unaffected.
+        String clusterToken = Config.fe_meta_auth_token;
+        if (!Strings.isNullOrEmpty(clusterToken)) {
+            String requestToken = request.getHeader(MetaBaseAction.TOKEN);
+            if (!clusterToken.equals(requestToken)) {
+                // Log a masked prefix of both tokens so token-rotation issues are diagnosable
+                // (e.g. expected "abc***" vs actual "<empty>" means the peer sent no token),
+                // while never revealing the full secret.
+                LOG.warn("reject meta request with invalid token. client: {}, {}, request from: {}, "
+                                + "expected: {}, actual: {}",
+                        clientHost, clientPort, request.getRemoteAddr(),
+                        TokenMasker.maskPrefix(clusterToken), TokenMasker.maskPrefix(requestToken));
+                throw unauthorized(clientHost, clientPort, request);
+            }
+        }
+    }
+
+    private UnauthorizedException unauthorized(String clientHost, String clientPort, HttpServletRequest request) {
+        return new UnauthorizedException("invalid client host: " + clientHost + ":" + clientPort
+                + ", request from " + request.getRemoteAddr());
     }
 
     @RequestMapping(path = "/image", method = RequestMethod.GET)
@@ -149,6 +176,12 @@ public class MetaService extends RestBaseController {
         if (port < 0 || port > 65535) {
             return ResponseEntityBuilder.badRequest("port is invalid. The port number is between 0-65535");
         }
+        // The master pushes image using HttpURLUtil.getHttpPort() (https_port when enable_https=true,
+        // otherwise http_port), so the expected port must follow the same rule to stay consistent.
+        int expectedPort = HttpURLUtil.getHttpPort();
+        if (port != expectedPort) {
+            return ResponseEntityBuilder.badRequest("port must be FE HTTP port: " + expectedPort);
+        }
 
         String versionStr = request.getParameter(VERSION);
         if (Strings.isNullOrEmpty(versionStr)) {
@@ -163,7 +196,10 @@ public class MetaService extends RestBaseController {
                 clientHost, clientPort, machine, portStr);
 
         clientHost = Strings.isNullOrEmpty(clientHost) ? machine : clientHost;
-        String url = "http://" + NetUtils.getHostPortInAccessibleFormat(clientHost, Integer.valueOf(portStr))
+        // Use the master-supplied port: Checkpoint sends getHttpPort() (https_port when
+        // enable_https=true), so scheme and port must stay consistent.
+        String scheme = Config.enable_https ? "https" : "http";
+        String url = scheme + "://" + NetUtils.getHostPortInAccessibleFormat(clientHost, port)
                 + "/image?version=" + versionStr;
 
         String filename = Storage.IMAGE + "." + versionStr;
@@ -242,9 +278,11 @@ public class MetaService extends RestBaseController {
 
     @RequestMapping(value = "/dump", method = RequestMethod.GET)
     public Object dump(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        if (Config.enable_all_http_auth) {
-            executeCheckPassword(request, response);
-        }
+        // /dump triggers a full metadata image dump (takes catalog/db/table locks and writes an
+        // image file), so it must be ADMIN-gated. executeCheckPassword only authenticates the
+        // caller; enforce the ADMIN privilege explicitly, matching other metadata/debug operations.
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkGlobalAuth(authInfo.userIdentity, PrivPredicate.ADMIN);
 
         /*
          * Before dump, we acquired the catalog read lock and all databases' read lock and all

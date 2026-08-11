@@ -251,6 +251,48 @@ public class MetricsTest {
     }
 
     @Test
+    public void testCloudTabletRebalancerMetrics() {
+        String originCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test_cloud_unique_id";
+            CloudMetrics.initCloudTabletRebalancerMetrics();
+
+            MetricRepo.updateCloudTabletRebalancerMetrics(125L, 4096L, 200L);
+
+            String metricResult = getPrometheusMetrics();
+            Assert.assertTrue(metricResult.contains("# TYPE doris_fe_cloud_tablet_rebalancer_round_total counter"));
+            Assert.assertTrue(metricResult.contains("doris_fe_cloud_tablet_rebalancer_round_total 1"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_allocated_bytes_total 4096"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_last_round_allocated_bytes 4096"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_duration_ms_total 125"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_last_round_duration_ms 125"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_tablet_scan_total 200"));
+
+            MetricRepo.updateCloudTabletRebalancerMetrics(25L, -1L, 50L);
+
+            metricResult = getPrometheusMetrics();
+            Assert.assertTrue(metricResult.contains("doris_fe_cloud_tablet_rebalancer_round_total 2"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_allocated_bytes_total 4096"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_last_round_allocated_bytes -1"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_duration_ms_total 150"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_last_round_duration_ms 25"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_tablet_scan_total 250"));
+        } finally {
+            Config.cloud_unique_id = originCloudUniqueId;
+        }
+    }
+
+    @Test
     public void testCloudWarmUpSyncJobMetricsReadStatsDirectlyFromJob() {
         String oldCloudUniqueId = Config.cloud_unique_id;
         Config.cloud_unique_id = "test_cloud_unique_id";

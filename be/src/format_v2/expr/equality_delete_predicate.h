@@ -46,9 +46,7 @@ public:
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
-                               size_t count, ColumnPtr& result_column) const override {
-        return Status::InternalError("Not implement EqualityDeletePredicate::execute_column_impl");
-    }
+                               size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -59,6 +57,7 @@ public:
 
 private:
     static std::vector<uint64_t> _build_hashes(const Block& block);
+    ColumnPtr _evaluate_key_block(const Block& data_key_block) const;
     bool _equal(const Block& data_block, size_t data_row, size_t delete_row) const;
 
     std::string _expr_name;

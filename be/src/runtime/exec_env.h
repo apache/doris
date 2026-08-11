@@ -17,28 +17,19 @@
 
 #pragma once
 
-#include <gen_cpp/olap_file.pb.h>
-
 #include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "information_schema/schema_routine_load_job_scanner.h"
-#include "io/cache/fs_file_cache_storage.h"
-#include "load/memtable/memtable_memory_limiter.h"
-#include "runtime/cluster_info.h"
-#include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
-#include "storage/index/inverted/inverted_index_writer.h"
-#include "storage/options.h"
 #include "storage/tablet/tablet_fwd.h"
-#include "util/threadpool.h"
 
 namespace orc {
 class MemoryPool;
@@ -59,7 +50,11 @@ struct WriteCooldownMetaExecutors;
 class TokenBucketRateLimiterHolder;
 using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
 class MSRpcRateLimitServices;
+class ThreadPool;
+struct StorePath;
+struct CachePath;
 namespace io {
+class FDCache;
 class FileCacheFactory;
 class HdfsMgr;
 class PackedFileManager;
@@ -96,6 +91,7 @@ class LoadPathMgr;
 class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
+class MemTableMemoryLimiter;
 struct TrackerLimiterGroup;
 class BaseStorageEngine;
 class ResultBufferMgr;
@@ -115,6 +111,12 @@ class PFunctionService_Stub;
 template <class T>
 class ClientCache;
 class HeartbeatFlags;
+class ClusterInfo;
+struct FrontendInfo;
+// Thrift-generated types (gen_cpp), forward-declared so their headers stay out
+// of every TU that includes ExecEnv.
+class TFrontendInfo;
+class TNetworkAddress;
 class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
@@ -318,14 +320,17 @@ public:
     }
 
 #ifdef BE_TEST
-    void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
-        this->_tmp_file_dirs = std::move(tmp_file_dirs);
-    }
-    void set_ready() { this->_s_ready = true; }
-    void set_not_ready() { this->_s_ready = false; }
-    void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
-        _memtable_memory_limiter.reset(limiter);
-    }
+    // Defined out of line on purpose: assigning the unique_ptr destroys the old
+    // pointee, which would require TmpFileDirs to be COMPLETE in every translation
+    // unit that includes this header -- and this header is included by most of the
+    // backend. Keeping the body in the .cpp lets the forward declaration above
+    // suffice.
+    void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs);
+    void set_ready() { _s_ready = true; }
+    void set_not_ready() { _s_ready = false; }
+    // Defined out of line: resetting the unique_ptr deletes the old pointee,
+    // which would require MemTableMemoryLimiter to be complete here.
+    void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter);
     void set_cluster_info(ClusterInfo* cluster_info) { this->_cluster_info = cluster_info; }
     void set_new_load_stream_mgr(std::unique_ptr<NewLoadStreamMgr>&& new_load_stream_mgr);
     void clear_new_load_stream_mgr();
@@ -357,16 +362,14 @@ public:
         _s_tracking_memory.store(tracking_memory, std::memory_order_release);
     }
     void set_orc_memory_pool(orc::MemoryPool* pool) { _orc_memory_pool = pool; }
-    void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
-        _non_block_close_thread_pool = std::move(pool);
-    }
-    void set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
-        _s3_file_upload_thread_pool = std::move(pool);
-    }
+    // Defined out of line: assigning the unique_ptr destroys the old pointee,
+    // which would require ThreadPool to be complete here.
+    void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool);
+    void set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool);
     void set_file_cache_factory(io::FileCacheFactory* factory) { _file_cache_factory = factory; }
-    void set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cache) {
-        _file_cache_open_fd_cache = std::move(fd_cache);
-    }
+    // Defined out of line: assigning the unique_ptr destroys the old pointee,
+    // which would require io::FDCache to be complete here.
+    void set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cache);
 #endif
     // WARN: The following setter methods are intended for use in test code and
     // offline tools (like meta_tool) ONLY. They should NOT be called in the
@@ -537,8 +540,10 @@ private:
     std::unique_ptr<WriteCooldownMetaExecutors> _write_cooldown_meta_executors;
 
     std::mutex _frontends_lock;
-    // ip:brpc_port -> frontend_indo
-    std::map<TNetworkAddress, FrontendInfo> _frontends;
+    // ip:brpc_port -> frontend_info. Held behind unique_ptr because std::map
+    // requires a complete mapped type, and frontend_info.h would drag
+    // gen_cpp/HeartbeatService_types.h into every TU that includes ExecEnv.
+    std::unique_ptr<std::map<TNetworkAddress, FrontendInfo>> _frontends;
     GroupCommitMgr* _group_commit_mgr = nullptr;
     CdcClientMgr* _cdc_client_mgr = nullptr;
 

@@ -30,6 +30,7 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_storage_format_v1.h"
 #include "storage/index/index_storage_format_v2.h"
+#include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"

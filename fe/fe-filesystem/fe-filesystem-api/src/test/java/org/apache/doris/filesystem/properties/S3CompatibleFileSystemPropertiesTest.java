@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 
 public class S3CompatibleFileSystemPropertiesTest {
 
@@ -92,6 +93,11 @@ public class S3CompatibleFileSystemPropertiesTest {
             @Override
             public String getUsePathStyle() {
                 return usePathStyle;
+            }
+
+            @Override
+            public Set<String> getSupportedSchemes() {
+                return Set.of("s3", "s3a");
             }
 
             @Override

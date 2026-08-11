@@ -219,22 +219,22 @@ suite("test_table_level_compaction_policy") {
         exception "only time series compaction policy support for time series config"
     }
 
-    test {
-        sql """
-            CREATE TABLE ${tableName} (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(26) NOT NULL COMMENT "",
-                    `c_address` varchar(41) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            DUPLICATE KEY (`c_custkey`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1"
-             );
-        """
-        sql """sync"""
+    sql """
+        CREATE TABLE ${tableName} (
+                `c_custkey` int(11) NOT NULL COMMENT "",
+                `c_name` varchar(26) NOT NULL COMMENT "",
+                `c_address` varchar(41) NOT NULL COMMENT "",
+                `c_city` varchar(11) NOT NULL COMMENT ""
+        )
+        DUPLICATE KEY (`c_custkey`)
+        DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
+        PROPERTIES (
+                "replication_num" = "1"
+         );
+    """
+    sql """sync"""
 
+    test {
         sql """
             alter table  ${tableName} set ("compaction_policy" = "ok")
             """

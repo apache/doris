@@ -164,6 +164,11 @@ public class DataTypeTest {
         assertSafeCast(VarcharType.createVarcharType(10), StringType.INSTANCE);
         assertSafeCast(VarcharType.createVarcharType(20), VarcharType.createVarcharType(10));
         assertSafeCast(StringType.INSTANCE, VarcharType.createVarcharType(10));
+
+        VariantType v1 = new VariantType(100);
+        VariantType anotherV1 = new VariantType(200);
+        assertSafeCast(v1, new VariantType(100));
+        assertSafeCast(v1, anotherV1);
     }
 
     @Test

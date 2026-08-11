@@ -24,8 +24,8 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -336,12 +336,12 @@ public class CloudAuthTest extends TestWithFeService {
         Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "vcg",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         // create vcg, sub cg(cg1, cg2), add to systemInfoService
-        ComputeGroup vcg  = new ComputeGroup("vcg_id", "vcg", ComputeGroup.ComputeTypeEnum.VIRTUAL);
+        CloudComputeGroupMeta vcg  = new CloudComputeGroupMeta("vcg_id", "vcg", CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
         vcg.setSubComputeGroups(Lists.newArrayList("cg2", "cg1"));
         systemInfoService.addComputeGroup("vcg_id", vcg);
-        ComputeGroup cg  = new ComputeGroup("vcg_id", "vcg", ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg  = new CloudComputeGroupMeta("vcg_id", "vcg", CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         systemInfoService.addComputeGroup("cg", cg);
-        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
         policy.setActiveComputeGroup("cg1");
         policy.setStandbyComputeGroup("cg2");
         vcg.setPolicy(policy);

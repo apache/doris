@@ -17,442 +17,778 @@
 
 #include "format_v2/parquet/parquet_statistics.h"
 
-#include <arrow/api.h>
-#include <arrow/io/api.h>
-#include <cctz/time_zone.h>
 #include <gtest/gtest.h>
-#include <parquet/api/reader.h>
-#include <parquet/arrow/writer.h>
-#include <parquet/bloom_filter.h>
 
+#include <cstdint>
+#include <cstring>
+#include <limits>
+#include <map>
 #include <memory>
-#include <numeric>
 #include <optional>
+#include <set>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
+#include "core/data_type/data_type_date.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_time.h"
 #include "core/field.h"
+#include "exprs/expr_zonemap_filter.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
-#include "storage/predicate/accept_null_predicate.h"
-#include "storage/predicate/null_predicate.h"
-#include "storage/predicate/predicate_creator.h"
-
+#include "format_v2/parquet/parquet_file_context.h"
+#include "format_v2/parquet/reader/native/block_split_bloom_filter.h"
+#include "io/fs/file_reader.h"
+#include "runtime/runtime_state.h"
+#include "util/thrift_util.h"
 namespace doris {
 namespace {
 
-format::parquet::ParquetColumnSchema primitive_bloom_schema(const DataTypePtr& type) {
-    format::parquet::ParquetColumnSchema schema;
-    schema.local_id = 0;
-    schema.name = "c0";
-    schema.type = type;
-    schema.leaf_column_id = 0;
-    schema.kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
-    return schema;
-}
+class StatisticsMemoryFileReader final : public io::FileReader {
+public:
+    explicit StatisticsMemoryFileReader(std::vector<uint8_t> bytes)
+            : _bytes(std::move(bytes)), _path("native-bloom-filter.parquet") {}
 
-format::FileColumnPredicateFilter bloom_filter_with_predicate(
-        const std::shared_ptr<ColumnPredicate>& predicate) {
-    format::FileColumnPredicateFilter filter;
-    filter.file_column_id = format::LocalColumnId(0);
-    filter.predicates.push_back(predicate);
-    return filter;
-}
+    Status close() override {
+        _closed = true;
+        return Status::OK();
+    }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return _bytes.size(); }
+    bool closed() const override { return _closed; }
+    int64_t mtime() const override { return 1; }
 
-std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
-    std::shared_ptr<arrow::Array> array;
-    EXPECT_TRUE(builder->Finish(&array).ok());
-    return array;
-}
-
-std::shared_ptr<arrow::Array> int32_array(const std::vector<std::optional<int32_t>>& values) {
-    arrow::Int32Builder builder;
-    for (const auto& value : values) {
-        if (value.has_value()) {
-            EXPECT_TRUE(builder.Append(*value).ok());
-        } else {
-            EXPECT_TRUE(builder.AppendNull().ok());
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext*) override {
+        if (offset > _bytes.size() || result.size > _bytes.size() - offset) {
+            return Status::IOError("native Bloom test read exceeds memory file");
         }
+        memcpy(result.data, _bytes.data() + offset, result.size);
+        *bytes_read = result.size;
+        return Status::OK();
     }
-    return finish_array(&builder);
+
+private:
+    std::vector<uint8_t> _bytes;
+    io::Path _path;
+    bool _closed = false;
+};
+class BloomInExpr final : public VExpr {
+public:
+    BloomInExpr(int column_id, DataTypePtr data_type, std::vector<Field> values)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _slot(VSlotRef::create_shared(0, column_id, -1, std::move(data_type), "c0")),
+              _values(std::move(values)) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("BloomInExpr is only used by parquet statistics tests");
+    }
+
+    bool can_evaluate_bloom_filter() const override { return true; }
+
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override {
+        return expr_zonemap::eval_in_bloom_filter(ctx, _slot, false, _values);
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        _slot->collect_slot_column_ids(column_ids);
+    }
+
+private:
+    VExprSPtr _slot;
+    std::vector<Field> _values;
+    const std::string _expr_name = "BloomInExpr";
+};
+
+class DictionaryStringInExpr final : public VExpr {
+public:
+    DictionaryStringInExpr() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("DictionaryStringInExpr is metadata-only");
+    }
+
+    bool can_evaluate_dictionary_filter() const override { return true; }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext&) const override {
+        return ZoneMapFilterResult::kNoMatch;
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override { column_ids.insert(0); }
+
+private:
+    const std::string _expr_name = "DictionaryStringInExpr";
+};
+
+class MetadataInt32GreaterThanExpr final : public VExpr {
+public:
+    explicit MetadataInt32GreaterThanExpr(int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("MetadataInt32GreaterThanExpr is metadata-only");
+    }
+    bool can_evaluate_zonemap_filter() const override { return true; }
+    void collect_slot_column_ids(std::set<int>& column_ids) const override { column_ids.insert(0); }
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        const auto zone_map = ctx.zone_map(0);
+        if (zone_map == nullptr) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        if (!zone_map->has_not_null) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        return zone_map->max_value <= Field::create_field<TYPE_INT>(_value)
+                       ? ZoneMapFilterResult::kNoMatch
+                       : ZoneMapFilterResult::kMayMatch;
+    }
+
+private:
+    int32_t _value;
+    const std::string _expr_name = "MetadataInt32GreaterThanExpr";
+};
+
+class MetadataBoundsProbeExpr final : public VExpr {
+public:
+    explicit MetadataBoundsProbeExpr(bool require_false_boolean = false)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _require_false_boolean(require_false_boolean) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("MetadataBoundsProbeExpr is metadata-only");
+    }
+    bool can_evaluate_zonemap_filter() const override { return true; }
+    void collect_slot_column_ids(std::set<int>& column_ids) const override { column_ids.insert(0); }
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        const auto zone_map = ctx.zone_map(0);
+        if (zone_map == nullptr || !zone_map->has_not_null || zone_map->min_value.is_null() ||
+            zone_map->max_value.is_null()) {
+            return ZoneMapFilterResult::kMayMatch;
+        }
+        if (_require_false_boolean &&
+            zone_map->min_value == Field::create_field<TYPE_BOOLEAN>(false) &&
+            zone_map->max_value == Field::create_field<TYPE_BOOLEAN>(false)) {
+            return ZoneMapFilterResult::kMayMatch;
+        }
+        return ZoneMapFilterResult::kNoMatch;
+    }
+
+private:
+    bool _require_false_boolean;
+    const std::string _expr_name = "MetadataBoundsProbeExpr";
+};
+VExprContextSPtrs bloom_conjuncts(DataTypePtr data_type, std::vector<Field> values) {
+    return {VExprContext::create_shared(
+            std::make_shared<BloomInExpr>(0, std::move(data_type), std::move(values)))};
 }
 
-std::shared_ptr<arrow::Array> uint32_array(const std::vector<uint32_t>& values) {
-    arrow::UInt32Builder builder;
-    for (const auto value : values) {
-        EXPECT_TRUE(builder.Append(value).ok());
-    }
-    return finish_array(&builder);
-}
-
-std::shared_ptr<arrow::Array> string_array(const std::vector<std::string>& values) {
-    arrow::StringBuilder builder;
-    for (const auto& value : values) {
-        EXPECT_TRUE(builder.Append(value).ok());
-    }
-    return finish_array(&builder);
-}
-
-std::shared_ptr<arrow::Array> timestamp_array(const std::vector<int64_t>& values) {
-    arrow::TimestampBuilder builder(arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"),
-                                    arrow::default_memory_pool());
-    for (const auto value : values) {
-        EXPECT_TRUE(builder.Append(value).ok());
-    }
-    return finish_array(&builder);
-}
-
-std::unique_ptr<::parquet::ParquetFileReader> make_reader(
-        const std::shared_ptr<arrow::Table>& table, int64_t row_group_size, bool enable_dictionary,
-        bool enable_statistics) {
-    auto out_result = arrow::io::BufferOutputStream::Create();
-    EXPECT_TRUE(out_result.ok());
-    auto out = *out_result;
-
-    ::parquet::WriterProperties::Builder builder;
-    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
-    builder.compression(::parquet::Compression::UNCOMPRESSED);
-    if (enable_dictionary) {
-        builder.enable_dictionary();
-    } else {
-        builder.disable_dictionary();
-    }
-    if (!enable_statistics) {
-        builder.disable_statistics();
-    }
-    EXPECT_TRUE(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
-                                             row_group_size, builder.build())
-                        .ok());
-    auto buffer_result = out->Finish();
-    EXPECT_TRUE(buffer_result.ok());
-    return ::parquet::ParquetFileReader::Open(
-            std::make_shared<arrow::io::BufferReader>(*buffer_result));
-}
-
-std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> build_file_schema(
-        const ::parquet::ParquetFileReader& reader) {
-    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
-    EXPECT_TRUE(
-            format::parquet::build_parquet_column_schema(*reader.metadata()->schema(), &file_schema)
-                    .ok());
-    return file_schema;
-}
-
-format::FileScanRequest request_with_filter(format::FileColumnPredicateFilter filter) {
+format::FileScanRequest request_with_bloom_conjunct(DataTypePtr data_type,
+                                                    std::vector<Field> values) {
     format::FileScanRequest request;
-    request.column_predicate_filters.push_back(std::move(filter));
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.conjuncts = bloom_conjuncts(std::move(data_type), std::move(values));
     return request;
 }
-
-::parquet::BlockSplitBloomFilter bloom_filter_for_int32_values(const std::vector<int32_t>& values) {
-    ::parquet::BlockSplitBloomFilter bloom_filter;
-    bloom_filter.Init(::parquet::BlockSplitBloomFilter::kMinimumBloomFilterBytes);
-    for (const auto value : values) {
-        bloom_filter.InsertHash(bloom_filter.Hash(value));
-    }
-    return bloom_filter;
+format::parquet::ParquetColumnSchema uint32_parquet_bloom_schema() {
+    format::parquet::ParquetColumnSchema column_schema;
+    column_schema.type = std::make_shared<DataTypeInt64>();
+    column_schema.type_descriptor.doris_type = column_schema.type;
+    column_schema.type_descriptor.physical_type = tparquet::Type::INT32;
+    column_schema.type_descriptor.integer_bit_width = 32;
+    column_schema.type_descriptor.is_unsigned_integer = true;
+    return column_schema;
 }
 
-TEST(ParquetStatisticsTransformTest, ConvertsMinMaxNullCountUnsignedStringAndTimestamp) {
-    auto table = arrow::Table::Make(
-            arrow::schema({
-                    arrow::field("i", arrow::int32(), true),
-                    arrow::field("u", arrow::uint32(), false),
-                    arrow::field("s", arrow::utf8(), false),
-                    arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"), false),
-            }),
-            {int32_array({1, std::nullopt, 5}), uint32_array({7, 9, 11}),
-             string_array({"alpha", "beta", "omega"}), timestamp_array({1000, 2000, 3000})});
-    auto reader = make_reader(table, 3, false, true);
-    auto schema = build_file_schema(*reader);
-    auto row_group = reader->metadata()->RowGroup(0);
+TEST(NativeParquetStatisticsTest, InvalidNullableDateBoundsDisableMinMax) {
+    format::parquet::ParquetColumnSchema column_schema;
+    column_schema.type = make_nullable(std::make_shared<DataTypeDateV2>());
+    column_schema.type_descriptor.doris_type = column_schema.type;
+    column_schema.type_descriptor.physical_type = tparquet::Type::INT32;
 
-    const auto int_stats = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
-            *schema[0], row_group->ColumnChunk(0)->statistics());
-    EXPECT_TRUE(int_stats.has_min_max);
-    EXPECT_TRUE(int_stats.has_null_count);
-    EXPECT_TRUE(int_stats.has_null);
-    EXPECT_TRUE(int_stats.has_not_null);
-    EXPECT_EQ(int_stats.min_value.get<TYPE_INT>(), 1);
-    EXPECT_EQ(int_stats.max_value.get<TYPE_INT>(), 5);
+    const int32_t invalid_date = std::numeric_limits<int32_t>::min();
+    tparquet::Statistics statistics;
+    statistics.__set_null_count(0);
+    statistics.__set_min_value(
+            std::string(reinterpret_cast<const char*>(&invalid_date), sizeof(invalid_date)));
+    statistics.__set_max_value(
+            std::string(reinterpret_cast<const char*>(&invalid_date), sizeof(invalid_date)));
 
-    const auto uint_stats = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
-            *schema[1], row_group->ColumnChunk(1)->statistics());
-    EXPECT_TRUE(uint_stats.has_min_max);
-    EXPECT_EQ(uint_stats.min_value.get<TYPE_BIGINT>(), 7);
-    EXPECT_EQ(uint_stats.max_value.get<TYPE_BIGINT>(), 11);
-
-    const auto string_stats = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
-            *schema[2], row_group->ColumnChunk(2)->statistics());
-    EXPECT_TRUE(string_stats.has_min_max);
-    EXPECT_EQ(string_stats.min_value.get<TYPE_STRING>(), "alpha");
-    EXPECT_EQ(string_stats.max_value.get<TYPE_STRING>(), "omega");
-
-    auto utc = cctz::utc_time_zone();
-    const auto timestamp_stats = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
-            *schema[3], row_group->ColumnChunk(3)->statistics(), &utc);
-    EXPECT_TRUE(timestamp_stats.has_min_max);
-    EXPECT_EQ(timestamp_stats.min_value.get_type(), TYPE_DATETIMEV2);
-    EXPECT_EQ(timestamp_stats.max_value.get_type(), TYPE_DATETIMEV2);
-    EXPECT_LT(timestamp_stats.min_value, timestamp_stats.max_value);
+    const auto result = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            column_schema, &statistics, 1, nullptr);
+    EXPECT_FALSE(result.has_min_max);
 }
 
-TEST(ParquetStatisticsTransformTest, HandlesMissingStatisticsAndAllNullChunks) {
-    auto no_stats_table = arrow::Table::Make(
-            arrow::schema({arrow::field("i", arrow::int32(), true)}), {int32_array({1, 2, 3})});
-    auto no_stats_reader = make_reader(no_stats_table, 3, false, false);
-    auto no_stats_schema = build_file_schema(*no_stats_reader);
-    auto no_stats = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
-            *no_stats_schema[0],
-            no_stats_reader->metadata()->RowGroup(0)->ColumnChunk(0)->statistics());
-    EXPECT_FALSE(no_stats.has_min_max);
+TEST(NativeParquetStatisticsTest, InvalidNullableDecimalBoundsDisableMinMax) {
+    format::parquet::ParquetColumnSchema column_schema;
+    column_schema.type = make_nullable(std::make_shared<DataTypeDecimal32>(2, 0));
+    column_schema.type_descriptor.doris_type = column_schema.type;
+    column_schema.type_descriptor.physical_type = tparquet::Type::INT32;
+    column_schema.type_descriptor.is_decimal = true;
+    column_schema.type_descriptor.decimal_precision = 2;
+    column_schema.type_descriptor.decimal_scale = 0;
 
-    auto all_null_table =
-            arrow::Table::Make(arrow::schema({arrow::field("i", arrow::int32(), true)}),
-                               {int32_array({std::nullopt, std::nullopt})});
-    auto all_null_reader = make_reader(all_null_table, 2, false, true);
-    auto all_null_schema = build_file_schema(*all_null_reader);
-    auto all_null_stats = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
-            *all_null_schema[0],
-            all_null_reader->metadata()->RowGroup(0)->ColumnChunk(0)->statistics());
-    EXPECT_TRUE(all_null_stats.has_null_count);
-    EXPECT_TRUE(all_null_stats.has_null);
-    EXPECT_FALSE(all_null_stats.has_not_null);
-    EXPECT_FALSE(all_null_stats.has_min_max);
+    const int32_t invalid_decimal = 1000;
+    tparquet::Statistics statistics;
+    statistics.__set_null_count(0);
+    statistics.__set_min_value(
+            std::string(reinterpret_cast<const char*>(&invalid_decimal), sizeof(invalid_decimal)));
+    statistics.__set_max_value(
+            std::string(reinterpret_cast<const char*>(&invalid_decimal), sizeof(invalid_decimal)));
+
+    const auto result = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            column_schema, &statistics, 1, nullptr);
+    EXPECT_FALSE(result.has_min_max);
 }
 
-TEST(ParquetStatisticsPruningTest, StatisticsPredicatesAndNullPredicatesPruneRowGroups) {
-    auto table = arrow::Table::Make(arrow::schema({arrow::field("i", arrow::int32(), true)}),
-                                    {int32_array({std::nullopt, std::nullopt, 3, 4, 5, 6})});
-    auto reader = make_reader(table, 2, false, true);
-    auto schema = build_file_schema(*reader);
+TEST(NativeParquetStatisticsTest, InvalidTimeBoundsDisableFooterMinMax) {
+    format::parquet::ParquetColumnSchema column_schema;
+    column_schema.type = std::make_shared<DataTypeTimeV2>(3);
+    column_schema.type_descriptor.doris_type = column_schema.type;
+    column_schema.type_descriptor.physical_type = tparquet::Type::INT32;
+    column_schema.type_descriptor.time_unit = format::parquet::ParquetTimeUnit::MILLIS;
 
-    format::FileColumnPredicateFilter ge_filter;
-    ge_filter.file_column_id = format::LocalColumnId(0);
-    ge_filter.predicates.push_back(create_comparison_predicate<PredicateType::GE>(
-            0, "i", schema[0]->type, Field::create_field<TYPE_INT>(5), false));
-    std::vector<int> selected;
+    const int32_t invalid_time = 90000000;
+    tparquet::Statistics statistics;
+    statistics.__set_null_count(0);
+    statistics.__set_min_value(
+            std::string(reinterpret_cast<const char*>(&invalid_time), sizeof(invalid_time)));
+    statistics.__set_max_value(
+            std::string(reinterpret_cast<const char*>(&invalid_time), sizeof(invalid_time)));
+
+    const auto result = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            column_schema, &statistics, 1, nullptr);
+    EXPECT_FALSE(result.has_min_max);
+}
+
+TEST(NativeParquetStatisticsTest, BooleanFooterBoundsDecodeOnlyTheValueBit) {
+    format::parquet::ParquetColumnSchema column_schema;
+    column_schema.type = std::make_shared<DataTypeUInt8>();
+    column_schema.type_descriptor.doris_type = column_schema.type;
+    column_schema.type_descriptor.physical_type = tparquet::Type::BOOLEAN;
+
+    tparquet::Statistics statistics;
+    statistics.__set_null_count(0);
+    statistics.__set_min_value(std::string(1, '\x02'));
+    statistics.__set_max_value(std::string(1, '\x02'));
+
+    const auto result = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            column_schema, &statistics, 1, nullptr);
+    ASSERT_TRUE(result.has_min_max);
+    EXPECT_EQ(result.min_value, Field::create_field<TYPE_BOOLEAN>(false));
+    EXPECT_EQ(result.max_value, Field::create_field<TYPE_BOOLEAN>(false));
+}
+
+TEST(NativeParquetStatisticsTest, InvalidTimeAndPaddedBooleanPageBoundsCannotPrune) {
+    auto run_page_index = [](std::unique_ptr<format::parquet::ParquetColumnSchema> column_schema,
+                             std::string min_value, std::string max_value,
+                             bool require_false_boolean) {
+        column_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+        column_schema->local_id = 0;
+        column_schema->leaf_column_id = 0;
+        std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+        schema.push_back(std::move(column_schema));
+
+        tparquet::ColumnOrder order;
+        order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+        tparquet::FileMetaData metadata;
+        metadata.__set_column_orders({order});
+        format::FileScanRequest request;
+        request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+        request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+        request.conjuncts = {VExprContext::create_shared(
+                std::make_shared<MetadataBoundsProbeExpr>(require_false_boolean))};
+
+        format::parquet::NativeParquetPageIndex page_index;
+        page_index.column_index.__set_min_values({std::move(min_value)});
+        page_index.column_index.__set_max_values({std::move(max_value)});
+        page_index.column_index.__set_null_pages({false});
+        page_index.column_index.__set_null_counts({0});
+        tparquet::PageLocation location;
+        location.__set_offset(0);
+        location.__set_compressed_page_size(10);
+        location.__set_first_row_index(0);
+        page_index.offset_index.__set_page_locations({location});
+        std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+        page_indexes.emplace(0, std::move(page_index));
+        std::vector<format::parquet::RowRange> selected_ranges;
+        std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
+        EXPECT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                            metadata, page_indexes, schema, request, 1, &selected_ranges,
+                            &skip_plans, nullptr)
+                            .ok());
+        return selected_ranges;
+    };
+
+    auto time_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    time_schema->type = std::make_shared<DataTypeTimeV2>(3);
+    time_schema->type_descriptor.doris_type = time_schema->type;
+    time_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+    time_schema->type_descriptor.time_unit = format::parquet::ParquetTimeUnit::MILLIS;
+    const int32_t invalid_time = 90000000;
+    const std::string invalid_time_bytes(reinterpret_cast<const char*>(&invalid_time),
+                                         sizeof(invalid_time));
+    const auto time_ranges =
+            run_page_index(std::move(time_schema), invalid_time_bytes, invalid_time_bytes, false);
+    ASSERT_EQ(time_ranges.size(), 1);
+    EXPECT_EQ(time_ranges[0].start, 0);
+    EXPECT_EQ(time_ranges[0].length, 1);
+
+    auto bool_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    bool_schema->type = std::make_shared<DataTypeUInt8>();
+    bool_schema->type_descriptor.doris_type = bool_schema->type;
+    bool_schema->type_descriptor.physical_type = tparquet::Type::BOOLEAN;
+    const auto bool_ranges = run_page_index(std::move(bool_schema), std::string(1, '\x02'),
+                                            std::string(1, '\x02'), true);
+    ASSERT_EQ(bool_ranges.size(), 1);
+    EXPECT_EQ(bool_ranges[0].start, 0);
+    EXPECT_EQ(bool_ranges[0].length, 1);
+}
+TEST(ParquetBloomFilterPruningTest, NativeUint32BloomUsesPhysicalInt32Hash) {
+    const auto column_schema = uint32_parquet_bloom_schema();
+    format::parquet::native::BlockSplitBloomFilter bloom_filter;
+    ASSERT_TRUE(bloom_filter
+                        .init(segment_v2::BloomFilter::MINIMUM_BYTES,
+                              segment_v2::HashStrategyPB::XX_HASH_64)
+                        .ok());
+
+    const uint32_t present_value = 4000000000U;
+    int32_t physical_value;
+    memcpy(&physical_value, &present_value, sizeof(physical_value));
+    bloom_filter.add_bytes(reinterpret_cast<const char*>(&physical_value), sizeof(physical_value));
+
+    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::NativeBloomFilterExcludes(
+            column_schema, 0,
+            bloom_conjuncts(column_schema.type, {Field::create_field<TYPE_BIGINT>(
+                                                        static_cast<int64_t>(present_value))}),
+            bloom_filter));
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::NativeBloomFilterExcludes(
+            column_schema, 0,
+            bloom_conjuncts(column_schema.type, {Field::create_field<TYPE_BIGINT>(-1)}),
+            bloom_filter));
+}
+
+TEST(ParquetBloomFilterPruningTest, NativeRowGroupKeepsPresentUint32AboveInt32Max) {
+    auto column_schema =
+            std::make_unique<format::parquet::ParquetColumnSchema>(uint32_parquet_bloom_schema());
+    column_schema->local_id = 0;
+    column_schema->leaf_column_id = 0;
+
+    format::parquet::native::BlockSplitBloomFilter bloom_filter;
+    ASSERT_TRUE(bloom_filter
+                        .init(segment_v2::BloomFilter::MINIMUM_BYTES,
+                              segment_v2::HashStrategyPB::XX_HASH_64)
+                        .ok());
+    const uint32_t present_value = 4000000000U;
+    int32_t physical_value;
+    memcpy(&physical_value, &present_value, sizeof(physical_value));
+    bloom_filter.add_bytes(reinterpret_cast<const char*>(&physical_value), sizeof(physical_value));
+
+    tparquet::BloomFilterAlgorithm algorithm;
+    algorithm.__set_BLOCK(tparquet::SplitBlockAlgorithm());
+    tparquet::BloomFilterHash hash;
+    hash.__set_XXHASH(tparquet::XxHash());
+    tparquet::BloomFilterCompression compression;
+    compression.__set_UNCOMPRESSED(tparquet::Uncompressed());
+    tparquet::BloomFilterHeader bloom_header;
+    bloom_header.__set_numBytes(static_cast<int32_t>(bloom_filter.size()));
+    bloom_header.__set_algorithm(algorithm);
+    bloom_header.__set_hash(hash);
+    bloom_header.__set_compression(compression);
+    std::vector<uint8_t> bloom_bytes;
+    ThriftSerializer serializer(/*compact=*/true, 64);
+    ASSERT_TRUE(serializer.serialize(&bloom_header, &bloom_bytes).ok());
+    bloom_bytes.insert(bloom_bytes.end(), bloom_filter.data(),
+                       bloom_filter.data() + bloom_filter.size());
+
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.__set_type(tparquet::Type::INT32);
+    column_metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    column_metadata.__set_num_values(1);
+    column_metadata.__set_total_compressed_size(0);
+    column_metadata.__set_data_page_offset(0);
+    column_metadata.__set_bloom_filter_offset(0);
+    column_metadata.__set_bloom_filter_length(static_cast<int32_t>(bloom_bytes.size()));
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(column_metadata);
+    tparquet::RowGroup row_group;
+    row_group.__set_columns({chunk});
+    row_group.__set_total_byte_size(0);
+    row_group.__set_num_rows(1);
+    tparquet::FileMetaData metadata;
+    metadata.__set_version(1);
+    metadata.__set_num_rows(1);
+    metadata.__set_row_groups({row_group});
+
+    format::parquet::ParquetFileContext file_context;
+    file_context.native_file = std::make_shared<StatisticsMemoryFileReader>(std::move(bloom_bytes));
+    auto request = request_with_bloom_conjunct(
+            column_schema->type,
+            {Field::create_field<TYPE_BIGINT>(static_cast<int64_t>(present_value))});
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(column_schema));
+    std::vector<int> selected_row_groups;
     format::parquet::ParquetPruningStats pruning_stats;
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
-                        *reader->metadata(), reader.get(), schema, request_with_filter(ge_filter),
-                        nullptr, &selected, false, &pruning_stats)
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        metadata, schema, request, nullptr, &selected_row_groups, true,
+                        &pruning_stats, nullptr, nullptr, &file_context)
                         .ok());
-    EXPECT_EQ(selected, std::vector<int>({2}));
-    EXPECT_EQ(pruning_stats.filtered_row_groups_by_statistics, 2);
-
-    format::FileColumnPredicateFilter is_not_null_filter;
-    is_not_null_filter.file_column_id = format::LocalColumnId(0);
-    is_not_null_filter.predicates.push_back(
-            std::make_shared<NullPredicate>(0, "i", false, TYPE_INT));
-    selected.clear();
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
-                        *reader->metadata(), reader.get(), schema,
-                        request_with_filter(is_not_null_filter), nullptr, &selected, false,
-                        &pruning_stats)
-                        .ok());
-    EXPECT_EQ(selected, std::vector<int>({1, 2}));
-
-    format::FileColumnPredicateFilter is_null_filter;
-    is_null_filter.file_column_id = format::LocalColumnId(0);
-    is_null_filter.predicates.push_back(std::make_shared<NullPredicate>(0, "i", true, TYPE_INT));
-    selected.clear();
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
-                        *reader->metadata(), reader.get(), schema,
-                        request_with_filter(is_null_filter), nullptr, &selected, false,
-                        &pruning_stats)
-                        .ok());
-    EXPECT_EQ(selected, std::vector<int>({0}));
-}
-
-TEST(ParquetStatisticsPruningTest, DictionaryPruningHandlesExcludeIncludeAndUnsupportedPaths) {
-    auto table = arrow::Table::Make(arrow::schema({arrow::field("s", arrow::utf8(), false)}),
-                                    {string_array({"alpha", "beta", "gamma", "omega"})});
-    auto reader = make_reader(table, 2, true, false);
-    auto schema = build_file_schema(*reader);
-
-    format::FileColumnPredicateFilter absent_filter;
-    absent_filter.file_column_id = format::LocalColumnId(0);
-    absent_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
-            0, "s", schema[0]->type, Field::create_field<TYPE_STRING>("missing"), false));
-    std::vector<int> selected;
-    format::parquet::ParquetPruningStats pruning_stats;
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
-                        *reader->metadata(), reader.get(), schema,
-                        request_with_filter(absent_filter), nullptr, &selected, false,
-                        &pruning_stats)
-                        .ok());
-    EXPECT_TRUE(selected.empty());
-    EXPECT_EQ(pruning_stats.filtered_row_groups_by_dictionary, 2);
-
-    format::FileColumnPredicateFilter present_filter;
-    present_filter.file_column_id = format::LocalColumnId(0);
-    present_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
-            0, "s", schema[0]->type, Field::create_field<TYPE_STRING>("gamma"), false));
-    selected.clear();
-    pruning_stats = {};
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
-                        *reader->metadata(), reader.get(), schema,
-                        request_with_filter(present_filter), nullptr, &selected, false,
-                        &pruning_stats)
-                        .ok());
-    EXPECT_EQ(selected, std::vector<int>({1}));
-    EXPECT_EQ(pruning_stats.filtered_row_groups_by_dictionary, 1);
-
-    auto plain_reader = make_reader(table, 2, false, false);
-    auto plain_schema = build_file_schema(*plain_reader);
-    selected.clear();
-    pruning_stats = {};
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
-                        *plain_reader->metadata(), plain_reader.get(), plain_schema,
-                        request_with_filter(absent_filter), nullptr, &selected, false,
-                        &pruning_stats)
-                        .ok());
-    EXPECT_EQ(selected, std::vector<int>({0, 1}));
-    EXPECT_EQ(pruning_stats.filtered_row_groups_by_dictionary, 0);
-}
-
-TEST(ParquetStatisticsPruningTest, StatisticsRunsBeforeDictionaryAndMissingBloomKeepsRows) {
-    auto table = arrow::Table::Make(arrow::schema({arrow::field("s", arrow::utf8(), false)}),
-                                    {string_array({"alpha", "beta", "gamma", "omega"})});
-    auto reader = make_reader(table, 2, true, true);
-    auto schema = build_file_schema(*reader);
-
-    format::FileColumnPredicateFilter beyond_max_filter;
-    beyond_max_filter.file_column_id = format::LocalColumnId(0);
-    beyond_max_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "s", schema[0]->type, Field::create_field<TYPE_STRING>("zzzz"), false));
-    std::vector<int> selected;
-    format::parquet::ParquetPruningStats pruning_stats;
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
-                        *reader->metadata(), reader.get(), schema,
-                        request_with_filter(beyond_max_filter), nullptr, &selected, true,
-                        &pruning_stats)
-                        .ok());
-    EXPECT_TRUE(selected.empty());
-    EXPECT_EQ(pruning_stats.filtered_row_groups_by_statistics, 2);
-    EXPECT_EQ(pruning_stats.filtered_row_groups_by_dictionary, 0);
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
     EXPECT_EQ(pruning_stats.filtered_row_groups_by_bloom_filter, 0);
+}
 
-    auto no_stats_reader = make_reader(table, 2, false, false);
-    auto no_stats_schema = build_file_schema(*no_stats_reader);
-    format::FileColumnPredicateFilter missing_bloom_filter;
-    missing_bloom_filter.file_column_id = format::LocalColumnId(0);
-    missing_bloom_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
-            0, "s", no_stats_schema[0]->type, Field::create_field<TYPE_STRING>("absent"), false));
-    selected.clear();
-    pruning_stats = {};
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
-                        *no_stats_reader->metadata(), no_stats_reader.get(), no_stats_schema,
-                        request_with_filter(missing_bloom_filter), nullptr, &selected, true,
-                        &pruning_stats)
+TEST(NativeParquetStatisticsTest, EmptyDictionaryRowGroupIsSkippedBeforeMetadataProbes) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement leaf;
+    leaf.__set_name("value");
+    leaf.__set_type(tparquet::Type::BYTE_ARRAY);
+    leaf.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.__set_type(tparquet::Type::BYTE_ARRAY);
+    column_metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    column_metadata.__set_num_values(0);
+    column_metadata.__set_total_compressed_size(0);
+    column_metadata.__set_data_page_offset(0);
+    column_metadata.__set_dictionary_page_offset(0);
+    column_metadata.__set_encodings({tparquet::Encoding::RLE_DICTIONARY});
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(column_metadata);
+    tparquet::RowGroup row_group;
+    row_group.__set_columns({chunk});
+    row_group.__set_total_byte_size(0);
+    row_group.__set_num_rows(0);
+    tparquet::FileMetaData thrift_metadata;
+    thrift_metadata.__set_version(1);
+    thrift_metadata.__set_schema({root, leaf});
+    thrift_metadata.__set_num_rows(0);
+    thrift_metadata.__set_row_groups({row_group});
+
+    format::parquet::NativeParquetMetadata native_metadata(thrift_metadata, 0);
+    ASSERT_TRUE(native_metadata.init_schema(false, false).ok());
+    format::parquet::ParquetFileContext file_context;
+    file_context.native_file =
+            std::make_shared<StatisticsMemoryFileReader>(std::vector<uint8_t> {});
+    file_context.native_metadata = &native_metadata;
+
+    auto column_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    column_schema->local_id = 0;
+    column_schema->leaf_column_id = 0;
+    column_schema->type = std::make_shared<DataTypeString>();
+    column_schema->type_descriptor.doris_type = column_schema->type;
+    column_schema->type_descriptor.physical_type = tparquet::Type::BYTE_ARRAY;
+    column_schema->type_descriptor.is_string_like = true;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(column_schema));
+
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    request.conjuncts = {VExprContext::create_shared(std::make_shared<DictionaryStringInExpr>())};
+    std::vector<int> selected_row_groups;
+    format::parquet::ParquetPruningStats pruning_stats;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        thrift_metadata, schema, request, nullptr, &selected_row_groups, true,
+                        &pruning_stats, nullptr, nullptr, &file_context)
                         .ok());
-    EXPECT_EQ(selected, std::vector<int>({0, 1}));
-    EXPECT_EQ(pruning_stats.filtered_row_groups_by_bloom_filter, 0);
+    EXPECT_TRUE(selected_row_groups.empty());
 }
 
-::parquet::BlockSplitBloomFilter bloom_filter_for_string_values(
-        const std::vector<std::string>& values) {
-    ::parquet::BlockSplitBloomFilter bloom_filter;
-    bloom_filter.Init(::parquet::BlockSplitBloomFilter::kMinimumBloomFilterBytes);
-    for (const auto& value : values) {
-        ::parquet::ByteArray byte_array(static_cast<uint32_t>(value.size()),
-                                        reinterpret_cast<const uint8_t*>(value.data()));
-        bloom_filter.InsertHash(bloom_filter.Hash(&byte_array));
+TEST(NativeParquetStatisticsTest, InvalidCandidateRowGroupReturnsCorruption) {
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(1);
+    tparquet::FileMetaData metadata;
+    metadata.__set_row_groups({row_group});
+    format::FileScanRequest request;
+    const std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    const std::vector<int> candidates {1};
+    std::vector<int> selected_row_groups;
+
+    const auto status = format::parquet::select_row_groups_by_metadata(
+            metadata, schema, request, &candidates, &selected_row_groups, false, nullptr, nullptr,
+            nullptr, nullptr);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+}
+TEST(NativeParquetStatisticsTest, LegacyBinaryFooterBoundsRequireComparableOrdering) {
+    format::parquet::ParquetTypeDescriptor binary_type;
+    binary_type.physical_type = tparquet::Type::BYTE_ARRAY;
+
+    tparquet::Statistics max_only;
+    max_only.__set_max("III");
+    EXPECT_FALSE(
+            format::parquet::detail::can_use_native_footer_min_max(binary_type, max_only, false));
+
+    tparquet::Statistics legacy_different;
+    legacy_different.__set_min("III");
+    legacy_different.__set_max("\xe6\x98\xaf");
+    EXPECT_FALSE(format::parquet::detail::can_use_native_footer_min_max(binary_type,
+                                                                        legacy_different, false));
+
+    tparquet::Statistics legacy_equal;
+    legacy_equal.__set_min("same");
+    legacy_equal.__set_max("same");
+    EXPECT_TRUE(format::parquet::detail::can_use_native_footer_min_max(binary_type, legacy_equal,
+                                                                       false));
+
+    tparquet::Statistics type_defined;
+    type_defined.__set_min_value("III");
+    type_defined.__set_max_value("\xe6\x98\xaf");
+    EXPECT_FALSE(format::parquet::detail::can_use_native_footer_min_max(binary_type, type_defined,
+                                                                        false));
+    EXPECT_TRUE(format::parquet::detail::can_use_native_footer_min_max(binary_type, type_defined,
+                                                                       true));
+
+    tparquet::Statistics mixed_fields;
+    mixed_fields.__set_min_value("III");
+    mixed_fields.__set_max("\xe6\x98\xaf");
+    EXPECT_FALSE(format::parquet::detail::can_use_native_footer_min_max(binary_type, mixed_fields,
+                                                                        true));
+}
+
+TEST(NativeParquetStatisticsTest, ExplicitlyInexactNumericBoundsCannotBackMinMaxAggregate) {
+    format::parquet::ParquetTypeDescriptor int32_type;
+    int32_type.physical_type = tparquet::Type::INT32;
+    auto encode_int32 = [](int32_t value) {
+        std::string bytes(sizeof(value), '\0');
+        memcpy(bytes.data(), &value, sizeof(value));
+        return bytes;
+    };
+
+    tparquet::Statistics statistics;
+    statistics.__set_min_value(encode_int32(0));
+    statistics.__set_max_value(encode_int32(100));
+    EXPECT_TRUE(
+            format::parquet::detail::can_use_native_footer_min_max(int32_type, statistics, true));
+
+    statistics.__set_is_min_value_exact(false);
+    statistics.__set_is_max_value_exact(true);
+    EXPECT_FALSE(
+            format::parquet::detail::can_use_native_footer_min_max(int32_type, statistics, true));
+
+    statistics.__set_is_min_value_exact(true);
+    statistics.__set_is_max_value_exact(false);
+    EXPECT_FALSE(
+            format::parquet::detail::can_use_native_footer_min_max(int32_type, statistics, true));
+}
+
+TEST(NativeParquetStatisticsTest, TypeDefinedBoundsRequireSupportedColumnOrder) {
+    auto encode_int32 = [](int32_t value) {
+        std::string bytes(sizeof(value), '\0');
+        memcpy(bytes.data(), &value, sizeof(value));
+        return bytes;
+    };
+
+    auto column_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    column_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    column_schema->local_id = 0;
+    column_schema->leaf_column_id = 0;
+    column_schema->type = std::make_shared<DataTypeInt32>();
+    column_schema->type_descriptor.doris_type = column_schema->type;
+    column_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(column_schema));
+
+    tparquet::Statistics statistics;
+    statistics.__set_min_value(encode_int32(1));
+    statistics.__set_max_value(encode_int32(2));
+    statistics.__set_null_count(0);
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.__set_type(tparquet::Type::INT32);
+    column_metadata.__set_num_values(1);
+    column_metadata.__set_statistics(statistics);
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(column_metadata);
+    tparquet::RowGroup row_group;
+    row_group.__set_columns({chunk});
+    row_group.__set_num_rows(1);
+    tparquet::FileMetaData metadata;
+    metadata.__set_row_groups({row_group});
+
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    request.conjuncts = {
+            VExprContext::create_shared(std::make_shared<MetadataInt32GreaterThanExpr>(100))};
+    std::vector<int> selected_row_groups;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(metadata, schema, request, nullptr,
+                                                               &selected_row_groups, false, nullptr)
+                        .ok());
+    EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+
+    format::parquet::NativeParquetPageIndex page_index;
+    page_index.column_index.__set_min_values({encode_int32(1)});
+    page_index.column_index.__set_max_values({encode_int32(2)});
+    page_index.column_index.__set_null_pages({false});
+    page_index.column_index.__set_null_counts({0});
+    tparquet::PageLocation location;
+    location.__set_offset(0);
+    location.__set_compressed_page_size(10);
+    location.__set_first_row_index(0);
+    page_index.offset_index.__set_page_locations({location});
+    std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+    page_indexes.emplace(0, page_index);
+    std::vector<format::parquet::RowRange> selected_ranges;
+    std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, page_indexes, schema, request, 1, &selected_ranges, &skip_plans,
+                        nullptr)
+                        .ok());
+    EXPECT_EQ(selected_ranges.size(), 1);
+
+    tparquet::ColumnOrder order;
+    order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+    metadata.__set_column_orders({order});
+    selected_row_groups.clear();
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(metadata, schema, request, nullptr,
+                                                               &selected_row_groups, false, nullptr)
+                        .ok());
+    EXPECT_TRUE(selected_row_groups.empty());
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, page_indexes, schema, request, 1, &selected_ranges, &skip_plans,
+                        nullptr)
+                        .ok());
+    EXPECT_TRUE(selected_ranges.empty());
+}
+
+TEST(NativeParquetStatisticsTest, ZonemapPruningIgnoresDisabledSessionSwitch) {
+    auto encode_int32 = [](int32_t value) {
+        std::string bytes(sizeof(value), '\0');
+        memcpy(bytes.data(), &value, sizeof(value));
+        return bytes;
+    };
+
+    auto column_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    column_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    column_schema->local_id = 0;
+    column_schema->leaf_column_id = 0;
+    column_schema->type = std::make_shared<DataTypeInt32>();
+    column_schema->type_descriptor.doris_type = column_schema->type;
+    column_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(column_schema));
+
+    tparquet::Statistics statistics;
+    statistics.__set_min_value(encode_int32(1));
+    statistics.__set_max_value(encode_int32(2));
+    statistics.__set_null_count(0);
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.__set_type(tparquet::Type::INT32);
+    column_metadata.__set_num_values(1);
+    column_metadata.__set_statistics(statistics);
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(column_metadata);
+    tparquet::RowGroup row_group;
+    row_group.__set_columns({chunk});
+    row_group.__set_num_rows(1);
+    tparquet::ColumnOrder order;
+    order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+    tparquet::FileMetaData metadata;
+    metadata.__set_column_orders({order});
+    metadata.__set_row_groups({row_group});
+
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    request.conjuncts = {
+            VExprContext::create_shared(std::make_shared<MetadataInt32GreaterThanExpr>(100))};
+
+    TQueryOptions query_options;
+    query_options.__set_enable_expr_zonemap_filter(false);
+    RuntimeState state {query_options, TQueryGlobals()};
+    std::vector<int> selected_row_groups;
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(metadata, schema, request, nullptr,
+                                                               &selected_row_groups, false, nullptr,
+                                                               nullptr, &state)
+                        .ok());
+    EXPECT_TRUE(selected_row_groups.empty());
+
+    format::parquet::NativeParquetPageIndex page_index;
+    page_index.column_index.__set_min_values({encode_int32(1)});
+    page_index.column_index.__set_max_values({encode_int32(2)});
+    page_index.column_index.__set_null_pages({false});
+    page_index.column_index.__set_null_counts({0});
+    tparquet::PageLocation location;
+    location.__set_offset(0);
+    location.__set_compressed_page_size(10);
+    location.__set_first_row_index(0);
+    page_index.offset_index.__set_page_locations({location});
+    std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+    page_indexes.emplace(0, std::move(page_index));
+    std::vector<format::parquet::RowRange> selected_ranges;
+    std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, page_indexes, schema, request, 1, &selected_ranges, &skip_plans,
+                        nullptr, nullptr, &state)
+                        .ok());
+    EXPECT_TRUE(selected_ranges.empty());
+}
+
+TEST(NativeParquetStatisticsTest, ContradictoryAllNullPageCountsDisablePruning) {
+    auto column_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    column_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    column_schema->local_id = 0;
+    column_schema->leaf_column_id = 0;
+    column_schema->type = std::make_shared<DataTypeInt32>();
+    column_schema->type_descriptor.doris_type = column_schema->type;
+    column_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(column_schema));
+
+    tparquet::ColumnOrder order;
+    order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+    tparquet::FileMetaData metadata;
+    metadata.__set_column_orders({order});
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    request.conjuncts = {
+            VExprContext::create_shared(std::make_shared<MetadataInt32GreaterThanExpr>(0))};
+
+    for (const int64_t contradictory_null_count : {5, 11}) {
+        SCOPED_TRACE(contradictory_null_count);
+        format::parquet::NativeParquetPageIndex page_index;
+        page_index.column_index.__set_null_pages({true});
+        page_index.column_index.__set_null_counts({contradictory_null_count});
+        tparquet::PageLocation location;
+        location.__set_offset(0);
+        location.__set_compressed_page_size(10);
+        location.__set_first_row_index(0);
+        page_index.offset_index.__set_page_locations({location});
+        std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+        page_indexes.emplace(0, std::move(page_index));
+        std::vector<format::parquet::RowRange> selected_ranges;
+        std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
+
+        ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                            metadata, page_indexes, schema, request, 10, &selected_ranges,
+                            &skip_plans, nullptr)
+                            .ok());
+        // ColumnIndex is optional. An impossible all-null claim must fall back to reading the
+        // ten-row data page instead of proving that no value can satisfy the predicate.
+        ASSERT_EQ(selected_ranges.size(), 1);
+        EXPECT_EQ(selected_ranges[0].start, 0);
+        EXPECT_EQ(selected_ranges[0].length, 10);
     }
-    return bloom_filter;
-}
-
-TEST(ParquetBloomFilterPruningTest, EqPredicateUsesArrowHashAndPrunesAbsentIntValue) {
-    auto schema = primitive_bloom_schema(std::make_shared<DataTypeInt32>());
-    auto bloom_filter = bloom_filter_for_int32_values({1, 3});
-    auto absent_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-            0, "c0", schema.type, Field::create_field<TYPE_INT>(2), false));
-    auto present_filter =
-            bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-                    0, "c0", schema.type, Field::create_field<TYPE_INT>(3), false));
-
-    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
-                                                                             bloom_filter));
-    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
-            schema, present_filter, bloom_filter));
-}
-
-TEST(ParquetBloomFilterPruningTest, InPredicatePrunesOnlyWhenAllValuesAreAbsent) {
-    auto schema = primitive_bloom_schema(std::make_shared<DataTypeInt32>());
-    auto bloom_filter = bloom_filter_for_int32_values({1, 3});
-
-    auto absent_set = build_set<TYPE_INT>();
-    int32_t absent_first = 2;
-    int32_t absent_second = 4;
-    absent_set->insert(&absent_first);
-    absent_set->insert(&absent_second);
-    auto absent_filter =
-            bloom_filter_with_predicate(create_in_list_predicate<PredicateType::IN_LIST>(
-                    0, "c0", schema.type, absent_set, false));
-
-    auto present_set = build_set<TYPE_INT>();
-    int32_t present_first = 2;
-    int32_t present_second = 3;
-    present_set->insert(&present_first);
-    present_set->insert(&present_second);
-    auto present_filter =
-            bloom_filter_with_predicate(create_in_list_predicate<PredicateType::IN_LIST>(
-                    0, "c0", schema.type, present_set, false));
-
-    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
-                                                                             bloom_filter));
-    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
-            schema, present_filter, bloom_filter));
-}
-
-TEST(ParquetBloomFilterPruningTest, BooleanPredicateHashesAsParquetInt32) {
-    auto schema = primitive_bloom_schema(std::make_shared<DataTypeBool>());
-    auto bloom_filter = bloom_filter_for_int32_values({1});
-    auto false_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-            0, "c0", schema.type, Field::create_field<TYPE_BOOLEAN>(false), false));
-    auto true_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-            0, "c0", schema.type, Field::create_field<TYPE_BOOLEAN>(true), false));
-
-    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, false_filter,
-                                                                             bloom_filter));
-    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, true_filter,
-                                                                              bloom_filter));
-}
-
-TEST(ParquetBloomFilterPruningTest, StringPredicateUsesArrowByteArrayHash) {
-    auto schema = primitive_bloom_schema(std::make_shared<DataTypeString>());
-    auto bloom_filter = bloom_filter_for_string_values({"alpha", "omega"});
-    auto absent_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-            0, "c0", schema.type, Field::create_field<TYPE_STRING>("beta"), false));
-    auto present_filter =
-            bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-                    0, "c0", schema.type, Field::create_field<TYPE_STRING>("alpha"), false));
-
-    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
-                                                                             bloom_filter));
-    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
-            schema, present_filter, bloom_filter));
-}
-
-TEST(ParquetBloomFilterPruningTest, NullableAcceptingAndUnsupportedPredicatesKeepRowGroup) {
-    auto schema = primitive_bloom_schema(std::make_shared<DataTypeInt32>());
-    auto bloom_filter = bloom_filter_for_int32_values({1});
-    auto nested_predicate = create_comparison_predicate<PredicateType::EQ>(
-            0, "c0", schema.type, Field::create_field<TYPE_INT>(2), false);
-    auto accept_null_filter =
-            bloom_filter_with_predicate(std::make_shared<AcceptNullPredicate>(nested_predicate));
-    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
-            schema, accept_null_filter, bloom_filter));
-
-    auto unsupported_schema = primitive_bloom_schema(std::make_shared<DataTypeInt16>());
-    auto unsupported_filter =
-            bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-                    0, "c0", unsupported_schema.type, Field::create_field<TYPE_SMALLINT>(2),
-                    false));
-    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
-            unsupported_schema, unsupported_filter, bloom_filter));
 }
 
 } // namespace

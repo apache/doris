@@ -33,6 +33,7 @@ class RuntimeState;
 class TExprNode;
 class Block;
 class VExprContext;
+class HybridSetBase;
 } // namespace doris
 
 namespace doris {
@@ -62,6 +63,21 @@ public:
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
     bool can_evaluate_zonemap_filter() const override;
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const override;
+    bool can_evaluate_dictionary_filter() const override;
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override;
+    bool can_evaluate_bloom_filter() const override;
+
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override;
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override;
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override;
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override;
 
     uint64_t get_digest(uint64_t seed) const override { return 0; }
     Status clone_node(VExprSPtr* cloned_expr) const override {
@@ -86,6 +102,7 @@ private:
     bool _is_args_all_constant = false;
     bool _zonemap_materialized = false;
     bool _seg_filter_contains_null = false;
+    std::shared_ptr<HybridSetBase> _direct_filter_set;
     std::vector<Field> _seg_filter_values;
     Field _seg_filter_min;
     Field _seg_filter_max;

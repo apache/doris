@@ -83,6 +83,14 @@ ZoneMapFilterResult VExpr::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx
     return unsupported_zonemap_filter(ctx);
 }
 
+ZoneMapFilterResult VExpr::evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const {
+    return ZoneMapFilterResult::kUnsupported;
+}
+
+ZoneMapFilterResult VExpr::evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const {
+    return ZoneMapFilterResult::kUnsupported;
+}
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(readability-function-size)
 TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision,

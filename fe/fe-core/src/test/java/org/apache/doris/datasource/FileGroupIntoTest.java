@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.datasource.scan.FileGroupInfo;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;

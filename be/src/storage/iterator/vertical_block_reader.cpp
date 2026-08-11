@@ -148,16 +148,17 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
             _vcollect_iter = new_vertical_fifo_merge_iterator(
                     std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids,
                     ori_return_col_size, _tablet_schema->keys_type(), seq_col_idx,
-                    _row_sources_buffer);
+                    _row_sources_buffer, _context_stats);
         } else {
             _vcollect_iter = new_vertical_heap_merge_iterator(
                     std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids,
                     ori_return_col_size, _tablet_schema->keys_type(), seq_col_idx,
-                    _row_sources_buffer, read_params.key_group_cluster_key_idxes);
+                    _row_sources_buffer, _context_stats, read_params.key_group_cluster_key_idxes);
         }
     } else {
-        _vcollect_iter = new_vertical_mask_merge_iterator(std::move(*segment_iters_ptr),
-                                                          ori_return_col_size, _row_sources_buffer);
+        _vcollect_iter =
+                new_vertical_mask_merge_iterator(std::move(*segment_iters_ptr), ori_return_col_size,
+                                                 _row_sources_buffer, _context_stats);
     }
     // init collect iterator
     StorageReadOptions opts;
@@ -199,6 +200,10 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
                         .get_aggregate_function(AGG_READER_SUFFIX,
                                                 read_params.get_be_exec_version());
         DCHECK(function != nullptr);
+        const auto* column_ptr = _stored_data_columns[idx].get();
+        const IColumn* columns[] = {column_ptr};
+        function->check_input_columns_type(columns);
+        function->check_result_column_type(*column_ptr);
         _agg_functions.push_back(function);
         // create aggregate data
         auto* place = new char[function->size_of_data()];
@@ -574,12 +579,12 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             // Step 2: Prepare columns - pre-fill NULL for fixed-width, reserve for others
             std::vector<ColumnNullable*> nullable_dst_cols;
             std::vector<bool> supports_replace;
+            const size_t old_rows = target_columns.empty() ? 0 : target_columns.front()->size();
             _prepare_sparse_columns(target_columns, actual_rows, nullable_dst_cols,
                                     supports_replace);
 
             // Step 3: Process each batch
-            size_t dst_offset =
-                    target_columns.empty() ? 0 : target_columns[0]->size() - actual_rows;
+            size_t dst_offset = old_rows;
             for (const auto& batch : batches) {
                 Block* src_block = batch.block.get();
                 DCHECK(src_block != nullptr);

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -93,8 +95,15 @@ public class Count extends NotNullableAggregateFunction
         // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
         for (Expression argument : getArguments()) {
             if (distinct) {
+                checkLegacyVariantArgument(argument, this);
                 checkDistinctArgument(argument, this);
             }
+        }
+    }
+
+    static void checkLegacyVariantArgument(Expression argument, Expression function) {
+        if (!Config.enable_variant_v2 && argument.getDataType() instanceof VariantType) {
+            throwDistinctArgumentException(function);
         }
     }
 
@@ -105,18 +114,10 @@ public class Count extends NotNullableAggregateFunction
         }
     }
 
-    static void checkDistinctVariantArgument(Expression argument, Expression function) {
-        DataType argumentType = argument.getDataType();
-        if (argumentType.isVariantType()) {
-            throwDistinctArgumentException(function);
-        }
-    }
-
     private static boolean isUnsupportedDistinctArgument(DataType argumentType) {
         return argumentType.isComplexType()
                 || argumentType.isObjectType()
-                || argumentType.isJsonType()
-                || argumentType.isVariantType();
+                || argumentType.isJsonType();
     }
 
     private static void throwDistinctArgumentException(Expression function) {

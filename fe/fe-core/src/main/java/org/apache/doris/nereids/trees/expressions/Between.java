@@ -72,6 +72,11 @@ public class Between extends Expression implements TernaryExpression {
     }
 
     @Override
+    public String shapeInfo() {
+        return compareExpr.shapeInfo() + " BETWEEN " + lowerBound.shapeInfo() + " AND " + upperBound.shapeInfo();
+    }
+
+    @Override
     public String toString() {
         return compareExpr + " BETWEEN " + lowerBound + " AND " + upperBound;
     }

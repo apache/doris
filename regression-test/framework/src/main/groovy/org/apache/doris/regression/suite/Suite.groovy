@@ -3753,35 +3753,35 @@ class Suite implements GroovyInterceptable {
             throw new IllegalArgumentException("invalid caseElapseSeconds, ${caseElapseSeconds}")
         }
 
-        long sleepSeconds = 0
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now()
+        LocalDateTime boundary
 
         switch (caseSpanConstraint) {
             case "NOT_CROSS_HOUR_BOUNDARY":
-                LocalDateTime nextHour = now.withMinute(0).withSecond(0).withNano(0).plusHours(1);
-                long secondsToNextHour = ChronoUnit.SECONDS.between(now, nextHour)
-
-                if (secondsToNextHour < caseElapseSeconds) {
-                    sleepSeconds = secondsToNextHour
-                }
+                boundary = now.withMinute(0).withSecond(0).withNano(0).plusHours(1)
                 break
 
             case "NOT_CROSS_DAY_BOUNDARY":
-                LocalDateTime startOfNextDay = now.toLocalDate().plusDays(1).atStartOfDay();
-                long secondsToNextDay = ChronoUnit.SECONDS.between(now, startOfNextDay)
-
-                if (secondsToNextDay < caseElapseSeconds) {
-                    sleepSeconds = secondsToNextDay
-                }
+                boundary = now.toLocalDate().plusDays(1).atStartOfDay()
                 break
             default:
                 throw new IllegalArgumentException("invalid caseSpanConstraint:${caseSpanConstraint}")
         }
 
-        if (sleepSeconds > 0) {
-            logger.info("test sleeps ${sleepSeconds} to satisfy ${caseSpanConstraint}")
-            Thread.sleep(sleepSeconds * 1000)
+        long sleepMillis = calculateBoundarySleepMillis(now, boundary, caseElapseSeconds)
+        if (sleepMillis > 0) {
+            logger.info("test sleeps ${sleepMillis} ms to satisfy ${caseSpanConstraint}")
+            Thread.sleep(sleepMillis)
         }
+    }
+
+    static long calculateBoundarySleepMillis(LocalDateTime now, LocalDateTime boundary, int caseElapseSeconds) {
+        long millisToBoundary = ChronoUnit.MILLIS.between(now, boundary)
+        if (millisToBoundary <= TimeUnit.SECONDS.toMillis(caseElapseSeconds)) {
+            // Cross the boundary by a full millisecond; truncated fractional milliseconds must not resume early.
+            return millisToBoundary + 1
+        }
+        return 0
     }
 
     void retryUntilHasSqlCache(String sql) {

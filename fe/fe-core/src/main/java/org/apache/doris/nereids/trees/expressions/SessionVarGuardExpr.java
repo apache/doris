@@ -73,6 +73,13 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
     }
 
     @Override
+    public String shapeInfo() {
+        try (AutoCloseSessionVariable ignored = openGuard()) {
+            return child().shapeInfo();
+        }
+    }
+
+    @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1, "SessionVarGuardExpr must have exactly one child");
         // Rebuild the wrapped expression with provided children, then wrap again
@@ -143,5 +150,4 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
         return exprs;
     }
 }
-
 

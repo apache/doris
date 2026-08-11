@@ -122,13 +122,9 @@ TEST_F(RowsetMetaManagerTest, SaveAndLoad) {
     auto attach_rowset_meta =
             create_rowset_meta(20001, RowsetStatePB::COMMITTED, Version {7, 7}, true);
 
-    std::map<RowsetId, RowsetMetaPB> attach_rowset_map;
-    attach_rowset_map.emplace(attach_rowset_meta->rowset_id(),
-                              to_rowset_meta_pb(attach_rowset_meta));
-
     auto st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
                                       to_rowset_meta_pb(base_rowset_meta), BinlogFormatPB::ROW,
-                                      &attach_rowset_map);
+                                      to_rowset_meta_pb(attach_rowset_meta));
     ASSERT_TRUE(st.ok()) << st;
 
     RowsetMetaSharedPtr loaded_base_meta = std::make_shared<RowsetMeta>();
@@ -139,25 +135,14 @@ TEST_F(RowsetMetaManagerTest, SaveAndLoad) {
     EXPECT_EQ(loaded_base_meta->tablet_uid().to_string(), tablet_uid().to_string());
     EXPECT_EQ(loaded_base_meta->version(), base_rowset_meta->version());
 
-    std::vector<std::tuple<TabletUid, RowsetId, RowsetId, RowsetMetaSharedPtr>>
-            traversed_attach_metas;
-    st = RowsetMetaManager::traverse_row_binlog_metas(
-            meta(), [&traversed_attach_metas](
-                            const TabletUid& tablet_uid, const RowsetId& base_rowset_id,
-                            const RowsetId& row_binlog_rowset_id, const std::string& value) {
-                auto rowset_meta = std::make_shared<RowsetMeta>();
-                EXPECT_TRUE(rowset_meta->init(value));
-                traversed_attach_metas.emplace_back(tablet_uid, base_rowset_id,
-                                                    row_binlog_rowset_id, std::move(rowset_meta));
-                return true;
-            });
+    RowsetMetaSharedPtr loaded_attach_meta = std::make_shared<RowsetMeta>();
+    st = RowsetMetaManager::get_rowset_meta(meta(), tablet_uid(), attach_rowset_meta->rowset_id(),
+                                            loaded_attach_meta);
     ASSERT_TRUE(st.ok()) << st;
-    ASSERT_EQ(traversed_attach_metas.size(), 1);
-    EXPECT_EQ(std::get<0>(traversed_attach_metas[0]).to_string(), tablet_uid().to_string());
-    EXPECT_EQ(std::get<1>(traversed_attach_metas[0]), base_rowset_meta->rowset_id());
-    EXPECT_EQ(std::get<2>(traversed_attach_metas[0]), attach_rowset_meta->rowset_id());
-    EXPECT_EQ(std::get<3>(traversed_attach_metas[0])->rowset_id(), attach_rowset_meta->rowset_id());
-    EXPECT_TRUE(std::get<3>(traversed_attach_metas[0])->is_row_binlog());
+    EXPECT_EQ(loaded_attach_meta->rowset_id(), attach_rowset_meta->rowset_id());
+    EXPECT_EQ(loaded_attach_meta->tablet_uid().to_string(), tablet_uid().to_string());
+    EXPECT_EQ(loaded_attach_meta->version(), attach_rowset_meta->version());
+    EXPECT_TRUE(loaded_attach_meta->is_row_binlog());
 }
 
 TEST_F(RowsetMetaManagerTest, Remove) {
@@ -165,63 +150,31 @@ TEST_F(RowsetMetaManagerTest, Remove) {
     auto attach_rowset_meta =
             create_rowset_meta(20011, RowsetStatePB::VISIBLE, Version {9, 9}, true);
 
-    std::map<RowsetId, RowsetMetaPB> attach_rowset_map;
-    attach_rowset_map.emplace(attach_rowset_meta->rowset_id(),
-                              to_rowset_meta_pb(attach_rowset_meta));
-
     auto st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
                                       to_rowset_meta_pb(base_rowset_meta), BinlogFormatPB::ROW,
-                                      &attach_rowset_map);
+                                      to_rowset_meta_pb(attach_rowset_meta));
     ASSERT_TRUE(st.ok()) << st;
 
-    std::map<RowsetId, RowsetId> base_rowset_id_to_row_binlog;
-    st = RowsetMetaManager::get_row_binlog_base_rowset_ids(
-            meta(), tablet_uid(), base_rowset_id_to_row_binlog,
-            std::set<RowsetId> {attach_rowset_meta->rowset_id()});
-    ASSERT_TRUE(st.ok()) << st;
-    ASSERT_EQ(base_rowset_id_to_row_binlog.size(), 1);
-    EXPECT_EQ(base_rowset_id_to_row_binlog.begin()->first, base_rowset_meta->rowset_id());
-    EXPECT_EQ(base_rowset_id_to_row_binlog.begin()->second, attach_rowset_meta->rowset_id());
-
-    st = RowsetMetaManager::remove_row_binlog(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
-                                              attach_rowset_meta->rowset_id());
+    st = RowsetMetaManager::exists(meta(), tablet_uid(), attach_rowset_meta->rowset_id());
     ASSERT_TRUE(st.ok()) << st;
 
-    int traversed_attach_meta_count = 0;
-    st = RowsetMetaManager::traverse_row_binlog_metas(
-            meta(), [&traversed_attach_meta_count](const TabletUid&, const RowsetId&,
-                                                   const RowsetId&, const std::string&) {
-                ++traversed_attach_meta_count;
-                return true;
-            });
+    st = RowsetMetaManager::remove(meta(), tablet_uid(), attach_rowset_meta->rowset_id());
     ASSERT_TRUE(st.ok()) << st;
-    EXPECT_EQ(traversed_attach_meta_count, 0);
+    EXPECT_TRUE(RowsetMetaManager::exists(meta(), tablet_uid(), attach_rowset_meta->rowset_id())
+                        .is<ErrorCode::META_KEY_NOT_FOUND>());
 
     auto base_rowset_meta_2 = create_rowset_meta(20012, RowsetStatePB::VISIBLE, Version {10, 10});
     auto attach_rowset_meta_2 =
             create_rowset_meta(20013, RowsetStatePB::VISIBLE, Version {10, 10}, true);
-    std::map<RowsetId, RowsetMetaPB> attach_rowset_map_2;
-    attach_rowset_map_2.emplace(attach_rowset_meta_2->rowset_id(),
-                                to_rowset_meta_pb(attach_rowset_meta_2));
-
     st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta_2->rowset_id(),
                                  to_rowset_meta_pb(base_rowset_meta_2), BinlogFormatPB::ROW,
-                                 &attach_rowset_map_2);
+                                 to_rowset_meta_pb(attach_rowset_meta_2));
     ASSERT_TRUE(st.ok()) << st;
 
-    st = RowsetMetaManager::remove_row_binlog_metas(
-            meta(), tablet_uid(), std::set<RowsetId> {attach_rowset_meta_2->rowset_id()});
+    st = RowsetMetaManager::remove(meta(), tablet_uid(), attach_rowset_meta_2->rowset_id());
     ASSERT_TRUE(st.ok()) << st;
-
-    traversed_attach_meta_count = 0;
-    st = RowsetMetaManager::traverse_row_binlog_metas(
-            meta(), [&traversed_attach_meta_count](const TabletUid&, const RowsetId&,
-                                                   const RowsetId&, const std::string&) {
-                ++traversed_attach_meta_count;
-                return true;
-            });
-    ASSERT_TRUE(st.ok()) << st;
-    EXPECT_EQ(traversed_attach_meta_count, 0);
+    EXPECT_TRUE(RowsetMetaManager::exists(meta(), tablet_uid(), attach_rowset_meta_2->rowset_id())
+                        .is<ErrorCode::META_KEY_NOT_FOUND>());
 }
 
 } // namespace doris

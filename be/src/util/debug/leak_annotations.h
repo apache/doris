@@ -79,10 +79,26 @@ int __lsan_do_recoverable_leak_check();
 
 namespace doris::debug {
 
+// Suppresses leak reports for allocations made in this scope.
+//
+// The __lsan_* functions above are only declared here; they are defined by the LeakSanitizer
+// runtime. Without -fsanitize=address (or =leak) nothing provides them, so calling them
+// unconditionally left every translation unit that instantiates this class with an undefined
+// reference, and doris_be_test could only be linked as an ASAN build. There is nothing to suppress
+// when no sanitizer is present, so the guard below degrades to a no-op -- the same reasoning
+// ANNOTATE_LEAKING_OBJECT_PTR already uses.
 class ScopedLSANDisabler {
 public:
+#if defined(DORIS_LSAN_ENABLED)
     ScopedLSANDisabler() { __lsan_disable(); }
     ~ScopedLSANDisabler() { __lsan_enable(); }
+#else
+    // Deliberately user-provided and not `= default`: a defaulted constructor makes the type
+    // trivial, and every `ScopedLSANDisabler guard;` then trips -Werror,-Wunused-variable. An
+    // empty user-provided body keeps the guard a no-op while remaining a real RAII object.
+    ScopedLSANDisabler() {}
+    ~ScopedLSANDisabler() {}
+#endif
 };
 
 } // namespace doris::debug

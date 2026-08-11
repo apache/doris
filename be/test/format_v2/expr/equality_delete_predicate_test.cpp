@@ -112,6 +112,27 @@ TEST_F(EqualityDeletePredicateTest, MatchSingleColumn) {
     EXPECT_EQ(result_column_data(data_block, result_column_id), std::vector<UInt8>({1, 0, 0, 1}));
 }
 
+TEST_F(EqualityDeletePredicateTest, UsesPopulatedPredicateColumnForLazyBatchSize) {
+    Block delete_block;
+    delete_block.insert(make_nullable_int_column("id", {1, 4}));
+    Block data_block;
+    // A lazy reader can leave the first projected column unread while decoding a later predicate
+    // column. Block::rows() is therefore zero even though the equality key has four rows.
+    data_block.insert(make_nullable_string_column("unread", {}));
+    data_block.insert(make_nullable_int_column("id", {1, 2, 3, 4}));
+
+    auto predicate = std::make_shared<EqualityDeletePredicate>(std::move(delete_block),
+                                                               std::vector<int> {1});
+    predicate->_open_finished = true;
+    predicate->add_child(std::make_shared<MockSlotRef>(1, data_block.get_by_position(1).type));
+    VExprContext context(predicate);
+
+    int result_column_id = -1;
+    auto status = predicate->execute(&context, &data_block, &result_column_id);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(result_column_data(data_block, result_column_id), std::vector<UInt8>({1, 0, 0, 1}));
+}
+
 TEST_F(EqualityDeletePredicateTest, MatchMultipleColumns) {
     Block delete_block;
     delete_block.insert(make_nullable_int_column("id", {1, 2}));

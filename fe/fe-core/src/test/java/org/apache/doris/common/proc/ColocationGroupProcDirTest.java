@@ -86,7 +86,6 @@ public class ColocationGroupProcDirTest extends TestWithFeService {
 
     @Test
     public void testCloudColocationGroupDetailWithoutTag() throws Exception {
-        String originDeployMode = Config.deploy_mode;
         createTable("CREATE TABLE colocate_t1 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2 "
                 + "PROPERTIES ('replication_num' = '1', 'colocate_with' = 'g1')");
         createTable("CREATE TABLE colocate_t2 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2 "
@@ -99,22 +98,20 @@ public class ColocationGroupProcDirTest extends TestWithFeService {
         ColocateTableIndex colocateTableIndex = Mockito.spy(Env.getCurrentColocateIndex());
         Mockito.doReturn(Maps.<Tag, List<List<Long>>>newHashMap()).when(colocateTableIndex)
                 .getBackendsPerBucketSeq(groupId);
-        Config.deploy_mode = "cloud";
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
             mockedEnv.when(Env::getCurrentColocateIndex).thenReturn(colocateTableIndex);
             ProcNodeInterface node = new ColocationGroupProcDir().lookup(groupId.toString());
             ProcResult result = node.fetchResult();
             Assertions.assertEquals(Lists.newArrayList("BucketIndex", "BackendIds"), result.getColumnNames());
             Assertions.assertFalse(result.getRows().isEmpty());
             Assertions.assertTrue(result.getRows().stream().anyMatch(row -> row.size() == 2 && !row.get(1).isEmpty()));
-        } finally {
-            Config.deploy_mode = originDeployMode;
         }
     }
 
     @Test
     public void testCloudGlobalColocationGroupDetailFallback() throws Exception {
-        String originDeployMode = Config.deploy_mode;
         createTable("CREATE TABLE global_colocate_t1 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2 "
                 + "PROPERTIES ('replication_num' = '1', 'colocate_with' = '__global__g1')");
 
@@ -125,22 +122,20 @@ public class ColocationGroupProcDirTest extends TestWithFeService {
         ColocateTableIndex colocateTableIndex = Mockito.spy(Env.getCurrentColocateIndex());
         Mockito.doReturn(Maps.<Tag, List<List<Long>>>newHashMap()).when(colocateTableIndex)
                 .getBackendsPerBucketSeq(groupId);
-        Config.deploy_mode = "cloud";
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
             mockedEnv.when(Env::getCurrentColocateIndex).thenReturn(colocateTableIndex);
             ProcNodeInterface node = new ColocationGroupProcDir().lookup(groupId.toString());
             ProcResult result = node.fetchResult();
             Assertions.assertEquals(Lists.newArrayList("BucketIndex", "BackendIds"), result.getColumnNames());
             Assertions.assertFalse(result.getRows().isEmpty());
             Assertions.assertTrue(result.getRows().stream().anyMatch(row -> row.size() == 2 && !row.get(1).isEmpty()));
-        } finally {
-            Config.deploy_mode = originDeployMode;
         }
     }
 
     @Test
     public void testCloudColocationGroupDetailFallbackSkipsUnusableFirstTable() throws Exception {
-        String originDeployMode = Config.deploy_mode;
         createTable("CREATE TABLE colocate_t5 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2 "
                 + "PROPERTIES ('replication_num' = '1', 'colocate_with' = 'g3')");
         createTable("CREATE TABLE colocate_t6 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2 "
@@ -153,8 +148,9 @@ public class ColocationGroupProcDirTest extends TestWithFeService {
         ColocateTableIndex colocateTableIndex = Mockito.spy(Env.getCurrentColocateIndex());
         Mockito.doReturn(Maps.<Tag, List<List<Long>>>newHashMap()).when(colocateTableIndex)
                 .getBackendsPerBucketSeq(groupId);
-        Config.deploy_mode = "cloud";
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
             mockedEnv.when(Env::getCurrentColocateIndex).thenReturn(colocateTableIndex);
             ProcNodeInterface node = new ColocationGroupProcDir().lookup(groupId.toString());
             ProcResult result = node.fetchResult();
@@ -163,20 +159,18 @@ public class ColocationGroupProcDirTest extends TestWithFeService {
             Assertions.assertTrue(result.getRows().stream().anyMatch(row -> row.size() == 2 && !row.get(1).isEmpty()));
         } finally {
             db.registerTable(table1);
-            Config.deploy_mode = originDeployMode;
         }
     }
 
     @Test
     public void testCloudColocationGroupReplicaAllocationIsNull() throws Exception {
-        String originDeployMode = Config.deploy_mode;
         createTable("CREATE TABLE colocate_t3 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2 "
                 + "PROPERTIES ('replication_num' = '1', 'colocate_with' = 'g2')");
         createTable("CREATE TABLE colocate_t4 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2 "
                 + "PROPERTIES ('replication_num' = '1', 'colocate_with' = 'g2')");
 
-        Config.deploy_mode = "cloud";
-        try {
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
             ProcResult result = new ColocationGroupProcDir().fetchResult();
             int groupNameIdx = ColocationGroupProcDir.TITLE_NAMES.indexOf("GroupName");
             int replicaAllocIdx = ColocationGroupProcDir.TITLE_NAMES.indexOf("ReplicaAllocation");
@@ -185,8 +179,6 @@ public class ColocationGroupProcDirTest extends TestWithFeService {
                     .findFirst()
                     .orElseThrow(() -> new AssertionError("can not find colocate group test.g2"));
             Assertions.assertEquals("null", groupRow.get(replicaAllocIdx));
-        } finally {
-            Config.deploy_mode = originDeployMode;
         }
     }
 

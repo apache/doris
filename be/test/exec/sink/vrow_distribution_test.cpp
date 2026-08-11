@@ -275,8 +275,27 @@ TEST(VRowDistributionTest, AutoPartitionMissingValuesBatchingDedupAndCreateParti
             schema_index_id, tablet_sink_tuple_id, partition_slot_id);
     auto tlocation = sink_test_utils::build_location_param();
 
-    auto h = _build_vrow_distribution_harness(ctx, tschema, tpartition, tlocation,
-                                              tablet_sink_tuple_id, txn_id);
+    VRowDistributionHarness* harness = nullptr;
+    bool create_callback_called = false;
+    std::function<Status(TCreatePartitionResult*)> create_callback =
+            [&](TCreatePartitionResult* result) {
+                create_callback_called = true;
+                EXPECT_EQ(result->partitions.size(), 1);
+
+                auto new_partition_block = ColumnHelper::create_block<DataTypeInt32>({15});
+                VOlapTablePartition* new_part = nullptr;
+                harness->vpartition->find_partition(&new_partition_block, 0, new_part);
+                if (new_part == nullptr) {
+                    return Status::InternalError("new partition is not found");
+                }
+                EXPECT_EQ(new_part->id, 3);
+                return Status::OK();
+            };
+
+    auto h = _build_vrow_distribution_harness(
+            ctx, tschema, tpartition, tlocation, tablet_sink_tuple_id, txn_id,
+            &_delegated_create_partition_callback, &create_callback);
+    harness = h.get();
 
     auto input_block = ColumnHelper::create_block<DataTypeInt32>({15, 15});
     std::shared_ptr<Block> converted_block;
@@ -334,6 +353,7 @@ TEST(VRowDistributionTest, AutoPartitionMissingValuesBatchingDedupAndCreateParti
     st = h->row_distribution.automatic_create_partition();
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_TRUE(injected);
+    EXPECT_TRUE(create_callback_called);
 
     auto check_block = ColumnHelper::create_block<DataTypeInt32>({15});
     std::vector<VOlapTablePartition*> parts(1, nullptr);
@@ -371,21 +391,21 @@ TEST(VRowDistributionTest, ReplaceOverwritingPartitionInjectedRequestDedupAndRep
                 EXPECT_EQ(result->partitions.size(), 2);
 
                 auto old_partition_block = ColumnHelper::create_block<DataTypeInt32>({1});
-                VOlapTablePartition* old_part = nullptr;
-                harness->vpartition->find_partition(&old_partition_block, 0, old_part);
-                if (old_part == nullptr) {
-                    return Status::InternalError("old partition is not found");
+                VOlapTablePartition* new_part = nullptr;
+                harness->vpartition->find_partition(&old_partition_block, 0, new_part);
+                if (new_part == nullptr) {
+                    return Status::InternalError("new partition is not found");
                 }
-                EXPECT_EQ(old_part->id, 1);
+                EXPECT_EQ(new_part->id, 11);
 
                 auto another_old_partition_block = ColumnHelper::create_block<DataTypeInt32>({25});
-                VOlapTablePartition* another_old_part = nullptr;
+                VOlapTablePartition* another_new_part = nullptr;
                 harness->vpartition->find_partition(&another_old_partition_block, 0,
-                                                    another_old_part);
-                if (another_old_part == nullptr) {
-                    return Status::InternalError("another old partition is not found");
+                                                    another_new_part);
+                if (another_new_part == nullptr) {
+                    return Status::InternalError("another new partition is not found");
                 }
-                EXPECT_EQ(another_old_part->id, 2);
+                EXPECT_EQ(another_new_part->id, 12);
                 return Status::OK();
             };
 

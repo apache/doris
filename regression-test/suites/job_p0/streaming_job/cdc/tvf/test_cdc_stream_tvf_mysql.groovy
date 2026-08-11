@@ -146,17 +146,20 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
             sql """CREATE TABLE ${mysqlDb}.${table1} (
                   `name` varchar(200) NOT NULL,
                   `age` int DEFAULT NULL,
+                  `tinyint_1` tinyint(1) DEFAULT NULL,
+                  `year_zero` year DEFAULT NULL,
                   PRIMARY KEY (`name`)
                 ) ENGINE=InnoDB"""
-            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('A1', 1);"""
-            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('B1', 2);"""
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('A1', 1, 0, 0);"""
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('B1', 2, 1, 2023);"""
 
             def result = sql_return_maparray "show master status"
             def file = result[0]["File"]
             def position = result[0]["Position"]
             offset = """{"file":"${file}","pos":"${position}"}"""
-            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('C1', 3);"""
-            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('D1', 4);"""
+            // Values 4 and YEAR 0 distinguish numeric JDBC semantics from boolean/date semantics.
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('C1', 3, 4, 0);"""
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('D1', 4, -1, 2024);"""
 
             // capture offset before UPDATE/DELETE events
             def result2 = sql_return_maparray "show master status"

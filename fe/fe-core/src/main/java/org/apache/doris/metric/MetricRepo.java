@@ -2253,6 +2253,21 @@ public final class MetricRepo {
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
     }
 
+    public static void updateCloudTabletRebalancerMetrics(long durationMs, long allocatedBytes,
+                                                           long tabletScanCount) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode()) {
+            return;
+        }
+        CloudMetrics.CLOUD_TABLET_REBALANCER_ROUND_TOTAL.increase(1L);
+        CloudMetrics.CLOUD_TABLET_REBALANCER_DURATION_MS_TOTAL.increase(durationMs);
+        CloudMetrics.CLOUD_TABLET_REBALANCER_LAST_ROUND_DURATION_MS.setValue(durationMs);
+        CloudMetrics.CLOUD_TABLET_REBALANCER_TABLET_SCAN_TOTAL.increase(tabletScanCount);
+        CloudMetrics.CLOUD_TABLET_REBALANCER_LAST_ROUND_ALLOCATED_BYTES.setValue(allocatedBytes);
+        if (allocatedBytes >= 0L) {
+            CloudMetrics.CLOUD_TABLET_REBALANCER_ALLOCATED_BYTES_TOTAL.increase(allocatedBytes);
+        }
+    }
+
     public static void increaseVirtualComputeGroupSwitch(String virtualComputeGroupId, String virtualComputeGroupName,
                                                          String srcComputeGroupId, String srcComputeGroupName,
                                                          String dstComputeGroupId, String dstComputeGroupName) {

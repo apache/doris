@@ -18,6 +18,7 @@
 package org.apache.doris.catalog.info;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.SqlUtils;
 
 import com.google.common.base.Strings;
 
@@ -57,7 +58,7 @@ public class ColumnPosition {
         if (this == FIRST) {
             sb.append("FIRST");
         } else {
-            sb.append("AFTER `").append(lastCol).append("`");
+            sb.append("AFTER ").append(SqlUtils.getIdentSql(lastCol));
         }
         return sb.toString();
     }

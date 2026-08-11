@@ -48,7 +48,11 @@
 
 #include "cloud/cloud_backend_service.h"
 #include "cloud/config.h"
+#include "common/phdr_cache.h"
 #include "common/stack_trace.h"
+#if defined(__ELF__) && !defined(__FreeBSD__)
+#include "common/symbol_index.h"
+#endif
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/utils.h"
@@ -600,10 +604,18 @@ int main(int argc, char** argv) {
     LOG(INFO) << doris::DiskInfo::debug_string();
     LOG(INFO) << doris::MemInfo::debug_string();
 
-    // PHDR speed up exception handling, but exceptions from dynamically loaded libraries (dlopen)
-    // will work only after additional call of this function.
-    // rewrites dl_iterate_phdr will cause Jemalloc to fail to run after enable profile. see #
-    // updatePHDRCache();
+    // Doris-patched GNU libunwind reads PHDR metadata from our lock-free snapshot instead of
+    // entering glibc dl_iterate_phdr while jemalloc profiling or signal-context unwinding may
+    // already be involved in loader-lock-sensitive code. Configure libunwind before daemon threads
+    // start so all later heap-profile and stack-trace unwinds use the same lock-safe policy.
+    configureLibunwindPHDRCache();
+    updatePHDRCache();
+    LOG(INFO) << "PHDR cache enabled: " << hasPHDRCache();
+#if defined(__ELF__) && !defined(__FreeBSD__)
+    auto symbol_index = doris::SymbolIndex::instance();
+    LOG(INFO) << "SymbolIndex preloaded: objects=" << symbol_index->objects().size()
+              << " symbols=" << symbol_index->symbols().size();
+#endif
     if (!doris::BackendOptions::init()) {
         exit(-1);
     }

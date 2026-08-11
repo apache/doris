@@ -17,11 +17,14 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI entry point for the Paimon connector.
@@ -38,6 +41,53 @@ public class PaimonConnectorProvider implements ConnectorProvider {
 
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
-        return new PaimonConnector(properties);
+        return new PaimonConnector(properties, context);
     }
+
+    /**
+     * {@code CREATE TABLE ... ENGINE=paimon} keeps working; omitting the clause is equivalent. The engine
+     * keyword is legacy syntax the connector owns, not the catalog type and not the displayed engine name.
+     */
+    @Override
+    public Set<String> acceptedCreateTableEngineNames() {
+        return Collections.singleton("paimon");
+    }
+
+    /**
+     * Binds and validates through the typed holder. {@code of(...)} carries what the connector cannot
+     * run without; {@code checkCreateTimeOnlyRules()} carries the rules that only ever applied to a
+     * statement -- the meta-cache knobs, the dead-knob warning, the paimon table options, and the
+     * backend's own fail-fast rules -- which is why none of them run on the connector build path.
+     *
+     * <p>This also serves ALTER through the SPI default {@code validatePropertiesForUpdate}, which
+     * merges and calls back here. Throws {@link IllegalArgumentException}, which the caller
+     * ({@code PluginDrivenExternalCatalog.checkProperties}) wraps into a DdlException.
+     */
+    @Override
+    public void validateProperties(Map<String, String> properties) {
+        PaimonCatalogProperties.of(properties).checkCreateTimeOnlyRules();
+    }
+
+    @Override
+    public void validatePropertiesForUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        PaimonReaderOptions.validateCatalogProperties(updatedProperties);
+        Map<String, String> candidate = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidate.putAll(updatedProperties);
+
+        // Old images could contain arbitrary paimon.table-option.* values. Validate the complete
+        // catalog candidate, but retain only safe legacy reader values unless this ALTER touched them.
+        candidate.keySet().removeIf(PaimonTableOptions::isTableOptionProperty);
+        PaimonReaderOptions.compatibleCatalogOptions(currentProperties == null
+                        ? Collections.emptyMap() : currentProperties)
+                .forEach((key, value) -> candidate.put(PaimonReaderOptions.TABLE_OPTION_PREFIX + key, value));
+        updatedProperties.forEach((key, value) -> {
+            if (PaimonTableOptions.isTableOptionProperty(key)) {
+                candidate.put(key, value);
+            }
+        });
+        validateProperties(candidate);
+    }
+
 }

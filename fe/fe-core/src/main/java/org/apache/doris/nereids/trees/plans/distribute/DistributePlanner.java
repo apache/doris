@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJobBuilder;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
-import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleBucketJoinAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.StaticAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
@@ -50,6 +49,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.LinkedHashMultimap;
@@ -260,13 +260,20 @@ public class DistributePlanner {
         return connectContext != null && connectContext.getSessionVariable().isEnableLocalShufflePlanner();
     }
 
-    private List<AssignedJob> filterInstancesWhichCanReceiveDataFromRemote(
+    @VisibleForTesting
+    List<AssignedJob> filterInstancesWhichCanReceiveDataFromRemote(
             PipelineDistributedPlan receiverPlan,
             boolean enableShareHashTableForBroadcastJoin,
             ExchangeNode linkNode) {
-        boolean useLocalShuffle = receiverPlan.getInstanceJobs().stream()
-                .anyMatch(LocalShuffleAssignedJob.class::isInstance);
-        if (useLocalShuffle) {
+        // Funnel to the first instance per worker only when the exchange runs a single receiver
+        // per worker on BE, i.e. it is serial. A non-serial exchange builds a live receiver on
+        // every instance, each waiting for the full sender set, so the sender must address all of
+        // them; funneling would leave the non-first instances blocked forever on an EOS that never
+        // arrives. This must not key on LocalShuffleAssignedJob: once the FE local-shuffle planner
+        // decoupled an exchange's serial flag from the fragment's serial scan, a local-shuffle
+        // fragment can host a non-serial RANDOM/HASH exchange, and only the BUCKET_SHUFFLE path
+        // re-spreads its destinations (see getDestinationsByBuckets).
+        if (linkNode.isSerialOperatorOnBe(statementContext.getConnectContext())) {
             return getFirstInstancePerWorker(receiverPlan.getInstanceJobs());
         } else if (enableShareHashTableForBroadcastJoin && linkNode.isRightChildOfBroadcastHashJoin()) {
             return getFirstInstancePerWorker(receiverPlan.getInstanceJobs());

@@ -24,6 +24,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "io/fs/local_file_system.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query/query_info.h"

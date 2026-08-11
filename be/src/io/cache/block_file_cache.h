@@ -24,6 +24,7 @@
 #include <array>
 #include <atomic>
 #include <boost/lockfree/spsc_queue.hpp>
+#include <condition_variable>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -236,6 +237,14 @@ public:
          */
     FileBlocksHolder get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
                                 CacheContext& context);
+
+    /**
+     * Return existing downloaded blocks only if they fully cover [offset, offset + size).
+     * This lookup is read-only: it does not reserve cache space or create EMPTY blocks.
+     */
+    Status get_downloaded_blocks_if_fully_covered(const UInt128Wrapper& hash, size_t offset,
+                                                  size_t size, const CacheContext& context,
+                                                  FileBlocks* blocks, bool* fully_covered);
 
     /**
      * record blocks read directly by CachedRemoteFileReader

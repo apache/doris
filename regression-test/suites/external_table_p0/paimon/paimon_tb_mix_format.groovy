@@ -52,7 +52,7 @@ suite("paimon_tb_mix_format", "p0,external") {
 
         explain {
             sql("verbose select * from test_tb_mix_format")
-            contains("... other 16 paimon split stats ...")
+            contains("... other 16")
         }
     } finally {
         sql """set force_jni_scanner=false"""

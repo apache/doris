@@ -17,13 +17,27 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TStorageMedium;
+
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 public class TablePropertyTest {
+    private static final String DEFAULT_REPLICATION_NUM =
+            "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
+    private static final String DEFAULT_REPLICATION_ALLOCATION =
+            "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION;
+    private static final String REPLICATION_ALLOCATION =
+            "tag.location.group_0: 1, tag.location.group_1: 1, tag.location.group_2: 1";
 
     // A non-whitelisted dynamic_partition.* key is ignored (skipped via continue), so it is not
     // collected at all and the table is neither built as dynamic nor flagged as incomplete.
@@ -104,5 +118,101 @@ public class TablePropertyTest {
         Assert.assertFalse(tableProperty.hasInvalidDynamicPartition());
         Assert.assertEquals(3, tableProperty.getDynamicPartitionProperty().getEnd());
         Assert.assertEquals(1, tableProperty.getDynamicPartitionProperty().getBuckets());
+    }
+
+    @Test
+    public void testStorageMediumIsCaseInsensitiveAfterSerialization() {
+        List<String> storageMediumValues = Arrays.asList("hdd", "HDD", "HdD", "ssd", "SSD", "SsD");
+        for (String storageMediumValue : storageMediumValues) {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, storageMediumValue);
+            TableProperty tableProperty = new TableProperty(properties).buildStorageMedium();
+
+            String serialized = GsonUtils.GSON.toJson(tableProperty);
+            TableProperty deserialized = GsonUtils.GSON.fromJson(serialized, TableProperty.class);
+
+            TStorageMedium expectedStorageMedium = storageMediumValue.equalsIgnoreCase("hdd")
+                    ? TStorageMedium.HDD : TStorageMedium.SSD;
+            Assert.assertEquals(expectedStorageMedium, tableProperty.getStorageMedium());
+            Assert.assertEquals(expectedStorageMedium, deserialized.getStorageMedium());
+            Assert.assertEquals(storageMediumValue,
+                    deserialized.getProperties().get(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM));
+        }
+    }
+
+    @Test
+    public void testModifyDefaultReplicaAllocationRemovesLegacyReplicationNum() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(DEFAULT_REPLICATION_NUM, "3");
+        TableProperty tableProperty = new TableProperty(properties);
+        tableProperty.buildReplicaAllocation();
+
+        Map<String, String> modifiedProperties = Maps.newHashMap();
+        modifiedProperties.put(DEFAULT_REPLICATION_ALLOCATION, REPLICATION_ALLOCATION);
+        tableProperty.modifyTableProperties(modifiedProperties);
+        tableProperty.buildReplicaAllocation();
+
+        assertReplicaAllocationWins(tableProperty);
+    }
+
+    @Test
+    public void testDeserializeConflictingDefaultReplicaPropertiesPreservesNumericPrecedence() throws IOException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(DEFAULT_REPLICATION_NUM, "3");
+        properties.put(DEFAULT_REPLICATION_ALLOCATION, REPLICATION_ALLOCATION);
+        TableProperty tableProperty = new TableProperty(properties);
+
+        tableProperty.gsonPostProcess();
+
+        Assert.assertTrue(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_NUM));
+        Assert.assertTrue(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_ALLOCATION));
+        Assert.assertEquals(Short.valueOf((short) 3),
+                tableProperty.getReplicaAllocation().getReplicaNumByTag(Tag.DEFAULT_BACKEND_TAG));
+    }
+
+    @Test
+    public void testResetPropertiesForRestoreRemovesLegacyReplicationNum() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(DEFAULT_REPLICATION_NUM, "3");
+        TableProperty tableProperty = new TableProperty(properties);
+        tableProperty.buildReplicaAllocation();
+
+        ReplicaAllocation restoredReplicaAllocation = new ReplicaAllocation((short) 2);
+        tableProperty.resetPropertiesForRestore(false, false, restoredReplicaAllocation);
+
+        Assert.assertFalse(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_NUM));
+        Assert.assertEquals(restoredReplicaAllocation.toCreateStmt(),
+                tableProperty.getProperties().get(DEFAULT_REPLICATION_ALLOCATION));
+        Assert.assertEquals((short) 2, tableProperty.getReplicaAllocation().getTotalReplicaNum());
+    }
+
+    @Test
+    public void testModifyDefaultReplicationNumRemovesExistingAllocation() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(DEFAULT_REPLICATION_ALLOCATION, REPLICATION_ALLOCATION);
+        TableProperty tableProperty = new TableProperty(properties);
+        tableProperty.buildReplicaAllocation();
+
+        Map<String, String> modifiedProperties = Maps.newHashMap();
+        modifiedProperties.put(DEFAULT_REPLICATION_NUM, "2");
+        tableProperty.modifyTableProperties(modifiedProperties);
+        tableProperty.buildReplicaAllocation();
+
+        Assert.assertFalse(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_ALLOCATION));
+        Assert.assertEquals(Short.valueOf((short) 2),
+                tableProperty.getReplicaAllocation().getReplicaNumByTag(Tag.DEFAULT_BACKEND_TAG));
+    }
+
+    private void assertReplicaAllocationWins(TableProperty tableProperty) {
+        Assert.assertFalse(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_NUM));
+        Assert.assertEquals(Short.valueOf((short) 1),
+                tableProperty.getReplicaAllocation()
+                        .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_0")));
+        Assert.assertEquals(Short.valueOf((short) 1),
+                tableProperty.getReplicaAllocation()
+                        .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_1")));
+        Assert.assertEquals(Short.valueOf((short) 1),
+                tableProperty.getReplicaAllocation()
+                        .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_2")));
     }
 }

@@ -29,6 +29,7 @@
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/value/bitmap_value.h"
 #include "storage/iterator/olap_data_convertor.h"
+#include "storage/key/row_key_encoder.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_writer_context.h"
@@ -383,12 +384,36 @@ Status FixedReadPlan::read_columns_by_plan(
     return Status::OK();
 }
 
+Status FixedReadPlan::fill_old_delete_signs(const Block& old_value_block,
+                                            const std::map<uint32_t, uint32_t>& read_index,
+                                            size_t num_rows,
+                                            std::vector<signed char>* old_delete_signs) const {
+    if (old_delete_signs == nullptr) {
+        return Status::OK();
+    }
+    const auto* old_delete_sign_column_data =
+            BaseTablet::get_delete_sign_column_data(old_value_block);
+    if (old_delete_sign_column_data == nullptr) {
+        return Status::InternalError("old delete signs column not found, block: {}",
+                                     old_value_block.dump_structure());
+    }
+    old_delete_signs->assign(num_rows, 0);
+    for (size_t idx = 0; idx < num_rows; ++idx) {
+        auto it = read_index.find(cast_set<uint32_t>(idx));
+        if (it != read_index.end()) {
+            (*old_delete_signs)[idx] = old_delete_sign_column_data[it->second];
+        }
+    }
+    return Status::OK();
+}
+
 Status FixedReadPlan::fill_missing_columns(
         const segment_v2::HistoricalRowRetrieverContext& historical_context,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         const TabletSchema& tablet_schema, Block& full_block,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-        uint32_t segment_start_pos, const Block* block) const {
+        uint32_t segment_start_pos, const Block* block,
+        std::vector<signed char>* old_delete_signs) const {
     auto mutable_full_columns_guard = full_block.mutate_columns_scoped();
     auto& mutable_full_columns = mutable_full_columns_guard.mutable_columns();
     // create old value columns
@@ -412,11 +437,14 @@ Status FixedReadPlan::fill_missing_columns(
     RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, missing_cids, rsid_to_rowset,
                                          old_value_block, &read_index, true, nullptr));
 
-    const auto* old_delete_signs = BaseTablet::get_delete_sign_column_data(old_value_block);
-    if (old_delete_signs == nullptr) {
+    const auto* old_delete_sign_column_data =
+            BaseTablet::get_delete_sign_column_data(old_value_block);
+    if (old_delete_sign_column_data == nullptr) {
         return Status::InternalError("old delete signs column not found, block: {}",
                                      old_value_block.dump_structure());
     }
+    RETURN_IF_ERROR(fill_old_delete_signs(old_value_block, read_index,
+                                          use_default_or_null_flag.size(), old_delete_signs));
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     RETURN_IF_ERROR(BaseTablet::generate_default_value_block(tablet_schema, missing_cids,
@@ -438,8 +466,7 @@ Status FixedReadPlan::fill_missing_columns(
 
             bool should_use_default = use_default_or_null_flag[idx];
             if (!should_use_default) {
-                bool old_row_delete_sign =
-                        (old_delete_signs != nullptr && old_delete_signs[pos_in_old_block] != 0);
+                bool old_row_delete_sign = old_delete_sign_column_data[pos_in_old_block] != 0;
                 if (old_row_delete_sign) {
                     if (!tablet_schema.has_sequence_col()) {
                         should_use_default = true;
@@ -915,7 +942,7 @@ Status BlockAggregator::aggregate_rows(
             // Discard all the rows whose seq value is smaller than previous_encoded_seq_value.
             if (row_has_sequence_col) {
                 std::string seq_val {};
-                _writer._encode_seq_column(seq_column, pos, &seq_val);
+                _writer._key_encoder.append_seq_suffix(&seq_val, seq_column, pos);
                 if (Slice {seq_val}.compare(Slice {previous_encoded_seq_value}) < 0) {
                     continue;
                 }
@@ -932,7 +959,7 @@ Status BlockAggregator::aggregate_rows(
         if (row_has_sequence_col) {
             std::string seq_val {};
             // for rows that don't specify seqeunce col, seq_val will be encoded to minial value
-            _writer._encode_seq_column(seq_column, pos, &seq_val);
+            _writer._key_encoder.append_seq_suffix(&seq_val, seq_column, pos);
             cur_seq_val = std::move(seq_val);
         } else {
             cur_seq_val.clear();
@@ -950,7 +977,7 @@ Status BlockAggregator::aggregate_rows(
             append_or_merge_row(output_block, block, rid, skip_bitmap, have_delete_sign);
         } else {
             std::string seq_val {};
-            _writer._encode_seq_column(seq_column, rid, &seq_val);
+            _writer._key_encoder.append_seq_suffix(&seq_val, seq_column, rid);
             if (Slice {seq_val}.compare(Slice {cur_seq_val}) >= 0) {
                 append_or_merge_row(output_block, block, rid, skip_bitmap, have_delete_sign);
                 cur_seq_val = std::move(seq_val);
@@ -981,7 +1008,7 @@ Status BlockAggregator::aggregate_for_sequence_column(
     int same_key_rows {0};
     std::string previous_key {};
     for (int block_pos {0}; block_pos < num_rows; block_pos++) {
-        std::string key = _writer._full_encode_keys(key_columns, block_pos);
+        std::string key = _writer._key_encoder.full_encode(key_columns, block_pos);
         if (block_pos > 0 && previous_key == key) {
             same_key_rows++;
         } else {
@@ -1061,7 +1088,7 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
     for (size_t block_pos {0}; block_pos < num_rows; block_pos++) {
         size_t delta_pos = block_pos;
         auto& skip_bitmap = skip_bitmaps->at(block_pos);
-        std::string key = _writer._full_encode_keys(key_columns, delta_pos);
+        std::string key = _writer._key_encoder.full_encode(key_columns, delta_pos);
         bool have_delete_sign =
                 (!skip_bitmap.contains(delete_sign_col_unique_id) && delete_signs[block_pos] != 0);
         if (delta_pos > 0 && previous_key == key) {

@@ -75,15 +75,15 @@ public class MasterOpExecutor extends FEOpExecutor {
         waitOnReplaying();
     }
 
+    // The master handles the group commit shortcuts without writing a journal, so the result carries
+    // no journal id. Waiting on journal 0 is a no-op that only logs one line per request.
     public long getGroupCommitLoadBeId(long tableId, String cluster) throws Exception {
         result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster));
-        waitOnReplaying();
         return result.groupCommitLoadBeId;
     }
 
     public void updateLoadData(long tableId, long receiveData) throws Exception {
         result = forward(buildUpdateLoadDataParams(tableId, receiveData));
-        waitOnReplaying();
     }
 
     private TMasterOpRequest buildSyncJournalParams() {
