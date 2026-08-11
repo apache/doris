@@ -103,9 +103,10 @@ public class ConnectorPluginManager {
     // plugins bundle under this namespace does change provider: hadoop-common/auth/annotations/
     // hdfs-client/aws, hadoop-shaded-guava and -protobuf, and the huaweicloud fs.obs.* classes
     // (paimon), which the FE kernel ships too. All of them are the same artifact at the same
-    // version on both sides -- hadoop.version is held by the maven-enforcer rule in
-    // be-java-extensions/hadoop-deps; huaweicloud is not pinned anywhere, so a divergence there
-    // would silently hand paimon the kernel's copy.
+    // version on both sides, and both versions are pinned in fe/pom.xml -- hadoop.version is
+    // additionally held by the maven-enforcer rule in be-java-extensions/hadoop-deps, huaweiobs
+    // .version only by dependencyManagement, so bumping either for one side alone silently hands
+    // the plugins the kernel's copy.
     //
     // The static state hanging off these now-shared classes matters as much as the classes: see the
     // DORIS-PATCH in hadoop-deps' FileSystem.loadFileSystems, which binds the ServiceLoader scan to

@@ -95,6 +95,38 @@ public class StorageAdapterFsCacheFingerprintTest {
     }
 
     @Test
+    public void testConnectorRekeyedCredentialsChangeTheS3Fingerprint() {
+        // MetaStoreParseUtils.applyStorageConfig (every HMS-backed catalog) and PaimonCatalogFactory
+        // strip paimon.s3./paimon.s3a./paimon.fs.s3./paimon.fs.oss. and re-emit the remainder under
+        // fs.s3a., AFTER the storage's own map, so these decide the effective S3A credentials while
+        // never appearing verbatim anywhere. They are not bound aliases either, so the identity has
+        // to match the prefix itself — otherwise the two definitions below collide on one cache
+        // entry and the second catalog reads the bucket with the first one's keys.
+        Map<String, String> teamA = new HashMap<>();
+        teamA.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        teamA.put("paimon.s3a.access.key", "AKIA_TEAM_A");
+        teamA.put("paimon.s3a.secret.key", "SK_A");
+
+        Map<String, String> teamB = new HashMap<>(teamA);
+        teamB.put("paimon.s3a.access.key", "AKIA_TEAM_B");
+        teamB.put("paimon.s3a.secret.key", "SK_B");
+
+        Assertions.assertNotEquals(StorageAdapter.of(teamA).getFsCacheFingerprint(),
+                StorageAdapter.of(teamB).getFsCacheFingerprint());
+        // The other three re-keyed prefixes ride the same path.
+        Map<String, String> viaOss = new HashMap<>();
+        viaOss.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        viaOss.put("paimon.fs.oss.accessKeyId", "ak1");
+        Map<String, String> viaOssOther = new HashMap<>(viaOss);
+        viaOssOther.put("paimon.fs.oss.accessKeyId", "ak2");
+        Assertions.assertNotEquals(StorageAdapter.of(viaOss).getFsCacheFingerprint(),
+                StorageAdapter.of(viaOssOther).getFsCacheFingerprint());
+        // Still a pure function of the definition: identical inputs keep hitting the cache.
+        Assertions.assertEquals(StorageAdapter.of(teamA).getFsCacheFingerprint(),
+                StorageAdapter.of(new HashMap<>(teamA)).getFsCacheFingerprint());
+    }
+
+    @Test
     public void testSmuggledSeparatorsCannotForgeAnotherDefinitionsFingerprint() {
         // The identity is hashed with length-framed entries, not a "\nkey=value" join: names and
         // values are both user-supplied, so a single value carrying embedded newlines could

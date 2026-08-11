@@ -79,6 +79,24 @@ public final class FsCacheKeys {
     private static final String[] HADOOP_OVERLAY_PREFIXES = {"fs.", "dfs.", "hadoop.", "juicefs."};
 
     /**
+     * Raw property prefixes a connector RE-KEYS onto a canonical Hadoop name before overlaying them,
+     * so they never appear verbatim in the property map yet still decide which credentials the
+     * FileSystem opens with. Kept in lockstep with the two constants that perform the re-key:
+     * {@code MetaStoreParseUtils.USER_STORAGE_PREFIXES} (every HMS-backed catalog, via
+     * {@code AbstractHmsMetaStoreProperties}) and {@code PaimonCatalogFactory.USER_STORAGE_PREFIXES}.
+     * Both strip the prefix and re-emit the remainder under {@code fs.s3a.}, last-write-wins over the
+     * canonical translation.
+     *
+     * <p>None of them is a declared {@code @ConnectorProperty} alias, so without this the S3 identity
+     * is blind to them: two catalogs differing only in {@code paimon.s3a.access.key} would fingerprint
+     * identically while opening the bucket under different credentials. That is a live leak rather
+     * than a theoretical one, because this feature replaced the blanket
+     * {@code fs.s3a.impl.disable.cache=true} that used to keep the S3 arm out of the cache entirely.
+     */
+    private static final String[] CONNECTOR_REKEYED_PREFIXES = {
+            "paimon.s3.", "paimon.s3a.", "paimon.fs.s3.", "paimon.fs.oss."};
+
+    /**
      * Namespace for entries of a <em>derived</em> map mixed into an identity (see
      * {@link #derivedIdentityKey}). Keeps a derived key from silently shadowing the raw key of the
      * same name when the two disagree — e.g. {@code fs.defaultFS} extracted from {@code uri} versus
@@ -145,7 +163,7 @@ public final class FsCacheKeys {
     /**
      * The user-supplied inputs that decide what FileSystem a definition opens: the properties it
      * matched during binding ({@link StorageProperties#matchedProperties()}, credentials included)
-     * plus the raw {@link #HADOOP_OVERLAY_PREFIXES} entries.
+     * plus the raw {@link #HADOOP_OVERLAY_PREFIXES} and {@link #CONNECTOR_REKEYED_PREFIXES} entries.
      *
      * <p>The matched set alone is <b>not</b> a sufficient identity: it only holds
      * provider-declared aliases, while the effective Hadoop configuration is finished by overlaying
@@ -188,6 +206,11 @@ public final class FsCacheKeys {
             return false;
         }
         for (String prefix : HADOOP_OVERLAY_PREFIXES) {
+            if (key.startsWith(prefix)) {
+                return true;
+            }
+        }
+        for (String prefix : CONNECTOR_REKEYED_PREFIXES) {
             if (key.startsWith(prefix)) {
                 return true;
             }
@@ -237,8 +260,13 @@ public final class FsCacheKeys {
      * <em>no</em> isolation from this mechanism. Two catalogs differing only in their HDFS
      * credentials but sharing one OSS-HDFS definition publish the same {@code hdfs} fingerprint and
      * can share a cached FileSystem — exactly as they already do on a build without this feature,
-     * since the HDFS families never emitted {@code fs.hdfs.impl.disable.cache} either. Splitting
-     * the two definitions into separate catalogs is the way to get isolation back.
+     * since no HDFS family ever emitted {@code fs.hdfs.impl.disable.cache} into a <em>property
+     * map</em> either. (FE's own {@code DFSFileSystem} path is unaffected either way: it does not
+     * read this map, and {@code HdfsConfigBuilder} still sets the disable flags on the
+     * {@code Configuration} it builds.) Splitting the two definitions into separate catalogs is the
+     * way to get isolation back — except where the HDFS definition was auto-added rather than
+     * declared: {@code FileSystemPluginManager} pads a guessed OSS-HDFS catalog with a default HDFS
+     * binding, and that pad's fingerprint is the one that loses the merge.
      */
     public static void putFsCacheKeys(Map<String, String> target, FileSystemProperties properties) {
         publishFsCacheKeys(properties, target::put);
