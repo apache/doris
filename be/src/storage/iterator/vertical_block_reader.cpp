@@ -193,7 +193,7 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
 
     for (size_t idx = 0; idx < _read_schema->num_block_columns(); ++idx) {
         AggregateFunctionPtr function = _read_schema->column(idx)->get_aggregate_function(
-                AGG_READER_SUFFIX, read_params.get_be_exec_version());
+                AGG_READER_SUFFIX, read_params.get_be_exec_version(), _read_schema->data_type(idx));
         DCHECK(function != nullptr);
         const auto* column_ptr = _stored_data_columns[idx].get();
         const IColumn* columns[] = {column_ptr};

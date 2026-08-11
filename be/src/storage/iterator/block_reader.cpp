@@ -451,8 +451,8 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
 
     for (auto idx : _agg_columns_idx) {
         const auto& column = *_read_schema->column(idx);
-        AggregateFunctionPtr function =
-                column.get_aggregate_function(AGG_READER_SUFFIX, read_params.get_be_exec_version());
+        AggregateFunctionPtr function = column.get_aggregate_function(
+                AGG_READER_SUFFIX, read_params.get_be_exec_version(), _read_schema->data_type(idx));
 
         // Every aggregate value column must resolve its reader aggregate function.
         if (!function) {
