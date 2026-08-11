@@ -972,10 +972,12 @@ TEST(ColumnVariantTest, subcolumn_insert_range_fromtest_variant_field) {
     fields.emplace_back(VariantField(arr_decimal32, TypeIndex::Array));
 
     Array arr_decimal64;
-    arr_decimal64.push_back(Field(VariantField(
-            DecimalField<Decimal64>(Decimal64(123456789012345), 2), TypeIndex::Decimal64, 18, 2)));
-    arr_decimal64.push_back(Field(VariantField(
-            DecimalField<Decimal64>(Decimal64(987654321098765), 2), TypeIndex::Decimal64, 18, 2)));
+    arr_decimal64.push_back(
+            Field(VariantField(DecimalField<Decimal64>(Decimal64(int64_t(123456789012345)), 2),
+                               TypeIndex::Decimal64, 18, 2)));
+    arr_decimal64.push_back(
+            Field(VariantField(DecimalField<Decimal64>(Decimal64(int64_t(987654321098765)), 2),
+                               TypeIndex::Decimal64, 18, 2)));
     fields.emplace_back(VariantField(arr_decimal64, TypeIndex::Array));
 
     Array arr_decimal128v2;
@@ -983,7 +985,7 @@ TEST(ColumnVariantTest, subcolumn_insert_range_fromtest_variant_field) {
             Field(VariantField(DecimalField<Decimal128V2>(Decimal128V2(1234567890), 2),
                                TypeIndex::Decimal128V2, 16, 2)));
     arr_decimal128v2.push_back(
-            Field(VariantField(DecimalField<Decimal128V2>(Decimal128V2(9876543210), 2),
+            Field(VariantField(DecimalField<Decimal128V2>(Decimal128V2(int64_t(9876543210)), 2),
                                TypeIndex::Decimal128V2, 16, 2)));
     fields.emplace_back(VariantField(arr_decimal128v2, TypeIndex::Array));
 
@@ -992,15 +994,16 @@ TEST(ColumnVariantTest, subcolumn_insert_range_fromtest_variant_field) {
             Field(VariantField(DecimalField<Decimal128V3>(Decimal128V3(1234567890), 2),
                                TypeIndex::Decimal128V3, 18, 2)));
     arr_decimal128v3.push_back(
-            Field(VariantField(DecimalField<Decimal128V3>(Decimal128V3(9876543210), 2),
+            Field(VariantField(DecimalField<Decimal128V3>(Decimal128V3(int64_t(9876543210)), 2),
                                TypeIndex::Decimal128V3, 18, 2)));
     fields.emplace_back(VariantField(arr_decimal128v3, TypeIndex::Array));
 
     Array arr_decimal256;
     arr_decimal256.push_back(Field(VariantField(DecimalField<Decimal256>(Decimal256(1234567890), 2),
                                                 TypeIndex::Decimal256, 32, 2)));
-    arr_decimal256.push_back(Field(VariantField(DecimalField<Decimal256>(Decimal256(9876543210), 2),
-                                                TypeIndex::Decimal256, 32, 2)));
+    arr_decimal256.push_back(
+            Field(VariantField(DecimalField<Decimal256>(Decimal256(int64_t(9876543210)), 2),
+                               TypeIndex::Decimal256, 32, 2)));
     fields.emplace_back(VariantField(arr_decimal256, TypeIndex::Array));
 
     std::random_device rd;
