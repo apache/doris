@@ -238,13 +238,24 @@ for TP_ARCH in "${TP_ARCHIVES[@]}"; do
     fi
     NAME="${TP_ARCH}_NAME"
     SOURCE="${TP_ARCH}_SOURCE"
+    ARCHIVE_SOURCE_VAR="${TP_ARCH}_ARCHIVE_SOURCE"
+    ARCHIVE_SOURCE="${!ARCHIVE_SOURCE_VAR}"
 
     if [[ -z "${!SOURCE}" ]]; then
         continue
     fi
 
     if [[ ! -d "${TP_SOURCE_DIR}/${!SOURCE}" ]]; then
-        if [[ "${!NAME}" =~ ${SUFFIX_TGZ} ]]; then
+        if [[ -n "${ARCHIVE_SOURCE}" && "${ARCHIVE_SOURCE}" != "${!SOURCE}" ]]; then
+            alias_unpack_dir="$(mktemp -d "${TP_SOURCE_DIR}/.unpack-${TP_ARCH}.XXXXXX")"
+            if ! "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${!NAME}" -C "${alias_unpack_dir}"; then
+                echo "Failed to untar ${!NAME} for ${!SOURCE}"
+                rm -rf "${alias_unpack_dir}"
+                exit 1
+            fi
+            mv "${alias_unpack_dir}/${ARCHIVE_SOURCE}" "${TP_SOURCE_DIR}/${!SOURCE}"
+            rm -rf "${alias_unpack_dir}"
+        elif [[ "${!NAME}" =~ ${SUFFIX_TGZ} ]]; then
             echo "${TP_SOURCE_DIR}/${!NAME}"
             echo "${TP_SOURCE_DIR}/${!SOURCE}"
             if ! "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${!NAME}" -C "${TP_SOURCE_DIR}/"; then
@@ -336,17 +347,31 @@ echo "===== Patching thirdparty archives..."
 PATCHED_MARK="patched_mark"
 ARROW_PAIMON_PATCH_FINGERPRINT_MARK="patched_mark_arrow_paimon_fingerprint"
 ARROW_PAIMON_BUILD_FINGERPRINT=""
+ARROW_PAIMON_17_BUILD_FINGERPRINT=""
 if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ||
       " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
     ARROW_PAIMON_BUILD_FINGERPRINT="$(arrow_paimon_build_fingerprint)"
+fi
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW_17 " ||
+      " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP_17 " ]]; then
+    ARROW_PAIMON_17_BUILD_FINGERPRINT="$(arrow_paimon_17_build_fingerprint)"
 fi
 
 reset_arrow_paimon_source() {
     local archive_name="$1"
     local source_name="$2"
+    local archive_source="${3:-${source_name}}"
     echo "Resetting ${source_name} because its patch state is incomplete or stale"
     rm -rf "${TP_SOURCE_DIR:?}/${source_name}"
-    "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${archive_name}" -C "${TP_SOURCE_DIR}/"
+    if [[ "${archive_source}" == "${source_name}" ]]; then
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${archive_name}" -C "${TP_SOURCE_DIR}/"
+    else
+        local alias_unpack_dir
+        alias_unpack_dir="$(mktemp -d "${TP_SOURCE_DIR}/.reset-${source_name}.XXXXXX")"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${archive_name}" -C "${alias_unpack_dir}"
+        mv "${alias_unpack_dir}/${archive_source}" "${TP_SOURCE_DIR}/${source_name}"
+        rm -rf "${alias_unpack_dir}"
+    fi
 }
 
 # glog patch
@@ -440,6 +465,26 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ROCKSDB " ]]; then
         cd -
     fi
     echo "Finished patching ${ROCKSDB_SOURCE}"
+fi
+
+# Keep the Arrow 17 source used by branch-4.1 independently patched from the
+# Arrow 24 source selected by master.
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW_17 " ]]; then
+    arrow_17_fingerprint_mark="${TP_SOURCE_DIR}/${ARROW_17_SOURCE}/${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+    if ! [[ -f "${TP_SOURCE_DIR}/${ARROW_17_SOURCE}/${PATCHED_MARK}" &&
+           -f "${arrow_17_fingerprint_mark}" ]] ||
+       [[ "$(<"${arrow_17_fingerprint_mark}")" != "${ARROW_PAIMON_17_BUILD_FINGERPRINT}" ]]; then
+        reset_arrow_paimon_source "${ARROW_17_NAME}" "${ARROW_17_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${ARROW_17_SOURCE}"
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-paimon.patch"
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-lzo.patch"
+        touch "${PATCHED_MARK}"
+        printf '%s\n' "${ARROW_PAIMON_17_BUILD_FINGERPRINT}" \
+            >"${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+        cd -
+    fi
+    echo "Finished patching ${ARROW_17_SOURCE}"
 fi
 
 # arrow patch is used to get the raw orc reader for filter prune.
@@ -759,6 +804,24 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     fi
     cd -
     echo "Finished patching ${AZURE_SOURCE}"
+fi
+
+# Keep the Arrow 17 Paimon source free of the Arrow 24 API and Compute patches.
+if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP_17 " ]]; then
+    paimon_17_fingerprint_mark="${TP_SOURCE_DIR}/${PAIMON_CPP_17_SOURCE}/${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+    if ! [[ -f "${TP_SOURCE_DIR}/${PAIMON_CPP_17_SOURCE}/${PATCHED_MARK}" &&
+           -f "${paimon_17_fingerprint_mark}" ]] ||
+       [[ "$(<"${paimon_17_fingerprint_mark}")" != "${ARROW_PAIMON_17_BUILD_FINGERPRINT}" ]]; then
+        reset_arrow_paimon_source "${PAIMON_CPP_17_NAME}" "${PAIMON_CPP_17_SOURCE}" \
+            "${PAIMON_CPP_17_ARCHIVE_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${PAIMON_CPP_17_SOURCE}"
+        patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
+        touch "${PATCHED_MARK}"
+        printf '%s\n' "${ARROW_PAIMON_17_BUILD_FINGERPRINT}" \
+            >"${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+        cd -
+    fi
+    echo "Finished patching ${PAIMON_CPP_17_SOURCE}"
 fi
 
 # patch paimon-cpp

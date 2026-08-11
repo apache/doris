@@ -385,7 +385,7 @@ AWS_SDK_SOURCE="aws-sdk-cpp-1.11.219"
 AWS_SDK_MD5SUM="80aa616efe1a3e7a9bf0dfbc44a97864"
 
 # tsan_header
-TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
+TSAN_HEADER_DOWNLOAD="https://raw.githubusercontent.com/gcc-mirror/gcc/b2d961e7342b5ba4e57adfa81cb189b738d10901/libsanitizer/include/sanitizer/tsan_interface_atomic.h"
 TSAN_HEADER_NAME="tsan_interface_atomic.h"
 TSAN_HEADER_FILE="tsan_interface_atomic.h"
 TSAN_HEADER_MD5SUM="d72679bea167d6a513d959f5abd149dc"
@@ -619,6 +619,7 @@ export TP_ARCHIVES=(
     'CYRUS_SASL'
     'LIBRDKAFKA'
     'FLATBUFFERS'
+    'ARROW_17'
     'ARROW'
     'ARROW_ADBC'
     'BROTLI'
@@ -651,6 +652,7 @@ export TP_ARCHIVES=(
     'PDQSORT'
     'TIMSORT'
     'BENCHMARK'
+    'XSIMD_17'
     'XSIMD'
     'SIMDJSON'
     'NLOHMANN_JSON'
@@ -674,6 +676,7 @@ export TP_ARCHIVES=(
     'JINDOFS'
     'JUICEFS'
     'PUGIXML'
+    'PAIMON_CPP_17'
     'PAIMON_CPP'
     'LANCE_C'
 )

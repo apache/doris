@@ -517,7 +517,7 @@ rebuild_thirdparty_libraries() {
         build_args+=(--clean)
     fi
     bash "${build_script}" "${build_args[@]}" "$@"
-    if ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
+    if ! shared_arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
         echo "Rebuilt Arrow/Paimon artifacts do not match this checkout's selected inputs." >&2
         exit 1
     fi
@@ -526,10 +526,12 @@ rebuild_thirdparty_libraries() {
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
     rebuild_thirdparty_libraries true
-elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]] &&
-    ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
-    echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
-    rebuild_thirdparty_libraries false "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
+elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]]; then
+    select_arrow_paimon_rebuild_packages "${DORIS_THIRDPARTY}/installed"
+    if [[ "${#ARROW_PAIMON_REBUILD_PACKAGES[@]}" -gt 0 ]]; then
+        echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
+        rebuild_thirdparty_libraries false "${ARROW_PAIMON_REBUILD_PACKAGES[@]}"
+    fi
 fi
 
 update_submodule() {
