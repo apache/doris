@@ -19,10 +19,12 @@
 
 #include <algorithm>
 #include <cassert>
+#include <limits>
 #include <ranges>
 #include <vector>
 
 #include "storage/index/inverted/query_v2/term_query/term_scorer.h"
+#include "util/debug_points.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -75,6 +77,10 @@ public:
             return;
         }
 
+        // Test probe: only an actual multi-scorer WAND invocation observes this override.
+        DBUG_EXECUTE_IF("BlockWand.multi_scorer.force_threshold",
+                        { threshold = dp->param<float>("threshold", threshold); });
+
         std::vector<ScorerWrapper> wrappers;
         wrappers.reserve(scorers.size());
         for (auto& s : scorers) {
@@ -107,6 +113,11 @@ public:
             }
 
             if (block_max_score_upperbound <= threshold) {
+                DBUG_EXECUTE_IF("BlockWand.multi_scorer.pruned_block", {
+                    LOG(INFO) << "BlockWand pruned block: pivot_doc=" << pivot_doc
+                              << ", upper_bound=" << block_max_score_upperbound
+                              << ", threshold=" << threshold;
+                });
                 block_max_was_too_low_advance_one_scorer(wrappers, pivot_len);
                 continue;
             }
@@ -119,6 +130,13 @@ public:
             for (size_t i = 0; i < pivot_len; ++i) {
                 score += wrappers[i].score();
             }
+
+            // Test probe: a score call at or after min_doc makes the Top-K result observable.
+            DBUG_EXECUTE_IF("BlockWand.multi_scorer.poison_score_from_doc", {
+                if (pivot_doc >= dp->param<uint32_t>("min_doc", TERMINATED)) {
+                    score = std::numeric_limits<float>::max();
+                }
+            });
 
             if (score > threshold) {
                 threshold = callback(pivot_doc, score);
