@@ -957,6 +957,82 @@ class IvmNormalizeMTMVTest {
     }
 
     @Test
+    void testScanOfRowIdOnlyMvPassesStoredRowIdThrough() {
+        // Base table is an IVM MV whose only key column is the row-id itself.
+        OlapTable mvTable = newIvmMvOlapTable(40, "ivm_mv_rowid_only",
+                ImmutableList.of(
+                        new Column(Column.IVM_ROW_ID_COL, Type.LARGEINT, true, AggregateType.NONE, "0", ""),
+                        new Column("v1", Type.INT, false, AggregateType.NONE, "0", "")));
+        LogicalOlapScan mvScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), mvTable, ImmutableList.of("db"));
+
+        JobContext jobContext = newJobContextForScan(mvScan, true);
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(mvScan, jobContext);
+
+        // The injected row-id must be the stored row-id slot passed through, not a re-hash.
+        LogicalProject<?> project = (LogicalProject<?>) result;
+        Alias rowIdAlias = (Alias) project.getProjects().get(0);
+        Assertions.assertInstanceOf(Slot.class, rowIdAlias.child(),
+                "row-id of a row-id-only MV should be passed through, not hashed: " + rowIdAlias.child());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, ((Slot) rowIdAlias.child()).getName());
+    }
+
+    @Test
+    void testScanOfFullKeysMvExcludesAncestorRowIdFromIdentityKeys() {
+        // Base table is an IVM MV with useFullKeys: keys = (k1, row_id).
+        OlapTable mvTable = newIvmMvOlapTable(41, "ivm_mv_full_keys",
+                ImmutableList.of(
+                        new Column("k1", Type.INT, true, AggregateType.NONE, "0", ""),
+                        new Column(Column.IVM_ROW_ID_COL, Type.LARGEINT, true, AggregateType.NONE, "0", ""),
+                        new Column("v1", Type.INT, false, AggregateType.NONE, "0", "")));
+        LogicalOlapScan mvScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), mvTable, ImmutableList.of("db"));
+        LogicalResultSink<Plan> sink = new LogicalResultSink<>(
+                ImmutableList.of(mvScan.getOutput().get(0)), mvScan);
+
+        JobContext jobContext = newJobContextWithFullKeys(sink);
+        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        List<String> keyNames = rewriteResult.getIdentityKeySlots().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        // The ancestor's row-id must not propagate into the cascading MV's identity keys.
+        Assertions.assertEquals(ImmutableList.of("k1"), keyNames);
+    }
+
+    @Test
+    void testChainedFullKeysMvsNeverAccumulateAncestorRowIds() {
+        // Simulates mv1 (full keys) -> mv2 -> mv3 with all ivm_use_full_keys=true.
+        // mv1 keys = (k1, k2, row_id); each downstream layer drops the row-id column from
+        // its select output and must not re-introduce it into its own identity keys.
+        OlapTable mv1 = newIvmMvOlapTable(42, "ivm_mv_chain_l1",
+                ImmutableList.of(
+                        new Column("k1", Type.INT, true, AggregateType.NONE, "0", ""),
+                        new Column("k2", Type.INT, true, AggregateType.NONE, "0", ""),
+                        new Column(Column.IVM_ROW_ID_COL, Type.LARGEINT, true, AggregateType.NONE, "0", ""),
+                        new Column("v1", Type.INT, false, AggregateType.NONE, "0", "")));
+        LogicalOlapScan mv1Scan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), mv1, ImmutableList.of("db"));
+        Slot k1 = mv1Scan.getOutput().get(0);
+        Slot k2 = mv1Scan.getOutput().get(1);
+        Slot v1 = mv1Scan.getOutput().get(3);
+        // mv2: SELECT k1, k2, v1 FROM mv1  (row-id dropped from the visible output)
+        LogicalProject<Plan> mv2Project = new LogicalProject<>(ImmutableList.of(k1, k2, v1), mv1Scan);
+        // mv3: SELECT k1, k2, v1 FROM mv2
+        LogicalProject<Plan> mv3Project = new LogicalProject<>(ImmutableList.of(k1, k2, v1), mv2Project);
+        LogicalResultSink<Plan> sink = new LogicalResultSink<>(ImmutableList.of(k1, k2, v1), mv3Project);
+
+        JobContext jobContext = newJobContextWithFullKeys(sink);
+        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        List<String> keyNames = rewriteResult.getIdentityKeySlots().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        // No ancestor row-id ever reaches the top layer's identity keys: only (k1, k2).
+        Assertions.assertEquals(ImmutableList.of("k1", "k2"), keyNames);
+        Assertions.assertFalse(keyNames.contains(Column.IVM_ROW_ID_COL),
+                "chained MVs must not accumulate ancestor row-id columns: " + keyNames);
+    }
+
+    @Test
     void testDupScanIdentityKeysEmptyWithUseFullKeys() {
         LogicalResultSink<Plan> sink = new LogicalResultSink<>(
                 ImmutableList.of(scan.getOutput().get(0), scan.getOutput().get(1)), scan);
@@ -1080,6 +1156,28 @@ class IvmNormalizeMTMVTest {
         IvmRewriteContext rewriteContext = IvmRewriteContext.create("test_mtmv");
         rewriteContext.setUseFullKeys(true);
         return newJobContextForRoot(root, true, Collections.emptySet(), Optional.of(rewriteContext));
+    }
+
+    // Builds a UNIQUE_KEYS MOW table whose schema contains the IVM row-id key column,
+    // simulating an already-created IVM materialized view.
+    private OlapTable newIvmMvOlapTable(long tableId, String tableName, List<Column> columns) {
+        Database database = new Database(1L, "test");
+        HashDistributionInfo distributionInfo = new HashDistributionInfo(3, ImmutableList.of(columns.get(0)));
+        OlapTable table = new OlapTable(tableId, tableName, columns, KeysType.UNIQUE_KEYS,
+                new PartitionInfo(), distributionInfo) {
+            @Override
+            public Database getDatabase() {
+                return database;
+            }
+        };
+        table.setIndexMeta(-1, tableName, table.getFullSchema(), 0, 0, (short) 0,
+                TStorageType.COLUMN, KeysType.UNIQUE_KEYS);
+        table.setQualifiedDbName("test");
+        TableProperty tableProperty = new TableProperty(new java.util.HashMap<>());
+        tableProperty.setEnableUniqueKeyMergeOnWrite(true);
+        table.setTableProperty(tableProperty);
+        enableBinlog(table);
+        return table;
     }
 
     private void assertIvmException(IvmFailureReason failureReason, Executable executable) {
