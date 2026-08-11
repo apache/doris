@@ -18,11 +18,13 @@
 #include "io/cache/async_cache_write_service.h"
 
 #include <algorithm>
+#include <array>
 #include <exception>
 #include <limits>
 #include <optional>
 #include <thread>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 
 #include "common/logging.h"
@@ -86,6 +88,97 @@ private:
 };
 
 } // namespace
+
+class AsyncCacheWriteEpochRegistry
+        : public std::enable_shared_from_this<AsyncCacheWriteEpochRegistry> {
+public:
+    std::shared_ptr<AsyncCacheWriteEpochToken> capture(const UInt128Wrapper& cache_hash) {
+        auto& shard = _shards[_shard_index(cache_hash)];
+        std::lock_guard lock(shard.mutex);
+        auto iterator = shard.tokens.find(cache_hash);
+        if (iterator != shard.tokens.end()) {
+            auto token = iterator->second.token.lock();
+            if (token != nullptr) {
+                return token;
+            }
+            shard.tokens.erase(iterator);
+            _active_key_count.fetch_sub(1, std::memory_order_relaxed);
+        }
+
+        const uint64_t generation = _next_generation.fetch_add(1, std::memory_order_relaxed);
+        auto token = std::shared_ptr<AsyncCacheWriteEpochToken>(
+                new AsyncCacheWriteEpochToken(cache_hash, generation, weak_from_this()));
+        shard.tokens.emplace(cache_hash, Entry {.generation = generation, .token = token});
+        _active_key_count.fetch_add(1, std::memory_order_relaxed);
+        return token;
+    }
+
+    void invalidate(const UInt128Wrapper& cache_hash) {
+        // The token destructor calls release(), so its last strong reference must outlive the shard
+        // lock instead of re-entering the same mutex from inside this critical section.
+        std::shared_ptr<AsyncCacheWriteEpochToken> token;
+        {
+            auto& shard = _shards[_shard_index(cache_hash)];
+            std::lock_guard lock(shard.mutex);
+            auto iterator = shard.tokens.find(cache_hash);
+            if (iterator == shard.tokens.end()) {
+                return;
+            }
+            token = iterator->second.token.lock();
+            if (token != nullptr) {
+                token->_valid.store(false, std::memory_order_release);
+            }
+            shard.tokens.erase(iterator);
+            _active_key_count.fetch_sub(1, std::memory_order_relaxed);
+        }
+    }
+
+    void release(const UInt128Wrapper& cache_hash, uint64_t generation) {
+        auto& shard = _shards[_shard_index(cache_hash)];
+        std::lock_guard lock(shard.mutex);
+        auto iterator = shard.tokens.find(cache_hash);
+        if (iterator == shard.tokens.end() || iterator->second.generation != generation) {
+            return;
+        }
+        shard.tokens.erase(iterator);
+        _active_key_count.fetch_sub(1, std::memory_order_relaxed);
+    }
+
+    size_t active_key_count() const { return _active_key_count.load(std::memory_order_relaxed); }
+
+private:
+    struct Entry {
+        uint64_t generation {0};
+        std::weak_ptr<AsyncCacheWriteEpochToken> token;
+    };
+
+    struct Shard {
+        std::mutex mutex;
+        std::unordered_map<UInt128Wrapper, Entry, KeyHash> tokens;
+    };
+
+    static constexpr size_t kShardCount = 64;
+
+    static size_t _shard_index(const UInt128Wrapper& cache_hash) {
+        return KeyHash()(cache_hash) % kShardCount;
+    }
+
+    std::array<Shard, kShardCount> _shards;
+    std::atomic<uint64_t> _next_generation {1};
+    std::atomic<size_t> _active_key_count {0};
+};
+
+AsyncCacheWriteEpochToken::AsyncCacheWriteEpochToken(
+        const UInt128Wrapper& cache_hash, uint64_t generation,
+        std::weak_ptr<AsyncCacheWriteEpochRegistry> registry)
+        : _cache_hash(cache_hash), _generation(generation), _registry(std::move(registry)) {}
+
+AsyncCacheWriteEpochToken::~AsyncCacheWriteEpochToken() {
+    auto registry = _registry.lock();
+    if (registry != nullptr) {
+        registry->release(_cache_hash, _generation);
+    }
+}
 
 Status resolve_async_file_cache_write_max_pending_bytes_per_disk(int64_t configured_bytes,
                                                                  int64_t be_mem_limit,
@@ -174,6 +267,7 @@ AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
                                                AsyncCacheWriteServiceOptions options)
         : _cache(cache),
           _options(std::make_shared<const AsyncCacheWriteServiceOptions>(options)),
+          _write_epoch_registry(std::make_shared<AsyncCacheWriteEpochRegistry>()),
           _configured_worker_count(options.worker_count) {
     DORIS_CHECK(_cache != nullptr);
     DORIS_CHECK(options.worker_count > 0);
@@ -261,6 +355,13 @@ AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
                         std::memory_order_relaxed);
             },
             this);
+    _active_write_epoch_key_count_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
+            prefix, "async_cache_write_active_key_epoch_count",
+            [](void* service) {
+                return static_cast<AsyncCacheWriteService*>(service)
+                        ->active_write_epoch_key_count();
+            },
+            this);
     _buffer_memory_metric = std::make_shared<bvar::PassiveStatus<int64_t>>(
             prefix, "async_cache_write_buffer_memory_bytes",
             [](void* service) {
@@ -319,6 +420,14 @@ AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
             prefix, "async_cache_write_skip_partial_overlap_total");
     _drop_stale_epoch_metric = std::make_shared<bvar::Adder<uint64_t>>(
             prefix, "async_cache_write_drop_stale_epoch_total");
+    _drop_stale_cache_epoch_metric = std::make_shared<bvar::Adder<uint64_t>>(
+            prefix, "async_cache_write_drop_stale_cache_epoch_total");
+    _drop_stale_key_epoch_metric = std::make_shared<bvar::Adder<uint64_t>>(
+            prefix, "async_cache_write_drop_stale_key_epoch_total");
+    _cache_epoch_invalidate_metric = std::make_shared<bvar::Adder<uint64_t>>(
+            prefix, "async_cache_write_cache_epoch_invalidate_total");
+    _key_epoch_invalidate_metric = std::make_shared<bvar::Adder<uint64_t>>(
+            prefix, "async_cache_write_key_epoch_invalidate_total");
     _skip_deleting_metric = std::make_shared<bvar::Adder<uint64_t>>(
             prefix, "async_cache_write_skip_deleting_total");
     _append_fail_metric =
@@ -333,6 +442,47 @@ AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
 
 AsyncCacheWriteService::~AsyncCacheWriteService() {
     shutdown();
+}
+
+AsyncCacheWriteEpoch AsyncCacheWriteService::current_write_epoch(const UInt128Wrapper& cache_hash) {
+    return AsyncCacheWriteEpoch {
+            .cache_epoch = current_cache_epoch(),
+            .key_token = _write_epoch_registry->capture(cache_hash),
+    };
+}
+
+bool AsyncCacheWriteService::is_current_write_epoch(const AsyncCacheWriteEpoch& epoch) const {
+    DORIS_CHECK(epoch.key_token != nullptr);
+    return epoch.cache_epoch == current_cache_epoch() && epoch.key_token->is_valid();
+}
+
+bool AsyncCacheWriteService::check_write_epoch(const AsyncCacheWriteEpoch& epoch) {
+    DORIS_CHECK(epoch.key_token != nullptr);
+    if (epoch.cache_epoch != current_cache_epoch()) {
+        *_drop_stale_epoch_metric << 1;
+        *_drop_stale_cache_epoch_metric << 1;
+        return false;
+    }
+    if (!epoch.key_token->is_valid()) {
+        *_drop_stale_epoch_metric << 1;
+        *_drop_stale_key_epoch_metric << 1;
+        return false;
+    }
+    return true;
+}
+
+void AsyncCacheWriteService::invalidate_pending_writes(const UInt128Wrapper& cache_hash) {
+    *_key_epoch_invalidate_metric << 1;
+    _write_epoch_registry->invalidate(cache_hash);
+}
+
+uint64_t AsyncCacheWriteService::invalidate_all_pending_writes() {
+    *_cache_epoch_invalidate_metric << 1;
+    return _cache_epoch.fetch_add(1, std::memory_order_acq_rel) + 1;
+}
+
+size_t AsyncCacheWriteService::active_write_epoch_key_count() const {
+    return _write_epoch_registry->active_key_count();
 }
 
 Status AsyncCacheWriteService::start() {
@@ -365,6 +515,7 @@ Status AsyncCacheWriteService::start() {
 
 bool AsyncCacheWriteService::try_submit(AsyncCacheWriteTask task) {
     DORIS_CHECK(task.buffer != nullptr);
+    DORIS_CHECK(task.write_epoch.key_token != nullptr);
     DORIS_CHECK(task.write_size > 0);
     DORIS_CHECK(task.write_size <= task.buffer->size());
     DORIS_CHECK(task.write_size <= std::numeric_limits<size_t>::max() - task.file_offset);
@@ -459,8 +610,7 @@ void AsyncCacheWriteService::_process_task(AsyncCacheWriteTask task) {
 
     const int64_t age_us = MonotonicMicros() - task.submit_ts_us;
     *_queue_wait_latency_metric << age_us;
-    if (!is_current_write_epoch(task.write_epoch)) {
-        *_drop_stale_epoch_metric << 1;
+    if (!check_write_epoch(task.write_epoch)) {
         return;
     }
 
@@ -491,8 +641,7 @@ bool AsyncCacheWriteService::_try_take_task(AsyncCacheWriteTask* task) {
 }
 
 Status AsyncCacheWriteService::_write_one(const AsyncCacheWriteTask& task) {
-    if (!is_current_write_epoch(task.write_epoch)) {
-        *_drop_stale_epoch_metric << 1;
+    if (!check_write_epoch(task.write_epoch)) {
         return Status::OK();
     }
 
@@ -516,8 +665,7 @@ Status AsyncCacheWriteService::_write_one(const AsyncCacheWriteTask& task) {
         return result;
     }();
 
-    if (!is_current_write_epoch(task.write_epoch)) {
-        *_drop_stale_epoch_metric << 1;
+    if (!check_write_epoch(task.write_epoch)) {
         return Status::OK();
     }
 
@@ -527,8 +675,7 @@ Status AsyncCacheWriteService::_write_one(const AsyncCacheWriteTask& task) {
             *_skip_partial_overlap_metric << 1;
             continue;
         }
-        if (!is_current_write_epoch(task.write_epoch)) {
-            *_drop_stale_epoch_metric << 1;
+        if (!check_write_epoch(task.write_epoch)) {
             return Status::OK();
         }
         if (_cache->is_block_deleting(block)) {

@@ -313,8 +313,8 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     ASSERT_TRUE(service->allocate_tracked_buffer(1_mb, &inflight_buffer).ok());
     const std::string inflight_payload(1_mb, '1');
     memcpy(inflight_buffer->data(), inflight_payload.data(), inflight_payload.size());
-    auto inflight_entry = std::make_shared<InflightWriteBufferEntry>(
-            inflight_buffer, 1_mb, 1_mb, MonotonicMicros(), service->current_write_epoch());
+    auto inflight_entry = std::make_shared<InflightWriteBufferEntry>(inflight_buffer, 1_mb, 1_mb,
+                                                                     MonotonicMicros());
     ASSERT_EQ(inflight_index->insert_if_absent(reader->_cache_hash, 1_mb, inflight_entry), nullptr);
     Defer remove_inflight {[&]() {
         static_cast<void>(inflight_index->remove_if(reader->_cache_hash, 1_mb, inflight_entry));
@@ -377,7 +377,9 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     ASSERT_TRUE(fs::remove(cache_files[0], remove_error));
     ASSERT_FALSE(remove_error);
 
-    const uint64_t epoch_before_self_heal = cache()->async_write_service()->current_write_epoch();
+    auto* service = cache()->async_write_service();
+    const auto epoch_before_self_heal = service->current_write_epoch(reader->_cache_hash);
+    const uint64_t cache_epoch_before_self_heal = service->current_cache_epoch();
     std::string fallback_result(4096, '\0');
     FileCacheStatistics fallback_stats;
     IOContext fallback_context;
@@ -391,7 +393,11 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     EXPECT_EQ(counting_reader->read_count(), 2);
     EXPECT_EQ(fallback_stats.bytes_read_from_remote, fallback_result.size());
     EXPECT_EQ(fallback_stats.async_cache_write_submitted, 0);
-    EXPECT_EQ(cache()->async_write_service()->current_write_epoch(), epoch_before_self_heal + 1);
+    EXPECT_EQ(service->current_cache_epoch(), cache_epoch_before_self_heal);
+    EXPECT_FALSE(service->is_current_write_epoch(epoch_before_self_heal));
+    const auto epoch_after_self_heal = service->current_write_epoch(reader->_cache_hash);
+    EXPECT_LT(epoch_before_self_heal.key_token->generation(),
+              epoch_after_self_heal.key_token->generation());
 
     bool hash_removed = false;
     for (int attempt = 0; attempt < 5000; ++attempt) {
@@ -720,7 +726,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
                 .buffer = std::move(buffer),
                 .admission_ctx = {},
                 .submit_ts_us = MonotonicMicros(),
-                .write_epoch = service->current_write_epoch(),
+                .write_epoch = service->current_write_epoch(hash),
                 .on_finalized = std::move(on_finalized),
         };
     };
@@ -736,9 +742,9 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     ASSERT_TRUE(service->allocate_tracked_buffer(1_mb, &victim_buffer).ok());
     memset(victim_buffer->data(), '0', victim_buffer->size());
     const int64_t victim_submit_ts_us = MonotonicMicros();
+    const auto victim_epoch = service->current_write_epoch(reader->_cache_hash);
     auto victim_entry = std::make_shared<InflightWriteBufferEntry>(
-            victim_buffer, 0, victim_buffer->size(), victim_submit_ts_us,
-            service->current_write_epoch());
+            victim_buffer, 0, victim_buffer->size(), victim_submit_ts_us);
     ASSERT_EQ(index->insert_if_absent(reader->_cache_hash, 0, victim_entry), nullptr);
     AsyncCacheWriteTask victim_task {
             .cache_hash = reader->_cache_hash,
@@ -747,7 +753,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
             .buffer = victim_buffer,
             .admission_ctx = {},
             .submit_ts_us = victim_submit_ts_us,
-            .write_epoch = service->current_write_epoch(),
+            .write_epoch = victim_epoch,
             .on_finalized =
                     [index, hash = reader->_cache_hash, victim_entry](const AsyncCacheWriteTask&) {
                         index->remove_if(hash, 0, victim_entry);
@@ -774,8 +780,8 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     EXPECT_EQ(first_stats.bytes_read_from_remote, first_page.size());
     EXPECT_EQ(first_stats.async_cache_write_submitted, 1);
     EXPECT_EQ(service->evicted_oldest_count() - baseline_evicted, 1);
-    EXPECT_EQ(index->lookup(reader->_cache_hash, 0, service->current_write_epoch()), nullptr);
-    EXPECT_NE(index->lookup(reader->_cache_hash, 1_mb, service->current_write_epoch()), nullptr);
+    EXPECT_EQ(index->lookup(reader->_cache_hash, 0), nullptr);
+    EXPECT_NE(index->lookup(reader->_cache_hash, 1_mb), nullptr);
 
     std::string adjacent_page(4096, '\0');
     FileCacheStatistics adjacent_stats;
@@ -1463,10 +1469,7 @@ TEST_F(BlockFileCacheTest, async_write_backpressure_rolls_back_inflight_entry) {
     EXPECT_EQ(second_stats.async_cache_write_rejected, 1);
     EXPECT_EQ(second_stats.bytes_read_from_remote, 4096);
     EXPECT_EQ(cache->async_write_service()->pending_count(), 1);
-    EXPECT_EQ(
-            cache->inflight_write_buffer_index()->lookup(
-                    reader->_cache_hash, 1_mb, cache->async_write_service()->current_write_epoch()),
-            nullptr);
+    EXPECT_EQ(cache->inflight_write_buffer_index()->lookup(reader->_cache_hash, 1_mb), nullptr);
     EXPECT_EQ(cache->inflight_write_buffer_index()->count(), 1);
 
     {

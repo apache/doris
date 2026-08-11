@@ -65,14 +65,15 @@ AsyncCacheWriteTask make_async_write_task(
     EXPECT_TRUE(service->allocate_tracked_buffer(4096, &buffer).ok());
     DORIS_CHECK(buffer != nullptr);
     memset(buffer->data(), fill, buffer->size());
+    const auto cache_hash = BlockFileCache::hash(key);
     return AsyncCacheWriteTask {
-            .cache_hash = BlockFileCache::hash(key),
+            .cache_hash = cache_hash,
             .file_offset = 0,
             .write_size = buffer->size(),
             .buffer = std::move(buffer),
             .admission_ctx = {},
             .submit_ts_us = submit_ts_us,
-            .write_epoch = service->current_write_epoch(),
+            .write_epoch = service->current_write_epoch(cache_hash),
             .on_finalized = std::move(on_finalized),
     };
 }
@@ -142,6 +143,73 @@ TEST(AsyncCacheWriteConfigTest, ResolveMaxPendingBytesPerDisk) {
                          .ok());
 }
 
+TEST_F(AsyncCacheWriteServiceTest, WriteEpochRegistryReusesAndReclaimsLiveKey) {
+    auto cache = create_cache("async_write_epoch_registry_lifecycle");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+    EXPECT_EQ(service->active_write_epoch_key_count(), 0);
+
+    const auto hash = BlockFileCache::hash("epoch_registry_lifecycle");
+    {
+        const auto first = service->current_write_epoch(hash);
+        EXPECT_TRUE(service->is_current_write_epoch(first));
+        EXPECT_EQ(service->active_write_epoch_key_count(), 1);
+        {
+            const auto second = service->current_write_epoch(hash);
+            EXPECT_EQ(second.key_token, first.key_token);
+            EXPECT_EQ(second.cache_epoch, first.cache_epoch);
+            EXPECT_EQ(service->active_write_epoch_key_count(), 1);
+        }
+        EXPECT_EQ(service->active_write_epoch_key_count(), 1);
+    }
+    EXPECT_EQ(service->active_write_epoch_key_count(), 0);
+
+    const auto old_epoch = service->current_write_epoch(hash);
+    service->invalidate_pending_writes(hash);
+    EXPECT_FALSE(service->is_current_write_epoch(old_epoch));
+    EXPECT_EQ(service->active_write_epoch_key_count(), 0);
+
+    const auto new_epoch = service->current_write_epoch(hash);
+    EXPECT_TRUE(service->is_current_write_epoch(new_epoch));
+    EXPECT_EQ(new_epoch.cache_epoch, old_epoch.cache_epoch);
+    EXPECT_LT(old_epoch.key_token->generation(), new_epoch.key_token->generation());
+    EXPECT_EQ(service->active_write_epoch_key_count(), 1);
+}
+
+TEST_F(AsyncCacheWriteServiceTest, PerKeyRemoveDoesNotInvalidateUnrelatedWriteEpoch) {
+    auto cache = create_cache("async_write_epoch_scope");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+
+    const auto target_hash = BlockFileCache::hash("epoch_scope_target");
+    const auto target_epoch = service->current_write_epoch(target_hash);
+    const uint64_t cache_epoch = service->current_cache_epoch();
+    const uint64_t baseline_key_invalidations = service->_key_epoch_invalidate_metric->get_value();
+    for (size_t index = 0; index < 128; ++index) {
+        cache->remove_if_cached_async(
+                BlockFileCache::hash("unrelated_removed_" + std::to_string(index)));
+    }
+    EXPECT_EQ(service->current_cache_epoch(), cache_epoch);
+    EXPECT_TRUE(service->is_current_write_epoch(target_epoch));
+    EXPECT_EQ(service->active_write_epoch_key_count(), 1);
+
+    const auto removed_hash = BlockFileCache::hash("epoch_scope_removed");
+    const auto removed_epoch = service->current_write_epoch(removed_hash);
+    cache->remove_if_cached_async(removed_hash);
+    EXPECT_FALSE(service->is_current_write_epoch(removed_epoch));
+    EXPECT_TRUE(service->is_current_write_epoch(target_epoch));
+    EXPECT_EQ(service->_key_epoch_invalidate_metric->get_value() - baseline_key_invalidations, 129);
+
+    const auto replacement_epoch = service->current_write_epoch(removed_hash);
+    const uint64_t baseline_cache_invalidations =
+            service->_cache_epoch_invalidate_metric->get_value();
+    EXPECT_EQ(service->invalidate_all_pending_writes(), cache_epoch + 1);
+    EXPECT_FALSE(service->is_current_write_epoch(target_epoch));
+    EXPECT_FALSE(service->is_current_write_epoch(replacement_epoch));
+    EXPECT_EQ(service->_cache_epoch_invalidate_metric->get_value() - baseline_cache_invalidations,
+              1);
+}
+
 TEST_F(AsyncCacheWriteServiceTest, TaskWritesDownloadedBlockAndCleansInflightEntry) {
     auto cache = create_cache("async_write_service_single_task");
     auto* service = cache->async_write_service();
@@ -175,9 +243,9 @@ TEST_F(AsyncCacheWriteServiceTest, TaskWritesDownloadedBlockAndCleansInflightEnt
     memcpy(buffer->data(), payload.data(), payload.size());
     EXPECT_GE(service->buffer_memory_bytes(), baseline_memory + static_cast<int64_t>(block_size));
 
-    const uint64_t epoch = service->current_write_epoch();
-    auto entry = std::make_shared<InflightWriteBufferEntry>(buffer, 0, block_size,
-                                                            MonotonicMicros(), epoch);
+    const auto epoch = service->current_write_epoch(hash);
+    auto entry =
+            std::make_shared<InflightWriteBufferEntry>(buffer, 0, block_size, MonotonicMicros());
     ASSERT_EQ(index->insert_if_absent(hash, 0, entry), nullptr);
     std::promise<void> finished;
     auto finished_future = finished.get_future();
@@ -203,7 +271,7 @@ TEST_F(AsyncCacheWriteServiceTest, TaskWritesDownloadedBlockAndCleansInflightEnt
     EXPECT_EQ(service->queued_bytes(), 0);
     EXPECT_EQ(service->active_task_count(), 0);
     EXPECT_EQ(service->active_bytes(), 0);
-    EXPECT_EQ(index->lookup(hash, 0, epoch), nullptr);
+    EXPECT_EQ(index->lookup(hash, 0), nullptr);
     EXPECT_EQ(service->_submitted_metric->get_value() - baseline_submitted, 1);
     EXPECT_EQ(service->_submitted_bytes_metric->get_value() - baseline_submitted_bytes, block_size);
     EXPECT_EQ(service->_finished_metric->get_value() - baseline_finished, 1);
@@ -357,14 +425,15 @@ TEST_F(AsyncCacheWriteServiceTest, RejectsWhenAllPendingTasksAreActive) {
     memset(first_buffer->data(), 'b', first_buffer->size());
     std::promise<void> first_finished;
     auto first_future = first_finished.get_future();
+    const auto first_hash = BlockFileCache::hash("backpressure_first");
     AsyncCacheWriteTask first_task {
-            .cache_hash = BlockFileCache::hash("backpressure_first"),
+            .cache_hash = first_hash,
             .file_offset = 0,
             .write_size = first_buffer->size(),
             .buffer = first_buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
-            .write_epoch = service->current_write_epoch(),
+            .write_epoch = service->current_write_epoch(first_hash),
             .on_finalized =
                     [&first_finished](const AsyncCacheWriteTask&) { first_finished.set_value(); },
     };
@@ -376,14 +445,15 @@ TEST_F(AsyncCacheWriteServiceTest, RejectsWhenAllPendingTasksAreActive) {
 
     AsyncCacheWriteBufferPtr rejected_buffer;
     ASSERT_TRUE(service->allocate_tracked_buffer(4096, &rejected_buffer).ok());
+    const auto rejected_hash = BlockFileCache::hash("backpressure_rejected");
     AsyncCacheWriteTask rejected_task {
-            .cache_hash = BlockFileCache::hash("backpressure_rejected"),
+            .cache_hash = rejected_hash,
             .file_offset = 0,
             .write_size = rejected_buffer->size(),
             .buffer = rejected_buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
-            .write_epoch = service->current_write_epoch(),
+            .write_epoch = service->current_write_epoch(rejected_hash),
             .on_finalized = nullptr,
     };
     EXPECT_FALSE(service->try_submit(std::move(rejected_task)));
@@ -496,8 +566,9 @@ TEST_F(AsyncCacheWriteServiceTest,
         DORIS_CHECK(buffer != nullptr);
         memset(buffer->data(), fill, buffer->size());
         const int64_t submit_ts_us = MonotonicMicros();
-        entries[task_id] = std::make_shared<InflightWriteBufferEntry>(
-                buffer, 0, buffer->size(), submit_ts_us, service->current_write_epoch());
+        auto write_epoch = service->current_write_epoch(hashes[task_id]);
+        entries[task_id] =
+                std::make_shared<InflightWriteBufferEntry>(buffer, 0, buffer->size(), submit_ts_us);
         DORIS_CHECK(index->insert_if_absent(hashes[task_id], 0, entries[task_id]) == nullptr);
         return AsyncCacheWriteTask {
                 .cache_hash = hashes[task_id],
@@ -506,7 +577,7 @@ TEST_F(AsyncCacheWriteServiceTest,
                 .buffer = std::move(buffer),
                 .admission_ctx = {},
                 .submit_ts_us = submit_ts_us,
-                .write_epoch = service->current_write_epoch(),
+                .write_epoch = std::move(write_epoch),
                 .on_finalized =
                         [&, task_id](const AsyncCacheWriteTask&) {
                             index->remove_if(hashes[task_id], 0, entries[task_id]);
@@ -525,7 +596,7 @@ TEST_F(AsyncCacheWriteServiceTest,
     ASSERT_EQ(service->queued_bytes(), 2 * 4096);
     ASSERT_EQ(service->active_task_count(), 1);
     ASSERT_EQ(service->active_bytes(), 4096);
-    auto concurrent_reader = index->lookup(hashes[1], 0, service->current_write_epoch());
+    auto concurrent_reader = index->lookup(hashes[1], 0);
     ASSERT_NE(concurrent_reader, nullptr);
     const uint64_t baseline_evicted = service->_evicted_oldest_metric->get_value();
     const uint64_t baseline_evicted_bytes = service->_evicted_oldest_bytes_metric->get_value();
@@ -545,9 +616,9 @@ TEST_F(AsyncCacheWriteServiceTest,
     EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted, 1);
     EXPECT_EQ(service->_evicted_oldest_bytes_metric->get_value() - baseline_evicted_bytes, 4096);
     EXPECT_EQ(service->_evicted_oldest_age_metric->count() - baseline_evicted_age_count, 1);
-    EXPECT_EQ(index->lookup(hashes[1], 0, service->current_write_epoch()), nullptr);
-    EXPECT_NE(index->lookup(hashes[2], 0, service->current_write_epoch()), nullptr);
-    EXPECT_NE(index->lookup(hashes[3], 0, service->current_write_epoch()), nullptr);
+    EXPECT_EQ(index->lookup(hashes[1], 0), nullptr);
+    EXPECT_NE(index->lookup(hashes[2], 0), nullptr);
+    EXPECT_NE(index->lookup(hashes[3], 0), nullptr);
     ASSERT_NE(concurrent_reader->buffer, nullptr);
     EXPECT_EQ(concurrent_reader->buffer->data()[0], 'b');
     EXPECT_EQ(concurrent_reader->buffer->data()[4095], 'b');
@@ -580,7 +651,7 @@ TEST_F(AsyncCacheWriteServiceTest,
     EXPECT_EQ(service->buffer_memory_bytes(), baseline_memory);
 }
 
-TEST_F(AsyncCacheWriteServiceTest, OldEpochVictimCallbackDoesNotDeleteReplacement) {
+TEST_F(AsyncCacheWriteServiceTest, InvalidatedVictimBufferRemainsReadableUntilFinalized) {
     auto cache = create_cache("async_write_service_old_epoch_victim");
     auto* service = cache->async_write_service();
     auto* index = cache->inflight_write_buffer_index();
@@ -624,12 +695,12 @@ TEST_F(AsyncCacheWriteServiceTest, OldEpochVictimCallbackDoesNotDeleteReplacemen
     }
 
     const auto hash = BlockFileCache::hash("old_epoch_same_key");
-    const uint64_t old_epoch = service->current_write_epoch();
+    const auto old_epoch = service->current_write_epoch(hash);
     AsyncCacheWriteBufferPtr old_buffer;
     ASSERT_TRUE(service->allocate_tracked_buffer(4096, &old_buffer).ok());
     memset(old_buffer->data(), 'o', old_buffer->size());
     auto old_entry = std::make_shared<InflightWriteBufferEntry>(old_buffer, 0, old_buffer->size(),
-                                                                MonotonicMicros(), old_epoch);
+                                                                MonotonicMicros());
     ASSERT_EQ(index->insert_if_absent(hash, 0, old_entry), nullptr);
     size_t old_callback_count = 0;
     AsyncCacheWriteTask old_task {
@@ -648,19 +719,25 @@ TEST_F(AsyncCacheWriteServiceTest, OldEpochVictimCallbackDoesNotDeleteReplacemen
     };
     ASSERT_TRUE(service->try_submit(std::move(old_task)));
 
-    const uint64_t new_epoch = service->invalidate_pending_writes();
+    service->invalidate_pending_writes(hash);
+    EXPECT_FALSE(service->is_current_write_epoch(old_epoch));
+    const auto new_epoch = service->current_write_epoch(hash);
+    EXPECT_TRUE(service->is_current_write_epoch(new_epoch));
+    EXPECT_EQ(new_epoch.cache_epoch, old_epoch.cache_epoch);
+    EXPECT_LT(old_epoch.key_token->generation(), new_epoch.key_token->generation());
     AsyncCacheWriteBufferPtr replacement_buffer;
     ASSERT_TRUE(service->allocate_tracked_buffer(4096, &replacement_buffer).ok());
     memset(replacement_buffer->data(), 'n', replacement_buffer->size());
     auto replacement_entry = std::make_shared<InflightWriteBufferEntry>(
-            replacement_buffer, 0, replacement_buffer->size(), MonotonicMicros(), new_epoch);
-    ASSERT_EQ(index->insert_if_absent(hash, 0, replacement_entry), nullptr);
-    ASSERT_EQ(index->lookup(hash, 0, new_epoch), replacement_entry);
+            replacement_buffer, 0, replacement_buffer->size(), MonotonicMicros());
+    EXPECT_EQ(index->lookup(hash, 0), old_entry);
+    EXPECT_EQ(index->insert_if_absent(hash, 0, replacement_entry), old_entry);
 
+    const uint64_t baseline_evicted = service->_evicted_oldest_metric->get_value();
     ASSERT_TRUE(service->try_submit(make_async_write_task(service, "old_epoch_replacer", 'r')));
     EXPECT_EQ(old_callback_count, 1);
-    EXPECT_EQ(index->lookup(hash, 0, new_epoch), replacement_entry);
-    EXPECT_EQ(service->_evicted_oldest_metric->get_value(), 1);
+    EXPECT_EQ(index->lookup(hash, 0), nullptr);
+    EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted, 1);
 
     {
         std::lock_guard lock(mutex);
@@ -672,7 +749,7 @@ TEST_F(AsyncCacheWriteServiceTest, OldEpochVictimCallbackDoesNotDeleteReplacemen
     }
     ASSERT_EQ(service->pending_count(), 0);
     EXPECT_EQ(old_callback_count, 1);
-    EXPECT_TRUE(index->remove_if(hash, 0, replacement_entry));
+    EXPECT_EQ(index->count(), 0);
 }
 
 TEST_F(AsyncCacheWriteServiceTest, EvictedCallbackRunsOutsideQueueMutex) {
@@ -774,9 +851,9 @@ TEST_F(AsyncCacheWriteServiceTest, OldQueuedTaskIsStillWrittenAndCleansInflightE
     AsyncCacheWriteBufferPtr buffer;
     ASSERT_TRUE(service->allocate_tracked_buffer(4096, &buffer).ok());
     memset(buffer->data(), 'w', buffer->size());
-    const uint64_t epoch = service->current_write_epoch();
+    const auto epoch = service->current_write_epoch(hash);
     auto entry = std::make_shared<InflightWriteBufferEntry>(buffer, 0, buffer->size(),
-                                                            MonotonicMicros(), epoch);
+                                                            MonotonicMicros());
     ASSERT_EQ(index->insert_if_absent(hash, 0, entry), nullptr);
     std::promise<void> finished;
     auto finished_future = finished.get_future();
@@ -797,7 +874,7 @@ TEST_F(AsyncCacheWriteServiceTest, OldQueuedTaskIsStillWrittenAndCleansInflightE
     ASSERT_TRUE(service->try_submit(std::move(task)));
     ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     EXPECT_EQ(service->pending_count(), 0);
-    EXPECT_EQ(index->lookup(hash, 0, epoch), nullptr);
+    EXPECT_EQ(index->lookup(hash, 0), nullptr);
     EXPECT_TRUE(is_cache_range_downloaded(cache.get(), hash));
 }
 
@@ -819,7 +896,7 @@ TEST_F(AsyncCacheWriteServiceTest, ShutdownDrainsAcceptedTask) {
             .buffer = buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
-            .write_epoch = service->current_write_epoch(),
+            .write_epoch = service->current_write_epoch(hash),
             .on_finalized = [&finished](const AsyncCacheWriteTask&) { finished.set_value(); },
     };
     ASSERT_TRUE(service->try_submit(std::move(task)));
@@ -863,7 +940,7 @@ TEST_F(AsyncCacheWriteServiceTest, OneTaskWritesMultipleContainedCells) {
             .buffer = buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
-            .write_epoch = service->current_write_epoch(),
+            .write_epoch = service->current_write_epoch(hash),
             .on_finalized = [&finished](const AsyncCacheWriteTask&) { finished.set_value(); },
     };
     ASSERT_TRUE(service->try_submit(std::move(task)));
@@ -928,7 +1005,7 @@ TEST_F(AsyncCacheWriteServiceTest, ExistingAndDeletingCellsKeepTheirOwners) {
             .buffer = buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
-            .write_epoch = service->current_write_epoch(),
+            .write_epoch = service->current_write_epoch(hash),
             .on_finalized = [&finished](const AsyncCacheWriteTask&) { finished.set_value(); },
     };
     ASSERT_TRUE(service->try_submit(std::move(task)));
@@ -983,6 +1060,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveDuringAppendDoesNotLeaveResurrectedCach
     memset(buffer->data(), 'r', buffer->size());
     std::promise<void> finished;
     auto finished_future = finished.get_future();
+    const auto write_epoch = service->current_write_epoch(hash);
     AsyncCacheWriteTask task {
             .cache_hash = hash,
             .file_offset = 0,
@@ -990,7 +1068,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveDuringAppendDoesNotLeaveResurrectedCach
             .buffer = buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
-            .write_epoch = service->current_write_epoch(),
+            .write_epoch = write_epoch,
             .on_finalized = [&finished](const AsyncCacheWriteTask&) { finished.set_value(); },
     };
     ASSERT_TRUE(service->try_submit(std::move(task)));
@@ -1011,9 +1089,13 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveDuringAppendDoesNotLeaveResurrectedCach
         EXPECT_EQ(probe_result.file_blocks[0]->state(), FileBlock::State::DOWNLOADING);
         cache_file = probe_result.file_blocks[0]->get_cache_file();
     }
-    const uint64_t old_epoch = service->current_write_epoch();
+    const uint64_t old_cache_epoch = service->current_cache_epoch();
     cache->remove_if_cached_async(hash);
-    EXPECT_EQ(service->current_write_epoch(), old_epoch + 1);
+    EXPECT_EQ(service->current_cache_epoch(), old_cache_epoch);
+    EXPECT_FALSE(service->is_current_write_epoch(write_epoch));
+    const auto new_write_epoch = service->current_write_epoch(hash);
+    EXPECT_TRUE(service->is_current_write_epoch(new_write_epoch));
+    EXPECT_LT(write_epoch.key_token->generation(), new_write_epoch.key_token->generation());
     {
         std::lock_guard lock(mutex);
         release_worker = true;
@@ -1077,7 +1159,7 @@ TEST_F(AsyncCacheWriteServiceTest, PartialOverlapIsSkippedWithoutOutOfBoundsWrit
             .buffer = buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
-            .write_epoch = service->current_write_epoch(),
+            .write_epoch = service->current_write_epoch(hash),
             .on_finalized = [&finished](const AsyncCacheWriteTask&) { finished.set_value(); },
     };
     ASSERT_TRUE(service->try_submit(std::move(task)));
@@ -1101,7 +1183,7 @@ TEST_F(AsyncCacheWriteServiceTest, PartialOverlapIsSkippedWithoutOutOfBoundsWrit
     EXPECT_EQ(tail, std::string(task_offset, 'y'));
 }
 
-TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesActiveAndQueuedTasksAndCleansEmptyCells) {
+TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesOnlyMatchingTaskAndCleansEmptyCell) {
     auto cache = create_cache("async_write_service_epoch");
     auto* service = cache->async_write_service();
     ASSERT_NE(service, nullptr);
@@ -1141,6 +1223,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesActiveAndQueuedTasksAndClean
     memset(active_buffer->data(), 'a', active_buffer->size());
     std::promise<void> active_finished;
     auto active_future = active_finished.get_future();
+    const auto active_epoch = service->current_write_epoch(active_hash);
     AsyncCacheWriteTask active_task {
             .cache_hash = active_hash,
             .file_offset = 0,
@@ -1148,7 +1231,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesActiveAndQueuedTasksAndClean
             .buffer = active_buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
-            .write_epoch = service->current_write_epoch(),
+            .write_epoch = active_epoch,
             .on_finalized =
                     [&active_finished](const AsyncCacheWriteTask&) { active_finished.set_value(); },
     };
@@ -1164,6 +1247,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesActiveAndQueuedTasksAndClean
     memset(queued_buffer->data(), 'q', queued_buffer->size());
     std::promise<void> queued_finished;
     auto queued_future = queued_finished.get_future();
+    const auto queued_epoch = service->current_write_epoch(queued_hash);
     AsyncCacheWriteTask queued_task {
             .cache_hash = queued_hash,
             .file_offset = 0,
@@ -1171,16 +1255,19 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesActiveAndQueuedTasksAndClean
             .buffer = queued_buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
-            .write_epoch = service->current_write_epoch(),
+            .write_epoch = queued_epoch,
             .on_finalized =
                     [&queued_finished](const AsyncCacheWriteTask&) { queued_finished.set_value(); },
     };
     ASSERT_TRUE(service->try_submit(std::move(queued_task)));
     ASSERT_EQ(service->pending_count(), 2);
 
-    const uint64_t old_epoch = service->current_write_epoch();
+    const uint64_t cache_epoch = service->current_cache_epoch();
+    const uint64_t baseline_stale_key = service->_drop_stale_key_epoch_metric->get_value();
     cache->remove_if_cached_async(active_hash);
-    EXPECT_EQ(service->current_write_epoch(), old_epoch + 1);
+    EXPECT_EQ(service->current_cache_epoch(), cache_epoch);
+    EXPECT_FALSE(service->is_current_write_epoch(active_epoch));
+    EXPECT_TRUE(service->is_current_write_epoch(queued_epoch));
     {
         std::lock_guard lock(mutex);
         release_worker = true;
@@ -1189,7 +1276,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesActiveAndQueuedTasksAndClean
     ASSERT_EQ(active_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     ASSERT_EQ(queued_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     EXPECT_EQ(service->pending_count(), 0);
-    EXPECT_GE(service->_drop_stale_epoch_metric->get_value(), 2);
+    EXPECT_GE(service->_drop_stale_key_epoch_metric->get_value() - baseline_stale_key, 1);
 
     ReadStatistics read_stats;
     CacheContext context;
@@ -1200,7 +1287,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesActiveAndQueuedTasksAndClean
         EXPECT_EQ(probe_result.file_blocks[0], nullptr);
     };
     expect_cache_gap(active_hash);
-    expect_cache_gap(queued_hash);
+    EXPECT_TRUE(is_cache_range_downloaded(cache.get(), queued_hash));
 }
 
 TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseKeepsReplacingOldestQueuedTask) {
@@ -1414,14 +1501,15 @@ TEST_F(AsyncCacheWriteServiceTest, ResizeWorkersPreservesActiveTaskOwnership) {
         AsyncCacheWriteBufferPtr buffer;
         ASSERT_TRUE(service->allocate_tracked_buffer(4096, &buffer).ok());
         memset(buffer->data(), static_cast<int>('a' + task_id), buffer->size());
+        const auto hash = BlockFileCache::hash("resize_worker_" + std::to_string(task_id));
         AsyncCacheWriteTask task {
-                .cache_hash = BlockFileCache::hash("resize_worker_" + std::to_string(task_id)),
+                .cache_hash = hash,
                 .file_offset = 0,
                 .write_size = buffer->size(),
                 .buffer = buffer,
                 .admission_ctx = {},
                 .submit_ts_us = MonotonicMicros(),
-                .write_epoch = service->current_write_epoch(),
+                .write_epoch = service->current_write_epoch(hash),
                 .on_finalized =
                         [&](const AsyncCacheWriteTask&) {
                             std::lock_guard lock(mutex);
@@ -1649,14 +1737,15 @@ TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
     EXPECT_EQ(cache->async_write_service()->options().max_pending_bytes, auto_max_pending_bytes);
     AsyncCacheWriteBufferPtr disabled_buffer;
     ASSERT_TRUE(cache->async_write_service()->allocate_tracked_buffer(4096, &disabled_buffer).ok());
+    const auto disabled_hash = BlockFileCache::hash("disabled_async_write_service");
     AsyncCacheWriteTask disabled_task {
-            .cache_hash = BlockFileCache::hash("disabled_async_write_service"),
+            .cache_hash = disabled_hash,
             .file_offset = 0,
             .write_size = disabled_buffer->size(),
             .buffer = disabled_buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
-            .write_epoch = cache->async_write_service()->current_write_epoch(),
+            .write_epoch = cache->async_write_service()->current_write_epoch(disabled_hash),
             .on_finalized = nullptr,
     };
     EXPECT_FALSE(cache->async_write_service()->try_submit(std::move(disabled_task)));
@@ -1830,14 +1919,15 @@ TEST_F(AsyncCacheWriteServiceTest, ShutdownWaitsForRegisteredSubmitterAndRejects
 
     AsyncCacheWriteBufferPtr buffer;
     ASSERT_TRUE(service->allocate_tracked_buffer(4096, &buffer).ok());
+    const auto hash = BlockFileCache::hash("shutdown_submitter");
     AsyncCacheWriteTask task {
-            .cache_hash = BlockFileCache::hash("shutdown_submitter"),
+            .cache_hash = hash,
             .file_offset = 0,
             .write_size = buffer->size(),
             .buffer = buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
-            .write_epoch = service->current_write_epoch(),
+            .write_epoch = service->current_write_epoch(hash),
             .on_finalized = nullptr,
     };
     submit_future = std::async(std::launch::async, [service, task = std::move(task)]() mutable {

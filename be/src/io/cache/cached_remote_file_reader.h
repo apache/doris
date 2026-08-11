@@ -180,7 +180,7 @@ private:
     /// @param[in,out] stats Lookup and probe counters updated during planning.
     /// @return Plan that owns any retained probe blocks and first-to-last remote range.
     AsyncReadPlan _build_async_read_plan(size_t remaining_offset, size_t remaining_size,
-                                         uint64_t write_epoch, const IOContext* io_ctx,
+                                         AsyncCacheWriteEpoch write_epoch, const IOContext* io_ctx,
                                          ReadStatistics& stats);
 
     /// Copy one block already available from an inflight buffer or downloaded cache file. Cache
