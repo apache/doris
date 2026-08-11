@@ -89,7 +89,7 @@ struct NativeFieldSchema {
 
 Status validate_variant_layout(const NativeFieldSchema& group_field,
                                std::optional<int8_t> specification_version = std::nullopt,
-                               bool allow_optional_shredded_fields = false);
+                               bool allow_paimon_shredded_layout = false);
 
 // V2 owns this schema tree and parser so footer/schema planning never invokes the V1 reader path.
 class NativeFieldDescriptor {
