@@ -221,7 +221,10 @@ tags point to the same commit. It then creates the source tarball with
 the three source files to the Apache dev SVN.
 
 If `BIN_FILES` is non-empty, this script also signs and checksums those binary
-tarballs in place. It does not upload binaries.
+tarballs in place. It does not upload binaries. When the run ends it reminds the
+RM to upload each binary together with its `.asc` and `.sha512` to
+`BIN_DOWNLOAD_BASE`, because step 03 advertises them under that base in the vote
+email. Do that before sending the vote email, or the links will be dead.
 
 This script pauses twice before touching the public dev SVN. Check the printed
 target URL before confirming.
@@ -230,8 +233,12 @@ target URL before confirming.
 
 Use this script to generate the `[VOTE]` email draft. It writes:
 
-- `vote-email.txt`
-- `vote-email.eml`
+- `vote-email.txt`, starting with a `Subject:` line so the subject and the body
+  can be copied from one file
+- `vote-email.eml`, carrying the same subject as a real mail header
+
+The subject is `[VOTE] Release for Apache Doris <version>-<rc>`, and the body
+ends with the RM's own `+1(binding)` above the signature.
 
 Review the draft and send it manually from the RM's `@apache.org` address to
 `dev@doris.apache.org`.
