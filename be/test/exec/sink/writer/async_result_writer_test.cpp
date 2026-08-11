@@ -64,10 +64,14 @@ public:
         return Status::OK();
     }
 
-    Status close(Status) override { return Status::OK(); }
+    Status close(Status) override {
+        reservation_seen_by_close = thread_context()->thread_mem_tracker_mgr->reserved_mem();
+        return Status::OK();
+    }
 
     int64_t reservation_seen_by_write = 0;
     int64_t reservation_seen_by_finish = 0;
+    int64_t reservation_seen_by_close = 0;
 
 private:
     Status _open_status;
@@ -145,7 +149,7 @@ TEST_F(AsyncResultWriterTest, TransfersQueuedReservationIntoActualWrite) {
     EXPECT_EQ(0, thread_context()->thread_mem_tracker_mgr->reserved_mem());
 }
 
-TEST_F(AsyncResultWriterTest, RetainsEosReservationThroughActualFinish) {
+TEST_F(AsyncResultWriterTest, RetainsEosReservationThroughActualClose) {
     AsyncWriterHarness harness;
     RecordingAsyncWriter writer(harness.dependency, harness.finish_dependency, Status::OK());
     harness.prepare(&writer);
@@ -157,6 +161,7 @@ TEST_F(AsyncResultWriterTest, RetainsEosReservationThroughActualFinish) {
     harness.process(&writer);
 
     EXPECT_EQ(reservation, writer.reservation_seen_by_finish);
+    EXPECT_EQ(reservation, writer.reservation_seen_by_close);
     EXPECT_EQ(0, thread_context()->thread_mem_tracker_mgr->reserved_mem());
 }
 

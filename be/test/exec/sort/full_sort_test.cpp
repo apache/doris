@@ -102,6 +102,20 @@ TEST_F(FullSorterTest, test_full_sorter2) {
     std::cout << sorter->get_reserve_mem_size(&_state, false) << std::endl;
 }
 
+TEST_F(FullSorterTest, EosReservationIncludesForcedSortBelowAppendThresholds) {
+    sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order, nulls_first,
+                                       *row_desc, &_state, nullptr);
+    Block block = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});
+    const size_t buffered_bytes = block.bytes();
+    const size_t buffered_rows = block.rows();
+    ASSERT_TRUE(sorter->append_block(&block).ok());
+
+    const auto reservation = sorter->get_reserve_mem_size_components(&_state, true, 0, 0);
+
+    EXPECT_GE(reservation.transient_workspace,
+              buffered_bytes + buffered_rows * sizeof(IColumn::Permutation::value_type));
+}
+
 TEST_F(FullSorterTest, test_full_sorter3) {
     sorter = FullSorter::create_unique(ordering_expr_ctxs, 3, 3, &pool, is_asc_order, nulls_first,
                                        *row_desc, &_state, nullptr);

@@ -250,13 +250,14 @@ SorterReserveMemory FullSorter::get_reserve_mem_size_components(RuntimeState* st
                     std::numeric_limits<size_t>::max()));
             reserve.retained_growth_trigger_bytes = growth_trigger_bytes;
         }
-        auto sort = new_rows > _buffered_block_size || new_block_bytes > _buffered_block_bytes;
+        // Iceberg close forces every nonempty pending run to sort at EOS, even when the generic
+        // append thresholds are not reached, so admission must cover that final allocation too.
+        auto sort = (eos && new_rows > 0) || new_rows > _buffered_block_size ||
+                    new_block_bytes > _buffered_block_bytes;
         if (sort) {
-            // new column is created when doing sort, reserve average size of one column
-            // for estimation
+            // sort_block keeps the source columns live while materializing a fully permuted destination.
             reserve.transient_workspace =
-                    saturating_add_size(reserve.transient_workspace,
-                                        new_block_bytes / _state->unsorted_block()->columns());
+                    saturating_add_size(reserve.transient_workspace, new_block_bytes);
 
             // helping data structures used during sorting
             reserve.transient_workspace = saturating_add_size(

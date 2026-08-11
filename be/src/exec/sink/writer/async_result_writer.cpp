@@ -150,7 +150,12 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
     }
 
     DCHECK(_dependency);
-    bool reservation_held_for_finish = false;
+    bool reservation_held_for_finalize = false;
+    Defer release_final_reservation {[&]() {
+        if (reservation_held_for_finalize) {
+            thread_context()->thread_mem_tracker_mgr->shrink_reserved();
+        }
+    }};
     while (_writer_status.ok()) {
         ThreadCpuStopWatch cpu_time_stop_watch;
         cpu_time_stop_watch.start();
@@ -203,8 +208,9 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
             _return_free_block(std::move(queued.block));
         }
         if (queued.eos) {
-            // Keep the final reservation through finish(), where buffered sorters are committed.
-            reservation_held_for_finish = true;
+            // Some writers finalize buffered data in close(), so the EOS reservation must outlive
+            // both finish() and close() instead of being released between the two callbacks.
+            reservation_held_for_finalize = true;
             _notify_block_processed();
             break;
         }
@@ -242,9 +248,6 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
         // And get_writer_status will also need this lock, it will block pipeline exec thread.
         Status st = finish(state);
         _writer_status.update(st);
-    }
-    if (reservation_held_for_finish) {
-        thread_context()->thread_mem_tracker_mgr->shrink_reserved();
     }
     Status st = Status::OK();
     { st = _writer_status.status(); }
