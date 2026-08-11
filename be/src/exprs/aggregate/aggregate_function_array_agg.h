@@ -249,9 +249,7 @@ struct AggregateFunctionArrayAggData<T> {
         const auto& to_nested_col = to_arr.get_data();
         auto start = to_arr.get_offsets()[row_num - 1];
         auto end = start + to_arr.get_offsets()[row_num] - to_arr.get_offsets()[row_num - 1];
-        for (auto i = start; i < end; ++i) {
-            column_data->insert_from(to_nested_col, i);
-        }
+        column_data->insert_range_from(to_nested_col, start, end - start);
     }
 
     void reset() { column_data->clear(); }
@@ -259,10 +257,7 @@ struct AggregateFunctionArrayAggData<T> {
     void insert_result_into(IColumn& to) const {
         auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& to_nested_col = to_arr.get_data();
-        size_t num_rows = column_data->size();
-        for (size_t i = 0; i < num_rows; ++i) {
-            to_nested_col.insert_from(*column_data, i);
-        }
+        to_nested_col.insert_range_from(*column_data, 0, column_data->size());
         to_arr.get_offsets().push_back(to_nested_col.size());
     }
 
