@@ -594,7 +594,6 @@ public class OlapAnalysisTaskTest {
         info = task.getSampleCollectInfo(10000);
         Assertions.assertEquals(AnalyzeSampleAlgorithm.DUJ1, info.algorithm);
     }
-    }
 
     @Test
     public void testGetSkipPartitionId(@Mocked OlapTable tableIf) throws AnalysisException {
