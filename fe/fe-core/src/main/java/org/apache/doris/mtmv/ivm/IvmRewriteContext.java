@@ -57,7 +57,7 @@ public class IvmRewriteContext {
     private final String createMtmvName;
     private final boolean includeExhaustedStreams;
     private final boolean dryRun;
-    private final Optional<DryRunLimit> dryRunLimit;
+    private final Optional<IvmDryRunLimit> dryRunLimit;
     private final Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds;
     private final Optional<StreamReadMode> fullRefreshNonPctReadMode;
     // Set by MTMVPlanUtil before normalization: true means the MV unique keys include identity key columns.
@@ -70,7 +70,7 @@ public class IvmRewriteContext {
     }
 
     private IvmRewriteContext(Mode mode, MTMV mtmv, String createMtmvName, boolean includeExhaustedStreams,
-            boolean dryRun, Optional<DryRunLimit> dryRunLimit,
+            boolean dryRun, Optional<IvmDryRunLimit> dryRunLimit,
             Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds,
             Optional<StreamReadMode> fullRefreshNonPctReadMode) {
         this.mode = Objects.requireNonNull(mode, "mode can not be null");
@@ -102,7 +102,7 @@ public class IvmRewriteContext {
         return new IvmRewriteContext(Mode.INCREMENTAL, mtmv, includeExhaustedStreams);
     }
 
-    public static IvmRewriteContext incrementalDryRun(MTMV mtmv, Optional<DryRunLimit> dryRunLimit) {
+    public static IvmRewriteContext incrementalDryRun(MTMV mtmv, Optional<IvmDryRunLimit> dryRunLimit) {
         return new IvmRewriteContext(Mode.INCREMENTAL, mtmv, null, false,
                 true, dryRunLimit, Collections.emptyMap(), Optional.empty());
     }
@@ -144,7 +144,7 @@ public class IvmRewriteContext {
     }
 
     // Present only for REFRESH ... INCREMENTAL WITH DRY RUN; empty otherwise.
-    public Optional<DryRunLimit> getDryRunLimit() {
+    public Optional<IvmDryRunLimit> getDryRunLimit() {
         return dryRunLimit;
     }
 

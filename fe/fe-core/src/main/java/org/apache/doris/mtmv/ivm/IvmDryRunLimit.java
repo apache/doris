@@ -22,11 +22,11 @@ package org.apache.doris.mtmv.ivm;
  * (LIMIT ...). Mirrors the LIMIT clause of a SELECT: {@code LIMIT n} (offset 0),
  * {@code LIMIT n OFFSET m} or {@code LIMIT m, n}.
  */
-public class DryRunLimit {
+public class IvmDryRunLimit {
     private final long offset;
     private final long count;
 
-    public DryRunLimit(long offset, long count) {
+    public IvmDryRunLimit(long offset, long count) {
         this.offset = offset;
         this.count = count;
     }
