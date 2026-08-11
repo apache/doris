@@ -59,6 +59,7 @@
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
+#include "core/string_buffer.hpp"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -2378,9 +2379,16 @@ TEST_F(NewParquetReaderTest, SwitchesVariantLeafProjectionPerRowGroup) {
     ASSERT_TRUE(match->normalized);
     EXPECT_EQ(match->normalized->size(), rows);
     std::vector<std::string> values;
+    auto serialized = ColumnString::create();
+    BufferWritable writer(*serialized);
+    auto options = DataTypeSerDe::get_default_format_options();
+    const auto serde = schema[1].type->get_serde();
     for (size_t row = 0; row < rows; ++row) {
-        values.push_back(schema[1].type->to_string(*match->normalized, row,
-                                                   DataTypeSerDe::get_default_format_options()));
+        const auto status =
+                serde->serialize_one_cell_to_json(*match->normalized, row, writer, options);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        writer.commit();
+        values.emplace_back(serialized->get_data_at(row).to_string());
     }
     EXPECT_EQ(values, std::vector<std::string>({"1", R"("n/a")"}));
 }
