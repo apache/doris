@@ -30,6 +30,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.RoutineLoadDesc;
@@ -40,11 +41,15 @@ import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
 
@@ -58,14 +63,20 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public class KafkaRoutineLoadJobTest {
@@ -270,6 +281,183 @@ public class KafkaRoutineLoadJobTest {
 
         String otherMsg = Deencapsulation.getField(routineLoadJob, "otherMsg");
         Assert.assertTrue(otherMsg.contains("some records may be in uncommitted transactions"));
+    }
+
+    @Test
+    public void testFailedAlterDoesNotChangeRuntimeOrLoadDefinition() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "job_atomic", 1L,
+                1L, "127.0.0.1:9020", "topic-1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        Map<String, String> originalCustomProperties = Maps.newHashMap();
+        originalCustomProperties.put("client.id", "old-client");
+        Deencapsulation.setField(routineLoadJob, "customProperties", originalCustomProperties);
+        Map<String, String> originalConvertedProperties = Maps.newHashMap(originalCustomProperties);
+        Deencapsulation.setField(routineLoadJob, "convertedCustomProperties", originalConvertedProperties);
+        Map<Integer, Long> originalProgress = Maps.newHashMap();
+        originalProgress.put(0, 10L);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(originalProgress));
+        routineLoadJob.updateLoadDefinition(null);
+        Object originalLoadDefinition = Deencapsulation.getField(routineLoadJob, "loadDefinition");
+
+        Map<String, String> originalDataSourceProperties = Maps.newHashMap();
+        originalDataSourceProperties.put("property.client.id", "new-client");
+        KafkaDataSourceProperties dataSourceProperties =
+                new KafkaDataSourceProperties(originalDataSourceProperties);
+        Map<String, String> alteredCustomProperties = Maps.newHashMap();
+        alteredCustomProperties.put("client.id", "new-client");
+        Deencapsulation.setField(dataSourceProperties, "customKafkaProperties", alteredCustomProperties);
+        dataSourceProperties.setKafkaPartitionOffsets(Lists.newArrayList(Pair.of(1, 20L)));
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
+        Mockito.when(command.getDataSourceProperties()).thenReturn(dataSourceProperties);
+
+        try (MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
+            kafkaUtilStatic.when(() -> KafkaUtil.getRealOffsets(
+                    Mockito.eq("127.0.0.1:9020"), Mockito.eq("topic-1"), Mockito.anyMap(), Mockito.anyList(),
+                    Mockito.nullable(String.class)))
+                    .thenReturn(Lists.newArrayList(Pair.of(1, 20L)));
+            Assert.assertThrows(UserException.class, () -> routineLoadJob.modifyProperties(command));
+        }
+
+        Assert.assertEquals("topic-1", routineLoadJob.getTopic());
+        Map<String, String> currentCustomProperties = Deencapsulation.getField(routineLoadJob, "customProperties");
+        Map<String, String> currentConvertedProperties =
+                Deencapsulation.getField(routineLoadJob, "convertedCustomProperties");
+        Assert.assertEquals("old-client", currentCustomProperties.get("client.id"));
+        Assert.assertEquals("old-client", currentConvertedProperties.get("client.id"));
+        Assert.assertSame(originalLoadDefinition, Deencapsulation.getField(routineLoadJob, "loadDefinition"));
+    }
+
+    @Test
+    public void testSuccessfulAlterUpdatesLoadDefinitionAndJournal() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "job1", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        routineLoadJob.updateLoadDefinition(null);
+        Object originalLoadDefinition = Deencapsulation.getField(routineLoadJob, "loadDefinition");
+
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(null, null, null, null, null, null, null,
+                LoadTask.MergeType.APPEND, "sequence_col");
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
+        Mockito.when(command.getDataSourceProperties()).thenReturn(null);
+        Mockito.when(command.getRoutineLoadDesc()).thenReturn(routineLoadDesc);
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+            routineLoadJob.modifyProperties(command);
+
+            ArgumentCaptor<AlterRoutineLoadJobOperationLog> logCaptor =
+                    ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
+            Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
+            Assert.assertSame(routineLoadDesc, logCaptor.getValue().getRoutineLoadDesc());
+        }
+
+        Assert.assertEquals("sequence_col", routineLoadJob.getSequenceCol());
+        Assert.assertNotSame(originalLoadDefinition, Deencapsulation.getField(routineLoadJob, "loadDefinition"));
+    }
+
+    @Test
+    public void testImageRoundTripUsesPersistedLoadDefinitionAfterAlterReplay() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "job1", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        Deencapsulation.setField(routineLoadJob, "desireTaskConcurrentNum", 1);
+        routineLoadJob.updateLoadDefinition(null);
+
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(
+                new Separator(",", ","), null, null, null, null, null, null,
+                LoadTask.MergeType.APPEND, "sequence_col");
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
+        routineLoadJob.replayModifyProperties(new AlterRoutineLoadJobOperationLog(
+                routineLoadJob.getId(), jobProperties, null, routineLoadDesc));
+
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        connectContextStatic.close();
+        connectContextStatic = null;
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+            Mockito.when(catalog.getDb(1L)).thenReturn(Optional.of(database));
+            Mockito.when(catalog.getDb("db1")).thenReturn(Optional.of(database));
+            Mockito.when(catalog.getDbOrAnalysisException("db1")).thenReturn(database);
+            Mockito.when(database.getName()).thenReturn("db1");
+            Mockito.when(database.getFullName()).thenReturn("db1");
+            Mockito.when(database.getTable(1L)).thenReturn(Optional.of((Table) table));
+            Mockito.when(database.getTableOrAnalysisException("table1")).thenReturn(table);
+            Mockito.when(table.getName()).thenReturn("table1");
+            Mockito.when(table.getType()).thenReturn(Table.TableType.OLAP);
+
+            RoutineLoadJob restored = imageRoundTrip(routineLoadJob);
+
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, restored.getState());
+            Assert.assertEquals("sequence_col", restored.getSequenceCol());
+            Assert.assertEquals(",", restored.getColumnSeparator().getSeparator());
+            Assert.assertEquals(2, (int) Deencapsulation.getField(restored, "desireTaskConcurrentNum"));
+            Assert.assertNotNull(Deencapsulation.getField(restored, "loadDefinition"));
+        }
+    }
+
+    @Test
+    public void testImageRoundTripRestoresLegacyOrigStmt() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "job1", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        String createSql = "CREATE ROUTINE LOAD db1.job1 ON stale_table "
+                + "COLUMNS TERMINATED BY ',' "
+                + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9020', 'kafka_topic' = 'topic1')";
+        Deencapsulation.setField(routineLoadJob, "origStmt", new OriginStatement(createSql, 0));
+        Deencapsulation.setField(routineLoadJob, "loadDefinition", null);
+
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        connectContextStatic.close();
+        connectContextStatic = null;
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+            Mockito.when(catalog.getDb(1L)).thenReturn(Optional.of(database));
+            Mockito.when(catalog.getDb("db1")).thenReturn(Optional.of(database));
+            Mockito.when(catalog.getDbOrAnalysisException("db1")).thenReturn(database);
+            Mockito.when(database.getName()).thenReturn("db1");
+            Mockito.when(database.getTable(1L)).thenReturn(Optional.of((Table) table));
+            Mockito.when(database.getTableOrAnalysisException("table1")).thenReturn(table);
+            Mockito.when(table.getName()).thenReturn("table1");
+            Mockito.when(table.getType()).thenReturn(Table.TableType.OLAP);
+
+            RoutineLoadJob restored = imageRoundTrip(routineLoadJob);
+
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, restored.getState());
+            Assert.assertEquals(",", restored.getColumnSeparator().getSeparator());
+            Assert.assertNull(Deencapsulation.getField(restored, "loadDefinition"));
+        }
+    }
+
+    private static RoutineLoadJob imageRoundTrip(RoutineLoadJob routineLoadJob) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            routineLoadJob.write(out);
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return RoutineLoadJob.read(in);
+        }
     }
 
     @Test

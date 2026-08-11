@@ -19,18 +19,22 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -227,6 +231,50 @@ public class KinesisRoutineLoadJobTest {
         KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
         Assert.assertEquals("101", progress.getSequenceNumberByShard("shard-1"));
         Assert.assertEquals("202", progress.getSequenceNumberByShard("shard-2"));
+    }
+
+    @Test
+    public void testFailedAlterDoesNotChangeRuntimeOrLoadDefinition() throws Exception {
+        KinesisRoutineLoadJob routineLoadJob = new KinesisRoutineLoadJob(1L, "job_atomic", 1L,
+                1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        Map<String, String> originalCustomProperties = Maps.newHashMap();
+        originalCustomProperties.put("client.id", "old-client");
+        Deencapsulation.setField(routineLoadJob, "customProperties", originalCustomProperties);
+        Map<String, String> originalConvertedProperties = Maps.newHashMap(originalCustomProperties);
+        Deencapsulation.setField(routineLoadJob, "convertedCustomProperties", originalConvertedProperties);
+        Deencapsulation.setField(routineLoadJob, "customKinesisShards", Lists.newArrayList("shard-1"));
+        Map<String, String> originalProgress = Maps.newHashMap();
+        originalProgress.put("shard-1", "10");
+        Deencapsulation.setField(routineLoadJob, "progress", new KinesisProgress(originalProgress));
+        routineLoadJob.updateLoadDefinition(null);
+        Object originalLoadDefinition = Deencapsulation.getField(routineLoadJob, "loadDefinition");
+
+        Map<String, String> originalDataSourceProperties = Maps.newHashMap();
+        originalDataSourceProperties.put("property.client.id", "new-client");
+        originalDataSourceProperties.put(KinesisConfiguration.KINESIS_REGION.getName(), "us-east-1");
+        KinesisDataSourceProperties dataSourceProperties =
+                new KinesisDataSourceProperties(originalDataSourceProperties);
+        Map<String, String> alteredCustomProperties = Maps.newHashMap();
+        alteredCustomProperties.put("client.id", "new-client");
+        Deencapsulation.setField(dataSourceProperties, "customKinesisProperties", alteredCustomProperties);
+        Deencapsulation.setField(dataSourceProperties, "region", "us-east-1");
+        dataSourceProperties.setKinesisShardPositions(Lists.newArrayList(Pair.of("shard-2", "20")));
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
+        Mockito.when(command.getDataSourceProperties()).thenReturn(dataSourceProperties);
+
+        Assert.assertThrows(UserException.class, () -> routineLoadJob.modifyProperties(command));
+
+        Assert.assertEquals("ap-southeast-1", routineLoadJob.getRegion());
+        Assert.assertEquals(Lists.newArrayList("shard-1"),
+                Deencapsulation.getField(routineLoadJob, "customKinesisShards"));
+        Map<String, String> currentCustomProperties = Deencapsulation.getField(routineLoadJob, "customProperties");
+        Map<String, String> currentConvertedProperties =
+                Deencapsulation.getField(routineLoadJob, "convertedCustomProperties");
+        Assert.assertEquals("old-client", currentCustomProperties.get("client.id"));
+        Assert.assertEquals("old-client", currentConvertedProperties.get("client.id"));
+        Assert.assertSame(originalLoadDefinition, Deencapsulation.getField(routineLoadJob, "loadDefinition"));
     }
 
     @Test

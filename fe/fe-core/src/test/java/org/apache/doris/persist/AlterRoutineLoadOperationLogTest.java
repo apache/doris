@@ -18,7 +18,10 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
@@ -27,6 +30,8 @@ import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -60,8 +65,10 @@ public class AlterRoutineLoadOperationLogTest {
         routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
         routineLoadDataSourceProperties.analyze();
 
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(null, null, null, null, null, null, null,
+                LoadTask.MergeType.APPEND, "sequence_col");
         AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId,
-                jobProperties, routineLoadDataSourceProperties);
+                jobProperties, routineLoadDataSourceProperties, routineLoadDesc);
         log.write(out);
         out.flush();
         out.close();
@@ -81,9 +88,24 @@ public class AlterRoutineLoadOperationLogTest {
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(0));
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(1));
+        Assert.assertEquals("sequence_col", log2.getRoutineLoadDesc().getSequenceColName());
 
         in.close();
     }
 
+    @Test
+    public void testDeserializeLegacyLogWithoutRoutineLoadDesc() throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            Text.writeString(out, "{\"jobId\":1000,\"jobProperties\":{},"
+                    + "\"dataSourceProperties\":null}");
+        }
+
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            AlterRoutineLoadJobOperationLog log = AlterRoutineLoadJobOperationLog.read(in);
+            Assert.assertEquals(1000L, log.getJobId());
+            Assert.assertNull(log.getRoutineLoadDesc());
+        }
+    }
 
 }

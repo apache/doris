@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
@@ -258,8 +259,11 @@ public abstract class RoutineLoadJob
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
 
-    // this is the origin stmt of CreateRoutineLoadStmt, we use it to persist the RoutineLoadJob,
-    // because we can not serialize the Expressions contained in job.
+    // Canonical current CREATE semantics. CREATE and ALTER must keep this snapshot current.
+    @SerializedName("ld")
+    protected RoutineLoadDefinition loadDefinition;
+
+    // Legacy recovery input for images written before loadDefinition was persisted.
     @SerializedName("ostmt")
     protected OriginStatement origStmt;
     // User who submit this job. Maybe null for the old version job(before v1.1)
@@ -469,6 +473,62 @@ public abstract class RoutineLoadJob
             }
         }
     }
+
+    protected RoutineLoadDesc getLoadDefinitionRoutineLoadDesc() {
+        List<ImportColumnDesc> columnsInfo = columnDescs == null ? null : columnDescs.descs;
+        return new RoutineLoadDesc(columnSeparator, lineDelimiter, columnsInfo, precedingFilter, whereExpr,
+                partitionNamesInfo, deleteCondition, mergeType, sequenceCol);
+    }
+
+    protected void initializeLoadDefinition(CreateRoutineLoadInfo info) {
+        Map<String, String> originalDataSourceProperties =
+                info.getDataSourceProperties().getOriginalDataSourceProperties();
+        Map<String, String> dataSourceProperties = originalDataSourceProperties == null
+                ? Maps.newHashMap() : Maps.newHashMap(originalDataSourceProperties);
+        updateLoadDefinitionDataSourceProperties(dataSourceProperties);
+        loadDefinition = new RoutineLoadDefinition(
+                getLoadDefinitionRoutineLoadDesc(), snapshotLoadDefinitionJobProperties(), dataSourceProperties);
+    }
+
+    protected void updateLoadDefinition(AbstractDataSourceProperties changedDataSourceProperties) {
+        Map<String, String> dataSourceProperties = loadDefinition == null
+                ? Maps.newHashMap() : Maps.newHashMap(loadDefinition.getDataSourceProperties());
+        if (changedDataSourceProperties != null
+                && changedDataSourceProperties.getOriginalDataSourceProperties() != null) {
+            dataSourceProperties.putAll(changedDataSourceProperties.getOriginalDataSourceProperties());
+        }
+        updateLoadDefinitionDataSourceProperties(dataSourceProperties);
+        loadDefinition = new RoutineLoadDefinition(
+                getLoadDefinitionRoutineLoadDesc(), snapshotLoadDefinitionJobProperties(), dataSourceProperties);
+    }
+
+    protected Map<String, String> snapshotLoadDefinitionJobProperties() {
+        Map<String, String> currentJobProperties = Maps.newHashMap(jobProperties);
+        currentJobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY,
+                String.valueOf(desireTaskConcurrentNum));
+        currentJobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, String.valueOf(maxErrorNum));
+        currentJobProperties.put(CreateRoutineLoadInfo.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
+        currentJobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY,
+                String.valueOf(maxBatchIntervalS));
+        currentJobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY, String.valueOf(maxBatchRows));
+        currentJobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY, String.valueOf(maxBatchSizeBytes));
+        currentJobProperties.put(CreateRoutineLoadInfo.EXEC_MEM_LIMIT_PROPERTY, String.valueOf(execMemLimit));
+        currentJobProperties.put(CreateRoutineLoadInfo.SEND_BATCH_PARALLELISM,
+                String.valueOf(sendBatchParallelism));
+        currentJobProperties.put(CreateRoutineLoadInfo.LOAD_TO_SINGLE_TABLET,
+                String.valueOf(loadToSingleTablet));
+        currentJobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+        currentJobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
+        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+            currentJobProperties.remove(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY);
+        } else {
+            currentJobProperties.put(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY,
+                    partialUpdateNewKeyPolicy.name());
+        }
+        return currentJobProperties;
+    }
+
+    protected abstract void updateLoadDefinitionDataSourceProperties(Map<String, String> dataSourceProperties);
 
     @Override
     public long getId() {
@@ -2009,35 +2069,43 @@ public abstract class RoutineLoadJob
             ctx.getState().reset();
             try {
                 ctx.setThreadLocalInfo();
-                NereidsParser nereidsParser = new NereidsParser();
-                CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
-                        origStmt.originStmt);
-                CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
-                // If tableId is set, resolve the current table name by ID so that
-                // table rename / SWAP TABLE won't cause replay to fail with stale name in origStmt.
-                if (!isMultiTable && tableId != 0) {
-                    try {
-                        Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).orElse(null);
-                        if (db != null) {
-                            db.getTable(tableId).ifPresent(
-                                    table -> createRoutineLoadInfo.setTableName(table.getName()));
-                        }
-                    } catch (Exception ignored) {
-                        // fall through; let validate() surface the real error
-                    }
+                if (loadDefinition == null) {
+                    restoreLegacyDefinition(ctx);
+                } else {
+                    restoreLoadDefinition(ctx);
                 }
-                createRoutineLoadInfo.validate(ctx);
-                setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
             } finally {
                 ctx.cleanup();
             }
         } catch (Exception e) {
             this.state = JobState.CANCELLED;
-            LOG.warn("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
+            LOG.warn("error happens when restoring routine load definition", e);
         }
         if (userIdentity != null) {
             userIdentity.setIsAnalyzed();
         }
+    }
+
+    private void restoreLegacyDefinition(ConnectContext ctx) throws UserException {
+        NereidsParser nereidsParser = new NereidsParser();
+        CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
+                origStmt.originStmt);
+        CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+        if (!isMultiTable) {
+            Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get();
+            createRoutineLoadInfo.setTableName(db.getTable(tableId).get().getName());
+        }
+        createRoutineLoadInfo.validate(ctx);
+        setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
+    }
+
+    private void restoreLoadDefinition(ConnectContext ctx) throws UserException {
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get();
+        String tableName = isMultiTable ? null : db.getTable(tableId).get().getName();
+        CreateRoutineLoadInfo createRoutineLoadInfo = loadDefinition.toCreateInfo(
+                db.getFullName(), name, tableName, dataSourceType, comment);
+        createRoutineLoadInfo.validate(ctx);
+        setRoutineLoadDesc(loadDefinition.getRoutineLoadDesc());
     }
 
     public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
@@ -2046,8 +2114,22 @@ public abstract class RoutineLoadJob
 
     public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
 
-    // for ALTER ROUTINE LOAD
-    protected void modifyCommonJobProperties(Map<String, String> jobProperties) throws UserException {
+    protected TUniqueKeyUpdateMode validateCommonJobProperties(Map<String, String> jobProperties)
+            throws UserException {
+        if (!jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+            return null;
+        }
+        TUniqueKeyUpdateMode newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(
+                jobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE));
+        if (newMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+            validateFlexiblePartialUpdateForAlter();
+        }
+        return newMode;
+    }
+
+    // for ALTER ROUTINE LOAD. All failure-prone validation must be completed before calling this method.
+    protected void modifyCommonJobProperties(Map<String, String> jobProperties,
+            TUniqueKeyUpdateMode validatedUniqueKeyUpdateMode) {
         if (jobProperties.containsKey(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
             this.desireTaskConcurrentNum = Integer.parseInt(
                     jobProperties.remove(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
@@ -2080,13 +2162,8 @@ public abstract class RoutineLoadJob
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
-            String modeStr = jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
-            TUniqueKeyUpdateMode newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(modeStr);
-            // Validate flexible partial update constraints when changing to UPDATE_FLEXIBLE_COLUMNS
-            if (newMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-                validateFlexiblePartialUpdateForAlter();
-            }
-            this.uniqueKeyUpdateMode = newMode;
+            jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
+            this.uniqueKeyUpdateMode = validatedUniqueKeyUpdateMode;
             this.isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
             this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));

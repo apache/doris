@@ -19,6 +19,7 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -37,12 +38,20 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
     private Map<String, String> jobProperties;
     @SerializedName(value = "dataSourceProperties")
     private AbstractDataSourceProperties dataSourceProperties;
+    @SerializedName(value = "routineLoadDesc")
+    private RoutineLoadDesc routineLoadDesc;
 
     public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
             AbstractDataSourceProperties dataSourceProperties) {
+        this(jobId, jobProperties, dataSourceProperties, null);
+    }
+
+    public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
+            AbstractDataSourceProperties dataSourceProperties, RoutineLoadDesc routineLoadDesc) {
         this.jobId = jobId;
         this.jobProperties = jobProperties;
         this.dataSourceProperties = dataSourceProperties;
+        this.routineLoadDesc = routineLoadDesc;
     }
 
     public long getJobId() {
@@ -55,6 +64,10 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
 
     public AbstractDataSourceProperties getDataSourceProperties() {
         return dataSourceProperties;
+    }
+
+    public RoutineLoadDesc getRoutineLoadDesc() {
+        return routineLoadDesc;
     }
 
     public static AlterRoutineLoadJobOperationLog read(DataInput in) throws IOException {
