@@ -44,6 +44,7 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
+                           const NullableColumnInfos& nullable_column_infos,
                            size_t input_rows_count) {
     ColumnPtr result_null_map_column;
     /// If result is already nullable.
@@ -56,14 +57,13 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     }
 
     for (const auto& arg : args) {
-        const ColumnWithTypeAndName& elem = block.get_by_position(arg);
-        if (!elem.type->is_nullable() || is_column_const(*elem.column)) {
+        const auto& info = nullable_column_infos[arg];
+        if (!info.is_nullable || info.is_const) {
             continue;
         }
 
-        if (const auto* nullable = assert_cast<const ColumnNullable*>(elem.column.get());
-            nullable->has_null()) {
-            const ColumnPtr& null_map_column = nullable->get_null_map_column_ptr();
+        if (info.has_null) {
+            const auto& null_map_column = block.get_by_position(arg).get_nullable_null_map_column();
             if (!result_null_map_column) { // NOLINT(bugprone-use-after-move)
                 result_null_map_column = null_map_column->clone_resized(input_rows_count);
                 continue;
@@ -75,8 +75,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
 
             NullMap& result_null_map =
                     assert_cast<ColumnUInt8&>(*mutable_result_null_map_column).get_data();
-            const NullMap& src_null_map =
-                    assert_cast<const ColumnUInt8&>(*null_map_column).get_data();
+            const NullMap& src_null_map = null_map_column->get_data();
 
             VectorizedUtils::update_null_map(result_null_map, src_null_map);
         }
@@ -99,6 +98,18 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     }
 
     return ColumnNullable::create(src_not_nullable, result_null_map_column);
+}
+
+ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
+                           size_t input_rows_count) {
+    NullableColumnInfos nullable_column_infos(block.columns());
+    for (const auto arg : args) {
+        const auto& column = block.get_by_position(arg);
+        if (column.type->is_nullable()) {
+            nullable_column_infos[arg] = column.get_nullable_column_info();
+        }
+    }
+    return wrap_in_nullable(src, block, args, nullable_column_infos, input_rows_count);
 }
 
 bool have_null_column(const Block& block, const ColumnNumbers& args) {
@@ -197,16 +208,25 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         return Status::OK();
     }
 
-    if (std::ranges::any_of(args, [&block](const auto& elem) {
-            return block.get_by_position(elem).column->only_null();
-        })) {
-        block.get_by_position(result).column =
-                block.get_by_position(result).type->create_column_const(input_rows_count, Field());
-        *executed = true;
-        return Status::OK();
-    }
-
     if (have_null_column(block, args)) {
+        NullableColumnInfos nullable_column_infos(block.columns());
+        for (const auto arg : args) {
+            const auto& argument = block.get_by_position(arg);
+            if (!argument.type->is_nullable()) {
+                continue;
+            }
+
+            auto info = argument.get_nullable_column_info();
+            if (info.only_null) {
+                auto& result_column = block.get_by_position(result);
+                result_column.column =
+                        result_column.type->create_column_const(input_rows_count, Field());
+                *executed = true;
+                return Status::OK();
+            }
+            nullable_column_infos[arg] = info;
+        }
+
         bool need_to_default = need_replace_null_data_to_default();
         // extract nested column from nulls
         ColumnNumbers new_args;
@@ -215,7 +235,8 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         for (int i = 0; i < args.size(); ++i) {
             uint32_t arg = args[i];
             new_args.push_back(i);
-            new_block.simple_insert(block.get_by_position(arg).unnest_nullable(need_to_default));
+            new_block.simple_insert(block.get_by_position(arg).unnest_nullable(
+                    nullable_column_infos[arg], need_to_default));
         }
         new_block.simple_insert(block.get_by_position(result));
         int new_result = new_block.columns() - 1;
@@ -224,8 +245,9 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         // After run with nested, wrap them in null. Before this, block.get_by_position(result).type
         // is not compatible with get_by_position(result).column
 
-        block.get_by_position(result).column = wrap_in_nullable(
-                new_block.get_by_position(new_result).column, block, args, input_rows_count);
+        block.get_by_position(result).column =
+                wrap_in_nullable(new_block.get_by_position(new_result).column, block, args,
+                                 nullable_column_infos, input_rows_count);
 
         *executed = true;
         return Status::OK();

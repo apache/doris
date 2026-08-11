@@ -1832,16 +1832,36 @@ TEST_F(ColumnVariantTest, is_scalar_variant) {
 }
 
 TEST_F(ColumnVariantTest, is_exclusive) {
-    auto test_func = [](const auto& source_column) {
-        auto src_size = source_column->size();
-        EXPECT_TRUE(src_size > 0);
+    auto variant = VariantUtil::construct_basic_varint_column();
+    EXPECT_GT(variant->size(), 0);
+    EXPECT_TRUE(variant->is_exclusive());
 
-        // Test is_exclusive
-        bool is_exclusive = source_column->is_exclusive();
-        // The result depends on the actual data structure
-        EXPECT_TRUE(is_exclusive);
-    };
-    test_func(column_variant);
+    const auto& subcolumns = variant->get_subcolumns();
+    const auto* root = subcolumns.get_root();
+    ColumnPtr shared_subcolumn;
+    for (const auto& entry : subcolumns) {
+        if (entry.get() != root && !entry->data.data.empty()) {
+            shared_subcolumn = static_cast<const IColumn::Ptr&>(entry->data.data[0]);
+            break;
+        }
+    }
+    ASSERT_TRUE(shared_subcolumn);
+    EXPECT_FALSE(variant->is_exclusive());
+
+    shared_subcolumn.reset();
+    EXPECT_TRUE(variant->is_exclusive());
+
+    auto shared_sparse_column = variant->get_sparse_column();
+    EXPECT_FALSE(variant->is_exclusive());
+
+    shared_sparse_column.reset();
+    EXPECT_TRUE(variant->is_exclusive());
+
+    auto shared_doc_value_column = variant->get_doc_value_column();
+    EXPECT_FALSE(variant->is_exclusive());
+
+    shared_doc_value_column.reset();
+    EXPECT_TRUE(variant->is_exclusive());
 }
 
 TEST_F(ColumnVariantTest, get_root_type) {

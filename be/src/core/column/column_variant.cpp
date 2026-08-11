@@ -832,6 +832,20 @@ size_t ColumnVariant::allocated_bytes() const {
     return res;
 }
 
+bool ColumnVariant::is_exclusive() const {
+    if (!IColumn::is_exclusive()) {
+        return false;
+    }
+    for (const auto& entry : subcolumns) {
+        for (const auto& part : entry->data.data) {
+            if (!part->is_exclusive()) {
+                return false;
+            }
+        }
+    }
+    return serialized_sparse_column->is_exclusive() && serialized_doc_value_column->is_exclusive();
+}
+
 void ColumnVariant::for_each_subcolumn(ColumnCallback callback) {
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {

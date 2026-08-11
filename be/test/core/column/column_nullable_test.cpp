@@ -136,6 +136,13 @@ TEST(ColumnNullableTest, SharedCreatePreservesImmutableSubcolumns) {
     EXPECT_EQ(nullable_ref.get_null_map_column_ptr().get(), null_map_alias.get());
     EXPECT_EQ(nested_alias->size(), 1);
     EXPECT_EQ(null_map_alias->size(), 1);
+    EXPECT_FALSE(nullable->is_exclusive());
+
+    nested.reset();
+    nested_alias.reset();
+    null_map.reset();
+    null_map_alias.reset();
+    EXPECT_TRUE(nullable->is_exclusive());
 }
 
 TEST(ColumnNullableTest, UpdateCrc32cBatchKeepsBlockInsertable) {
