@@ -29,13 +29,53 @@ under the License.
     <artifactId>fe-authorization</artifactId>
     <packaging>pom</packaging>
     <name>Doris FE Authorization</name>
-    <!--
-      The authorization plugin API version property and the manifest stamping it needs (see
-      fe-authorization/../fe-authentication/pom.xml for the pattern and the build-cache trap it avoids) land
-      together with the loader family registration, which is what reads them. The contract itself exists
-      before that: until a plugin can be loaded from a directory, every implementation of it is in-tree and
-      built at the same revision, so there is nothing yet for a version gate to compare.
-    -->
+
+    <properties>
+        <!--
+          The AUTHORIZATION plugin API version, declared exactly once. Filtered into
+          fe-authorization-spi's META-INF/doris/authorization-plugin-api-version.properties, which is what
+          the FE kernel expects of a plugin.
+
+          Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the authorization plugin
+          API surface - additions included, and the surface is everything AuthorizationPluginSurfaceTest
+          freezes: the SPI interfaces AND the fe-authorization-api vocabulary a plugin decides with. One more
+          AccessAction or ResourceKind constant turns every deployed plugin's "kind I do not recognise"
+          branch into a refusal, which is a behaviour change for a plugin nobody rebuilt. A change to
+          fe-extension-spi means bumping all five families.
+        -->
+        <authorization.plugin.api.version>1.0</authorization.plugin.api.version>
+    </properties>
+
+    <build>
+        <plugins>
+            <!--
+              Stamps the declared AUTHORIZATION plugin API version into every jar built here.
+
+              Nothing in this tree READS the attribute yet - a third-party plugin stamps its own, and the
+              in-tree Ranger sources are still classpath-discovered, which is deliberately not gated (see
+              AccessControllerManager). The block is still mandatory, for a reason that is not obvious:
+              maven-build-cache-extension (enabled in fe/.mvn) hashes a module from its src/** files, its
+              dependencies and its <build><plugins>, and NOT from <properties>. The filtered resource's
+              source text is the literal ${...} placeholder, whose hash never moves. Without the value
+              appearing somewhere inside <build><plugins>, bumping the property alone leaves the module
+              checksum unchanged, so `mvn clean package` restores the cached jar and ships the OLD version in
+              META-INF/doris/authorization-plugin-api-version.properties - the FE would then serve a contract
+              nobody declared. See fe/fe-authentication/pom.xml, where this was reproduced.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Doris-Authorization-Plugin-Api-Version>${authorization.plugin.api.version}</Doris-Authorization-Plugin-Api-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
     <modules>
         <module>fe-authorization-api</module>
         <module>fe-authorization-spi</module>

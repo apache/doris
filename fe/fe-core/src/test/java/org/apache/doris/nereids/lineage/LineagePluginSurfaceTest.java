@@ -47,7 +47,7 @@ import java.util.TreeSet;
  * {@code fe/fe-core/pom.xml} in the SAME commit.
  *
  * <p>{@code Plugin} / {@code PluginFactory} / {@code PluginContext} from fe-extension-spi are frozen here
- * too, and identically in the other three families' baselines. They are loaded parent-first for every family
+ * too, and identically in the other four families' baselines. They are loaded parent-first for every family
  * (see {@code ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES}), so a change to them breaks all four
  * plugin kinds at once — and turns all four baselines red at once, each asking for its own bump.
  *
