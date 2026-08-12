@@ -792,7 +792,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                     ? Collections.emptyList()
                     : Collections.unmodifiableList(new ArrayList<>(handle.getPartitionKeyNames()));
             this.prunedPartitions = handle.getPrunedPartitions() == null
-                    ? Collections.emptyList()
+                    ? null
                     : Collections.unmodifiableList(new ArrayList<>(handle.getPrunedPartitions()));
         }
 

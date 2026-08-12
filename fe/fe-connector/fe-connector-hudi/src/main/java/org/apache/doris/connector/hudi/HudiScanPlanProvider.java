@@ -177,7 +177,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 key -> Collections.unmodifiableList(doPlanScan(session, request)));
     }
 
-    private List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request) {
+    // Package-private so the statement-reuse test can replace remote Hudi planning with a recording loader.
+    List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request) {
         HudiTableHandle hudiHandle = (HudiTableHandle) request.getTableHandle();
         String basePath = hudiHandle.getBasePath();
 
@@ -1077,7 +1078,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                     ? Collections.emptyMap()
                     : Collections.unmodifiableMap(new HashMap<>(handle.getIncrementalParams()));
             this.prunedPartitionPaths = handle.getPrunedPartitionPaths() == null
-                    ? Collections.emptyList()
+                    ? null
                     : Collections.unmodifiableList(new ArrayList<>(handle.getPrunedPartitionPaths()));
             this.partitionKeyNames = handle.getPartitionKeyNames() == null
                     ? Collections.emptyList()
