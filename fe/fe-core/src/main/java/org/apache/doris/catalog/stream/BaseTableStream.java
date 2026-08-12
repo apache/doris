@@ -18,6 +18,7 @@
 package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -117,20 +118,32 @@ public abstract class BaseTableStream extends Table {
 
     public TableIf getBaseTableNullable() {
         TableIf cachedBaseTable = baseTable;
-        if (cachedBaseTable != null) {
-            if (cachedBaseTable instanceof Table && ((Table) cachedBaseTable).isDropped) {
-                baseTable = null;
-                return null;
-            }
+        if (isBaseTableAvailable(cachedBaseTable)) {
             return cachedBaseTable;
         }
+        if (cachedBaseTable != null) {
+            baseTable = null;
+        }
         TableIf resolvedBaseTable = baseTableInfo.getTableNullable();
-        // Recovery publishes the table into database maps before clearing its dropped flag.
-        if (resolvedBaseTable instanceof Table && ((Table) resolvedBaseTable).isDropped) {
+        if (!isBaseTableAvailable(resolvedBaseTable)) {
             return null;
         }
         baseTable = resolvedBaseTable;
         return resolvedBaseTable;
+    }
+
+    private boolean isBaseTableAvailable(TableIf candidate) {
+        if (candidate == null || candidate instanceof Table && ((Table) candidate).isDropped) {
+            return false;
+        }
+        if (!baseTableInfo.isInternalTable()) {
+            return true;
+        }
+        // Table recovery publishes into database maps before clearing the table flag, while database recovery clears
+        // member-table flags before publishing the database. Require both catalog mappings to reject either window.
+        Database database = Env.getCurrentInternalCatalog().getDbNullable(baseTableInfo.getDbId());
+        return database != null && !database.isDropped()
+                && database.getTable(baseTableInfo.getTableId()).orElse(null) == candidate;
     }
 
     public void setProperties(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {

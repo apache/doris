@@ -221,6 +221,53 @@ public class DropTableStreamTest extends TestWithFeService {
     }
 
     @Test
+    public void testBaseTableRemainsUnavailableUntilDatabaseRecovers() throws Exception {
+        Database baseDb = Mockito.spy(new Database(Env.getCurrentEnv().getNextId(), "test_stream_recovery_db"));
+        Env.getCurrentInternalCatalog().unprotectCreateDb(baseDb);
+        createTable("create table test_stream_recovery_db.tbl_recovery_db (k1 int, k2 int) "
+                + "unique key(k1) distributed by hash(k1) buckets 1 "
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createTable("create stream test_stream.s_recovery_db on table test_stream_recovery_db.tbl_recovery_db "
+                + "properties('show_initial_rows' = 'true')");
+        OlapTable baseTable = (OlapTable) baseDb.getTableOrMetaException("tbl_recovery_db");
+        OlapTableStream stream = (OlapTableStream) Env.getCurrentInternalCatalog()
+                .getDbOrMetaException("test_stream").getTableOrMetaException("s_recovery_db");
+        Assertions.assertSame(baseTable, stream.getBaseTableNullable());
+
+        dropDatabaseWithSql("drop database test_stream_recovery_db");
+        CountDownLatch tablesRecovered = new CountDownLatch(1);
+        CountDownLatch allowDatabaseRecovery = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            boolean registered = (boolean) invocation.callRealMethod();
+            tablesRecovered.countDown();
+            Assertions.assertTrue(allowDatabaseRecovery.await(10, TimeUnit.SECONDS));
+            return registered;
+        }).when(baseDb).registerTable(Mockito.any());
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> recoverFuture = executor.submit(() -> {
+                Env.getCurrentInternalCatalog().recoverDatabase("test_stream_recovery_db", -1, "");
+                return null;
+            });
+            Assertions.assertTrue(tablesRecovered.await(10, TimeUnit.SECONDS));
+
+            Assertions.assertFalse(baseTable.isDropped);
+            Assertions.assertTrue(baseDb.isDropped());
+            Assertions.assertNull(Env.getCurrentInternalCatalog().getDbNullable(baseDb.getId()));
+            Assertions.assertNull(stream.getBaseTableNullable());
+
+            allowDatabaseRecovery.countDown();
+            recoverFuture.get(10, TimeUnit.SECONDS);
+            Assertions.assertSame(baseTable, stream.getBaseTableNullable());
+        } finally {
+            allowDatabaseRecovery.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testBaseTableQualifiersFollowRenameAndRecovery() throws Exception {
         createBaseTableAndStream("tbl_rename", "s_rename");
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
@@ -334,6 +381,7 @@ public class DropTableStreamTest extends TestWithFeService {
 
     @Override
     protected void runAfterAll() throws Exception {
+        dropDatabase("test_stream_recovery_db");
         dropDatabase("test_stream");
     }
 }
