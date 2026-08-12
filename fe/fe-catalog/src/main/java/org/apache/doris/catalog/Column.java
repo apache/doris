@@ -68,6 +68,10 @@ public class Column implements GsonPostProcessable {
     public static final String IVM_UNION_ARM_INDEX_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "UNION_ARM_INDEX_";
     // Prefix for union positional key columns (__DORIS_IVM_UNION_KEY_).
     public static final String IVM_UNION_KEY_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "UNION_KEY_";
+    // Suffix for the renamed base-table row-id column (__DORIS_IVM_{n}_ROW_ID_COL__), using the
+    // standard IVM hidden-column prefix. Kept as an identity key when a cascading MV with only
+    // row-id keys is scanned under a join.
+    public static final String IVM_BASE_ROW_ID_COL_SUFFIX = "_ROW_ID_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";

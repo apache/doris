@@ -65,9 +65,39 @@ public class IvmUtil {
     // empty string by default; add an entry here only when a hidden column requires a different
     // value.
     public static final Map<String, Expression> SPECIAL_HIDDEN_SLOT_DEFAULTS = ImmutableMap.of();
+    // Max length (in characters) of the embedded key name in sink hidden key columns
+    // (__DORIS_IVM_KEY_{n}_{name}_COL__). The name is sanitized (prefix/suffix stripped) and
+    // truncated to this length so chained MVs never produce a column name exceeding the column
+    // name length limit.
+    public static final int IVM_KEY_EMBEDDED_NAME_MAX_LENGTH = 200;
 
     public static boolean isIvmHiddenColumn(String columnName) {
         return columnName != null && columnName.startsWith(Column.IVM_HIDDEN_COLUMN_PREFIX);
+    }
+
+    /**
+     * Sanitizes an identity key name before embedding it into a sink hidden key column
+     * (__DORIS_IVM_KEY_{n}_{name}_COL__): strips leading IVM/Doris hidden prefixes and the
+     * trailing _COL__ suffix, then truncates to {@link IvmUtil#IVM_KEY_EMBEDDED_NAME_MAX_LENGTH}.
+     * Applied identically on the sink naming side and the agg apply-join matching side so
+     * chained MVs never exceed the column name length limit.
+     */
+    public static String sanitizeIvmKeyName(String name) {
+        String s = name;
+        String ivmPrefix = Column.IVM_HIDDEN_COLUMN_PREFIX;
+        if (s.regionMatches(true, 0, ivmPrefix, 0, ivmPrefix.length())) {
+            s = s.substring(ivmPrefix.length());
+        }
+        String dorisPrefix = "__DORIS_";
+        if (s.regionMatches(true, 0, dorisPrefix, 0, dorisPrefix.length())) {
+            s = s.substring(dorisPrefix.length());
+        }
+        String colSuffix = "_COL__";
+        if (s.regionMatches(true, s.length() - colSuffix.length(), colSuffix, 0, colSuffix.length())) {
+            s = s.substring(0, s.length() - colSuffix.length());
+        }
+        return s.length() <= IVM_KEY_EMBEDDED_NAME_MAX_LENGTH
+                ? s : s.substring(0, IVM_KEY_EMBEDDED_NAME_MAX_LENGTH);
     }
 
     public static boolean isCommonHiddenSlot(String columnName) {
