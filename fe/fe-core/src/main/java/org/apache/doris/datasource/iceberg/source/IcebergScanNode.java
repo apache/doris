@@ -992,6 +992,12 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTaskWithManifestCache(TableScan scan) throws IOException {
+        if (sessionVariable.getFileSplitSize() > 0 || isBatchMode()) {
+            // These paths intentionally stream Iceberg tasks to keep FE memory bounded. The
+            // manifest-cache planner materializes its result, and retaining that list in the
+            // statement cache would defeat the streaming contract.
+            return splitFiles(scan);
+        }
         // Get the snapshot from the scan; return empty if no snapshot exists
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {

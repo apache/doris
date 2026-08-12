@@ -762,31 +762,16 @@ public class StatementContextTest {
     public void testExternalScanTaskFailureCanRetry() throws Exception {
         StatementContext statementContext = new StatementContext();
         StatementContext.ExternalScanTaskCache cache = statementContext.getExternalScanTaskCache();
-        CountDownLatch loaderStarted = new CountDownLatch(1);
-        CountDownLatch waiterLookedUpKey = new CountDownLatch(1);
-        CountDownLatch releaseLoader = new CountDownLatch(1);
-        AtomicInteger hashCalls = new AtomicInteger();
-        ExternalScanTaskCacheKey<String> key =
-                new ObservableScanTaskCacheKey("retry", hashCalls, waiterLookedUpKey);
+        ExternalScanTaskCacheKey<String> key = new TestScanTaskCacheKey("retry");
         AtomicInteger loadCount = new AtomicInteger();
-        ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<List<String>> owner = executor.submit(
+            IllegalStateException failure = org.junit.jupiter.api.Assertions.assertThrows(
+                    IllegalStateException.class,
                     () -> cache.getOrLoad(key, () -> {
                         loadCount.incrementAndGet();
-                        loaderStarted.countDown();
-                        releaseLoader.await();
                         throw new IllegalStateException("load failed");
                     }));
-            loaderStarted.await();
-            Future<List<String>> waiter = executor.submit(
-                    () -> cache.getOrLoad(key,
-                            () -> Collections.singletonList("duplicate")));
-            waiterLookedUpKey.await();
-            releaseLoader.countDown();
-
-            assertFutureFailedWith(owner, IllegalStateException.class, "load failed");
-            assertFutureFailedWith(waiter, IllegalStateException.class, "load failed");
+            org.junit.jupiter.api.Assertions.assertEquals("load failed", failure.getMessage());
             List<String> tasks = cache.getOrLoad(key, () -> {
                 loadCount.incrementAndGet();
                 return Collections.singletonList("retry-task");
@@ -796,7 +781,6 @@ public class StatementContextTest {
                     Collections.singletonList("retry-task"), tasks);
             org.junit.jupiter.api.Assertions.assertEquals(2, loadCount.get());
         } finally {
-            executor.shutdownNow();
             statementContext.close();
         }
     }

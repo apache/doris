@@ -429,11 +429,23 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     private void getPartitionSplits(HivePartition partition, List<Split> splits) throws Exception {
-        HudiFileScanTaskCacheKey cacheKey = new HudiFileScanTaskCacheKey(
-                hmsTable.getCatalog().getId(), hmsTable.getId(), queryInstant,
-                canUseNativeReader(), sessionVariable.isEnableRuntimeFilterPartitionPrune(), partition);
-        List<HudiSplit> plannedSplits = getOrLoadExternalScanTasks(
-                cacheKey, () -> planPartitionSplits(partition));
+        getPartitionSplits(partition, splits, true);
+    }
+
+    private void getPartitionSplits(
+            HivePartition partition, List<Split> splits, boolean useStatementCache) throws Exception {
+        List<HudiSplit> plannedSplits;
+        if (useStatementCache) {
+            HudiFileScanTaskCacheKey cacheKey = new HudiFileScanTaskCacheKey(
+                    hmsTable.getCatalog().getId(), hmsTable.getId(), queryInstant,
+                    canUseNativeReader(), sessionVariable.isEnableRuntimeFilterPartitionPrune(), partition);
+            plannedSplits = getOrLoadExternalScanTasks(
+                    cacheKey, () -> planPartitionSplits(partition));
+        } else {
+            // Batch mode bounds FE memory by retaining only the partitions currently in flight.
+            // Do not keep completed partition task graphs until statement close.
+            plannedSplits = planPartitionSplits(partition);
+        }
         for (HudiSplit plannedSplit : plannedSplits) {
             HudiSplit split = copyHudiSplit(plannedSplit);
             if (canUseNativeReader()
@@ -566,7 +578,7 @@ public class HudiScanNode extends HiveScanNode {
                 CompletableFuture.runAsync(() -> {
                     try {
                         List<Split> allFiles = Lists.newArrayList();
-                        getPartitionSplits(partition, allFiles);
+                        getPartitionSplits(partition, allFiles, false);
                         if (allFiles.size() > numSplitsPerPartition.get()) {
                             numSplitsPerPartition.set(allFiles.size());
                         }

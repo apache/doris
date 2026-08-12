@@ -242,7 +242,12 @@ public class IcebergScanNodeTest {
         private final AtomicInteger manifestLoadCount;
 
         ManifestPlanningIcebergScanNode(SessionVariable sv, AtomicInteger manifestLoadCount) {
-            super(sv);
+            this(sv, manifestLoadCount, false);
+        }
+
+        ManifestPlanningIcebergScanNode(
+                SessionVariable sv, AtomicInteger manifestLoadCount, boolean batchMode) {
+            super(sv, false, batchMode);
             this.manifestLoadCount = manifestLoadCount;
         }
 
@@ -709,6 +714,35 @@ public class IcebergScanNodeTest {
             statementContext.close();
             ConnectContext.remove();
         }
+    }
+
+    @Test
+    public void testManifestPlanningBypassesStatementCacheForStreamingModes() throws Exception {
+        AtomicInteger manifestLoadCount = new AtomicInteger();
+        AtomicInteger batchPlanCalls = new AtomicInteger();
+        AtomicInteger explicitSizePlanCalls = new AtomicInteger();
+
+        ManifestPlanningIcebergScanNode batchNode =
+                new ManifestPlanningIcebergScanNode(new SessionVariable(), manifestLoadCount, true);
+        setIcebergSource(batchNode, mockIcebergSource(10L, 20L));
+        try (CloseableIterable<FileScanTask> ignored = planFileScanTaskWithManifestCache(
+                batchNode, mockTableScanWithPlanCounter(batchPlanCalls))) {
+            // Batch mode keeps the SDK iterable lazy instead of materializing manifest tasks.
+        }
+
+        SessionVariable explicitSizeVariable = new SessionVariable();
+        explicitSizeVariable.setFileSplitSize(MB);
+        ManifestPlanningIcebergScanNode explicitSizeNode =
+                new ManifestPlanningIcebergScanNode(explicitSizeVariable, manifestLoadCount);
+        setIcebergSource(explicitSizeNode, mockIcebergSource(10L, 20L));
+        try (CloseableIterable<FileScanTask> ignored = planFileScanTaskWithManifestCache(
+                explicitSizeNode, mockTableScanWithPlanCounter(explicitSizePlanCalls))) {
+            // Explicit split size also keeps the SDK iterable lazy.
+        }
+
+        Assert.assertEquals(0, manifestLoadCount.get());
+        Assert.assertEquals(1, batchPlanCalls.get());
+        Assert.assertEquals(1, explicitSizePlanCalls.get());
     }
 
     @Test

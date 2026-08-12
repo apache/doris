@@ -139,6 +139,20 @@ public class HudiScanNodeTest {
     }
 
     @Test
+    public void testBatchPartitionPlanningBypassesStatementCache() throws Exception {
+        StatementContext.ExternalScanTaskCache cache = new StatementContext.ExternalScanTaskCache();
+        HivePartition partition = partition("file:///table/p=1", Collections.singletonList("1"));
+        HoodieTableFileSystemView firstView = fileSystemView("file:///table/p=1/first.parquet");
+        HoodieTableFileSystemView secondView = fileSystemView("file:///table/p=1/second.parquet");
+
+        invokeGetPartitionSplits(partitionScanNode(cache, firstView, "100", true, false), partition, false);
+        invokeGetPartitionSplits(partitionScanNode(cache, secondView, "100", true, false), partition, false);
+
+        Mockito.verify(firstView).getLatestBaseFilesBeforeOrOn("p=1", "100");
+        Mockito.verify(secondView).getLatestBaseFilesBeforeOrOn("p=1", "100");
+    }
+
+    @Test
     public void testPartitionCacheKeySeparatesReaderAndRuntimePruneModes() throws Exception {
         HivePartition partition = partition("file:///table/p=1", Collections.singletonList("1"));
         Object nativeKey = newPartitionCacheKey("100", true, false, partition);
@@ -276,11 +290,17 @@ public class HudiScanNodeTest {
     @SuppressWarnings("unchecked")
     private static List<Split> invokeGetPartitionSplits(HudiScanNode node, HivePartition partition)
             throws Exception {
+        return invokeGetPartitionSplits(node, partition, true);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Split> invokeGetPartitionSplits(
+            HudiScanNode node, HivePartition partition, boolean useStatementCache) throws Exception {
         Method method = HudiScanNode.class.getDeclaredMethod(
-                "getPartitionSplits", HivePartition.class, List.class);
+                "getPartitionSplits", HivePartition.class, List.class, boolean.class);
         method.setAccessible(true);
         List<Split> splits = new ArrayList<>();
-        method.invoke(node, partition, splits);
+        method.invoke(node, partition, splits, useStatementCache);
         return splits;
     }
 

@@ -322,16 +322,24 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         } else {
             boolean withCache = Config.max_external_file_cache_num > 0;
-            HiveFileScanTaskCacheKey cacheKey = new HiveFileScanTaskCacheKey(
-                    hmsTable.getCatalog().getId(), hmsTable.getId(), partitions);
-            try {
-                fileCaches = getOrLoadExternalScanTasks(cacheKey,
-                        () -> cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
-                                directoryLister, hmsTable));
-            } catch (IOException | UserException e) {
-                throw e;
-            } catch (Exception e) {
-                throw new IOException("Failed to list Hive files", e);
+            if (isBatchMode) {
+                // Batch mode bounds FE memory by retaining only the partitions currently in flight.
+                // Keeping every completed partition in the statement cache would materialize the
+                // full scan again and defeat that bound.
+                fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
+                        directoryLister, hmsTable);
+            } else {
+                HiveFileScanTaskCacheKey cacheKey = new HiveFileScanTaskCacheKey(
+                        hmsTable.getCatalog().getId(), hmsTable.getId(), partitions);
+                try {
+                    fileCaches = getOrLoadExternalScanTasks(cacheKey,
+                            () -> cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
+                                    directoryLister, hmsTable));
+                } catch (IOException | UserException e) {
+                    throw e;
+                } catch (Exception e) {
+                    throw new IOException("Failed to list Hive files", e);
+                }
             }
         }
         if (!isBatchMode && getSummaryProfile() != null) {
