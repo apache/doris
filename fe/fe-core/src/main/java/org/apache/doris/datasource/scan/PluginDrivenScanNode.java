@@ -65,6 +65,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
+import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -85,6 +86,8 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -99,6 +102,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -452,6 +456,78 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 executionSummary.addChild(group, true);
             }
             return group;
+        }
+    }
+
+    /**
+     * Close-once owner registered with {@link org.apache.doris.datasource.split.SplitAssignment} before the
+     * asynchronous producer is dispatched. Cancellation may therefore close a source that is already active, or
+     * mark the handle closed so a source created after cancellation is closed immediately on attachment.
+     */
+    static final class StreamingSplitSourceHandle implements Closeable {
+        private final AtomicReference<ConnectorSplitSource> source = new AtomicReference<>();
+        private final AtomicBoolean closed = new AtomicBoolean(false);
+
+        void attach(ConnectorSplitSource newSource) throws IOException {
+            if (!source.compareAndSet(null, newSource)) {
+                throw new IllegalStateException("A streaming split source is already attached");
+            }
+            if (closed.get()) {
+                closeAttachedSource();
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            closed.set(true);
+            closeAttachedSource();
+        }
+
+        private void closeAttachedSource() throws IOException {
+            ConnectorSplitSource attached = source.getAndSet(null);
+            if (attached != null) {
+                attached.close();
+            }
+        }
+    }
+
+    /**
+     * Publishes streaming profiles before exposing the producer's terminal state to split consumers. This order
+     * is the completion barrier that keeps final query-profile serialization from outrunning source close and the
+     * connector's metrics callback.
+     */
+    static void completeStreamingSplit(StreamingSplitSourceHandle sourceHandle,
+            Supplier<List<ConnectorScanProfile>> collectProfiles, RuntimeProfile executionSummary,
+            SplitAssignment splitAssignment, UserException scanFailure, ConnectorTableHandle handle) {
+        UserException terminalFailure = scanFailure;
+        try {
+            sourceHandle.close();
+        } catch (Exception closeError) {
+            // Preserve legacy behavior: a close failure must not fail a scan whose splits were enumerated.
+            LOG.warn("Failed to close streaming split source for {}", handle, closeError);
+        }
+        try {
+            writeScanProfilesInto(executionSummary, collectProfiles.get());
+        } catch (Exception profileError) {
+            UserException collectionFailure = new UserException(
+                    "Failed to collect streaming scan profiles for " + handle + ": " + profileError.getMessage(),
+                    profileError);
+            if (terminalFailure == null) {
+                terminalFailure = collectionFailure;
+            } else {
+                terminalFailure.addSuppressed(collectionFailure);
+            }
+        }
+
+        // stop() already published cancellation after closing the registered source handle. Do not replace that
+        // terminal state with a late producer/profile error.
+        if (splitAssignment.isStop()) {
+            return;
+        }
+        if (terminalFailure == null) {
+            splitAssignment.finishSchedule();
+        } else {
+            splitAssignment.setException(terminalFailure);
         }
     }
 
@@ -1900,12 +1976,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // execution summary before dispatch so streaming metrics are written to the same profile as eager scans.
         SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
         final RuntimeProfile executionSummary = summaryProfile == null ? null : summaryProfile.getExecutionSummary();
+        StreamingSplitSourceHandle sourceHandle = new StreamingSplitSourceHandle();
+        // Register before dispatch: stop() then owns both an already-created source and the create-after-stop race.
+        splitAssignment.addCloseable(sourceHandle);
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         CompletableFuture.runAsync(() -> {
-            ConnectorSplitSource source = null;
+            UserException scanFailure = null;
             try {
-                source = onPluginClassLoader(scanProvider,
+                ConnectorSplitSource source = onPluginClassLoader(scanProvider,
                         () -> scanProvider.streamSplits(connectorSession, handle, columns, remainingFilter, -1L));
+                sourceHandle.attach(source);
                 // Pull ranges with backpressure (needMoreSplit) and pump them one at a time, exactly like
                 // legacy doStartSplit. The bounded SplitAssignment queue throttles the lazy source so FE
                 // heap stays bounded for million-file scans.
@@ -1914,23 +1994,15 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                     one.add(new PluginDrivenSplit(source.next()));
                     splitAssignment.addToQueue(one);
                 }
-                splitAssignment.finishSchedule();
             } catch (Exception e) {
-                splitAssignment.setException(new UserException(e.getMessage(), e));
-            } finally {
-                // Close in a finally that SWALLOWS close errors (NOT try-with-resources, whose close runs
-                // before the catch): a close() failure must not fail a scan whose splits were already
-                // enumerated + finishSchedule()-d (legacy doStartSplit swallowed close errors identically).
-                if (source != null) {
-                    try {
-                        source.close();
-                    } catch (Exception ce) {
-                        LOG.warn("Failed to close streaming split source for {}", handle, ce);
-                    }
+                if (!splitAssignment.isStop()) {
+                    scanFailure = new UserException(e.getMessage(), e);
                 }
-                List<ConnectorScanProfile> scanProfiles = onPluginClassLoader(scanProvider,
-                        () -> scanProvider.collectScanProfiles(connectorSession));
-                writeScanProfilesInto(executionSummary, scanProfiles);
+            } finally {
+                completeStreamingSplit(sourceHandle,
+                        () -> onPluginClassLoader(scanProvider,
+                                () -> scanProvider.collectStreamingScanProfiles(connectorSession)),
+                        executionSummary, splitAssignment, scanFailure, handle);
             }
         }, scheduleExecutor);
     }

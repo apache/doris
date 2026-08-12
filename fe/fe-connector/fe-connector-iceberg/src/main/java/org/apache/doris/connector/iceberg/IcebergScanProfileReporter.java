@@ -54,7 +54,6 @@ public class IcebergScanProfileReporter implements MetricsReporter {
      * pinned by a test.
      */
     static final String GROUP_NAME = "Iceberg Scan Metrics";
-    private static final DecimalFormat BYTES_FORMAT = new DecimalFormat("0.000");
     private static final long KB = 1024L;
     private static final long MB = 1024 * KB;
     private static final long GB = 1024 * MB;
@@ -172,7 +171,9 @@ public class IcebergScanProfileReporter implements MetricsReporter {
         } else {
             unit = "B";
         }
-        return BYTES_FORMAT.format(d) + " " + unit;
+        // DecimalFormat is mutable and not thread-safe. Reporters from concurrent eager/streaming scans share
+        // this class, so keep the formatter local instead of sharing one static instance.
+        return new DecimalFormat("0.000").format(d) + " " + unit;
     }
 
     /** Inlined fe-core {@code DebugUtil.getPrettyStringMs}: {@code Nhour Nmin Nsec} / {@code Nms}. */

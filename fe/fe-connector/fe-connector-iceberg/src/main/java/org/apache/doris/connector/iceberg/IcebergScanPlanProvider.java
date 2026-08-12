@@ -354,6 +354,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     @Override
     public List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
+        return drainScanProfiles(session);
+    }
+
+    @Override
+    public List<ConnectorScanProfile> collectStreamingScanProfiles(ConnectorSession session) {
+        return drainScanProfiles(session);
+    }
+
+    private List<ConnectorScanProfile> drainScanProfiles(ConnectorSession session) {
         String queryId = session.getQueryId();
         if (queryId == null || queryId.isEmpty()) {
             return Collections.emptyList();
@@ -366,7 +375,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public void releaseReadTransaction(String queryId) {
         // Iceberg opens no metastore read transaction (it inherits the SPI no-op); this override only reclaims
         // the scan-metrics stash for a query whose planScan threw AFTER the reporter fired (the normal path
-        // drains it via collectScanProfiles). Same queryId fe-core registered the query-finish callback with.
+        // drains it via the eager or streaming collection hook). Same queryId fe-core registered the query-finish
+        // callback with.
         if (queryId != null && !queryId.isEmpty()) {
             scanProfileStash.remove(queryId);
         }

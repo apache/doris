@@ -2034,7 +2034,7 @@ public class IcebergScanPlanProviderTest {
         List<ConnectorScanRange> streamedRanges = drain(provider.streamSplits(
                 session, handle, Collections.emptyList(), Optional.empty(), -1L));
         Assertions.assertEquals(3, streamedRanges.size());
-        List<ConnectorScanProfile> streamingProfiles = provider.collectScanProfiles(session);
+        List<ConnectorScanProfile> streamingProfiles = provider.collectStreamingScanProfiles(session);
         Assertions.assertEquals(1, streamingProfiles.size(),
                 "closing the streaming source must publish its Iceberg ScanReport");
 

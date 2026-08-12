@@ -49,11 +49,18 @@ public class ConnectorScanPlanProviderBatchScanTest {
     private static final class RecordingProvider implements ConnectorScanPlanProvider {
         static final List<ConnectorScanRange> MARKER = Collections.emptyList();
         ConnectorScanRequest recordedRequest;
+        boolean eagerProfilesCollected;
 
         @Override
         public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
             this.recordedRequest = request;
             return MARKER;
+        }
+
+        @Override
+        public List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
+            eagerProfilesCollected = true;
+            return Collections.singletonList(new ConnectorScanProfile("group", "scan", Collections.emptyMap()));
         }
     }
 
@@ -82,6 +89,15 @@ public class ConnectorScanPlanProviderBatchScanTest {
         ConnectorScanPlanProvider provider = new RecordingProvider();
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> provider.streamSplits(null, null, Collections.emptyList(), Optional.empty(), -1L));
+    }
+
+    @Test
+    public void testStreamingProfilesRequireExplicitOptIn() {
+        RecordingProvider provider = new RecordingProvider();
+
+        Assertions.assertTrue(provider.collectStreamingScanProfiles(null).isEmpty());
+        Assertions.assertFalse(provider.eagerProfilesCollected,
+                "the streaming hook must not call an eager collector with different lifecycle assumptions");
     }
 
     @Test

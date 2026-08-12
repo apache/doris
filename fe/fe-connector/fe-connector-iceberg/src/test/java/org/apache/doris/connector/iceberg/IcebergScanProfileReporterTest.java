@@ -29,10 +29,14 @@ import org.apache.iceberg.metrics.ScanReport;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * FIX-SCAN-METRICS — guards {@link IcebergScanProfileReporter}, the connector-local iceberg SDK
@@ -97,6 +101,23 @@ public class IcebergScanProfileReporterTest {
         Assertions.assertEquals("0.000 ", IcebergScanProfileReporter.printByteWithUnit(0));
         Assertions.assertEquals("2.000 KB", IcebergScanProfileReporter.printByteWithUnit(2048));
         Assertions.assertEquals("1.500 MB", IcebergScanProfileReporter.printByteWithUnit(1024L * 1536));
+    }
+
+    @Test
+    public void byteFormatterIsSafeAcrossConcurrentReports() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(8);
+        try {
+            List<Future<String>> results = new ArrayList<>();
+            for (int i = 0; i < 256; i++) {
+                long bytes = i % 2 == 0 ? 2048L : 1024L * 1536;
+                results.add(executor.submit(() -> IcebergScanProfileReporter.printByteWithUnit(bytes)));
+            }
+            for (int i = 0; i < results.size(); i++) {
+                Assertions.assertEquals(i % 2 == 0 ? "2.000 KB" : "1.500 MB", results.get(i).get());
+            }
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test
