@@ -20,13 +20,12 @@ package org.apache.doris.jdbc;
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -111,9 +110,7 @@ public class JdbcConnectionTester extends JniScanner {
     public void open() throws IOException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
-            URL[] urls = {new URL(jdbcDriverUrl)};
-            ClassLoader parent = getClass().getClassLoader();
-            this.classLoader = URLClassLoader.newInstance(urls, parent);
+            this.classLoader = JdbcDriverUtils.driverClassLoader(jdbcDriverUrl, getClass().getClassLoader());
             Thread.currentThread().setContextClassLoader(classLoader);
 
             String cacheKey = createCacheKey();

@@ -23,6 +23,7 @@ under the License.
     <modules>
         <module>jni-spi</module>
         <module>jni-bootstrap</module>
+        <module>plugin-toolkit</module>
         <module>iceberg-metadata-scanner</module>
         <module>hadoop-hudi-scanner</module>
         <module>java-common</module>
