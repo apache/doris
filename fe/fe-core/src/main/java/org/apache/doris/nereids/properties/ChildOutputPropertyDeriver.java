@@ -234,7 +234,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
         if (childOutputProperty.getNaturalDistributionMappingSpec().isPresent()) {
-            return computeAggregateOutputProperties(agg, childOutputProperty);
+            return computeAggregateOutputProperties(agg, childOutputProperty)
+                    .withOrderSpec(new OrderSpec());
         }
         switch (agg.getAggPhase()) {
             case LOCAL:

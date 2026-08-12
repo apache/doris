@@ -29,6 +29,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.List;
+
 class ConstraintCommandUtilsTest {
     @Test
     void lockCurrentDatabaseReturnsOnlyCurrentDatabase() throws Exception {
@@ -78,4 +80,43 @@ class ConstraintCommandUtilsTest {
             Mockito.verify(resolvedDatabase).readUnlock();
         }
     }
+
+    @Test
+    void lockCurrentDatabasesUsesStableIdOrder() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf firstDatabase = Mockito.mock(DatabaseIf.class);
+        DatabaseIf secondDatabase = Mockito.mock(DatabaseIf.class);
+        TableNameInfo firstTable = new TableNameInfo("internal", "db1", "tbl1");
+        TableNameInfo secondTable = new TableNameInfo("internal", "db2", "tbl2");
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogManager);
+        Mockito.when(catalogManager.getCatalogOrDdlException("internal")).thenReturn(catalog);
+        Mockito.when(catalogManager.getCatalog("internal")).thenReturn(catalog);
+        Mockito.when(catalog.getDbOrDdlException("db1")).thenReturn(firstDatabase);
+        Mockito.when(catalog.getDbOrDdlException("db2")).thenReturn(secondDatabase);
+        Mockito.when(catalog.getDbNullable("db1")).thenReturn(firstDatabase);
+        Mockito.when(catalog.getDbNullable("db2")).thenReturn(secondDatabase);
+        Mockito.when(firstDatabase.getId()).thenReturn(2L);
+        Mockito.when(secondDatabase.getId()).thenReturn(1L);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            try (ConstraintCommandUtils.LockedDatabases ignored =
+                    ConstraintCommandUtils.lockCurrentDatabases(
+                            List.of(firstTable, secondTable))) {
+                org.mockito.InOrder inOrder =
+                        Mockito.inOrder(secondDatabase, firstDatabase);
+                inOrder.verify(secondDatabase).readLock();
+                inOrder.verify(firstDatabase).readLock();
+            }
+
+            org.mockito.InOrder unlockOrder =
+                    Mockito.inOrder(firstDatabase, secondDatabase);
+            unlockOrder.verify(firstDatabase).readUnlock();
+            unlockOrder.verify(secondDatabase).readUnlock();
+        }
+    }
+
 }

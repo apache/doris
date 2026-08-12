@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -49,6 +51,12 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 class ConstraintTest extends TestWithFeService implements PlanPatternMatchSupported {
 
@@ -333,6 +341,95 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext).parse("select * from t2").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
                         .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
+    }
+
+    @Test
+    void foreignKeyAddHoldsBothTableWriteLocks() throws Exception {
+        addConstraint("alter table t2 add constraint pk_for_lock primary key (k1, k2)");
+        Database database = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        TableIf foreignKeyTable = database.getTableOrDdlException("t1");
+        TableIf referencedTable = database.getTableOrDdlException("t2");
+
+        try {
+            try (MockedStatic<MTMVUtil> mtmvUtil =
+                    Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
+                mtmvUtil.when(() -> MTMVUtil.getDependentMtmvsByConstraint(
+                                Mockito.any(), Mockito.any()))
+                        .thenAnswer(invocation -> {
+                            Assertions.assertTrue(
+                                    foreignKeyTable.isWriteLockHeldByCurrentThread());
+                            Assertions.assertTrue(
+                                    referencedTable.isWriteLockHeldByCurrentThread());
+                            return java.util.List.of();
+                        });
+                mtmvUtil.when(() -> MTMVUtil.invalidateRewriteCachesBestEffort(
+                                Mockito.anyList(), Mockito.anyString()))
+                        .thenAnswer(invocation -> {
+                            Assertions.assertFalse(
+                                    foreignKeyTable.isWriteLockHeldByCurrentThread());
+                            Assertions.assertFalse(
+                                    referencedTable.isWriteLockHeldByCurrentThread());
+                            Assertions.assertTrue(database.tryWriteLock(1, TimeUnit.SECONDS));
+                            database.writeUnlock();
+                            return null;
+                        });
+
+                addConstraint("alter table t1 add constraint fk_for_lock "
+                        + "foreign key (k1, k2) references t2(k1, k2)");
+            }
+        } finally {
+            TableNameInfo foreignKeyTableInfo = tableNameInfoOf(foreignKeyTable);
+            if (getConstraintMgr().getConstraint(
+                    foreignKeyTableInfo, "fk_for_lock") != null) {
+                dropConstraint("alter table t1 drop constraint fk_for_lock");
+            }
+            TableNameInfo referencedTableInfo = tableNameInfoOf(referencedTable);
+            if (getConstraintMgr().getConstraint(
+                    referencedTableInfo, "pk_for_lock") != null) {
+                dropConstraint("alter table t2 drop constraint pk_for_lock");
+            }
+        }
+    }
+
+    @Test
+    void constraintAddWaitsForAtomicReplacementDatabaseLock() throws Exception {
+        Database database = Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("test");
+        CountDownLatch addStarted = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        database.writeLock();
+        Future<?> addFuture = executor.submit(() -> {
+            connectContext.setThreadLocalInfo();
+            try {
+                addStarted.countDown();
+                addConstraint("alter table t1 add constraint uk_after_restore unique (k2)");
+                return null;
+            } finally {
+                ConnectContext.remove();
+            }
+        });
+        try {
+            Assertions.assertTrue(addStarted.await(5, TimeUnit.SECONDS));
+            Assertions.assertThrows(
+                    TimeoutException.class,
+                    () -> addFuture.get(100, TimeUnit.MILLISECONDS));
+        } finally {
+            database.writeUnlock();
+        }
+        try {
+            addFuture.get(5, TimeUnit.SECONDS);
+            Assertions.assertNotNull(getConstraintMgr().getConstraint(
+                    tableNameInfoOf(database.getTableOrDdlException("t1")),
+                    "uk_after_restore"));
+        } finally {
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+            if (getConstraintMgr().getConstraint(
+                    tableNameInfoOf(database.getTableOrDdlException("t1")),
+                    "uk_after_restore") != null) {
+                dropConstraint("alter table t1 drop constraint uk_after_restore");
+            }
+        }
     }
 
     @Test

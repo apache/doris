@@ -24,6 +24,12 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogIf;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 /** Shared locking helpers for constraint DDL commands. */
 final class ConstraintCommandUtils {
     private ConstraintCommandUtils() {
@@ -49,5 +55,88 @@ final class ConstraintCommandUtils {
             throw new DdlException("Database changed while altering constraint on " + tableNameInfo);
         }
         return database;
+    }
+
+    /** Lock all databases referenced by a constraint in a deterministic order. */
+    static LockedDatabases lockCurrentDatabases(List<TableNameInfo> tableNameInfos)
+            throws DdlException {
+        Map<String, ResolvedDatabase> resolvedByName = new LinkedHashMap<>();
+        for (TableNameInfo tableNameInfo : tableNameInfos) {
+            String databaseKey = databaseKey(tableNameInfo);
+            if (!resolvedByName.containsKey(databaseKey)) {
+                CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = Env.getCurrentEnv()
+                        .getCatalogMgr().getCatalogOrDdlException(tableNameInfo.getCtl());
+                DatabaseIf<? extends TableIf> database =
+                        catalog.getDbOrDdlException(tableNameInfo.getDb());
+                resolvedByName.put(databaseKey,
+                        new ResolvedDatabase(databaseKey, tableNameInfo, catalog, database));
+            }
+        }
+        List<ResolvedDatabase> lockOrder = new ArrayList<>(resolvedByName.values());
+        lockOrder.sort(Comparator
+                .comparingLong((ResolvedDatabase resolved) -> resolved.database.getId())
+                .thenComparing(resolved -> resolved.databaseKey));
+        for (ResolvedDatabase resolved : lockOrder) {
+            resolved.database.readLock();
+        }
+        LockedDatabases lockedDatabases = new LockedDatabases(resolvedByName, lockOrder);
+        try {
+            for (ResolvedDatabase resolved : lockOrder) {
+                if (Env.getCurrentEnv().getCatalogMgr().getCatalog(
+                        resolved.tableNameInfo.getCtl()) != resolved.catalog
+                        || resolved.catalog.getDbNullable(resolved.tableNameInfo.getDb())
+                                != resolved.database) {
+                    throw new DdlException(
+                            "Database changed while altering constraint on "
+                                    + resolved.tableNameInfo);
+                }
+            }
+            return lockedDatabases;
+        } catch (DdlException | RuntimeException e) {
+            lockedDatabases.close();
+            throw e;
+        }
+    }
+
+    private static String databaseKey(TableNameInfo tableNameInfo) {
+        return tableNameInfo.getCtl() + "\0" + tableNameInfo.getDb();
+    }
+
+    static final class LockedDatabases implements AutoCloseable {
+        private final Map<String, ResolvedDatabase> resolvedByName;
+        private final List<ResolvedDatabase> lockOrder;
+
+        private LockedDatabases(Map<String, ResolvedDatabase> resolvedByName,
+                List<ResolvedDatabase> lockOrder) {
+            this.resolvedByName = resolvedByName;
+            this.lockOrder = lockOrder;
+        }
+
+        DatabaseIf<? extends TableIf> get(TableNameInfo tableNameInfo) {
+            return resolvedByName.get(databaseKey(tableNameInfo)).database;
+        }
+
+        @Override
+        public void close() {
+            for (int i = lockOrder.size() - 1; i >= 0; i--) {
+                lockOrder.get(i).database.readUnlock();
+            }
+        }
+    }
+
+    private static final class ResolvedDatabase {
+        private final String databaseKey;
+        private final TableNameInfo tableNameInfo;
+        private final CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog;
+        private final DatabaseIf<? extends TableIf> database;
+
+        private ResolvedDatabase(String databaseKey, TableNameInfo tableNameInfo,
+                CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog,
+                DatabaseIf<? extends TableIf> database) {
+            this.databaseKey = databaseKey;
+            this.tableNameInfo = tableNameInfo;
+            this.catalog = catalog;
+            this.database = database;
+        }
     }
 }

@@ -805,10 +805,13 @@ class ChildOutputPropertyDeriverTest {
                 false,
                 groupPlan);
 
-        PhysicalProperties output = deriveAggregateProperties(
-                aggregate, naturalHashWithMapping(k1, k2, d1));
+        PhysicalProperties orderedChild = new PhysicalProperties(
+                naturalHashWithMapping(k1, k2, d1),
+                new OrderSpec(ImmutableList.of(new OrderKey(d1, true, false))));
+        PhysicalProperties output = deriveAggregateProperties(aggregate, orderedChild);
 
         Assertions.assertSame(DistributionSpecStorageAny.INSTANCE, output.getDistributionSpec());
+        Assertions.assertTrue(output.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(output.getNaturalDistributionMappingSpec().isPresent());
         NaturalDistributionMappingSpec mappingSpec = output.getNaturalDistributionMappingSpec().get();
         Assertions.assertEquals(
@@ -820,6 +823,46 @@ class ChildOutputPropertyDeriverTest {
         Assertions.assertTrue(output.satisfy(new PhysicalProperties(new DistributionSpecHash(
                 ImmutableList.of(outputD1.getExprId(), outputK2.getExprId()),
                 ShuffleType.COLOCATE_MAPPING_REQUIRE))));
+    }
+
+    @Test
+    void testAggregateClearsOrderWhenMappingProofFallsBack() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        PhysicalProperties orderedChild = new PhysicalProperties(
+                naturalHashWithMapping(k1, k2, d1),
+                new OrderSpec(ImmutableList.of(new OrderKey(d1, true, false))));
+        PhysicalHashAggregate<GroupPlan> repeatAggregate = new PhysicalHashAggregate<>(
+                ImmutableList.of(k1, k2, d1),
+                ImmutableList.of(k1, k2, d1),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true,
+                logicalProperties,
+                true,
+                groupPlan);
+        PhysicalHashAggregate<GroupPlan> incompleteGroupByAggregate =
+                new PhysicalHashAggregate<>(
+                        ImmutableList.of(d1),
+                        ImmutableList.of(d1),
+                        new AggregateParam(
+                                AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                        true,
+                        logicalProperties,
+                        false,
+                        groupPlan);
+
+        PhysicalProperties repeatOutput =
+                deriveAggregateProperties(repeatAggregate, orderedChild);
+        PhysicalProperties incompleteOutput =
+                deriveAggregateProperties(incompleteGroupByAggregate, orderedChild);
+
+        Assertions.assertTrue(repeatOutput.getOrderSpec().getOrderKeys().isEmpty());
+        Assertions.assertTrue(incompleteOutput.getOrderSpec().getOrderKeys().isEmpty());
+        Assertions.assertFalse(
+                repeatOutput.getNaturalDistributionMappingSpec().isPresent());
+        Assertions.assertFalse(
+                incompleteOutput.getNaturalDistributionMappingSpec().isPresent());
     }
 
     @Test

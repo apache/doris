@@ -278,6 +278,24 @@ class ConstraintManagerTest {
         Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
     }
 
+    @Test
+    void batchDropCheckAllowsReferencesInsideBatch() {
+        mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
+        mgr.addConstraint(T2, "fk", newFk("fk", T1, "c1", "k1"), true);
+
+        Assertions.assertDoesNotThrow(
+                () -> mgr.checkTableConstraintsCanBeDropped(ImmutableList.of(T1, T2)));
+    }
+
+    @Test
+    void batchDropCheckRejectsReferencesOutsideBatch() {
+        mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
+        mgr.addConstraint(T3, "fk", newFk("fk", T1, "c1", "k1"), true);
+
+        Assertions.assertThrows(DdlException.class,
+                () -> mgr.checkTableConstraintsCanBeDropped(ImmutableList.of(T1, T2)));
+    }
+
     // ==================== checkNoReferencingForeignKeys ====================
 
     @Test

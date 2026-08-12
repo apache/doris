@@ -103,6 +103,7 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 import com.google.common.collect.Table.Cell;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
@@ -2164,7 +2165,27 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         if (db == null) {
             return new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
         }
+        com.google.common.collect.Table<Long, Long, SnapshotInfo> savedSnapshotInfos = snapshotInfos;
+        Status status;
+        if (!isAtomicRestore) {
+            status = finishAllTabletsCommitted(db, isReplay);
+        } else {
+            if (!db.writeLockIfExist()) {
+                return Status.OK;
+            }
+            try {
+                status = finishAllTabletsCommitted(db, isReplay);
+            } finally {
+                db.writeUnlock();
+            }
+        }
+        if (status.ok() && !isReplay) {
+            releaseSnapshots(savedSnapshotInfos, true);
+        }
+        return status;
+    }
 
+    private Status finishAllTabletsCommitted(Database db, boolean isReplay) {
         // replace the origin tables in atomic.
         if (isAtomicRestore) {
             Status st = atomicReplaceOlapTables(db, isReplay);
@@ -2232,7 +2253,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             restoredTbls.clear();
             restoredResources.clear();
 
-            com.google.common.collect.Table<Long, Long, SnapshotInfo> savedSnapshotInfos = snapshotInfos;
             snapshotInfos = HashBasedTable.create();
 
             snapshotInfos.clear();
@@ -2242,9 +2262,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             finishedTime = System.currentTimeMillis();
             state = RestoreJobState.FINISHED;
             env.getEditLog().logRestoreJob(this);
-
-            // Only send release snapshot tasks after the job is finished.
-            releaseSnapshots(savedSnapshotInfos, true);
         }
         showState = RestoreJobState.FINISHED;
 
@@ -2282,7 +2299,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     private Status dropAllNonRestoredTableAndPartitions(Database db) {
         Set<String> restoredViews = jobInfo.newBackupObjects.views.stream()
-                .map(view -> view.name).collect(Collectors.toSet());
+                .map(view -> restoreTargetName(view.name)).collect(Collectors.toSet());
+        Map<String, BackupOlapTableInfo> restoredOlapTables =
+                jobInfo.backupOlapTableObjects.entrySet().stream()
+                        .collect(Collectors.toMap(
+                                entry -> restoreTargetName(entry.getKey()),
+                                Map.Entry::getValue));
 
         try {
             for (Table table : db.getTables()) {
@@ -2290,7 +2312,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 String tableName = table.getName();
                 TableType tableType = table.getType();
                 if (tableType == TableType.OLAP) {
-                    BackupOlapTableInfo backupTableInfo = jobInfo.backupOlapTableObjects.get(tableName);
+                    BackupOlapTableInfo backupTableInfo = restoredOlapTables.get(tableName);
                     if (tableType == TableType.OLAP && backupTableInfo != null) {
                         // drop the non restored partitions.
                         dropNonRestoredPartitions(db, (OlapTable) table, backupTableInfo);
@@ -2599,6 +2621,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private Status atomicReplaceOlapTables(Database db, boolean isReplay) {
+        Preconditions.checkState(db.isWriteLockHeldByCurrentThread(),
+                "atomic replacement must hold the database write lock");
+        Status validationStatus = prevalidateAtomicRestoreTargets(db);
+        if (!validationStatus.ok()) {
+            return validationStatus;
+        }
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             String originName = jobInfo.getAliasByOriginNameIfSet(tableName);
             if (GlobalVariable.isStoredTableNamesLowerCase()) {
@@ -2606,90 +2634,57 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
             String aliasName = tableAliasWithAtomicRestore(originName);
 
-            if (!db.writeLockIfExist()) {
-                return Status.OK;
-            }
+            Table newTbl = db.getTableNullable(aliasName);
+            Preconditions.checkNotNull(newTbl);
+            Preconditions.checkState(newTbl.getType() == TableType.OLAP);
+            Table originTbl = db.getTableNullable(originName);
+            Preconditions.checkState(originTbl == null
+                    || originTbl.getType() == TableType.OLAP);
+            OlapTable originOlapTbl = (OlapTable) originTbl;
+
+            // replace the table.
+            OlapTable newOlapTbl = (OlapTable) newTbl;
+            newOlapTbl.writeLock();
             try {
-                Table newTbl = db.getTableNullable(aliasName);
-                if (newTbl == null) {
-                    LOG.warn("replace table from {} to {}, but the temp table is not found" + " isAtomicRestore: {}",
-                            aliasName, originName, isAtomicRestore);
-                    return new Status(ErrCode.COMMON_ERROR, "replace table failed, the temp table "
-                            + aliasName + " is not found");
-                }
-                if (newTbl.getType() != TableType.OLAP) {
-                    LOG.warn(
-                            "replace table from {} to {}, but the temp table is not OLAP, it type is {}"
-                                    + " isAtomicRestore: {}",
-                            aliasName, originName, newTbl.getType(), isAtomicRestore);
-                    return new Status(ErrCode.COMMON_ERROR, "replace table failed, the temp table " + aliasName
-                            + " is not OLAP table, it is " + newTbl.getType());
-                }
+                TableNameInfo originTableInfo = new TableNameInfo(
+                        InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), originName);
+                Env.getCurrentEnv().getConstraintManager()
+                        .dropTableConstraints(originTableInfo);
+                // rename new table name to origin table name and add the new table to database.
+                db.unregisterTable(aliasName);
+                newOlapTbl.setName(originName);
+                db.unregisterTable(originName);
+                db.registerTable(newOlapTbl);
+                Env.getCurrentEnv().getConstraintManager().dropTableConstraints(
+                        new TableNameInfo(
+                                InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), aliasName));
+                Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
+                        originTableInfo, newOlapTbl);
+                Env.getCurrentEnv().getSqlCacheManager()
+                        .invalidateAboutTableAndFencePublication(originTableInfo);
 
-                OlapTable originOlapTbl = null;
-                Table originTbl = db.getTableNullable(originName);
-                if (originTbl != null) {
-                    if (originTbl.getType() != TableType.OLAP) {
-                        LOG.warn(
-                                "replace table from {} to {}, but the origin table is not OLAP, it type is {}"
-                                        + " isAtomicRestore: {}",
-                                aliasName, originName, originTbl.getType(), isAtomicRestore);
-                        return new Status(ErrCode.COMMON_ERROR, "replace table failed, the origin table "
-                                + originName + " is not OLAP table, it is " + originTbl.getType());
-                    }
-                    originOlapTbl = (OlapTable) originTbl; // save the origin olap table, then drop it.
-                }
-
-                // replace the table.
-                OlapTable newOlapTbl = (OlapTable) newTbl;
-                newOlapTbl.writeLock();
-                try {
-                    TableNameInfo originTableInfo = new TableNameInfo(
-                            InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), originName);
-                    Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
-                            originTableInfo, !isForceReplace);
-                    // rename new table name to origin table name and add the new table to database.
-                    db.unregisterTable(aliasName);
-                    newOlapTbl.checkAndSetName(originName, false);
-                    db.unregisterTable(originName);
-                    db.registerTable(newOlapTbl);
-                    Env.getCurrentEnv().getConstraintManager().dropTableConstraints(
-                            new TableNameInfo(
-                                    InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), aliasName));
-                    Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
-                            originTableInfo, newOlapTbl);
-                    Env.getCurrentEnv().getSqlCacheManager()
-                            .invalidateAboutTableAndFencePublication(originTableInfo);
-
-                    // set the olap table state to normal immediately for querying
-                    newOlapTbl.setState(OlapTableState.NORMAL);
-                    LOG.info(
-                            "restore with replace table {} name to {}, and set state to normal, origin table={}"
-                                    + " isAtomicRestore: {}",
-                            newOlapTbl.getId(), originName, originOlapTbl == null ? -1L : originOlapTbl.getId(),
-                            isAtomicRestore);
-                } catch (DdlException e) {
-                    LOG.warn("restore with replace table {} name from {} to {}, isAtomicRestore: {}",
-                            newOlapTbl.getId(), aliasName, originName, isAtomicRestore, e);
-                    return new Status(ErrCode.COMMON_ERROR, "replace table from " + aliasName + " to " + originName
-                            + " failed, reason=" + e.getMessage());
-                } finally {
-                    newOlapTbl.writeUnlock();
-                }
-
-                if (originOlapTbl != null) {
-                    // The origin table is not used anymore, need to drop all its tablets.
-                    originOlapTbl.writeLock();
-                    try {
-                        LOG.info("drop the origin olap table {}. table={}" + " isAtomicRestore: {}",
-                                originOlapTbl.getName(), originOlapTbl.getId(), isAtomicRestore);
-                        Env.getCurrentEnv().onEraseOlapTable(db.getId(), originOlapTbl, isReplay);
-                    } finally {
-                        originOlapTbl.writeUnlock();
-                    }
-                }
+                // set the olap table state to normal immediately for querying
+                newOlapTbl.setState(OlapTableState.NORMAL);
+                LOG.info(
+                        "restore with replace table {} name to {}, and set state to normal, origin table={}"
+                                + " isAtomicRestore: {}",
+                        newOlapTbl.getId(), originName,
+                        originOlapTbl == null ? -1L : originOlapTbl.getId(),
+                        isAtomicRestore);
             } finally {
-                db.writeUnlock();
+                newOlapTbl.writeUnlock();
+            }
+
+            if (originOlapTbl != null) {
+                // The origin table is not used anymore, need to drop all its tablets.
+                originOlapTbl.writeLock();
+                try {
+                    LOG.info("drop the origin olap table {}. table={}" + " isAtomicRestore: {}",
+                            originOlapTbl.getName(), originOlapTbl.getId(), isAtomicRestore);
+                    Env.getCurrentEnv().onEraseOlapTable(db.getId(), originOlapTbl, isReplay);
+                } finally {
+                    originOlapTbl.writeUnlock();
+                }
             }
         }
         for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
@@ -2699,65 +2694,118 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
             String aliasName = tableAliasWithAtomicRestore(originName);
 
-            if (!db.writeLockIfExist()) {
-                return Status.OK;
-            }
+            Table newTbl = db.getTableNullable(aliasName);
+            Preconditions.checkNotNull(newTbl);
+            Preconditions.checkState(newTbl.getType() == TableType.VIEW);
+            Table originTbl = db.getTableNullable(originName);
+            Preconditions.checkState(originTbl == null
+                    || originTbl.getType() == TableType.VIEW);
+            View originViewTbl = (View) originTbl;
+
+            // replace the view.
+            View newViewTbl = (View) newTbl;
+            newViewTbl.writeLock();
             try {
-                Table newTbl = db.getTableNullable(aliasName);
-                if (newTbl == null) {
-                    LOG.warn("replace view from {} to {}, but the temp view is not found" + " isAtomicRestore: {}",
-                            aliasName, originName, isAtomicRestore);
-                    return new Status(ErrCode.COMMON_ERROR, "replace view failed, the temp view "
-                            + aliasName + " is not found");
-                }
-                if (newTbl.getType() != TableType.VIEW) {
-                    LOG.warn(
-                            "replace view from {} to {}, but the temp view is not VIEW, it type is {}"
-                                    + " isAtomicRestore: {}",
-                            aliasName, originName, newTbl.getType(), isAtomicRestore);
-                    return new Status(ErrCode.COMMON_ERROR, "replace view failed, the temp view " + aliasName
-                            + " is not OLAP, it is " + newTbl.getType());
-                }
+                // rename new view name to origin view name and add the new view to database.
+                db.unregisterTable(aliasName);
+                db.unregisterTable(originName);
+                newViewTbl.setName(originName);
+                db.registerTable(newViewTbl);
 
-                View originViewTbl = null;
-                Table originTbl = db.getTableNullable(originName);
-                if (originTbl != null) {
-                    if (originTbl.getType() != TableType.VIEW) {
-                        LOG.warn(
-                                "replace view from {} to {}, but the origin view is not VIEW, it type is {}"
-                                        + " isAtomicRestore: {}",
-                                aliasName, originName, originTbl.getType(), isAtomicRestore);
-                        return new Status(ErrCode.COMMON_ERROR, "replace view failed, the origin view "
-                                + originName + " is not VIEW, it is " + originTbl.getType());
-                    }
-                    originViewTbl = (View) originTbl; // save the origin view, then drop it.
-                }
-
-                // replace the view.
-                View newViewTbl = (View) newTbl;
-                newViewTbl.writeLock();
-                try {
-                    // rename new view name to origin view name and add the new view to database.
-                    db.unregisterTable(aliasName);
-                    db.unregisterTable(originName);
-                    newViewTbl.setName(originName);
-                    db.registerTable(newViewTbl);
-
-                    LOG.info(
-                            "restore with replace view {} name to {}, origin view={}"
-                                    + " isAtomicRestore: {}",
-                            newViewTbl.getId(), originName,
-                            originViewTbl == null ? -1L : originViewTbl.getId(),
-                            isAtomicRestore);
-                } finally {
-                    newViewTbl.writeUnlock();
-                }
+                LOG.info(
+                        "restore with replace view {} name to {}, origin view={}"
+                                + " isAtomicRestore: {}",
+                        newViewTbl.getId(), originName,
+                        originViewTbl == null ? -1L : originViewTbl.getId(),
+                        isAtomicRestore);
             } finally {
-                db.writeUnlock();
+                newViewTbl.writeUnlock();
             }
         }
 
         return Status.OK;
+    }
+
+    private Status prevalidateAtomicRestoreTargets(Database db) {
+        List<TableNameInfo> originTableInfos = Lists.newArrayList();
+        Set<String> restoredTableNames = Sets.newHashSet();
+        Set<String> temporaryTableNames = Sets.newHashSet();
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            String originName = restoreTargetName(tableName);
+            String aliasName = tableAliasWithAtomicRestore(originName);
+            restoredTableNames.add(originName);
+            temporaryTableNames.add(aliasName);
+            Table newTable = db.getTableNullable(aliasName);
+            if (newTable == null) {
+                return new Status(ErrCode.COMMON_ERROR,
+                        "replace table failed, the temp table " + aliasName + " is not found");
+            }
+            if (newTable.getType() != TableType.OLAP) {
+                return new Status(ErrCode.COMMON_ERROR, "replace table failed, the temp table "
+                        + aliasName + " is not OLAP table, it is " + newTable.getType());
+            }
+            try {
+                ((OlapTable) newTable).checkAndSetName(originName, true);
+            } catch (DdlException e) {
+                return new Status(ErrCode.COMMON_ERROR, "replace table failed, the temp table "
+                        + aliasName + " cannot be renamed to " + originName
+                        + ", reason=" + e.getMessage());
+            }
+            Table originTable = db.getTableNullable(originName);
+            if (originTable != null && originTable.getType() != TableType.OLAP) {
+                return new Status(ErrCode.COMMON_ERROR, "replace table failed, the origin table "
+                        + originName + " is not OLAP table, it is " + originTable.getType());
+            }
+            originTableInfos.add(new TableNameInfo(
+                    InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), originName));
+        }
+        for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
+            String originName = restoreTargetName(backupViewInfo.name);
+            String aliasName = tableAliasWithAtomicRestore(originName);
+            restoredTableNames.add(originName);
+            temporaryTableNames.add(aliasName);
+            Table newView = db.getTableNullable(aliasName);
+            if (newView == null) {
+                return new Status(ErrCode.COMMON_ERROR,
+                        "replace view failed, the temp view " + aliasName + " is not found");
+            }
+            if (newView.getType() != TableType.VIEW) {
+                return new Status(ErrCode.COMMON_ERROR, "replace view failed, the temp view "
+                        + aliasName + " is not VIEW, it is " + newView.getType());
+            }
+            Table originView = db.getTableNullable(originName);
+            if (originView != null && originView.getType() != TableType.VIEW) {
+                return new Status(ErrCode.COMMON_ERROR, "replace view failed, the origin view "
+                        + originName + " is not VIEW, it is " + originView.getType());
+            }
+        }
+        if (isCleanTables) {
+            for (Table table : db.getTables()) {
+                if ((table.getType() == TableType.OLAP || table.getType() == TableType.VIEW)
+                        && !restoredTableNames.contains(table.getName())
+                        && !temporaryTableNames.contains(table.getName())) {
+                    originTableInfos.add(new TableNameInfo(
+                            InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), table.getName()));
+                }
+            }
+        }
+        if (!isForceReplace) {
+            try {
+                Env.getCurrentEnv().getConstraintManager()
+                        .checkTableConstraintsCanBeDropped(originTableInfos);
+            } catch (DdlException e) {
+                return new Status(ErrCode.COMMON_ERROR,
+                        "replace table failed, reason=" + e.getMessage());
+            }
+        }
+        return Status.OK;
+    }
+
+    private String restoreTargetName(String backupObjectName) {
+        String targetName = jobInfo.getAliasByOriginNameIfSet(backupObjectName);
+        return GlobalVariable.isStoredTableNamesLowerCase()
+                ? targetName.toLowerCase()
+                : targetName;
     }
 
     protected void setTableStateToNormalAndUpdateProperties(Database db, boolean committed, boolean isReplay) {

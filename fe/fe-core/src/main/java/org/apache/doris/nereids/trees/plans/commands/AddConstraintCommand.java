@@ -30,6 +30,7 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -50,7 +51,11 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -90,43 +95,29 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             checkAlterPriv(ctx, refTableInfo);
             referencedColumnsAndTable = Pair.of(refColumnsAndTable.first, refTableInfo);
         }
+        org.apache.doris.catalog.constraint.Constraint catalogConstraint;
+        List<TableNameInfo> affectedTables = new ArrayList<>();
+        affectedTables.add(tableNameInfo);
         if (constraint.isForeignKey()) {
             Preconditions.checkState(referencedColumnsAndTable != null);
-            addConstraintAndInvalidate(tableNameInfo,
-                    new ForeignKeyConstraint(name, columns,
-                            referencedColumnsAndTable.second, referencedColumnsAndTable.first));
+            catalogConstraint = new ForeignKeyConstraint(name, columns,
+                    referencedColumnsAndTable.second, referencedColumnsAndTable.first);
+            affectedTables.add(referencedColumnsAndTable.second);
         } else if (constraint.isPrimaryKey()) {
-            addConstraintAndInvalidate(
-                    tableNameInfo, new PrimaryKeyConstraint(name, ImmutableSet.copyOf(columns)));
+            catalogConstraint = new PrimaryKeyConstraint(name, ImmutableSet.copyOf(columns));
         } else if (constraint.isUnique()) {
-            addConstraintAndInvalidate(
-                    tableNameInfo, new UniqueConstraint(name, ImmutableSet.copyOf(columns)));
+            catalogConstraint = new UniqueConstraint(name, ImmutableSet.copyOf(columns));
         } else if (constraint.isDistributionMapping()) {
             Pair<ImmutableList<String>, TableIf> distributionColumnsAndTable =
                     extractColumnsAndTable(ctx, constraint.toDistributionProject());
             Preconditions.checkState(table.getId() == distributionColumnsAndTable.second.getId(),
                     "determinant and distribution columns must belong to the same table");
-            DatabaseIf<? extends TableIf> database =
-                    ConstraintCommandUtils.lockCurrentDatabase(tableNameInfo);
-            try {
-                TableIf currentTable = database.getTableOrDdlException(tableNameInfo.getTbl());
-                Preconditions.checkState(currentTable instanceof OlapTable,
-                        "distribution mapping constraint requires an OLAP table");
-                OlapTable olapTable = (OlapTable) currentTable;
-                olapTable.writeLockOrDdlException();
-                try {
-                    olapTable.checkNormalStateForAlter();
-                    addConstraintAndInvalidate(tableNameInfo, currentTable, new DistributionMappingConstraint(
-                            name, constraint.getMappingId(), columns, distributionColumnsAndTable.first));
-                } finally {
-                    olapTable.writeUnlock();
-                }
-            } finally {
-                database.readUnlock();
-            }
+            catalogConstraint = new DistributionMappingConstraint(
+                    name, constraint.getMappingId(), columns, distributionColumnsAndTable.first);
         } else {
             throw new AnalysisException("Unsupported constraint type: " + constraint);
         }
+        addConstraintWithLocks(tableNameInfo, affectedTables, catalogConstraint);
     }
 
     private void checkAlterPriv(ConnectContext ctx, TableNameInfo tableNameInfo)
@@ -139,21 +130,51 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private void addConstraintAndInvalidate(
-            TableNameInfo tableNameInfo, org.apache.doris.catalog.constraint.Constraint constraint)
-            throws Exception {
-        addConstraintAndInvalidate(tableNameInfo, null, constraint);
-    }
-
-    private void addConstraintAndInvalidate(TableNameInfo tableNameInfo, TableIf table,
+    private void addConstraintWithLocks(TableNameInfo tableNameInfo,
+            List<TableNameInfo> affectedTableInfos,
             org.apache.doris.catalog.constraint.Constraint constraint) throws Exception {
-        List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
-        Env.getCurrentEnv().getConstraintManager().addConstraint(tableNameInfo, name, constraint, false);
-        if (table != null) {
-            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTableAndFencePublication(table);
+        List<MTMV> dependentMtmvs;
+        try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
+                ConstraintCommandUtils.lockCurrentDatabases(affectedTableInfos)) {
+            Map<TableIf, Boolean> seenTables = new IdentityHashMap<>();
+            List<TableIf> tables = new ArrayList<>();
+            for (TableNameInfo affectedTableInfo : affectedTableInfos) {
+                DatabaseIf<? extends TableIf> database = lockedDatabases.get(affectedTableInfo);
+                TableIf currentTable = database.getTableOrDdlException(affectedTableInfo.getTbl());
+                if (seenTables.put(currentTable, Boolean.TRUE) == null) {
+                    tables.add(currentTable);
+                }
+            }
+            tables.sort(Comparator
+                    .comparingLong((TableIf currentTable) -> currentTable.getDatabase().getId())
+                    .thenComparing(currentTable ->
+                            currentTable.getDatabase().getCatalog().getName())
+                    .thenComparing(currentTable -> currentTable.getDatabase().getFullName())
+                    .thenComparingLong(TableIf::getId)
+                    .thenComparing(TableIf::getName));
+            MetaLockUtils.writeLockTables(tables);
+            try {
+                TableIf currentTable = lockedDatabases.get(tableNameInfo)
+                        .getTableOrDdlException(tableNameInfo.getTbl());
+                if (constraint instanceof DistributionMappingConstraint) {
+                    Preconditions.checkState(currentTable instanceof OlapTable,
+                            "distribution mapping constraint requires an OLAP table");
+                    ((OlapTable) currentTable).checkNormalStateForAlter();
+                }
+                dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
+                Env.getCurrentEnv().getConstraintManager()
+                        .addConstraint(tableNameInfo, name, constraint, false);
+                if (constraint instanceof DistributionMappingConstraint) {
+                    Env.getCurrentEnv().getSqlCacheManager()
+                            .invalidateAboutTableAndFencePublication(currentTable);
+                }
+            } finally {
+                MetaLockUtils.writeUnlockTables(tables);
+            }
         }
         MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
-                String.format("after add constraint %s on table %s", constraint.getName(), tableNameInfo));
+                String.format("after add constraint %s on table %s",
+                        constraint.getName(), tableNameInfo));
     }
 
     private Pair<ImmutableList<String>, TableIf> extractColumnsAndTable(ConnectContext ctx, LogicalPlan plan) {

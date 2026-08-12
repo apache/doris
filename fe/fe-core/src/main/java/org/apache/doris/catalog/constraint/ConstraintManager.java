@@ -43,12 +43,14 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -359,6 +361,26 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
     }
 
     /**
+     * Check that every table can drop its constraints without cascading into a foreign key
+     * owned by another table.
+     */
+    public void checkTableConstraintsCanBeDropped(List<TableNameInfo> tableNameInfos)
+            throws DdlException {
+        readLock();
+        try {
+            Set<String> tableKeys = tableNameInfos.stream()
+                    .map(ConstraintManager::toKey)
+                    .collect(Collectors.toSet());
+            for (TableNameInfo tableNameInfo : tableNameInfos) {
+                String key = toKey(tableNameInfo);
+                checkForeignKeyReferences(key, constraintsMap.get(key), tableKeys);
+            }
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
      * Atomically check for referencing foreign keys and then drop all constraints
      * for the given table. Holds the write lock for both operations to prevent
      * TOCTOU races where a new FK could be added between the check and the drop.
@@ -376,24 +398,7 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                 return;
             }
             if (checkForeignKeys) {
-                for (Constraint c : tableConstraints.values()) {
-                    if (c instanceof PrimaryKeyConstraint) {
-                        PrimaryKeyConstraint pk = (PrimaryKeyConstraint) c;
-                        List<TableNameInfo> fkTables = pk.getForeignTableInfos();
-                        if (fkTables != null && !fkTables.isEmpty()) {
-                            String fkTableNames = fkTables.stream()
-                                    .map(t -> toKey(t))
-                                    .collect(Collectors.joining(", "));
-                            throw new DdlException(String.format(
-                                    "Cannot drop table %s because its primary"
-                                            + " key is referenced by foreign key"
-                                            + " constraints from table(s): %s."
-                                            + " Drop the foreign key constraints"
-                                            + " first.",
-                                    key, fkTableNames));
-                        }
-                    }
-                }
+                checkForeignKeyReferences(key, tableConstraints, Collections.emptySet());
             }
             constraintsMap.remove(key);
             for (Constraint constraint : tableConstraints.values()) {
@@ -402,6 +407,37 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             LOG.info("Dropped all constraints for table {}", key);
         } finally {
             writeUnlock();
+        }
+    }
+
+    private void checkForeignKeyReferences(String tableKey,
+            Map<String, Constraint> tableConstraints, Set<String> tablesBeingDropped)
+            throws DdlException {
+        if (tableConstraints == null) {
+            return;
+        }
+        for (Constraint constraint : tableConstraints.values()) {
+            if (constraint instanceof PrimaryKeyConstraint) {
+                PrimaryKeyConstraint primaryKey = (PrimaryKeyConstraint) constraint;
+                List<TableNameInfo> foreignKeyTables = primaryKey.getForeignTableInfos();
+                List<TableNameInfo> externalForeignKeyTables = foreignKeyTables == null
+                        ? Collections.emptyList()
+                        : foreignKeyTables.stream()
+                                .filter(table -> !tablesBeingDropped.contains(toKey(table)))
+                                .collect(Collectors.toList());
+                if (!externalForeignKeyTables.isEmpty()) {
+                    String foreignKeyTableNames = externalForeignKeyTables.stream()
+                            .map(ConstraintManager::toKey)
+                            .collect(Collectors.joining(", "));
+                    throw new DdlException(String.format(
+                            "Cannot drop table %s because its primary"
+                                    + " key is referenced by foreign key"
+                                    + " constraints from table(s): %s."
+                                    + " Drop the foreign key constraints"
+                                    + " first.",
+                            tableKey, foreignKeyTableNames));
+                }
+            }
         }
     }
 
