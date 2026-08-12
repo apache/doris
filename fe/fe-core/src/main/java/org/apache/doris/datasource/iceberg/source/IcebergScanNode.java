@@ -872,9 +872,12 @@ public class IcebergScanNode extends FileQueryScanNode {
             return TableScanUtil.splitFiles(scan.planFiles(),
                     sessionVariable.getFileSplitSize());
         }
-        if (isBatchMode()) {
+        if (isBatchMode() || tableLevelPushDownCount) {
             // Currently iceberg batch split mode will use max split size.
             // TODO: dynamic split size in batch split mode need to customize iceberg splitter.
+            // A metadata COUNT(*) also consumes only a bounded number of representative splits.
+            // Keep planFiles lazy for that path instead of materializing and retaining the whole
+            // table in the statement cache.
             return TableScanUtil.splitFiles(scan.planFiles(), sessionVariable.getMaxSplitSize());
         }
 
@@ -992,7 +995,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTaskWithManifestCache(TableScan scan) throws IOException {
-        if (sessionVariable.getFileSplitSize() > 0 || isBatchMode()) {
+        if (sessionVariable.getFileSplitSize() > 0 || isBatchMode() || tableLevelPushDownCount) {
             // These paths intentionally stream Iceberg tasks to keep FE memory bounded. The
             // manifest-cache planner materializes its result, and retaining that list in the
             // statement cache would defeat the streaming contract.

@@ -101,6 +101,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -572,6 +573,54 @@ public class IcebergScanNodeTest {
         countStarNode.setPushDownCountSlotIds(Collections.emptyList());
         Assert.assertFalse(countStarNode.isBatchMode());
         Assert.assertEquals(1, countStarNode.snapshotCountCalls);
+    }
+
+    @Test
+    public void testTableLevelCountManifestPlanningKeepsFileTasksLazy() throws Exception {
+        SessionVariable sv = Mockito.mock(SessionVariable.class);
+        Mockito.when(sv.getFileSplitSize()).thenReturn(0L);
+        Mockito.when(sv.getMaxSplitSize()).thenReturn(MB);
+        Mockito.when(sv.getEnableExternalTableBatchMode()).thenReturn(false);
+        AtomicInteger planCalls = new AtomicInteger();
+        AtomicInteger consumedTasks = new AtomicInteger();
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(Mockito.mock(Snapshot.class));
+        Mockito.when(tableScan.planFiles()).thenAnswer(invocation -> {
+            planCalls.incrementAndGet();
+            Iterable<FileScanTask> tasks = () -> new Iterator<FileScanTask>() {
+                private int index;
+
+                @Override
+                public boolean hasNext() {
+                    return index < 100;
+                }
+
+                @Override
+                public FileScanTask next() {
+                    index++;
+                    consumedTasks.incrementAndGet();
+                    FileScanTask task = Mockito.mock(FileScanTask.class);
+                    Mockito.when(task.split(MB)).thenReturn(Collections.singletonList(task));
+                    return task;
+                }
+            };
+            return CloseableIterable.withNoopClose(tasks);
+        });
+        CountPlanningIcebergScanNode node =
+                new CountPlanningIcebergScanNode(sv, tableScan, 30_000);
+        node.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        node.setPushDownCountSlotIds(Collections.emptyList());
+
+        try (CloseableIterable<FileScanTask> plannedTasks =
+                planFileScanTaskWithManifestCache(node, tableScan)) {
+            Iterator<FileScanTask> iterator = plannedTasks.iterator();
+            Assert.assertTrue(iterator.hasNext());
+            iterator.next();
+        }
+
+        Assert.assertEquals(1, planCalls.get());
+        Assert.assertEquals(1, consumedTasks.get());
+        Assert.assertEquals(1, node.snapshotCountCalls);
     }
 
     @Test
