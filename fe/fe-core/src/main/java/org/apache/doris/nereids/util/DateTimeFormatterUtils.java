@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
@@ -56,14 +57,13 @@ public class DateTimeFormatterUtils {
             .appendLiteral('-').appendValue(ChronoField.MONTH_OF_YEAR, 2)
             .appendLiteral('-').appendValue(ChronoField.DAY_OF_MONTH, 2)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-    // HH[:mm][:ss][.microsecond]
+    // HH[:mm][:ss][.fraction]
     public static final DateTimeFormatter TIME_FORMATTER = new DateTimeFormatterBuilder()
             .appendValue(ChronoField.HOUR_OF_DAY, 2)
             .appendLiteral(':').appendValue(ChronoField.MINUTE_OF_HOUR, 2)
             .appendLiteral(':').appendValue(ChronoField.SECOND_OF_MINUTE, 2)
-            // microsecond maxWidth is 7, we may need 7th digit to judge overflow
             .appendOptional(new DateTimeFormatterBuilder()
-                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 7, true).toFormatter())
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, TimeStampNsType.SCALE, true).toFormatter())
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // Time without delimiter: HHmmss[.microsecond]
     private static final DateTimeFormatter BASIC_TIME_FORMATTER = new DateTimeFormatterBuilder()
@@ -71,7 +71,7 @@ public class DateTimeFormatterUtils {
             .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
             .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
             .appendOptional(new DateTimeFormatterBuilder()
-                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 7, true).toFormatter())
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, TimeStampNsType.SCALE, true).toFormatter())
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // yyyymmdd
     private static final DateTimeFormatter BASIC_DATE_FORMATTER = new DateTimeFormatterBuilder()

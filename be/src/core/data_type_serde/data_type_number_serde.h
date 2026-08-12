@@ -49,7 +49,7 @@ class Arena;
 template <PrimitiveType T>
 class DataTypeNumberSerDe : public DataTypeSerDe {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
+                  T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ || is_timestamp_ns_type(T));
 
 public:
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
@@ -247,6 +247,12 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         for (int i = 0; i < arg.int64_value_size(); ++i) {
             data[old_column_size + i] = arg.int64_value(i);
         }
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        column.resize(old_column_size + arg.int64_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.int64_value_size(); ++i) {
+            data[old_column_size + i] = TimeStampNsValue(arg.int64_value(i));
+        }
     } else if constexpr (T == TYPE_FLOAT) {
         column.resize(old_column_size + arg.float_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
@@ -332,6 +338,12 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         auto* values = result.mutable_int64_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        ptype->set_id(PGenericType::INT64);
+        auto* values = result.mutable_int64_value();
+        values->Reserve(row_count);
+        values->Add(reinterpret_cast<const int64_t*>(data.begin()) + start,
+                    reinterpret_cast<const int64_t*>(data.begin()) + end);
     } else if constexpr (T == TYPE_FLOAT) {
         ptype->set_id(PGenericType::FLOAT);
         auto* values = result.mutable_float_value();

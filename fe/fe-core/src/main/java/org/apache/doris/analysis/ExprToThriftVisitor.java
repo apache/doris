@@ -203,6 +203,18 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     }
 
     @Override
+    public Void visitTimeStampNsLiteral(TimeStampNsLiteral expr, TExprNode msg) {
+        msg.node_type = TExprNodeType.DATE_LITERAL;
+        msg.date_literal = new TDateLiteral(expr.getStringValue());
+        try {
+            expr.checkValueValid();
+        } catch (AnalysisException e) {
+            LOG.warn("meet invalid value when plan to translate " + expr + " to thrift node");
+        }
+        return null;
+    }
+
+    @Override
     public Void visitTimeV2Literal(TimeV2Literal expr, TExprNode msg) {
         msg.node_type = TExprNodeType.TIMEV2_LITERAL;
         msg.timev2_literal = new TTimeV2Literal(expr.getValue());

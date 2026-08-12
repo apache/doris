@@ -32,6 +32,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
@@ -43,7 +44,8 @@
 
 namespace doris {
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
-    requires(IsStringType<FromDataType> && IsDatelikeTypes<ToDataType>)
+    requires(IsStringType<FromDataType> &&
+             (IsDatelikeTypes<ToDataType> || std::is_same_v<ToDataType, DataTypeTimeStampNs>))
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

@@ -129,6 +129,7 @@ public class PartitionRange {
                 case TIMEV2:
                 case DATETIME:
                 case DATETIMEV2:
+                case TIMESTAMP_NS:
                 case TIMESTAMPTZ:
                 case FLOAT:
                 case DOUBLE:

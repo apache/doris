@@ -421,6 +421,11 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return ((DateTimeV2Type) dataType).getScale();
     }
 
+    /** Return DATETIMEV2's microsecond fraction in the common nanosecond comparison unit. */
+    public long getNanoSecond() {
+        return microSecond * 1000L;
+    }
+
     public int commonScale(DateTimeV2Literal other) {
         return (int) Math.max(getScale(), other.getScale());
     }
