@@ -52,7 +52,7 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
                                  const TFileRangeDesc& range,
                                  const TFileScanRangeParams* range_params)
         : JniReader(
-                  file_slot_descs, state, profile, "org/apache/doris/paimon/PaimonJniScanner",
+                  file_slot_descs, state, profile, Jni::plugin::PAIMON_SCANNER,
                   [&]() {
                       std::vector<std::string> column_names;
                       std::vector<std::string> column_types;

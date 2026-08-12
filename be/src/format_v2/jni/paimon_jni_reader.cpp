@@ -80,8 +80,8 @@ Status PaimonJniReader::validate_scan_range(const TFileRangeDesc& range) const {
     return Status::OK();
 }
 
-std::string PaimonJniReader::connector_class() const {
-    return "org/apache/doris/paimon/PaimonJniScanner";
+Jni::PluginRef PaimonJniReader::plugin_ref() const {
+    return Jni::plugin::PAIMON_SCANNER;
 }
 
 Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>* params) const {
