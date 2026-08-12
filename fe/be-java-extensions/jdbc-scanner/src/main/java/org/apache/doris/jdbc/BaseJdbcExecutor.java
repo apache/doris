@@ -23,11 +23,11 @@ import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorColumn;
 import org.apache.doris.common.jni.vec.VectorTable;
+import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
 import com.zaxxer.hikari.HikariDataSource;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.log4j.Logger;
@@ -42,7 +42,6 @@ import java.io.InputStream;
 import java.lang.reflect.Array;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.net.URLClassLoader;
 import java.net.URLConnection;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -88,7 +87,6 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     protected int batchSizeNum = 0;
     protected int curBlockRows = 0;
     protected String jdbcDriverVersion;
-    private static final Map<URL, ClassLoader> classLoaderMap = Maps.newConcurrentMap();
 
     // col name(lowercase) -> index in resultSetMetaData
     // this map is only used for "query()" tvf, so only valid if isTvf is true.
@@ -517,17 +515,12 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             String msg = e.getMessage();
             // If driver class loading failed (Hikari wraps it), clear stale cache and prompt retry
             if (msg != null && msg.contains("Failed to load driver class")) {
-                try {
-                    URL url = new URL(config.getJdbcDriverUrl());
-                    classLoaderMap.remove(url);
-                    // Prompt user to verify driver validity and retry
-                    throw new JdbcExecutorException(
-                        String.format("Failed to load driver class `%s`. "
-                                        + "Please check that the driver JAR is valid and retry.",
-                                      config.getJdbcDriverClass()), e);
-                } catch (MalformedURLException ignore) {
-                    // ignore invalid URL when cleaning cache
-                }
+                JdbcDriverUtils.invalidate(config.getJdbcDriverUrl(), getClass().getClassLoader());
+                // Prompt user to verify driver validity and retry
+                throw new JdbcExecutorException(
+                    String.format("Failed to load driver class `%s`. "
+                                    + "Please check that the driver JAR is valid and retry.",
+                                  config.getJdbcDriverClass()), e);
             }
             throw new JdbcExecutorException("Initialize datasource failed: ", e);
         } finally {
@@ -535,25 +528,18 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
     }
 
-    private synchronized void initializeClassLoader(JdbcDataSourceConfig config) {
-        try {
-            URL[] urls = {new URL(config.getJdbcDriverUrl())};
-            if (classLoaderMap.containsKey(urls[0]) && classLoaderMap.get(urls[0]) != null) {
-                this.classLoader = classLoaderMap.get(urls[0]);
-            } else {
-                String expectedChecksum = config.getJdbcDriverChecksum();
-                String actualChecksum = computeObjectChecksum(urls[0].toString(), null);
-                if (!expectedChecksum.equals(actualChecksum)) {
-                    throw new RuntimeException("Checksum mismatch for JDBC driver.");
-                }
-                ClassLoader parent = getClass().getClassLoader();
-                this.classLoader = URLClassLoader.newInstance(urls, parent);
-                classLoaderMap.put(urls[0], this.classLoader);
-            }
-        } catch (MalformedURLException e) {
-            throw new RuntimeException("Failed to load JDBC driver from path: "
-                    + config.getJdbcDriverUrl(), e);
-        }
+    private void initializeClassLoader(JdbcDataSourceConfig config) {
+        // The checksum is a property of the jar, so it is checked when the driver's classloader is
+        // built and not on every query - computing it downloads the jar.
+        this.classLoader = JdbcDriverUtils.driverClassLoader(config.getJdbcDriverUrl(),
+                getClass().getClassLoader(),
+                driverJar -> {
+                    String expectedChecksum = config.getJdbcDriverChecksum();
+                    String actualChecksum = computeObjectChecksum(driverJar.toString(), null);
+                    if (!expectedChecksum.equals(actualChecksum)) {
+                        throw new RuntimeException("Checksum mismatch for JDBC driver.");
+                    }
+                });
     }
 
     public static String computeObjectChecksum(String urlStr, String encodedAuthInfo) {

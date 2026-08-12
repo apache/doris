@@ -22,6 +22,7 @@ import org.apache.doris.common.jni.JniWriter;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.VectorColumn;
 import org.apache.doris.common.jni.vec.VectorTable;
+import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
@@ -363,9 +364,7 @@ public class JdbcJniWriter extends JniWriter {
     }
 
     private void initializeClassLoaderAndDataSource() throws Exception {
-        java.net.URL[] urls = {new java.net.URL(jdbcDriverUrl)};
-        ClassLoader parent = getClass().getClassLoader();
-        this.classLoader = java.net.URLClassLoader.newInstance(urls, parent);
+        this.classLoader = JdbcDriverUtils.driverClassLoader(jdbcDriverUrl, getClass().getClassLoader());
         // Must set thread context classloader BEFORE creating HikariDataSource,
         // because HikariCP's setDriverClassName() loads the driver class from
         // the thread context classloader.
