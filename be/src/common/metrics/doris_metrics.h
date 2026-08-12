@@ -158,6 +158,12 @@ public:
     IntCounter* memtable_flush_total = nullptr;
     IntCounter* memtable_flush_duration_us = nullptr;
 
+    // Rows accepted from a ColumnVariantV2 shredded execution column by storage writers. Native
+    // rows preserve residual/field separation; fallback rows are individually re-encoded to retain
+    // the legacy dotted-path collision order or satisfy a whole-value consumer.
+    IntCounter* variant_v2_shredded_writer_native_rows = nullptr;
+    IntCounter* variant_v2_shredded_writer_fallback_rows = nullptr;
+
     IntGauge* memory_pool_bytes_total = nullptr;
     IntGauge* process_thread_num = nullptr;
     IntGauge* process_fd_num_used = nullptr;

@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <span>
@@ -57,13 +58,18 @@ struct JsonWriter {
     std::string value;
 };
 
-std::string json_at(ColumnVariantV2& column, size_t row) {
-    if (column.is_typed()) {
-        column.ensure_encoded();
-    }
+std::string json_ref(VariantRef value) {
     JsonWriter writer;
-    to_json(column.get_value_ref(row), writer);
+    to_json(value, writer);
     return writer.value;
+}
+
+std::string json_at(const ColumnVariantV2& column, size_t row) {
+    if (column.is_encoded()) {
+        return json_ref(column.get_value_ref(row));
+    }
+    auto encoded = column.materialize_encoded_range(row, 1);
+    return json_ref(encoded->get_value_ref(0));
 }
 
 ColumnVariantV2& assembled_values(const ColumnNullable::MutablePtr& output) {
@@ -829,11 +835,15 @@ TEST(VariantAssemblerLegacyTest, HierarchicalMaterializedLegacyDateTimeAndDecima
     ColumnNullable::MutablePtr output;
     const Status status = assembler->assemble(batch, &output);
     ASSERT_TRUE(status.ok()) << status;
-    ASSERT_FALSE(assembled_values(output).is_typed());
-    EXPECT_EQ(json_at(assembled_values(output), 0),
-              R"({"dt":"1970-01-01 00:00:01.000000","m":12.340000000})");
-    EXPECT_EQ(json_at(assembled_values(output), 1),
-              R"({"dt":"1970-01-01 00:00:02.000000","m":-56.780000000})");
+    const auto& values = assembled_values(output);
+    ASSERT_TRUE(values.is_shredded());
+    ASSERT_EQ(values.shredded_field_count(), 2);
+    EXPECT_TRUE(values.shredded_field_values(0).is_typed());
+    EXPECT_TRUE(values.shredded_field_values(1).is_typed());
+    EXPECT_EQ(values.shredded_field_values(0).typed_type()->get_primitive_type(), TYPE_DATETIME);
+    EXPECT_EQ(values.shredded_field_values(1).typed_type()->get_primitive_type(), TYPE_DECIMALV2);
+    EXPECT_EQ(json_at(values, 0), R"({"dt":"1970-01-01 00:00:01.000000","m":12.340000000})");
+    EXPECT_EQ(json_at(values, 1), R"({"dt":"1970-01-01 00:00:02.000000","m":-56.780000000})");
 }
 
 TEST(VariantAssemblerLegacyTest, UnsortedMaterializedPathsKeepSourceColumns) {
@@ -860,6 +870,244 @@ TEST(VariantAssemblerLegacyTest, UnsortedMaterializedPathsKeepSourceColumns) {
     ColumnNullable::MutablePtr output;
     ASSERT_TRUE(assembler->assemble(batch, &output).ok());
     EXPECT_EQ(json_at(assembled_values(output), 0), R"({"a":20,"m":{"child":30},"z":10})");
+}
+
+TEST(VariantAssemblerLegacyTest, WholeRootShreddedTypeConflictPromotesOnlyShreddedChild) {
+    auto integers = ColumnInt32::create();
+    integers->insert_many_vals(11, 2);
+    auto materialized = ColumnNullable::create(std::move(integers), ColumnUInt8::create(2, 0));
+    materialized->get_null_map_data()[1] = 1;
+    auto sparse = map_column_rows({{}, {{"a", string_storage_cell("text")}}});
+
+    VariantAssemblerOptions options;
+    options.materialized_paths = {
+            {.path = PathInData("a"), .type = make_nullable(std::make_shared<DataTypeInt32>())},
+    };
+    options.storage_map_kind = StorageMapKind::SPARSE;
+    auto assembler = create_assembler(std::move(options));
+    const IColumn* materialized_ptr = materialized.get();
+    VariantAssemblerBatchView batch;
+    batch.num_rows = 2;
+    batch.materialized_columns = {&materialized_ptr, 1};
+    batch.storage_map = sparse.get();
+
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+    EXPECT_EQ(VariantAssembler::TestAccess::encoded_shredded_builds(*assembler), 0);
+    EXPECT_EQ(VariantAssembler::TestAccess::direct_shredded_builds(*assembler), 1);
+    const auto& values = assembled_values(output);
+    ASSERT_TRUE(values.is_shredded());
+    ASSERT_EQ(values.shredded_field_count(), 1);
+    EXPECT_EQ(values.shredded_field_path(0).get_path(), "a");
+    EXPECT_EQ(values.shredded_field_presence(0).get_data(), (PaddedPODArray<uint8_t> {1, 0}));
+    const auto& child = values.shredded_field_values(0);
+    EXPECT_TRUE(child.is_typed());
+    EXPECT_EQ(json_at(child, 0), "11");
+    EXPECT_EQ(json_at(child, 1), "null");
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(0)), "{}");
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(1)), R"({"a":"text"})");
+    EXPECT_EQ(json_at(values, 0), R"({"a":11})");
+    EXPECT_EQ(json_at(values, 1), R"({"a":"text"})");
+}
+
+TEST(VariantAssemblerLegacyTest, WholeRootShreddedScalarObjectConflictKeepsObjectResidual) {
+    auto integers = ColumnInt32::create();
+    integers->insert_many_vals(7, 4);
+    auto materialized = ColumnNullable::create(std::move(integers), ColumnUInt8::create(4, 0));
+    materialized->get_null_map_data()[0] = 1;
+    materialized->get_null_map_data()[3] = 1;
+    auto sparse = map_column_rows({{{"a", jsonb_storage_cell(R"({"b":1})")}},
+                                   {},
+                                   {},
+                                   {{"a", jsonb_storage_cell(R"({"b":4})")}}});
+
+    VariantAssemblerOptions options;
+    options.materialized_paths = {
+            {.path = PathInData("a"), .type = make_nullable(std::make_shared<DataTypeInt32>())},
+    };
+    options.storage_map_kind = StorageMapKind::SPARSE;
+    auto assembler = create_assembler(std::move(options));
+    const IColumn* materialized_ptr = materialized.get();
+    VariantAssemblerBatchView batch;
+    batch.num_rows = 4;
+    batch.materialized_columns = {&materialized_ptr, 1};
+    batch.storage_map = sparse.get();
+
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+    EXPECT_EQ(VariantAssembler::TestAccess::encoded_shredded_builds(*assembler), 0);
+    EXPECT_EQ(VariantAssembler::TestAccess::direct_shredded_builds(*assembler), 1);
+    const auto& values = assembled_values(output);
+    ASSERT_TRUE(values.is_shredded());
+    ASSERT_EQ(values.shredded_field_count(), 1);
+    EXPECT_EQ(values.shredded_field_presence(0).get_data(), (PaddedPODArray<uint8_t> {0, 1, 1, 0}));
+    EXPECT_TRUE(values.shredded_field_values(0).is_typed());
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(0)), R"({"a":{"b":1}})");
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(1)), "{}");
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(2)), "{}");
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(3)), R"({"a":{"b":4}})");
+    EXPECT_EQ(json_at(values, 0), R"({"a":{"b":1}})");
+    EXPECT_EQ(json_at(values, 1), R"({"a":7})");
+    EXPECT_EQ(json_at(values, 2), R"({"a":7})");
+    EXPECT_EQ(json_at(values, 3), R"({"a":{"b":4}})");
+}
+
+TEST(VariantAssemblerLegacyTest, WholeRootShreddedOwnsMissingVariantAndSqlNullState) {
+    auto integers = ColumnInt32::create();
+    for (Int32 value : {10, 0, 0, 40}) {
+        integers->insert_value(value);
+    }
+    auto inner_nulls = ColumnUInt8::create();
+    for (UInt8 is_null : {0, 1, 1, 0}) {
+        inner_nulls->insert_value(is_null);
+    }
+    auto materialized = ColumnNullable::create(std::move(integers), std::move(inner_nulls));
+    auto sparse = map_column_rows({{}, {}, {{"a", jsonb_storage_cell("null")}}, {}});
+
+    auto root_values = ColumnString::create();
+    for (size_t row = 0; row < 4; ++row) {
+        auto value = jsonb_column("{}");
+        root_values->insert_from(*value, 0);
+    }
+    auto outer_nulls = ColumnUInt8::create();
+    for (UInt8 is_null : {0, 0, 0, 1}) {
+        outer_nulls->insert_value(is_null);
+    }
+    auto root = ColumnNullable::create(std::move(root_values), std::move(outer_nulls));
+
+    VariantAssemblerOptions options;
+    options.has_root = true;
+    options.materialized_paths = {
+            {.path = PathInData("a"), .type = make_nullable(std::make_shared<DataTypeInt32>())},
+    };
+    options.storage_map_kind = StorageMapKind::SPARSE;
+    auto assembler = create_assembler(std::move(options));
+    const IColumn* materialized_ptr = materialized.get();
+    VariantAssemblerBatchView batch;
+    batch.num_rows = 4;
+    batch.root_jsonb = root.get();
+    batch.materialized_columns = {&materialized_ptr, 1};
+    batch.storage_map = sparse.get();
+
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+    EXPECT_EQ(VariantAssembler::TestAccess::encoded_shredded_builds(*assembler), 0);
+    EXPECT_EQ(VariantAssembler::TestAccess::direct_shredded_builds(*assembler), 1);
+    ASSERT_EQ(output->get_null_map_data(), (PaddedPODArray<uint8_t> {0, 0, 0, 1}));
+    const auto& values = assembled_values(output);
+    ASSERT_TRUE(values.is_shredded());
+    EXPECT_EQ(values.shredded_field_presence(0).get_data(), (PaddedPODArray<uint8_t> {1, 0, 0, 0}));
+    ASSERT_TRUE(values.shredded_field_values(0).is_typed());
+
+    materialized->clear();
+    sparse->clear();
+    root->clear();
+
+    EXPECT_EQ(json_at(values, 0), R"({"a":10})");
+    EXPECT_EQ(json_at(values, 1), "{}");
+    EXPECT_EQ(json_at(values, 2), R"({"a":null})");
+    EXPECT_TRUE(output->is_null_at(3));
+}
+
+TEST(VariantAssemblerLegacyTest, WholeRootShreddedDocExactScalarKeepsResidual) {
+    auto integers = ColumnInt32::create();
+    integers->insert_value(0);
+    auto materialized = ColumnNullable::create(std::move(integers), ColumnUInt8::create(1, 1));
+    auto doc =
+            map_column({{"a", string_storage_cell("doc")},
+                        {"keep", fixed_storage_cell<int32_t>(FieldType::OLAP_FIELD_TYPE_INT, 9)}});
+
+    VariantAssemblerOptions options;
+    options.materialized_paths = {
+            {.path = PathInData("a"), .type = make_nullable(std::make_shared<DataTypeInt32>())},
+    };
+    options.storage_map_kind = StorageMapKind::DOC;
+    auto assembler = create_assembler(std::move(options));
+    const IColumn* materialized_ptr = materialized.get();
+    VariantAssemblerBatchView batch;
+    batch.num_rows = 1;
+    batch.materialized_columns = {&materialized_ptr, 1};
+    batch.storage_map = doc.get();
+
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+    EXPECT_EQ(VariantAssembler::TestAccess::encoded_shredded_builds(*assembler), 0);
+    EXPECT_EQ(VariantAssembler::TestAccess::direct_shredded_builds(*assembler), 1);
+    const auto& values = assembled_values(output);
+    ASSERT_TRUE(values.is_shredded());
+    ASSERT_EQ(values.shredded_field_count(), 1);
+    EXPECT_EQ(values.shredded_field_presence(0).get_data(), (PaddedPODArray<uint8_t> {0}));
+    EXPECT_TRUE(values.shredded_field_values(0).is_typed());
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(0)), R"({"a":"doc","keep":9})");
+    EXPECT_EQ(json_at(values, 0), R"({"a":"doc","keep":9})");
+}
+
+TEST(VariantAssemblerLegacyTest,
+     WholeRootShreddedRootSidecarBuildsShreddedChildAndResidualDirectly) {
+    auto integers = ColumnInt32::create();
+    integers->insert_value(0);
+    auto materialized = ColumnNullable::create(std::move(integers), ColumnUInt8::create(1, 1));
+    auto root = jsonb_column(R"({"a":5,"keep":1})");
+
+    VariantAssemblerOptions options;
+    options.has_root = true;
+    options.materialized_paths = {
+            {.path = PathInData("a"), .type = make_nullable(std::make_shared<DataTypeInt32>())},
+    };
+    auto assembler = create_assembler(std::move(options));
+    const IColumn* materialized_ptr = materialized.get();
+    VariantAssemblerBatchView batch;
+    batch.num_rows = 1;
+    batch.root_jsonb = root.get();
+    batch.materialized_columns = {&materialized_ptr, 1};
+
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+    EXPECT_EQ(VariantAssembler::TestAccess::encoded_shredded_builds(*assembler), 0);
+    EXPECT_EQ(VariantAssembler::TestAccess::direct_shredded_builds(*assembler), 1);
+    const auto& values = assembled_values(output);
+    ASSERT_TRUE(values.is_shredded());
+    EXPECT_EQ(values.shredded_field_presence(0).get_data(), (PaddedPODArray<uint8_t> {0}));
+    EXPECT_TRUE(values.shredded_field_values(0).is_typed());
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(0)), R"({"a":5,"keep":1})");
+
+    materialized->clear();
+    root->clear();
+    EXPECT_EQ(json_at(values, 0), R"({"a":5,"keep":1})");
+}
+
+TEST(VariantAssemblerLegacyTest, WholeRootShreddedNestedLeavesKeepEmptyResidualAncestors) {
+    auto cc = ColumnInt32::create();
+    cc->insert_value(2);
+    auto ce = ColumnInt32::create();
+    ce->insert_value(3);
+    auto sparse = map_column({{"c.d", jsonb_storage_cell("null")}});
+    const auto int_type = std::make_shared<DataTypeInt32>();
+
+    VariantAssemblerOptions options;
+    options.storage_map_kind = StorageMapKind::SPARSE;
+    options.materialized_paths = {
+            {.path = PathInData("c.c"), .type = int_type},
+            {.path = PathInData("c.e"), .type = int_type},
+    };
+    auto assembler = create_assembler(std::move(options));
+    const std::array<const IColumn*, 2> materialized {cc.get(), ce.get()};
+    VariantAssemblerBatchView batch;
+    batch.num_rows = 1;
+    batch.materialized_columns = materialized;
+    batch.storage_map = sparse.get();
+
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+    EXPECT_EQ(VariantAssembler::TestAccess::encoded_shredded_builds(*assembler), 0);
+    EXPECT_EQ(VariantAssembler::TestAccess::direct_shredded_builds(*assembler), 1);
+    const auto& values = assembled_values(output);
+    ASSERT_TRUE(values.is_shredded());
+    ASSERT_EQ(values.shredded_field_count(), 2);
+    EXPECT_EQ(values.shredded_field_presence(0).get_data(), (PaddedPODArray<uint8_t> {1}));
+    EXPECT_EQ(values.shredded_field_presence(1).get_data(), (PaddedPODArray<uint8_t> {1}));
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(0)), R"({"c":{"d":null}})");
+    EXPECT_EQ(json_at(values, 0), R"({"c":{"c":2,"d":null,"e":3}})");
 }
 
 TEST(VariantAssemblerLegacyTest, RootSidecarYieldsToVisibleHierarchicalStreams) {
@@ -1125,6 +1373,170 @@ TEST(VariantAssemblerLegacyTest, SparseAndDocDecodeLegacyCellsToCanonicalEncodin
     EXPECT_EQ(json_at(assembled_values(doc_output), 0), EXPECTED);
 }
 
+TEST(VariantAssemblerLegacyTest, DocLayoutHintsBuildShreddedFromAuthoritativeMap) {
+    VariantAssemblerOptions options;
+    options.storage_map_kind = StorageMapKind::DOC;
+    options.shredded_layout_hints = {
+            {.path = PathInData("a"), .type = std::make_shared<DataTypeInt32>()},
+    };
+    auto assembler = create_assembler(std::move(options));
+    ASSERT_NE(assembler, nullptr);
+
+    auto doc = map_column_rows({
+            {{"a", jsonb_storage_cell("1")}},
+            {{"b", jsonb_storage_cell(R"("other")")}},
+            {{"a", jsonb_storage_cell("3")}},
+    });
+    VariantAssemblerBatchView batch;
+    batch.num_rows = 3;
+    batch.storage_map = doc.get();
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+
+    const auto& values = assembled_values(output);
+    ASSERT_TRUE(values.is_shredded());
+    ASSERT_EQ(values.shredded_field_count(), 1);
+    EXPECT_EQ(values.shredded_field_path(0), PathInData("a"));
+    EXPECT_TRUE(values.shredded_field_values(0).is_typed());
+    EXPECT_EQ(values.shredded_field_presence(0).get_data(), (PaddedPODArray<uint8_t> {1, 0, 1}));
+    EXPECT_EQ(json_at(values, 0), R"({"a":1})");
+    EXPECT_EQ(json_at(values, 1), R"({"b":"other"})");
+    EXPECT_EQ(json_at(values, 2), R"({"a":3})");
+    EXPECT_EQ(VariantAssembler::TestAccess::direct_shredded_builds(*assembler), 1);
+    EXPECT_EQ(VariantAssembler::TestAccess::encoded_shredded_builds(*assembler), 0);
+}
+
+TEST(VariantAssemblerLegacyTest, DocLayoutHintCapIsCanonicalAfterPrefixFiltering) {
+    const size_t layout_limit = VariantAssembler::TestAccess::max_shredded_execution_layout_paths();
+    ASSERT_GT(layout_limit, 0);
+    const auto filler_path = [](size_t index) {
+        constexpr size_t WIDTH = 20;
+        std::string suffix = std::to_string(index);
+        std::string path = "k";
+        path.append(WIDTH - suffix.size(), '0');
+        path.append(suffix);
+        return path;
+    };
+    auto int_type = std::make_shared<DataTypeInt32>();
+    DorisVector<VariantAssemblerOptions::MaterializedPath> forward_hints;
+    forward_hints.reserve(layout_limit + 2);
+    for (size_t index = 0; index + 1 < layout_limit; ++index) {
+        forward_hints.push_back({.path = PathInData(filler_path(index)), .type = int_type});
+    }
+    forward_hints.push_back({.path = PathInData("z"), .type = int_type});
+    forward_hints.push_back({.path = PathInData("z.a"), .type = int_type});
+    forward_hints.push_back({.path = PathInData("zz"), .type = int_type});
+    auto reverse_hints = forward_hints;
+    std::ranges::reverse(reverse_hints);
+
+    auto create_doc_assembler = [](DorisVector<VariantAssemblerOptions::MaterializedPath> hints) {
+        VariantAssemblerOptions options;
+        options.storage_map_kind = StorageMapKind::DOC;
+        options.shredded_layout_hints = std::move(hints);
+        return create_assembler(std::move(options));
+    };
+    auto forward_assembler = create_doc_assembler(std::move(forward_hints));
+    auto reverse_assembler = create_doc_assembler(std::move(reverse_hints));
+
+    auto doc = map_column({{"z.a", jsonb_storage_cell("1")}, {"zz", jsonb_storage_cell("2")}});
+    VariantAssemblerBatchView batch;
+    batch.num_rows = 1;
+    batch.storage_map = doc.get();
+    ColumnNullable::MutablePtr forward_output;
+    ColumnNullable::MutablePtr reverse_output;
+    ASSERT_TRUE(forward_assembler->assemble(batch, &forward_output).ok());
+    ASSERT_TRUE(reverse_assembler->assemble(batch, &reverse_output).ok());
+
+    const auto& forward_values = assembled_values(forward_output);
+    const auto& reverse_values = assembled_values(reverse_output);
+    ASSERT_TRUE(forward_values.is_shredded());
+    ASSERT_TRUE(reverse_values.is_shredded());
+    ASSERT_EQ(forward_values.shredded_field_count(), layout_limit);
+    ASSERT_EQ(reverse_values.shredded_field_count(), layout_limit);
+    for (size_t index = 0; index + 1 < layout_limit; ++index) {
+        const PathInData expected(filler_path(index));
+        EXPECT_EQ(forward_values.shredded_field_path(index), expected) << "index=" << index;
+        EXPECT_EQ(reverse_values.shredded_field_path(index), expected) << "index=" << index;
+    }
+    for (size_t index = 0; index < layout_limit; ++index) {
+        EXPECT_EQ(forward_values.shredded_field_path(index),
+                  reverse_values.shredded_field_path(index))
+                << "index=" << index;
+        EXPECT_NE(forward_values.shredded_field_path(index), PathInData("z")) << "index=" << index;
+    }
+    EXPECT_EQ(forward_values.shredded_field_path(layout_limit - 1), PathInData("z.a"));
+    EXPECT_EQ(reverse_values.shredded_field_path(layout_limit - 1), PathInData("z.a"));
+    EXPECT_EQ(json_ref(forward_values.read_view().residual_value_at(0)), R"({"z":{},"zz":2})");
+    EXPECT_EQ(json_ref(reverse_values.read_view().residual_value_at(0)), R"({"z":{},"zz":2})");
+    EXPECT_EQ(json_at(forward_values, 0), R"({"z":{"a":1},"zz":2})");
+    EXPECT_EQ(json_at(reverse_values, 0), R"({"z":{"a":1},"zz":2})");
+}
+
+TEST(VariantAssemblerLegacyTest, UnsupportedDocLayoutHintKeepsAuthoritativeValueEncoded) {
+    LegacyCells source;
+    VariantAssemblerOptions options;
+    options.storage_map_kind = StorageMapKind::DOC;
+    options.shredded_layout_hints = {
+            {.path = PathInData("a"), .type = std::make_shared<DataTypeDate>()},
+    };
+    auto assembler = create_assembler(std::move(options));
+
+    auto doc = map_column({{"a", source.date_cells[0]}});
+    VariantAssemblerBatchView batch;
+    batch.num_rows = 1;
+    batch.storage_map = doc.get();
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+
+    const auto& values = assembled_values(output);
+    EXPECT_TRUE(values.is_encoded());
+    EXPECT_EQ(json_at(values, 0), R"({"a":"1970-01-02"})");
+    EXPECT_EQ(VariantAssembler::TestAccess::direct_shredded_builds(*assembler), 0);
+}
+
+TEST(VariantAssemblerLegacyTest, StaleDocLayoutHintKeepsScalarAndObjectConflictsResidual) {
+    VariantAssemblerOptions options;
+    options.storage_map_kind = StorageMapKind::DOC;
+    options.shredded_layout_hints = {
+            {.path = PathInData("a"), .type = std::make_shared<DataTypeInt32>()},
+    };
+    auto assembler = create_assembler(std::move(options));
+
+    auto doc = map_column_rows({
+            {{"a", jsonb_storage_cell("1")}},
+            {{"a", jsonb_storage_cell(R"("text")")}},
+            {{"a", jsonb_storage_cell(R"({"nested":2})")}},
+            {{"a", jsonb_storage_cell("4")}},
+    });
+    VariantAssemblerBatchView batch;
+    batch.num_rows = 4;
+    batch.storage_map = doc.get();
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+
+    const auto& values = assembled_values(output);
+    ASSERT_TRUE(values.is_shredded());
+    ASSERT_EQ(values.shredded_field_count(), 1);
+    EXPECT_EQ(values.shredded_field_path(0), PathInData("a"));
+    EXPECT_EQ(values.shredded_field_presence(0).get_data(), (PaddedPODArray<uint8_t> {1, 0, 0, 1}));
+    const auto& child = values.shredded_field_values(0);
+    ASSERT_TRUE(child.is_typed());
+    EXPECT_EQ(json_at(child, 0), "1");
+    EXPECT_EQ(json_at(child, 1), "null");
+    EXPECT_EQ(json_at(child, 2), "null");
+    EXPECT_EQ(json_at(child, 3), "4");
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(0)), "{}");
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(1)), R"({"a":"text"})");
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(2)), R"({"a":{"nested":2}})");
+    EXPECT_EQ(json_ref(values.read_view().residual_value_at(3)), "{}");
+    EXPECT_EQ(json_at(values, 0), R"({"a":1})");
+    EXPECT_EQ(json_at(values, 1), R"({"a":"text"})");
+    EXPECT_EQ(json_at(values, 2), R"({"a":{"nested":2}})");
+    EXPECT_EQ(json_at(values, 3), R"({"a":4})");
+    EXPECT_EQ(VariantAssembler::TestAccess::direct_shredded_builds(*assembler), 1);
+    EXPECT_EQ(VariantAssembler::TestAccess::encoded_shredded_builds(*assembler), 0);
+}
+
 TEST(VariantAssemblerLegacyTest, LegacyAncestorDescendantConflictsPreferDescendants) {
     LegacyCells source;
     auto same_stream = map_column_rows({
@@ -1213,6 +1625,7 @@ TEST(VariantAssemblerLegacyTest, LegacyAncestorDescendantConflictsPreferDescenda
     ASSERT_TRUE(materialized_descendant_assembler
                         ->assemble(materialized_descendant_batch, &materialized_descendant_output)
                         .ok());
+    EXPECT_TRUE(assembled_values(materialized_descendant_output).is_encoded());
     EXPECT_EQ(json_at(assembled_values(materialized_descendant_output), 0),
               R"({"b":"1970-01-02"})");
     EXPECT_EQ(json_at(assembled_values(materialized_descendant_output), 1),
@@ -1506,6 +1919,65 @@ TEST(VariantAssemblerLegacyTest, NestedArrayPathReturnsNotSupported) {
             << materialized.error();
     EXPECT_NE(materialized.error().to_string().find("nested array path 'items.id'"),
               std::string::npos);
+
+    VariantAssemblerOptions hint_options;
+    hint_options.storage_map_kind = StorageMapKind::DOC;
+    hint_options.shredded_layout_hints.push_back(
+            {.path = materialized_builder.build(), .type = std::make_shared<DataTypeInt32>()});
+    auto hint = VariantAssembler::create(std::move(hint_options));
+    ASSERT_FALSE(hint.has_value());
+    EXPECT_TRUE(hint.error().is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << hint.error();
+    EXPECT_NE(hint.error().to_string().find("nested array path 'items.id'"), std::string::npos);
+}
+
+TEST(VariantAssemblerLegacyTest, UnsortedDuplicateAndCrossSourcePathsReturnInvalidArgument) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    {
+        VariantAssemblerOptions options;
+        options.storage_map_kind = StorageMapKind::DOC;
+        options.shredded_layout_hints = {
+                {.path = PathInData("z"), .type = int_type},
+                {.path = PathInData("a"), .type = int_type},
+                {.path = PathInData("z"), .type = int_type},
+        };
+        auto result = VariantAssembler::create(std::move(options));
+        ASSERT_FALSE(result.has_value());
+        EXPECT_TRUE(result.error().is<ErrorCode::INVALID_ARGUMENT>()) << result.error();
+        EXPECT_NE(
+                result.error().to_string().find("Duplicate Variant shredded layout hint path 'z'"),
+                std::string::npos);
+    }
+    {
+        VariantAssemblerOptions options;
+        options.materialized_paths = {
+                {.path = PathInData("z"), .type = int_type},
+                {.path = PathInData("a"), .type = int_type},
+                {.path = PathInData("z"), .type = int_type},
+        };
+        auto result = VariantAssembler::create(std::move(options));
+        ASSERT_FALSE(result.has_value());
+        EXPECT_TRUE(result.error().is<ErrorCode::INVALID_ARGUMENT>()) << result.error();
+        EXPECT_NE(result.error().to_string().find("Duplicate Variant materialized path 'z'"),
+                  std::string::npos);
+    }
+    {
+        VariantAssemblerOptions options;
+        options.storage_map_kind = StorageMapKind::DOC;
+        options.materialized_paths = {
+                {.path = PathInData("b"), .type = int_type},
+                {.path = PathInData("z"), .type = int_type},
+        };
+        options.shredded_layout_hints = {
+                {.path = PathInData("a"), .type = int_type},
+                {.path = PathInData("z"), .type = int_type},
+        };
+        auto result = VariantAssembler::create(std::move(options));
+        ASSERT_FALSE(result.has_value());
+        EXPECT_TRUE(result.error().is<ErrorCode::INVALID_ARGUMENT>()) << result.error();
+        EXPECT_NE(result.error().to_string().find(
+                          "Variant path 'z' is both materialized and a shredded layout hint"),
+                  std::string::npos);
+    }
 }
 
 } // namespace

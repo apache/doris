@@ -458,7 +458,7 @@ Status cast_variant_refs_to_scalar(FunctionContext* context, std::span<const Var
 Status cast_encoded_variant_to_scalar(FunctionContext* context, const ColumnVariantV2& source,
                                       const DataTypePtr& target_type, size_t rows,
                                       ForcedNulls forced_nulls, ColumnPtr* output) {
-    if (source.is_typed() || source.size() != rows ||
+    if (!source.is_encoded() || source.size() != rows ||
         (!forced_nulls.empty() && forced_nulls.size() != rows)) {
         return Status::InvalidArgument("Invalid encoded Variant V2 input for scalar CAST");
     }

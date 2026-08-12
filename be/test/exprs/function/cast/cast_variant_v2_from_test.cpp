@@ -17,6 +17,7 @@
 
 #include <array>
 #include <string_view>
+#include <vector>
 
 #include "common/exception.h"
 #include "core/assert_cast.h"
@@ -120,6 +121,54 @@ ColumnVariantV2::MutablePtr typed_ints() {
             std::make_shared<DataTypeInt32>());
 }
 
+ColumnVariantV2::MutablePtr shredded_conflict_rows() {
+    VariantBatchBuilder residual_builder(VariantBatchBuilder::ReserveHint {.rows = 3});
+    for (size_t row_index = 0; row_index < 2; ++row_index) {
+        auto row = residual_builder.begin_row();
+        auto object = row.start_object();
+        object.finish();
+        row.finish();
+    }
+    {
+        auto row = residual_builder.begin_row();
+        auto object = row.start_object();
+        object.add_key(StringRef("a"));
+        auto nested = row.start_object();
+        nested.add_key(StringRef("b"));
+        row.add_int(2);
+        nested.finish();
+        object.finish();
+        row.finish();
+    }
+    auto residual = finish(&residual_builder);
+
+    VariantBatchBuilder value_builder(VariantBatchBuilder::ReserveHint {.rows = 3});
+    {
+        auto row = value_builder.begin_row();
+        row.add_int(7);
+        row.finish();
+    }
+    {
+        auto row = value_builder.begin_row();
+        row.add_string(StringRef("seven"));
+        row.finish();
+    }
+    {
+        auto row = value_builder.begin_row();
+        row.add_null();
+        row.finish();
+    }
+    auto child = finish(&value_builder);
+    auto presence = ColumnUInt8::create();
+    presence->insert_value(1);
+    presence->insert_value(1);
+    presence->insert_value(0);
+    ColumnVariantV2::ShreddedFields fields;
+    fields.emplace_back(PathInData(std::vector<std::string> {"a"}), std::move(child),
+                        std::move(presence));
+    return ColumnVariantV2::create_shredded(std::move(residual), std::move(fields));
+}
+
 const ColumnNullable& nullable_result(const ColumnPtr& column) {
     return assert_cast<const ColumnNullable&>(*column);
 }
@@ -190,6 +239,43 @@ TEST(CastVariantV2FromTest, TypedScalarDelegatesToConcreteNonStrictCast) {
     EXPECT_EQ(merged_nulls[0], 1);
     EXPECT_EQ(merged_nulls[1], 1);
     EXPECT_EQ(merged_nulls[2], 0);
+}
+
+TEST(CastVariantV2FromTest, ShreddedSourceUsesConstEncodedSnapshot) {
+    ColumnPtr source = shredded_conflict_rows();
+    const auto& shredded = assert_cast<const ColumnVariantV2&>(*source);
+    ASSERT_TRUE(shredded.is_shredded());
+    ASSERT_TRUE(shredded.shredded_field_values(0).is_encoded());
+
+    CastResult scalar = execute_from_variant(source, std::make_shared<DataTypeInt32>());
+    ASSERT_TRUE(scalar.status.ok()) << scalar.status;
+    EXPECT_EQ(nullable_result(scalar.column).get_null_map_data(), (NullMap {1, 1, 1}));
+    EXPECT_TRUE(shredded.is_shredded());
+
+    CastResult string = execute_from_variant(source, std::make_shared<DataTypeString>());
+    ASSERT_TRUE(string.status.ok()) << string.status;
+    const auto& string_result = nullable_result(string.column);
+    EXPECT_EQ(string_result.get_null_map_data(), (NullMap {0, 0, 0}));
+    const auto& strings = assert_cast<const ColumnString&>(string_result.get_nested_column());
+    EXPECT_EQ(strings.get_data_at(0), StringRef(R"({"a":7})"));
+    EXPECT_EQ(strings.get_data_at(1), StringRef(R"({"a":"seven"})"));
+    EXPECT_EQ(strings.get_data_at(2), StringRef(R"({"a":{"b":2}})"));
+    EXPECT_TRUE(shredded.is_shredded());
+
+    CastResult jsonb = execute_from_variant(source, std::make_shared<DataTypeJsonb>());
+    ASSERT_TRUE(jsonb.status.ok()) << jsonb.status;
+    const auto& jsonb_result = nullable_result(jsonb.column);
+    EXPECT_EQ(jsonb_result.get_null_map_data(), (NullMap {0, 0, 0}));
+    EXPECT_EQ(jsonb_text(jsonb_result.get_nested_column(), 0), R"({"a":7})");
+    EXPECT_EQ(jsonb_text(jsonb_result.get_nested_column(), 1), R"({"a":"seven"})");
+    EXPECT_EQ(jsonb_text(jsonb_result.get_nested_column(), 2), R"({"a":{"b":2}})");
+    EXPECT_TRUE(shredded.is_shredded());
+
+    auto array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeVariantV2>());
+    CastResult array = execute_from_variant(source, array_type);
+    ASSERT_TRUE(array.status.ok()) << array.status;
+    EXPECT_EQ(nullable_result(array.column).get_null_map_data(), (NullMap {1, 1, 1}));
+    EXPECT_TRUE(shredded.is_shredded());
 }
 
 TEST(CastVariantV2FromTest, IpTargetsDelegateToConcreteNonStrictCast) {

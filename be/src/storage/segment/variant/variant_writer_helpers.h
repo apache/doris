@@ -38,6 +38,7 @@ namespace segment_v2 {
 
 class VariantShredder;
 enum class VariantShredderPhysicalLayout : uint8_t;
+struct VariantShredderAppendStats;
 struct VariantShredderOptions;
 
 namespace variant_writer_helpers {
@@ -58,7 +59,9 @@ Status classify_variant_writer_input(const VariantColumnData& column,
                                      VariantWriterInputFormat* input_format);
 
 Status append_variant_v2_to_shredder(VariantShredder* shredder, const VariantColumnData& column,
-                                     size_t num_rows, std::span<const uint8_t> outer_nulls);
+                                     size_t num_rows, std::span<const uint8_t> outer_nulls,
+                                     VariantShredderAppendStats* append_stats = nullptr);
+void record_variant_v2_shredded_writer_stats(const VariantShredderAppendStats& append_stats);
 
 void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                       const ColumnWriterOptions& opts);

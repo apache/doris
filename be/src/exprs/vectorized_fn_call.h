@@ -42,6 +42,7 @@ namespace doris {
 
 class Block;
 class VExprContext;
+class VariantElementPathFusionPlan;
 
 class VectorizedFnCall : public VExpr {
     ENABLE_FACTORY_CREATOR(VectorizedFnCall);
@@ -123,9 +124,28 @@ public:
 
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
-        *cloned_expr = std::make_shared<VectorizedFnCall>(*this);
+        auto cloned = std::make_shared<VectorizedFnCall>(*this);
+        // deep_clone replaces children after clone_node returns. A prepared plan points into the
+        // original child tree and must be rebuilt from the cloned children during prepare.
+        cloned->_variant_element_path_plan.reset();
+#ifdef BE_TEST
+        cloned->_test_variant_element_path_plan_builds = 0;
+#endif
+        *cloned_expr = std::move(cloned);
         return Status::OK();
     }
+
+#ifdef BE_TEST
+    Status prepare_variant_element_path_fusion_for_test() {
+        return _prepare_variant_element_path_fusion();
+    }
+    size_t variant_element_path_plan_builds_for_test() const {
+        return _test_variant_element_path_plan_builds;
+    }
+    bool has_variant_element_path_plan_for_test() const {
+        return static_cast<bool>(_variant_element_path_plan);
+    }
+#endif
 
 protected:
     FunctionBasePtr _function;
@@ -133,8 +153,14 @@ protected:
     std::string _function_name;
 
 private:
+    Status _prepare_variant_element_path_fusion();
     Status _do_execute(VExprContext* context, const Block* block, const Selector* selector,
                        size_t count, ColumnPtr& result_column, ColumnPtr* arg_column) const;
+
+    std::shared_ptr<const VariantElementPathFusionPlan> _variant_element_path_plan;
+#ifdef BE_TEST
+    size_t _test_variant_element_path_plan_builds = 0;
+#endif
 };
 
 } // namespace doris

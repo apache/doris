@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/exception.h"
+#include "common/metrics/doris_metrics.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_variant.h"
@@ -118,7 +119,8 @@ Status classify_variant_writer_input(const VariantColumnData& column,
 }
 
 Status append_variant_v2_to_shredder(VariantShredder* shredder, const VariantColumnData& column,
-                                     size_t num_rows, std::span<const uint8_t> outer_nulls) {
+                                     size_t num_rows, std::span<const uint8_t> outer_nulls,
+                                     VariantShredderAppendStats* append_stats) {
     DORIS_CHECK(shredder != nullptr);
     DORIS_CHECK(column.column_data != nullptr);
     const auto* source = check_and_get_column<ColumnVariantV2>(*column.column_data);
@@ -132,16 +134,39 @@ Status append_variant_v2_to_shredder(VariantShredder* shredder, const VariantCol
                                        outer_nulls.size(), num_rows);
     }
 
-    const auto view = source->read_view();
-    if (!view.is_typed()) {
-        return shredder->append(view, column.row_pos, num_rows, outer_nulls);
+    if (source->is_encoded()) {
+        const Status status =
+                shredder->append(source->read_view(), column.row_pos, num_rows, outer_nulls);
+        if (status.ok() && append_stats != nullptr) {
+            *append_stats = {};
+        }
+        return status;
+    }
+    if (source->is_shredded()) {
+        return shredder->append_shredded(*source, column.row_pos, num_rows, outer_nulls,
+                                         append_stats);
     }
 
-    auto encoded_batch = ColumnVariantV2::create();
+    ColumnVariantV2::MutablePtr encoded_batch;
     RETURN_IF_CATCH_EXCEPTION(
-            { encoded_batch->insert_range_from(*source, column.row_pos, num_rows); });
-    DORIS_CHECK(!encoded_batch->is_typed());
-    return shredder->append(encoded_batch->read_view(), 0, num_rows, outer_nulls);
+            { encoded_batch = source->materialize_encoded_range(column.row_pos, num_rows); });
+    DORIS_CHECK(encoded_batch->is_encoded());
+    const Status status = shredder->append(encoded_batch->read_view(), 0, num_rows, outer_nulls);
+    if (status.ok() && append_stats != nullptr) {
+        *append_stats = {};
+    }
+    return status;
+}
+
+void record_variant_v2_shredded_writer_stats(const VariantShredderAppendStats& append_stats) {
+    if (append_stats.native_shredded_rows != 0) {
+        DorisMetrics::instance()->variant_v2_shredded_writer_native_rows->increment(
+                append_stats.native_shredded_rows);
+    }
+    if (append_stats.encoded_fallback_rows != 0) {
+        DorisMetrics::instance()->variant_v2_shredded_writer_fallback_rows->increment(
+                append_stats.encoded_fallback_rows);
+    }
 }
 
 void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,

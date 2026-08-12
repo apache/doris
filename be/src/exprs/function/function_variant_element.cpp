@@ -18,6 +18,7 @@
 #include <glog/logging.h>
 #include <stddef.h>
 
+#include <array>
 #include <memory>
 #include <ostream>
 #include <span>
@@ -107,60 +108,12 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr materialized =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const IColumn* physical = materialized.get();
-        std::span<const uint8_t> outer_nulls;
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(physical)) {
-            outer_nulls = nullable->get_null_map_data();
-            physical = &nullable->get_nested_column();
-        }
-        if (const auto* variant_v2 = check_and_get_column<ColumnVariantV2>(physical)) {
-            if (block.empty()) {
-                block.replace_by_position(result, ColumnNullable::create(ColumnVariantV2::create(),
-                                                                         ColumnUInt8::create()));
-                return Status::OK();
-            }
-
-            auto replace_with_all_null_result = [&]() {
-                auto null_values = ColumnVariantV2::create();
-                null_values->insert_many_defaults(variant_v2->size());
-                block.replace_by_position(
-                        result, ColumnNullable::create(std::move(null_values),
-                                                       ColumnUInt8::create(variant_v2->size(), 1)));
-            };
-            const auto& index_argument = block.get_by_position(arguments[1]);
-            const ColumnPtr materialized_index =
-                    index_argument.column->convert_to_full_column_if_const();
-            const IColumn* index_column = materialized_index.get();
-            if (index_column->is_null_at(0)) {
-                replace_with_all_null_result();
-                return Status::OK();
-            }
-            if (const auto* nullable = check_and_get_column<ColumnNullable>(*index_column)) {
-                index_column = &nullable->get_nested_column();
-            }
-
-            std::optional<VariantElementV2PathSegment> segment;
-            const PrimitiveType index_type =
-                    remove_nullable(index_argument.type)->get_primitive_type();
-            if (is_string_type(index_type)) {
-                segment = VariantElementV2PathSegment::object_key(index_column->get_data_at(0));
-            } else if (is_int_or_bool(index_type)) {
-                const int64_t sql_index = index_column->get_int(0);
-                if (sql_index == 0) {
-                    replace_with_all_null_result();
-                    return Status::OK();
-                }
-                segment = VariantElementV2PathSegment::array_index(sql_index > 0 ? sql_index - 1
-                                                                                 : sql_index);
-            } else {
-                return Status::RuntimeError("unsupported index type {} for function {}",
-                                            index_argument.type->get_name(), get_name());
-            }
-            std::unique_ptr<ResolvedVariantElementV2Path> path;
-            RETURN_IF_ERROR(resolve_variant_element_v2_path(std::span(&*segment, 1), &path));
-            ColumnPtr result_column;
-            RETURN_IF_ERROR(
-                    extract_variant_element_v2(*variant_v2, *path, outer_nulls, &result_column));
+        const std::array<ColumnWithTypeAndName, 1> selectors {block.get_by_position(arguments[1])};
+        ColumnPtr result_column;
+        bool applied = false;
+        RETURN_IF_ERROR(try_extract_variant_element_v2_path(materialized, selectors, &result_column,
+                                                            &applied));
+        if (applied) {
             block.replace_by_position(result, std::move(result_column));
             return Status::OK();
         }
@@ -179,7 +132,6 @@ public:
         }
 
         auto index_column = block.get_by_position(arguments[1]).column;
-        ColumnPtr result_column;
         RETURN_IF_ERROR(get_element_column(*variant_col, index_column, &result_column));
         if (block.get_by_position(result).type->is_nullable()) {
             result_column = wrap_variant_nullable(result_column);

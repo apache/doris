@@ -342,6 +342,8 @@ private:
     RuntimeProfile::Counter* _variant_subtree_sparse_iter_count = nullptr;
     // Variant subtree: times selecting doc snapshot all iterator (merge doc snapshot into root)
     RuntimeProfile::Counter* _variant_doc_value_column_iter_count = nullptr;
+    // Rows returned from Variant V2 hierarchical assembly in shredded execution state.
+    RuntimeProfile::Counter* _variant_v2_shredded_output_rows = nullptr;
 
     RuntimeProfile::Counter* _adaptive_batch_predict_min_rows_counter = nullptr;
     RuntimeProfile::Counter* _adaptive_batch_predict_max_rows_counter = nullptr;

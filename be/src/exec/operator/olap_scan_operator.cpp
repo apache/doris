@@ -430,6 +430,8 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "VariantSubtreeSparseIterCount", TUnit::UNIT);
     _variant_doc_value_column_iter_count =
             ADD_COUNTER(_segment_profile, "VariantDocValueColumnIterCount", TUnit::UNIT);
+    _variant_v2_shredded_output_rows =
+            ADD_COUNTER(_segment_profile, "VariantV2ShreddedOutputRows", TUnit::UNIT);
 
     _adaptive_batch_predict_min_rows_counter =
             ADD_COUNTER(_segment_profile, "AdaptiveBatchPredictMinRows", TUnit::UNIT);
