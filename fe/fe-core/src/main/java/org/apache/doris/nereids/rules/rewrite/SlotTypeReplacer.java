@@ -377,12 +377,14 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         Pair<Boolean, List<Slot>> replaced = replaceExpressions(fileScan.getOutput(), false, true);
         if (replaced.first) {
             List<Slot> replaceSlots = new ArrayList<>(replaced.second);
-            // Gate the name-to-field-id access-path rewrite on the nested-column-prune capability (not the
-            // legacy exact-class IcebergExternalTable, which is dead post-flip — the table is a
-            // PluginDrivenExternalTable). The translation below is connector-agnostic: it reads
-            // column.getUniqueId()/getChildren(), which the connector populates with its stable field ids.
+            // Gate the name-to-field-id access-path rewrite on the field-id access-path capability, which is
+            // separate from the prune capability: a connector can honour a pruned nested type while still
+            // being addressed by name. (Not the legacy exact-class IcebergExternalTable, which is dead
+            // post-flip — the table is a PluginDrivenExternalTable.) The translation below is
+            // connector-agnostic: it reads column.getUniqueId()/getChildren(), which the connector populates
+            // with its stable field ids.
             if (fileScan.getTable() instanceof PluginDrivenExternalTable
-                    && ((PluginDrivenExternalTable) fileScan.getTable()).supportsNestedColumnPrune()) {
+                    && ((PluginDrivenExternalTable) fileScan.getTable()).usesFieldIdAccessPath()) {
                 for (int i = 0; i < replaceSlots.size(); i++) {
                     Slot slot = replaceSlots.get(i);
                     if (!(slot instanceof SlotReference)) {

@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <artifactId>fe-connector</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>fe-connector-fluss</artifactId>
+    <packaging>jar</packaging>
+    <name>Doris FE Connector - Fluss</name>
+    <description>
+        Fluss connector plugin for Doris FE.
+        Provides metadata operations (list databases, list tables, get schema) and read-side scan
+        planning for Fluss clusters via the connector SPI.
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- fe-foundation: the @ConnectorProperty binder and ParamRules behind FlussCatalogProperties.
+             Declared directly rather than leaned on transitively, because the binding must happen inside
+             the plugin: org.apache.doris.foundation is child-first for the connector family, so a plugin
+             that did not carry its own copy would have fe-core reflect on classes whose annotations it
+             cannot see, and getAnnotation returns null silently rather than failing. fe-foundation has
+             zero fe-core dependencies and a non-gated package. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!--
+          The fluss java client. Version comes from fe/pom.xml's single ${fluss.version} property, which
+          pins every fluss consumer at once (see the INVARIANT comment there).
+
+          It ships as ONE ~69MB fat jar with NO relocation: fluss-common and fluss-rpc
+          (org.apache.fluss.**), frocksdbjni (org.rocksdb.** plus the librocksdbjni-*.so natives),
+          commons-lang3 and zstd-jni are all shaded INSIDE it. Two consequences worth knowing before
+          editing this block:
+            - do NOT additionally declare fluss-common / fluss-rpc here. Their classes are already in
+              this jar, and a second copy on the child-first plugin classpath is a split-brain risk.
+            - frocksdbjni CANNOT be excluded: it is not a transitive dependency, so there is nothing to
+              exclude. The FE carries it even though only the BE-side scanner ever opens a kv snapshot.
+          Arrow needs no declaration either, despite fluss-client's pom marking arrow-vector and
+          arrow-memory-netty `provided`: fluss does not use those coordinates. Its ARROW log format
+          goes through a relocated copy bundled in this same jar (org.apache.fluss.shaded.arrow.**),
+          allocator included, so a consumer that decodes log records is already served. What such a
+          consumer DOES need is the add-opens=java.base/java.nio=ALL-UNNAMED JVM flag, which arrow's
+          off-heap MemoryUtil requires on JDK 9+ (bin/start_be.sh already passes it).
+        -->
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-client</artifactId>
+            <version>${fluss.version}</version>
+        </dependency>
+
+        <!-- Thrift types for the table descriptor; supplied by the parent classloader at runtime -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          TEST ONLY: a real fluss cluster in the test JVM (coordinator + tablet servers + an embedded
+          ZooKeeper), which is how the metadata mapping is tested against the actual server rather than
+          against our own idea of what it returns. FlussClusterExtension lives in fluss-server's
+          test-jar; fluss-server itself is the code that jar drives. Mirrors the test dependencies of
+          fluss's own fluss-flink-common module.
+        -->
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-server</artifactId>
+            <version>${fluss.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          Spelled as classifier "tests" rather than type "test-jar", which resolve to the very same
+          file: the build cache extension takes a dependency's type for its file extension when it
+          hashes the module's inputs, so type "test-jar" sends it looking for a
+          fluss-server-1.0-SNAPSHOT.test-jar that exists in no repository, and the frontend build
+          fails before it compiles anything. No other module here depends on a foreign test-jar.
+        -->
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-server</artifactId>
+            <version>${fluss.version}</version>
+            <classifier>tests</classifier>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- fluss's own test helpers (retry/await utilities the cluster extension calls into) -->
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-test-utils</artifactId>
+            <version>${fluss.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          The embedded ZooKeeper the fluss cluster stores its metadata in. It is a test-scope dependency
+          of fluss-server, so it does NOT arrive with the test-jar and has to be named here or the
+          cluster fails to start with NoClassDefFoundError: TestingServer. Version tracks the one fluss
+          builds against (its curator.version).
+        -->
+        <dependency>
+            <groupId>org.apache.curator</groupId>
+            <artifactId>curator-test</artifactId>
+            <version>5.4.0</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>doris-fe-connector-fluss</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                      Arrow's off-heap MemoryUtil reflects into java.nio.Buffer and refuses to initialize
+                      without this on JDK 9+. Needed by the cluster tests that WRITE to a log table: fluss's
+                      default log format is arrow, so the client encodes records through it. The metadata
+                      tests never touch it, which is why this was not needed before.
+                      Not a deployment concern: bin/start_be.sh already passes the same flag to the BE JVM
+                      that will host the fluss scanner (add_java_opt_if_missing, java.nio).
+                    -->
+                    <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <configuration>
+                    <appendAssemblyId>false</appendAssemblyId>
+                    <descriptors>
+                        <descriptor>src/main/assembly/plugin-zip.xml</descriptor>
+                    </descriptors>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

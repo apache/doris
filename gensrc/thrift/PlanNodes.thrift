@@ -483,6 +483,18 @@ struct TTableFormatFileDesc {
     //       adbc.<option> passthrough, and either query_sql or partition_b64.
     // The partition descriptor is opaque binary, so it travels base64-encoded.
     14: optional map<string, string> adbc_params
+    // Fluss per-split parameters (used when table_format_type == "fluss"; the range_type key says
+    // which kind of range this is and picks the reader inside BE's fluss dispatch).
+    // Carries ONLY what varies per split: partition/bucket identity, range type, log offsets and
+    // the kv snapshot id; a lake split (range_type LAKE / LAKE_SUPPRESS) is another connector's
+    // split wrapped, so it carries at most the log tail that suppresses its rows here and keeps
+    // the wrapped connector's own params untouched. Everything constant for the whole scan
+    // (bootstrap servers, table identity, client/table options) lives in
+    // TFileScanRangeParams.fluss_properties so it is not re-serialized once per bucket.
+    // Untyped on purpose: BE C++ holds no fluss logic beyond that dispatch, it hands this map
+    // straight to the Java scanner, so a typed struct would only add a transcription step (see
+    // es_params, jdbc_params).
+    15: optional map<string, string> fluss_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -574,6 +586,9 @@ struct TFileScanRangeParams {
     // HMS catalog property hive.parquet.time-zone. When absent, format_v2 keeps INT96 wall-clock
     // values unchanged. When present, only INT96 TIMESTAMP values are converted with this zone.
     36: optional string hive_parquet_time_zone
+    // Fluss scan-level properties (bootstrap servers, table identity, client/table options,
+    // projected columns). Set at ScanNode level to avoid redundant serialization in each split.
+    37: optional map<string, string> fluss_properties
 }
 
 struct TFileRangeDesc {

@@ -551,8 +551,8 @@ void JniTableReader::_prepare_jni_scanner_schema() {
     _scanner_params["required_fields"] = join(required_fields, ",");
     _scanner_params["columns_types"] = join(column_types, "#");
     if (publish_encoded_schema) {
-        // Only Paimon consumes the paired payload. Keeping it capability-gated avoids recursively
-        // encoding nested types for every split of unrelated V2 JNI connectors.
+        // Only the readers that opt in consume the paired payload. Keeping it capability-gated
+        // avoids recursively encoding nested types for every split of unrelated V2 JNI connectors.
         _scanner_params["required_fields_base64"] =
                 JniDataBridge::encode_schema_values(required_fields);
         _scanner_params["columns_types_base64"] =

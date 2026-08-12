@@ -140,19 +140,56 @@ public enum ConnectorCapability {
      *
      * <p>The nereids nested-column-prune probe ({@code LogicalFileScan.supportPruneNestedColumn}) enables it
      * for a plugin-driven table only when its connector declares this (replacing the legacy exact-class
-     * {@code IcebergExternalTable} arm). It is only correct when the connector also carries a stable per-field
-     * id down its column tree (top-level via {@link ConnectorColumn#withUniqueId} + nested via
-     * {@link ConnectorType#withChildrenFieldIds}), because the engine rewrites the nested access path from
-     * field <em>names</em> to those ids ({@code SlotTypeReplacer}) and the BE field-id scan path matches
-     * nested leaves by id — an un-translated (name / {@code -1}) leaf is skipped and returns NULL. Row/
-     * passthrough connectors (e.g. JDBC, ES) and connectors that do not carry nested field ids must NOT
-     * declare it.</p>
+     * {@code IcebergExternalTable} arm). Declaring it says the connector's readers honour a pruned nested type
+     * — nothing about HOW the nested access paths are addressed. A connector whose column tree also carries
+     * stable field ids declares {@link #SUPPORTS_FIELD_ID_ACCESS_PATH} in addition; one that is matched by
+     * NAME (paimon, fluss) declares this alone, and BE resolves its access paths by name. Row/passthrough
+     * connectors (e.g. JDBC, ES) declare neither.</p>
      *
      * <p><b>Scope: catalog-wide OR per-table.</b> hive declares it per-table because eligibility is
      * orc/parquet-only; blanket-declaring it for a mixed catalog would be a correctness bug, not just an
-     * over-admission — a text/json table has no field ids, so pruned leaves would read back NULL.</p>
+     * over-admission — a text/json table cannot be read as a pruned nested type at all.</p>
      */
     SUPPORTS_NESTED_COLUMN_PRUNE,
+    /**
+     * Indicates the connector carries a stable field id down its whole column tree, so the engine may rewrite
+     * a nested access path from field <em>names</em> to those ids.
+     *
+     * <p>{@code SlotTypeReplacer} performs that rewrite for a plugin-driven scan only when its connector
+     * declares this, reading {@code Column.getUniqueId()} / {@code getChildren()} — which the connector
+     * populates via {@link ConnectorColumn#withUniqueId} (top level) and
+     * {@link ConnectorType#withChildrenFieldIds} (nested). Declaring it WITHOUT those ids rewrites every path
+     * segment to {@code "-1"}, which BE matches neither as an id nor as a name, so the pruned leaves read
+     * back NULL. It is meaningless without {@link #SUPPORTS_NESTED_COLUMN_PRUNE}, which is what generates the
+     * paths in the first place.
+     *
+     * <p><b>Scope: catalog-wide OR per-table</b>, mirroring {@link #SUPPORTS_NESTED_COLUMN_PRUNE} — the two
+     * are resolved together and a delegated (iceberg-on-HMS) table must inherit both or neither.</p>
+     */
+    SUPPORTS_FIELD_ID_ACCESS_PATH,
+    /**
+     * Indicates THIS system table is served by an ordinary data reader, so it prunes its nested columns like
+     * a data table does.
+     *
+     * <p>A system table is normally excluded from nested-column pruning
+     * ({@code PluginDrivenSysExternalTable.supportsNestedColumnPrune}) whatever its connector declares: a
+     * metadata table (e.g. {@code tbl$snapshots}) is served by the JNI metadata reader, which indexes its
+     * record by the Doris child position, so a pruned type makes it return a different field's value — and
+     * its scan ships no field-id dictionary. But some system tables are the table's own data under another
+     * name: fluss's {@code tbl$lake} is the lake half read through the paimon sibling and {@code tbl$log} the
+     * log half read through the fluss scanner. Both honour a pruned type and both are as large as the front
+     * door, so excluding them costs the read amplification pruning exists to avoid and makes one query answer
+     * differently through {@code tbl} than through {@code tbl$lake}.
+     *
+     * <p><b>Scope: per-table ONLY</b>, and deliberately a capability of its own rather than a reuse of
+     * {@link #SUPPORTS_NESTED_COLUMN_PRUNE}. That one answers a question about a DATA table and gets
+     * reflected onto delegated schemas ({@code HiveConnectorMetadata.reflectSiblingCapabilities} copies the
+     * owning sibling's connector-wide set onto every schema it forwards, system tables included) — reusing it
+     * would silently admit an iceberg-on-HMS {@code tbl$snapshots}, which is exactly the reader that cannot
+     * take a pruned type. A separate bit can only arrive by a connector naming it on the system table's own
+     * {@link ConnectorTableSchema}.
+     */
+    SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE,
     /**
      * Indicates the connector's external metadata (schema / partitions / snapshot) can be pre-warmed
      * asynchronously by the planner before it takes the internal read lock, rather than loaded lazily

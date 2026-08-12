@@ -279,6 +279,17 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Returns whether THIS table's connector carries stable field ids down its column tree, so
+     * {@code SlotTypeReplacer} may rewrite nested access paths from names to those ids. Separate from
+     * {@link #supportsNestedColumnPrune()} because the two answers differ: paimon and fluss honour a pruned
+     * nested type but have no field ids, and rewriting their paths would produce {@code "-1"} segments BE
+     * matches against nothing.
+     */
+    public boolean usesFieldIdAccessPath() {
+        return hasCapability(ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH);
+    }
+
+    /**
      * Returns whether THIS table supports {@code ALTER TABLE} column schema-change DDL (including dotted
      * nested paths and {@code MODIFY COLUMN ... COMMENT}). The nereids {@code AlterTableCommand} column-op
      * validation consults this (in place of the legacy exact-class {@code IcebergExternalTable} gate) to admit
@@ -343,7 +354,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /** The connector-declared per-table capability set, from the cached schema; empty on any miss. */
-    private Set<ConnectorCapability> tableCapabilities() {
+    protected Set<ConnectorCapability> tableCapabilities() {
         makeSureInitialized();
         return getSchemaCacheValue()
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getTableCapabilities())
