@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BooleanType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -134,6 +135,43 @@ public class InferMarkSlotNotNullMapTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    public void testLaterTupleAssignmentMatters() {
+        MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");
+        MarkJoinSlotReference markSlot2 = new MarkJoinSlotReference("markSlot2");
+        MarkJoinSlotReference markSlot3 = new MarkJoinSlotReference("markSlot3");
+        MarkJoinSlotReference markSlot4 = new MarkJoinSlotReference("markSlot4");
+
+        // (M1 AND FALSE) OR NOT(M2): the enumeration replaces the other mark slot M2 with
+        // true/false/null. at the first tuple (M2 = true) both the original and the
+        // simplified predicate fold to FALSE for M1 = false and M1 = null, so both fields
+        // would stay true; only the LATER tuple M2 = false makes both predicates TRUE and
+        // forces the correct (false, false). a mutation that truncates the enumeration
+        // after the first tuple (e.g. loopCount = 1) would wrongly report (true, true),
+        // so this case covers the second base-3 assignment.
+        assertMarkSlotPair(
+                new Or(new And(markSlot1, BooleanLiteral.FALSE), new Not(markSlot2)),
+                markSlot1, false, false);
+
+        // (M1 AND FALSE) OR (M2 AND NOT(M3)): for target M1 the other slots are M2 (least
+        // significant base-3 digit) and M3. the first three tuples keep M3 = true and stay
+        // (true, true); the deciding tuple is M2 = true AND M3 = false (code = 3), which
+        // only exists when the base-3 carry propagates from M2's digit to M3's digit.
+        assertMarkSlotPair(
+                new Or(new And(markSlot1, BooleanLiteral.FALSE),
+                        new And(markSlot2, new Not(markSlot3))),
+                markSlot1, false, false);
+
+        // (M1 AND FALSE) OR (M2 AND M3 AND NOT(M4)): the deciding tuple is M2 = true AND
+        // M3 = true AND M4 = false (code = 9), reached only after the base-3 count carries
+        // through two digits, so a truncated or wrongly-digit-ordered enumeration cannot
+        // produce (false, false).
+        assertMarkSlotPair(
+                new Or(new And(markSlot1, BooleanLiteral.FALSE),
+                        new And(Lists.newArrayList(markSlot2, markSlot3, new Not(markSlot4)))),
+                markSlot1, false, false);
+    }
+
+    @Test
     public void testSimplifyWithNonMarkSlot() {
         SlotReference slot = new SlotReference("slot", BooleanType.INSTANCE);
         MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");
@@ -189,8 +227,72 @@ public class InferMarkSlotNotNullMapTest extends ExpressionRewriteTestHelper {
         // the mark join changes which rows reach assert_true, a NoneMovableFunction: the
         // semi join prunes the unmatched rows before the filter, so assert_true is no
         // longer evaluated on them and its error is suppressed, violating the
-        // NoneMovableFunction contract. pair.second must therefore be fenced to false
-        assertMarkSlotPair(predicate, markSlot1, true, false);
+        // NoneMovableFunction contract. pair.second must therefore be fenced to false.
+        // pair.first (the non-nullable inference) is fenced as well: treating M's null as
+        // false changes how assert_true is evaluated by the vectorized AND (a nullable
+        // null input forces the right operand to be evaluated, an all-false non-null input
+        // can short-circuit it), so M must stay nullable here too.
+        assertMarkSlotPair(predicate, markSlot1, false, false);
+    }
+
+    @Test
+    public void testNoneMovableFunctionFencesNonNullableMark() {
+        MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");
+        SlotReference guard = new SlotReference("guard", BooleanType.INSTANCE);
+        SlotReference flag = new SlotReference("flag", BooleanType.INSTANCE);
+
+        // ((M and assert_true(guard, 'bad')) or flag): the simplifier produces (M and TRUE)
+        // or FALSE, so pair.first alone would mark M non-nullable while pair.second correctly
+        // keeps the mark join. but treating M's null as false changes how assert_true is
+        // evaluated: the vectorized AND evaluates its right operand for a nullable null input
+        // (NULL and x depends on x) but can return early for an all-false non-null input, so
+        // converting M's null to false may skip assert_true and suppress its error. pair.first
+        // must therefore be fenced to false as well, not only pair.second.
+        Expression predicate = new Or(
+                new And(markSlot1, new AssertTrue(guard, new VarcharLiteral("bad"))), flag);
+        assertMarkSlotPair(predicate, markSlot1, false, false);
+
+        // control: without a sensitive expression in the predicate, pair.first stays true
+        // (M can be treated as non-nullable) while pair.second stays false (mark join kept)
+        Expression plainPredicate = new Or(new And(markSlot1, guard), flag);
+        assertMarkSlotPair(plainPredicate, markSlot1, true, false);
+    }
+
+    @Test
+    public void testCompleteEvaluationDomainFencesMarkJoinElimination() {
+        MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");
+        MarkJoinSlotReference markSlot2 = new MarkJoinSlotReference("markSlot2");
+        SlotReference guard = new SlotReference("guard", BooleanType.INSTANCE);
+
+        // the current conjunct: ifnull(M1, false)
+        Expression markConjunct = new Nvl(markSlot1, BooleanLiteral.FALSE);
+
+        // the sibling conjunct contains a NoneMovableFunction (assert_true) and references
+        // another mark slot (markSlot2), so after the mark1 join is eliminated it cannot be
+        // pushed below the semi join and assert_true is only evaluated on the rows that
+        // survive the elimination
+        Expression siblingConjunct = new AssertTrue(
+                new Nvl(markSlot2, BooleanLiteral.FALSE), new VarcharLiteral("bad"));
+
+        // the conjunct alone cannot see the sibling's assert_true, so pair.second stays true
+        assertMarkSlotPair(markConjunct, markSlot1, true, true);
+
+        // when the complete evaluation domain (all conjuncts of the containing filter/join)
+        // is passed in, pair.second must be fenced to false so the mark join is not
+        // eliminated across the sibling's assert_true; pair.first is fenced as well so M
+        // stays nullable
+        Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> result = ExpressionUtils
+                .inferMarkSlotNotNullMap(markConjunct, context,
+                        ImmutableList.of(markConjunct, siblingConjunct));
+        Assertions.assertEquals(Pair.of(Boolean.FALSE, Boolean.FALSE), result.get(markSlot1));
+
+        // the sensitive expression may also live inside a later subquery plan: the flattened
+        // subquery plan expressions belong to the evaluation domain as well, and fence both
+        // fields to false even though the current conjunct is clean
+        Expression subqueryPlanExpression = new AssertTrue(guard, new VarcharLiteral("bad"));
+        result = ExpressionUtils.inferMarkSlotNotNullMap(markConjunct, context,
+                ImmutableList.of(markConjunct, subqueryPlanExpression));
+        Assertions.assertEquals(Pair.of(Boolean.FALSE, Boolean.FALSE), result.get(markSlot1));
     }
 
     @Test
@@ -205,12 +307,18 @@ public class InferMarkSlotNotNullMapTest extends ExpressionRewriteTestHelper {
         Assertions.assertTrue(
                 ExpressionUtils.inferMarkSlotNotNullMap(BooleanLiteral.TRUE, context).isEmpty());
 
-        // 4 mark slots is within the limit
+        // 4 mark slots is within the limit; every target slot in or(M1, M2, M3, M4) is
+        // decided by the first tuple (the other three marks are true, so the predicate is
+        // TRUE for both false and null), hence (false, false) for all of them
         List<Expression> withinLimitList = Lists.newArrayList(
                 markSlot1, markSlot2, markSlot3, markSlot4);
         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> withinLimit = ExpressionUtils
                 .inferMarkSlotNotNullMap(new Or(withinLimitList), context);
         Assertions.assertEquals(4, withinLimit.size());
+        Assertions.assertEquals(Pair.of(Boolean.FALSE, Boolean.FALSE), withinLimit.get(markSlot1));
+        Assertions.assertEquals(Pair.of(Boolean.FALSE, Boolean.FALSE), withinLimit.get(markSlot2));
+        Assertions.assertEquals(Pair.of(Boolean.FALSE, Boolean.FALSE), withinLimit.get(markSlot3));
+        Assertions.assertEquals(Pair.of(Boolean.FALSE, Boolean.FALSE), withinLimit.get(markSlot4));
 
         // 5 mark slots exceeds the limit -> empty map
         List<Expression> exceedLimitList = Lists.newArrayList(

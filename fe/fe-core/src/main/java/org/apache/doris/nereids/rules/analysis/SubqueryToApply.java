@@ -559,7 +559,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(plan, cascadesContext);
         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo;
         if (conjunct.containsType(MarkJoinSlotReference.class)) {
-            markSlotsInfo = ExpressionUtils.inferMarkSlotNotNullMap(conjunct, rewriteContext);
+            markSlotsInfo = ExpressionUtils.inferMarkSlotNotNullMap(
+                    conjunct, rewriteContext, collectEvaluationDomain(plan));
         } else {
             markSlotsInfo = Maps.newHashMap();
         }
@@ -573,6 +574,41 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             conjunct = ExpressionUtils.replace(conjunct, replaceMap);
         }
         return Pair.of(conjunct, markSlotsInfo);
+    }
+
+    /*
+     * collect the complete evaluation domain of the mark slot inference: the containing
+     * conjunct set of the filter/join, plus all the expressions inside the correlated
+     * subquery plans. a sensitive expression (e.g. assert_true) does not need to be inside
+     * the current conjunct: it may be a sibling conjunct of the same filter/join, or live in
+     * a later subquery plan whose input rows are pruned together with the outer rows when an
+     * earlier mark join is eliminated. pair.second is only safe when every such expression
+     * is still evaluated on the same rows after the elimination, so they all belong to the
+     * evaluation domain that the pair.second proof must be validated against.
+     */
+    private List<Expression> collectEvaluationDomain(Plan plan) {
+        List<Expression> evaluationDomain = new ArrayList<>();
+        if (plan instanceof LogicalFilter) {
+            evaluationDomain.addAll(((LogicalFilter<? extends Plan>) plan).getConjuncts());
+        } else if (plan instanceof LogicalJoin) {
+            evaluationDomain.addAll(((LogicalJoin<?, ?>) plan).getExpressions());
+        }
+        List<Expression> subqueryPlanExpressions = new ArrayList<>();
+        for (Expression expression : evaluationDomain) {
+            Set<SubqueryExpr> subqueries = expression.collect(SubqueryExpr.class::isInstance);
+            for (SubqueryExpr subquery : subqueries) {
+                collectPlanExpressions(subquery.getQueryPlan(), subqueryPlanExpressions);
+            }
+        }
+        evaluationDomain.addAll(subqueryPlanExpressions);
+        return evaluationDomain;
+    }
+
+    private void collectPlanExpressions(Plan plan, List<Expression> expressions) {
+        expressions.addAll(plan.getExpressions());
+        for (Plan child : plan.children()) {
+            collectPlanExpressions(child, expressions);
+        }
     }
 
     /**

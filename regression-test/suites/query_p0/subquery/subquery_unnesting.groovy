@@ -250,4 +250,67 @@ suite ("subquery_unnesting") {
                     false);"""
         exception "assert failed"
     }
+
+    // error-behavior regressions for the "complete evaluation domain" fence: the mark join
+    // must not be eliminated when a NoneMovableFunction (assert_true) exists anywhere in the
+    // affected evaluation domain, even if it is NOT inside the mark conjunct itself.
+    sql "drop table if exists assert_u"
+    sql """create table assert_u (k1 bigint, k2 bigint) DUPLICATE KEY(k1)
+            DISTRIBUTED BY HASH(k2) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into assert_u values (1,1),(2,2),(3,3);"""
+
+    // sibling conjunct: assert_true is a SIBLING conjunct of the eliminable mark conjunct.
+    // the mark conjunct is `k1 NOT IN (...)` = NOT M, which keeps the unmatched rows (1,1)
+    // and (3,3) and prunes the matched row (2,2); assert_true(guard) throws exactly on the
+    // kept unmatched rows. the mark conjunct alone infers pair.second = true, so the mark
+    // join would be eliminated into a semi join that only outputs the matched row and
+    // assert_true would never run on the unmatched rows. with the complete evaluation
+    // domain fence the mark join is kept, all rows reach the filter and assert_true throws
+    // on the unmatched guard = false rows.
+    test {
+        sql """select assert_t.k1 from assert_t
+                where assert_t.k1 not in (select assert_s.k1 from assert_s
+                        where assert_s.k2 = assert_t.k2)
+                  and assert_true(assert_t.k2 = 2, 'assert failed');"""
+        exception "assert failed"
+    }
+
+    // sensitive expression inside a later subquery plan: assert_true lives in the filter of
+    // a LATER subquery (the EXISTS one). marker replacement erases that plan from the
+    // earlier IN conjunct, so the complete evaluation domain (including all subquery plans)
+    // must fence the earlier IN apply from being eliminated into a semi join. the 'assert
+    // failed' error must still be raised.
+    test {
+        sql """select assert_t.k1 from assert_t
+                where ifnull(assert_t.k1 in (select assert_s.k1 from assert_s
+                        where assert_s.k2 = assert_t.k2), false)
+                  and exists (select 1 from assert_u
+                        where assert_u.k2 = assert_t.k2
+                          and assert_true(assert_u.k1 = 2, 'assert failed'));"""
+        exception "assert failed"
+    }
+
+    // error-behavior regression for the retained-mark non-nullable inference (pair.first):
+    // ((M and assert_true(guard, 'bad')) or flag) keeps the mark join (pair.second = false)
+    // and pair.first alone would mark M non-nullable. M = k1 in (select null) is NULL for
+    // every row (null in the build side), and treating that null as false changes how
+    // assert_true is evaluated: the vectorized AND evaluates its right operand for a
+    // nullable null input but can return early for an all-false non-null column, so the
+    // required 'assert failed' error would be suppressed. pair.first must be fenced to
+    // false so M stays null and assert_true is evaluated on every row.
+    sql "drop table if exists null_src"
+    sql """create table null_src (v bigint null) DUPLICATE KEY(v)
+            DISTRIBUTED BY HASH(v) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into null_src values (null);"""
+    sql "drop table if exists guard_t"
+    sql """create table guard_t (k1 bigint, guard bigint) DUPLICATE KEY(k1)
+            DISTRIBUTED BY HASH(k1) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into guard_t values (1,0),(2,0),(3,0);"""
+    test {
+        sql """select guard_t.k1 from guard_t
+                where (guard_t.k1 in (select null from null_src)
+                        and assert_true(guard_t.guard = 1, 'assert failed'))
+                   or guard_t.guard = 2;"""
+        exception "assert failed"
+    }
 }
