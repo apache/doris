@@ -552,7 +552,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas "
             + "required in each availability zone for a load job.")
-    public static String[] cross_az_succ_quorum = {};
+    public static volatile String[] cross_az_succ_quorum = {};
 
     public static Map<String, Integer> getCrossAzSuccQuorum() {
         String[] config = cross_az_succ_quorum;

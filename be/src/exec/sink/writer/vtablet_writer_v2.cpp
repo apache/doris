@@ -908,7 +908,9 @@ bool VTabletWriterV2::_quorum_success(
     }
 
     // 1. calculate finished tablets replica num
+    const auto& table_sink = _t_sink.olap_table_sink;
     std::unordered_set<int64_t> finished_dst_ids;
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> successful_dst_ids_by_tablet;
     std::unordered_map<int64_t, int64_t> finished_tablets_replica;
     for (const auto& [dst_id, streams] : streams_for_node) {
         bool finished = true;
@@ -922,6 +924,11 @@ bool VTabletWriterV2::_quorum_success(
         }
         if (finished) {
             finished_dst_ids.insert(dst_id);
+            if (table_sink.__isset.cross_az_succ_quorum) {
+                for (int64_t tablet_id : streams->success_tablets()) {
+                    successful_dst_ids_by_tablet[tablet_id].insert(dst_id);
+                }
+            }
         }
     }
     for (const auto& [dst_id, _] : streams_for_node) {
@@ -945,7 +952,6 @@ bool VTabletWriterV2::_quorum_success(
             return false;
         }
     }
-    const auto& table_sink = _t_sink.olap_table_sink;
     if (table_sink.__isset.cross_az_succ_quorum) {
         for (int64_t tablet_id : need_finish_tablets) {
             const auto* tablet = _location->find_tablet(tablet_id);
@@ -955,9 +961,9 @@ bool VTabletWriterV2::_quorum_success(
             const auto gap_it = _tablet_version_gap_backends.find(tablet_id);
             const auto* version_gap_node_ids =
                     gap_it == _tablet_version_gap_backends.end() ? nullptr : &gap_it->second;
-            if (!_nodes_info->is_cross_az_quorum_success(table_sink.cross_az_succ_quorum,
-                                                         tablet->node_ids, finished_dst_ids,
-                                                         version_gap_node_ids)) {
+            if (!_nodes_info->is_cross_az_quorum_success(
+                        table_sink.cross_az_succ_quorum, tablet->node_ids,
+                        successful_dst_ids_by_tablet[tablet_id], version_gap_node_ids)) {
                 return false;
             }
         }

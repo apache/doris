@@ -506,12 +506,24 @@ bool IndexChannel::_quorum_success(const std::unordered_set<int64_t>& unfinished
             if (tablet == nullptr) {
                 continue;
             }
+            std::unordered_set<int64_t> successful_node_ids;
+            {
+                std::lock_guard<std::mutex> l(_fail_lock);
+                const auto failed_it = _failed_channels.find(tablet_id);
+                for (int64_t node_id : tablet->node_ids) {
+                    if (finished_node_ids.contains(node_id) &&
+                        (failed_it == _failed_channels.end() ||
+                         !failed_it->second.contains(node_id))) {
+                        successful_node_ids.insert(node_id);
+                    }
+                }
+            }
             const auto gap_it = _parent->_tablet_version_gap_backends.find(tablet_id);
             const auto* version_gap_node_ids = gap_it == _parent->_tablet_version_gap_backends.end()
                                                        ? nullptr
                                                        : &gap_it->second;
             if (!_parent->_nodes_info->is_cross_az_quorum_success(
-                        table_sink.cross_az_succ_quorum, tablet->node_ids, finished_node_ids,
+                        table_sink.cross_az_succ_quorum, tablet->node_ids, successful_node_ids,
                         version_gap_node_ids)) {
                 return false;
             }
