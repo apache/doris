@@ -183,7 +183,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             // so better to also check low memory and clear free blocks here.
             if (ctx->low_memory_mode()) { ctx->clear_free_blocks(); }
 
-            if (scanner->check_partition_pruned() || scanner->check_bucket_pruned()) { eos = true; }
+            if (scanner->is_pruned_by_runtime_filter()) { eos = true; }
 
             if (!eos && !scanner->has_prepared()) {
                 status = scanner->prepare();
@@ -208,10 +208,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 }
             }
 
-            // After processing late RFs, check if this scanner's partition or bucket was pruned.
-            if (!eos && (scanner->check_partition_pruned() || scanner->check_bucket_pruned())) {
-                eos = true;
-            }
+            // After processing late RFs, check whether this scanner's scan range was pruned.
+            if (!eos && scanner->is_pruned_by_runtime_filter()) { eos = true; }
 
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
             if (ctx->low_memory_mode()) {

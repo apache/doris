@@ -94,9 +94,7 @@ public:
 
     doris::TabletStorageType get_storage_type() override;
 
-    bool check_partition_pruned() const override;
-
-    bool check_bucket_pruned() const override;
+    bool is_pruned_by_runtime_filter() const override;
 
     void update_realtime_counters() override;
 

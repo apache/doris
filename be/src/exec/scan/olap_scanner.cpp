@@ -650,19 +650,11 @@ Status OlapScanner::_init_read_schema() {
     return Status::OK();
 }
 
-bool OlapScanner::check_partition_pruned() const {
-    if (!_local_state) {
-        return false;
-    }
-    return _local_state->is_partition_pruned(_tablet_reader_params.tablet->partition_id());
-}
-
-bool OlapScanner::check_bucket_pruned() const {
-    if (!_local_state) {
-        return false;
-    }
+bool OlapScanner::is_pruned_by_runtime_filter() const {
+    DCHECK(_local_state != nullptr);
     auto* olap_local_state = assert_cast<OlapScanLocalState*>(_local_state);
     return olap_local_state->_is_tablet_pruned_by_runtime_filter(
+            _tablet_reader_params.tablet->partition_id(),
             _tablet_reader_params.tablet->tablet_id());
 }
 

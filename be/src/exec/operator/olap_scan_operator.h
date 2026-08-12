@@ -79,7 +79,7 @@ private:
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
     Status _process_conjuncts(RuntimeState* state) override;
-    Status _on_runtime_filter_update() override;
+    Status _on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) override;
     bool _is_key_column(const std::string& col_name) override;
 
     bool can_push_down_column_predicate(const SlotDescriptor* slot) override;
@@ -137,7 +137,7 @@ private:
 
     Status _build_key_ranges_and_filters();
 
-    bool _is_tablet_pruned_by_runtime_filter(int64_t tablet_id) const;
+    bool _is_tablet_pruned_by_runtime_filter(int64_t partition_id, int64_t tablet_id) const;
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     std::vector<RuntimeFilterBucketPruneRange> _rf_bucket_prune_ranges;
