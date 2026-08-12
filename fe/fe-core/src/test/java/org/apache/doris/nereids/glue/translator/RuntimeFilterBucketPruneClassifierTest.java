@@ -93,6 +93,37 @@ class RuntimeFilterBucketPruneClassifierTest {
     }
 
     @Test
+    void testBaseColumnNamesComparedSymmetrically() {
+        Column baseColumn = new Column("base_col", PrimitiveType.INT);
+        SlotDescriptor baseSlotDescriptor = new SlotDescriptor(new SlotId(2), new TupleId(2));
+        baseSlotDescriptor.setColumn(baseColumn);
+        baseSlotDescriptor.setType(baseColumn.getType());
+
+        Column distributionColumn = new Column("mv_dist_col", PrimitiveType.INT);
+        distributionColumn.setDefineExpr(new SlotRef(baseSlotDescriptor));
+        RuntimeFilterBucketPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.IN, baseColumn,
+                new HashDistributionInfo(8, ImmutableList.of(distributionColumn)));
+
+        Assertions.assertTrue(classification.canPruneBuckets());
+    }
+
+    @Test
+    void testDifferentUniqueIdsRejectedBeforeNameFallback() {
+        Column distributionColumn = new Column("dist_col", PrimitiveType.INT);
+        distributionColumn.setUniqueId(1);
+        Column targetColumn = new Column("dist_col", PrimitiveType.INT);
+        targetColumn.setUniqueId(2);
+
+        RuntimeFilterBucketPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.IN, targetColumn,
+                new HashDistributionInfo(8, ImmutableList.of(distributionColumn)));
+
+        Assertions.assertFalse(classification.canPruneBuckets());
+        Assertions.assertTrue(classification.getUnsupportedReason().contains("distribution column"));
+    }
+
+    @Test
     void testRandomDistributionRejected() {
         Column targetColumn = new Column("dist_col", PrimitiveType.INT);
         RuntimeFilterBucketPruneClassifier.Classification classification = classify(

@@ -51,11 +51,14 @@ static void materialize_hashes(const VExprSPtr& target_expr, HybridSetBase* hybr
             const auto* string_value = reinterpret_cast<const StringRef*>(value);
             column->insert_data(string_value->data, string_value->size);
         } else {
+            // ColumnVector::insert_data ignores length for fixed-length values.
             column->insert_data(reinterpret_cast<const char*>(value), 0);
         }
         iter->next();
     }
     if (hybrid_set->contain_null() && data_type->is_nullable()) {
+        // contain_null() is true only for a null-aware filter. Keep the bucket that owns
+        // NULL probe rows by hashing NULL with the same nullable CRC semantics as partitioning.
         column->insert_default();
     }
 
