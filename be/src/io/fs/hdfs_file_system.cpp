@@ -40,6 +40,7 @@
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
 #include "runtime/exec_env.h"
+#include "util/jvm_launcher.h"
 #include "util/obj_lru_cache.h"
 #include "util/slice.h"
 
@@ -63,11 +64,10 @@ Result<std::shared_ptr<HdfsFileSystem>> HdfsFileSystem::create(const THdfsParams
                                                                std::string fs_name, std::string id,
                                                                std::string root_path) {
 #ifdef USE_HADOOP_HDFS
-    if (!config::enable_java_support) {
-        return ResultError(Status::InternalError(
-                "hdfs file system is not enabled, you can change be config enable_java_support to "
-                "true."));
-    }
+    // libhdfs would otherwise create a JVM of its own the first time it connects, one
+    // configured by hadoop rather than by the BE. Getting in first is also what turns
+    // "java support is off" into a readable error here.
+    RETURN_IF_ERROR_RESULT(Jni::JvmLauncher::ensure_jvm());
 #endif
     std::shared_ptr<HdfsFileSystem> fs(new HdfsFileSystem(hdfs_params, std::move(fs_name),
                                                           std::move(id), std::move(root_path)));
