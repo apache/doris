@@ -54,7 +54,8 @@ jobs:
         uses: ./.github/actions/ccache-action
         with:
           key: BE-UT-macOS
-          max-size: "5G"
+          # Leave enough space for the arm64 thirdparty bundle and ASAN build tree.
+          max-size: "2G"
           restore-keys: BE-UT-macOS-
 
       - name: Run UT ${{ github.ref }}
@@ -96,6 +97,7 @@ jobs:
               -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           fi
           tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
+          rm -f doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           popd
 
           JAVA_HOME="${JAVA_HOME_17_arm64:-${JAVA_HOME_17_X64}}"
