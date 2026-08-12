@@ -676,8 +676,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         for (size_t read_idx = 0; read_idx < _tablets.size(); ++read_idx) {
             int64_t pid = _tablets[read_idx].tablet->partition_id();
             int64_t tablet_id = _tablets[read_idx].tablet->tablet_id();
-            if (!_rf_partition_pruner.is_partition_pruned(pid) &&
-                !_rf_bucket_pruner.is_tablet_pruned(tablet_id)) {
+            if (!_is_tablet_pruned_by_runtime_filter(pid, tablet_id)) {
                 if (write_idx != read_idx) {
                     _tablets[write_idx] = std::move(_tablets[read_idx]);
                     _scan_ranges[write_idx] = std::move(_scan_ranges[read_idx]);
@@ -1126,8 +1125,8 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
     }
 }
 
-Status OlapScanLocalState::_on_runtime_filter_update() {
-    RETURN_IF_ERROR(Base::_on_runtime_filter_update());
+Status OlapScanLocalState::_on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) {
+    RETURN_IF_ERROR(Base::_on_runtime_filter_update(new_conjuncts));
     if (!state()->query_options().enable_runtime_filter_bucket_prune ||
         _rf_bucket_prune_ranges.empty()) {
         return Status::OK();
@@ -1135,7 +1134,7 @@ Status OlapScanLocalState::_on_runtime_filter_update() {
 
     int64_t newly_pruned = 0;
     RETURN_IF_ERROR(_rf_bucket_pruner.prune_by_runtime_filters(
-            _rf_bucket_prune_ranges, _conjuncts, _parent->runtime_filter_descs(),
+            _rf_bucket_prune_ranges, new_conjuncts, _parent->runtime_filter_descs(),
             _parent->node_id(), state()->runtime_filter_max_in_num(), &newly_pruned));
     if (newly_pruned > 0) {
         COUNTER_SET(_buckets_pruned_by_rf_counter, _rf_bucket_pruner.pruned_tablet_count());
@@ -1143,8 +1142,12 @@ Status OlapScanLocalState::_on_runtime_filter_update() {
     return Status::OK();
 }
 
-bool OlapScanLocalState::_is_tablet_pruned_by_runtime_filter(int64_t tablet_id) const {
-    return _rf_bucket_pruner.is_tablet_pruned(tablet_id);
+bool OlapScanLocalState::_is_tablet_pruned_by_runtime_filter(int64_t partition_id,
+                                                             int64_t tablet_id) const {
+    if (_rf_partition_pruner.is_partition_pruned(partition_id)) {
+        return true;
+    }
+    return !_rf_bucket_prune_ranges.empty() && _rf_bucket_pruner.is_tablet_pruned(tablet_id);
 }
 
 static std::string tablets_id_to_string(

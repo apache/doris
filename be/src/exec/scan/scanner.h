@@ -205,12 +205,8 @@ public:
         return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
     }
 
-    // Returns true if this scanner's partition has been pruned by a runtime filter.
-    // Overridden by OlapScanner to check partition pruning state.
-    virtual bool check_partition_pruned() const { return false; }
-
-    // Returns true if this scanner's bucket has been pruned by a runtime filter.
-    virtual bool check_bucket_pruned() const { return false; }
+    // Returns true if this scanner's scan range has been pruned by a runtime filter.
+    virtual bool is_pruned_by_runtime_filter() const { return false; }
 
     bool need_to_close() const { return _need_to_close; }
 

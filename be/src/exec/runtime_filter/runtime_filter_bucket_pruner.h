@@ -38,8 +38,7 @@ struct RuntimeFilterBucketPruneRange {
 // Per-scan-instance state for single-column HASH bucket pruning. Runtime filters
 // are conjunctive, so each exact IN filter can monotonically add tablet ids to
 // the pruned set without retaining or combining its original value set.
-// is_tablet_pruned() is safe to call concurrently with the serialized pruning
-// updates performed by ScanLocalStateBase.
+// Both pruning updates and is_tablet_pruned() are safe to call concurrently.
 class RuntimeFilterBucketPruner {
 public:
     Status prune_by_runtime_filters(const std::vector<RuntimeFilterBucketPruneRange>& ranges,
