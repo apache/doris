@@ -20,6 +20,7 @@
 
 #include "block_file_cache_test_common.h"
 #include "cloud/config.h"
+#include "io/cache/async_cache_write_service_metrics.h"
 #include "util/time.h"
 
 namespace doris::io {
@@ -189,7 +190,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_s
     ASSERT_EQ(preallocated_tail->range().left, file_tail_offset);
     ASSERT_EQ(preallocated_tail->range().right, file_tail_offset + 1_mb - 1);
     const uint64_t baseline_submitted_payload_bytes =
-            cache()->async_write_service()->_submitted_bytes_metric->get_value();
+            cache()->async_write_service()->_metrics->snapshot().submitted_bytes;
 
     std::string result(1, '\0');
     FileCacheStatistics stats;
@@ -208,7 +209,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_s
     EXPECT_EQ(stats.async_cache_write_submitted, 2);
     wait_for_async_writes();
     EXPECT_EQ(cache()->async_write_service()->_task_buffer_size, 1_mb);
-    EXPECT_EQ(cache()->async_write_service()->_submitted_bytes_metric->get_value() -
+    EXPECT_EQ(cache()->async_write_service()->_metrics->snapshot().submitted_bytes -
                       baseline_submitted_payload_bytes,
               2_mb);
 }
@@ -554,7 +555,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest, concurrent_cold_reads_publish_only_one_a
             },
             &insert_guard);
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&&) {
                 std::unique_lock lock(worker_mutex);
                 worker_entered = true;
@@ -669,7 +670,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     EXPECT_EQ(stats.async_cache_write_submitted, 0);
     EXPECT_EQ(cache()->async_write_service()->pending_count(), 0);
     EXPECT_EQ(cache()->inflight_write_buffer_index()->count(), 0);
-    EXPECT_GE(cache()->async_write_service()->_buffer_alloc_fail_metric->get_value(), 1);
+    EXPECT_GE(cache()->async_write_service()->_metrics->snapshot().buffer_alloc_fail, 1);
 }
 
 TEST_F(AsyncCachedRemoteFileReaderTest,
@@ -693,7 +694,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&&) {
                 std::unique_lock lock(mutex);
                 worker_entered = true;
@@ -1010,7 +1011,7 @@ TEST_F(BlockFileCacheTest, async_write_reuses_inflight_buffer_then_reads_downloa
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&&) {
                 std::unique_lock lock(mutex);
                 worker_entered = true;
@@ -1415,7 +1416,7 @@ TEST_F(BlockFileCacheTest, async_write_backpressure_rolls_back_inflight_entry) {
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&&) {
                 std::unique_lock lock(mutex);
                 worker_entered = true;

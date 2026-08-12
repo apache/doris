@@ -539,13 +539,8 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
     DORIS_CHECK(remote_buffer != nullptr);
 
     CacheContext cache_context(io_ctx);
-    CacheAdmissionContext admission_context {
-            .query_id = cache_context.query_id,
-            .cache_type = cache_context.cache_type,
-            .expiration_time = cache_context.expiration_time,
-            .tablet_id = _tablet_id,
-            .is_warmup = cache_context.is_warmup,
-    };
+    const CacheAdmissionContext admission_context =
+            CacheAdmissionContext::from_cache_context(cache_context, _tablet_id);
     DORIS_CHECK(plan.remote_block_count > 0);
     DORIS_CHECK(plan.first_remote_block < plan.blocks.size());
     const size_t remote_end = plan.first_remote_block + plan.remote_block_count;
