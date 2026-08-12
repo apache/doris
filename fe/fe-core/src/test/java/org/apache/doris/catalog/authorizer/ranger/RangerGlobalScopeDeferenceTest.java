@@ -17,39 +17,44 @@
 
 package org.apache.doris.catalog.authorizer.ranger;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.authorization.AccessContext;
+import org.apache.doris.authorization.AccessDeniedException;
+import org.apache.doris.authorization.AccessRequirement;
+import org.apache.doris.authorization.AccessRequirements;
+import org.apache.doris.authorization.AuthorizedResource;
+import org.apache.doris.authorization.AuthorizedSubject;
+import org.apache.doris.authorization.ResourceKind;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.mysql.privilege.CatalogAccessController;
-import org.apache.doris.mysql.privilege.LegacyAccessControllerPlugin;
-import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.EngineAuthorizationContext;
 import org.apache.doris.mysql.privilege.StubRangerPolicyEngine;
 
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.junit.Assert;
 import org.junit.Test;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
 
+import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BooleanSupplier;
 
 /**
- * A catalog bound to Ranger still lets through whoever holds the privilege at global scope.
+ * A catalog bound to Ranger still lets through whoever holds the privilege at instance scope.
  *
- * <p>Global scope is not something a Ranger service knows about; it belongs to the controller named by
+ * <p>Instance scope is not something a Ranger service knows about; it belongs to the source named by
  * {@code access_controller_type}. Honouring it is why a cluster administrator can still reach a Ranger-governed
- * catalog after the engine stopped establishing privileges on a plugin's behalf. It is the plugin's own choice,
- * so it is tested on the plugin, and a plugin that declines it stays a legal plugin.
+ * catalog after the engine stopped establishing privileges on a source's behalf. It is the source's own choice,
+ * so it is tested on the source, it is configurable, and a source that declines it stays a legal source.
  */
 public class RangerGlobalScopeDeferenceTest {
-    private static final UserIdentity ADMIN = UserIdentity.createAnalyzedUserIdentWithIp("admin_user", "%");
-    private static final UserIdentity RANGER_USER =
-            UserIdentity.createAnalyzedUserIdentWithIp(StubRangerPolicyEngine.ALLOWED_USER, "%");
+    private static final AuthorizedSubject ADMIN = AuthorizedSubject.of("admin_user", "%");
+    private static final AuthorizedSubject RANGER_USER =
+            AuthorizedSubject.of(StubRangerPolicyEngine.ALLOWED_USER, "%");
+    private static final AuthorizedResource.Table ALLOWED_TABLE = AuthorizedResource.table("ctl",
+            StubRangerPolicyEngine.ALLOWED_DB, StubRangerPolicyEngine.ALLOWED_TABLE);
 
     /** Counts what actually reached the policy engine, so "answered without asking Ranger" is observable. */
     private static final class CountingPolicyEngine extends StubRangerPolicyEngine {
@@ -62,73 +67,123 @@ public class RangerGlobalScopeDeferenceTest {
         }
     }
 
+    /**
+     * Stands for whatever {@code access_controller_type} installs: it grants everything to one account and
+     * nothing to anyone else, and remembers what it was asked about.
+     */
+    private static final class Authority implements AuthorizationPlugin {
+        private final AuthorizedSubject allowed;
+        private ResourceKind askedAbout;
+
+        private Authority(AuthorizedSubject allowed) {
+            this.allowed = allowed;
+        }
+
+        @Override
+        public String name() {
+            return "authority";
+        }
+
+        @Override
+        public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
+                AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
+            askedAbout = resource.getKind();
+            if (!subject.equals(allowed)) {
+                throw AccessDeniedException.of(subject, resource, requirement, name());
+            }
+        }
+    }
+
     private final CountingPolicyEngine engine = new CountingPolicyEngine();
-    private final RangerDorisAccessController controller = new RangerDorisAccessController(engine);
 
     @Test
-    public void testGlobalScopeAuthorityGrantsWithoutConsultingRanger() {
-        CatalogAccessController authority = Mockito.mock(CatalogAccessController.class);
-        Mockito.when(authority.checkGlobalPriv(ADMIN, PrivPredicate.SELECT)).thenReturn(true);
+    public void testGlobalScopeAuthorityGrantsWithoutConsultingRanger() throws Exception {
+        Authority authority = new Authority(ADMIN);
+        RangerDorisAccessController controller = rangerDeferringTo(authority, Collections.emptyMap());
 
-        boolean allowed = withGlobalScopeAuthority(authority,
-                () -> controller.checkTblPriv(ADMIN, "ctl", StubRangerPolicyEngine.ALLOWED_DB,
-                        StubRangerPolicyEngine.ALLOWED_TABLE, PrivPredicate.SELECT));
+        controller.checkPrivilege(ADMIN, ALLOWED_TABLE, AccessRequirements.SELECT, AccessContext.NONE);
 
-        Assert.assertTrue(allowed);
         // Not merely an optimisation: the Ranger policy set denies this user everywhere, so had the request
         // reached the engine the answer would have been the opposite one.
         Assert.assertEquals(0, engine.requests.get());
+        // And what was deferred is the privilege at instance scope, not the table.
+        Assert.assertEquals(ResourceKind.GLOBAL, authority.askedAbout);
     }
 
     @Test
-    public void testRangerDecidesWhenTheAuthorityGrantsNothingGlobally() {
-        CatalogAccessController authority = Mockito.mock(CatalogAccessController.class);
+    public void testRangerDecidesWhenTheAuthorityGrantsNothingGlobally() throws Exception {
+        RangerDorisAccessController controller = rangerDeferringTo(new Authority(ADMIN),
+                Collections.emptyMap());
 
-        Assert.assertTrue(withGlobalScopeAuthority(authority,
-                () -> controller.checkTblPriv(RANGER_USER, "ctl", StubRangerPolicyEngine.ALLOWED_DB,
-                        StubRangerPolicyEngine.ALLOWED_TABLE, PrivPredicate.SELECT)));
-        Assert.assertFalse(withGlobalScopeAuthority(authority,
-                () -> controller.checkTblPriv(RANGER_USER, "ctl", StubRangerPolicyEngine.ALLOWED_DB,
-                        "other_tbl", PrivPredicate.SELECT)));
+        controller.checkPrivilege(RANGER_USER, ALLOWED_TABLE, AccessRequirements.SELECT, AccessContext.NONE);
+        Assert.assertThrows(AccessDeniedException.class,
+                () -> controller.checkPrivilege(RANGER_USER,
+                        AuthorizedResource.table("ctl", StubRangerPolicyEngine.ALLOWED_DB, "other_tbl"),
+                        AccessRequirements.SELECT, AccessContext.NONE));
     }
 
     /**
-     * With Ranger installed globally, the controller is itself the authority and its own global check already
-     * answers the question - asking through the manager would evaluate the same Ranger policies a second time
-     * on every database, table and column check.
+     * A source configured not to defer answers out of its own policies alone, so an administrator of the
+     * instance has no access to what it governs beyond what Ranger grants.
      */
     @Test
-    public void testBeingTheAuthorityCostsNoExtraPolicyEvaluation() {
-        int asPlugin = requestsWhile(Mockito.mock(CatalogAccessController.class),
-                () -> controller.checkDbPriv(RANGER_USER, "ctl", "other_db", PrivPredicate.SELECT));
-        int asAuthority = requestsWhile(controller,
-                () -> controller.checkDbPriv(RANGER_USER, "ctl", "other_db", PrivPredicate.SELECT));
+    public void testConfiguredNotToDeferRefusesTheGlobalScopeAuthority() throws Exception {
+        Authority authority = new Authority(ADMIN);
+        RangerDorisAccessController controller = rangerDeferringTo(authority, Collections.singletonMap(
+                RangerAccessController.DEFER_TO_GLOBAL_SCOPE_AUTHORITY, "false"));
 
-        Assert.assertEquals(asPlugin, asAuthority);
+        Assert.assertThrows(AccessDeniedException.class,
+                () -> controller.checkPrivilege(ADMIN, ALLOWED_TABLE, AccessRequirements.SELECT,
+                        AccessContext.NONE));
+        Assert.assertNull("the authority must not even be asked", authority.askedAbout);
+        Assert.assertNotEquals("Ranger has to be the one deciding", 0, engine.requests.get());
     }
 
-    private int requestsWhile(CatalogAccessController authority, BooleanSupplier check) {
+    @Test
+    public void testUnreadableDeferenceSettingIsRejected() {
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> rangerDeferringTo(new Authority(ADMIN), Collections.singletonMap(
+                        RangerAccessController.DEFER_TO_GLOBAL_SCOPE_AUTHORITY, "no")));
+    }
+
+    /**
+     * With Ranger installed for the instance, the source is itself the authority and its own global check
+     * already answers the question - asking through the engine would evaluate the same Ranger policies a
+     * second time on every database, table and column check.
+     */
+    @Test
+    public void testBeingTheAuthorityCostsNoExtraPolicyEvaluation() throws Exception {
+        int asCatalogSource = requestsWhile(new Authority(ADMIN));
+        int asAuthority = requestsWhile(null);
+
+        Assert.assertEquals(asCatalogSource, asAuthority);
+    }
+
+    private int requestsWhile(Authority authority) throws Exception {
         engine.requests.set(0);
-        withGlobalScopeAuthority(authority, check);
+        RangerDorisAccessController controller = rangerDeferringTo(authority, Collections.emptyMap());
+        try {
+            controller.checkPrivilege(RANGER_USER, AuthorizedResource.database("ctl", "other_db"),
+                    AccessRequirements.SELECT, AccessContext.NONE);
+        } catch (AccessDeniedException expected) {
+            // The point is the number of evaluations, not the verdict.
+        }
         return engine.requests.get();
     }
 
     /**
-     * Runs {@code check} against an FE whose {@code access_controller_type} resolves to {@code authority}.
-     *
-     * <p>Installed the way the engine installs one written against the older interface - behind the adapter -
-     * because that is what makes "is this authority me?" a question about the controller rather than about
-     * the object the manager happens to hold.
+     * Stands a Ranger source up the way the engine does: with a context of the engine's own, on an FE whose
+     * {@code access_controller_type} resolves to {@code authority} - or to the Ranger source itself when
+     * there is no other authority.
      */
-    private boolean withGlobalScopeAuthority(CatalogAccessController authority, BooleanSupplier check) {
+    private RangerDorisAccessController rangerDeferringTo(AuthorizationPlugin authority,
+            Map<String, String> properties) {
         AccessControllerManager manager = new AccessControllerManager(new Auth());
+        EngineAuthorizationContext context = new EngineAuthorizationContext(manager, manager.getAuth());
+        RangerDorisAccessController controller = new RangerDorisAccessController(engine, properties, context);
+        context.servedBy(controller);
         Deencapsulation.setField(manager, "defaultAccessController",
-                new LegacyAccessControllerPlugin("authority", authority));
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            Env env = Mockito.mock(Env.class);
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getAccessManager()).thenReturn(manager);
-            return check.getAsBoolean();
-        }
+                authority == null ? controller : authority);
+        return controller;
     }
 }
