@@ -1354,7 +1354,6 @@ EOF
     extensions_modules+=("hadoop-hudi-scanner")
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("trino-connector-scanner")
-    extensions_modules+=("max-compute-connector")
     # lakesoul-scanner has been deprecated
     # extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
@@ -1409,6 +1408,7 @@ EOF
     plugin_modules=("java-writer:java-writer")
     plugin_modules+=("jdbc-scanner:jdbc")
     plugin_modules+=("iceberg-metadata-scanner:iceberg")
+    plugin_modules+=("max-compute-connector:max-compute")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
