@@ -16,6 +16,7 @@
 // under the License.
 
 #include <array>
+#include <string_view>
 
 #include "common/exception.h"
 #include "core/assert_cast.h"
@@ -28,17 +29,18 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_ipv6.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
-#include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2.h"
+#include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 #include "exprs/function_context.h"
 #include "gtest/gtest.h"
 #include "runtime/runtime_state.h"
@@ -190,6 +192,48 @@ TEST(CastVariantV2FromTest, TypedScalarDelegatesToConcreteNonStrictCast) {
     EXPECT_EQ(merged_nulls[2], 0);
 }
 
+TEST(CastVariantV2FromTest, IpTargetsDelegateToConcreteNonStrictCast) {
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 3});
+    {
+        auto row = builder.begin_row();
+        row.add_string(StringRef("192.0.2.1"));
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        row.add_string(StringRef("2001:db8::1"));
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        row.add_string(StringRef("invalid"));
+        row.finish();
+    }
+    ColumnPtr source = finish(&builder);
+
+    CastResult ipv4_cast = execute_from_variant(source, std::make_shared<DataTypeIPv4>());
+    ASSERT_TRUE(ipv4_cast.status.ok()) << ipv4_cast.status;
+    const auto& ipv4_nullable = nullable_result(ipv4_cast.column);
+    const auto& ipv4_values = assert_cast<const ColumnIPv4&>(ipv4_nullable.get_nested_column());
+    IPv4 expected_ipv4 {};
+    ASSERT_TRUE(IPv4Value::from_string(expected_ipv4, "192.0.2.1"));
+    EXPECT_EQ(ipv4_values.get_data()[0], expected_ipv4);
+    EXPECT_EQ(ipv4_nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(ipv4_nullable.get_null_map_data()[1], 1);
+    EXPECT_EQ(ipv4_nullable.get_null_map_data()[2], 1);
+
+    CastResult ipv6_cast = execute_from_variant(source, std::make_shared<DataTypeIPv6>());
+    ASSERT_TRUE(ipv6_cast.status.ok()) << ipv6_cast.status;
+    const auto& ipv6_nullable = nullable_result(ipv6_cast.column);
+    const auto& ipv6_values = assert_cast<const ColumnIPv6&>(ipv6_nullable.get_nested_column());
+    IPv6 expected_ipv6 {};
+    ASSERT_TRUE(IPv6Value::from_string(expected_ipv6, "2001:db8::1"));
+    EXPECT_EQ(ipv6_nullable.get_null_map_data()[0], 1);
+    EXPECT_EQ(ipv6_values.get_data()[1], expected_ipv6);
+    EXPECT_EQ(ipv6_nullable.get_null_map_data()[1], 0);
+    EXPECT_EQ(ipv6_nullable.get_null_map_data()[2], 1);
+}
+
 TEST(CastVariantV2FromTest, StringUsesConcreteScalarsAndExplicitDocumentRules) {
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 5});
     {
@@ -337,7 +381,7 @@ TEST(CastVariantV2FromTest, EOnlyScalarStringRulesStayJsonQuoted) {
 }
 
 TEST(CastVariantV2FromTest, JsonbPreservesObjectAndInnerVariantNull) {
-    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 2});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 4});
     {
         auto row = builder.begin_row();
         auto object = row.start_object();
@@ -351,12 +395,21 @@ TEST(CastVariantV2FromTest, JsonbPreservesObjectAndInnerVariantNull) {
         row.add_null();
         row.finish();
     }
-    CastResult cast = execute_from_variant(finish(&builder), std::make_shared<DataTypeJsonb>());
+    for (size_t index = 0; index < 2; ++index) {
+        auto row = builder.begin_row();
+        auto object = row.start_object();
+        object.finish();
+        row.finish();
+    }
+    constexpr std::array<NullMap::value_type, 4> OUTER_NULLS {0, 0, 0, 1};
+    CastResult cast = execute_from_variant(finish(&builder), std::make_shared<DataTypeJsonb>(),
+                                           OUTER_NULLS.data());
     ASSERT_TRUE(cast.status.ok()) << cast.status;
     const auto& nullable = nullable_result(cast.column);
-    EXPECT_FALSE(nullable.has_null());
+    EXPECT_EQ(nullable.get_null_map_data(), (PaddedPODArray<uint8_t> {0, 0, 0, 1}));
     EXPECT_EQ(jsonb_text(nullable.get_nested_column(), 0), R"({"a":1})");
     EXPECT_EQ(jsonb_text(nullable.get_nested_column(), 1), "null");
+    EXPECT_EQ(jsonb_text(nullable.get_nested_column(), 2), "{}");
 }
 
 TEST(CastVariantV2FromTest, NanosFloorToMicrosAndUtcUsesSessionTimezone) {
@@ -385,6 +438,126 @@ TEST(CastVariantV2FromTest, NanosFloorToMicrosAndUtcUsesSessionTimezone) {
     }
     expect_datetime(values, 5, 1970, 1, 1, 0, 0, 0, 1);
     expect_datetime(values, 6, 1970, 1, 1, 8, 0, 0, 0);
+}
+
+TEST(CastVariantV2FromTest, ArrayCastReusesNonStrictStringParser) {
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 3});
+    {
+        auto row = builder.begin_row();
+        auto array = row.start_array();
+        row.add_string(StringRef("one"));
+        array.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        row.add_string(StringRef("[]"));
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        row.add_null();
+        row.finish();
+    }
+
+    ColumnPtr encoded_source = finish(&builder);
+    auto target = std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+    CastResult encoded = execute_from_variant(encoded_source, target);
+    ASSERT_TRUE(encoded.status.ok()) << encoded.status;
+    const auto& encoded_outer = nullable_result(encoded.column);
+    EXPECT_EQ(encoded_outer.get_null_map_data(), (PaddedPODArray<uint8_t> {0, 0, 1}));
+    const auto& encoded_arrays = assert_cast<const ColumnArray&>(encoded_outer.get_nested_column());
+    EXPECT_EQ(encoded_arrays.size_at(0), 1);
+    EXPECT_EQ(encoded_arrays.size_at(1), 0);
+    const auto& encoded_elements = assert_cast<const ColumnNullable&>(encoded_arrays.get_data());
+    EXPECT_EQ(assert_cast<const ColumnString&>(encoded_elements.get_nested_column()).get_data_at(0),
+              StringRef("one"));
+
+    auto strings = ColumnString::create();
+    strings->insert_data("[]", 2);
+    auto typed = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(strings), ColumnUInt8::create(1, 0)),
+            std::make_shared<DataTypeString>());
+    CastResult typed_result = execute_from_variant(typed->get_ptr(), target);
+    ASSERT_TRUE(typed_result.status.ok()) << typed_result.status;
+    const auto& typed_outer = nullable_result(typed_result.column);
+    EXPECT_EQ(typed_outer.get_null_map_data(), (PaddedPODArray<uint8_t> {0}));
+    EXPECT_EQ(assert_cast<const ColumnArray&>(typed_outer.get_nested_column()).size_at(0), 0);
+
+    auto variant_target = std::make_shared<DataTypeArray>(std::make_shared<DataTypeVariantV2>());
+    CastResult variants = execute_from_variant(encoded_source, variant_target);
+    ASSERT_TRUE(variants.status.ok()) << variants.status;
+    const auto& variant_outer = nullable_result(variants.column);
+    EXPECT_EQ(variant_outer.get_null_map_data(), (PaddedPODArray<uint8_t> {0, 0, 1}));
+    const auto& variant_arrays = assert_cast<const ColumnArray&>(variant_outer.get_nested_column());
+    EXPECT_EQ(variant_arrays.size_at(0), 1);
+    EXPECT_EQ(variant_arrays.size_at(1), 0);
+    const auto& variant_elements = assert_cast<const ColumnNullable&>(variant_arrays.get_data());
+    EXPECT_EQ(assert_cast<const ColumnVariantV2&>(variant_elements.get_nested_column())
+                      .get_value_ref(0)
+                      .get_string(),
+              StringRef("one"));
+
+    constexpr std::array<NullMap::value_type, 3> FORCED_NULLS {0, 1, 0};
+    CastResult masked = execute_from_variant(encoded_source, variant_target, FORCED_NULLS.data());
+    ASSERT_TRUE(masked.status.ok()) << masked.status;
+    EXPECT_EQ(nullable_result(masked.column).get_null_map_data(),
+              (PaddedPODArray<uint8_t> {0, 1, 1}));
+}
+
+TEST(CastVariantV2FromTest, ArrayDimensionMismatchNullsTheWholeRowLikeLegacyVariant) {
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 3});
+    {
+        auto row = builder.begin_row();
+        auto array = row.start_array();
+        row.add_int(1);
+        array.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        auto array = row.start_array();
+        row.add_null();
+        array.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        auto outer = row.start_array();
+        auto inner = row.start_array();
+        row.add_int(1);
+        inner.finish();
+        outer.finish();
+        row.finish();
+    }
+
+    auto target = std::make_shared<DataTypeArray>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
+    CastResult cast = execute_from_variant(finish(&builder), target);
+    ASSERT_TRUE(cast.status.ok()) << cast.status;
+
+    const auto& top_nullable = nullable_result(cast.column);
+    EXPECT_EQ(top_nullable.get_null_map_data(), (PaddedPODArray<uint8_t> {1, 0, 0}));
+    const auto& top = assert_cast<const ColumnArray&>(top_nullable.get_nested_column());
+    EXPECT_EQ(top.size_at(0), 0);
+    EXPECT_EQ(top.size_at(1), 1);
+    EXPECT_EQ(top.size_at(2), 1);
+    const auto& inner_nullable = assert_cast<const ColumnNullable&>(top.get_data());
+    EXPECT_EQ(inner_nullable.get_null_map_data(), (PaddedPODArray<uint8_t> {1, 0}));
+}
+
+TEST(CastVariantV2FromTest, TypedArrayExtractionWithoutFunctionContextRemainsNull) {
+    auto strings = ColumnString::create();
+    strings->insert_data("[]", 2);
+    auto typed = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(strings), ColumnUInt8::create(1, 0)),
+            std::make_shared<DataTypeString>());
+    auto target = std::make_shared<DataTypeArray>(std::make_shared<DataTypeVariantV2>());
+
+    ColumnPtr result;
+    ASSERT_TRUE(variant_v2_internal::cast_variant_to_array(nullptr, *typed, target, 1, {}, &result)
+                        .ok());
+    EXPECT_EQ(nullable_result(result).get_null_map_data(), (PaddedPODArray<uint8_t> {1}));
 }
 
 TEST(CastVariantV2FromTest, ArrayLeafNullSemanticsAreTargetSpecific) {
@@ -425,12 +598,6 @@ TEST(CastVariantV2FromTest, ArrayLeafNullSemanticsAreTargetSpecific) {
     EXPECT_TRUE(assert_cast<const ColumnVariantV2&>(variant_elements.get_nested_column())
                         .get_value_ref(0)
                         .is_null());
-
-    auto legacy_variant_array =
-            std::make_shared<DataTypeArray>(std::make_shared<DataTypeVariant>());
-    CastResult legacy_variants = execute_from_variant(source, legacy_variant_array);
-    EXPECT_TRUE(legacy_variants.status.is<ErrorCode::INVALID_ARGUMENT>());
-    EXPECT_EQ(legacy_variants.column.get(), legacy_variants.initial_result.get());
 
     auto int_array = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
     CastResult integers = execute_from_variant(source, int_array);

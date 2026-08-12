@@ -165,9 +165,11 @@ public:
     IntGauge* process_fd_num_limit_hard = nullptr;
 
     // the max compaction score of all tablets.
-    // Record base and cumulative scores separately, because
-    // we need to get the larger of the two.
+    // Keep the cumulative score as the aggregate for compatibility, and record
+    // size-based and time-series cumulative scores separately.
     IntGauge* tablet_cumulative_max_compaction_score = nullptr;
+    IntGauge* tablet_size_based_max_compaction_score = nullptr;
+    IntGauge* tablet_time_series_max_compaction_score = nullptr;
     IntGauge* tablet_base_max_compaction_score = nullptr;
     IntGauge* tablet_binlog_max_compaction_score = nullptr;
 

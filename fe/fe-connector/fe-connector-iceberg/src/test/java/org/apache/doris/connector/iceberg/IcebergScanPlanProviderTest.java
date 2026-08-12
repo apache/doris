@@ -42,6 +42,7 @@ import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -2901,6 +2902,33 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals("ak", props.get("location.AWS_ACCESS_KEY"));
         Assertions.assertEquals("sk", props.get("location.AWS_SECRET_KEY"));
         Assertions.assertEquals("ep", props.get("location.AWS_ENDPOINT"));
+    }
+
+    @Test
+    public void getScanNodePropertiesPrefersOssOverGenericS3Fallback() {
+        FakeIcebergTable table = fakeTable("t1");
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.storageProperties = Arrays.asList(
+                new FakeS3CompatibleStorageProperties("OSS").backendProperties(ImmutableMap.of(
+                        "AWS_ENDPOINT", "https://oss-cn-beijing.aliyuncs.com",
+                        "AWS_REGION", "cn-beijing",
+                        "use_path_style", "false")),
+                new FakeS3CompatibleStorageProperties("S3").backendProperties(ImmutableMap.of(
+                        "AWS_ENDPOINT", "https://s3.cn-beijing.amazonaws.com",
+                        "AWS_REGION", "cn-beijing",
+                        "use_path_style", "true",
+                        "AWS_CREDENTIALS_PROVIDER_TYPE", "DEFAULT")));
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table), context);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals("https://oss-cn-beijing.aliyuncs.com",
+                props.get("location.AWS_ENDPOINT"));
+        Assertions.assertEquals("false", props.get("location.use_path_style"));
+        Assertions.assertNull(props.get("location.AWS_CREDENTIALS_PROVIDER_TYPE"),
+                "generic S3-only properties must not leak into an explicitly matched OSS scan");
     }
 
     @Test

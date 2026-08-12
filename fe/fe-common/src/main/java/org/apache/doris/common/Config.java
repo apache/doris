@@ -636,11 +636,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = "Whether to enable stream load profile")
     public static boolean enable_stream_load_profile = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = "Whether to enable writing to a single replica for "
-            + "stream load and broker load.",
-            varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_single_replica_load = false;
-
     @ConfField(mutable = true, masterOnly = true, description = "Shuffle will not be enabled for DUPLICATE KEY tables "
             + "if their tablet count is lower than this number",
             varType = VariableAnnotation.EXPERIMENTAL)
@@ -3541,6 +3536,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Whether to allow the use of inverted index v1 for "
             + "variant.")
     public static boolean enable_inverted_index_v1_for_variant = false;
+
+    @ConfField(mutable = true, description = "Whether to enable ColumnVariantV2 for Variant execution and storage.")
+    public static boolean enable_variant_v2 = false;
 
     @ConfField(mutable = true, description = "Prometheus output table dimension metric count limit.")
     public static int prom_output_table_metrics_limit = 10000;

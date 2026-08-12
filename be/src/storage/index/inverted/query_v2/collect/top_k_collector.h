@@ -22,7 +22,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
-#include <ranges>
 #include <roaring/roaring.hh>
 #include <string>
 #include <vector>

@@ -69,7 +69,7 @@ public:
 };
 
 struct VariantColumnData {
-    const void* column_data;
+    const IColumn* column_data;
     size_t row_pos;
 };
 
@@ -533,7 +533,7 @@ private:
         const void* get_data_at(size_t offset) const override;
 
     private:
-        const void* _value_ptr;
+        const IColumn* _value_ptr = nullptr;
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
         std::unique_ptr<VariantColumnData> _variant_column_data;
     };

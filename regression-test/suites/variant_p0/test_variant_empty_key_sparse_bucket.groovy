@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_empty_key_sparse_bucket", "nonConcurrent") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql "SET default_variant_enable_doc_mode = false"
     sql "SET use_v3_storage_format = false"
     sql "SET default_variant_enable_typed_paths_to_sparse = false"
@@ -36,13 +37,13 @@ suite("test_variant_empty_key_sparse_bucket", "nonConcurrent") {
 
     sql """
         INSERT INTO test_variant_empty_key_no_sparse VALUES
-        (1, '{"hot_a": 1, "": "BEFORE RENAME"}'),
-        (2, '{"hot_a": 2, "": 42}')
+        (1, ${variantV2Function}('{"hot_a": 1, "": "BEFORE RENAME"}')),
+        (2, ${variantV2Function}('{"hot_a": 2, "": 42}'))
     """
     sql "ALTER TABLE test_variant_empty_key_no_sparse RENAME COLUMN v Tags"
     sql """
         INSERT INTO test_variant_empty_key_no_sparse VALUES
-        (3, '{"hot_a": 3, "": "AFTER RENAME"}')
+        (3, ${variantV2Function}('{"hot_a": 3, "": "AFTER RENAME"}'))
     """
 
     trigger_and_wait_compaction("test_variant_empty_key_no_sparse", "cumulative")
@@ -68,19 +69,19 @@ suite("test_variant_empty_key_sparse_bucket", "nonConcurrent") {
 
     sql """
         INSERT INTO test_variant_empty_key_sparse_bucket VALUES
-        (1, '{"hot_a": 1, "hot_b": 10, "hot_c": 100, "cold_1": "a"}'),
-        (2, '{"hot_a": 2, "hot_b": 20, "hot_c": 200, "cold_2": "b"}'),
-        (3, '{"hot_a": 3, "hot_b": 30, "hot_c": 300, "cold_3": "c"}'),
-        (4, '{"hot_a": 4, "hot_b": 40, "hot_c": 400, "cold_4": "d"}'),
-        (5, '{"hot_a": 5, "hot_b": 50, "hot_c": 500, "cold_5": "e"}'),
-        (6, '{"hot_a": 6, "hot_b": 60, "hot_c": 600, "cold_6": "f"}')
+        (1, ${variantV2Function}('{"hot_a": 1, "hot_b": 10, "hot_c": 100, "cold_1": "a"}')),
+        (2, ${variantV2Function}('{"hot_a": 2, "hot_b": 20, "hot_c": 200, "cold_2": "b"}')),
+        (3, ${variantV2Function}('{"hot_a": 3, "hot_b": 30, "hot_c": 300, "cold_3": "c"}')),
+        (4, ${variantV2Function}('{"hot_a": 4, "hot_b": 40, "hot_c": 400, "cold_4": "d"}')),
+        (5, ${variantV2Function}('{"hot_a": 5, "hot_b": 50, "hot_c": 500, "cold_5": "e"}')),
+        (6, ${variantV2Function}('{"hot_a": 6, "hot_b": 60, "hot_c": 600, "cold_6": "f"}'))
     """
     sql "ALTER TABLE test_variant_empty_key_sparse_bucket RENAME COLUMN v Tags"
     sql """
         INSERT INTO test_variant_empty_key_sparse_bucket VALUES
-        (7, '{"hot_a": 7, "hot_b": 70, "hot_c": 700, "": "UPPER CASE"}'),
-        (8, '{"hot_a": 8, "hot_b": 80, "hot_c": 800, "": 16}'),
-        (9, '{"hot_a": 9, "hot_b": 90, "hot_c": 900, "": 8888888}')
+        (7, ${variantV2Function}('{"hot_a": 7, "hot_b": 70, "hot_c": 700, "": "UPPER CASE"}')),
+        (8, ${variantV2Function}('{"hot_a": 8, "hot_b": 80, "hot_c": 800, "": 16}')),
+        (9, ${variantV2Function}('{"hot_a": 9, "hot_b": 90, "hot_c": 900, "": 8888888}'))
     """
 
     trigger_and_wait_compaction("test_variant_empty_key_sparse_bucket", "cumulative")

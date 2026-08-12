@@ -126,7 +126,8 @@ void MemTable::_init_agg_functions(const Block* block) {
             }
         } else {
             function = _tablet_schema->column(cid).get_aggregate_function(
-                    AGG_LOAD_SUFFIX, _tablet_schema->column(cid).get_be_exec_version());
+                    AGG_LOAD_SUFFIX, _tablet_schema->column(cid).get_be_exec_version(),
+                    block->get_data_type(cid));
             if (function == nullptr) {
                 LOG(WARNING) << "column get aggregate function failed, column="
                              << _tablet_schema->column(cid).name();

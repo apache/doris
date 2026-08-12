@@ -114,7 +114,8 @@ public class CatalogFactory {
         Connector spiConnector;
         try {
             spiConnector = ConnectorFactory.createStandaloneCatalogConnector(
-                    catalogType, props, new DefaultConnectorContext(name, catalogId));
+                    catalogType, props,
+                    DefaultConnectorContext.forCatalogCreationValidation(name, catalogId, props));
         } catch (RuntimeException | Error e) {
             if (!isReplay) {
                 // Creating a catalog interactively must still fail loud: the user is waiting for the error.

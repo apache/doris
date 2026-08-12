@@ -61,10 +61,8 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
-#define private public
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vin_predicate.h"
-#undef private
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif

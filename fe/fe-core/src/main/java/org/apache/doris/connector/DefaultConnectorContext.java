@@ -127,6 +127,20 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         this(catalogName, catalogId, () -> NOOP_AUTH);
     }
 
+    /**
+     * Creates the lightweight pre-initialization context used by the catalog factory for CREATE validation and
+     * edit-log replay. It exposes a snapshot of the raw storage properties so connector construction and
+     * connectivity checks can bind credentials, but it does not provide runtime authentication,
+     * connector-derived storage defaults, backend adapters, or a filesystem.
+     */
+    public static DefaultConnectorContext forCatalogCreationValidation(String catalogName, long catalogId,
+            Map<String, String> rawStorageProperties) {
+        Map<String, String> rawSnapshot = Collections.unmodifiableMap(
+                new HashMap<>(Objects.requireNonNull(rawStorageProperties, "rawStorageProperties")));
+        return new DefaultConnectorContext(catalogName, catalogId, () -> NOOP_AUTH,
+                Collections::emptyMap, () -> new HashMap<>(rawSnapshot));
+    }
+
     public DefaultConnectorContext(String catalogName, long catalogId,
             Supplier<ExecutionAuthenticator> authSupplier) {
         this(catalogName, catalogId, authSupplier, Collections::emptyMap);

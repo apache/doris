@@ -175,12 +175,6 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                     break;
                 }
             }
-            if (_parent->_write_single_replica) {
-                auto* slave_location = _parent->_slave_location->find_tablet(tablet.tablet_id);
-                if (slave_location != nullptr) {
-                    channel->add_slave_tablet_nodes(tablet.tablet_id, slave_location->node_ids);
-                }
-            }
             channels.push_back(channel);
             _tablets_by_channel[replica_node_id].insert(tablet.tablet_id);
         }
@@ -1154,35 +1148,6 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             }
         }
 
-        request->set_write_single_replica(_parent->_write_single_replica);
-        if (_parent->_write_single_replica) {
-            for (auto& _slave_tablet_node : _slave_tablet_nodes) {
-                PSlaveTabletNodes slave_tablet_nodes;
-                for (auto node_id : _slave_tablet_node.second) {
-                    const auto* node = _parent->_nodes_info->find_node(node_id);
-                    DBUG_EXECUTE_IF("VNodeChannel.try_send_pending_block.slave_node_not_found", {
-                        LOG(WARNING) << "trigger "
-                                        "VNodeChannel.try_send_pending_block.slave_node_not_found "
-                                        "debug point will set node to nullptr";
-                        node = nullptr;
-                    });
-                    if (node == nullptr) {
-                        LOG(WARNING) << "slave node not found, node_id=" << node_id;
-                        cancel(fmt::format("slave node not found, node_id={}", node_id));
-                        _send_block_callback->clear_in_flight();
-                        return;
-                    }
-                    PNodeInfo* pnode = slave_tablet_nodes.add_slave_nodes();
-                    pnode->set_id(node->id);
-                    pnode->set_option(node->option);
-                    pnode->set_host(node->host);
-                    pnode->set_async_internal_port(node->brpc_port);
-                }
-                request->mutable_slave_tablet_nodes()->insert(
-                        {_slave_tablet_node.first, slave_tablet_nodes});
-            }
-        }
-
         // eos request must be the last request-> it's a signal makeing callback function to set _add_batch_finished true.
         // end_mark makes is_last_rpc true when rpc finished and call callbacks.
         _send_block_callback->end_mark();
@@ -1298,21 +1263,6 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
                               << ", backendId=" << _node_id
                               << ", master node id: " << this->node_id()
                               << ", host: " << this->host() << ", txn_id=" << _parent->_txn_id;
-            }
-            if (_parent->_write_single_replica) {
-                for (const auto& tablet_slave_node_ids : result.success_slave_tablet_node_ids()) {
-                    for (auto slave_node_id : tablet_slave_node_ids.second.slave_node_ids()) {
-                        TTabletCommitInfo commit_info;
-                        commit_info.tabletId = tablet_slave_node_ids.first;
-                        commit_info.backendId = slave_node_id;
-                        _tablet_commit_infos.emplace_back(std::move(commit_info));
-                        VLOG_CRITICAL
-                                << "slave replica commit info: tabletId="
-                                << tablet_slave_node_ids.first << ", backendId=" << slave_node_id
-                                << ", master node id: " << this->node_id()
-                                << ", host: " << this->host() << ", txn_id=" << _parent->_txn_id;
-                    }
-                }
             }
             _add_batches_finished = true;
             _index_channel->notify_close_wait();
@@ -1648,11 +1598,6 @@ Status VTabletWriter::on_partitions_created(TCreatePartitionResult* result) {
     // add new tablet locations. it will use by address. so add to pool
     auto* new_locations = _pool->add(new std::vector<TTabletLocation>(result->tablets));
     _location->add_locations(*new_locations);
-    if (_write_single_replica) {
-        auto* slave_locations = _pool->add(new std::vector<TTabletLocation>(result->slave_tablets));
-        _slave_location->add_locations(*slave_locations);
-    }
-
     // update new node info
     _nodes_info->add_nodes(result->nodes);
 
@@ -1678,7 +1623,6 @@ Status VTabletWriter::_init_row_distribution() {
                             .vec_output_expr_ctxs = &_vec_output_expr_ctxs,
                             .schema = _schema,
                             .caller = this,
-                            .write_single_replica = _write_single_replica,
                             .create_partition_callback = &::doris::on_partitions_created});
 
     return _row_distribution.open(_output_row_desc);
@@ -1688,6 +1632,9 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     DCHECK(_t_sink.__isset.olap_table_sink);
     _pool = state->obj_pool();
     auto& table_sink = _t_sink.olap_table_sink;
+    if (table_sink.__isset.write_single_replica && table_sink.write_single_replica) {
+        return Status::NotSupported("single replica load has been removed");
+    }
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
     _txn_id = table_sink.txn_id;
@@ -1707,14 +1654,6 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _schema->set_timezone(state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
-    if (table_sink.__isset.write_single_replica && table_sink.write_single_replica) {
-        _write_single_replica = true;
-        _slave_location = _pool->add(new OlapTableLocationParam(table_sink.slave_location));
-        if (!config::enable_single_replica_load) {
-            return Status::InternalError("single replica load is disabled on BE.");
-        }
-    }
-
     if (config::is_cloud_mode() &&
         (!table_sink.__isset.txn_timeout_s || table_sink.txn_timeout_s <= 0)) {
         return Status::InternalError("The txn_timeout_s of TDataSink is invalid");
@@ -2111,8 +2050,7 @@ Status VTabletWriter::close(Status exec_status) {
             // Due to the non-determinism of compaction, the rowsets of each replica may be different from each other on different
             // BE nodes. The number of rows filtered in SegmentWriter depends on the historical rowsets located in the correspoding
             // BE node. So we check the number of rows filtered on each succeccful BE to ensure the consistency of the current load
-            if (status.ok() && !_write_single_replica && _schema->is_strict_mode() &&
-                _schema->is_partial_update()) {
+            if (status.ok() && _schema->is_strict_mode() && _schema->is_partial_update()) {
                 if (Status st = index_channel->check_tablet_filtered_rows_consistency(); !st.ok()) {
                     status = st;
                 } else {

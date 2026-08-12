@@ -464,7 +464,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
 
-    public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
     public static final String ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES = "enable_fast_analyze_into_values";
 
@@ -848,7 +847,6 @@ public class SessionVariable implements Serializable, Writable {
     @Deprecated
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
     public static final String ENABLE_VARIANT_SCHEMA_AUTO_CAST = "enable_variant_schema_auto_cast";
-    public static final String ENABLE_VARIANT_V2 = "enable_variant_v2";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -2137,10 +2135,6 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VarAttrDef.VarAttr(name = SESSION_CONTEXT, needForward = true)
     public String sessionContext = "";
-
-    @VarAttrDef.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT,
-            needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public boolean enableSingleReplicaInsert = false;
 
     @VarAttrDef.VarAttr(
             name = ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES, fuzzy = true,
@@ -3481,15 +3475,6 @@ public class SessionVariable implements Serializable, Writable {
                     + "The default is true."
     )
     public boolean enableVariantSchemaAutoCast = true;
-
-    @VarAttrDef.VarAttr(
-            name = ENABLE_VARIANT_V2,
-            needForward = true,
-            affectQueryResultInPlan = true,
-            varType = VariableAnnotation.EXPERIMENTAL,
-            description = "Whether to enable ColumnVariantV2 for compute expressions. The default is false."
-    )
-    public boolean enableVariantV2 = false;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
@@ -5152,14 +5137,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableExprTrace;
     }
 
-    public boolean isEnableSingleReplicaInsert() {
-        return enableSingleReplicaInsert;
-    }
-
-    public void setEnableSingleReplicaInsert(boolean enableSingleReplicaInsert) {
-        this.enableSingleReplicaInsert = enableSingleReplicaInsert;
-    }
-
     public boolean isEnableFastAnalyzeInsertIntoValues() {
         return enableFastAnalyzeInsertIntoValues;
     }
@@ -6384,10 +6361,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableVariantSchemaAutoCast() {
         return enableVariantSchemaAutoCast;
-    }
-
-    public boolean isEnableVariantV2() {
-        return enableVariantV2;
     }
 
     public void setProfileLevel(String profileLevel) {

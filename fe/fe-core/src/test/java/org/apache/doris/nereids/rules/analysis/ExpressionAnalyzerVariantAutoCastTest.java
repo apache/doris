@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.BigIntType;
@@ -83,6 +84,18 @@ public class ExpressionAnalyzerVariantAutoCastTest {
         Assertions.assertTrue(expr instanceof Cast, "expect Cast wrapping ElementAt");
         Cast cast = (Cast) expr;
         Assertions.assertTrue(cast.child() instanceof ElementAt, "cast child should be ElementAt");
+    }
+
+    @Test
+    public void testTargetVariantTypeParticipatesInTryParseEquality() {
+        StringLiteral json = new StringLiteral("{\"a\":1}");
+        VariantType firstTarget = new VariantType(1);
+        VariantType secondTarget = new VariantType(2);
+
+        TryParseToVariant firstTryParse = new TryParseToVariant(json, firstTarget);
+        TryParseToVariant secondTryParse = new TryParseToVariant(json, secondTarget);
+        Assertions.assertNotEquals(firstTryParse, secondTryParse);
+        Assertions.assertEquals(firstTryParse, new TryParseToVariant(json, new VariantType(1)));
     }
 
     @Test

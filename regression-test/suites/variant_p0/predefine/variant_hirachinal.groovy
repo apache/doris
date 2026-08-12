@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_predefine_hirachinal", "variant_type"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def table_name = "var_rs"
     sql "DROP TABLE IF EXISTS ${table_name}"
 
@@ -29,13 +30,13 @@ suite("regression_test_variant_predefine_hirachinal", "variant_type"){
             DISTRIBUTED BY HASH(k) BUCKETS 1
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
-    sql """insert into ${table_name} values (-3, '{"a" : 1, "b" : 1.5, "c" : [1, 2, 3]}')"""
-    sql """insert into  ${table_name} select * from (select -2, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}'  as json_str
-            union  all select -1, '{"a": 1123}' as json_str union all select *, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4098 ;"""
-    qt_sql "select * from ${table_name} order by k limit 10"
+    sql """insert into ${table_name} values (-3, ${variantV2Function}('{"a":1,"b":1.5,"c":[1,2,3]}'))"""
+    sql """insert into  ${table_name} select * from (select -2, ${variantV2Function}('{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}') as json_str
+            union all select -1, ${variantV2Function}('{"a": 1123}') as json_str union all select *, ${variantV2Function}('{"a" : 1234, "xxxx" : "kaana"}') as json_str from numbers("number" = "4096"))t order by 1 limit 4098 ;"""
+    qt_sql "select k, sort_json_object_keys(cast(v as json)) from ${table_name} order by k limit 10"
     qt_sql "select cast(v['c'] as json) from ${table_name} where k = -3 or k = -2 order by k"
     qt_sql "select v['b'] from ${table_name} where k = -3 or k = -2"
-    sql """insert into ${table_name} values (-3, '{"c" : 12345}')"""
+    sql """insert into ${table_name} values (-3, ${variantV2Function}('{"c" : 12345}'))"""
     order_qt_sql1 "select cast(v['c'] as json) from var_rs where k = -3 or k = -2 or k = -4 or (k = 1 and v['c'] = 1024) order by k"
     order_qt_sql2 "select cast(v['c'] as json) from var_rs where k = -3 or k = -2 or k = 1 order by k, cast(v['c'] as text) limit 3"
 }
