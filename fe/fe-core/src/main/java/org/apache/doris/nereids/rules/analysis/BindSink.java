@@ -819,7 +819,8 @@ public class BindSink implements AnalysisRuleFactory {
         }
 
         IcebergVariantWriteAnalyzer.validate(bindColumns, child.getOutput());
-        VariantWritePlanValidator.validateNoLossyCoercion("Iceberg", bindColumns, child);
+        VariantWritePlanValidator.validateNoLossyCoercion(
+                "Iceberg", bindColumns, child, ctx.cascadesContext.getCteContext());
 
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
                 boundSink, child, targetSchema);
@@ -1004,7 +1005,8 @@ public class BindSink implements AnalysisRuleFactory {
                 && connectContext.getSessionVariable().isEnableVariantV2();
         PaimonVariantWriteAnalyzer.validate(
                 writeTarget, writeColumns, columnToOutput, enableVariantV2);
-        VariantWritePlanValidator.validateNoLossyCoercion("Paimon", bindColumns, child);
+        VariantWritePlanValidator.validateNoLossyCoercion(
+                "Paimon", bindColumns, child, ctx.cascadesContext.getCteContext());
         LogicalProject<?> outputProject = getOutputProjectByCoercion(
                 writeColumns, child, columnToOutput, writeTarget.getColumnTypes());
         return boundSink.withChildAndUpdateOutput(outputProject);

@@ -672,7 +672,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private void validateVariantSchema(Table icebergTable, org.apache.doris.catalog.Type dorisType,
-            String columnPath, boolean nestedColumn) throws UserException {
+            String columnPath, boolean nestedColumn, boolean validateWriteFormat) throws UserException {
         if (!IcebergUtils.containsVariant(dorisType)) {
             return;
         }
@@ -683,7 +683,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Iceberg VARIANT column " + columnPath
                     + " requires table format-version 3");
         }
-        if (IcebergUtils.getFileFormat(icebergTable) != org.apache.iceberg.FileFormat.PARQUET) {
+        if (validateWriteFormat
+                && IcebergUtils.getFileFormat(icebergTable) != org.apache.iceberg.FileFormat.PARQUET) {
             throw new UserException("Iceberg VARIANT column " + columnPath
                     + " requires Parquet data files");
         }
@@ -747,7 +748,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throws UserException {
         validateAddColumnMetadata(column, true);
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        validateVariantSchema(icebergTable, column.getType(), column.getName(), false);
+        validateVariantSchema(icebergTable, column.getType(), column.getName(), false, true);
         validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
         Schema schema = icebergTable.schema();
         validateNoCaseInsensitiveSiblingCollision(
@@ -778,7 +779,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("New nested field '" + columnPath.getFullPath() + "' must be nullable");
         }
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), true);
+        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), true, true);
         ResolvedColumnPath parentPath = resolveColumnPath(icebergTable.schema(), columnPath.getParentPath(), "add");
         if (!parentPath.getType().isStructType()) {
             throw new UserException("Parent column path '" + columnPath.getParentPathString()
@@ -810,7 +811,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         for (Column column : columns) {
             validateAddColumnMetadata(column, true);
-            validateVariantSchema(icebergTable, column.getType(), column.getName(), false);
+            validateVariantSchema(icebergTable, column.getType(), column.getName(), false, true);
             validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
         }
         validateNoCaseInsensitiveTopLevelCollisions(icebergTable.schema(), columns);
@@ -967,7 +968,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         validateModifyColumnMetadata(column, resolvedPath.getFullPath(), true);
         boolean variantModify = validateVariantTypeChange(
                 currentCol.type(), column.getType(), resolvedPath.getFullPath());
-        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), false);
+        // A same-type VARIANT MODIFY only changes metadata. Existing v3 ORC tables can legally
+        // contain VARIANT columns even though Doris cannot write VARIANT values to ORC files.
+        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), false,
+                !variantModify);
         org.apache.iceberg.types.Type targetType;
         if (variantModify) {
             validateForModifyVariantColumn(column, currentCol, resolvedPath.getFullPath());
@@ -1030,7 +1034,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         validateNestedModifyColumnMetadata(column, resolvedPath.getFullPath());
-        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), true);
+        validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), true, true);
         org.apache.iceberg.types.Type targetType;
         if (column.getType().isComplexType()) {
             validateForModifyComplexColumn(column, currentCol, columnPath.getFullPath());

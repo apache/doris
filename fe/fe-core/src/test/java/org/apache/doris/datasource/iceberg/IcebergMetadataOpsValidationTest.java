@@ -115,7 +115,7 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
-    public void testTopLevelVariantModifyOnlyUpdatesMetadata() throws Throwable {
+    public void testTopLevelVariantModifyOnlyUpdatesMetadataOnOrcTable() throws Throwable {
         Type dorisVariantType = IcebergUtils.icebergTypeToDorisType(
                 Types.VariantType.get(), false, false);
         Schema schema = new Schema(
@@ -126,7 +126,7 @@ public class IcebergMetadataOpsValidationTest {
         UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
         Map<String, String> properties = new HashMap<>();
         properties.put(TableProperties.FORMAT_VERSION, "3");
-        properties.put(TableProperties.DEFAULT_FILE_FORMAT, "parquet");
+        properties.put(TableProperties.DEFAULT_FILE_FORMAT, "orc");
         Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
         Mockito.when(icebergTable.schema()).thenReturn(schema);
         Mockito.when(icebergTable.properties()).thenReturn(properties);

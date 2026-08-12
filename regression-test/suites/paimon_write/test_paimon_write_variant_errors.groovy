@@ -173,6 +173,28 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon") {
             """
             exception "Paimon VARIANT write cannot safely convert input column 'payload'"
         }
+        test {
+            sql """
+                INSERT INTO t_variant_error
+                WITH RECURSIVE source AS (
+                    SELECT IF(TRUE, payload, 1) AS payload
+                    FROM t_variant_coercion_source WHERE id = 1
+                    UNION ALL
+                    SELECT CAST(1 AS DECIMAL(38, 9)) FROM source
+                )
+                SELECT 38, payload FROM source
+            """
+            exception "Paimon VARIANT write cannot safely convert input column 'payload'"
+        }
+        test {
+            sql """
+                INSERT INTO t_variant_error
+                SELECT 39, generated_payload
+                FROM (SELECT payload FROM t_variant_coercion_source WHERE id = 1) source
+                LATERAL VIEW explode(ARRAY(IF(TRUE, payload, 1))) generated AS generated_payload
+            """
+            exception "Paimon VARIANT write cannot safely convert input column 'payload'"
+        }
 
         // Valid V2 writes still work after analysis failures in the same session.
         sql """

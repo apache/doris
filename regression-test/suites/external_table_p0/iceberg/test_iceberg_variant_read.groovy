@@ -212,6 +212,18 @@ suite("test_iceberg_variant_read",
             '{"n":', id, ',"padding":"', repeat('x', 256), '"}'))
         FROM range(0, 8192);
 
+        DROP TABLE IF EXISTS demo.${dbName}.variant_doris_multi_row_group;
+        CREATE TABLE demo.${dbName}.variant_doris_multi_row_group (
+            id BIGINT,
+            info STRUCT<label: STRING, payload: VARIANT>,
+            padding STRING
+        ) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='false'
+        );
+
         DROP TABLE IF EXISTS demo.${dbName}.variant_deletion_vector;
         CREATE TABLE demo.${dbName}.variant_deletion_vector (id INT, v VARIANT) USING iceberg
         TBLPROPERTIES (
@@ -596,6 +608,27 @@ public class AppendVariantEqualityDelete {
         """
         exception "Iceberg VARIANT write cannot safely convert input column 'payload'"
     }
+    test {
+        sql """
+            INSERT INTO variant_coercion_guard
+            WITH RECURSIVE source AS (
+                SELECT IF(TRUE, v, 1) AS payload FROM variant_values WHERE id = 1
+                UNION ALL
+                SELECT CAST(1 AS DECIMAL(38, 9)) FROM source
+            )
+            SELECT 9, payload FROM source
+        """
+        exception "Iceberg VARIANT write cannot safely convert input column 'payload'"
+    }
+    test {
+        sql """
+            INSERT INTO variant_coercion_guard
+            SELECT 9, generated_payload
+            FROM (SELECT v FROM variant_values WHERE id = 1) source
+            LATERAL VIEW explode(ARRAY(IF(TRUE, v, 1))) generated AS generated_payload
+        """
+        exception "Iceberg VARIANT write cannot safely convert input column 'payload'"
+    }
 
     // Primitive-to-Variant coercion remains supported for both inline VALUES and ordinary SELECT.
     sql """
@@ -644,6 +677,63 @@ public class AppendVariantEqualityDelete {
             (12, PARSE_TO_VARIANT('{}')),
             (13, PARSE_TO_VARIANT('[]'))
     """
+
+    // A single Doris writer emits more than 128 MiB of logical data, forcing multiple Parquet
+    // row groups in one file. The nested Variant leaf verifies that Iceberg metrics are merged
+    // across every row group instead of taking statistics from only the first one.
+    sql """
+        INSERT INTO variant_doris_multi_row_group
+        SELECT /*+ SET_VAR(parallel_pipeline_task_num=1) */
+               number,
+               NAMED_STRUCT(
+                   'label', 'doris-row-group',
+                   'payload', IF(
+                       number % 10 = 0,
+                       CAST(NULL AS VARIANT),
+                       PARSE_TO_VARIANT(CONCAT('{"kind":"doris","n":', number, '}'))
+                   )
+               ),
+               REPEAT('x', 2048)
+        FROM numbers("number" = "100000")
+    """
+    spark_iceberg """REFRESH TABLE demo.${dbName}.variant_doris_multi_row_group"""
+    List<List<Object>> sparkDorisMultiRowGroupFiles = spark_iceberg """
+        SELECT file_format, record_count,
+               value_counts[4], null_value_counts[4],
+               column_sizes[4] IS NULL,
+               lower_bounds[4] IS NULL, upper_bounds[4] IS NULL
+        FROM demo.${dbName}.variant_doris_multi_row_group.files
+        WHERE content = 0
+    """
+    assertEquals(1, sparkDorisMultiRowGroupFiles.size(),
+            "The Doris multi-row-group write must produce exactly one data file")
+    assertEquals([
+            "parquet", "100000", "100000", "10000", "true", "true", "true"
+    ], sparkDorisMultiRowGroupFiles[0].collect { value ->
+        value == null ? null : value.toString().toLowerCase()
+    })
+    List<List<Object>> sparkDorisMultiRowGroupValues = spark_iceberg """
+        SELECT COUNT(*), COUNT(info.payload),
+               SUM(CASE WHEN info.payload IS NULL THEN 1 ELSE 0 END),
+               MIN(id), MAX(id), MIN(LENGTH(padding)), MAX(LENGTH(padding))
+        FROM demo.${dbName}.variant_doris_multi_row_group
+    """
+    assertEquals([
+            "100000", "90000", "10000", "0", "99999", "2048", "2048"
+    ], sparkDorisMultiRowGroupValues[0].collect { value -> value.toString() })
+    List<List<Object>> sparkDorisMultiRowGroupSamples = spark_iceberg """
+        SELECT id, info.label, variant_get(info.payload, '\$.n', 'bigint')
+        FROM demo.${dbName}.variant_doris_multi_row_group
+        WHERE id IN (0, 1, 99999)
+        ORDER BY id
+    """
+    assertEquals([
+            ["0", "doris-row-group", null],
+            ["1", "doris-row-group", "1"],
+            ["99999", "doris-row-group", "99999"]
+    ], sparkDorisMultiRowGroupSamples.collect { row ->
+        row.collect { value -> value == null ? null : value.toString() }
+    })
     sql """set enable_variant_v2=false"""
 
     // CREATE/ADD followed by top-level MODIFY must remain metadata-only for Iceberg Variant.
@@ -895,6 +985,43 @@ public class AppendVariantEqualityDelete {
             ["1", "doris-merge", "2"],
             ["2", "doris-insert", "3"]
     ], sparkOperationRows.collect { row ->
+        row.collect { value -> value == null ? null : value.toString() }
+    })
+
+    // Row-level DML must inspect the complete source lineage, not only the final sink-child type.
+    // Otherwise common-type coercion can turn an object Variant into SQL NULL before it is encoded.
+    test {
+        sql """
+            UPDATE variant_operation_column
+            SET `operation` = IF(TRUE, `operation`, 1)
+            WHERE id = 1
+        """
+        exception "Iceberg VARIANT write cannot safely convert input column 'operation'"
+    }
+    test {
+        sql """
+            MERGE INTO variant_operation_column t
+            USING (
+                SELECT 1 AS id, PARSE_TO_VARIANT('{"stage":"lossy-merge"}') AS payload
+                UNION ALL
+                SELECT 2 AS id, 1 AS payload
+            ) s
+            ON t.id = s.id
+            WHEN MATCHED THEN UPDATE SET `operation` = s.payload
+        """
+        exception "Iceberg VARIANT write cannot safely convert input column 'operation'"
+    }
+    List<List<Object>> sparkOperationRowsAfterRejectedDml = spark_iceberg """
+        SELECT id,
+               variant_get(`operation`, '\$.stage', 'string'),
+               variant_get(`operation`, '\$.n', 'int')
+        FROM demo.${dbName}.variant_operation_column
+        ORDER BY id
+    """
+    assertEquals([
+            ["1", "doris-merge", "2"],
+            ["2", "doris-insert", "3"]
+    ], sparkOperationRowsAfterRejectedDml.collect { row ->
         row.collect { value -> value == null ? null : value.toString() }
     })
 
@@ -1277,6 +1404,21 @@ public class AppendVariantEqualityDelete {
         FROM variant_type_matrix
     """
 
+    String dorisMultiRowGroupToken =
+            "iceberg_variant_doris_multi_row_group_" + UUID.randomUUID().toString()
+    List<List<Object>> dorisMultiRowGroupRows = sql """
+        SELECT '${dorisMultiRowGroupToken}', COUNT(*), SUM(LENGTH(padding)),
+               SUM(IF(info.payload IS NULL, 1, 0))
+        FROM variant_doris_multi_row_group
+    """
+    assertEquals([
+            dorisMultiRowGroupToken, "100000", "204800000", "10000"
+    ], dorisMultiRowGroupRows[0].collect { value -> value.toString() })
+    String dorisMultiRowGroupProfile = getProfileByToken(
+            dorisMultiRowGroupToken, ["RowGroupsTotalNum"]).toString()
+    assertTrue(counterSum(dorisMultiRowGroupProfile, "RowGroupsTotalNum") > 1,
+            "The single Doris-generated Parquet file did not contain multiple row groups")
+
     String multiRowGroupColdToken =
             "iceberg_variant_multi_row_group_cold_" + UUID.randomUUID().toString()
     sql """
@@ -1601,6 +1743,9 @@ public class AppendVariantEqualityDelete {
 
     // Files written before the Variant field existed have no physical Variant payload. Schema
     // evolution must synthesize NULL instead of rejecting their non-Parquet file format.
+    // Metadata-only MODIFY is valid on an existing Iceberg v3 ORC Variant table. Doris still
+    // rejects data writes because Iceberg ORC has no Variant writer.
+    sql """ALTER TABLE variant_orc MODIFY COLUMN v VARIANT COMMENT 'orc payload'"""
     order_qt_variant_orc_missing_column """
         SELECT id, CAST(v AS STRING) FROM variant_orc ORDER BY id
     """

@@ -18,12 +18,15 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -34,8 +37,10 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -157,6 +162,117 @@ public class VariantWritePlanValidatorTest {
     }
 
     @Test
+    public void testAnalyzedRecursiveUnionAndGenerateLossAreRejectedForBothSinks() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().enableVariantV2 = true;
+        List<String> sqlStatements = ImmutableList.of(
+                "WITH RECURSIVE source AS ("
+                        + "SELECT IF(TRUE, parse_to_variant("
+                        + "'{\"kind\":\"recursive\"}'), 1) AS payload "
+                        + "UNION ALL SELECT CAST(1 AS DECIMAL(38, 9)) FROM source) "
+                        + "SELECT 1, payload FROM source",
+                "SELECT 1, generated_payload FROM (SELECT 1 AS seed) source "
+                        + "LATERAL VIEW explode(ARRAY(IF(TRUE, "
+                        + "parse_to_variant('{\"kind\":\"generate\"}'), 1))) generated "
+                        + "AS generated_payload");
+
+        try {
+            for (String sql : sqlStatements) {
+                Plan analyzedPlan = PlanChecker.from(connectContext).analyze(sql).getPlan();
+                for (String sinkName : ImmutableList.of("Iceberg", "Paimon")) {
+                    AnalysisException exception = Assert.assertThrows(
+                            AnalysisException.class,
+                            () -> VariantWritePlanValidator.validateNoLossyCoercion(
+                                    sinkName, variantTargetWithId(), analyzedPlan));
+                    Assert.assertTrue(exception.getMessage(),
+                            exception.getMessage().contains("input column 'payload'"));
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().enableVariantV2 = false;
+        }
+    }
+
+    @Test
+    public void testScalarSubqueryLossIsRejectedForBothSinks() {
+        LogicalProject<?> lossyQueryPlan = projectExpression(variant -> new If(
+                BooleanLiteral.TRUE,
+                new Cast(variant, IntegerType.INSTANCE),
+                new IntegerLiteral(1)));
+        LogicalOneRowRelation lossyQuerySource = oneRow(
+                new Alias(new ScalarSubquery(lossyQueryPlan), "payload"));
+
+        ScalarSubquery coercedSubquery = (ScalarSubquery) new ScalarSubquery(variantInput())
+                .withTypeCoercion(IntegerType.INSTANCE);
+        LogicalOneRowRelation coercedSubquerySource = oneRow(
+                new Alias(coercedSubquery, "payload"));
+
+        for (String sinkName : ImmutableList.of("Iceberg", "Paimon")) {
+            for (Plan plan : ImmutableList.of(lossyQuerySource, coercedSubquerySource)) {
+                AnalysisException exception = Assert.assertThrows(
+                        AnalysisException.class,
+                        () -> VariantWritePlanValidator.validateNoLossyCoercion(
+                                sinkName, variantTarget(), plan));
+                Assert.assertTrue(exception.getMessage(),
+                        exception.getMessage().contains("input column 'payload'"));
+                Assert.assertTrue(exception.getMessage(),
+                        exception.getMessage().contains("implicitly casts VARIANT to INT"));
+            }
+        }
+    }
+
+    @Test
+    public void testCorrelatedScalarSubqueryLossIsRejectedForBothSinks() {
+        LogicalProject<?> lossyOuterSource = projectExpression(variant -> new If(
+                BooleanLiteral.TRUE,
+                new Cast(variant, IntegerType.INSTANCE),
+                new IntegerLiteral(1)));
+        Slot correlatedSlot = lossyOuterSource.getOutput().get(0);
+        LogicalOneRowRelation correlatedQuery = oneRow(
+                new Alias(correlatedSlot, "correlated_payload"));
+        ScalarSubquery correlatedSubquery = new ScalarSubquery(
+                correlatedQuery, ImmutableList.of(correlatedSlot), false);
+        LogicalProject<?> source = new LogicalProject<>(
+                ImmutableList.of(new Alias(correlatedSubquery, "payload")),
+                lossyOuterSource);
+
+        for (String sinkName : ImmutableList.of("Iceberg", "Paimon")) {
+            AnalysisException exception = Assert.assertThrows(
+                    AnalysisException.class,
+                    () -> VariantWritePlanValidator.validateNoLossyCoercion(
+                            sinkName, variantTarget(), source));
+            Assert.assertTrue(exception.getMessage(),
+                    exception.getMessage().contains("implicitly casts VARIANT to INT"));
+        }
+    }
+
+    @Test
+    public void testAnalyzerCteContextIsUsedBeforeAnchorConstruction() {
+        LogicalProject<?> lossyProducerChild = projectExpression(variant -> new If(
+                BooleanLiteral.TRUE,
+                new Cast(variant, IntegerType.INSTANCE),
+                new IntegerLiteral(1)));
+        LogicalSubQueryAlias<Plan> producerPlan = new LogicalSubQueryAlias<>(
+                "source", lossyProducerChild);
+        CTEId cteId = new CTEId(1);
+        CTEContext cteContext = new CTEContext(cteId, producerPlan, new CTEContext());
+        cteContext.setAnalyzedPlan(producerPlan);
+        LogicalCTEConsumer consumer = new LogicalCTEConsumer(
+                new RelationId(2), cteId, "source", producerPlan);
+        LogicalOneRowRelation source = oneRow(
+                new Alias(new ScalarSubquery(consumer), "payload"));
+
+        for (String sinkName : ImmutableList.of("Iceberg", "Paimon")) {
+            AnalysisException exception = Assert.assertThrows(
+                    AnalysisException.class,
+                    () -> VariantWritePlanValidator.validateNoLossyCoercion(
+                            sinkName, variantTarget(), source, cteContext));
+            Assert.assertTrue(exception.getMessage(),
+                    exception.getMessage().contains("implicitly casts VARIANT to INT"));
+        }
+    }
+
+    @Test
     public void testPrimitiveSourceAndExplicitVariantCastAreAccepted() {
         LogicalOneRowRelation primitiveSource = oneRow(
                 new Alias(new IntegerLiteral(1), "payload"));
@@ -198,6 +314,43 @@ public class VariantWritePlanValidatorTest {
 
         VariantWritePlanValidator.validateNoLossyCoercion("Iceberg", targets, source);
         VariantWritePlanValidator.validateNoLossyCoercion("Paimon", targets, source);
+    }
+
+    @Test
+    public void testRowLevelDmlRoutingColumnsUseMappedSourceOrdinal() {
+        LogicalOneRowRelation input = variantInput();
+        Slot variantSlot = input.getOutput().get(0);
+        LogicalProject<?> source = new LogicalProject<>(ImmutableList.of(
+                new Alias(new IntegerLiteral(2), "operation"),
+                new Alias(new IntegerLiteral(7), "row_id"),
+                new Alias(new If(
+                        BooleanLiteral.TRUE,
+                        new Cast(variantSlot, IntegerType.INSTANCE),
+                        new IntegerLiteral(1)), "payload")), input);
+
+        AnalysisException exception = Assert.assertThrows(
+                AnalysisException.class,
+                () -> VariantWritePlanValidator.validateNoLossyCoercion(
+                        "Iceberg", variantTarget(), source, ImmutableList.of(2)));
+        Assert.assertTrue(exception.getMessage(),
+                exception.getMessage().contains("input column 'payload'"));
+        Assert.assertTrue(exception.getMessage(),
+                exception.getMessage().contains("implicitly casts VARIANT to INT"));
+    }
+
+    @Test
+    public void testDefaultMappingRequiresSameOutputWidth() {
+        LogicalOneRowRelation source = oneRow(
+                new Alias(new IntegerLiteral(2), "operation"),
+                new Alias(new IntegerLiteral(7), "row_id"),
+                new Alias(new NullLiteral(VariantType.COMPUTE_V2_INSTANCE), "payload"));
+
+        AnalysisException exception = Assert.assertThrows(
+                AnalysisException.class,
+                () -> VariantWritePlanValidator.validateNoLossyCoercion(
+                        "Iceberg", variantTarget(), source));
+        Assert.assertTrue(exception.getMessage(),
+                exception.getMessage().contains("target and source columns are not aligned"));
     }
 
     @Test

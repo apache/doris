@@ -21,10 +21,12 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.VariantWritePlanValidator;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.MappingSlot;
@@ -298,6 +300,10 @@ public class BindExpression implements AnalysisRuleFactory {
         List<NamedExpression> outputExprs = sink.child().getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
+        if (sink.isWritesDataFiles()) {
+            validateIcebergMergeNoLossyCoercion(
+                    sink.getCols(), sink.child(), ctx.cascadesContext.getCteContext());
+        }
         List<NamedExpression> castExprs = coerceIcebergMergeOutput(
                 sink.getCols(), outputExprs, sink.isWritesDataFiles());
         if (castExprs.equals(outputExprs)) {
@@ -308,6 +314,25 @@ public class BindExpression implements AnalysisRuleFactory {
         }
         LogicalProject<?> project = new LogicalProject<>(castExprs, sink.child());
         return (LogicalIcebergMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
+    }
+
+    private static void validateIcebergMergeNoLossyCoercion(
+            List<Column> sinkColumns, Plan sourcePlan, CTEContext cteContext) {
+        List<Column> targetColumns = Lists.newArrayList();
+        List<Integer> sourceOrdinals = Lists.newArrayList();
+        int sourceOrdinal = 2;
+        for (Column column : sinkColumns) {
+            if (!column.isVisible() && !IcebergUtils.isIcebergRowLineageColumn(column)) {
+                continue;
+            }
+            if (column.isVisible()) {
+                targetColumns.add(column);
+                sourceOrdinals.add(sourceOrdinal);
+            }
+            sourceOrdinal++;
+        }
+        VariantWritePlanValidator.validateNoLossyCoercion(
+                "Iceberg", targetColumns, sourcePlan, sourceOrdinals, cteContext);
     }
 
     static List<NamedExpression> coerceIcebergMergeOutput(List<Column> sinkColumns,
