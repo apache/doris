@@ -18,6 +18,7 @@
 package org.apache.doris.connector.fluss;
 
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
@@ -47,10 +48,12 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -98,6 +101,16 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
 
     /** The only lake format that can be delegated today; fluss also defines iceberg / lance / hudi. */
     private static final String PAIMON_LAKE_FORMAT = "paimon";
+
+    /**
+     * What {@code tbl$lake} and {@code tbl$log} declare on their own schemas. fe-core resolves a system
+     * table's nested-column-prune answer from the per-table set alone, so the connector-wide declaration
+     * does not reach them — and both are served by the ordinary data readers (paimon for the lake half,
+     * this connector's scanner for the log half), so both honour a pruned nested type. The sys-table
+     * capability is a different one from the data table's on purpose; see its javadoc.
+     */
+    private static final Set<ConnectorCapability> SYS_TABLE_CAPABILITIES = Collections.unmodifiableSet(
+            EnumSet.of(ConnectorCapability.SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE));
 
     private final FlussAdminOps adminOps;
     private final FlussTypeMapping.Options typeMappingOptions;
@@ -289,11 +302,24 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
         return false;
     }
 
+    /** The sibling's schema with this connector's system-table capabilities merged in. */
+    private static ConnectorTableSchema withSysTableCapabilities(ConnectorTableSchema schema) {
+        Set<ConnectorCapability> merged = EnumSet.copyOf(SYS_TABLE_CAPABILITIES);
+        merged.addAll(schema.getTableCapabilities());
+        // The six-arg overload: dropping writeMetadataIdentity while wrapping would silently remove a
+        // generation fence the sibling put there (hive's reflectSiblingCapabilities preserves it too).
+        return new ConnectorTableSchema(schema.getTableName(), schema.getColumns(),
+                schema.getTableFormatType(), schema.getProperties(), merged,
+                schema.getWriteMetadataIdentity());
+    }
+
     @Override
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle) {
         Connector owner = siblingOwner.apply(handle);
         if (owner != null) {
-            return forward(session, owner, m -> m.getTableSchema(session, handle));
+            // tbl$lake: the sibling states the schema, this side states what the sibling cannot know —
+            // that fe-core may prune this system table's nested columns.
+            return withSysTableCapabilities(forward(session, owner, m -> m.getTableSchema(session, handle)));
         }
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
         TableInfo info = tableInfo(session, flussHandle.toTablePath());
@@ -313,6 +339,12 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
             // to stay matchable against the column names emitted above.
             properties.put(ConnectorTableSchema.PARTITION_COLUMNS_KEY,
                     String.join(",", flussHandle.getPartitionKeys()));
+        }
+        if (flussHandle.isLogOnly()) {
+            // tbl$log is the same data read through the same scanner as the front door, so it prunes like
+            // the front door; a system table has to say that on its own schema.
+            return new ConnectorTableSchema(flussHandle.getTableName(), columns, TABLE_FORMAT_TYPE,
+                    properties, SYS_TABLE_CAPABILITIES);
         }
         return new ConnectorTableSchema(
                 flussHandle.getTableName(), columns, TABLE_FORMAT_TYPE, properties);

@@ -116,11 +116,20 @@ suite("test_fluss_nested_column_pruning", "p0,external") {
     prunedMatchesUnpruned("""
         select id, struct_element(f_row_deep, 'r_int'), struct_element(f_map_row['k1'], 'b')
         from lake_nested order by id""", "union read")
-    // The lake half reached directly. It is a system table, which reads the whole column until
-    // system tables opt in; the read must stay correct either way.
+    // Both halves reached directly. They are system tables, and a system table's answer comes from its own
+    // schema rather than the catalog-wide declaration -- these two opt in, because they are read by the same
+    // data readers as the front door. Otherwise the same query would answer differently through tbl than
+    // through tbl$lake.
+    assertPrunedType("select id, struct_element(f_row_deep, 'r_int') from lake_nested\$lake order by id",
+            "struct<r_int:int>", "\$lake")
+    assertPrunedType("select id, struct_element(f_row_deep, 'r_int') from lake_nested\$log order by id",
+            "struct<r_int:int>", "\$log")
     prunedMatchesUnpruned("""
         select id, struct_element(f_row_deep, 'r_int') from lake_nested\$lake order by id""",
         "\$lake")
+    prunedMatchesUnpruned("""
+        select id, struct_element(f_row_deep, 'r_int') from lake_nested\$log order by id""",
+        "\$log")
 
     sql "set enable_prune_nested_column = true"
     order_qt_log_pruned """
@@ -133,6 +142,10 @@ suite("test_fluss_nested_column_pruning", "p0,external") {
     order_qt_union_pruned """
         select id, struct_element(f_row_deep, 'r_int'), struct_element(f_map_row['k1'], 'b')
         from lake_nested order by id"""
+    // The lake half alone: one row, the tiered one. Recorded next to the union above so a half that
+    // started answering with the other half's rows is visible.
+    order_qt_lake_sys_pruned """
+        select id, struct_element(f_row_deep, 'r_int') from lake_nested\$lake order by id"""
 
     sql """drop catalog if exists ${catalogName}"""
 }

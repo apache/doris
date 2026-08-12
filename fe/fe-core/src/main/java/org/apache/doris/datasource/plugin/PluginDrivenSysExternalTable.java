@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
@@ -137,26 +138,41 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
     }
 
     /**
-     * A system/metadata table (e.g. {@code tbl$snapshots}) can NEVER take part in nested-column pruning,
-     * regardless of what the connector declares. Pruning has two stages in fe-core: (L1) generate name-based
-     * access paths ({@code LogicalFileScan.supportPruneNestedColumn}), then (L2) rewrite each access-path top
-     * element from the column NAME to its numeric field id ({@code SlotTypeReplacer.replaceAccessPathToFieldId},
-     * gated on {@link PluginDrivenExternalTable#supportsNestedColumnPrune()}). BE can only field-id-match a
-     * complex column when the scan ships a field-id dictionary, but a system-table scan intentionally ships NONE
-     * ({@code IcebergScanPlanProvider} skips {@code SCHEMA_EVOLUTION_PROP} when {@code systemTable}), so
-     * {@code column->has_identifier_field_id()} is false and BE rejects the field-id access path with
-     * {@code AccessPathParser access path N does not match slot X}.
+     * Whether THIS system table takes part in nested-column pruning — resolved from its OWN schema alone,
+     * never from the connector-wide set (which the base class would also accept).
      *
-     * <p>Legacy parity: on master the L2 field-id rewrite was gated on {@code instanceof IcebergExternalTable},
-     * and legacy sys tables ({@code IcebergSysExternalTable}) extend {@code ExternalTable} — NOT
-     * {@code IcebergExternalTable} — so L2 never fired for them and their access paths stayed name-based (BE
-     * matched by name). The migrated gate keys off the connector capability alone, which a flipped sys table
-     * inherits as {@code true}; this override is the sys-table opt-out. It disables BOTH stages, so no access
-     * paths are emitted and BE reads the whole (tiny) metadata-table complex column — which is correct.
+     * <p>The answer is per system table because it is really a question about which reader serves it. A
+     * metadata table (e.g. {@code tbl$snapshots}) is served by the connector's JNI metadata reader, which
+     * indexes its record by the Doris child position ({@code IcebergSysTableColumnValue.unpackStruct}), so
+     * handing it a pruned type makes it return a different field's value; and its scan intentionally ships no
+     * field-id dictionary ({@code IcebergScanPlanProvider} skips {@code SCHEMA_EVOLUTION_PROP} when
+     * {@code systemTable}). It must stay out no matter what its connector declares catalog-wide, which is
+     * what declaring nothing per-table achieves.
+     *
+     * <p>A system table served by the ORDINARY data readers is a different case: fluss's {@code tbl$lake} is
+     * the whole lake table read through the paimon sibling and {@code tbl$log} is the log half read through
+     * the fluss scanner. Both honour a pruned type, and both are as large as the front door — leaving them
+     * out costs exactly the read amplification pruning exists to avoid, and makes one query answer
+     * differently through {@code tbl} than through {@code tbl$lake}. Those opt in by declaring
+     * {@link ConnectorCapability#SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE} on their own
+     * {@link ConnectorTableSchema}.
+     *
+     * <p>That opt-in deliberately does NOT reuse the data table's {@code SUPPORTS_NESTED_COLUMN_PRUNE}, which
+     * reaches a system table's own schema for real: {@code HiveConnectorMetadata.reflectSiblingCapabilities}
+     * copies the owning sibling's connector-wide set onto every schema it forwards, and an iceberg-on-HMS
+     * {@code tbl$snapshots} is forwarded through exactly that path. Keying on it would admit the one reader
+     * that cannot take a pruned type.
+     *
+     * <p>Historically this returned false unconditionally, because the prune capability also switched on the
+     * name-to-field-id access-path rewrite ({@code SlotTypeReplacer.replaceAccessPathToFieldId}) and a
+     * system-table scan ships no field-id dictionary, so BE rejected the rewritten path with
+     * {@code AccessPathParser access path N does not match slot X}. That rewrite now has its own capability
+     * ({@code SUPPORTS_FIELD_ID_ACCESS_PATH}), which no system table declares, so the blanket opt-out is no
+     * longer what keeps it off.
      */
     @Override
     public boolean supportsNestedColumnPrune() {
-        return false;
+        return tableCapabilities().contains(ConnectorCapability.SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE);
     }
 
     /**
