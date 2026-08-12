@@ -87,19 +87,21 @@ TEST_F(PluginRefTableTest, FactoryNamesAreSimpleKeys) {
     }
 }
 
-// Two connectors pointed at the same pair would silently run each other's scanner. Scanners
-// and writers are looked up in separate maps, so a scanner and a writer of one plugin may
-// share a name - and jdbc and max-compute both do - which is why the pairs are only required
-// to be unique per kind. The kind is not in the table, so this asserts the weaker rule the
-// table can actually see: no pair appears more than twice.
-TEST_F(PluginRefTableTest, NoPairIsOverloadedBeyondScannerAndWriter) {
-    std::map<std::pair<std::string_view, std::string_view>, int> seen;
+// A pair is the whole of what BE sends: PluginRegistry receives a plugin name and a factory
+// name and nothing that says which kind was wanted, so it keeps one namespace across scanners,
+// writers and UDF executors and refuses to load a plugin whose factories collide. Two entries
+// here sharing a pair therefore do not mean "one is a scanner and one is a writer" - they mean
+// the plugin that implements them fails to load at all, with a message about duplicate factory
+// names rather than about this table. A plugin that both reads and writes names the two halves
+// for what they do: (jdbc, reader) and (jdbc, writer).
+TEST_F(PluginRefTableTest, EveryPairIsClaimedOnce) {
+    std::map<std::pair<std::string_view, std::string_view>, const char*> seen;
     for (const auto& [symbol, ref] : table()) {
-        ++seen[{ref.plugin, ref.factory}];
-    }
-    for (const auto& [pair, count] : seen) {
-        EXPECT_LE(count, 2) << pair.first << "/" << pair.second << " is claimed " << count
-                            << " times, so at least two of them cannot both be reachable";
+        auto [existing, inserted] = seen.emplace(std::make_pair(ref.plugin, ref.factory), symbol);
+        EXPECT_TRUE(inserted) << symbol << " and " << existing->second << " both claim "
+                              << ref.plugin << "/" << ref.factory
+                              << ", which the Java plugin loader rejects as a duplicate factory "
+                                 "name";
     }
 }
 

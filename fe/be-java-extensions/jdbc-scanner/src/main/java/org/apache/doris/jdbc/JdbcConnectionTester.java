@@ -17,13 +17,13 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.cloud.security.SecurityChecker;
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
 
 import com.zaxxer.hikari.HikariDataSource;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.sql.Connection;
@@ -51,7 +51,7 @@ import java.util.Map;
  * </ul>
  */
 public class JdbcConnectionTester extends JniScanner {
-    private static final Logger LOG = Logger.getLogger(JdbcConnectionTester.class);
+    private static final Logger LOG = LoggerFactory.getLogger(JdbcConnectionTester.class);
 
     private final String jdbcUrl;
     private final String jdbcUser;
@@ -107,7 +107,7 @@ public class JdbcConnectionTester extends JniScanner {
      * Open the connection and execute the test query to verify connectivity.
      */
     @Override
-    public void open() throws IOException {
+    protected void openInternal() throws IOException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             this.classLoader = JdbcDriverUtils.driverClassLoader(jdbcDriverUrl, getClass().getClassLoader());
@@ -121,7 +121,7 @@ public class JdbcConnectionTester extends JniScanner {
                     if (hikariDataSource == null) {
                         HikariDataSource ds = new HikariDataSource();
                         ds.setDriverClassName(jdbcDriverClass);
-                        ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl));
+                        ds.setJdbcUrl(jdbcUrl);
                         ds.setUsername(jdbcUser);
                         ds.setPassword(jdbcPassword);
                         ds.setMinimumIdle(connectionPoolMinSize);
@@ -166,7 +166,7 @@ public class JdbcConnectionTester extends JniScanner {
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         try {
             if (stmt != null && !stmt.isClosed()) {
                 stmt.close();
@@ -188,7 +188,7 @@ public class JdbcConnectionTester extends JniScanner {
     }
 
     @Override
-    public Map<String, String> getStatistics() {
+    protected Map<String, String> collectStatistics() {
         return Collections.emptyMap();
     }
 
