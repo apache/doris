@@ -23,6 +23,7 @@
 #include <gen_cpp/internal_service.pb.h>
 
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <semaphore>
@@ -40,6 +41,7 @@ namespace doris {
 class DorisNodesInfo;
 class RuntimeState;
 class TupleDescriptor;
+class ScannerScheduler;
 namespace io {
 enum class FileCacheMissPolicy : uint8_t;
 }
@@ -153,9 +155,14 @@ private:
             std::vector<ExternalFetchStatistics>& fetch_statistics,
             const TFileScanRangeParams& rpc_scan_params,
             const std::unordered_map<std::string, int>& colname_to_slot_id,
-            std::atomic<int>& producer_count, size_t scan_rows_count,
-            std::counting_semaphore<>& semaphore, std::condition_variable& cv, std::mutex& mtx,
-            TupleDescriptor& tuple_desc);
+            std::counting_semaphore<>& semaphore, TupleDescriptor& tuple_desc);
+
+    static std::string source_column_key(const SlotDescriptor& slot, uint32_t column_idx);
+
+    static Status submit_external_scan_tasks(
+            ScannerScheduler* scheduler, std::counting_semaphore<>& semaphore, size_t task_count,
+            const std::function<std::string(size_t)>& make_task_id,
+            const std::function<Status(size_t)>& run_task);
 
     struct ExternalFetchStatistics {
         int64_t init_reader_ms = 0;

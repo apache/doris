@@ -802,19 +802,14 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
         std::vector<RowIdStorageReader::ExternalFetchStatistics>& fetch_statistics,
         const TFileScanRangeParams& rpc_scan_params,
         const std::unordered_map<std::string, int>& colname_to_slot_id,
-        std::atomic<int>& producer_count, size_t scan_rows_count,
-        std::counting_semaphore<>& semaphore, std::condition_variable& cv, std::mutex& mtx,
-        TupleDescriptor& tuple_desc) {
+        std::counting_semaphore<>& semaphore, TupleDescriptor& tuple_desc) {
     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
     signal::set_signal_task_id(query_id);
 
-    Defer defer([&] {
-        semaphore.release();
-        if (++producer_count == scan_rows_count) {
-            std::lock_guard<std::mutex> lock(mtx);
-            cv.notify_one();
-        }
-    });
+    // Release the concurrency permit on every exit path (including error returns
+    // and exceptions). Completion accounting and status publishing are owned by
+    // the caller, so the status is always published before the waiter is woken.
+    Defer defer([&] { semaphore.release(); });
 
     std::list<int64_t> read_ids;
     //Generate an ordered list with the help of the orderliness of the map.
@@ -884,6 +879,88 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     return Status::OK();
 }
 
+std::string RowIdStorageReader::source_column_key(const SlotDescriptor& slot, uint32_t column_idx) {
+    fmt::memory_buffer key;
+    // Length-prefix each component so distinct sequences cannot alias, e.g.
+    // paths ["a", "b"] -> "1:a1:b" while ["a:b"] -> "3:a:b".
+    auto append = [&key](std::string_view component) {
+        fmt::format_to(key, "{}:", component.size());
+        key.append(component.data(), component.data() + component.size());
+    };
+    append(slot.col_name());
+    append(std::to_string(column_idx));
+    append(std::to_string(slot.col_unique_id()));
+    append(std::to_string(slot.column_paths().size()));
+    for (const auto& path : slot.column_paths()) {
+        append(path);
+    }
+    append(std::to_string(slot.all_access_paths().size()));
+    // Encode each optional sub-path's presence bit separately from its element
+    // count so an absent path ("0") never aliases a present-but-empty path
+    // ("1" + size "0").
+    auto append_optional_path = [&append](bool is_set, const std::vector<std::string>& items) {
+        append(is_set ? "1" : "0");
+        if (is_set) {
+            append(std::to_string(items.size()));
+            for (const auto& item : items) {
+                append(item);
+            }
+        }
+    };
+    for (const auto& path : slot.all_access_paths()) {
+        append(fmt::format("{}", path.type));
+        append_optional_path(path.__isset.data_access_path, path.data_access_path.path);
+        append_optional_path(path.__isset.meta_access_path, path.meta_access_path.path);
+    }
+    return fmt::to_string(key);
+}
+
+Status RowIdStorageReader::submit_external_scan_tasks(
+        ScannerScheduler* scheduler, std::counting_semaphore<>& semaphore, size_t task_count,
+        const std::function<std::string(size_t)>& make_task_id,
+        const std::function<Status(size_t)>& run_task) {
+    // `completed_count` is a plain counter guarded by `mtx`; the same mutex guards
+    // the wait predicate below, so a worker can never notify between the waiter's
+    // predicate check and its wait.
+    AtomicStatus scan_status;
+    std::condition_variable cv;
+    std::mutex mtx;
+    size_t completed_count = 0;
+
+    // Only tasks the scheduler actually accepted are waited for. If a submission
+    // fails we stop submitting, but still wait for the already-accepted tasks so
+    // their workers cannot outlive the locals they capture by reference.
+    size_t submitted_count = 0;
+    for (size_t idx = 0; idx < task_count; ++idx) {
+        semaphore.acquire();
+        Status submit_st = scheduler->submit_scan_task(
+                SimplifiedScanTask(
+                        [&, idx]() -> bool {
+                            Defer complete([&] {
+                                std::lock_guard<std::mutex> lock(mtx);
+                                ++completed_count;
+                                cv.notify_one();
+                            });
+                            scan_status.update(run_task(idx));
+                            return true;
+                        },
+                        nullptr, nullptr),
+                make_task_id(idx));
+        if (!submit_st.ok()) {
+            scan_status.update(submit_st);
+            semaphore.release();
+            break;
+        }
+        ++submitted_count;
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        cv.wait(lock, [&] { return completed_count == submitted_count; });
+    }
+    return scan_status.ok() ? Status::OK() : scan_status.status();
+}
+
 Status RowIdStorageReader::read_batch_external_row(
         const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
         std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor>& slots,
@@ -926,27 +1003,6 @@ Status RowIdStorageReader::read_batch_external_row(
                                     first_scan_range_desc.columns_from_path_keys.end());
 
         std::unordered_map<std::string, size_t> source_column_to_scan_idx;
-        auto source_column_key = [](const SlotDescriptor& slot, uint32_t column_idx) {
-            fmt::memory_buffer key;
-            fmt::format_to(key, "{}:{}:{}", slot.col_name(), column_idx, slot.col_unique_id());
-            for (const auto& path : slot.column_paths()) {
-                fmt::format_to(key, ":{}", path);
-            }
-            for (const auto& path : slot.all_access_paths()) {
-                fmt::format_to(key, ":{}", path.type);
-                if (path.__isset.data_access_path) {
-                    for (const auto& item : path.data_access_path.path) {
-                        fmt::format_to(key, ":{}", item);
-                    }
-                }
-                if (path.__isset.meta_access_path) {
-                    for (const auto& item : path.meta_access_path.path) {
-                        fmt::format_to(key, ":{}", item);
-                    }
-                }
-            }
-            return fmt::to_string(key);
-        };
 
         result_column_to_scan_column.reserve(slots.size());
         scan_slots.reserve(slots.size());
@@ -1061,48 +1117,35 @@ Status RowIdStorageReader::read_batch_external_row(
     DCHECK(remote_scan_sched);
 
     int64_t scan_running_time = 0;
-    AtomicStatus scan_status;
     RETURN_IF_ERROR(scope_timer_run(
             [&]() -> Status {
-                // Make sure to insert data into result_block only after all scan tasks have been executed.
-                std::atomic<int> producer_count {0};
-                std::condition_variable cv;
-                std::mutex mtx;
-
                 //semaphore: Limit the number of scan tasks submitted at one time
                 std::counting_semaphore semaphore {max_file_scanners};
 
-                size_t idx = 0;
+                std::vector<std::pair<std::multimap<segment_v2::rowid_t, size_t>,
+                                       std::shared_ptr<FileMapping>>>
+                        scan_info_list;
+                scan_info_list.reserve(scan_rows.size());
                 for (const auto& [_, scan_info] : scan_rows) {
-                    semaphore.acquire();
-                    RETURN_IF_ERROR(remote_scan_sched->submit_scan_task(
-                            SimplifiedScanTask(
-                                    [&, idx, scan_info]() -> bool {
-                                        const auto& [row_ids, file_mapping] = scan_info;
-                                        auto st = read_external_row_from_file_mapping(
-                                                idx, row_ids, file_mapping, scan_slots, query_id,
-                                                runtime_state, scan_blocks, row_id_block_idx,
-                                                fetch_statistics, rpc_scan_params,
-                                                colname_to_slot_id, producer_count,
-                                                scan_rows.size(), semaphore, cv, mtx, tuple_desc);
-                                        scan_status.update(st);
-                                        return true;
-                                    },
-                                    nullptr, nullptr),
-                            fmt::format("{}-read_batch_external_row-{}", print_id(query_id), idx)));
-                    idx++;
+                    scan_info_list.emplace_back(scan_info);
                 }
 
-                {
-                    std::unique_lock<std::mutex> lock(mtx);
-                    cv.wait(lock, [&] { return producer_count == scan_rows.size(); });
-                }
-                return Status::OK();
+                return submit_external_scan_tasks(
+                        remote_scan_sched, semaphore, scan_rows.size(),
+                        [&](size_t idx) {
+                            return fmt::format("{}-read_batch_external_row-{}",
+                                                print_id(query_id), idx);
+                        },
+                        [&](size_t idx) -> Status {
+                            const auto& [row_ids, file_mapping] = scan_info_list[idx];
+                            return read_external_row_from_file_mapping(
+                                    idx, row_ids, file_mapping, scan_slots, query_id,
+                                    runtime_state, scan_blocks, row_id_block_idx,
+                                    fetch_statistics, rpc_scan_params, colname_to_slot_id,
+                                    semaphore, tuple_desc);
+                        });
             },
             &scan_running_time));
-    if (!scan_status.ok()) {
-        return scan_status.status();
-    }
 
     // Insert the read data into result_block. Use insert_indices_from() instead of
     // scatter_scan_blocks_to_result_block()/insert_from_multi_column(), because
