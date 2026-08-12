@@ -165,8 +165,22 @@ The word count in the table includes the const-flag slot that `metaSize()` accou
 why it is one more than the number of addresses listed. A null address means "no null map" (the
 column has no nulls) — it is not an error.
 
-Reading is symmetric: given the same `ColumnType[]` and the address, `VectorTable.createReadableTable`
-reconstructs the batch, which is how BE's own tests and the writer path consume a block.
+### The two directions do not use the same layout
+
+The table above is the **writer** direction: C++ builds the meta array in
+`JniDataBridge::_fill_column_meta`, which writes the const flag, and Java reads it in
+`VectorColumn`'s readable constructor, which reads the const flag.
+
+The **scanner** direction omits that word. `VectorColumn.updateMeta` writes only the addresses, and
+`JniDataBridge::fill_column` reads only the addresses. Each direction is self-consistent, so both
+work, but they are not the same layout and `metaSize()` describes only the first of them.
+
+The practical consequence: **a meta address obtained from a writable `VectorTable` cannot be read
+back by `VectorTable.createReadableTable`**. Doing so shifts every column by one word, so the const
+flag is read out of an address (making every column look constant) and the data pointer is read out
+of whatever follows the array — a segfault, or silently wrong data. A test that wants to feed a
+writer must build the meta array the way `_fill_column_meta` does; `JavaWriterPluginTest` in the
+java-writer plugin does exactly that and is the worked example.
 
 **This layout is duplicated in C++ in `jni_data_bridge.h`.** There is no runtime check that the two
 agree; a mismatch reads whatever memory the wrong offset lands on.

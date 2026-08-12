@@ -1361,7 +1361,6 @@ EOF
     extensions_modules+=("preload-extensions")
     extensions_modules+=("iceberg-metadata-scanner")
     extensions_modules+=("${HADOOP_DEPS_NAME}")
-    extensions_modules+=("java-writer")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
@@ -1398,10 +1397,55 @@ EOF
         fi
     done
 
-    # Where plugins go, one directory each. Created empty so that an operator dropping a plugin
-    # in has somewhere obvious to drop it, and so that BE's own "is it empty" check reads a
-    # directory that exists.
-    mkdir -p "${DORIS_OUTPUT}/be/lib/java/plugins"
+    # Plugins, one directory each: the module jar plus the runtime closure copy-dependencies put
+    # beside it. The directory name is what BE addresses the plugin by and is deliberately not
+    # required to equal the module name - paimon-scanner will deploy as "paimon" - so the mapping
+    # is spelled out rather than derived.
+    #
+    # ATTN: a module belongs to this list or to extensions_modules, never to both. It is also in
+    # the maven module list far above; adding it in one place only means deploying whatever the
+    # last build happened to leave in target/, which looks like a successful build of the wrong
+    # thing.
+    BE_JAVA_PLUGINS_DIR="${DORIS_OUTPUT}/be/lib/java/plugins"
+    mkdir -p "${BE_JAVA_PLUGINS_DIR}"
+    plugin_modules=("java-writer:java-writer")
+
+    if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
+        IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
+        kept_plugins=()
+        for plugin_entry in "${plugin_modules[@]}"; do
+            ignore=0
+            for ignore_module in "${ignore_modules[@]}"; do
+                if [[ "${plugin_entry%%:*}" == "${ignore_module// /}" ]]; then
+                    ignore=1
+                    break
+                fi
+            done
+            if [[ "${ignore}" -eq 0 ]]; then
+                kept_plugins+=("${plugin_entry}")
+            fi
+        done
+        plugin_modules=("${kept_plugins[@]}")
+    fi
+
+    for plugin_entry in "${plugin_modules[@]}"; do
+        plugin_module="${plugin_entry%%:*}"
+        plugin_name="${plugin_entry##*:}"
+        plugin_target="${DORIS_HOME}/fe/be-java-extensions/${plugin_module}/target"
+        plugin_jar="${plugin_target}/${plugin_module}.jar"
+        if [[ ! -f "${plugin_jar}" ]]; then
+            echo "Error: ${plugin_module} produced no ${plugin_module}.jar. A plugin jar is named"
+            echo "       after its module; deploying an empty plugin directory would surface much"
+            echo "       later as 'Java plugin ${plugin_name} failed to load'."
+            exit 1
+        fi
+        echo "Copy Be plugin ${plugin_module} to ${BE_JAVA_PLUGINS_DIR}/${plugin_name}"
+        mkdir -p "${BE_JAVA_PLUGINS_DIR}/${plugin_name}"
+        cp "${plugin_jar}" "${BE_JAVA_PLUGINS_DIR}/${plugin_name}"
+        if [[ -d "${plugin_target}/lib" ]]; then
+            cp "${plugin_target}/lib"/*.jar "${BE_JAVA_PLUGINS_DIR}/${plugin_name}"
+        fi
+    done
 
     # ATTN: lib/java_extensions holds the modules that have NOT been converted into plugins yet.
     # A module belongs to exactly one of the two layouts - it leaves the list below when it gains

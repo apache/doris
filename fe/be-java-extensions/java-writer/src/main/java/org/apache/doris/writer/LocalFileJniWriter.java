@@ -17,26 +17,28 @@
 
 package org.apache.doris.writer;
 
-import org.apache.doris.common.jni.JniWriter;
-import org.apache.doris.common.jni.vec.VectorTable;
-
-import org.apache.log4j.Logger;
+import org.apache.doris.jni.spi.JniWriter;
+import org.apache.doris.jni.spi.vec.VectorTable;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.logging.Logger;
 
 /**
- * LocalFileJniWriter writes C++ Block data to local CSV files via JNI.
- * Loaded by C++ as: org/apache/doris/writer/LocalFileJniWriter
+ * Writes the blocks BE hands over to a local delimited file.
+ *
+ * <p>Reached as the {@code local-file} writer of the {@code java-writer} plugin; the class name
+ * is private to the plugin, which is why the factory exists.
  */
 public class LocalFileJniWriter extends JniWriter {
-    private static final Logger LOG = Logger.getLogger(LocalFileJniWriter.class);
+    private static final Logger LOG = Logger.getLogger(LocalFileJniWriter.class.getName());
 
-    private String filePath;
-    private String columnSeparator;
-    private String lineDelimiter;
+    private final String filePath;
+    private final String columnSeparator;
+    private final String lineDelimiter;
     private BufferedWriter fileWriter;
     private long writtenRows = 0;
     private long writtenBytes = 0;
@@ -46,23 +48,18 @@ public class LocalFileJniWriter extends JniWriter {
         this.filePath = params.get("file_path");
         this.columnSeparator = params.getOrDefault("column_separator", ",");
         this.lineDelimiter = params.getOrDefault("line_delimiter", "\n");
-        LOG.info("LocalFileJniWriter created: filePath=" + filePath
-                + ", columnSeparator=" + columnSeparator
-                + ", batchSize=" + batchSize);
     }
 
     @Override
-    public void open() throws IOException {
-        LOG.info("LocalFileJniWriter opening file: " + filePath);
+    protected void openInternal() throws IOException {
         fileWriter = new BufferedWriter(new FileWriter(filePath));
-        LOG.info("LocalFileJniWriter opened file successfully: " + filePath);
+        LOG.info(() -> "opened " + filePath);
     }
 
     @Override
     protected void writeInternal(VectorTable inputTable) throws IOException {
         int numRows = inputTable.getNumRows();
         int numCols = inputTable.getNumColumns();
-        LOG.info("LocalFileJniWriter writeInternal: numRows=" + numRows + ", numCols=" + numCols);
         if (numRows == 0) {
             return;
         }
@@ -77,7 +74,7 @@ public class LocalFileJniWriter extends JniWriter {
                 }
                 Object val = data[col][row];
                 if (val != null) {
-                    sb.append(val.toString());
+                    sb.append(val);
                 } else {
                     sb.append("\\N");
                 }
@@ -89,25 +86,21 @@ public class LocalFileJniWriter extends JniWriter {
         fileWriter.write(output);
         writtenRows += numRows;
         writtenBytes += output.getBytes().length;
-        LOG.info("LocalFileJniWriter wrote " + numRows + " rows, totalWrittenRows=" + writtenRows
-                + ", totalWrittenBytes=" + writtenBytes);
     }
 
     @Override
-    public void close() throws IOException {
-        LOG.info("LocalFileJniWriter closing: filePath=" + filePath
-                + ", totalWrittenRows=" + writtenRows + ", totalWrittenBytes=" + writtenBytes);
+    protected void closeInternal() throws IOException {
         if (fileWriter != null) {
             fileWriter.flush();
             fileWriter.close();
             fileWriter = null;
         }
-        LOG.info("LocalFileJniWriter closed successfully: " + filePath);
+        LOG.info(() -> "closed " + filePath + " after " + writtenRows + " rows, " + writtenBytes + " bytes");
     }
 
     @Override
-    public Map<String, String> getStatistics() {
-        Map<String, String> stats = new java.util.HashMap<>();
+    protected Map<String, String> collectStatistics() {
+        Map<String, String> stats = new HashMap<>();
         stats.put("counter:WrittenRows", String.valueOf(writtenRows));
         stats.put("bytes:WrittenBytes", String.valueOf(writtenBytes));
         stats.put("timer:WriteTime", String.valueOf(writeTime));
