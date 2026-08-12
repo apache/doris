@@ -19,9 +19,11 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authorization.AccessAction;
 import org.apache.doris.authorization.AccessRequirement;
 import org.apache.doris.authorization.ActionMatch;
+import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.ResourceKind;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
@@ -182,6 +184,51 @@ public class AccessTranslationTest {
     public void testOnlyCloudKindsHaveACloudResourceType() {
         Assert.assertThrows(IllegalArgumentException.class,
                 () -> AccessTranslation.cloudTypeOf(ResourceKind.TABLE));
+    }
+
+    /**
+     * An account survives the trip out to a source and back into the privilege tables.
+     *
+     * <p>The built-in model is itself one of the sources, and it looks accounts up in tables keyed by
+     * account. So the neutral form has to carry everything an account is identified by - and only a test can
+     * say that it does, because dropping a part of an identity does not fail: it silently matches a
+     * different account's grants, or none.
+     */
+    @Test
+    public void testAnAccountSurvivesTheRoundTrip() {
+        for (UserIdentity original : Arrays.asList(
+                UserIdentity.createAnalyzedUserIdentWithIp("user", "192.168.%"),
+                UserIdentity.createAnalyzedUserIdentWithIp("user", "%"),
+                UserIdentity.createAnalyzedUserIdentWithDomain("user", "doris.example.com"),
+                UserIdentity.ROOT,
+                UserIdentity.ADMIN,
+                // Callers that check access with an identity they never put through analysis exist - the
+                // cloud checks are reached that way. Translating one must answer, not object.
+                new UserIdentity("user", "%"))) {
+            UserIdentity translated = AccessTranslation.userIdentityOf(AccessTranslation.subjectOf(original));
+
+            Assert.assertEquals(original.toString(), original, translated);
+            Assert.assertEquals(original.toString(), original.getUser(), translated.getUser());
+            Assert.assertEquals(original.toString(), original.getHost(), translated.getHost());
+            Assert.assertEquals(original.toString(), original.isDomain(), translated.isDomain());
+        }
+    }
+
+    /**
+     * Two accounts that differ only in where they connect from are different accounts with different grants,
+     * so they must not collapse into one subject on the way out.
+     */
+    @Test
+    public void testAccountsDifferingOnlyInHostStayApart() {
+        AuthorizedSubject anywhere = AccessTranslation.subjectOf(
+                UserIdentity.createAnalyzedUserIdentWithIp("user", "%"));
+        AuthorizedSubject fromOffice = AccessTranslation.subjectOf(
+                UserIdentity.createAnalyzedUserIdentWithIp("user", "192.168.%"));
+        AuthorizedSubject inDomain = AccessTranslation.subjectOf(
+                UserIdentity.createAnalyzedUserIdentWithDomain("user", "192.168.%"));
+
+        Assert.assertNotEquals(anywhere, fromOffice);
+        Assert.assertNotEquals(fromOffice, inDomain);
     }
 
     private void assertRoundTrips(String what, PrivPredicate wanted) {

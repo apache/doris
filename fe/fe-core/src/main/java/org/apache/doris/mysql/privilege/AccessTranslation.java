@@ -19,9 +19,11 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authorization.AccessAction;
 import org.apache.doris.authorization.AccessRequirement;
 import org.apache.doris.authorization.ActionMatch;
+import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.ResourceKind;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -174,6 +176,35 @@ public final class AccessTranslation {
         }
         return PrivPredicate.of(privileges,
                 requirement.getMatch() == ActionMatch.ALL ? Operator.AND : Operator.OR);
+    }
+
+    /**
+     * The neutral form of the account {@code user} names.
+     *
+     * <p>Only the three parts that identify an account are carried over, which is exactly what makes the
+     * translation reversible: {@link UserIdentity#equals} compares those three and nothing else, and every
+     * lookup an authorization decision performs - the privilege tables, the row policies - matches on them.
+     * The certificate fields a connection may also carry take part in authentication, never in a decision
+     * about what an account may do, so leaving them behind loses nothing.
+     *
+     * <p>Read with {@code getUser()} rather than {@code getQualifiedUser()}. The two return the same field;
+     * the second additionally insists the identity has been through analysis, and callers exist that check
+     * access with one that has not - {@code checkCloudPriv} is reached that way today. Translating is not the
+     * place to start enforcing that, since it happens on every check and would turn callers that work into
+     * callers that throw.
+     */
+    public static AuthorizedSubject subjectOf(UserIdentity user) {
+        return AuthorizedSubject.of(user.getUser(), user.getHost(), user.isDomain());
+    }
+
+    /**
+     * The account {@code subject} names, in the form the built-in privilege model looks accounts up by.
+     * Equal to the identity it was translated from; see {@link #subjectOf}.
+     */
+    public static UserIdentity userIdentityOf(AuthorizedSubject subject) {
+        return subject.isDomain()
+                ? UserIdentity.createAnalyzedUserIdentWithDomain(subject.getUser(), subject.getHost())
+                : UserIdentity.createAnalyzedUserIdentWithIp(subject.getUser(), subject.getHost());
     }
 
     /** The resource kind standing for a cloud object of {@code type}. */
