@@ -163,9 +163,9 @@ TEST_F(RuntimeFilterBucketPrunerTest, ExactSetHashesSharedAcrossConsumers) {
                                            std::make_shared<DataTypeInt32>()));
 
     EXPECT_EQ(first_hashes.get(), second_hashes.get());
-    EXPECT_EQ(first_hashes->size(), 3);
-    EXPECT_NE(first_hashes.get(), nullable_hashes.get());
-    EXPECT_EQ(nullable_hashes->size(), 4);
+    EXPECT_EQ(first_hashes.get(), nullable_hashes.get());
+    ASSERT_EQ(first_hashes->size(), 4);
+    EXPECT_EQ(first_hashes->back(), HashUtil::zlib_crc_hash_null(0));
 }
 
 TEST_F(RuntimeFilterBucketPrunerTest, ExactInKeepsOnlyMatchingBucket) {
@@ -191,6 +191,30 @@ TEST_F(RuntimeFilterBucketPrunerTest, ExactInKeepsOnlyMatchingBucket) {
                                                 SCAN_NODE_ID, /*max_in_num=*/1024, &newly_pruned)
                         .ok());
     EXPECT_EQ(newly_pruned, 0);
+}
+
+TEST_F(RuntimeFilterBucketPrunerTest, NonNullableTargetConservativelyKeepsNullBucket) {
+    constexpr int filter_id = 14;
+    constexpr int32_t value = 1;
+    auto runtime_filter_wrapper = make_in_wrapper(filter_id, {value}, true);
+    VExprContextSPtrs conjuncts {
+            make_in_conjunct(filter_id, {}, std::move(runtime_filter_wrapper))};
+    std::vector<TRuntimeFilterDesc> rf_descs {bucket_prune_desc(filter_id)};
+
+    std::set<int32_t> selected_buckets {bucket_for_value(value, 4), bucket_for_null(4)};
+    ASSERT_EQ(selected_buckets.size(), 2);
+
+    RuntimeFilterBucketPruner pruner;
+    int64_t newly_pruned = 0;
+    ASSERT_TRUE(pruner.prune_by_runtime_filters(four_bucket_ranges(), conjuncts, rf_descs,
+                                                SCAN_NODE_ID, /*max_in_num=*/1024, &newly_pruned)
+                        .ok());
+
+    EXPECT_EQ(newly_pruned, 2);
+    for (int32_t bucket_seq = 0; bucket_seq < 4; ++bucket_seq) {
+        EXPECT_EQ(pruner.is_tablet_pruned(100 + bucket_seq),
+                  !selected_buckets.contains(bucket_seq));
+    }
 }
 
 TEST_F(RuntimeFilterBucketPrunerTest, SupportsDifferentBucketCountsAcrossPartitions) {

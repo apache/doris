@@ -86,6 +86,8 @@ public:
 
     bool contain_null() const;
 
+    // The shared vector includes the NULL hash whenever the exact set contains NULL, regardless
+    // of target nullability. A non-nullable target may therefore retain one conservative bucket.
     std::shared_ptr<const std::vector<uint32_t>> get_or_compute_bucket_prune_hashes(
             const DataTypePtr& target_type) const;
 
@@ -165,9 +167,7 @@ private:
     std::atomic<State> _state;
     AtomicStatus _reason;
 
-    mutable std::once_flag _non_nullable_bucket_prune_hashes_once;
-    mutable std::once_flag _nullable_bucket_prune_hashes_once;
-    mutable std::shared_ptr<const std::vector<uint32_t>> _non_nullable_bucket_prune_hashes;
-    mutable std::shared_ptr<const std::vector<uint32_t>> _nullable_bucket_prune_hashes;
+    mutable std::once_flag _bucket_prune_hashes_once;
+    mutable std::shared_ptr<const std::vector<uint32_t>> _bucket_prune_hashes;
 };
 } // namespace doris
