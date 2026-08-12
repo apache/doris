@@ -114,7 +114,9 @@ public class ProjectOtherJoinConditionForNestedLoopJoin extends OneRewriteRuleFa
             // pair" to "per row of that child", which silently changes results. Keep such
             // expressions inline in otherJoinConjuncts, but still recurse to extract deterministic
             // child expressions.
-            if (expression.containsVolatileExpression()) {
+            // A NoneMovableFunction (e.g. assert_true) has the same granularity problem, so it
+            // must stay inline as well.
+            if (expression.containsNoneMovableOrVolatile()) {
                 return super.visit(expression, ctx);
             }
             if (ctx.leftSlots.containsAll(input)) {

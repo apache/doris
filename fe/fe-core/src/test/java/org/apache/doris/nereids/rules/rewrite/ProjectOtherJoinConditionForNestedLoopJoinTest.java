@@ -20,8 +20,13 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -78,5 +83,62 @@ public class ProjectOtherJoinConditionForNestedLoopJoinTest implements MemoPatte
                                 logicalOlapScan()
                         )
                 ).printlnTree();
+    }
+
+    /**
+     * A wholly side-local NoneMovableFunction (assert_true) other join condition stays in the
+     * join: the assertion itself is never aliased into a child project (which would change its
+     * evaluation granularity from per join pair to per row of that child). only its deterministic
+     * side-local argument may be projected into the child, and neither child project contains the
+     * assertion.
+     */
+    @Test
+    public void testNoneMovableConditionStaysInline() {
+        Slot a = scan1.getOutput().get(1);
+        Expression otherCondition = new AssertTrue(
+                new GreaterThan(a, new IntegerLiteral(0)), new StringLiteral("msg"));
+
+        LogicalPlan join = new LogicalPlanBuilder(scan1).join(scan2, JoinType.CROSS_JOIN,
+                Lists.newArrayList(), Lists.newArrayList(otherCondition)).build();
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        PlanChecker.from(connectContext, join)
+                .applyTopDown(new ProjectOtherJoinConditionForNestedLoopJoin())
+                .matchesFromRoot(
+                        logicalJoin(
+                                logicalProject(logicalOlapScan()).when(proj -> proj.getProjects().stream()
+                                        .noneMatch(p -> p.containsType(NoneMovableFunction.class))),
+                                logicalOlapScan()
+                        ).when(j -> j.getOtherJoinConjuncts().size() == 1
+                                && j.getOtherJoinConjuncts().get(0).containsType(NoneMovableFunction.class))
+                );
+    }
+
+    /**
+     * A side-local NoneMovableFunction (assert_true) stays inline while a deterministic side-local
+     * expression in the same join is still projected into the child; neither child project
+     * contains the assertion.
+     */
+    @Test
+    public void testProjectDeterministicSideLocalWhileNoneMovableInline() {
+        Slot a = scan1.getOutput().get(1);
+        Slot b = scan2.getOutput().get(0);
+        Expression assertion = new AssertTrue(
+                new GreaterThan(a, new IntegerLiteral(0)), new StringLiteral("msg"));
+        Expression deterministic = new LessThan(b, new Add(b, new IntegerLiteral(1)));
+
+        LogicalPlan join = new LogicalPlanBuilder(scan1).join(scan2, JoinType.CROSS_JOIN,
+                Lists.newArrayList(), Lists.newArrayList(assertion, deterministic)).build();
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        PlanChecker.from(connectContext, join)
+                .applyTopDown(new ProjectOtherJoinConditionForNestedLoopJoin())
+                .matchesFromRoot(
+                        logicalJoin(
+                                logicalProject(logicalOlapScan()).when(proj -> proj.getProjects().stream()
+                                        .noneMatch(p -> p.containsType(NoneMovableFunction.class))),
+                                logicalProject(logicalOlapScan()).when(proj -> proj.getProjects().stream()
+                                        .noneMatch(p -> p.containsType(NoneMovableFunction.class)))
+                        ).when(j -> j.getOtherJoinConjuncts().size() == 2
+                                && j.getOtherJoinConjuncts().get(0).containsType(NoneMovableFunction.class))
+                );
     }
 }

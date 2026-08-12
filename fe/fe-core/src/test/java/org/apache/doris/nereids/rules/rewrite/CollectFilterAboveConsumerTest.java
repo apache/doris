@@ -24,9 +24,11 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -83,5 +85,40 @@ class CollectFilterAboveConsumerTest {
         Expression onlyCollected = filters.iterator().next();
         Assertions.assertFalse(onlyCollected.containsVolatileExpression(),
                 "collected conjunct must not contain a unique function");
+    }
+
+    /**
+     * A conjunct containing a NoneMovableFunction (assert_true) must NOT be collected into the
+     * CTE producer: the producer is shared and evaluated once, so assert_true would run on a
+     * different domain (and possibly for unrelated consumers).
+     */
+    @Test
+    void testDoNotCollectNoneMovableFunctionConjunct() {
+        ConnectContext connectContext = new ConnectContext();
+        LogicalOlapScan producerPlan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalCTEConsumer consumer = new LogicalCTEConsumer(
+                PlanConstructor.getNextRelationId(), new CTEId(1), "cte1", producerPlan);
+
+        Slot idSlot = consumer.getOutput().get(0);
+        Expression deterministic = new EqualTo(idSlot, new IntegerLiteral(1));
+        Expression noneMovable = new AssertTrue(
+                new GreaterThan(idSlot, new IntegerLiteral(0)), new StringLiteral("msg"));
+        LogicalFilter<LogicalCTEConsumer> filter = new LogicalFilter<>(
+                ImmutableSet.of(deterministic, noneMovable), consumer);
+
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, filter);
+        Rule rule = new CollectFilterAboveConsumer().build();
+        rule.transform(filter, cascadesContext);
+
+        Map<RelationId, Set<Expression>> collected = cascadesContext.getStatementContext()
+                .getConsumerIdToFilters();
+        Set<Expression> filters = collected.get(consumer.getRelationId());
+        Assertions.assertNotNull(filters, "deterministic conjunct must be collected");
+        Assertions.assertEquals(1, filters.size(),
+                "exactly one conjunct (the deterministic one) should be collected, "
+                        + "NoneMovableFunction conjunct must NOT be collected");
+        Expression onlyCollected = filters.iterator().next();
+        Assertions.assertFalse(onlyCollected.containsNoneMovableOrVolatile(),
+                "collected conjunct must not contain a NoneMovableFunction");
     }
 }

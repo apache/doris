@@ -21,8 +21,10 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -278,5 +280,25 @@ class PushDownJoinOtherConditionTest implements MemoPatternMatchSupported {
                                 logicalOlapScan())
                                 .when(join -> join.getOtherJoinConjuncts().equals(
                                         ImmutableList.of(uniqueFn, sideSpecificUniqueFn))));
+    }
+
+    @Test
+    public void testNoneMovableConditionStaysInOtherJoinConjuncts() {
+        // assert_true(student.a > 0) has slots from the left side only, so it would normally
+        // be pushed into the left child; but a NoneMovableFunction must stay in the join's
+        // other join conjuncts (evaluated per joined row).
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(rStudentSlots.get(1), Literal.of(18)), new StringLiteral("msg"));
+        List<Expression> condition = ImmutableList.of(assertTrueExpr);
+        LogicalPlan root = new LogicalPlanBuilder(rStudent)
+                .join(rScore, JoinType.INNER_JOIN, ExpressionUtils.EMPTY_CONDITION, condition)
+                .project(Lists.newArrayList())
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new PushDownJoinOtherCondition())
+                .matches(
+                        logicalJoin(logicalOlapScan(), logicalOlapScan())
+                                .when(join -> join.getOtherJoinConjuncts().equals(condition))
+                );
     }
 }

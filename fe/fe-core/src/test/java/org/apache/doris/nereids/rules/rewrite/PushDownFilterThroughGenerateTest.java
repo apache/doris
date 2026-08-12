@@ -21,8 +21,10 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -79,6 +81,30 @@ class PushDownFilterThroughGenerateTest implements MemoPatternMatchSupported {
         // Use EqualTo(id, random()) so the conjunct's input slots are a subset of scan output
         // (would otherwise satisfy the push-down condition).
         Expression predicate = new EqualTo(idSlot, new Random());
+        LogicalFilter<LogicalPlan> filter = new LogicalFilter<>(ImmutableSet.of(predicate), generate);
+
+        PlanChecker.from(new ConnectContext(), filter)
+                .applyTopDown(new PushDownFilterThroughGenerate())
+                .matchesFromRoot(
+                        logicalFilter(
+                                logicalGenerate(logicalOlapScan())
+                        ).when(f -> f.getConjuncts().contains(predicate))
+                );
+    }
+
+    /** Filter containing a NoneMovableFunction (e.g. assert_true) must NOT be pushed through generate. */
+    @Test
+    void testDoNotPushNoneMovableFunctionThroughGenerate() {
+        SlotReference idSlot = (SlotReference) scan.getOutput().get(0);
+        SlotReference genOut = new SlotReference("g1", IntegerType.INSTANCE);
+        Unnest gen = new Unnest(new IntegerLiteral(1));
+        LogicalGenerate<LogicalPlan> generate = new LogicalGenerate<>(
+                ImmutableList.of(gen), ImmutableList.of(genOut), scan);
+
+        // id is a child output slot so the slot check would pass, but the NoneMovableFunction
+        // must still prevent the push-down.
+        Expression predicate = new AssertTrue(
+                new EqualTo(idSlot, new IntegerLiteral(1)), new StringLiteral("msg"));
         LogicalFilter<LogicalPlan> filter = new LogicalFilter<>(ImmutableSet.of(predicate), generate);
 
         PlanChecker.from(new ConnectContext(), filter)

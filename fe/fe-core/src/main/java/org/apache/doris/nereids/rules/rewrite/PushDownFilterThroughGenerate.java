@@ -49,8 +49,11 @@ public class PushDownFilterThroughGenerate extends OneRewriteRuleFactory {
             Set<Expression> remainPredicates = Sets.newHashSet();
             filter.getConjuncts().forEach(conjunct -> {
                 Set<Slot> conjunctSlots = conjunct.getInputSlots();
+                // a NoneMovableFunction (e.g. assert_true) must not be pushed below the
+                // generate node: generate (explode) changes the row count, so assert_true
+                // would be evaluated on a different domain and its error behavior would change.
                 if (!conjunctSlots.isEmpty() && childOutputs.containsAll(conjunctSlots)
-                        && !conjunct.containsVolatileExpression()) {
+                        && !conjunct.containsNoneMovableOrVolatile()) {
                     pushDownPredicates.add(conjunct);
                 } else {
                     remainPredicates.add(conjunct);

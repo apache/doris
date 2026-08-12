@@ -28,8 +28,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -90,6 +92,37 @@ public class PushDownFilterThroughAggregationTest implements MemoPatternMatchSup
                                                 logicalOlapScan()
                                         ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicate)))
                                 )
+                        )
+                );
+    }
+
+    /**
+     * A filter conjunct containing a NoneMovableFunction (e.g. assert_true) must NOT be pushed
+     * below the aggregation: the aggregation changes which rows are evaluated (grouped output
+     * vs input rows), so assert_true would run on a different domain and its error behavior
+     * would change. even though its input slot is a group-by key, the conjunct stays above.
+     */
+    @Test
+    void testNotPushDownNoneMovableFunction() {
+        Slot gender = scan.getOutput().get(1);
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(gender, Literal.of(1)), new StringLiteral("msg"));
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .aggGroupUsingIndex(ImmutableList.of(1), ImmutableList.of(gender))
+                .filter(assertTrueExpr)
+                .project(ImmutableList.of(0))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushDownFilterThroughAggregation())
+                .matches(
+                        logicalProject(
+                                logicalFilter(
+                                        logicalAggregate(
+                                                logicalOlapScan()
+                                        )
+                                ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(assertTrueExpr)))
                         )
                 );
     }

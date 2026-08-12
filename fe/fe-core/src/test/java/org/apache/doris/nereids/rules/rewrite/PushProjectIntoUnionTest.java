@@ -22,11 +22,15 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -116,6 +120,42 @@ public class PushProjectIntoUnionTest {
                         "constant ExprId duplicated across rows for column " + col + ": " + cid);
             }
         }
+    }
+
+    /**
+     * A constant UNION row holding a NoneMovableFunction (assert_true(false)) must never be
+     * dropped by pushing a parent project that does not reference it: the push-down would turn a
+     * required assertion/error into plain returned rows. the rule must not fire.
+     */
+    @Test
+    public void testDoNotPushProjectIntoUnionWithNoneMovableConst() {
+        SlotReference s = new SlotReference(new ExprId(10), "s",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference x = new SlotReference(new ExprId(11), "x",
+                BooleanType.INSTANCE, true, ImmutableList.of());
+        // constant row: s = 1, x = assert_true(false) — a required assertion that throws.
+        NamedExpression rowS = new Alias(new ExprId(1), new IntegerLiteral(1), "1");
+        NamedExpression rowX = new Alias(new ExprId(2), new AssertTrue(
+                BooleanLiteral.of(false), new StringLiteral("msg")), "x");
+        LogicalUnion union = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(s, x),
+                ImmutableList.of(),
+                ImmutableList.of(ImmutableList.of(rowS, rowX)),
+                false,
+                ImmutableList.of());
+        // parent project selects only s, dropping x: pushing it into the union would drop the assertion.
+        Alias parentAlias = new Alias(new ExprId(100), s, "y");
+        LogicalProject<LogicalUnion> project = new LogicalProject<>(
+                ImmutableList.<NamedExpression>of(parentAlias), union);
+
+        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), project)
+                .applyTopDown(new PushProjectIntoUnion())
+                .getPlan();
+
+        // the rule must not fire: the project stays above the union.
+        Assertions.assertTrue(rewritten instanceof LogicalProject, rewritten.treeString());
+        Assertions.assertTrue(((LogicalProject<?>) rewritten).child() instanceof LogicalUnion,
+                rewritten.treeString());
     }
 
     private LogicalUnion findUnion(Plan p) {

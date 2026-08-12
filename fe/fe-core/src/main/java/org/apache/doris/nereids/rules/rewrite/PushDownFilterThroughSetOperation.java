@@ -87,7 +87,11 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                     pushableConjuncts = new LinkedHashSet<>();
                     Set<Expression> kept = new LinkedHashSet<>();
                     for (Expression c : origFilter.getConjuncts()) {
-                        if (c.containsVolatileExpression()) {
+                        // a NoneMovableFunction (e.g. assert_true) must stay above the set
+                        // operation just like a volatile expression: for INTERSECT/EXCEPT/
+                        // UNION DISTINCT the set-op semantics depend on the full branch row
+                        // sets, so evaluating assert_true in each branch changes its domain.
+                        if (c.containsNoneMovableOrVolatile()) {
                             kept.add(c);
                         } else {
                             pushableConjuncts.add(c);
