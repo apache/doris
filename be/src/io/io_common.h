@@ -225,11 +225,12 @@ struct IOContext {
     // if true, bypass peer read / peer-vs-S3 race and read directly from remote storage
     bool bypass_peer_read {false};
     FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
-    // From session variable inverted_index_read_no_write_file_cache: inverted index
+    // From session variable inverted_index_snii_read_no_write_file_cache: SNII index
     // reads of this query take REMOTE_ONLY_ON_MISS (hit served, miss reads remote
-    // and skips the cache write-back). Copied into every derived index IOContext;
-    // only consulted where is_inverted_index is set, so data reads are unaffected.
-    bool inverted_index_read_no_write_file_cache = false;
+    // and skips the cache write-back). Carried down to the SNII adapter, which is
+    // the sole place that turns it into a file_cache_miss_policy -- keeping CLucene
+    // index reads and data reads on the normal write-back path.
+    bool inverted_index_snii_read_no_write_file_cache = false;
     RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr; // Ref
 };
 

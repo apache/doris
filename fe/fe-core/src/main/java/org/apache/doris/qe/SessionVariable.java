@@ -524,8 +524,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FILE_CACHE_QUERY_LIMIT_BYTES =
             "file_cache_query_limit_bytes";
 
-    public static final String INVERTED_INDEX_READ_NO_WRITE_FILE_CACHE =
-            "inverted_index_read_no_write_file_cache";
+    public static final String INVERTED_INDEX_SNII_READ_NO_WRITE_FILE_CACHE =
+            "inverted_index_snii_read_no_write_file_cache";
 
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
@@ -3008,13 +3008,14 @@ public class SessionVariable implements Serializable, Writable {
                     + "> 0 disables file cache writes after the threshold is reached.")
     public long fileCacheQueryLimitBytes = -1;
 
-    @VarAttrDef.VarAttr(name = INVERTED_INDEX_READ_NO_WRITE_FILE_CACHE, needForward = true,
-            description = "Inverted index (SNII/V3) reads take the remote-only-on-miss file cache "
+    @VarAttrDef.VarAttr(name = INVERTED_INDEX_SNII_READ_NO_WRITE_FILE_CACHE, needForward = true,
+            description = "SNII inverted index reads take the remote-only-on-miss file cache "
                     + "policy: hits are still served from cache, but a miss reads the "
                     + "remote object directly without writing back into the file cache. "
-                    + "Data (.dat) and segment-meta reads are unaffected. "
+                    + "Data (.dat) and segment-meta reads are unaffected, and so are "
+                    + "CLucene (V1/V2/V3) index reads. "
                     + "Intended for one-shot / ad-hoc cold queries.")
-    public boolean invertedIndexReadNoWriteFileCache = false;
+    public boolean invertedIndexSniiReadNoWriteFileCache = false;
 
     public void setAggPhase(int phase) {
         aggPhase = phase;
@@ -5585,7 +5586,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableLocalShufflePlanner(enableLocalShufflePlanner);
         tResult.setFileCacheQueryLimitBytes(fileCacheQueryLimitBytes);
-        tResult.setInvertedIndexReadNoWriteFileCache(invertedIndexReadNoWriteFileCache);
+        tResult.setInvertedIndexSniiReadNoWriteFileCache(invertedIndexSniiReadNoWriteFileCache);
         return tResult;
     }
 

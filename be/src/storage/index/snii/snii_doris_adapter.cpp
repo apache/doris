@@ -75,6 +75,15 @@ io::IOContext DorisSniiFileReader::_make_index_io_context(const io::IOContext* i
     index_io_ctx.is_inverted_index = true;
     // is_index_data is inherited from io_ctx: META scopes set it true at the source
     // (index_file_reader), non-meta reads default to false.
+    //
+    // Every SNII remote read is funnelled through here, and nothing else is, so this
+    // is where the session variable becomes a cache policy. Deciding it at the shared
+    // consult site instead would need an is_snii bit on IOContext and would silently
+    // catch CLucene reads, which clone the same upstream context.
+    if (index_io_ctx.inverted_index_snii_read_no_write_file_cache &&
+        index_io_ctx.reader_type == ReaderType::READER_QUERY && !index_io_ctx.is_warmup) {
+        index_io_ctx.file_cache_miss_policy = io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS;
+    }
     return index_io_ctx;
 }
 
