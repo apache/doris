@@ -22,6 +22,7 @@
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
+#include "util/hash_util.hpp"
 
 namespace doris {
 RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
@@ -624,12 +625,7 @@ RuntimeFilterWrapper::get_or_compute_bucket_prune_hashes(const DataTypePtr& targ
     PrimitiveType primitive_type = target_type->get_primitive_type();
     DORIS_CHECK_EQ(primitive_type, _column_return_type);
 
-    bool is_nullable = target_type->is_nullable();
-    auto& once = is_nullable ? _nullable_bucket_prune_hashes_once
-                             : _non_nullable_bucket_prune_hashes_once;
-    auto& cached_hashes =
-            is_nullable ? _nullable_bucket_prune_hashes : _non_nullable_bucket_prune_hashes;
-    std::call_once(once, [&] {
+    std::call_once(_bucket_prune_hashes_once, [&] {
         MutableColumnPtr column = target_type->create_column();
         auto* iter = _hybrid_set->begin();
         while (iter->has_next()) {
@@ -644,21 +640,21 @@ RuntimeFilterWrapper::get_or_compute_bucket_prune_hashes(const DataTypePtr& targ
             }
             iter->next();
         }
-        if (_hybrid_set->contain_null() && is_nullable) {
-            // A null-aware filter can match NULL probe rows, so retain the bucket selected by
-            // the same nullable CRC semantics used during tablet routing.
-            column->insert_default();
-        }
 
         auto hashes = std::make_shared<std::vector<uint32_t>>(column->size(), 0);
         if (!hashes->empty()) {
             column->update_crcs_with_value(hashes->data(), primitive_type,
                                            static_cast<uint32_t>(column->size()));
         }
-        cached_hashes = std::move(hashes);
+        if (_hybrid_set->contain_null()) {
+            // Keep one shared vector for nullable and non-nullable targets. A non-nullable
+            // target may retain this extra bucket, but can never lose matching rows.
+            hashes->push_back(HashUtil::zlib_crc_hash_null(0));
+        }
+        _bucket_prune_hashes = std::move(hashes);
     });
-    DORIS_CHECK(cached_hashes != nullptr);
-    return cached_hashes;
+    DORIS_CHECK(_bucket_prune_hashes != nullptr);
+    return _bucket_prune_hashes;
 }
 
 std::string RuntimeFilterWrapper::debug_string() const {
