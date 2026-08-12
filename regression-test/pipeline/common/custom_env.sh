@@ -18,3 +18,7 @@
 
 # shellcheck disable=SC2034
 BUILD_FS_BENCHMARK=ON
+ENABLE_EXPR_ASAN=OFF
+# The TeamCity compile stage copies this file to the repo root and only appends
+# BUILD_TYPE later, so source-level ASAN selections must live here.
+DORIS_BE_ASAN_SOURCES=be/src/exprs/vexpr.cpp,be/src/exec/runtime_filter/utils.cpp,be/src/exec/runtime_filter/runtime_filter_consumer.cpp
