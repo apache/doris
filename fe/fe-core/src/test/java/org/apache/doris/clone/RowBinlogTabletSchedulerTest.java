@@ -139,7 +139,7 @@ public class RowBinlogTabletSchedulerTest {
         tabletCtx.setColocateGroupBackendIds(ImmutableSet.of(backendId));
 
         SchedException exception = Assert.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
-                tabletScheduler, "doChooseAvailableDestPath", tabletCtx, (Tag) null, true));
+                tabletScheduler, "doChooseAvailableDestPath", tabletCtx, Tag.class, true));
 
         Assert.assertEquals(Status.UNRECOVERABLE, exception.getStatus());
     }
