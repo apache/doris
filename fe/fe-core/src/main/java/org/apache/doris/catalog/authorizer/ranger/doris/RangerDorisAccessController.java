@@ -17,13 +17,15 @@
 
 package org.apache.doris.catalog.authorizer.ranger.doris;
 
-import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessAction;
+import org.apache.doris.authorization.AccessContext;
+import org.apache.doris.authorization.AccessDeniedException;
+import org.apache.doris.authorization.AccessRequirement;
+import org.apache.doris.authorization.AccessRequirements;
+import org.apache.doris.authorization.AuthorizedResource;
+import org.apache.doris.authorization.AuthorizedSubject;
+import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
-import org.apache.doris.common.AuthorizationException;
-import org.apache.doris.mysql.privilege.PrivBitSet;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -36,11 +38,21 @@ import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
 import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
+import java.util.Collections;
 import java.util.Date;
-import java.util.Set;
+import java.util.EnumSet;
+import java.util.Map;
 
+/**
+ * A Doris Ranger service: it answers about every kind of object Doris has, which is why it is also the one
+ * source that can be installed for the whole instance.
+ */
 public class RangerDorisAccessController extends RangerAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerDorisAccessController.class);
+
+    /** The name this source is selected by, in {@code access_controller_type} and in catalog properties. */
+    public static final String NAME = "ranger-doris";
+
     // ranger must set name, we agreed that this name must be used
     private static final String GLOBAL_PRIV_FIXED_NAME = "*";
 
@@ -49,11 +61,14 @@ public class RangerDorisAccessController extends RangerAccessController {
     //        "ranger-doris-audit-log-flusher-timer", true);
     // private RangerHiveAuditHandler auditHandler;
 
-    public RangerDorisAccessController(String serviceName) {
-        this(serviceName, null);
+    public RangerDorisAccessController(String serviceName, Map<String, String> properties,
+            AuthorizationContext context) {
+        this(serviceName, null, properties, context);
     }
 
-    public RangerDorisAccessController(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
+    public RangerDorisAccessController(String serviceName, RangerAuthContextListener rangerAuthContextListener,
+            Map<String, String> properties, AuthorizationContext context) {
+        super(properties, context);
         dorisPlugin = new RangerDorisPlugin(serviceName, rangerAuthContextListener);
         // auditHandler = new RangerHiveAuditHandler(dorisPlugin.getConfig());
         // start a timed log flusher
@@ -61,22 +76,120 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @VisibleForTesting
-    public RangerDorisAccessController(RangerBasePlugin plugin) {
+    public RangerDorisAccessController(RangerBasePlugin plugin, AuthorizationContext context) {
+        this(plugin, Collections.emptyMap(), context);
+    }
+
+    @VisibleForTesting
+    public RangerDorisAccessController(RangerBasePlugin plugin, Map<String, String> properties,
+            AuthorizationContext context) {
+        super(properties, context);
         dorisPlugin = plugin;
     }
 
-    private RangerAccessRequestImpl createRequest(UserIdentity currentUser, DorisAccessType accessType) {
-        RangerAccessRequestImpl request = createRequest(currentUser);
+    @Override
+    public String name() {
+        return NAME;
+    }
+
+    @Override
+    public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
+            AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
+        switch (resource.getKind()) {
+            case GLOBAL:
+                refuseUnless(checkGlobal(subject, requirement), subject, resource, requirement);
+                return;
+            case CATALOG:
+                refuseUnless(checkCatalog(subject, ((AuthorizedResource.Catalog) resource).getCatalog(),
+                        requirement), subject, resource, requirement);
+                return;
+            case DATABASE: {
+                AuthorizedResource.Database database = (AuthorizedResource.Database) resource;
+                refuseUnless(checkDatabase(subject, database.getCatalog(), database.getDatabase(), requirement),
+                        subject, resource, requirement);
+                return;
+            }
+            case TABLE: {
+                AuthorizedResource.Table table = (AuthorizedResource.Table) resource;
+                refuseUnless(checkTable(subject, table.getCatalog(), table.getDatabase(), table.getTable(),
+                        requirement), subject, resource, requirement);
+                return;
+            }
+            case COLUMNS:
+                checkColumns(subject, (AuthorizedResource.Columns) resource, requirement);
+                return;
+            case RESOURCE: {
+                EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
+                refuseUnless(checkGlobalInternal(subject, requirement, granted)
+                                || ask(subject, requirement, granted, new RangerDorisResource(
+                                        DorisObjectType.RESOURCE, named(resource))),
+                        subject, resource, requirement);
+                return;
+            }
+            case WORKLOAD_GROUP: {
+                // For compatibility with older versions, it is not needed to check the privileges of the
+                // default group.
+                if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(named(resource))) {
+                    return;
+                }
+                EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
+                refuseUnless(checkGlobalInternal(subject, requirement, granted)
+                                || ask(subject, requirement, granted, new RangerDorisResource(
+                                        DorisObjectType.WORKLOAD_GROUP, named(resource))),
+                        subject, resource, requirement);
+                return;
+            }
+            case STORAGE_VAULT: {
+                EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
+                refuseUnless(checkGlobalInternal(subject, requirement, granted)
+                                || ask(subject, requirement, granted, new RangerDorisResource(
+                                        DorisObjectType.STORAGE_VAULT, named(resource))),
+                        subject, resource, requirement);
+                return;
+            }
+            case CLOUD_COMPUTE_GROUP: {
+                EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
+                refuseUnless(checkGlobalInternal(subject, requirement, granted)
+                                || ask(subject, requirement, granted, new RangerDorisResource(
+                                        DorisObjectType.COMPUTE_GROUP, named(resource))),
+                        subject, resource, requirement);
+                return;
+            }
+            case CLOUD_GENERAL:
+            case CLOUD_STAGE:
+            case CLOUD_STORAGE_VAULT:
+                // A general cloud resource is asked about as a resource and a vault as a vault; a stage is
+                // reached through `copy into`, which is on its way out, so Ranger never governed it.
+                throw AccessDeniedException.of(subject, resource, requirement, NAME);
+            default:
+                throw new IllegalStateException("the Ranger Doris service has no answer for resource kind "
+                        + resource.getKind());
+        }
+    }
+
+    private static String named(AuthorizedResource resource) {
+        return ((AuthorizedResource.Named) resource).getName();
+    }
+
+    private void refuseUnless(boolean allowed, AuthorizedSubject subject, AuthorizedResource resource,
+            AccessRequirement requirement) throws AccessDeniedException {
+        if (!allowed) {
+            throw AccessDeniedException.of(subject, resource, requirement, NAME);
+        }
+    }
+
+    private RangerAccessRequestImpl createRequest(AuthorizedSubject subject, DorisAccessType accessType) {
+        RangerAccessRequestImpl request = createRequest(subject);
         request.setAction(accessType.name());
         request.setAccessType(accessType.name());
         return request;
     }
 
     @Override
-    protected RangerAccessRequestImpl createRequest(UserIdentity currentUser) {
+    protected RangerAccessRequestImpl createRequest(AuthorizedSubject subject) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
-        request.setUser(currentUser.getQualifiedUser());
-        request.setClientIPAddress(currentUser.getHost());
+        request.setUser(subject.getUser());
+        request.setClientIPAddress(subject.getHost());
         request.setClusterType(CLIENT_TYPE_DORIS);
         request.setClientType(CLIENT_TYPE_DORIS);
         request.setAccessTime(new Date());
@@ -84,9 +197,9 @@ public class RangerDorisAccessController extends RangerAccessController {
         return request;
     }
 
-    private boolean checkPrivilegeByPlugin(UserIdentity currentUser, DorisAccessType accessType,
+    private boolean checkPrivilegeByPlugin(AuthorizedSubject subject, DorisAccessType accessType,
             RangerDorisResource resource) {
-        RangerAccessRequestImpl request = createRequest(currentUser, accessType);
+        RangerAccessRequestImpl request = createRequest(subject, accessType);
         request.setResource(resource);
         if (LOG.isDebugEnabled()) {
             LOG.debug("ranger request: {}", request);
@@ -95,8 +208,8 @@ public class RangerDorisAccessController extends RangerAccessController {
         return checkRequestResult(request, result, accessType.name());
     }
 
-    private boolean checkShowPrivilegeByPlugin(UserIdentity currentUser, RangerDorisResource resource) {
-        RangerAccessRequestImpl request = createRequest(currentUser);
+    private boolean checkShowPrivilegeByPlugin(AuthorizedSubject subject, RangerDorisResource resource) {
+        RangerAccessRequestImpl request = createRequest(subject);
         request.setResource(resource);
         request.setResourceMatchingScope(ResourceMatchingScope.SELF_OR_DESCENDANTS);
         if (LOG.isDebugEnabled()) {
@@ -106,215 +219,133 @@ public class RangerDorisAccessController extends RangerAccessController {
         return checkRequestResult(request, result, DorisAccessType.NONE.name());
     }
 
-    private boolean checkPrivilege(UserIdentity currentUser, PrivPredicate wanted,
-            RangerDorisResource resource, PrivBitSet checkedPrivs) {
-        PrivBitSet copy = wanted.getPrivs().copy();
-        // avoid duplicate check auth at different levels
-        copy.remove(checkedPrivs);
-        for (Privilege privilege : copy.toPrivilegeList()) {
-            boolean res = checkPrivilegeByPlugin(currentUser, DorisAccessType.toAccessType(privilege), resource);
-            if (res) {
-                checkedPrivs.set(privilege.getIdx());
+    /**
+     * Asks Ranger about the actions still outstanding, one request each, until the requirement is met.
+     *
+     * <p>{@code granted} carries what the levels already walked have granted, so a privilege answered on the
+     * catalog is not asked about again on the database and on the table: the same requirement checked down a
+     * three-level path costs one evaluation per action, not three.
+     */
+    private boolean ask(AuthorizedSubject subject, AccessRequirement requirement,
+            EnumSet<AccessAction> granted, RangerDorisResource resource) {
+        EnumSet<AccessAction> outstanding = EnumSet.copyOf(requirement.getActions());
+        outstanding.removeAll(granted);
+        for (AccessAction action : outstanding) {
+            if (checkPrivilegeByPlugin(subject, DorisAccessType.of(action), resource)) {
+                granted.add(action);
             }
-            if (Privilege.satisfy(checkedPrivs, wanted)) {
+            if (requirement.isSatisfiedBy(granted)) {
                 return true;
             }
         }
         return false;
     }
 
-    @Override
-    public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
-        PrivBitSet checkedPrivs = PrivBitSet.of();
-        return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs);
+    private boolean checkGlobal(AuthorizedSubject subject, AccessRequirement requirement) {
+        return checkGlobalInternal(subject, requirement, EnumSet.noneOf(AccessAction.class));
     }
 
-    private boolean checkGlobalPrivInternal(UserIdentity currentUser, PrivPredicate wanted, PrivBitSet checkedPrivs) {
-        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.GLOBAL, GLOBAL_PRIV_FIXED_NAME);
-        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
+    private boolean checkGlobalInternal(AuthorizedSubject subject, AccessRequirement requirement,
+            EnumSet<AccessAction> granted) {
+        return ask(subject, requirement, granted,
+                new RangerDorisResource(DorisObjectType.GLOBAL, GLOBAL_PRIV_FIXED_NAME));
     }
 
-    @Override
-    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        PrivBitSet checkedPrivs = PrivBitSet.of();
-        if (checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
-                || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)) {
+    private boolean checkCatalog(AuthorizedSubject subject, String ctl, AccessRequirement requirement) {
+        EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
+        if (checkGlobalInternal(subject, requirement, granted)
+                || checkCatalogInternal(subject, ctl, requirement, granted)) {
             return true;
         }
-        if (wanted == PrivPredicate.SHOW && checkAnyPrivWithinCtl(currentUser, ctl)) {
+        return isVisibility(requirement) && anyPrivilegeWithin(subject,
+                new RangerDorisResource(DorisObjectType.CATALOG, ctl));
+    }
+
+    private boolean checkCatalogInternal(AuthorizedSubject subject, String ctl, AccessRequirement requirement,
+            EnumSet<AccessAction> granted) {
+        return ask(subject, requirement, granted, new RangerDorisResource(DorisObjectType.CATALOG, ctl));
+    }
+
+    private boolean checkDatabase(AuthorizedSubject subject, String ctl, String db,
+            AccessRequirement requirement) {
+        if (grantedByGlobalScopeAuthority(subject, requirement)) {
             return true;
         }
-        return false;
-    }
-
-    private boolean checkCtlPrivInternal(UserIdentity currentUser, String ctl, PrivPredicate wanted,
-            PrivBitSet checkedPrivs) {
-        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.CATALOG, ctl);
-        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
-    }
-
-    private boolean checkAnyPrivWithinCtl(UserIdentity currentUser, String ctl) {
-        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.CATALOG, ctl);
-        return checkShowPrivilegeByPlugin(currentUser, resource);
-    }
-
-    @Override
-    public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
-        if (grantedByGlobalScopeAuthority(currentUser, wanted)) {
+        EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
+        if (checkGlobalInternal(subject, requirement, granted)
+                || checkCatalogInternal(subject, ctl, requirement, granted)
+                || checkDatabaseInternal(subject, ctl, db, requirement, granted)) {
             return true;
         }
-        PrivBitSet checkedPrivs = PrivBitSet.of();
-        if (checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
-                || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
-                || checkDbPrivInternal(currentUser, ctl, db, wanted, checkedPrivs)) {
+        return isVisibility(requirement) && anyPrivilegeWithin(subject,
+                new RangerDorisResource(DorisObjectType.DATABASE, ctl, db));
+    }
+
+    private boolean checkDatabaseInternal(AuthorizedSubject subject, String ctl, String db,
+            AccessRequirement requirement, EnumSet<AccessAction> granted) {
+        return ask(subject, requirement, granted, new RangerDorisResource(DorisObjectType.DATABASE, ctl, db));
+    }
+
+    private boolean checkTable(AuthorizedSubject subject, String ctl, String db, String tbl,
+            AccessRequirement requirement) {
+        if (grantedByGlobalScopeAuthority(subject, requirement)) {
             return true;
         }
-        if (wanted == PrivPredicate.SHOW && checkAnyPrivWithinDb(currentUser, ctl, db)) {
+        EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
+        if (checkGlobalInternal(subject, requirement, granted)
+                || checkCatalogInternal(subject, ctl, requirement, granted)
+                || checkDatabaseInternal(subject, ctl, db, requirement, granted)
+                || checkTableInternal(subject, ctl, db, tbl, requirement, granted)) {
             return true;
         }
-        return false;
+        return isVisibility(requirement) && anyPrivilegeWithin(subject,
+                new RangerDorisResource(DorisObjectType.TABLE, ctl, db, tbl));
     }
 
-    private boolean checkDbPrivInternal(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted,
-            PrivBitSet checkedPrivs) {
-        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.DATABASE, ctl,
-                db);
-        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
+    private boolean checkTableInternal(AuthorizedSubject subject, String ctl, String db, String tbl,
+            AccessRequirement requirement, EnumSet<AccessAction> granted) {
+        return ask(subject, requirement, granted, new RangerDorisResource(DorisObjectType.TABLE, ctl, db, tbl));
     }
 
-    private boolean checkAnyPrivWithinDb(UserIdentity currentUser, String ctl, String db) {
-        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.DATABASE, ctl,
-                db);
-        return checkShowPrivilegeByPlugin(currentUser, resource);
-    }
-
-    @Override
-    public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
-        if (grantedByGlobalScopeAuthority(currentUser, wanted)) {
-            return true;
-        }
-        PrivBitSet checkedPrivs = PrivBitSet.of();
-        if (checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
-                || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
-                || checkDbPrivInternal(currentUser, ctl, db, wanted, checkedPrivs)
-                || checkTblPrivInternal(currentUser, ctl, db, tbl, wanted, checkedPrivs)) {
-            return true;
-        }
-        if (wanted == PrivPredicate.SHOW && checkAnyPrivWithinTbl(currentUser, ctl, db, tbl)) {
-            return true;
-        }
-        return false;
-    }
-
-    private boolean checkTblPrivInternal(UserIdentity currentUser, String ctl, String db, String tbl,
-            PrivPredicate wanted, PrivBitSet checkedPrivs) {
-        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
-                ctl, db, tbl);
-        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
-    }
-
-    private boolean checkAnyPrivWithinTbl(UserIdentity currentUser, String ctl, String db, String tbl) {
-        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
-                ctl, db, tbl);
-        return checkShowPrivilegeByPlugin(currentUser, resource);
-    }
-
-    @Override
-    public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
-            PrivPredicate wanted) throws AuthorizationException {
-        if (grantedByGlobalScopeAuthority(currentUser, wanted)) {
+    private void checkColumns(AuthorizedSubject subject, AuthorizedResource.Columns columns,
+            AccessRequirement requirement) throws AccessDeniedException {
+        if (grantedByGlobalScopeAuthority(subject, requirement)) {
             return;
         }
-        PrivBitSet checkedPrivs = PrivBitSet.of();
-        boolean hasTablePriv = checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
-                || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
-                || checkDbPrivInternal(currentUser, ctl, db, wanted, checkedPrivs)
-                || checkTblPrivInternal(currentUser, ctl, db, tbl, wanted, checkedPrivs);
+        String ctl = columns.getCatalog();
+        String db = columns.getDatabase();
+        String tbl = columns.getTable();
+        EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
+        boolean hasTablePriv = checkGlobalInternal(subject, requirement, granted)
+                || checkCatalogInternal(subject, ctl, requirement, granted)
+                || checkDatabaseInternal(subject, ctl, db, requirement, granted)
+                || checkTableInternal(subject, ctl, db, tbl, requirement, granted);
         if (hasTablePriv) {
             return;
         }
 
-        for (String col : cols) {
-            if (!checkColPrivInternal(currentUser, ctl, db, tbl, col, wanted, checkedPrivs.copy())) {
-                throw new AuthorizationException(String.format(
+        for (String col : columns.getColumns()) {
+            // Each column starts from what the levels above granted, and none of them may add to it: a
+            // privilege held on one column says nothing about the next one.
+            if (!ask(subject, requirement, EnumSet.copyOf(granted),
+                    new RangerDorisResource(DorisObjectType.COLUMN, ctl, db, tbl, col))) {
+                throw AccessDeniedException.withMessage(String.format(
                         "Permission denied: user [%s] does not have privilege for [%s] command on [%s].[%s].[%s].[%s]",
-                        currentUser, wanted, ctl, db, tbl, col));
+                        subject, requirement, ctl, db, tbl, col), columns, NAME);
             }
         }
     }
 
-    private boolean checkColPrivInternal(UserIdentity currentUser, String ctl, String db, String tbl, String col,
-            PrivPredicate wanted, PrivBitSet checkedPrivs) {
-        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.COLUMN,
-                ctl, db, tbl, col);
-        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
+    /**
+     * Whether this is the question "may the subject see the object at all", which Ranger answers by looking
+     * for any policy anywhere under it rather than for a privilege on it.
+     */
+    private static boolean isVisibility(AccessRequirement requirement) {
+        return AccessRequirements.VISIBILITY.equals(requirement);
     }
 
-    @Override
-    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
-            PrivPredicate wanted, ResourceTypeEnum type) {
-        // only support CLUSTER,
-        // STORAGE_VAULT should call `checkStorageVaultPriv`
-        // GENERAL should call `checkResourcePriv`
-        // STAGE is used to support `copy into`, but this feature will soon expire,
-        // so it is no longer supported through Ranger
-        if (!ResourceTypeEnum.CLUSTER.equals(type)) {
-            return false;
-        }
-        PrivBitSet checkedPrivs = PrivBitSet.of();
-        return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
-                || checkComputeGroupPrivInternal(currentUser, cloudName, wanted, checkedPrivs);
-    }
-
-    private boolean checkComputeGroupPrivInternal(UserIdentity currentUser, String computeGroupName,
-            PrivPredicate wanted,
-            PrivBitSet checkedPrivs) {
-        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.COMPUTE_GROUP, computeGroupName);
-        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
-    }
-
-    @Override
-    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
-        PrivBitSet checkedPrivs = PrivBitSet.of();
-        return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
-                || checkStorageVaultPrivInternal(currentUser, storageVaultName, wanted, checkedPrivs);
-    }
-
-    private boolean checkStorageVaultPrivInternal(UserIdentity currentUser, String storageVaultName,
-            PrivPredicate wanted,
-            PrivBitSet checkedPrivs) {
-        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.STORAGE_VAULT, storageVaultName);
-        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
-    }
-
-    @Override
-    public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
-        PrivBitSet checkedPrivs = PrivBitSet.of();
-        return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
-                || checkResourcePrivInternal(currentUser, resourceName, wanted, checkedPrivs);
-    }
-
-    private boolean checkResourcePrivInternal(UserIdentity currentUser, String resourceName, PrivPredicate wanted,
-            PrivBitSet checkedPrivs) {
-        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.RESOURCE, resourceName);
-        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
-    }
-
-    @Override
-    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
-        // For compatibility with older versions, it is not needed to check the privileges of the default group.
-        if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
-            return true;
-        }
-        PrivBitSet checkedPrivs = PrivBitSet.of();
-        return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
-                || checkWorkloadGroupInternal(currentUser, workloadGroupName, wanted, checkedPrivs);
-    }
-
-    private boolean checkWorkloadGroupInternal(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted,
-            PrivBitSet checkedPrivs) {
-        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.WORKLOAD_GROUP, workloadGroupName);
-        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
+    private boolean anyPrivilegeWithin(AuthorizedSubject subject, RangerDorisResource resource) {
+        return checkShowPrivilegeByPlugin(subject, resource);
     }
 
     @Override
@@ -337,18 +368,5 @@ public class RangerDorisAccessController extends RangerAccessController {
     @Override
     protected RangerAccessResultProcessor getAccessResultProcessor() {
         return null;
-    }
-
-    // For test only
-    public static void main(String[] args) {
-        RangerDorisAccessController ac = new RangerDorisAccessController("doris");
-        UserIdentity user = new UserIdentity("user1", "127.0.0.1");
-        user.setIsAnalyzed();
-        boolean res = ac.checkDbPriv(user, "internal", "db1", PrivPredicate.SHOW);
-        System.out.println("res: " + res);
-        user = new UserIdentity("user2", "127.0.0.1");
-        user.setIsAnalyzed();
-        res = ac.checkTblPriv(user, "internal", "db1", "tbl1", PrivPredicate.SELECT);
-        System.out.println("res: " + res);
     }
 }

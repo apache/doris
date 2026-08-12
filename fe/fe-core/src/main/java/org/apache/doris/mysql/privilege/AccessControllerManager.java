@@ -26,6 +26,7 @@ import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.ResourceKind;
 import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
+import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -76,6 +77,9 @@ public class AccessControllerManager {
     // A catalog name can be reused after DROP. Keep the catalog id next to the source so cleanup from
     // an old catalog generation can never remove or close the replacement generation's source.
     private Map<String, CatalogAccessControllerEntry> ctlToCtlAccessController = Maps.newConcurrentMap();
+    // Factories publishing an authorization source under the current contract, by the name it is selected by
+    private ConcurrentHashMap<String, AuthorizationPluginFactory> authorizationPluginFactories
+            = new ConcurrentHashMap<>();
     // Cache of loaded access controller factories for quick creation of new access controllers
     private ConcurrentHashMap<String, AccessControllerFactory> accessControllerFactoriesCache
             = new ConcurrentHashMap<>();
@@ -111,19 +115,37 @@ public class AccessControllerManager {
         if (accessControllerName.equalsIgnoreCase(InternalAuthorizationPlugin.NAME)) {
             return new InternalAuthorizationPlugin(auth);
         }
-        if (accessControllerFactoriesCache.containsKey(accessControllerName)) {
-            Map<String, String> prop;
-            try {
-                prop = PropertiesUtils.loadAccessControllerPropertiesOrNull();
-            } catch (IOException e) {
-                throw new RuntimeException("Failed to load authorization properties."
-                        + "Please check the configuration file, authorization name is " + accessControllerName, e);
-            }
-            return adapt(accessControllerName,
-                    accessControllerFactoriesCache.get(accessControllerName).createAccessController(prop));
+        if (!isKnownAuthorizationSource(accessControllerName)) {
+            throw new RuntimeException("No authorization plugin factory found for " + accessControllerName
+                    + ". Please confirm that your plugin is placed in the correct location.");
         }
-        throw new RuntimeException("No authorization plugin factory found for " + accessControllerName
-                + ". Please confirm that your plugin is placed in the correct location.");
+        Map<String, String> prop;
+        try {
+            prop = PropertiesUtils.loadAccessControllerPropertiesOrNull();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to load authorization properties."
+                    + "Please check the configuration file, authorization name is " + accessControllerName, e);
+        }
+        return create(accessControllerName, prop);
+    }
+
+    /**
+     * Builds the authorization source published under {@code name}, whichever contract publishes it.
+     *
+     * <p>A source written against the current contract is built with the context it may put questions to the
+     * engine through. It cannot be handed that context any earlier than this - the context has to name the
+     * source it belongs to, and the source does not exist until its factory has run.
+     */
+    private AuthorizationPlugin create(String name, Map<String, String> properties) {
+        AuthorizationPluginFactory factory = authorizationPluginFactories.get(name);
+        if (factory == null) {
+            return adapt(name, accessControllerFactoriesCache.get(name).createAccessController(properties));
+        }
+        EngineAuthorizationContext context = new EngineAuthorizationContext(this, auth);
+        AuthorizationPlugin plugin = factory.create(
+                properties == null ? Collections.emptyMap() : properties, context);
+        context.servedBy(plugin);
+        return plugin;
     }
 
     /** Presents a controller written against the older per-scope interface as an authorization source. */
@@ -131,12 +153,22 @@ public class AccessControllerManager {
         return new LegacyAccessControllerPlugin(name, controller);
     }
 
+    private boolean isKnownAuthorizationSource(String name) {
+        return authorizationPluginFactories.containsKey(name) || accessControllerFactoriesCache.containsKey(name);
+    }
+
     private void loadAccessControllerPlugins() {
+        // Sources shipped with the FE, and any on its class path. Loading them from a plugin directory is
+        // what the version gate guards, so that channel opens with the gate rather than before it.
+        for (AuthorizationPluginFactory factory : ServiceLoader.load(AuthorizationPluginFactory.class)) {
+            LOG.info("Found authorization plugin factory: {} from class path.", factory.name());
+            authorizationPluginFactories.put(factory.name(), factory);
+            accessControllerClassNameMapping.put(factory.getClass().getName(), factory.name());
+        }
         ServiceLoader<AccessControllerFactory> loaderFromClasspath = ServiceLoader.load(AccessControllerFactory.class);
         for (AccessControllerFactory factory : loaderFromClasspath) {
             LOG.info("Found Authentication Plugin Factories: {} from class path.", factory.factoryIdentifier());
-            accessControllerFactoriesCache.put(factory.factoryIdentifier(), factory);
-            accessControllerClassNameMapping.put(factory.getClass().getName(), factory.factoryIdentifier());
+            registerLegacyFactory(factory);
         }
         List<AccessControllerFactory> loader = null;
         try {
@@ -146,9 +178,19 @@ public class AccessControllerManager {
         }
         for (AccessControllerFactory factory : loader) {
             LOG.info("Found Access Controller Plugin Factory: {} from directory.", factory.factoryIdentifier());
-            accessControllerFactoriesCache.put(factory.factoryIdentifier(), factory);
-            accessControllerClassNameMapping.put(factory.getClass().getName(), factory.factoryIdentifier());
+            registerLegacyFactory(factory);
         }
+    }
+
+    private void registerLegacyFactory(AccessControllerFactory factory) {
+        String name = factory.factoryIdentifier();
+        if (authorizationPluginFactories.containsKey(name)) {
+            // Both were found, so say which one answers rather than letting the loser look installed.
+            LOG.warn("Authorization source {} is published both as a plugin and as an access controller"
+                    + " factory; the plugin is the one used.", name);
+        }
+        accessControllerFactoriesCache.put(name, factory);
+        accessControllerClassNameMapping.put(factory.getClass().getName(), name);
     }
 
     /** The authorization source governing the objects inside {@code ctl}. */
@@ -223,8 +265,7 @@ public class AccessControllerManager {
     public void createAccessController(ExternalCatalog catalog, String acFactoryClassName, Map<String, String> prop,
                                        boolean isDryRun) {
         String pluginIdentifier = getPluginIdentifierForAccessController(acFactoryClassName);
-        AuthorizationPlugin accessController = adapt(pluginIdentifier,
-                accessControllerFactoriesCache.get(pluginIdentifier).createAccessController(prop));
+        AuthorizationPlugin accessController = create(pluginIdentifier, prop);
         if (isDryRun) {
             closeAccessController(catalog.getName(), accessController);
             return;
@@ -264,10 +305,10 @@ public class AccessControllerManager {
         if (accessControllerClassNameMapping.containsKey(acClassName)) {
             pluginIdentifier = accessControllerClassNameMapping.get(acClassName);
         }
-        if (accessControllerFactoriesCache.containsKey(acClassName)) {
+        if (isKnownAuthorizationSource(acClassName)) {
             pluginIdentifier = acClassName;
         }
-        if (null == pluginIdentifier || !accessControllerFactoriesCache.containsKey(pluginIdentifier)) {
+        if (null == pluginIdentifier || !isKnownAuthorizationSource(pluginIdentifier)) {
             throw new RuntimeException("Access Controller Plugin Factory not found for " + acClassName);
         }
         return pluginIdentifier;
@@ -404,18 +445,12 @@ public class AccessControllerManager {
     /**
      * Whether {@code candidate} is itself the source governing instance scope.
      *
-     * <p>Asked by a source that would otherwise defer to that authority, so that it does not ask itself a
-     * question it is about to answer - the two would agree, at the price of evaluating the same policies
-     * twice. Identity is the question, so a controller reached through an adapter is compared against the
-     * controller, not against its wrapper.
+     * <p>Asked on behalf of a source that would otherwise defer to that authority, so that it does not ask
+     * itself a question it is about to answer - the two would agree, at the price of evaluating the same
+     * policies twice.
      */
-    public boolean isGlobalScopeAuthority(Object candidate) {
-        AuthorizationPlugin authority = systemScopeController();
-        if (authority == candidate) {
-            return true;
-        }
-        return authority instanceof LegacyAccessControllerPlugin
-                && ((LegacyAccessControllerPlugin) authority).getController() == candidate;
+    boolean isGlobalScopeAuthority(AuthorizationPlugin candidate) {
+        return systemScopeController() == candidate;
     }
 
     // ==== Global ====

@@ -17,22 +17,25 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.authorization.spi.AuthorizationContext;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
+import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 
 import java.util.Map;
 
 /**
- * Binds a catalog to the production Ranger controller driven by {@link StubRangerPolicyEngine}, so a test can
+ * Binds a catalog to the production Ranger source driven by {@link StubRangerPolicyEngine}, so a test can
  * create a Ranger-governed catalog with {@code "access_controller.class"} without a Ranger server.
  */
-public class StubRangerAccessControllerFactory implements AccessControllerFactory {
+public class StubRangerAccessControllerFactory implements AuthorizationPluginFactory {
     @Override
-    public String factoryIdentifier() {
+    public String name() {
         return "stub-ranger-doris";
     }
 
     @Override
-    public CatalogAccessController createAccessController(Map<String, String> prop) {
-        return new RangerDorisAccessController(new StubRangerPolicyEngine());
+    public AuthorizationPlugin create(Map<String, String> properties, AuthorizationContext context) {
+        return new RangerDorisAccessController(new StubRangerPolicyEngine(), context);
     }
 }

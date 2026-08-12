@@ -17,9 +17,9 @@
 
 package org.apache.doris.catalog.authorizer.ranger.doris;
 
-import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.authorization.AccessAction;
 
-// Same as defined in PrivPredicate.java
+// The access types a Doris Ranger service defines, one per privilege Doris grants.
 public enum DorisAccessType {
     NODE,
     ADMIN,
@@ -32,32 +32,41 @@ public enum DorisAccessType {
     USAGE,
     SHOW_VIEW,
     NONE;
-    public static DorisAccessType toAccessType(Privilege privilege) {
-        switch (privilege) {
-            case ADMIN_PRIV:
+
+    /**
+     * The access type standing for {@code action}. The three ways of using something are one access type
+     * here, which is a folding the Ranger service can afford and the engine cannot: its policies are written
+     * against the resource, so a policy on a compute group and one on a stage are told apart by what they are
+     * on rather than by the name of the privilege.
+     */
+    public static DorisAccessType of(AccessAction action) {
+        switch (action) {
+            case ADMIN:
                 return ADMIN;
-            case NODE_PRIV:
+            case NODE:
                 return NODE;
-            case GRANT_PRIV:
+            case GRANT:
                 return GRANT;
-            case SELECT_PRIV:
+            case SELECT:
                 return SELECT;
-            case LOAD_PRIV:
+            case LOAD:
                 return LOAD;
-            case ALTER_PRIV:
+            case ALTER:
                 return ALTER;
-            case CREATE_PRIV:
+            case CREATE:
                 return CREATE;
-            case DROP_PRIV:
+            case DROP:
                 return DROP;
-            case USAGE_PRIV:
-            case STAGE_USAGE_PRIV:
-            case CLUSTER_USAGE_PRIV:
+            case USAGE:
+            case STAGE_USAGE:
+            case CLUSTER_USAGE:
                 return USAGE;
-            case SHOW_VIEW_PRIV:
+            case SHOW_VIEW:
                 return SHOW_VIEW;
             default:
-                return NONE;
+                // Guessing would ask Ranger about an access type its service definition does not have, and
+                // every such request is denied - an action added to Doris would silently stop being grantable.
+                throw new IllegalStateException("no Ranger access type for action " + action);
         }
     }
 }

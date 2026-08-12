@@ -54,11 +54,7 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
         this.controller = Objects.requireNonNull(controller, "controller is required");
     }
 
-    /**
-     * The controller this presents. Needed where an identity, not a behaviour, is the question - a controller
-     * asking whether it is itself the one governing instance scope has to compare against the object it is,
-     * not against the wrapper it is reached through.
-     */
+    /** The controller this presents, for where the controller itself is the question rather than its answers. */
     public CatalogAccessController getController() {
         return controller;
     }

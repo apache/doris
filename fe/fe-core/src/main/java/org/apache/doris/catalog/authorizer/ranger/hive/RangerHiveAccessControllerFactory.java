@@ -17,20 +17,26 @@
 
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
-import org.apache.doris.mysql.privilege.AccessControllerFactory;
-import org.apache.doris.mysql.privilege.CatalogAccessController;
+import org.apache.doris.authorization.spi.AuthorizationContext;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
+import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
 
 import java.util.Map;
 
-public class RangerHiveAccessControllerFactory implements AccessControllerFactory {
+public class RangerHiveAccessControllerFactory implements AuthorizationPluginFactory {
 
     @Override
-    public String factoryIdentifier() {
-        return "ranger-hive";
+    public String name() {
+        return RangerHiveAccessController.NAME;
     }
 
     @Override
-    public CatalogAccessController createAccessController(Map<String, String> prop) {
-        return new RangerHiveAccessController(prop);
+    public String description() {
+        return "Authorizes one catalog against the policies of a Ranger service of type hive";
+    }
+
+    @Override
+    public AuthorizationPlugin create(Map<String, String> properties, AuthorizationContext context) {
+        return new RangerHiveAccessController(properties, context);
     }
 }

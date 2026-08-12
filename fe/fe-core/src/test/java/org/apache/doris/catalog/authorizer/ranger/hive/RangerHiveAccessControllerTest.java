@@ -17,46 +17,80 @@
 
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
-import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessAction;
+import org.apache.doris.authorization.AccessRequirement;
+import org.apache.doris.authorization.AccessRequirements;
+import org.apache.doris.authorization.AuthorizedSubject;
+import org.apache.doris.authorization.spi.AuthorizationContext;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
-import org.apache.ranger.plugin.policyengine.RangerPolicyEngine;
-import org.apache.ranger.plugin.service.RangerBasePlugin;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
-import java.lang.reflect.Field;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.Set;
 
 public class RangerHiveAccessControllerTest {
+
+    private static final AuthorizedSubject SUBJECT = AuthorizedSubject.of("user1", "%");
+
+    /**
+     * A Ranger policy may be written against a role, and which roles a Doris account holds is the engine's to
+     * know: the source has no user directory of its own to look them up in.
+     */
     @Test
-    public void testRangerAccessTypeMapping() {
-        Assertions.assertEquals("select", RangerHiveAccessController.toRangerAccessType(HiveAccessType.SELECT));
-        Assertions.assertEquals("update", RangerHiveAccessController.toRangerAccessType(HiveAccessType.UPDATE));
-        Assertions.assertEquals(RangerPolicyEngine.ANY_ACCESS,
-                RangerHiveAccessController.toRangerAccessType(HiveAccessType.USE));
+    public void testRequestCarriesTheRolesTheEngineKnows() {
+        Set<String> roles = ImmutableSet.of("analyst");
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        Mockito.when(context.rolesOf(SUBJECT)).thenReturn(roles);
+
+        try (MockedConstruction<RangerHivePlugin> plugin = Mockito.mockConstruction(RangerHivePlugin.class);
+                MockedConstruction<RangerHiveAuditHandler> audit =
+                        Mockito.mockConstruction(RangerHiveAuditHandler.class)) {
+            RangerHiveAccessController controller = new RangerHiveAccessController(
+                    ImmutableMap.of("ranger.service.name", "hive"), context);
+            try {
+                RangerAccessRequestImpl request = controller.createRequest(SUBJECT);
+
+                Assertions.assertEquals("user1", request.getUser());
+                Assertions.assertEquals(roles, request.getUserRoles());
+                Assertions.assertEquals("%", request.getClientIPAddress());
+            } finally {
+                controller.close();
+            }
+        }
     }
 
+    /**
+     * Only the checks the engine asks by name map onto a Hive access type. Anything else - a requirement put
+     * together for one statement, for instance - maps to one no Hive policy grants, rather than to a
+     * neighbouring access type that some policy might.
+     */
     @Test
-    public void testPolicyRequestsUseLowerCaseSelect() throws Exception {
-        RangerHiveAccessController controller = Mockito.mock(
-                RangerHiveAccessController.class, Mockito.CALLS_REAL_METHODS);
-        Field lifecycleLock = RangerHiveAccessController.class.getDeclaredField("lifecycleLock");
-        lifecycleLock.setAccessible(true);
-        lifecycleLock.set(controller, new ReentrantReadWriteLock());
-        RangerBasePlugin plugin = Mockito.mock(RangerBasePlugin.class);
-        UserIdentity currentUser = UserIdentity.createAnalyzedUserIdentWithIp("user", "%");
-        RangerAccessRequestImpl rowFilterRequest = new RangerAccessRequestImpl();
-        RangerAccessRequestImpl dataMaskRequest = new RangerAccessRequestImpl();
+    public void testAccessTypeIsRecognisedByWhatIsAsked() {
+        Assertions.assertEquals(HiveAccessType.USE,
+                RangerHiveAccessController.accessTypeOf(AccessRequirements.VISIBILITY));
+        Assertions.assertEquals(HiveAccessType.SELECT,
+                RangerHiveAccessController.accessTypeOf(AccessRequirements.SELECT));
+        Assertions.assertEquals(HiveAccessType.UPDATE,
+                RangerHiveAccessController.accessTypeOf(AccessRequirements.LOAD));
+        Assertions.assertEquals(HiveAccessType.ALTER,
+                RangerHiveAccessController.accessTypeOf(AccessRequirements.ALTER));
+        Assertions.assertEquals(HiveAccessType.CREATE,
+                RangerHiveAccessController.accessTypeOf(AccessRequirements.CREATE));
+        Assertions.assertEquals(HiveAccessType.DROP,
+                RangerHiveAccessController.accessTypeOf(AccessRequirements.DROP));
+        Assertions.assertEquals(HiveAccessType.ALL,
+                RangerHiveAccessController.accessTypeOf(AccessRequirements.ADMINISTRATION));
+        Assertions.assertEquals(HiveAccessType.ALL,
+                RangerHiveAccessController.accessTypeOf(AccessRequirements.ANY_PRIVILEGE));
 
-        Mockito.doReturn(rowFilterRequest, dataMaskRequest).when(controller).createRequest(currentUser);
-        Mockito.doReturn(plugin).when(controller).getPlugin();
-
-        controller.evalRowFilterPolicies(currentUser, "catalog", "database", "table");
-        controller.evalDataMaskPolicy(currentUser, "catalog", "database", "table", "column");
-
-        Assertions.assertEquals("select", rowFilterRequest.getAccessType());
-        Assertions.assertEquals("select", dataMaskRequest.getAccessType());
+        Assertions.assertEquals(HiveAccessType.NONE, RangerHiveAccessController.accessTypeOf(
+                AccessRequirement.allOf(AccessAction.SELECT, AccessAction.GRANT)));
+        Assertions.assertEquals(HiveAccessType.NONE,
+                RangerHiveAccessController.accessTypeOf(AccessRequirement.of(AccessAction.USAGE)));
     }
 }

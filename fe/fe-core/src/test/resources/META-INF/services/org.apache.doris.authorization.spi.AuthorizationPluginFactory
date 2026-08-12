@@ -15,4 +15,4 @@
 # limitations under the License.
 #
 #
-org.apache.doris.nereids.privileges.CustomAccessControllerFactory
+org.apache.doris.mysql.privilege.StubRangerAccessControllerFactory
