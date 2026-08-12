@@ -19,11 +19,14 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessRequirement;
+import org.apache.doris.authorization.AuthorizedResource;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ClassLoaderUtils;
@@ -302,13 +305,92 @@ public class AccessControllerManager {
         return this.auth;
     }
 
+    /**
+     * Answers whether {@code subject} may act on {@code resource} as {@code requirement} demands.
+     *
+     * <p>This is the one place a check is routed. Which controller is asked follows from the resource
+     * alone - system-wide objects and catalog-level grants go to the controller
+     * {@code access_controller_type} installs, everything inside a catalog goes to the controller that
+     * catalog is bound to - and whatever it answers is the answer. Combining two controllers, or granting
+     * anything before asking, would have to happen here, and deliberately does not.
+     *
+     * <p>Columns are not decided here: see {@link #decideColumns}.
+     */
+    public boolean decide(UserIdentity subject, AuthorizedResource resource, AccessRequirement requirement) {
+        PrivPredicate wanted = AccessTranslation.privPredicateOf(requirement);
+        switch (resource.getKind()) {
+            case GLOBAL:
+                return systemScopeController().checkGlobalPriv(subject, wanted);
+            case CATALOG:
+                // Catalog level grants are only ever stored by the system scope controller, so it answers
+                // for every catalog, including those bound to a controller of their own.
+                return systemScopeController().checkCtlPriv(subject,
+                        ((AuthorizedResource.Catalog) resource).getCatalog(), wanted);
+            case DATABASE: {
+                AuthorizedResource.Database database = (AuthorizedResource.Database) resource;
+                return controllerOf(database.getCatalog())
+                        .checkDbPriv(subject, database.getCatalog(), database.getDatabase(), wanted);
+            }
+            case TABLE: {
+                AuthorizedResource.Table table = (AuthorizedResource.Table) resource;
+                return controllerOf(table.getCatalog()).checkTblPriv(subject, table.getCatalog(),
+                        table.getDatabase(), table.getTable(), wanted);
+            }
+            case RESOURCE:
+                return systemScopeController()
+                        .checkResourcePriv(subject, ((AuthorizedResource.Named) resource).getName(), wanted);
+            case WORKLOAD_GROUP:
+                return systemScopeController()
+                        .checkWorkloadGroupPriv(subject, ((AuthorizedResource.Named) resource).getName(), wanted);
+            case STORAGE_VAULT:
+                return systemScopeController()
+                        .checkStorageVaultPriv(subject, ((AuthorizedResource.Named) resource).getName(), wanted);
+            case CLOUD_GENERAL:
+            case CLOUD_COMPUTE_GROUP:
+            case CLOUD_STAGE:
+            case CLOUD_STORAGE_VAULT:
+                return systemScopeController().checkCloudPriv(subject,
+                        ((AuthorizedResource.Named) resource).getName(), wanted,
+                        AccessTranslation.cloudTypeOf(resource.getKind()));
+            case COLUMNS:
+                throw new IllegalArgumentException("column access is decided by decideColumns(), which"
+                        + " reports which column was refused instead of a yes or no");
+            default:
+                throw new IllegalStateException("no route for resource kind " + resource.getKind());
+        }
+    }
+
+    /**
+     * Checks access to named columns, reporting the column that was refused rather than a yes or no.
+     *
+     * <p>Kept apart from {@link #decide} because the answer has a different shape, not because the routing
+     * differs: it is the same controller the table itself would be asked about.
+     */
+    public void decideColumns(UserIdentity subject, AuthorizedResource.Columns columns,
+            AccessRequirement requirement) throws AuthorizationException {
+        controllerOf(columns.getCatalog()).checkColsPriv(subject, columns.getCatalog(), columns.getDatabase(),
+                columns.getTable(), columns.getColumns(), AccessTranslation.privPredicateOf(requirement));
+    }
+
+    /**
+     * The controller governing everything that is not inside a catalog: global privileges, resources,
+     * workload groups, cloud objects, storage vaults - and catalog level grants, which only it stores.
+     */
+    private CatalogAccessController systemScopeController() {
+        return defaultAccessController;
+    }
+
+    private CatalogAccessController controllerOf(String ctl) {
+        return getAccessControllerOrDefault(ctl);
+    }
+
     // ==== Global ====
     public boolean checkGlobalPriv(ConnectContext ctx, PrivPredicate wanted) {
         return checkGlobalPriv(ctx.getCurrentUserIdentity(), wanted);
     }
 
     public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
-        return defaultAccessController.checkGlobalPriv(currentUser, wanted);
+        return decide(currentUser, AuthorizedResource.global(), AccessTranslation.requirementOf(wanted));
     }
 
     // ==== Catalog ====
@@ -330,22 +412,16 @@ public class AccessControllerManager {
             if (catalog == null) {
                 return false;
             }
-            if (catalog.isInternalCatalog()) {
-                return defaultAccessController.checkCtlPriv(currentUser, ctl, wanted);
+            // An external catalog bound to a controller of its own keeps no catalog level grants anywhere,
+            // so with the check switched off there is nobody left to ask. Every other catalog still goes
+            // through the normal route below.
+            String className = catalog.isInternalCatalog() ? ""
+                    : (String) catalog.getProperties().getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
+            if (!Strings.isNullOrEmpty(className)) {
+                return true;
             }
-            // If catalog not set access controller, use internal access controller
-            // otherwise, skip catalog priv check
-            String className = (String) catalog.getProperties().getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP,
-                    "");
-            if (Strings.isNullOrEmpty(className)) {
-                // not set access controller, use internal access controller
-                return defaultAccessController.checkCtlPriv(currentUser, ctl, wanted);
-            }
-            return true;
         }
-        // for checking catalog priv, always use InternalAccessController.
-        // because catalog priv is only saved in InternalAccessController.
-        return defaultAccessController.checkCtlPriv(currentUser, ctl, wanted);
+        return decide(currentUser, AuthorizedResource.catalog(ctl), AccessTranslation.requirementOf(wanted));
     }
 
     // ==== Database ====
@@ -354,7 +430,7 @@ public class AccessControllerManager {
     }
 
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
-        return getAccessControllerOrDefault(ctl).checkDbPriv(currentUser, ctl, db, wanted);
+        return decide(currentUser, AuthorizedResource.database(ctl, db), AccessTranslation.requirementOf(wanted));
     }
 
     // ==== Table ====
@@ -372,7 +448,7 @@ public class AccessControllerManager {
     }
 
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
-        return getAccessControllerOrDefault(ctl).checkTblPriv(currentUser, ctl, db, tbl, wanted);
+        return decide(currentUser, AuthorizedResource.table(ctl, db, tbl), AccessTranslation.requirementOf(wanted));
     }
 
     // ==== Column ====
@@ -388,9 +464,9 @@ public class AccessControllerManager {
     public void checkColumnsPriv(UserIdentity currentUser, String
             ctl, String qualifiedDb, String tbl, Set<String> cols,
                                  PrivPredicate wanted) throws UserException {
-        CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
         long start = System.currentTimeMillis();
-        accessController.checkColsPriv(currentUser, ctl, qualifiedDb, tbl, cols, wanted);
+        decideColumns(currentUser, AuthorizedResource.columns(ctl, qualifiedDb, tbl, cols),
+                AccessTranslation.requirementOf(wanted));
         if (LOG.isDebugEnabled()) {
             LOG.debug("checkColumnsPriv use {} mills, user: {}, ctl: {}, db: {}, table: {}, cols: {}",
                     System.currentTimeMillis() - start, currentUser, ctl, qualifiedDb, tbl, cols);
@@ -403,7 +479,8 @@ public class AccessControllerManager {
     }
 
     public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
-        return defaultAccessController.checkResourcePriv(currentUser, resourceName, wanted);
+        return decide(currentUser, AuthorizedResource.resource(resourceName),
+                AccessTranslation.requirementOf(wanted));
     }
 
     // ==== Cloud ====
@@ -413,7 +490,8 @@ public class AccessControllerManager {
 
     public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
                                   PrivPredicate wanted, ResourceTypeEnum type) {
-        return defaultAccessController.checkCloudPriv(currentUser, cloudName, wanted, type);
+        return decide(currentUser, AuthorizedResource.cloud(AccessTranslation.cloudKindOf(type), cloudName),
+                AccessTranslation.requirementOf(wanted));
     }
 
     public boolean checkStorageVaultPriv(ConnectContext ctx, String storageVaultName, PrivPredicate wanted) {
@@ -421,7 +499,8 @@ public class AccessControllerManager {
     }
 
     public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
-        return defaultAccessController.checkStorageVaultPriv(currentUser, storageVaultName, wanted);
+        return decide(currentUser, AuthorizedResource.storageVault(storageVaultName),
+                AccessTranslation.requirementOf(wanted));
     }
 
     public boolean checkWorkloadGroupPriv(ConnectContext ctx, String workloadGroupName, PrivPredicate wanted) {
@@ -429,7 +508,8 @@ public class AccessControllerManager {
     }
 
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
-        return defaultAccessController.checkWorkloadGroupPriv(currentUser, workloadGroupName, wanted);
+        return decide(currentUser, AuthorizedResource.workloadGroup(workloadGroupName),
+                AccessTranslation.requirementOf(wanted));
     }
 
     // ==== Other ====
