@@ -1,0 +1,9 @@
+{
+  "msg": "success",
+  "code": 0,
+  "data": {
+    "columnNames": ["BackendId", "Host", "HeartbeatPort", "BePort", "HttpPort", "Alive", "TabletNum", "UsedPct", "Version", "NodeRole"],
+    "rows": [["10001", "127.0.0.1", "59050", "59060", "58040", "true", "780", "50.00 %", "doris-example", "mix"]]
+  },
+  "count": 0
+}
