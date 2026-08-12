@@ -57,7 +57,6 @@
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/utils.h"
 #include "util/concurrency_stats.h"
-#include "util/jni-util.h"
 
 #if defined(LEAK_SANITIZER)
 #include <sanitizer/lsan_interface.h>
@@ -512,16 +511,9 @@ int main(int argc, char** argv) {
     apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
 
     Status status = Status::OK();
-    if (doris::config::enable_java_support) {
-        // Init jni
-        status = doris::Jni::Util::Init();
-        if (!status.ok()) {
-            LOG(WARNING) << "Failed to initialize JNI: " << status;
-            exit(1);
-        } else {
-            LOG(INFO) << "Doris backend JNI is initialized.";
-        }
-    }
+    // No JVM is started here on purpose. It is created by the first Java feature that asks
+    // for it - a JNI table format, a Java UDF, an hdfs access - and a BE that uses none of
+    // them runs without one. See Jni::JvmLauncher.
 
     if (doris::config::enable_python_udf_support) {
         if (std::string python_udf_root_path =

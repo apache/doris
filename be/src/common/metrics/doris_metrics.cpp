@@ -490,6 +490,7 @@ void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::stri
 
 void DorisMetrics::init_jvm_metrics() {
     _jvm_metrics.reset(new JvmMetrics(&_metric_registry));
+    _jvm_metrics_view.store(_jvm_metrics.get(), std::memory_order_release);
 }
 
 void DorisMetrics::_update() {

@@ -23,6 +23,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
 #include <string>
 
 #include "common/status.h"
@@ -48,6 +49,8 @@ namespace doris {
 // to confirm whether the jni method will throw an exception.
 
 namespace Jni {
+class JvmLauncher;
+
 class Env {
 public:
     static Status Get(JNIEnv** env) {
@@ -117,6 +120,12 @@ private:
         }
         return Status::OK();
     }
+
+    // Drops the cached JNIEnv of the calling thread. Only the thread exit hook may call
+    // this: the env it caches is gone the moment the thread is detached, and anything
+    // reading it afterwards - another thread exit hook, say - would read freed memory.
+    static void reset_tls_env() { tls_env_ = nullptr; }
+    friend class JvmLauncher;
 
 private:
     // Thread-local cache of the JNIEnv for this thread.
@@ -1082,6 +1091,7 @@ public:
     template <RefType Ref>
     static Status get_jni_scanner_class(JNIEnv* env, const char* classname,
                                         Object<Ref>* jni_scanner_class) {
+        RETURN_IF_ERROR(_ensure_scanner_loader());
         // Get JNI scanner class by class name;
         LocalString class_name_str;
         RETURN_IF_ERROR(LocalString::new_string(env, classname, &class_name_str));
@@ -1154,16 +1164,32 @@ public:
 
     static Status clean_udf_class_load_cache(const std::string& function_signature);
 
-    static Status Init();
-
 private:
+    // Resolves everything the BE needs from the JVM before it can call any Java code: the
+    // exception helpers, the native methods the Java side links against, and the
+    // collection classes cached below. Runs once, right after the JVM appears; every
+    // caller that follows gets the outcome of that one attempt.
+    //
+    // Only Env may call this, and only with this thread already attached: the resolution
+    // asks Env::Get() for its JNIEnv, and reaching this from an unattached thread would
+    // re-enter the call_once below and deadlock.
+    static Status ensure_jni_base();
+    friend class Env;
+
     static void _parse_max_heap_memory_size_from_jvm();
 
+    static Status _init_jni_base() WARN_UNUSED_RESULT;
     static Status _init_collect_class() WARN_UNUSED_RESULT;
     static Status _init_register_natives() WARN_UNUSED_RESULT;
     static Status _init_jni_scanner_loader() WARN_UNUSED_RESULT;
 
-    static bool jvm_inited_;
+    // Loads the scanner jars on first use. Separate from ensure_jni_base() because it is
+    // seconds of work that a BE which never reads a JNI table format should not do.
+    static Status _ensure_scanner_loader() WARN_UNUSED_RESULT;
+
+    // Whether _init_jni_scanner_loader() has ever run, so that dropping a function can
+    // tell "no class loader cache to clean" from "cache not reachable".
+    static std::atomic<bool> scanner_loader_ready_;
 
     // for jvm heap
     static jlong max_jvm_heap_memory_size_;

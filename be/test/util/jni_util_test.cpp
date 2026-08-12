@@ -49,15 +49,15 @@ public:
     ~JniUtilTest() override = default;
 
     Status init() {
-        auto st = doris::Jni::Util::Init();
+        JNIEnv* env = nullptr;
+        // Creates the JVM if this process has none yet.
+        auto st = Jni::Env::Get(&env);
 
         if (!st.ok()) {
             exit(1);
         }
-        JNIEnv* env;
 
         // jvm mem
-        RETURN_IF_ERROR(Jni::Env::Get(&env));
         RETURN_IF_ERROR(Jni::Util::find_class(env, "java/lang/Runtime", &runtime_cls));
 
         RETURN_IF_ERROR(runtime_cls.get_static_method(env, "getRuntime", "()Ljava/lang/Runtime;",
