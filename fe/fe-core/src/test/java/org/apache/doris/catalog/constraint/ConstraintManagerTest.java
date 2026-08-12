@@ -34,6 +34,7 @@ import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -186,6 +187,22 @@ class ConstraintManagerTest {
         mgr.dropConstraint(T1, "missing", true);
     }
 
+    @Test
+    void dropConstraintRejectsChangedExpectedCascadeWithoutMutation() {
+        mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
+        mgr.addConstraint(T2, "fk2", newFk("fk2", T1, "c1", "k1"), true);
+        List<TableNameInfo> expectedCascadeDropTables = List.of(T2);
+        mgr.addConstraint(T3, "fk3", newFk("fk3", T1, "c1", "k1"), true);
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> mgr.dropConstraint(
+                        T1, "pk", expectedCascadeDropTables, false));
+
+        Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
+        Assertions.assertNotNull(mgr.getConstraint(T2, "fk2"));
+        Assertions.assertNotNull(mgr.getConstraint(T3, "fk3"));
+    }
+
     // ==================== FK bidirectional references ====================
 
     @Test
@@ -222,6 +239,28 @@ class ConstraintManagerTest {
         // FK on T2 and T3 should also be removed
         Assertions.assertTrue(mgr.getConstraints(T2).isEmpty());
         Assertions.assertTrue(mgr.getConstraints(T3).isEmpty());
+    }
+
+    @Test
+    void renameDatabaseUpdatesSelfReferencingForeignKeyAcrossImageRoundTrip()
+            throws Exception {
+        TableNameInfo oldTable = new TableNameInfo("ctl", "old_db", "t1");
+        TableNameInfo newTable = new TableNameInfo("ctl", "new_db", "t1");
+        mgr.addConstraint(oldTable, "pk", newPk("pk", "k1"), true);
+        mgr.addConstraint(oldTable, "fk", newFk("fk", oldTable, "k1", "k1"), true);
+
+        mgr.renameDatabase("ctl", "old_db", "new_db");
+        assertSelfReference(mgr, newTable);
+
+        ByteArrayOutputStream image = new ByteArrayOutputStream();
+        mgr.write(new DataOutputStream(image));
+        ConstraintManager loaded = ConstraintManager.read(
+                new DataInputStream(new ByteArrayInputStream(image.toByteArray())));
+        assertSelfReference(loaded, newTable);
+
+        loaded.dropConstraint(newTable, "fk", true);
+        loaded.dropConstraint(newTable, "pk", true);
+        Assertions.assertTrue(loaded.getConstraints(newTable).isEmpty());
     }
 
     // ==================== dropTableConstraints ====================
@@ -659,5 +698,15 @@ class ConstraintManagerTest {
             String fkCol, String pkCol) {
         return new ForeignKeyConstraint(name,
                 ImmutableList.of(fkCol), refTable, ImmutableList.of(pkCol));
+    }
+
+    private static void assertSelfReference(
+            ConstraintManager manager, TableNameInfo tableNameInfo) {
+        ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) manager.getConstraint(
+                tableNameInfo, "fk");
+        PrimaryKeyConstraint primaryKey = (PrimaryKeyConstraint) manager.getConstraint(
+                tableNameInfo, "pk");
+        Assertions.assertEquals(tableNameInfo, foreignKey.getReferencedTableName());
+        Assertions.assertEquals(List.of(tableNameInfo), primaryKey.getForeignTableInfos());
     }
 }

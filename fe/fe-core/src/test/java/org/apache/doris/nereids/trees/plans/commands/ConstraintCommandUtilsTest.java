@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogIf;
@@ -33,31 +34,7 @@ import java.util.List;
 
 class ConstraintCommandUtilsTest {
     @Test
-    void lockCurrentDatabaseReturnsOnlyCurrentDatabase() throws Exception {
-        Env env = Mockito.mock(Env.class);
-        CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
-        CatalogIf catalog = Mockito.mock(CatalogIf.class);
-        DatabaseIf database = Mockito.mock(DatabaseIf.class);
-        TableNameInfo tableNameInfo = new TableNameInfo("internal", "db", "tbl");
-        Mockito.when(env.getCatalogMgr()).thenReturn(catalogManager);
-        Mockito.when(catalogManager.getCatalogOrDdlException("internal")).thenReturn(catalog);
-        Mockito.when(catalogManager.getCatalog("internal")).thenReturn(catalog);
-        Mockito.when(catalog.getDbOrDdlException("db")).thenReturn(database);
-        Mockito.when(catalog.getDbNullable("db")).thenReturn(database);
-
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-
-            DatabaseIf locked = ConstraintCommandUtils.lockCurrentDatabase(tableNameInfo);
-
-            Assertions.assertSame(database, locked);
-            Mockito.verify(database).readLock();
-            locked.readUnlock();
-        }
-    }
-
-    @Test
-    void lockCurrentDatabaseRejectsRecreatedDatabase() throws Exception {
+    void lockCurrentDatabasesRejectsRecreatedDatabase() throws Exception {
         Env env = Mockito.mock(Env.class);
         CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
         CatalogIf catalog = Mockito.mock(CatalogIf.class);
@@ -69,12 +46,14 @@ class ConstraintCommandUtilsTest {
         Mockito.when(catalogManager.getCatalog("internal")).thenReturn(catalog);
         Mockito.when(catalog.getDbOrDdlException("db")).thenReturn(resolvedDatabase);
         Mockito.when(catalog.getDbNullable("db")).thenReturn(recreatedDatabase);
+        Mockito.when(resolvedDatabase.getId()).thenReturn(1L);
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
 
             Assertions.assertThrows(DdlException.class,
-                    () -> ConstraintCommandUtils.lockCurrentDatabase(tableNameInfo));
+                    () -> ConstraintCommandUtils.lockCurrentDatabases(
+                            List.of(tableNameInfo)));
 
             Mockito.verify(resolvedDatabase).readLock();
             Mockito.verify(resolvedDatabase).readUnlock();
@@ -116,6 +95,108 @@ class ConstraintCommandUtilsTest {
                     Mockito.inOrder(firstDatabase, secondDatabase);
             unlockOrder.verify(firstDatabase).readUnlock();
             unlockOrder.verify(secondDatabase).readUnlock();
+        }
+    }
+
+    @Test
+    void lockCurrentTablesUsesStableOrderAndIdentityDeduplication() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf firstDatabase = Mockito.mock(DatabaseIf.class);
+        DatabaseIf secondDatabase = Mockito.mock(DatabaseIf.class);
+        TableIf firstTable = Mockito.mock(TableIf.class);
+        TableIf secondTable = Mockito.mock(TableIf.class);
+        TableNameInfo firstTableInfo = new TableNameInfo("internal", "db1", "tbl1");
+        TableNameInfo secondTableInfo = new TableNameInfo("internal", "db2", "tbl2");
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogManager);
+        Mockito.when(catalogManager.getCatalogOrDdlException("internal")).thenReturn(catalog);
+        Mockito.when(catalogManager.getCatalog("internal")).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(catalog.getDbOrDdlException("db1")).thenReturn(firstDatabase);
+        Mockito.when(catalog.getDbOrDdlException("db2")).thenReturn(secondDatabase);
+        Mockito.when(catalog.getDbNullable("db1")).thenReturn(firstDatabase);
+        Mockito.when(catalog.getDbNullable("db2")).thenReturn(secondDatabase);
+        Mockito.when(firstDatabase.getId()).thenReturn(2L);
+        Mockito.when(firstDatabase.getFullName()).thenReturn("db1");
+        Mockito.when(firstDatabase.getCatalog()).thenReturn(catalog);
+        Mockito.when(firstDatabase.getTableNullable("tbl1")).thenReturn(firstTable);
+        Mockito.when(secondDatabase.getId()).thenReturn(1L);
+        Mockito.when(secondDatabase.getFullName()).thenReturn("db2");
+        Mockito.when(secondDatabase.getCatalog()).thenReturn(catalog);
+        Mockito.when(secondDatabase.getTableNullable("tbl2")).thenReturn(secondTable);
+        Mockito.when(firstTable.getDatabase()).thenReturn(firstDatabase);
+        Mockito.when(firstTable.getId()).thenReturn(2L);
+        Mockito.when(firstTable.getName()).thenReturn("tbl1");
+        Mockito.when(secondTable.getDatabase()).thenReturn(secondDatabase);
+        Mockito.when(secondTable.getId()).thenReturn(1L);
+        Mockito.when(secondTable.getName()).thenReturn("tbl2");
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
+                    ConstraintCommandUtils.lockCurrentDatabases(
+                            List.of(firstTableInfo, secondTableInfo));
+                    ConstraintCommandUtils.LockedTables ignored =
+                            ConstraintCommandUtils.lockCurrentTables(
+                                    lockedDatabases,
+                                    List.of(firstTableInfo, secondTableInfo, firstTableInfo))) {
+                org.mockito.InOrder lockOrder = Mockito.inOrder(secondTable, firstTable);
+                lockOrder.verify(secondTable).writeLock();
+                lockOrder.verify(firstTable).writeLock();
+            }
+
+            Mockito.verify(firstTable).writeLock();
+            org.mockito.InOrder unlockOrder = Mockito.inOrder(firstTable, secondTable);
+            unlockOrder.verify(firstTable).writeUnlock();
+            unlockOrder.verify(secondTable).writeUnlock();
+        }
+    }
+
+    @Test
+    void tableLockHelpersDistinguishRequiredAndMissingTables() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        TableIf existingTable = Mockito.mock(TableIf.class);
+        TableNameInfo existingTableInfo = new TableNameInfo("internal", "db", "existing");
+        TableNameInfo missingTableInfo = new TableNameInfo("internal", "db", "missing");
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogManager);
+        Mockito.when(catalogManager.getCatalogOrDdlException("internal")).thenReturn(catalog);
+        Mockito.when(catalogManager.getCatalog("internal")).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(catalog.getDbOrDdlException("db")).thenReturn(database);
+        Mockito.when(catalog.getDbNullable("db")).thenReturn(database);
+        Mockito.when(database.getId()).thenReturn(1L);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getTableNullable("existing")).thenReturn(existingTable);
+        Mockito.when(existingTable.getDatabase()).thenReturn(database);
+        Mockito.when(existingTable.getId()).thenReturn(1L);
+        Mockito.when(existingTable.getName()).thenReturn("existing");
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
+                    ConstraintCommandUtils.lockCurrentDatabases(
+                            List.of(existingTableInfo, missingTableInfo))) {
+                Assertions.assertThrows(DdlException.class,
+                        () -> ConstraintCommandUtils.lockCurrentTables(
+                                lockedDatabases,
+                                List.of(existingTableInfo, missingTableInfo)));
+                Mockito.verify(existingTable, Mockito.never()).writeLock();
+
+                try (ConstraintCommandUtils.LockedTables lockedTables =
+                        ConstraintCommandUtils.lockCurrentTablesIfPresent(
+                                lockedDatabases,
+                                List.of(existingTableInfo, missingTableInfo))) {
+                    Assertions.assertSame(existingTable, lockedTables.get(existingTableInfo));
+                    Assertions.assertNull(lockedTables.get(missingTableInfo));
+                    Mockito.verify(existingTable).writeLock();
+                }
+                Mockito.verify(existingTable).writeUnlock();
+            }
         }
     }
 

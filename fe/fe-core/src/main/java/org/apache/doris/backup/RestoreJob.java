@@ -2747,8 +2747,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 return new Status(ErrCode.COMMON_ERROR, "replace table failed, the origin table "
                         + originName + " is not OLAP table, it is " + originTable.getType());
             }
-            originTableInfos.add(new TableNameInfo(
-                    InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), originName));
         }
         for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
             String originName = restoreTargetName(backupViewInfo.name);

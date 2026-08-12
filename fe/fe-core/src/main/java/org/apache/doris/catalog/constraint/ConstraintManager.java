@@ -165,6 +165,15 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      */
     public void dropConstraint(TableNameInfo tableNameInfo, String constraintName,
             boolean replay) {
+        dropConstraint(tableNameInfo, constraintName, null, replay);
+    }
+
+    /**
+     * Drop a constraint only if its current cascade targets still match the authorized snapshot.
+     * A null snapshot keeps the replay and internal cleanup behavior unchanged.
+     */
+    public void dropConstraint(TableNameInfo tableNameInfo, String constraintName,
+            List<TableNameInfo> expectedCascadeDropTables, boolean replay) {
         String key = toKey(tableNameInfo);
         writeLock();
         try {
@@ -178,6 +187,15 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                 throw new AnalysisException(String.format(
                         "Unknown constraint %s on table %s.",
                         constraintName, key));
+            }
+            Constraint existingConstraint = tableConstraints.get(constraintName);
+            if (expectedCascadeDropTables != null
+                    && !sameTables(expectedCascadeDropTables,
+                            getCascadeDropTablesWithoutLock(existingConstraint))) {
+                throw new AnalysisException(
+                        "Foreign key references changed while dropping constraint "
+                                + constraintName + " on " + tableNameInfo
+                                + ", retry the statement");
             }
             Constraint constraint = tableConstraints.remove(constraintName);
             if (constraint instanceof DistributionMappingConstraint) {
@@ -196,6 +214,23 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
+    }
+
+    private List<TableNameInfo> getCascadeDropTablesWithoutLock(Constraint constraint) {
+        return constraint instanceof PrimaryKeyConstraint
+                ? ImmutableList.copyOf(
+                        ((PrimaryKeyConstraint) constraint).getForeignTableInfos())
+                : ImmutableList.of();
+    }
+
+    private boolean sameTables(List<TableNameInfo> first, List<TableNameInfo> second) {
+        Set<String> firstKeys = first.stream()
+                .map(ConstraintManager::toKey)
+                .collect(Collectors.toSet());
+        Set<String> secondKeys = second.stream()
+                .map(ConstraintManager::toKey)
+                .collect(Collectors.toSet());
+        return firstKeys.equals(secondKeys);
     }
 
     /** Returns an immutable copy of all constraints for the given table. */
@@ -544,9 +579,6 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             constraintsMap.put(newKey, tableConstraints);
         }
         for (Map.Entry<String, Map<String, Constraint>> entry : constraintsMap.entrySet()) {
-            if (entry.getKey().equals(newKey)) {
-                continue;
-            }
             for (Constraint constraint : entry.getValue().values()) {
                 if (constraint instanceof ForeignKeyConstraint) {
                     ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;

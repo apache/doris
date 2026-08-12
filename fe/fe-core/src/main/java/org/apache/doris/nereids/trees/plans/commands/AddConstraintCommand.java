@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -30,7 +29,6 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -52,10 +50,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -135,41 +130,22 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             org.apache.doris.catalog.constraint.Constraint constraint) throws Exception {
         List<MTMV> dependentMtmvs;
         try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
-                ConstraintCommandUtils.lockCurrentDatabases(affectedTableInfos)) {
-            Map<TableIf, Boolean> seenTables = new IdentityHashMap<>();
-            List<TableIf> tables = new ArrayList<>();
-            for (TableNameInfo affectedTableInfo : affectedTableInfos) {
-                DatabaseIf<? extends TableIf> database = lockedDatabases.get(affectedTableInfo);
-                TableIf currentTable = database.getTableOrDdlException(affectedTableInfo.getTbl());
-                if (seenTables.put(currentTable, Boolean.TRUE) == null) {
-                    tables.add(currentTable);
-                }
+                ConstraintCommandUtils.lockCurrentDatabases(affectedTableInfos);
+                ConstraintCommandUtils.LockedTables lockedTables =
+                        ConstraintCommandUtils.lockCurrentTables(
+                                lockedDatabases, affectedTableInfos)) {
+            TableIf currentTable = lockedTables.get(tableNameInfo);
+            if (constraint instanceof DistributionMappingConstraint) {
+                Preconditions.checkState(currentTable instanceof OlapTable,
+                        "distribution mapping constraint requires an OLAP table");
+                ((OlapTable) currentTable).checkNormalStateForAlter();
             }
-            tables.sort(Comparator
-                    .comparingLong((TableIf currentTable) -> currentTable.getDatabase().getId())
-                    .thenComparing(currentTable ->
-                            currentTable.getDatabase().getCatalog().getName())
-                    .thenComparing(currentTable -> currentTable.getDatabase().getFullName())
-                    .thenComparingLong(TableIf::getId)
-                    .thenComparing(TableIf::getName));
-            MetaLockUtils.writeLockTables(tables);
-            try {
-                TableIf currentTable = lockedDatabases.get(tableNameInfo)
-                        .getTableOrDdlException(tableNameInfo.getTbl());
-                if (constraint instanceof DistributionMappingConstraint) {
-                    Preconditions.checkState(currentTable instanceof OlapTable,
-                            "distribution mapping constraint requires an OLAP table");
-                    ((OlapTable) currentTable).checkNormalStateForAlter();
-                }
-                dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
-                Env.getCurrentEnv().getConstraintManager()
-                        .addConstraint(tableNameInfo, name, constraint, false);
-                if (constraint instanceof DistributionMappingConstraint) {
-                    Env.getCurrentEnv().getSqlCacheManager()
-                            .invalidateAboutTableAndFencePublication(currentTable);
-                }
-            } finally {
-                MetaLockUtils.writeUnlockTables(tables);
+            dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
+            Env.getCurrentEnv().getConstraintManager()
+                    .addConstraint(tableNameInfo, name, constraint, false);
+            if (constraint instanceof DistributionMappingConstraint) {
+                Env.getCurrentEnv().getSqlCacheManager()
+                        .invalidateAboutTableAndFencePublication(currentTable);
             }
         }
         MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,

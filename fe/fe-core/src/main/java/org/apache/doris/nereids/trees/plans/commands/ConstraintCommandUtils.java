@@ -22,39 +22,21 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.datasource.CatalogIf;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Shared locking helpers for constraint DDL commands. */
 final class ConstraintCommandUtils {
     private ConstraintCommandUtils() {
-    }
-
-    /**
-     * Lock and return the database currently bound to the persisted qualified name.
-     *
-     * <p>The caller must release the returned database's read lock. Rechecking identity after
-     * locking rejects a database that was dropped and recreated with the same name between
-     * resolution and lock acquisition.</p>
-     */
-    static DatabaseIf<? extends TableIf> lockCurrentDatabase(TableNameInfo tableNameInfo)
-            throws DdlException {
-        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = Env.getCurrentEnv()
-                .getCatalogMgr().getCatalogOrDdlException(tableNameInfo.getCtl());
-        DatabaseIf<? extends TableIf> database =
-                catalog.getDbOrDdlException(tableNameInfo.getDb());
-        database.readLock();
-        if (Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl()) != catalog
-                || catalog.getDbNullable(tableNameInfo.getDb()) != database) {
-            database.readUnlock();
-            throw new DdlException("Database changed while altering constraint on " + tableNameInfo);
-        }
-        return database;
     }
 
     /** Lock all databases referenced by a constraint in a deterministic order. */
@@ -98,8 +80,65 @@ final class ConstraintCommandUtils {
         }
     }
 
+    /** Lock all currently resolved tables in the same deterministic order used by constraint ADD and DROP. */
+    static LockedTables lockCurrentTables(
+            LockedDatabases lockedDatabases, List<TableNameInfo> tableNameInfos)
+            throws DdlException {
+        return lockCurrentTables(lockedDatabases, tableNameInfos, true);
+    }
+
+    private static LockedTables lockCurrentTables(
+            LockedDatabases lockedDatabases, List<TableNameInfo> tableNameInfos,
+            boolean requireAllTables) throws DdlException {
+        Map<String, TableIf> tablesByName = new LinkedHashMap<>();
+        Map<TableIf, Boolean> seenTables = new IdentityHashMap<>();
+        List<TableIf> lockOrder = new ArrayList<>();
+        for (TableNameInfo tableNameInfo : tableNameInfos) {
+            TableIf table = lockedDatabases.get(tableNameInfo)
+                    .getTableNullable(tableNameInfo.getTbl());
+            if (table == null && requireAllTables) {
+                throw new DdlException("Table changed while altering constraint on " + tableNameInfo);
+            }
+            tablesByName.put(tableKey(tableNameInfo), table);
+            if (table != null && seenTables.put(table, Boolean.TRUE) == null) {
+                lockOrder.add(table);
+            }
+        }
+        lockOrder.sort(Comparator
+                .comparingLong((TableIf table) -> table.getDatabase().getId())
+                .thenComparing(table -> table.getDatabase().getCatalog().getName())
+                .thenComparing(table -> table.getDatabase().getFullName())
+                .thenComparingLong(TableIf::getId)
+                .thenComparing(TableIf::getName));
+        MetaLockUtils.writeLockTables(lockOrder);
+        return new LockedTables(tablesByName, lockOrder);
+    }
+
+    /** Lock all existing tables, allowing name-only cleanup for metadata whose external table disappeared. */
+    static LockedTables lockCurrentTablesIfPresent(
+            LockedDatabases lockedDatabases, List<TableNameInfo> tableNameInfos)
+            throws DdlException {
+        return lockCurrentTables(lockedDatabases, tableNameInfos, false);
+    }
+
     private static String databaseKey(TableNameInfo tableNameInfo) {
         return tableNameInfo.getCtl() + "\0" + tableNameInfo.getDb();
+    }
+
+    private static String tableKey(TableNameInfo tableNameInfo) {
+        return databaseKey(tableNameInfo) + "\0" + tableNameInfo.getTbl();
+    }
+
+    static boolean sameTables(List<TableNameInfo> first, List<TableNameInfo> second) {
+        Set<String> firstKeys = new HashSet<>();
+        for (TableNameInfo tableNameInfo : first) {
+            firstKeys.add(tableKey(tableNameInfo));
+        }
+        Set<String> secondKeys = new HashSet<>();
+        for (TableNameInfo tableNameInfo : second) {
+            secondKeys.add(tableKey(tableNameInfo));
+        }
+        return firstKeys.equals(secondKeys);
     }
 
     static final class LockedDatabases implements AutoCloseable {
@@ -121,6 +160,25 @@ final class ConstraintCommandUtils {
             for (int i = lockOrder.size() - 1; i >= 0; i--) {
                 lockOrder.get(i).database.readUnlock();
             }
+        }
+    }
+
+    static final class LockedTables implements AutoCloseable {
+        private final Map<String, TableIf> tablesByName;
+        private final List<TableIf> lockOrder;
+
+        private LockedTables(Map<String, TableIf> tablesByName, List<TableIf> lockOrder) {
+            this.tablesByName = tablesByName;
+            this.lockOrder = lockOrder;
+        }
+
+        TableIf get(TableNameInfo tableNameInfo) {
+            return tablesByName.get(tableKey(tableNameInfo));
+        }
+
+        @Override
+        public void close() {
+            MetaLockUtils.writeUnlockTables(lockOrder);
         }
     }
 

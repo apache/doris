@@ -402,6 +402,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         addConstraint("alter table t1 add constraint fk_drop_snapshot "
                 + "foreign key (k1, k2) references t2(k1, k2)");
         Database database = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        TableIf foreignKeyTable = database.getTableOrDdlException("t1");
         TableIf primaryKeyTable = database.getTableOrDdlException("t2");
         AccessControllerManager originalAccessManager = Env.getCurrentEnv().getAccessManager();
         AccessControllerManager accessManager = Mockito.spy(originalAccessManager);
@@ -413,6 +414,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 String tableName = invocation.getArgument(3);
                 if ("t1".equals(tableName)) {
                     Assertions.assertTrue(primaryKeyTable.isWriteLockHeldByCurrentThread());
+                    Assertions.assertTrue(foreignKeyTable.isWriteLockHeldByCurrentThread());
                 }
                 return true;
             }).when(accessManager).checkTblPriv(
@@ -424,6 +426,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
             mtmvUtil.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(Mockito.anyList()))
                     .thenAnswer(invocation -> {
                         Assertions.assertTrue(primaryKeyTable.isWriteLockHeldByCurrentThread());
+                        Assertions.assertTrue(foreignKeyTable.isWriteLockHeldByCurrentThread());
                         List<BaseTableInfo> baseTables = invocation.getArgument(0);
                         Assertions.assertEquals(
                                 Sets.newHashSet("t1", "t2"),
@@ -436,6 +439,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                             Mockito.anyList(), Mockito.anyString()))
                     .thenAnswer(invocation -> {
                         Assertions.assertFalse(primaryKeyTable.isWriteLockHeldByCurrentThread());
+                        Assertions.assertFalse(foreignKeyTable.isWriteLockHeldByCurrentThread());
                         Assertions.assertTrue(database.tryWriteLock(1, TimeUnit.SECONDS));
                         database.writeUnlock();
                         return null;
@@ -458,6 +462,91 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         }
         Assertions.assertNull(getConstraintMgr().getConstraint(
                 tableNameInfoOf(primaryKeyTable), "pk_drop_snapshot"));
+    }
+
+    @Test
+    void crossDatabasePrimaryKeyDropLocksAllCascadeTables() throws Exception {
+        createDatabase("constraint_cross_db");
+        createTable("create table constraint_cross_db.t_cross (\n"
+                + "    k1 int,\n"
+                + "    k2 int\n"
+                + ")\n"
+                + "unique key(k1, k2)\n"
+                + "distributed by hash(k1) buckets 4\n"
+                + "properties(\"replication_num\"=\"1\")");
+        addConstraint("alter table test.t2 add constraint pk_cross_db primary key (k1, k2)");
+        addConstraint("alter table constraint_cross_db.t_cross add constraint fk_cross_db "
+                + "foreign key (k1, k2) references test.t2(k1, k2)");
+        Database primaryKeyDatabase =
+                Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        Database foreignKeyDatabase =
+                Env.getCurrentInternalCatalog().getDbOrDdlException("constraint_cross_db");
+        TableIf primaryKeyTable = primaryKeyDatabase.getTableOrDdlException("t2");
+        TableIf foreignKeyTable = foreignKeyDatabase.getTableOrDdlException("t_cross");
+        AccessControllerManager originalAccessManager = Env.getCurrentEnv().getAccessManager();
+        AccessControllerManager accessManager = Mockito.spy(originalAccessManager);
+        setEnvAccessManager(accessManager);
+
+        try {
+            try (MockedStatic<MTMVUtil> mtmvUtil =
+                    Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
+                Mockito.doAnswer(invocation -> {
+                    String databaseName = invocation.getArgument(2);
+                    String tableName = invocation.getArgument(3);
+                    if ("constraint_cross_db".equals(databaseName)
+                            && "t_cross".equals(tableName)) {
+                        Assertions.assertTrue(
+                                primaryKeyTable.isWriteLockHeldByCurrentThread());
+                        Assertions.assertTrue(
+                                foreignKeyTable.isWriteLockHeldByCurrentThread());
+                    }
+                    return true;
+                }).when(accessManager).checkTblPriv(
+                        Mockito.any(ConnectContext.class),
+                        Mockito.anyString(),
+                        Mockito.anyString(),
+                        Mockito.anyString(),
+                        Mockito.any(PrivPredicate.class));
+                mtmvUtil.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(
+                                Mockito.anyList()))
+                        .thenAnswer(invocation -> {
+                            Assertions.assertTrue(
+                                    primaryKeyTable.isWriteLockHeldByCurrentThread());
+                            Assertions.assertTrue(
+                                    foreignKeyTable.isWriteLockHeldByCurrentThread());
+                            return java.util.List.of();
+                        });
+                mtmvUtil.when(() -> MTMVUtil.invalidateRewriteCachesBestEffort(
+                                Mockito.anyList(), Mockito.anyString()))
+                        .thenAnswer(invocation -> {
+                            Assertions.assertFalse(
+                                    primaryKeyTable.isWriteLockHeldByCurrentThread());
+                            Assertions.assertFalse(
+                                    foreignKeyTable.isWriteLockHeldByCurrentThread());
+                            return null;
+                        });
+
+                dropConstraint(
+                        "alter table test.t2 drop constraint pk_cross_db");
+            }
+        } finally {
+            setEnvAccessManager(originalAccessManager);
+            TableNameInfo foreignKeyTableInfo = tableNameInfoOf(foreignKeyTable);
+            if (getConstraintMgr().getConstraint(
+                    foreignKeyTableInfo, "fk_cross_db") != null) {
+                dropConstraint("alter table constraint_cross_db.t_cross "
+                        + "drop constraint fk_cross_db");
+            }
+            TableNameInfo primaryKeyTableInfo = tableNameInfoOf(primaryKeyTable);
+            if (getConstraintMgr().getConstraint(
+                    primaryKeyTableInfo, "pk_cross_db") != null) {
+                dropConstraint(
+                        "alter table test.t2 drop constraint pk_cross_db");
+            }
+            dropDatabase("constraint_cross_db");
+        }
+        Assertions.assertNull(getConstraintMgr().getConstraint(
+                tableNameInfoOf(primaryKeyTable), "pk_cross_db"));
     }
 
     @Test
