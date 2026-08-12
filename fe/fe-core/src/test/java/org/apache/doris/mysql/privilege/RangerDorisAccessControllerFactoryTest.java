@@ -17,24 +17,41 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.authorization.spi.AuthorizationContext;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.Collections;
 
 public class RangerDorisAccessControllerFactoryTest {
+
+    @Before
+    public void forgetPreviouslyCreatedController() throws Exception {
+        Field instance = RangerDorisAccessControllerFactory.class.getDeclaredField("instance");
+        instance.setAccessible(true);
+        instance.set(null, null);
+    }
+
+    /**
+     * One controller per FE, whoever asks for it: it starts a Ranger policy refresher, and a second one would
+     * mean a second refresher polling the same service.
+     */
     @Test
-    public void testCreateAccessControllerReturnsSingleton() {
+    public void testCreateReturnsSingleton() {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
         try (MockedConstruction<RangerDorisAccessController> mockedConstruction =
                 Mockito.mockConstruction(RangerDorisAccessController.class)) {
-            RangerDorisAccessController first = new RangerDorisAccessControllerFactory()
-                    .createAccessController(Collections.emptyMap());
-            RangerDorisAccessController second = new RangerDorisAccessControllerFactory()
-                    .createAccessController(Collections.emptyMap());
+            AuthorizationPlugin first = new RangerDorisAccessControllerFactory()
+                    .create(Collections.emptyMap(), context);
+            AuthorizationPlugin second = new RangerDorisAccessControllerFactory()
+                    .create(Collections.singletonMap("ranger.service.name", "other"), context);
 
             Assert.assertEquals(1, mockedConstruction.constructed().size());
             Assert.assertSame(first, second);

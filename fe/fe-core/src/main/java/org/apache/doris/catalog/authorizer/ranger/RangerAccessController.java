@@ -17,15 +17,16 @@
 
 package org.apache.doris.catalog.authorizer.ranger;
 
-import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessContext;
+import org.apache.doris.authorization.AccessDeniedException;
+import org.apache.doris.authorization.AccessRequirement;
+import org.apache.doris.authorization.AuthorizedResource;
+import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.RowFilterSpec;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.authorization.spi.AuthorizationContext;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.catalog.authorizer.ranger.doris.DorisAccessType;
-import org.apache.doris.common.AuthorizationException;
-import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.CatalogAccessController;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -38,30 +39,73 @@ import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
-public abstract class RangerAccessController implements CatalogAccessController {
+/**
+ * What the Ranger-backed authorization sources have in common: they answer out of a Ranger service's
+ * policies, and they honour whoever governs instance scope.
+ */
+public abstract class RangerAccessController implements AuthorizationPlugin {
     private static final Logger LOG = LogManager.getLogger(RangerAccessController.class);
 
     protected static final String CLIENT_TYPE_DORIS = "doris";
 
     /**
-     * Whether the privilege is already held at global scope, which the Ranger plugins honour as a grant on
+     * Property switching off deference to whoever governs instance scope, so that a deployment can decide
+     * that inside what Ranger governs, only Ranger's policies grant anything - not even to an administrator
+     * of the instance. Defaults to deferring, which is what Doris did before this was a source's own choice.
+     */
+    public static final String DEFER_TO_GLOBAL_SCOPE_AUTHORITY = "ranger.defer_to_global_scope_authority";
+
+    private final AuthorizationContext context;
+    private final boolean deferToGlobalScopeAuthority;
+
+    protected RangerAccessController(Map<String, String> properties, AuthorizationContext context) {
+        this.context = Objects.requireNonNull(context, "authorization context is required");
+        this.deferToGlobalScopeAuthority = deferenceFrom(properties);
+    }
+
+    /** What this source may ask the engine. */
+    protected AuthorizationContext getContext() {
+        return context;
+    }
+
+    /**
+     * Whether the requirement is already held at instance scope, which these sources honour as a grant on
      * everything they govern.
      *
-     * <p>Global scope is not a Ranger catalog: it belongs to whichever controller {@code access_controller_type}
-     * installs, so that is who gets asked. With the built-in controller there this reproduces "an administrator
-     * of the cluster can reach a Ranger-governed catalog"; with Ranger installed globally, Ranger decides its
-     * own exemptions and the built-in grants stay out of it. Deciding this here rather than in the engine is
-     * what lets a third-party controller refuse the exemption outright.
-     *
-     * <p>Returns false without asking when this controller is itself the global-scope authority: the caller's
-     * own global check answers the same question one line later.
+     * <p>Instance scope is not a Ranger service: it belongs to whichever source {@code access_controller_type}
+     * installs, so that is who the engine asks on our behalf. With the built-in model there this reproduces
+     * "an administrator of the cluster can reach a Ranger-governed catalog"; with Ranger installed for the
+     * instance, Ranger decides its own exemptions and the built-in grants stay out of it. Deciding it here
+     * rather than in the engine is what lets a source refuse the exemption outright - as this one does when
+     * configured to.
      */
-    protected boolean grantedByGlobalScopeAuthority(UserIdentity currentUser, PrivPredicate wanted) {
-        AccessControllerManager manager = Env.getCurrentEnv().getAccessManager();
-        return !manager.isGlobalScopeAuthority(this) && manager.checkGlobalPriv(currentUser, wanted);
+    protected boolean grantedByGlobalScopeAuthority(AuthorizedSubject subject, AccessRequirement requirement) {
+        return deferToGlobalScopeAuthority && context.grantedByGlobalScopeAuthority(subject, requirement);
+    }
+
+    private static boolean deferenceFrom(Map<String, String> properties) {
+        String configured = properties == null ? null : properties.get(DEFER_TO_GLOBAL_SCOPE_AUTHORITY);
+        if (configured == null) {
+            return true;
+        }
+        String value = configured.trim();
+        if ("true".equalsIgnoreCase(value)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value)) {
+            return false;
+        }
+        // Parsing this leniently would read a typo as "false" and silently take away an administrator's
+        // access to every Ranger-governed object.
+        throw new IllegalArgumentException(DEFER_TO_GLOBAL_SCOPE_AUTHORITY + " must be true or false, but is \""
+                + configured + "\"");
     }
 
     protected static boolean checkRequestResult(RangerAccessRequestImpl request,
@@ -88,8 +132,12 @@ public abstract class RangerAccessController implements CatalogAccessController 
         }
     }
 
-    public static void checkRequestResults(Collection<RangerAccessResult> results, String name)
-            throws AuthorizationException {
+    /**
+     * Refuses on the first request Ranger denied, naming the resource that request was about - which is the
+     * answer when a batch of requests stands for the columns of one table.
+     */
+    protected void checkRequestResults(Collection<RangerAccessResult> results, String name,
+            AuthorizedResource resource) throws AccessDeniedException {
         for (RangerAccessResult result : results) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("request {} match policy {}", result.getAccessRequest(), result.getPolicyId());
@@ -98,11 +146,12 @@ public abstract class RangerAccessController implements CatalogAccessController 
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(result.getReason());
                 }
-                throw new AuthorizationException(String.format(
+                throw AccessDeniedException.withMessage(String.format(
                         "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
                         result.getAccessRequest().getUser(), name,
                         Optional.ofNullable(result.getAccessRequest().getResource().getAsString())
-                                .orElse("unknown resource").replaceAll("/", ".")));
+                                .orElse("unknown resource").replaceAll("/", ".")),
+                        resource, name());
             }
         }
     }
@@ -117,10 +166,11 @@ public abstract class RangerAccessController implements CatalogAccessController 
     }
 
     @Override
-    public List<RowFilterSpec> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
-            String tbl) {
-        RangerAccessResourceImpl resource = createResource(ctl, db, tbl);
-        RangerAccessRequestImpl request = createRequest(currentUser);
+    public List<RowFilterSpec> getRowFilters(AuthorizedSubject subject, AuthorizedResource.Table table,
+            AccessContext context) {
+        RangerAccessResourceImpl resource = createResource(table.getCatalog(), table.getDatabase(),
+                table.getTable());
+        RangerAccessRequestImpl request = createRequest(subject);
         // If the access type is not set here, it defaults to ANY1 ACCESS.
         // The internal logic of the ranger is to traverse all permission items.
         // Since the ranger UI will set the access type to 'SELECT',
@@ -149,10 +199,22 @@ public abstract class RangerAccessController implements CatalogAccessController 
     }
 
     @Override
-    public Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+    public Map<String, DataMaskSpec> getDataMasks(AuthorizedSubject subject, AuthorizedResource.Table table,
+            Set<String> columns, AccessContext context) {
+        Map<String, DataMaskSpec> masks = new HashMap<>();
+        for (String column : columns) {
+            // One request per column: a masking policy in Ranger is written against a column, and the plugin
+            // evaluates them one resource at a time.
+            evalDataMaskPolicy(subject, table, column).ifPresent(mask -> masks.put(column, mask));
+        }
+        return masks;
+    }
+
+    private Optional<DataMaskSpec> evalDataMaskPolicy(AuthorizedSubject subject, AuthorizedResource.Table table,
             String col) {
-        RangerAccessResourceImpl resource = createResource(ctl, db, tbl, col);
-        RangerAccessRequestImpl request = createRequest(currentUser);
+        RangerAccessResourceImpl resource = createResource(table.getCatalog(), table.getDatabase(),
+                table.getTable(), col);
+        RangerAccessRequestImpl request = createRequest(subject);
         request.setAccessType(DorisAccessType.SELECT.name());
         request.setResource(resource);
 
@@ -190,7 +252,7 @@ public abstract class RangerAccessController implements CatalogAccessController 
         }
     }
 
-    protected abstract RangerAccessRequestImpl createRequest(UserIdentity currentUser);
+    protected abstract RangerAccessRequestImpl createRequest(AuthorizedSubject subject);
 
     protected abstract RangerAccessResourceImpl createResource(String ctl, String db, String tbl);
 

@@ -17,12 +17,19 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessAction;
+import org.apache.doris.authorization.AccessContext;
+import org.apache.doris.authorization.AccessDeniedException;
+import org.apache.doris.authorization.AccessRequirement;
+import org.apache.doris.authorization.AccessRequirements;
+import org.apache.doris.authorization.AuthorizedResource;
+import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.ResourceKind;
+import org.apache.doris.authorization.spi.AuthorizationContext;
+import org.apache.doris.catalog.authorizer.ranger.doris.DorisAccessType;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisResource;
-import org.apache.doris.common.AuthorizationException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -36,9 +43,11 @@ import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class RangerTest {
 
@@ -129,132 +138,174 @@ public class RangerTest {
         }
     }
 
+    /**
+     * Grants one action per level of the hierarchy and counts what was asked, so that an action a level
+     * already granted being asked about again further down is observable.
+     */
+    public static class LevelledPlugin extends RangerBasePlugin {
+        private final AtomicInteger requests = new AtomicInteger();
+
+        public LevelledPlugin() {
+            super("test", null, null);
+        }
+
+        @Override
+        public RangerAccessResult isAccessAllowed(RangerAccessRequest request) {
+            requests.incrementAndGet();
+            RangerAccessResource resource = request.getResource();
+            RangerAccessResult result = new RangerAccessResult(1, "test", null, request);
+            if (resource.getValue(RangerDorisResource.KEY_GLOBAL) != null) {
+                result.setIsAllowed(false);
+            } else if (resource.getValue(RangerDorisResource.KEY_TABLE) == null) {
+                result.setIsAllowed(DorisAccessType.SELECT.name().equals(request.getAccessType()));
+            } else {
+                result.setIsAllowed(DorisAccessType.LOAD.name().equals(request.getAccessType()));
+            }
+            return result;
+        }
+    }
+
+    private static final AuthorizedSubject USER = AuthorizedSubject.of("user1", "%");
+    /** Resource and workload group usage, as the engine asks about it. */
+    private static final AccessRequirement USAGE = AccessRequirement.anyOf(AccessAction.ADMIN,
+            AccessAction.USAGE, AccessAction.CLUSTER_USAGE, AccessAction.STAGE_USAGE);
+
+    /**
+     * An FE where nothing outside Ranger grants anything, so every verdict below is Ranger's own.
+     */
+    private static final AuthorizationContext NOTHING_GRANTED_ELSEWHERE = new AuthorizationContext() {
+        @Override
+        public Set<String> rolesOf(AuthorizedSubject subject) {
+            return Collections.emptySet();
+        }
+
+        @Override
+        public boolean grantedByGlobalScopeAuthority(AuthorizedSubject subject, AccessRequirement requirement) {
+            return false;
+        }
+    };
+
+    private RangerDorisAccessController controller() {
+        return new RangerDorisAccessController(new DorisTestPlugin("test"), NOTHING_GRANTED_ELSEWHERE);
+    }
+
+    private void check(AuthorizedResource resource, AccessRequirement requirement) throws AccessDeniedException {
+        controller().checkPrivilege(USER, resource, requirement, AccessContext.NONE);
+    }
+
+    private void assertRefused(AuthorizedResource resource, AccessRequirement requirement) {
+        Assertions.assertThrows(AccessDeniedException.class, () -> check(resource, requirement));
+    }
+
     // Does not have priv on ctl1.db1.tbl1.col3
-    @Test(expected = AuthorizationException.class)
-    public void testNoAuthCol() throws AuthorizationException {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        Set<String> cols = Sets.newHashSet();
-        cols.add("col1");
-        cols.add("col3");
-        ac.checkColsPriv(ui, "ctl1", "db1", "tbl1", cols, PrivPredicate.SELECT);
+    @Test
+    public void testNoAuthCol() {
+        assertRefused(AuthorizedResource.columns("ctl1", "db1", "tbl1", Sets.newHashSet("col1", "col3")),
+                AccessRequirements.SELECT);
     }
 
     // Have priv on ctl1.db1.tbl1.col1 & col2
     @Test
-    public void testAuthCol() throws AuthorizationException {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        Set<String> cols = Sets.newHashSet();
-        cols.add("col1");
-        cols.add("col2");
-        ac.checkColsPriv(ui, "ctl1", "db1", "tbl1", cols, PrivPredicate.SELECT);
+    public void testAuthCol() throws AccessDeniedException {
+        check(AuthorizedResource.columns("ctl1", "db1", "tbl1", Sets.newHashSet("col1", "col2")),
+                AccessRequirements.SELECT);
     }
 
     // Have priv on ctl2.db2.tbl2, so when checking auth on col1 & col2, can pass
     @Test
-    public void testUsingTableAuthAsColAuth() throws AuthorizationException {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        Set<String> cols = Sets.newHashSet();
-        cols.add("col1");
-        cols.add("col2");
-        ac.checkColsPriv(ui, "ctl2", "db2", "tbl2", cols, PrivPredicate.SELECT);
+    public void testUsingTableAuthAsColAuth() throws AccessDeniedException {
+        check(AuthorizedResource.columns("ctl2", "db2", "tbl2", Sets.newHashSet("col1", "col2")),
+                AccessRequirements.SELECT);
     }
 
     // Does not have priv on ctl2.db2.tbl3, so when checking auth on col1 & col2, can not pass
-    @Test(expected = AuthorizationException.class)
-    public void testUsingNoTableAuthAsColAuth() throws AuthorizationException {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        Set<String> cols = Sets.newHashSet();
-        cols.add("col1");
-        cols.add("col2");
-        ac.checkColsPriv(ui, "ctl2", "db2", "tbl3", cols, PrivPredicate.SELECT);
+    @Test
+    public void testUsingNoTableAuthAsColAuth() {
+        assertRefused(AuthorizedResource.columns("ctl2", "db2", "tbl3", Sets.newHashSet("col1", "col2")),
+                AccessRequirements.SELECT);
     }
 
     // Have priv on ctl3.db3, so when checking auth on tbl1 and (tbl1.col1 & tbl1.col2), can pass
     @Test
-    public void testUsingDbAuthAsColAndTableAuth() throws AuthorizationException {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        Set<String> cols = Sets.newHashSet();
-        cols.add("col1");
-        cols.add("col2");
-        ac.checkColsPriv(ui, "ctl3", "db3", "tbl1", cols, PrivPredicate.SELECT);
-        ac.checkTblPriv(ui, "ctl3", "db3", "tbl1", PrivPredicate.SELECT);
+    public void testUsingDbAuthAsColAndTableAuth() throws AccessDeniedException {
+        check(AuthorizedResource.columns("ctl3", "db3", "tbl1", Sets.newHashSet("col1", "col2")),
+                AccessRequirements.SELECT);
+        check(AuthorizedResource.table("ctl3", "db3", "tbl1"), AccessRequirements.SELECT);
     }
 
 
     // Does not have priv on ctl2.db3, so when checking auth on col1 & col2, can not pass
-    @Test(expected = AuthorizationException.class)
-    public void testNoDbAuthAsColAndTableAuth() throws AuthorizationException {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        Set<String> cols = Sets.newHashSet();
-        cols.add("col1");
-        cols.add("col2");
-        ac.checkColsPriv(ui, "ctl2", "db3", "tbl3", cols, PrivPredicate.SELECT);
+    @Test
+    public void testNoDbAuthAsColAndTableAuth() {
+        assertRefused(AuthorizedResource.columns("ctl2", "db3", "tbl3", Sets.newHashSet("col1", "col2")),
+                AccessRequirements.SELECT);
     }
 
     // Have priv on ctl4, so when checking auth on objs under ctl4, can pass
     @Test
-    public void testUsingCtlAuthAsColAndTableAndDbAuth() throws AuthorizationException {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        Set<String> cols = Sets.newHashSet();
-        cols.add("col1");
-        cols.add("col2");
-        ac.checkColsPriv(ui, "ctl4", "db1", "tbl1", cols, PrivPredicate.SELECT);
-        ac.checkTblPriv(ui, "ctl4", "db2", "tbl2", PrivPredicate.SELECT);
-        ac.checkDbPriv(ui, "ctl4", "db3", PrivPredicate.SELECT);
+    public void testUsingCtlAuthAsColAndTableAndDbAuth() throws AccessDeniedException {
+        check(AuthorizedResource.columns("ctl4", "db1", "tbl1", Sets.newHashSet("col1", "col2")),
+                AccessRequirements.SELECT);
+        check(AuthorizedResource.table("ctl4", "db2", "tbl2"), AccessRequirements.SELECT);
+        check(AuthorizedResource.database("ctl4", "db3"), AccessRequirements.SELECT);
+    }
+
+    /**
+     * An action granted at an outer level is not asked about again further in.
+     *
+     * <p>Doris checks a whole requirement, and this source answers it one action per request while walking
+     * the resource down to the table. Carrying what is already granted is what keeps that walk at one request
+     * per action rather than one per action per level - a difference in cost, not in verdict, so nothing that
+     * records only allow/deny can hold it still.
+     */
+    @Test
+    public void testAnActionGrantedAtAnOuterLevelIsNotAskedAboutAgain() throws AccessDeniedException {
+        LevelledPlugin plugin = new LevelledPlugin();
+        RangerDorisAccessController controller =
+                new RangerDorisAccessController(plugin, NOTHING_GRANTED_ELSEWHERE);
+
+        controller.checkPrivilege(USER, AuthorizedResource.table("ctl", "db", "tbl"),
+                AccessRequirement.allOf(AccessAction.SELECT, AccessAction.LOAD), AccessContext.NONE);
+
+        // Both actions at global (2) and at catalog (2, where SELECT is granted), then only the outstanding
+        // LOAD at database (1) and at table (1), where it is granted.
+        Assertions.assertEquals(6, plugin.requests.get());
+    }
+
+    /** The refusal names the column that failed, which is the whole reason columns answer with a message. */
+    @Test
+    public void testRefusalNamesTheColumnThatFailed() {
+        AccessDeniedException refused = Assertions.assertThrows(AccessDeniedException.class,
+                () -> check(AuthorizedResource.columns("ctl1", "db1", "tbl1", Sets.newHashSet("col3")),
+                        AccessRequirements.SELECT));
+        Assertions.assertEquals("Permission denied: user ['user1'@'%'] does not have privilege for"
+                + " [ANY[ADMIN, SELECT]] command on [ctl1].[db1].[tbl1].[col3]", refused.getMessage());
     }
 
     @Test
     public void testDataMask() {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
+        Map<String, DataMaskSpec> masks = controller().getDataMasks(USER,
+                AuthorizedResource.table("ctl1", "db1", "tbl1"),
+                Sets.newHashSet("col1", "col2", "col3", "col4"), AccessContext.NONE);
         // MASK_NULL
-        Optional<DataMaskSpec> policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col1");
-        Assertions.assertEquals("NULL", policy.get().getMaskSql());
+        Assertions.assertEquals("NULL", masks.get("col1").getMaskSql());
         // MASK_NONE
-        policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col2");
-        Assertions.assertTrue(!policy.isPresent());
+        Assertions.assertFalse(masks.containsKey("col2"));
         // CUSTOM
-        policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col3");
-        Assertions.assertEquals("hex(col3)", policy.get().getMaskSql());
+        Assertions.assertEquals("hex(col3)", masks.get("col3").getMaskSql());
         // Others
-        policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col4");
-        Assertions.assertTrue(!policy.isPresent());
+        Assertions.assertFalse(masks.containsKey("col4"));
     }
 
     @Test
-    public void testComputeGroupAuth() {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        boolean cg1 = ac.checkCloudPriv(ui, "cg1", PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
-        Assertions.assertTrue(cg1);
-        boolean cg2 = ac.checkCloudPriv(ui, "cg2", PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
-        Assertions.assertFalse(cg2);
+    public void testComputeGroupAuth() throws AccessDeniedException {
+        check(AuthorizedResource.cloud(ResourceKind.CLOUD_COMPUTE_GROUP, "cg1"), USAGE);
+        assertRefused(AuthorizedResource.cloud(ResourceKind.CLOUD_COMPUTE_GROUP, "cg2"), USAGE);
     }
 
     @Test
-    public void testStorageVaultAuth() {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        boolean cg1 = ac.checkStorageVaultPriv(ui, "sv1", PrivPredicate.USAGE);
-        Assertions.assertTrue(cg1);
-        boolean cg2 = ac.checkStorageVaultPriv(ui, "sv2", PrivPredicate.USAGE);
-        Assertions.assertFalse(cg2);
+    public void testStorageVaultAuth() throws AccessDeniedException {
+        check(AuthorizedResource.storageVault("sv1"), USAGE);
+        assertRefused(AuthorizedResource.storageVault("sv2"), USAGE);
     }
 }

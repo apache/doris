@@ -217,9 +217,17 @@ public class AccessControlBehaviorBaselineTest extends TestWithFeService {
         AuthorizationPlugin builtin = Deencapsulation.getField(manager, "defaultAccessController");
 
         renderWithDefaultController(lines, manager, "builtin", builtin);
-        renderWithDefaultController(lines, manager, "ranger", new LegacyAccessControllerPlugin(
-                "stub-ranger-doris", new RangerDorisAccessController(new StubRangerPolicyEngine())));
+        renderWithDefaultController(lines, manager, "ranger", rangerInstalledForTheInstance(manager));
         return lines;
+    }
+
+    /** A Ranger source standing where {@code access_controller_type} puts one, built as the engine builds it. */
+    private AuthorizationPlugin rangerInstalledForTheInstance(AccessControllerManager manager) {
+        EngineAuthorizationContext context = new EngineAuthorizationContext(manager, manager.getAuth());
+        RangerDorisAccessController ranger =
+                new RangerDorisAccessController(new StubRangerPolicyEngine(), context);
+        context.servedBy(ranger);
+        return ranger;
     }
 
     /**

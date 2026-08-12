@@ -17,17 +17,19 @@
 
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
-import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessContext;
+import org.apache.doris.authorization.AccessDeniedException;
+import org.apache.doris.authorization.AccessRequirement;
+import org.apache.doris.authorization.AccessRequirements;
+import org.apache.doris.authorization.AuthorizedResource;
+import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.RowFilterSpec;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
-import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 
-import com.google.common.collect.Maps;
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
@@ -40,21 +42,30 @@ import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 
+/**
+ * A Hive Ranger service governing one catalog: it knows databases, tables and columns, and nothing else Doris
+ * has. What it is not asked about it refuses, except for the two kinds it has to let through for a catalog
+ * bound to it to be usable at all - the catalog itself, and workload groups, neither of which a Hive service
+ * has policies for.
+ */
 public class RangerHiveAccessController extends RangerAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerHiveAccessController.class);
     private static final ScheduledThreadPoolExecutor LOG_FLUSH_TIMER = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "ranger-hive-audit-log-flusher-timer", true);
+
+    /** The name this source is selected by in catalog properties. */
+    public static final String NAME = "ranger-hive";
+
     private RangerHivePlugin hivePlugin;
     private RangerHiveAuditHandler auditHandler;
     private ScheduledFuture<?> logFlushFuture;
@@ -63,18 +74,24 @@ public class RangerHiveAccessController extends RangerAccessController {
     private final ReentrantReadWriteLock lifecycleLock = new ReentrantReadWriteLock();
     private boolean closed;
 
-    public RangerHiveAccessController(Map<String, String> properties) {
-        this(properties, null);
+    public RangerHiveAccessController(Map<String, String> properties, AuthorizationContext context) {
+        this(properties, null, context);
     }
 
     public RangerHiveAccessController(Map<String, String> properties,
-            RangerAuthContextListener rangerAuthContextListener) {
+            RangerAuthContextListener rangerAuthContextListener, AuthorizationContext context) {
+        super(properties, context);
         String serviceName = properties.get("ranger.service.name");
         hivePlugin = new RangerHivePlugin(serviceName, rangerAuthContextListener);
         auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
         // start a timed log flusher
         logFlushFuture = LOG_FLUSH_TIMER.scheduleAtFixedRate(
                 new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
+    }
+
+    @Override
+    public String name() {
+        return NAME;
     }
 
     @Override
@@ -110,8 +127,85 @@ public class RangerHiveAccessController extends RangerAccessController {
         }
     }
 
-    private RangerAccessRequestImpl createRequest(UserIdentity currentUser, HiveAccessType accessType) {
-        RangerAccessRequestImpl request = createRequest(currentUser);
+    @Override
+    public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
+            AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
+        switch (resource.getKind()) {
+            case GLOBAL:
+                // A Hive service has no notion of an instance-wide privilege, so this is entirely whoever
+                // governs instance scope. Installed as that authority itself, it grants nothing: it would
+                // otherwise be asking itself, and this configuration is not one a Hive service can serve.
+                refuseUnless(grantedByGlobalScopeAuthority(subject, requirement), subject, resource, requirement);
+                return;
+            case CATALOG:
+                // The catalog is the thing bound to this service; the policies are about what is inside it.
+                return;
+            case DATABASE: {
+                AuthorizedResource.Database database = (AuthorizedResource.Database) resource;
+                refuseUnless(checkResource(subject, requirement,
+                        new RangerHiveResource(HiveObjectType.DATABASE, database.getDatabase())),
+                        subject, resource, requirement);
+                return;
+            }
+            case TABLE: {
+                AuthorizedResource.Table table = (AuthorizedResource.Table) resource;
+                refuseUnless(checkResource(subject, requirement,
+                        new RangerHiveResource(HiveObjectType.TABLE, table.getDatabase(), table.getTable())),
+                        subject, resource, requirement);
+                return;
+            }
+            case COLUMNS:
+                checkColumns(subject, (AuthorizedResource.Columns) resource, requirement);
+                return;
+            case WORKLOAD_GROUP:
+                // Not support workload group privilege in ranger hive plugin.
+                // So always allow to pass the check
+                return;
+            case RESOURCE:
+            case STORAGE_VAULT:
+            case CLOUD_GENERAL:
+            case CLOUD_COMPUTE_GROUP:
+            case CLOUD_STAGE:
+            case CLOUD_STORAGE_VAULT:
+                throw AccessDeniedException.of(subject, resource, requirement, NAME);
+            default:
+                throw new IllegalStateException("the Ranger Hive service has no answer for resource kind "
+                        + resource.getKind());
+        }
+    }
+
+    private void refuseUnless(boolean allowed, AuthorizedSubject subject, AuthorizedResource resource,
+            AccessRequirement requirement) throws AccessDeniedException {
+        if (!allowed) {
+            throw AccessDeniedException.of(subject, resource, requirement, NAME);
+        }
+    }
+
+    private boolean checkResource(AuthorizedSubject subject, AccessRequirement requirement,
+            RangerHiveResource resource) {
+        if (grantedByGlobalScopeAuthority(subject, requirement)) {
+            return true;
+        }
+        return checkPrivilege(subject, accessTypeOf(requirement), resource);
+    }
+
+    private void checkColumns(AuthorizedSubject subject, AuthorizedResource.Columns columns,
+            AccessRequirement requirement) throws AccessDeniedException {
+        if (grantedByGlobalScopeAuthority(subject, requirement)) {
+            return;
+        }
+        List<RangerHiveResource> resources = new ArrayList<>();
+        for (String col : columns.getColumns()) {
+            RangerHiveResource resource = new RangerHiveResource(HiveObjectType.COLUMN,
+                    columns.getDatabase(), columns.getTable(), col);
+            resources.add(resource);
+        }
+
+        checkPrivileges(subject, accessTypeOf(requirement), resources, columns);
+    }
+
+    private RangerAccessRequestImpl createRequest(AuthorizedSubject subject, HiveAccessType accessType) {
+        RangerAccessRequestImpl request = createRequest(subject);
         if (accessType == HiveAccessType.USE) {
             request.setAccessType(RangerPolicyEngine.ANY_ACCESS);
         } else {
@@ -121,14 +215,13 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     @Override
-    protected RangerAccessRequestImpl createRequest(UserIdentity currentUser) {
+    protected RangerAccessRequestImpl createRequest(AuthorizedSubject subject) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
-        String user = currentUser.getQualifiedUser();
-        request.setUser(user);
-        Set<String> roles = Env.getCurrentEnv().getAuth().getRolesByUser(currentUser, false);
-        request.setUserRoles(roles.stream().collect(
-                Collectors.toSet()));
-        request.setClientIPAddress(currentUser.getHost());
+        request.setUser(subject.getUser());
+        // Policies in Ranger may be written against a role rather than a user, and the roles a Doris account
+        // holds are the engine's to know, not this service's.
+        request.setUserRoles(getContext().rolesOf(subject));
+        request.setClientIPAddress(subject.getHost());
         request.setClusterType(CLIENT_TYPE_DORIS);
         request.setClientType(CLIENT_TYPE_DORIS);
         request.setAccessTime(new Date());
@@ -136,35 +229,36 @@ public class RangerHiveAccessController extends RangerAccessController {
         return request;
     }
 
-    private void checkPrivileges(UserIdentity currentUser, HiveAccessType accessType,
-            List<RangerHiveResource> hiveResources) throws AuthorizationException {
+    private void checkPrivileges(AuthorizedSubject subject, HiveAccessType accessType,
+            List<RangerHiveResource> hiveResources, AuthorizedResource asked) throws AccessDeniedException {
         lifecycleLock.readLock().lock();
         try {
             if (closed) {
-                throw new AuthorizationException("Ranger Hive access controller has been closed");
+                throw AccessDeniedException.withMessage("Ranger Hive access controller has been closed",
+                        asked, NAME);
             }
             List<RangerAccessRequest> requests = new ArrayList<>();
             for (RangerHiveResource resource : hiveResources) {
-                RangerAccessRequestImpl request = createRequest(currentUser, accessType);
+                RangerAccessRequestImpl request = createRequest(subject, accessType);
                 request.setResource(resource);
                 requests.add(request);
             }
 
             Collection<RangerAccessResult> results = hivePlugin.isAccessAllowed(requests, auditHandler);
-            checkRequestResults(results, accessType.name());
+            checkRequestResults(results, accessType.name(), asked);
         } finally {
             lifecycleLock.readLock().unlock();
         }
     }
 
-    private boolean checkPrivilege(UserIdentity currentUser, HiveAccessType accessType,
+    private boolean checkPrivilege(AuthorizedSubject subject, HiveAccessType accessType,
             RangerHiveResource resource) {
         lifecycleLock.readLock().lock();
         try {
             if (closed) {
                 return false;
             }
-            RangerAccessRequestImpl request = createRequest(currentUser, accessType);
+            RangerAccessRequestImpl request = createRequest(subject, accessType);
             request.setResource(resource);
 
             RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
@@ -174,20 +268,29 @@ public class RangerHiveAccessController extends RangerAccessController {
         }
     }
 
-    private HiveAccessType convertToAccessType(PrivPredicate predicate) {
-        if (predicate == PrivPredicate.SHOW) {
+    /**
+     * The Hive access type standing for the question being asked.
+     *
+     * <p>Only the questions the engine asks by name map onto one; anything else - a requirement assembled for
+     * one statement, say - is deliberately {@link HiveAccessType#NONE}, which no Hive policy grants. Guessing
+     * an access type from an unrecognised set of actions would grant on a policy written for something else.
+     */
+    @VisibleForTesting
+    static HiveAccessType accessTypeOf(AccessRequirement requirement) {
+        if (AccessRequirements.VISIBILITY.equals(requirement)) {
             return HiveAccessType.USE;
-        } else if (predicate == PrivPredicate.SELECT) {
+        } else if (AccessRequirements.SELECT.equals(requirement)) {
             return HiveAccessType.SELECT;
-        } else if (predicate == PrivPredicate.ADMIN || predicate == PrivPredicate.ALL) {
+        } else if (AccessRequirements.ADMINISTRATION.equals(requirement)
+                || AccessRequirements.ANY_PRIVILEGE.equals(requirement)) {
             return HiveAccessType.ALL;
-        } else if (predicate == PrivPredicate.LOAD) {
+        } else if (AccessRequirements.LOAD.equals(requirement)) {
             return HiveAccessType.UPDATE;
-        } else if (predicate == PrivPredicate.ALTER) {
+        } else if (AccessRequirements.ALTER.equals(requirement)) {
             return HiveAccessType.ALTER;
-        } else if (predicate == PrivPredicate.CREATE) {
+        } else if (AccessRequirements.CREATE.equals(requirement)) {
             return HiveAccessType.CREATE;
-        } else if (predicate == PrivPredicate.DROP) {
+        } else if (AccessRequirements.DROP.equals(requirement)) {
             return HiveAccessType.DROP;
         } else {
             return HiveAccessType.NONE;
@@ -195,93 +298,23 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     @Override
-    public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
-        // hive ranger plugin does not support global privilege
-        // use whichever authorization source governs global scope
-        return Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, wanted);
-    }
-
-    @Override
-    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        return true;
-    }
-
-    @Override
-    public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
-        if (grantedByGlobalScopeAuthority(currentUser, wanted)) {
-            return true;
-        }
-        RangerHiveResource resource = new RangerHiveResource(HiveObjectType.DATABASE,
-                db);
-        return checkPrivilege(currentUser, convertToAccessType(wanted), resource);
-    }
-
-    @Override
-    public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
-        if (grantedByGlobalScopeAuthority(currentUser, wanted)) {
-            return true;
-        }
-        RangerHiveResource resource = new RangerHiveResource(HiveObjectType.TABLE,
-                db, tbl);
-        return checkPrivilege(currentUser, convertToAccessType(wanted), resource);
-    }
-
-    @Override
-    public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
-            PrivPredicate wanted) throws AuthorizationException {
-        if (grantedByGlobalScopeAuthority(currentUser, wanted)) {
-            return;
-        }
-        List<RangerHiveResource> resources = new ArrayList<>();
-        for (String col : cols) {
-            RangerHiveResource resource = new RangerHiveResource(HiveObjectType.COLUMN,
-                    db, tbl, col);
-            resources.add(resource);
-        }
-
-        checkPrivileges(currentUser, convertToAccessType(wanted), resources);
-    }
-
-    @Override
-    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
-            PrivPredicate wanted, ResourceTypeEnum type) {
-        return false;
-    }
-
-    @Override
-    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
-        return false;
-    }
-
-    @Override
-    public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
-        return false;
-    }
-
-    @Override
-    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
-        // Not support workload group privilege in ranger hive plugin.
-        // So always return true to pass the check
-        return true;
-    }
-
-    @Override
-    public List<RowFilterSpec> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
-            String tbl) {
+    public List<RowFilterSpec> getRowFilters(AuthorizedSubject subject, AuthorizedResource.Table table,
+            AccessContext context) {
         lifecycleLock.readLock().lock();
         try {
-            return closed ? new ArrayList<>() : super.evalRowFilterPolicies(currentUser, ctl, db, tbl);
+            return closed ? new ArrayList<>() : super.getRowFilters(subject, table, context);
         } finally {
             lifecycleLock.readLock().unlock();
         }
     }
 
     @Override
-    public Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
-            String col) {
+    public Map<String, DataMaskSpec> getDataMasks(AuthorizedSubject subject, AuthorizedResource.Table table,
+            Set<String> columns, AccessContext context) {
         lifecycleLock.readLock().lock();
         try {
-            return closed ? Optional.empty() : super.evalDataMaskPolicy(currentUser, ctl, db, tbl, col);
+            return closed ? Collections.<String, DataMaskSpec>emptyMap()
+                    : super.getDataMasks(subject, table, columns, context);
         } finally {
             lifecycleLock.readLock().unlock();
         }
@@ -307,18 +340,5 @@ public class RangerHiveAccessController extends RangerAccessController {
     @Override
     protected RangerAccessResultProcessor getAccessResultProcessor() {
         return auditHandler;
-    }
-
-    // For test only
-    public static void main(String[] args) {
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put("ranger.service.name", "hive");
-        RangerHiveAccessController ac = new RangerHiveAccessController(properties);
-        UserIdentity user = new UserIdentity("user1", "127.0.0.1");
-        user.setIsAnalyzed();
-        boolean res = ac.checkDbPriv(user, "hive", "tpcds_bin_partitioned_orc_1", PrivPredicate.SHOW);
-        System.out.println("res: " + res);
-        res = ac.checkTblPriv(user, "internal", "tpch1", "customer", PrivPredicate.SELECT);
-        System.out.println("res: " + res);
     }
 }

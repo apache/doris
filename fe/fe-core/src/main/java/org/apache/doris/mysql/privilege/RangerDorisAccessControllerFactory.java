@@ -17,23 +17,48 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.authorization.spi.AuthorizationContext;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
+import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
-public class RangerDorisAccessControllerFactory implements AccessControllerFactory {
-    private static class SingletonHolder {
-        // Every controller starts a Ranger policy refresher, so all Env instances must share one controller.
-        private static final RangerDorisAccessController INSTANCE = new RangerDorisAccessController("doris");
+public class RangerDorisAccessControllerFactory implements AuthorizationPluginFactory {
+    private static final Logger LOG = LogManager.getLogger(RangerDorisAccessControllerFactory.class);
+    private static final String SERVICE_NAME = "doris";
+
+    // Every controller starts a Ranger policy refresher, so all Env instances must share one controller.
+    private static RangerDorisAccessController instance;
+
+    @Override
+    public String name() {
+        return RangerDorisAccessController.NAME;
     }
 
     @Override
-    public String factoryIdentifier() {
-        return "ranger-doris";
+    public String description() {
+        return "Authorizes against the policies of a Ranger service of type " + SERVICE_NAME;
     }
 
     @Override
-    public RangerDorisAccessController createAccessController(Map<String, String> prop) {
-        return SingletonHolder.INSTANCE;
+    public AuthorizationPlugin create(Map<String, String> properties, AuthorizationContext context) {
+        return singleton(properties, context);
+    }
+
+    private static synchronized RangerDorisAccessController singleton(Map<String, String> properties,
+            AuthorizationContext context) {
+        if (instance == null) {
+            instance = new RangerDorisAccessController(SERVICE_NAME, properties, context);
+        } else if (!properties.isEmpty()) {
+            // There is one refresher and therefore one controller, so the configuration it was built with is
+            // the one in force. Say so rather than let a second, differently configured binding look applied.
+            LOG.warn("Ranger Doris authorization is already configured; properties {} are ignored, the"
+                    + " configuration the source was created with stays in force.", properties.keySet());
+        }
+        return instance;
     }
 }
