@@ -80,7 +80,7 @@ private:
         RETURN_IF_ERROR(Jni::Env::Get(&env));
 
         // Find JniUtil class and create a global ref.
-        jclass local_jni_util_cl = env->FindClass("org/apache/doris/common/jni/utils/JniUtil");
+        jclass local_jni_util_cl = env->FindClass("org/apache/doris/jni/spi/utils/JniUtil");
         if (local_jni_util_cl == nullptr) {
             if (env->ExceptionOccurred()) {
                 env->ExceptionDescribe();

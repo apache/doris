@@ -1666,6 +1666,17 @@ DEFINE_mInt32(s3_rate_limiter_cpu_cores_override, "0");
 // who leaves both untouched expects both to find them.
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/trino_plugins");
 
+// The directory BE loads its Java plugins from. Each subdirectory is one plugin, named by the
+// directory: that name is what BE addresses it by and what appears in "is not deployed".
+DEFINE_String(java_plugin_dir, "${DORIS_HOME}/lib/java/plugins");
+
+// Whether to load every deployed plugin at startup rather than on the query that first needs
+// one. On by default because the alternative is that a broken deployment is discovered by a
+// user's query rather than by the log. It is not a reason to create a JVM: with no plugin
+// deployed there is nothing to warm, and a BE that reads no Java table format still starts
+// without one.
+DEFINE_Bool(java_plugin_warmup, "true");
+
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
 DEFINE_mString(ca_cert_file_paths,

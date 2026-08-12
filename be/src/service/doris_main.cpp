@@ -43,6 +43,7 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -85,6 +86,7 @@
 #include "udf/python/python_env.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
+#include "util/jni_plugin_registry.h"
 #include "util/mem_info.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
@@ -693,6 +695,20 @@ int main(int argc, char** argv) {
     exec_env->storage_engine().notify_listeners();
 
     doris::k_is_server_ready = true;
+
+    // 7. load the deployed Java plugins, once the BE is otherwise serving.
+    //
+    // Detached and non-fatal on purpose: the point is that a plugin broken by a bad
+    // deployment shows up in the log now instead of inside the first user query that needs
+    // it, and a plugin that cannot load must not hold up or take down everything else. When
+    // no plugin is deployed this starts no JVM and returns immediately.
+    if (doris::config::enable_java_support && doris::config::java_plugin_warmup) {
+        std::thread([]() {
+            if (Status status = doris::Jni::PluginRegistry::warmup(); !status.ok()) {
+                LOG(WARNING) << "failed to warm up Java plugins: " << status;
+            }
+        }).detach();
+    }
 
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)

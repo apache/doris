@@ -855,6 +855,9 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/preload-extensions")
     modules+=("be-java-extensions/${HADOOP_DEPS_NAME}")
     modules+=("be-java-extensions/java-writer")
+    # The shared layer. Nothing depends on these two, so -am does not reach them.
+    modules+=("be-java-extensions/jni-spi")
+    modules+=("be-java-extensions/jni-bootstrap")
 
     # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
@@ -1381,6 +1384,28 @@ EOF
         extensions_modules=("${new_modules[@]}")
     fi
 
+    # The shared layer: the SPI a plugin compiles against and the loader that reads the plugin
+    # directory. These are the only Doris classes that live on both sides of the boundary, which
+    # is why they are the only ones deployed where the system classpath can see them.
+    BE_JAVA_SPI_DIR="${DORIS_OUTPUT}/be/lib/java/spi"
+    rm -rf "${DORIS_OUTPUT}/be/lib/java"
+    mkdir -p "${BE_JAVA_SPI_DIR}"
+    for spi_module in jni-spi jni-bootstrap; do
+        spi_jar="${DORIS_HOME}/fe/be-java-extensions/${spi_module}/target/doris-${spi_module}.jar"
+        if [[ -f "${spi_jar}" ]]; then
+            echo "Copy Be shared layer ${spi_module} jar to ${BE_JAVA_SPI_DIR}"
+            cp "${spi_jar}" "${BE_JAVA_SPI_DIR}"
+        fi
+    done
+
+    # Where plugins go, one directory each. Created empty so that an operator dropping a plugin
+    # in has somewhere obvious to drop it, and so that BE's own "is it empty" check reads a
+    # directory that exists.
+    mkdir -p "${DORIS_OUTPUT}/be/lib/java/plugins"
+
+    # ATTN: lib/java_extensions holds the modules that have NOT been converted into plugins yet.
+    # A module belongs to exactly one of the two layouts - it leaves the list below when it gains
+    # a plugin directory - and this whole block goes away with the last of them.
     BE_JAVA_EXTENSIONS_DIR="${DORIS_OUTPUT}/be/lib/java_extensions/"
     rm -rf "${BE_JAVA_EXTENSIONS_DIR}"
     mkdir "${BE_JAVA_EXTENSIONS_DIR}"

@@ -24,6 +24,8 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
+
 namespace doris::Jni {
 
 // The BE creates the JVM that libhdfs used to create. These options are the whole of what
@@ -118,6 +120,21 @@ TEST_F(JvmLauncherOptionsTest, JavaOptsWinsOverLibhdfsOpts) {
 
     EXPECT_TRUE(has(options(), "-Xmx4096m"));
     EXPECT_FALSE(has(options(), "-Xmx2g"));
+}
+
+// PluginRegistry reads the plugin directory from a system property, so the property has to be
+// on the options the JVM is created from or the registry silently looks somewhere else. It is
+// derived from BE config here rather than exported by the startup script for the same reason
+// the class path is now built once: a path with two sources is a path that disagrees with
+// itself.
+TEST_F(JvmLauncherOptionsTest, PluginDirectoryReachesTheJvmFromBeConfig) {
+    const std::string saved = config::java_plugin_dir;
+    config::java_plugin_dir = "/opt/be/lib/java/plugins";
+
+    EXPECT_TRUE(has(options(), "-Ddoris.jni.plugin.dir=/opt/be/lib/java/plugins"));
+    EXPECT_EQ(1, count_prefixed(options(), "-Ddoris.jni.plugin.dir="));
+
+    config::java_plugin_dir = saved;
 }
 
 } // namespace doris::Jni

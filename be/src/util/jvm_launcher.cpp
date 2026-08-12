@@ -149,6 +149,11 @@ std::vector<std::string> JvmLauncher::_build_options() {
     options.push_back("-Djava.security.krb5.conf=" + config::kerberos_krb5_conf_path);
     options.push_back(fmt::format("-Djdk.lang.processReaperUseDefaultStackSize={}",
                                   config::jdk_process_reaper_use_default_stack_size));
+    // Where PluginRegistry looks for plugins. It travels as a system property rather than
+    // through the startup script because the value is a BE config and this is the one place
+    // that turns BE config into JVM options; passing it from the script as well would be two
+    // sources for one path.
+    options.push_back("-Ddoris.jni.plugin.dir=" + config::java_plugin_dir);
     return options;
 }
 

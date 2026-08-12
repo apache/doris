@@ -17,7 +17,10 @@
 
 #include "util/jni_plugin_registry.h"
 
+#include <filesystem>
 #include <mutex>
+
+#include "common/config.h"
 
 namespace doris::Jni {
 
@@ -202,7 +205,31 @@ Status PluginRegistry::plugin_status_json(std::string* status) {
     return Status::OK();
 }
 
+bool PluginRegistry::any_plugin_deployed() {
+    std::error_code ec;
+    std::filesystem::directory_iterator entries(config::java_plugin_dir, ec);
+    if (ec) {
+        // No directory at all is the ordinary state of a BE that reads no Java table format,
+        // not an error to report.
+        return false;
+    }
+    for (const auto& entry : entries) {
+        // A plugin is a directory; a stray file next to them is not one.
+        if (entry.is_directory(ec) && !ec) {
+            return true;
+        }
+    }
+    return false;
+}
+
 Status PluginRegistry::warmup() {
+    if (!any_plugin_deployed()) {
+        // Nothing to warm, and reaching Java to find that out would create the JVM this whole
+        // arrangement exists to avoid. This is what makes warmup safe to leave on by default:
+        // on a BE with no plugin deployed it costs one directory read.
+        return Status::OK();
+    }
+
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Env::Get(&env));
     const Registry* registry = nullptr;
