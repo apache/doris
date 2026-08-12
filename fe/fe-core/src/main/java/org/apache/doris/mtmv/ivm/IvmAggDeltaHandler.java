@@ -366,8 +366,23 @@ class IvmAggDeltaHandler {
         if (direct != null) {
             return direct;
         }
-        String original = parseHiddenKeyOriginalName(name);
-        return original == null ? null : delta.groupKeySlotsByName.get(original);
+        String embedded = parseHiddenKeyOriginalName(name);
+        if (embedded == null) {
+            return null;
+        }
+        // The embedded name was sanitized at the sink (IVM/Doris prefixes and _COL__ stripped,
+        // possibly truncated), so the delta group keys must be sanitized the same way to match.
+        Slot matched = null;
+        for (Map.Entry<String, Slot> entry : delta.groupKeySlotsByName.entrySet()) {
+            if (IvmUtil.sanitizeIvmKeyName(entry.getKey()).equals(embedded)) {
+                if (matched != null) {
+                    throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                            "IVM ambiguous identity key match for embedded key name: " + embedded);
+                }
+                matched = entry.getValue();
+            }
+        }
+        return matched;
     }
 
     private String parseHiddenKeyOriginalName(String hiddenName) {
