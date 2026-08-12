@@ -19,7 +19,18 @@ package org.apache.doris.common.plugin;
 
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.plugin.CloudPluginDownloader.PluginType;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.COSProperties;
+import org.apache.doris.datasource.property.storage.GCSProperties;
+import org.apache.doris.datasource.property.storage.HdfsProperties;
+import org.apache.doris.datasource.property.storage.MinioProperties;
+import org.apache.doris.datasource.property.storage.OBSProperties;
+import org.apache.doris.datasource.property.storage.OSSProperties;
+import org.apache.doris.datasource.property.storage.OzoneProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,7 +38,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Unit tests for CloudPluginDownloader using package-private methods for direct white-box testing.
@@ -158,6 +173,47 @@ public class CloudPluginDownloaderTest {
         Mockito.when(mockObjInfo.getBucket()).thenReturn("test-bucket");
         String specialResult = CloudPluginDownloader.buildS3Path(mockObjInfo, PluginType.JAVA_UDF, "test-udf@v1.0.jar");
         Assertions.assertEquals("s3://test-bucket/plugins/java_udf/test-udf@v1.0.jar", specialResult);
+    }
+
+    @Test
+    void testSelectS3CompatiblePropertiesAfterDefaultHdfs() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        properties.put("s3.region", "us-west-2");
+
+        List<StorageProperties> storageProperties = StorageProperties.createAll(properties);
+
+        Assertions.assertEquals(HdfsProperties.class, storageProperties.get(0).getClass());
+        Assertions.assertEquals(S3Properties.class,
+                CloudPluginDownloader.selectS3CompatibleProperties(storageProperties).getClass());
+    }
+
+    @Test
+    void testSelectEveryS3CompatiblePropertiesType() {
+        List<Class<? extends AbstractS3CompatibleProperties>> compatibleTypes = Arrays.asList(
+                S3Properties.class,
+                OSSProperties.class,
+                OBSProperties.class,
+                COSProperties.class,
+                GCSProperties.class,
+                MinioProperties.class,
+                OzoneProperties.class);
+        StorageProperties hdfsProperties = Mockito.mock(HdfsProperties.class);
+
+        for (Class<? extends AbstractS3CompatibleProperties> compatibleType : compatibleTypes) {
+            AbstractS3CompatibleProperties expected = Mockito.mock(compatibleType);
+            Assertions.assertSame(expected, CloudPluginDownloader.selectS3CompatibleProperties(
+                    Arrays.asList(hdfsProperties, expected)));
+        }
+    }
+
+    @Test
+    void testSelectS3CompatiblePropertiesFailsWithoutCompatibleStorage() {
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                () -> CloudPluginDownloader.selectS3CompatibleProperties(
+                        Collections.singletonList(Mockito.mock(HdfsProperties.class))));
+
+        Assertions.assertEquals("Failed to create S3-compatible storage properties", exception.getMessage());
     }
 
     // ============== Enum Tests ==============
