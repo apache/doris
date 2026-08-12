@@ -1,0 +1,210 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.mysql.privilege;
+
+import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.authorization.AccessAction;
+import org.apache.doris.authorization.AccessRequirement;
+import org.apache.doris.authorization.ActionMatch;
+import org.apache.doris.authorization.ResourceKind;
+
+import com.google.common.annotations.VisibleForTesting;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.util.EnumMap;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+
+/**
+ * Translates between the vocabulary Doris uses internally and the neutral one authorization sources speak.
+ *
+ * <p>The translation is lossless in both directions and has to stay that way, because the built-in model is
+ * itself one of those sources: a requirement that reaches it must name exactly the privileges the caller
+ * asked about. That is why {@link AccessAction} keeps cluster usage and stage usage apart from plain usage
+ * even though a given plugin may well treat all three alike - the folding is the plugin's to do, not the
+ * engine's.</p>
+ *
+ * <p>Object identity is preserved as well, and that is not a nicety: parts of the engine ask <em>which</em>
+ * question is being asked by comparing the predicate against a constant with {@code ==} - {@code Role} grants
+ * "may see this catalog" when any object under it is reachable, the Ranger controllers translate the
+ * predicate into their own access types the same way. Handing those a freshly built predicate that merely
+ * equals {@code PrivPredicate.SHOW} loses every one of those branches, silently and only for the users who
+ * depended on them. So a requirement that came from a constant translates back to that same constant.</p>
+ */
+public final class AccessTranslation {
+
+    private static final Map<Privilege, AccessAction> ACTION_OF_PRIVILEGE = new EnumMap<>(Privilege.class);
+    private static final Map<AccessAction, Privilege> PRIVILEGE_OF_ACTION = new EnumMap<>(AccessAction.class);
+    /**
+     * The predicate constant each requirement came from, discovered reflectively so that a constant added
+     * later is covered the day it is added rather than the day someone remembers this map.
+     */
+    private static final Map<AccessRequirement, PrivPredicate> CANONICAL_PREDICATES = new HashMap<>();
+
+    static {
+        ACTION_OF_PRIVILEGE.put(Privilege.NODE_PRIV, AccessAction.NODE);
+        ACTION_OF_PRIVILEGE.put(Privilege.ADMIN_PRIV, AccessAction.ADMIN);
+        ACTION_OF_PRIVILEGE.put(Privilege.GRANT_PRIV, AccessAction.GRANT);
+        ACTION_OF_PRIVILEGE.put(Privilege.SELECT_PRIV, AccessAction.SELECT);
+        ACTION_OF_PRIVILEGE.put(Privilege.LOAD_PRIV, AccessAction.LOAD);
+        ACTION_OF_PRIVILEGE.put(Privilege.ALTER_PRIV, AccessAction.ALTER);
+        ACTION_OF_PRIVILEGE.put(Privilege.CREATE_PRIV, AccessAction.CREATE);
+        ACTION_OF_PRIVILEGE.put(Privilege.DROP_PRIV, AccessAction.DROP);
+        ACTION_OF_PRIVILEGE.put(Privilege.USAGE_PRIV, AccessAction.USAGE);
+        ACTION_OF_PRIVILEGE.put(Privilege.CLUSTER_USAGE_PRIV, AccessAction.CLUSTER_USAGE);
+        ACTION_OF_PRIVILEGE.put(Privilege.STAGE_USAGE_PRIV, AccessAction.STAGE_USAGE);
+        ACTION_OF_PRIVILEGE.put(Privilege.SHOW_VIEW_PRIV, AccessAction.SHOW_VIEW);
+        // The retired bit indices carry the same meaning as the ones that replaced them, so they translate
+        // to the same action - the same normalization Role.upgradeToNewPrivilege() applies to stored grants.
+        ACTION_OF_PRIVILEGE.put(Privilege.SHOW_VIEW_PRIV_DEPRECATED, AccessAction.SHOW_VIEW);
+        ACTION_OF_PRIVILEGE.put(Privilege.SHOW_VIEW_PRIV_CLOUD_DEPRECATED, AccessAction.SHOW_VIEW);
+        ACTION_OF_PRIVILEGE.put(Privilege.CLUSTER_USAGE_PRIV_DEPRECATED, AccessAction.CLUSTER_USAGE);
+        ACTION_OF_PRIVILEGE.put(Privilege.STAGE_USAGE_PRIV_DEPRECATED, AccessAction.STAGE_USAGE);
+
+        PRIVILEGE_OF_ACTION.put(AccessAction.NODE, Privilege.NODE_PRIV);
+        PRIVILEGE_OF_ACTION.put(AccessAction.ADMIN, Privilege.ADMIN_PRIV);
+        PRIVILEGE_OF_ACTION.put(AccessAction.GRANT, Privilege.GRANT_PRIV);
+        PRIVILEGE_OF_ACTION.put(AccessAction.SELECT, Privilege.SELECT_PRIV);
+        PRIVILEGE_OF_ACTION.put(AccessAction.LOAD, Privilege.LOAD_PRIV);
+        PRIVILEGE_OF_ACTION.put(AccessAction.ALTER, Privilege.ALTER_PRIV);
+        PRIVILEGE_OF_ACTION.put(AccessAction.CREATE, Privilege.CREATE_PRIV);
+        PRIVILEGE_OF_ACTION.put(AccessAction.DROP, Privilege.DROP_PRIV);
+        PRIVILEGE_OF_ACTION.put(AccessAction.USAGE, Privilege.USAGE_PRIV);
+        PRIVILEGE_OF_ACTION.put(AccessAction.CLUSTER_USAGE, Privilege.CLUSTER_USAGE_PRIV);
+        PRIVILEGE_OF_ACTION.put(AccessAction.STAGE_USAGE, Privilege.STAGE_USAGE_PRIV);
+        PRIVILEGE_OF_ACTION.put(AccessAction.SHOW_VIEW, Privilege.SHOW_VIEW_PRIV);
+
+        // Sorted by name so that two constants naming the same privileges with the same match - today
+        // SHOW_RESOURCES and SHOW_WORKLOAD_GROUP - always resolve to the same one of the pair. They ask the
+        // same question, so either answers it, but which one it is must not depend on reflection order.
+        for (Map.Entry<String, PrivPredicate> constant : new TreeMap<>(declaredPredicates()).entrySet()) {
+            CANONICAL_PREDICATES.putIfAbsent(requirementOf(constant.getValue()), constant.getValue());
+        }
+    }
+
+    private AccessTranslation() {
+    }
+
+    private static Map<String, PrivPredicate> declaredPredicates() {
+        Map<String, PrivPredicate> constants = new HashMap<>();
+        for (Field field : PrivPredicate.class.getDeclaredFields()) {
+            if (Modifier.isStatic(field.getModifiers()) && field.getType() == PrivPredicate.class) {
+                try {
+                    constants.put(field.getName(), (PrivPredicate) field.get(null));
+                } catch (IllegalAccessException e) {
+                    throw new IllegalStateException("cannot read PrivPredicate." + field.getName(), e);
+                }
+            }
+        }
+        return constants;
+    }
+
+    /** The action {@code privilege} stands for. */
+    @VisibleForTesting
+    static AccessAction actionOf(Privilege privilege) {
+        AccessAction action = ACTION_OF_PRIVILEGE.get(privilege);
+        if (action == null) {
+            throw new IllegalStateException("privilege " + privilege + " has no access action; a new"
+                    + " privilege must be given one before it can be checked");
+        }
+        return action;
+    }
+
+    /** The privilege {@code action} stands for. */
+    @VisibleForTesting
+    static Privilege privilegeOf(AccessAction action) {
+        Privilege privilege = PRIVILEGE_OF_ACTION.get(action);
+        if (privilege == null) {
+            throw new IllegalStateException("access action " + action + " has no privilege");
+        }
+        return privilege;
+    }
+
+    /**
+     * The neutral form of what {@code wanted} asks for.
+     *
+     * @throws IllegalArgumentException if the predicate names no privilege at all. Such a predicate is
+     *         satisfied by everyone when combined with AND and by no one when combined with OR, so passing
+     *         one on would decide access by accident; no caller builds one today.
+     */
+    public static AccessRequirement requirementOf(PrivPredicate wanted) {
+        List<Privilege> privileges = wanted.getPrivs().toPrivilegeList();
+        EnumSet<AccessAction> actions = EnumSet.noneOf(AccessAction.class);
+        for (Privilege privilege : privileges) {
+            actions.add(actionOf(privilege));
+        }
+        if (actions.isEmpty()) {
+            throw new IllegalArgumentException("privilege predicate names no privilege: " + wanted);
+        }
+        return AccessRequirement.of(actions, wanted.getOp() == Operator.AND ? ActionMatch.ALL : ActionMatch.ANY);
+    }
+
+    /**
+     * The privilege predicate {@code requirement} stands for; the constant it came from when there is one,
+     * so that the {@code ==} comparisons the engine still makes against those constants keep working.
+     */
+    public static PrivPredicate privPredicateOf(AccessRequirement requirement) {
+        PrivPredicate canonical = CANONICAL_PREDICATES.get(requirement);
+        if (canonical != null) {
+            return canonical;
+        }
+        PrivBitSet privileges = PrivBitSet.of();
+        for (AccessAction action : requirement.getActions()) {
+            privileges.set(privilegeOf(action).getIdx());
+        }
+        return PrivPredicate.of(privileges,
+                requirement.getMatch() == ActionMatch.ALL ? Operator.AND : Operator.OR);
+    }
+
+    /** The resource kind standing for a cloud object of {@code type}. */
+    public static ResourceKind cloudKindOf(ResourceTypeEnum type) {
+        switch (type) {
+            case GENERAL:
+                return ResourceKind.CLOUD_GENERAL;
+            case CLUSTER:
+                return ResourceKind.CLOUD_COMPUTE_GROUP;
+            case STAGE:
+                return ResourceKind.CLOUD_STAGE;
+            case STORAGE_VAULT:
+                return ResourceKind.CLOUD_STORAGE_VAULT;
+            default:
+                throw new IllegalStateException("no resource kind for cloud resource type " + type);
+        }
+    }
+
+    /** The cloud resource type {@code kind} stands for; only the cloud kinds have one. */
+    public static ResourceTypeEnum cloudTypeOf(ResourceKind kind) {
+        switch (kind) {
+            case CLOUD_GENERAL:
+                return ResourceTypeEnum.GENERAL;
+            case CLOUD_COMPUTE_GROUP:
+                return ResourceTypeEnum.CLUSTER;
+            case CLOUD_STAGE:
+                return ResourceTypeEnum.STAGE;
+            case CLOUD_STORAGE_VAULT:
+                return ResourceTypeEnum.STORAGE_VAULT;
+            default:
+                throw new IllegalArgumentException(kind + " is not a cloud resource kind");
+        }
+    }
+}
