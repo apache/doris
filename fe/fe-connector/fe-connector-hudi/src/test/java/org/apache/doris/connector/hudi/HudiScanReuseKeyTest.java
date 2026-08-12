@@ -17,13 +17,22 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /** Statement-scoped scan reuse key construction for Hudi (offline; no table environment needed). */
 class HudiScanReuseKeyTest {
@@ -94,5 +103,124 @@ class HudiScanReuseKeyTest {
                 .build();
         Assertions.assertNotEquals(key(handle()), key(other),
                 "a different pruned partition set must not reuse the cached ranges");
+    }
+
+    @Test
+    void unprunedAndZeroPrunedStatesYieldDifferentKeys() {
+        HudiTableHandle unpruned = handle().toBuilder()
+                .prunedPartitionPaths(null)
+                .build();
+        HudiTableHandle zeroPruned = handle().toBuilder()
+                .prunedPartitionPaths(Collections.emptyList())
+                .build();
+
+        Assertions.assertNotEquals(key(unpruned), key(zeroPruned),
+                "null means enumerate all snapshot partitions while empty means the filter matched none");
+    }
+
+    @Test
+    void statementReuseKeepsSameInstantZeroPrunedAndUnprunedScansDistinct() {
+        RecordingScanProvider provider = new RecordingScanProvider();
+        HudiTableHandle unpruned = handle().toBuilder()
+                .prunedPartitionPaths(null)
+                .build();
+        HudiTableHandle zeroPruned = handle().toBuilder()
+                .prunedPartitionPaths(Collections.emptyList())
+                .build();
+        ConnectorSession session = new MemoSession(new MemoScope());
+
+        List<ConnectorScanRange> zeroRanges = provider.planScan(session,
+                ConnectorScanRequest.builder(
+                        zeroPruned, Collections.<ConnectorColumnHandle>emptyList()).build());
+        List<ConnectorScanRange> allRanges = provider.planScan(session,
+                ConnectorScanRequest.builder(
+                        unpruned, Collections.<ConnectorColumnHandle>emptyList()).build());
+
+        Assertions.assertTrue(zeroRanges.isEmpty());
+        Assertions.assertEquals(1, allRanges.size(),
+                "an unpruned time-travel alias must not reuse a zero-pruned alias's empty ranges");
+        Assertions.assertEquals(2, provider.planCalls,
+                "the two semantic partition states must occupy separate statement-cache entries");
+    }
+
+    private static final class RecordingScanProvider extends HudiScanPlanProvider {
+        private static final ConnectorScanRange RANGE = Collections::emptyMap;
+        private int planCalls;
+
+        private RecordingScanProvider() {
+            super(Collections.emptyMap(), null);
+        }
+
+        @Override
+        List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request) {
+            planCalls++;
+            HudiTableHandle scanHandle = (HudiTableHandle) request.getTableHandle();
+            return scanHandle.getPrunedPartitionPaths() == null
+                    ? Collections.singletonList(RANGE)
+                    : Collections.emptyList();
+        }
+    }
+
+    private static final class MemoScope implements ConnectorStatementScope {
+        private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+            return (T) cache.computeIfAbsent(key, ignored -> loader.get());
+        }
+    }
+
+    private static final class MemoSession implements ConnectorSession {
+        private final ConnectorStatementScope scope;
+
+        private MemoSession(ConnectorStatementScope scope) {
+            this.scope = scope;
+        }
+
+        @Override
+        public long getCatalogId() {
+            return 7L;
+        }
+
+        @Override
+        public String getQueryId() {
+            return "same-statement";
+        }
+
+        @Override
+        public ConnectorStatementScope getStatementScope() {
+            return scope;
+        }
+
+        @Override
+        public String getUser() {
+            return "u";
+        }
+
+        @Override
+        public String getTimeZone() {
+            return "UTC";
+        }
+
+        @Override
+        public String getLocale() {
+            return "en_US";
+        }
+
+        @Override
+        public String getCatalogName() {
+            return "c";
+        }
+
+        @Override
+        public <T> T getProperty(String name, Class<T> type) {
+            return null;
+        }
+
+        @Override
+        public Map<String, String> getCatalogProperties() {
+            return Collections.emptyMap();
+        }
     }
 }

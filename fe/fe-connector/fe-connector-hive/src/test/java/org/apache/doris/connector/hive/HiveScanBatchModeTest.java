@@ -352,6 +352,40 @@ public class HiveScanBatchModeTest {
         Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
     }
 
+    @Test
+    public void statementReuseKeepsZeroPrunedAndUnprunedScansDistinct() {
+        CountingLister lister = new CountingLister();
+        int[] partitionListCalls = new int[1];
+        HmsClient hmsClient = new FakeHmsClient() {
+            @Override
+            public List<String> listPartitionNames(String dbName, String tableName, int maxParts) {
+                partitionListCalls[0]++;
+                return Collections.singletonList("year=2024/month=01");
+            }
+        };
+        HiveScanPlanProvider provider = provider(hmsClient, lister);
+        HiveTableHandle unpruned = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .build();
+        HiveTableHandle zeroPruned = unpruned.toBuilder()
+                .prunedPartitions(Collections.emptyList())
+                .build();
+        ConnectorSession session = new ScopeSession(7L, "same-statement", new TestStatementScope());
+
+        List<ConnectorScanRange> zeroRanges = provider.planScan(session,
+                ConnectorScanRequest.builder(zeroPruned, Collections.<ConnectorColumnHandle>emptyList()).build());
+        List<ConnectorScanRange> allRanges = provider.planScan(session,
+                ConnectorScanRequest.builder(unpruned, Collections.<ConnectorColumnHandle>emptyList()).build());
+
+        Assertions.assertTrue(zeroRanges.isEmpty());
+        Assertions.assertEquals(1, allRanges.size(),
+                "an unpruned alias must not reuse a zero-pruned alias's empty ranges");
+        Assertions.assertEquals(1, partitionListCalls[0]);
+        Assertions.assertEquals(1, lister.totalCalls);
+    }
+
     // ===== object-store native read (FIX-hive-s3a: scheme normalization + canonical creds) =====
 
     @Test
@@ -545,7 +579,7 @@ public class HiveScanBatchModeTest {
      * {@link HmsPartitionInfo} whose location IS the name, so the batch-scoped resolution can be asserted through
      * the listed locations. The rest fail loud.
      */
-    private static final class FakeHmsClient implements HmsClient {
+    private static class FakeHmsClient implements HmsClient {
         private final List<String> listedPartitionNames;
         private final String absentPartitionName;
         private final HmsClientException partitionFailure;
