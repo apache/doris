@@ -132,7 +132,13 @@ public:
 
     // Loads every deployed plugin now rather than on first use, so a broken deployment is
     // in the log before a user query finds it. Never fails for a single plugin's sake.
+    //
+    // Does nothing, and creates no JVM, when no plugin is deployed.
     static Status warmup();
+
+    // Whether the plugin directory holds at least one plugin. Public because it is the
+    // reason warmup can be on by default, and something has to be able to check it.
+    static bool any_plugin_deployed();
 
 private:
     // The bootstrap class and its static method ids, resolved once.
