@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.fluss;
 
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
@@ -370,6 +371,43 @@ public class FlussLakeTableTest {
         Assertions.assertEquals(RecordingLakeSibling.FORMAT_TYPE, schema.getTableFormatType());
         Assertions.assertEquals(1, schema.getColumns().size());
         Assertions.assertEquals(RecordingLakeSibling.COLUMN_NAME, schema.getColumns().get(0).getName());
+    }
+
+    /**
+     * Both halves are read by the ordinary data readers — {@code $lake} by the paimon sibling and
+     * {@code $log} by this connector's scanner — so both honour a pruned nested type. fe-core resolves a
+     * system table's nested-prune answer from its own schema alone (the connector-wide declaration does not
+     * reach a system table, because a metadata table's reader indexes its record by position), so the two
+     * have to say it here. Without this the same query answers differently through {@code tbl} and through
+     * {@code tbl$lake}.
+     */
+    @Test
+    public void lakeAndLogSysTableSchemasDeclareNestedColumnPrune() {
+        FlussConnectorMetadata metadata = metadata(withLakeTable());
+
+        ConnectorTableSchema lakeSchema = metadata.getTableSchema(session, lakeHandle(metadata));
+        Assertions.assertTrue(
+                lakeSchema.getTableCapabilities().contains(ConnectorCapability.SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE),
+                "tbl$lake must declare nested-column prune on its own schema");
+        // The sibling's own answers must survive the wrapping: dropping them would make the lake table read
+        // as a fluss one.
+        Assertions.assertEquals(RecordingLakeSibling.SCHEMA_TABLE_NAME, lakeSchema.getTableName());
+        Assertions.assertEquals(RecordingLakeSibling.FORMAT_TYPE, lakeSchema.getTableFormatType());
+
+        ConnectorTableHandle logHandle = metadata.getSysTableHandle(
+                session, baseHandle(metadata, LAKE_TABLE), "log").orElseThrow(AssertionError::new);
+        Assertions.assertTrue(
+                metadata.getTableSchema(session, logHandle).getTableCapabilities()
+                        .contains(ConnectorCapability.SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE),
+                "tbl$log must declare nested-column prune on its own schema");
+
+        // And the front door must NOT: the sys-table capability answers a question only a system table is
+        // asked, and a data table's own answer comes from the connector-wide declaration. Stamping it here
+        // too would hide a connector that stopped declaring the data-table one.
+        Assertions.assertFalse(
+                metadata.getTableSchema(session, baseHandle(metadata, LAKE_TABLE)).getTableCapabilities()
+                        .contains(ConnectorCapability.SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE),
+                "the data table declares nothing per-table");
     }
 
     @Test
