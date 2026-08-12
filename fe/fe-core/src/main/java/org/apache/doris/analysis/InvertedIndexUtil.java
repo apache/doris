@@ -118,8 +118,11 @@ public class InvertedIndexUtil {
             checkInvertedIndexProperties(properties, colType, invertedIndexFileStorageFormat);
         }
 
+        // A whole-column VARIANT index reaches here with the parent type, which decides
+        // nothing: the sub-column type is checked on the field_pattern path instead.
         if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII
                 && !colType.isStringType() && !colType.isArrayType()
+                && colType != PrimitiveType.VARIANT
                 && !isSupportSniiNumericIdxType(colType)) {
             throw new AnalysisException("SNII inverted index storage format does not support index on column: "
                     + indexColName + " type: " + colType);

@@ -211,7 +211,10 @@ public class IndexDefinition {
                 boolean isStringIndex = colType.isStringLikeType()
                         || (colType.isArrayType()
                             && ((ArrayType) colType).getItemType().isStringLikeType());
-                if (!isStringIndex && !isSupportSniiNumericIdxType(colType)) {
+                // VARIANT carries no postings itself; its extracted sub-columns are indexed
+                // under their own suffix paths and are type-checked at write time.
+                if (!isStringIndex && !colType.isVariantType()
+                        && !isSupportSniiNumericIdxType(colType)) {
                     throw new AnalysisException(
                             "SNII inverted index storage format does not support index on column: "
                                     + indexColName);
@@ -326,7 +329,8 @@ public class IndexDefinition {
                 boolean isStringIndex = colType.isStringType()
                         || (colType.isArrayType()
                             && ((org.apache.doris.catalog.ArrayType) columnType).getItemType().isStringType());
-                if (!isStringIndex
+                // Same rule as the ColumnDefinition overload above.
+                if (!isStringIndex && !colType.isVariantType()
                         && !isSupportSniiNumericIdxType(DataType.fromCatalogType(columnType))) {
                     throw new AnalysisException(
                             "SNII inverted index storage format does not support index on column: "

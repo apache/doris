@@ -443,4 +443,13 @@ public class InvertedIndexPropertiesTest {
         }
     }
 
+    // The SNII gate in checkInvertedIndexParser sees the parent VARIANT type on a whole-column
+    // index and the sub-column type on a field_pattern index. Only the latter can be judged,
+    // so VARIANT itself must pass.
+    @Test
+    public void testSniiAcceptsVariantColumn() throws AnalysisException {
+        InvertedIndexUtil.checkInvertedIndexParser("col1", PrimitiveType.VARIANT,
+                new HashMap<String, String>(), TInvertedIndexFileStorageFormat.SNII);
+    }
+
 }

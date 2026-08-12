@@ -123,6 +123,23 @@ public class IndexDefinitionTest {
                 KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.SNII);
     }
 
+    // A SNII index may be declared on a VARIANT column, exactly as on V2 and V3. The parent
+    // column holds no postings of its own: each extracted sub-column is indexed under its own
+    // suffix path, and it is the sub-column type that the BE writer factory routes on. The
+    // parent type therefore cannot decide anything here, so it must not be refused here.
+    @Test
+    void testSniiAcceptsVariantColumn() throws AnalysisException {
+        IndexDefinition def = new IndexDefinition("snii_variant_index", false,
+                Lists.newArrayList("col1"), "INVERTED", null, "comment");
+
+        def.checkColumn(new ColumnDefinition("col1", VariantType.INSTANCE, false, AggregateType.NONE,
+                        true, null, "comment"), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+
+        def.checkColumn(new Column("col1", Type.VARIANT, true), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+    }
+
     // SNII stores an ANN index as a blob logical index, the same mechanism the
     // native BKD uses, so it accepts ANN exactly as V2/V3 do. V1 still cannot:
     // it has no container to put one in.
