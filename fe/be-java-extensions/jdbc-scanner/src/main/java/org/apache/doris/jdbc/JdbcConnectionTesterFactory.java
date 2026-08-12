@@ -17,28 +17,27 @@
 
 package org.apache.doris.jdbc;
 
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.JniScannerFactory;
+
 import java.util.Map;
 
 /**
- * @deprecated Use {@link JdbcJniScanner} for reads and {@link JdbcJniWriter} for writes instead.
+ * Builds {@link JdbcConnectionTester}. BE reaches it as {@code (jdbc, connection-tester)} when a
+ * user creates or alters a JDBC catalog, which is the one time BE talks to the source without a
+ * query behind it.
  */
-@Deprecated
-public interface JdbcExecutor {
-    int read() throws JdbcExecutorException;
+public class JdbcConnectionTesterFactory implements JniScannerFactory {
 
-    int write(Map<String, String> params) throws JdbcExecutorException;
+    public static final String NAME = "connection-tester";
 
-    long getBlockAddress(int batchSize, Map<String, String> outputParams) throws JdbcExecutorException;
+    @Override
+    public String getName() {
+        return NAME;
+    }
 
-    void close() throws JdbcExecutorException, Exception;
-
-    void openTrans() throws JdbcExecutorException;
-
-    void commitTrans() throws JdbcExecutorException;
-
-    void rollbackTrans() throws JdbcExecutorException;
-
-    int getCurBlockRows();
-
-    boolean hasNext() throws JdbcExecutorException;
+    @Override
+    public JniScanner create(int batchSize, Map<String, String> params) {
+        return new JdbcConnectionTester(batchSize, params);
+    }
 }

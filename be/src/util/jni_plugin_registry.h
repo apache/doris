@@ -45,16 +45,30 @@ struct PluginRef {
 // once so renaming a plugin is one edit rather than a hunt through the readers - the same
 // connector is reached from both the v1 and the v2 scan paths, and two independent string
 // literals for one directory is how they would drift apart.
+//
+// The factory half must be unique within its plugin across all kinds of factory, because the
+// pair below is everything BE sends: PluginRegistry receives a plugin name and a factory name
+// and nothing that says which kind was wanted, so a name meaning two things would resolve by
+// whichever list happens to be searched first.
+//
+// So a factory is named for what it does within its plugin, not for the connector - the plugin
+// half already says which connector this is. A connector's ordinary read side is "reader" and
+// its write side "writer"; anything else says what it is, as "connection-tester" does.
+//
+// The three entries still repeating their plugin's name predate that rule and are renamed to
+// "reader" by the change that turns each of them into a plugin, together with the getName() of
+// the factory that change writes. Renaming one earlier would name a factory nothing implements.
 namespace plugin {
 
 inline constexpr PluginRef PAIMON_SCANNER {"paimon", "paimon"};
 inline constexpr PluginRef HUDI_SCANNER {"hudi", "hudi"};
-// Only the Iceberg system tables come through Java; Iceberg data files are read natively.
+// Only the Iceberg system tables come through Java; Iceberg data files are read natively - so
+// this one keeps its own name when it is migrated. It is not the connector's reader.
 inline constexpr PluginRef ICEBERG_SYS_TABLE_SCANNER {"iceberg", "sys-table"};
-inline constexpr PluginRef MAX_COMPUTE_SCANNER {"max-compute", "max-compute"};
-inline constexpr PluginRef MAX_COMPUTE_WRITER {"max-compute", "max-compute"};
-inline constexpr PluginRef JDBC_SCANNER {"jdbc", "jdbc"};
-inline constexpr PluginRef JDBC_WRITER {"jdbc", "jdbc"};
+inline constexpr PluginRef MAX_COMPUTE_SCANNER {"max-compute", "reader"};
+inline constexpr PluginRef MAX_COMPUTE_WRITER {"max-compute", "writer"};
+inline constexpr PluginRef JDBC_SCANNER {"jdbc", "reader"};
+inline constexpr PluginRef JDBC_WRITER {"jdbc", "writer"};
 // Testing a JDBC connection is a scan of zero rows, so it is a scanner factory of its own
 // rather than a second entry point.
 inline constexpr PluginRef JDBC_CONNECTION_TESTER {"jdbc", "connection-tester"};

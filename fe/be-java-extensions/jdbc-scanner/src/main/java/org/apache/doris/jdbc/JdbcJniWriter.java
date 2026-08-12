@@ -17,15 +17,15 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.cloud.security.SecurityChecker;
-import org.apache.doris.common.jni.JniWriter;
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.VectorColumn;
-import org.apache.doris.common.jni.vec.VectorTable;
+import org.apache.doris.jni.spi.JniWriter;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.VectorColumn;
+import org.apache.doris.jni.spi.vec.VectorTable;
 import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
 
 import com.zaxxer.hikari.HikariDataSource;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.sql.Connection;
@@ -47,8 +47,10 @@ import java.util.Map;
  *   open() -> write() [repeated] -> close()
  * </pre>
  *
- * <p>Transaction control is exposed via getStatistics() responses and
- * additional JNI method calls from C++ side.
+ * <p>A transaction, when asked for, lives entirely inside that lifecycle: {@code openInternal}
+ * turns auto-commit off and {@code closeInternal} commits, or rolls back if the commit fails.
+ * There is no way for BE to drive it from outside - BE resolves its method ids on
+ * {@link JniWriter} itself, so a method a writer adds of its own is not reachable from C++.
  *
  * <p>Parameters (passed via constructor params map):
  * <ul>
@@ -69,7 +71,7 @@ import java.util.Map;
  * </ul>
  */
 public class JdbcJniWriter extends JniWriter {
-    private static final Logger LOG = Logger.getLogger(JdbcJniWriter.class);
+    private static final Logger LOG = LoggerFactory.getLogger(JdbcJniWriter.class);
 
     private final String jdbcUrl;
     private final String jdbcUser;
@@ -117,7 +119,7 @@ public class JdbcJniWriter extends JniWriter {
     }
 
     @Override
-    public void open() throws IOException {
+    protected void openInternal() throws IOException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             initializeClassLoaderAndDataSource();
@@ -161,7 +163,7 @@ public class JdbcJniWriter extends JniWriter {
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         try {
             // Commit transaction before closing if useTransaction is enabled.
             // autoCommit was set to false in open(), so without explicit commit()
@@ -198,40 +200,8 @@ public class JdbcJniWriter extends JniWriter {
         }
     }
 
-    // === Transaction control methods (called by C++ via JNI) ===
-
-    public void openTrans() throws IOException {
-        try {
-            if (conn != null) {
-                conn.setAutoCommit(false);
-            }
-        } catch (SQLException e) {
-            throw new IOException("JdbcJniWriter openTrans failed: " + e.getMessage(), e);
-        }
-    }
-
-    public void commitTrans() throws IOException {
-        try {
-            if (conn != null) {
-                conn.commit();
-            }
-        } catch (SQLException e) {
-            throw new IOException("JdbcJniWriter commitTrans failed: " + e.getMessage(), e);
-        }
-    }
-
-    public void rollbackTrans() throws IOException {
-        try {
-            if (conn != null) {
-                conn.rollback();
-            }
-        } catch (SQLException e) {
-            throw new IOException("JdbcJniWriter rollbackTrans failed: " + e.getMessage(), e);
-        }
-    }
-
     @Override
-    public Map<String, String> getStatistics() {
+    protected Map<String, String> collectStatistics() {
         Map<String, String> stats = new HashMap<>();
         stats.put("counter:WrittenRows", String.valueOf(writtenRows));
         stats.put("timer:InsertTime", String.valueOf(insertTime));
@@ -241,7 +211,7 @@ public class JdbcJniWriter extends JniWriter {
     }
 
     // =====================================================================
-    // Private helpers — adapted from BaseJdbcExecutor.insert/insertColumn
+    // Private helpers
     // =====================================================================
 
     private void insertColumn(int rowIdx, int colIdx, VectorColumn column) throws SQLException {
@@ -363,7 +333,7 @@ public class JdbcJniWriter extends JniWriter {
         }
     }
 
-    private void initializeClassLoaderAndDataSource() throws Exception {
+    private void initializeClassLoaderAndDataSource() {
         this.classLoader = JdbcDriverUtils.driverClassLoader(jdbcDriverUrl, getClass().getClassLoader());
         // Must set thread context classloader BEFORE creating HikariDataSource,
         // because HikariCP's setDriverClassName() loads the driver class from
@@ -378,7 +348,7 @@ public class JdbcJniWriter extends JniWriter {
                 if (hikariDataSource == null) {
                     HikariDataSource ds = new HikariDataSource();
                     ds.setDriverClassName(jdbcDriverClass);
-                    ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl));
+                    ds.setJdbcUrl(jdbcUrl);
                     ds.setUsername(jdbcUser);
                     ds.setPassword(jdbcPassword);
                     ds.setMinimumIdle(connectionPoolMinSize);

@@ -41,12 +41,26 @@
  * logging facade its libraries already use and adds the matching bridge as a runtime dependency, so
  * that its output lands in the same file as everything else:
  *
+ * <p>slf4j is the hub every bridge routes through, because it is the only facade with a JUL
+ * backend of its own; there is no artifact taking log4j2 to JUL directly. So a plugin adds
+ * {@code org.slf4j:slf4j-jdk14}, writes its own code against slf4j, and adds one bridge for each
+ * other facade its third-party libraries use:
+ *
  * <ul>
- *   <li>slf4j callers: {@code org.slf4j:slf4j-jdk14}</li>
- *   <li>log4j2 callers: {@code org.apache.logging.log4j:log4j-to-jul}</li>
- *   <li>log4j 1.x callers: {@code org.apache.logging.log4j:log4j-1.2-api} plus the bridge above</li>
- *   <li>commons-logging callers: {@code org.slf4j:jcl-over-slf4j} plus {@code slf4j-jdk14}</li>
+ *   <li>log4j2 callers: {@code org.apache.logging.log4j:log4j-to-slf4j}</li>
+ *   <li>log4j 1.x callers: {@code org.slf4j:log4j-over-slf4j}. Not
+ *       {@code org.apache.logging.log4j:log4j-1.2-api}, which is not the pure facade its name
+ *       suggests: its {@code org.apache.log4j.Logger} resolves log4j-core classes, so it fails
+ *       with NoClassDefFoundError unless the plugin also ships log4j-core - which is the thing
+ *       being avoided</li>
+ *   <li>commons-logging callers: {@code org.slf4j:jcl-over-slf4j}</li>
  * </ul>
+ *
+ * <p>The bridges only work if nothing claims the same facade twice: {@code log4j-slf4j2-impl}
+ * alongside {@code log4j-to-slf4j} is a loop, {@code log4j-over-slf4j} alongside
+ * {@code log4j-1.2-api} is two implementations of one package, and the fe parent pom puts
+ * {@code log4j-core}, {@code log4j-slf4j2-impl} and {@code log4j-1.2-api} on every module - so a
+ * plugin narrows all three to test scope and adds back only what it means to use.
  *
  * <p>A plugin that instead packages {@code log4j-core} gets a second, independent logging
  * implementation writing wherever its own configuration says - usually nowhere, because the
