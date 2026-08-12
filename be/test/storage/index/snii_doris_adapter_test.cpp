@@ -65,6 +65,8 @@ struct CapturedIOContext {
     bool is_disposable = false;
     int64_t expiration_time = 0;
     io::FileCacheStatistics* file_cache_stats = nullptr;
+    io::FileCacheMissPolicy file_cache_miss_policy =
+            io::FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
 };
 
 struct CapturedRead {
@@ -143,6 +145,7 @@ protected:
             read.io_ctx.is_disposable = io_ctx->is_disposable;
             read.io_ctx.expiration_time = io_ctx->expiration_time;
             read.io_ctx.file_cache_stats = io_ctx->file_cache_stats;
+            read.io_ctx.file_cache_miss_policy = io_ctx->file_cache_miss_policy;
         }
 
         {
@@ -333,6 +336,21 @@ struct IoPoolSeamGuard {
     IoPoolSeamGuard& operator=(const IoPoolSeamGuard&) = delete;
 };
 
+// Runs one read under `io_ctx` and reports the cache-miss policy the adapter handed
+// down to the underlying reader -- i.e. what CachedRemoteFileReader would consult.
+io::FileCacheMissPolicy captured_miss_policy(const io::IOContext& io_ctx) {
+    auto recording_reader = std::make_shared<RecordingFileReader>("0123456789");
+    DorisSniiFileReader reader(recording_reader);
+    std::vector<uint8_t> out;
+    {
+        DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
+        const Status status = reader.read_at(0, 4, &out);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+    EXPECT_EQ(recording_reader->reads().size(), 1);
+    return recording_reader->reads()[0].io_ctx.file_cache_miss_policy;
+}
+
 } // namespace
 
 class SniiIndexReaderActualPathTest : public testing::Test {
@@ -522,6 +540,79 @@ TEST(DorisSniiFileReaderTest, ReadAtPropagatesIndexIOContextAndRecordsStats) {
     EXPECT_EQ(stats.inverted_index_read_bytes, 5);
     EXPECT_EQ(stats.inverted_index_range_read_count, 1);
     EXPECT_EQ(stats.inverted_index_serial_read_rounds, 1);
+}
+
+// Session variable inverted_index_snii_read_no_write_file_cache is consumed here, in
+// _make_index_io_context, rather than at the shared CachedRemoteFileReader consult
+// site: SNII and CLucene clone the same upstream IOContext, so the consult site cannot
+// tell them apart and would catch both formats. These pin that the armed switch really
+// reaches the reader as REMOTE_ONLY_ON_MISS, and that each guard on it still holds.
+TEST(DorisSniiFileReaderTest, SniiNoWriteBackSwitchBecomesRemoteOnlyOnMiss) {
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.inverted_index_snii_read_no_write_file_cache = true;
+    EXPECT_EQ(captured_miss_policy(io_ctx), io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS);
+}
+
+TEST(DorisSniiFileReaderTest, SniiNoWriteBackSwitchOffKeepsWriteBack) {
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    EXPECT_EQ(captured_miss_policy(io_ctx), io::FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK);
+}
+
+// Warm-up reads exist to populate the cache, so honouring the switch there would
+// defeat the warm-up itself.
+TEST(DorisSniiFileReaderTest, SniiNoWriteBackSwitchIgnoredForWarmup) {
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.inverted_index_snii_read_no_write_file_cache = true;
+    io_ctx.is_warmup = true;
+    EXPECT_EQ(captured_miss_policy(io_ctx), io::FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK);
+}
+
+// Compaction is not the one-shot ad-hoc query this switch targets.
+TEST(DorisSniiFileReaderTest, SniiNoWriteBackSwitchIgnoredForNonQueryReaders) {
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
+    io_ctx.inverted_index_snii_read_no_write_file_cache = true;
+    EXPECT_EQ(captured_miss_policy(io_ctx), io::FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK);
+}
+
+// An upstream REMOTE_ONLY_ON_MISS is a decision already taken (rowid_fetcher sets one);
+// leaving the switch off must not downgrade it back to write-back.
+TEST(DorisSniiFileReaderTest, SniiNoWriteBackSwitchOffPreservesUpstreamPolicy) {
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.file_cache_miss_policy = io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS;
+    EXPECT_EQ(captured_miss_policy(io_ctx), io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS);
+}
+
+// The batch path resolves the scoped context once on the calling thread and copies it
+// into a per-segment IOContext for the workers, which never consult the thread-local.
+// The policy has to survive that copy or the switch would silently do nothing for
+// multi-segment reads -- the common shape for a real index read.
+TEST(DorisSniiFileReaderTest, SniiNoWriteBackSwitchReachesEveryBatchSegment) {
+    const std::string data = make_pattern(20000);
+    auto recording_reader = std::make_shared<RecordingFileReader>(data);
+    DorisSniiFileReader reader(recording_reader);
+
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.inverted_index_snii_read_no_write_file_cache = true;
+
+    std::vector<std::vector<uint8_t>> outs;
+    {
+        DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
+        std::vector<::doris::snii::io::Range> ranges {{0, 4}, {8192, 4}, {16384, 4}};
+        const Status status = reader.read_batch(ranges, &outs);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+    }
+
+    ASSERT_EQ(recording_reader->reads().size(), 3);
+    for (const auto& read : recording_reader->reads()) {
+        EXPECT_EQ(read.io_ctx.file_cache_miss_policy, io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS)
+                << "segment at offset " << read.offset << " lost the policy";
+    }
 }
 
 TEST(DorisSniiFileReaderTest, ReadBatchRecordsLogicalAndCoalescedPhysicalIO) {
