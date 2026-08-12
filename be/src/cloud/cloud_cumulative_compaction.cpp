@@ -31,6 +31,7 @@
 #include "service/backend_options.h"
 #include "storage/compaction/compaction.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "util/debug_points.h"
 #include "util/trace.h"
 #include "util/uuid_generator.h"
@@ -265,10 +266,9 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     }
     auto compaction_policy = cloud_tablet()->tablet_meta()->compaction_policy();
     int64_t new_cumulative_point = input_cumulative_point;
-    if (!_enable_parallel_cumu_compaction &&
+    if (!_enable_parallel_cumu_compaction && input_tablet_state == TABLET_NOTREADY &&
         _output_rowset->start_version() > input_cumulative_point) {
         // Historical rowsets are absent from a schema-change target until conversion finishes.
-        DORIS_CHECK_EQ(input_tablet_state, TABLET_NOTREADY);
         DORIS_CHECK_LE(input_cumulative_point, input_alter_version);
         DORIS_CHECK_GT(_output_rowset->start_version(), input_alter_version);
     } else if (!_enable_parallel_cumu_compaction ||
@@ -571,6 +571,7 @@ Status CloudCumulativeCompaction::advance_cumulative_point_before_pick(
                 });
     }
     std::sort(candidates.begin(), candidates.end(), Rowset::comparator);
+    const bool is_time_series_policy = compaction_policy->name() == CUMULATIVE_TIME_SERIES_POLICY;
     Version no_delete_version {-1, -1};
     for (const auto& rowset : candidates) {
         if (rowset->start_version() != output_cumulative_point) {
@@ -582,7 +583,9 @@ Status CloudCumulativeCompaction::advance_cumulative_point_before_pick(
             output_cumulative_point = rowset->end_version() + 1;
             continue;
         }
-        if (rowset_meta->is_segments_overlapping()) {
+        // A time-series singleton is a raw delta. Its post-compaction point rule is not safe here.
+        if (rowset_meta->is_segments_overlapping() ||
+            (is_time_series_policy && rowset_meta->is_singleton_delta())) {
             break;
         }
 

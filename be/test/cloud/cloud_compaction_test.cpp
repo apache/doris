@@ -46,6 +46,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "util/defer_op.h"
 #include "util/s3_util.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -525,6 +526,10 @@ public:
     }
 
     const std::vector<RowsetSharedPtr>& input_rowsets() const { return _input_rowsets; }
+
+    void set_output_rowset(RowsetSharedPtr rowset) { _output_rowset = std::move(rowset); }
+
+    Status test_modify_rowsets() { return modify_rowsets(); }
 };
 
 static TabletMetaSharedPtr create_cloud_compaction_test_tablet_meta(int64_t tablet_id) {
@@ -579,6 +584,46 @@ static std::shared_ptr<TestableCloudCumulativeCompaction> create_inflight_cumu_c
     auto compaction = std::make_shared<TestableCloudCumulativeCompaction>(engine, tablet);
     compaction->set_input_rowsets(input_rowsets);
     return compaction;
+}
+
+TEST_F(CloudCompactionTest, base_result_with_newer_cumulative_point_forces_sync) {
+    auto* sync_point = SyncPoint::get_instance();
+    Defer clear_sync_points([&] {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    });
+    int64_t response_cumulative_point = 6;
+    sync_point->set_call_back("CloudMetaMgr::commit_tablet_job", [&](auto&& outcome) {
+        auto* result = try_any_cast_ret<Status>(outcome);
+        result->first = Status::OK();
+        result->second = true;
+        auto* response = try_any_cast<cloud::FinishTabletJobResponse*>(outcome[1]);
+        response->mutable_status()->set_code(cloud::MetaServiceCode::OK);
+        auto* stats = response->mutable_stats();
+        stats->set_base_compaction_cnt(1);
+        stats->set_cumulative_compaction_cnt(0);
+        stats->set_cumulative_point(response_cumulative_point);
+        stats->set_num_rowsets(1);
+    });
+    sync_point->enable_processing();
+
+    auto run_case = [&](int64_t tablet_id, int64_t response_point, int64_t expected_sync_time) {
+        auto input = create_rowset(Version(2, 7), 1, false, 1024);
+        auto tablet = create_cloud_tablet_with_rowsets(
+                _engine, create_cloud_compaction_test_tablet_meta(tablet_id), 6, {input});
+        auto output = create_rowset(Version(2, 7), 1, false, 1024);
+        CloudBaseCompaction compaction(_engine, tablet);
+        compaction._input_rowsets = {input};
+        compaction._output_rowset = output;
+        response_cumulative_point = response_point;
+
+        ASSERT_TRUE(compaction.modify_rowsets().ok());
+        EXPECT_EQ(tablet->cumulative_layer_point(), 6);
+        EXPECT_EQ(tablet->last_sync_time_s, expected_sync_time);
+    };
+
+    run_case(10008, 8, 0);
+    run_case(10009, 6, 1);
 }
 
 TEST_F(CloudCompactionTest, cumulative_pick_uses_local_conflict_window) {
@@ -640,6 +685,77 @@ TEST_F(CloudCompactionTest, cumulative_pick_uses_local_conflict_window) {
         EXPECT_EQ(compaction.input_rowsets().back()->end_version(), 119);
         _engine._submitted_cumu_compactions.clear();
     }
+}
+
+TEST_F(CloudCompactionTest, serial_suffix_compaction_on_running_tablet_keeps_point) {
+    auto old_parallel_cumu_compaction = config::enable_parallel_cumu_compaction;
+    Defer restore_config(
+            [&] { config::enable_parallel_cumu_compaction = old_parallel_cumu_compaction; });
+    config::enable_parallel_cumu_compaction = false;
+
+    auto* sync_point = SyncPoint::get_instance();
+    Defer clear_sync_points([&] {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    });
+    sync_point->set_call_back("CloudMetaMgr::commit_tablet_job", [&](auto&& outcome) {
+        auto job = try_any_cast<cloud::TabletJobInfoPB>(outcome[0]);
+        ASSERT_EQ(job.compaction_size(), 1);
+        EXPECT_EQ(job.compaction(0).input_cumulative_point(), 2);
+        EXPECT_EQ(job.compaction(0).output_cumulative_point(), 2);
+
+        auto* result = try_any_cast_ret<Status>(outcome);
+        result->first = Status::InternalError("stop after checking cumulative point");
+        result->second = true;
+    });
+    sync_point->enable_processing();
+
+    auto tablet_meta = create_cloud_compaction_test_tablet_meta(10007);
+    auto tablet = create_cloud_tablet_with_rowsets(_engine, tablet_meta, 2, {2});
+    TestableCloudCumulativeCompaction compaction(_engine, tablet);
+    compaction.set_input_rowsets({create_rowset(Version(3, 22), 1, true, 20 * 1024 * 1024)});
+    compaction.set_output_rowset(create_rowset(Version(3, 22), 1, false, 20 * 1024 * 1024));
+
+    EXPECT_FALSE(compaction.test_modify_rowsets().ok());
+}
+
+TEST_F(CloudCompactionTest, parallel_time_series_pick_preserves_raw_singletons) {
+    auto old_parallel_cumu_compaction = config::enable_parallel_cumu_compaction;
+    Defer restore_config(
+            [&] { config::enable_parallel_cumu_compaction = old_parallel_cumu_compaction; });
+    config::enable_parallel_cumu_compaction = true;
+
+    auto* sync_point = SyncPoint::get_instance();
+    Defer clear_sync_points([&] {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    });
+    bool point_update_called = false;
+    sync_point->set_call_back("CloudMetaMgr::prepare_tablet_job", [&](auto&& outcome) {
+        point_update_called = true;
+        auto* result = try_any_cast_ret<Status>(outcome);
+        result->first = Status::InternalError("unexpected cumulative point update");
+        result->second = true;
+    });
+    sync_point->enable_processing();
+
+    auto tablet_meta = create_cloud_compaction_test_tablet_meta(10008);
+    tablet_meta->set_compaction_policy(std::string(CUMULATIVE_TIME_SERIES_POLICY));
+    tablet_meta->set_time_series_compaction_level_threshold(1);
+    std::vector<RowsetSharedPtr> rowsets {
+            create_rowset(Version(2, 2), 1, false, 1024 * 1024),
+            create_rowset(Version(3, 3), 1, false, 1024 * 1024),
+    };
+    for (const auto& rowset : rowsets) {
+        rowset->rowset_meta()->set_creation_time(UnixSeconds());
+    }
+    auto tablet = create_cloud_tablet_with_rowsets(_engine, tablet_meta, 2, std::move(rowsets));
+    TestableCloudCumulativeCompaction compaction(_engine, tablet);
+
+    auto st = compaction.prepare_compact();
+    EXPECT_TRUE(st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) << st;
+    EXPECT_FALSE(point_update_called);
+    EXPECT_EQ(tablet->cumulative_layer_point(), 2);
 }
 
 TEST_F(CloudCompactionTest, parallel_pick_keeps_mode_after_dynamic_config_change) {

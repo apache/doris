@@ -55,8 +55,10 @@ private:
 
     std::string_view compaction_name() const override { return "CloudCumulativeCompaction"; }
 
+protected:
     Status modify_rowsets() override;
 
+private:
     Status garbage_collection() override;
 
     void update_cumulative_point(int64_t input_cumulative_point, int64_t output_cumulative_point);

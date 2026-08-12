@@ -4682,7 +4682,7 @@ TEST(MetaServiceJobTest, ParallelCumuCompactionTest) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 }
 
-TEST(MetaServiceJobTest, LegacyParallelCumuFinishUsesStartSnapshot) {
+TEST(MetaServiceJobTest, LegacyParallelCumuFinishValidatesCurrentInputRange) {
     auto meta_service = get_meta_service();
 
     auto sp = SyncPoint::get_instance();
@@ -4696,57 +4696,67 @@ TEST(MetaServiceJobTest, LegacyParallelCumuFinishUsesStartSnapshot) {
     });
     sp->enable_processing();
 
-    constexpr int64_t table_id = 1;
-    constexpr int64_t index_id = 2;
-    constexpr int64_t partition_id = 3;
-    constexpr int64_t tablet_id = 40001;
-    ASSERT_NO_FATAL_FAILURE(
-            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false));
+    auto run_case = [&](int64_t tablet_id, bool higher_first, int64_t lower_proposal,
+                        int64_t expected_final_point) {
+        constexpr int64_t table_id = 1;
+        constexpr int64_t index_id = 2;
+        constexpr int64_t partition_id = 3;
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                              tablet_id, false));
 
-    std::vector<doris::RowsetMetaCloudPB> input_rowsets;
-    for (int64_t version = 2; version <= 7; ++version) {
-        input_rowsets.push_back(create_rowset(tablet_id, version, version));
-    }
-    insert_rowsets(meta_service->txn_kv().get(), table_id, index_id, partition_id, tablet_id,
-                   input_rowsets);
+        std::vector<doris::RowsetMetaCloudPB> input_rowsets;
+        for (int64_t version = 2; version <= 7; ++version) {
+            input_rowsets.push_back(create_rowset(tablet_id, version, version));
+        }
+        insert_rowsets(meta_service->txn_kv().get(), table_id, index_id, partition_id, tablet_id,
+                       input_rowsets);
 
-    StartTabletJobResponse start_res;
-    start_compaction_job(meta_service.get(), tablet_id, "lower", "BE1", 0, 0,
-                         TabletCompactionJobPB::CUMULATIVE, start_res, {2, 4});
-    ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK);
-    start_res.Clear();
-    start_compaction_job(meta_service.get(), tablet_id, "higher", "BE1", 0, 0,
-                         TabletCompactionJobPB::CUMULATIVE, start_res, {5, 7});
-    ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK);
+        StartTabletJobResponse start_res;
+        start_compaction_job(meta_service.get(), tablet_id, "lower", "BE1", 0, 0,
+                             TabletCompactionJobPB::CUMULATIVE, start_res, {2, 4});
+        ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK);
+        start_res.Clear();
+        start_compaction_job(meta_service.get(), tablet_id, "higher", "BE1", 0, 0,
+                             TabletCompactionJobPB::CUMULATIVE, start_res, {5, 7});
+        ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK);
 
-    auto lower_output = create_rowset(tablet_id, 2, 4);
-    auto higher_output = create_rowset(tablet_id, 5, 7);
-    for (const auto* output : {&lower_output, &higher_output}) {
-        CreateRowsetResponse rowset_res;
-        prepare_rowset(meta_service.get(), *output, rowset_res);
-        ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
-        commit_rowset(meta_service.get(), *output, rowset_res);
-        ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
-    }
+        auto lower_output = create_rowset(tablet_id, 2, 4);
+        auto higher_output = create_rowset(tablet_id, 5, 7);
+        for (const auto* output : {&lower_output, &higher_output}) {
+            CreateRowsetResponse rowset_res;
+            prepare_rowset(meta_service.get(), *output, rowset_res);
+            ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+            commit_rowset(meta_service.get(), *output, rowset_res);
+            ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+        }
 
-    // Legacy regular and index-change cumulative compactions omit counters from FINISH.
-    FinishTabletJobResponse finish_res;
-    finish_rowset_compaction_job(meta_service.get(), tablet_id, "lower",
-                                 TabletCompactionJobPB::CUMULATIVE, lower_output, 3, 6, finish_res,
-                                 0, 0, false);
-    ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
-    EXPECT_EQ(finish_res.stats().cumulative_point(), 6);
+        // Legacy regular and index-change cumulative compactions omit counters from FINISH.
+        FinishTabletJobResponse finish_res;
+        auto finish = [&](const std::string& job_id, const auto& output, int64_t proposal,
+                          int64_t expected_point) {
+            finish_res.Clear();
+            finish_rowset_compaction_job(meta_service.get(), tablet_id, job_id,
+                                         TabletCompactionJobPB::CUMULATIVE, output, 3, proposal,
+                                         finish_res, 0, 0, false);
+            ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
+            EXPECT_EQ(finish_res.stats().cumulative_point(), expected_point);
+        };
+        if (higher_first) {
+            finish("higher", higher_output, 8, 2);
+            finish("lower", lower_output, lower_proposal, expected_final_point);
+        } else {
+            finish("lower", lower_output, lower_proposal, 5);
+            finish("higher", higher_output, 8, expected_final_point);
+        }
 
-    finish_res.Clear();
-    finish_rowset_compaction_job(meta_service.get(), tablet_id, "higher",
-                                 TabletCompactionJobPB::CUMULATIVE, higher_output, 3, 2, finish_res,
-                                 0, 0, false);
-    ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
-    EXPECT_EQ(finish_res.stats().cumulative_point(), 8);
+        TabletStatsPB stats;
+        get_tablet_stats(meta_service.get(), tablet_id, stats);
+        EXPECT_EQ(stats.cumulative_point(), expected_final_point);
+    };
 
-    TabletStatsPB stats;
-    get_tablet_stats(meta_service.get(), tablet_id, stats);
-    EXPECT_EQ(stats.cumulative_point(), 8);
+    run_case(40001, false, 5, 8);
+    run_case(40004, true, 5, 5);
+    run_case(40005, true, 6, 2);
 }
 
 TEST(MetaServiceJobTest, ParallelCumuCompactionUsesPointProposalSnapshot) {
