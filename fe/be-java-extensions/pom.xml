@@ -21,6 +21,7 @@ under the License.
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <modules>
+        <module>jni-spi</module>
         <module>iceberg-metadata-scanner</module>
         <module>hadoop-hudi-scanner</module>
         <module>java-common</module>
@@ -49,6 +50,41 @@ under the License.
     <properties>
         <doris.home>${basedir}/../../</doris.home>
         <fe_ut_parallel>1</fe_ut_parallel>
+        <!--
+          The JNI plugin API version, declared exactly once. This single property is the only
+          number: it is filtered into jni-spi's META-INF/doris/jni-plugin-api-version.properties
+          (what BE expects) AND stamped into every plugin jar's MANIFEST below (what a plugin
+          declares). Both sides of the comparison therefore come from one value in one build; there
+          is no second number that could drift. See org.apache.doris.jni.spi.SpiVersion.
+
+          Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the jni-spi
+          surface - adding an interface or a method counts, not only removing or changing one. That
+          definition is what makes a differing minor safe to ignore.
+        -->
+        <jni.plugin.api.version>1.0</jni.plugin.api.version>
     </properties>
+
+    <build>
+        <plugins>
+            <!--
+              Stamps the declared JNI plugin API version into every jar built under this aggregator,
+              so a plugin carries the version it was compiled against without a per-module pom
+              change. The loader reads it back from the jar that defines the plugin's DorisPlugin.
+              Merges with (does not replace) the ASF parent's maven-jar-plugin <archive><manifest>
+              configuration.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Doris-Jni-Plugin-Api-Version>${jni.plugin.api.version}</Doris-Jni-Plugin-Api-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>
