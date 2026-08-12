@@ -1,0 +1,9 @@
+{
+  "msg": "success",
+  "code": 0,
+  "data": {
+    "columnNames": ["Configuration", "Node", "NodeType", "ValueType", "Value", "Mutable"],
+    "rows": [["example_mutable_config", "127.0.0.1:58040", "BE", "bool", "true", "true"]]
+  },
+  "count": 0
+}
