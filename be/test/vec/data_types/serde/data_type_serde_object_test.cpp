@@ -181,7 +181,7 @@ TEST_F(DataTypeObjectSerDeTest, DeserializeJsonVectorTest) {
 
     // Create a new column for testing
     auto test_column = ColumnObject::create(2, true);
-    size_t num_deserialized = 0;
+    uint64_t num_deserialized = 0;
     DataTypeObjectSerDe::FormatOptions options;
 
     // Test deserialize_column_from_json_vector
