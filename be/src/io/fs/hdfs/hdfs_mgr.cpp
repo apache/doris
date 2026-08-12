@@ -31,6 +31,7 @@
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
 #include "runtime/exec_env.h"
+#include "util/jvm_launcher.h"
 
 namespace doris::io {
 
@@ -128,11 +129,10 @@ void HdfsMgr::_cleanup_loop() {
 Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::string& fs_name,
                                  std::shared_ptr<HdfsHandler>* fs_handler) {
 #ifdef USE_HADOOP_HDFS
-    if (!config::enable_java_support) {
-        return Status::InvalidArgument(
-                "hdfs file system is not enabled, you can change be config enable_java_support to "
-                "true.");
-    }
+    // libhdfs would otherwise create a JVM of its own the first time it connects, one
+    // configured by hadoop rather than by the BE. Getting in first is also what turns
+    // "java support is off" into a readable error here.
+    RETURN_IF_ERROR(Jni::JvmLauncher::ensure_jvm());
 #endif
     uint64_t hash_code = _hdfs_hash_code(hdfs_params, fs_name);
 
