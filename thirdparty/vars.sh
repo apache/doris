@@ -575,10 +575,10 @@ PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
 PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
 
 # lance-c
-LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.2.tar.gz"
-LANCE_C_NAME="lance-c-v0.1.2.tar.gz"
-LANCE_C_SOURCE="lance-c-0.1.2"
-LANCE_C_MD5SUM="eb6ec9bc63fa5245864282f24b521d0b"
+LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.6.tar.gz"
+LANCE_C_NAME="lance-c-v0.1.6.tar.gz"
+LANCE_C_SOURCE="lance-c-0.1.6"
+LANCE_C_MD5SUM="1599faa2532d9ce963db1188f7435a56"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
