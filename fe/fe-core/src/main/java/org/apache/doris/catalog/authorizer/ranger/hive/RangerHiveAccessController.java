@@ -210,6 +210,9 @@ public class RangerHiveAccessController extends RangerAccessController {
 
     @Override
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
+        if (grantedByGlobalScopeAuthority(currentUser, wanted)) {
+            return true;
+        }
         RangerHiveResource resource = new RangerHiveResource(HiveObjectType.DATABASE,
                 db);
         return checkPrivilege(currentUser, convertToAccessType(wanted), resource);
@@ -217,6 +220,9 @@ public class RangerHiveAccessController extends RangerAccessController {
 
     @Override
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+        if (grantedByGlobalScopeAuthority(currentUser, wanted)) {
+            return true;
+        }
         RangerHiveResource resource = new RangerHiveResource(HiveObjectType.TABLE,
                 db, tbl);
         return checkPrivilege(currentUser, convertToAccessType(wanted), resource);
@@ -225,6 +231,9 @@ public class RangerHiveAccessController extends RangerAccessController {
     @Override
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
+        if (grantedByGlobalScopeAuthority(currentUser, wanted)) {
+            return;
+        }
         List<RangerHiveResource> resources = new ArrayList<>();
         for (String col : cols) {
             RangerHiveResource resource = new RangerHiveResource(HiveObjectType.COLUMN,

@@ -34,6 +34,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+/**
+ * The privilege model Doris ships with: users, roles and {@code GRANT} statements.
+ *
+ * <p>Every scoped check answers "globally, then at this scope". That order is this implementation's own
+ * decision, not something the engine arranges for it, and it is not redundant with the checks {@link Auth}
+ * runs per role: {@link Auth} refuses NODE privileges below global level, so a caller holding only global
+ * NODE_PRIV is granted by the global check here and by nothing else.
+ */
 public class InternalAccessController implements CatalogAccessController {
     private Auth auth;
 
@@ -48,22 +56,25 @@ public class InternalAccessController implements CatalogAccessController {
 
     @Override
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        return auth.checkCtlPriv(currentUser, ctl, wanted);
+        return checkGlobalPriv(currentUser, wanted) || auth.checkCtlPriv(currentUser, ctl, wanted);
     }
 
     @Override
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
-        return auth.checkDbPriv(currentUser, ctl, db, wanted);
+        return checkGlobalPriv(currentUser, wanted) || auth.checkDbPriv(currentUser, ctl, db, wanted);
     }
 
     @Override
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
-        return auth.checkTblPriv(currentUser, ctl, db, tbl, wanted);
+        return checkGlobalPriv(currentUser, wanted) || auth.checkTblPriv(currentUser, ctl, db, tbl, wanted);
     }
 
     @Override
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
+        if (checkGlobalPriv(currentUser, wanted)) {
+            return;
+        }
         auth.checkColsPriv(currentUser, ctl, db, tbl, cols, wanted);
     }
 
