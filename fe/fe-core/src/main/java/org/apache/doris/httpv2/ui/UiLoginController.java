@@ -1,0 +1,98 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.httpv2.ui;
+
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
+import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
+import org.apache.doris.httpv2.controller.BaseController;
+import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.httpv2.security.LoginAttemptLimiter;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/rest/v1/ui")
+public class UiLoginController extends BaseController {
+    private final LoginAttemptLimiter attemptLimiter;
+
+    public UiLoginController() {
+        this(LoginAttemptLimiter.getInstance());
+    }
+
+    UiLoginController(LoginAttemptLimiter attemptLimiter) {
+        this.attemptLimiter = attemptLimiter;
+    }
+
+    @PostMapping("/login")
+    public UiApiResponse<UiMe> login(HttpServletRequest request, HttpServletResponse response) {
+        String clientAddress = request.getRemoteAddr();
+        if (!attemptLimiter.isAllowed(clientAddress)) {
+            throw UiApiException.rateLimited(attemptLimiter.retryAfterSeconds(clientAddress));
+        }
+
+        ActionAuthorizationInfo authInfo;
+        UserIdentity currentUser;
+        try {
+            authInfo = getAuthorizationInfo(request);
+            currentUser = authenticate(authInfo);
+        } catch (UnauthorizedException | IllegalArgumentException | IndexOutOfBoundsException exception) {
+            attemptLimiter.recordFailure(clientAddress);
+            throw UiApiException.loginFailed();
+        }
+
+        attemptLimiter.recordSuccess(clientAddress);
+        if (!hasAdminPrivilege(currentUser)) {
+            throw UiApiException.adminRequired();
+        }
+
+        if (Config.isCloudMode()) {
+            checkInstanceOverdue(currentUser);
+        }
+
+        SessionValue session = createSession(request, response, currentUser, authInfo.password);
+        UiMe me = new UiMe(
+                currentUser.getQualifiedUser(),
+                UiCapabilityResolver.resolve(true, true),
+                session.csrfToken);
+        return new UiApiResponse<>(me, UiRequestContext.requestId(request));
+    }
+
+    protected UserIdentity authenticate(ActionAuthorizationInfo authInfo) {
+        return checkPassword(authInfo);
+    }
+
+    protected boolean hasAdminPrivilege(UserIdentity currentUser) {
+        return Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, PrivPredicate.ADMIN);
+    }
+
+    protected SessionValue createSession(HttpServletRequest request, HttpServletResponse response,
+            UserIdentity currentUser, String password) {
+        SessionValue session = new SessionValue();
+        session.currentUser = currentUser;
+        session.password = password;
+        addSession(request, response, session);
+        return session;
+    }
+}
