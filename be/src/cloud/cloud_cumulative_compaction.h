@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <limits>
 #include <memory>
 #include <optional>
 
@@ -48,6 +49,8 @@ public:
     int64_t get_input_num_rows() const { return _input_row_num; }
 
 private:
+    Status advance_cumulative_point_before_pick(int64_t min_conflict_version);
+
     Status pick_rowsets_to_compact();
 
     std::string_view compaction_name() const override { return "CloudCumulativeCompaction"; }
@@ -56,15 +59,19 @@ private:
 
     Status garbage_collection() override;
 
-    void update_cumulative_point();
+    void update_cumulative_point(int64_t input_cumulative_point, int64_t output_cumulative_point);
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
     int64_t _input_segments = 0;
+    // A task must use one execution mode even if the dynamic config changes while it is running.
+    const bool _enable_parallel_cumu_compaction;
+    int64_t _min_conflict_version = std::numeric_limits<int64_t>::max();
     int64_t _max_conflict_version = 0;
     // Snapshot values when pick input rowsets
     int64_t _base_compaction_cnt = 0;
     int64_t _cumulative_compaction_cnt = 0;
+    int64_t _picked_cumulative_point = 0;
     Version _last_delete_version {-1, -1};
 };
 
