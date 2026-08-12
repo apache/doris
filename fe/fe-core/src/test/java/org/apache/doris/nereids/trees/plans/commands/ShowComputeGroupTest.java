@@ -18,11 +18,12 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -38,6 +39,7 @@ public class ShowComputeGroupTest extends TestWithFeService {
     @Test
     public void testShowComputeGroupsInCloudMode() throws Exception {
         Config.deploy_mode = "cloud";
+        Config.cloud_unique_id = "cloud_unique_id";
         ShowClustersCommand command = new ShowClustersCommand(true);
         ShowResultSetMetaData metaData = command.getMetaData();
         Assertions.assertNotNull(metaData);
@@ -56,15 +58,38 @@ public class ShowComputeGroupTest extends TestWithFeService {
 
     @Test
     public void testShowComputeGroupsInNonCloudMode() throws Exception {
-        Config.deploy_mode = "not-cloud";
+        Config.deploy_mode = "";
+        Config.cloud_unique_id = "";
         ShowClustersCommand command = new ShowClustersCommand(true);
-        Assertions.assertThrows(AnalysisException.class, () -> {
-            command.doRun(connectContext, null);
-        });
+        List<String> columnNames = command.getMetaData().getColumns().stream()
+                .map(Column::getName).collect(Collectors.toList());
+        Assertions.assertEquals(Lists.newArrayList("Name", "BackendNum"), columnNames);
+        // resource group of the backends registered by the test frame
+        List<List<String>> rows = command.doRun(connectContext, null).getResultRows();
+        Assertions.assertFalse(rows.isEmpty());
+        rows.forEach(row -> Assertions.assertEquals(2, row.size()));
+
+        // a user restricted by resource_tags.location only sees the resource groups it can use,
+        // this is the compute group bound to the session when the user logs in.
+        executeSql("CREATE USER show_cg_user IDENTIFIED BY '12345'");
+        try {
+            String beTag = rows.get(0).get(0);
+            executeSql("SET PROPERTY FOR 'show_cg_user' 'resource_tags.location' = '" + beTag + "'");
+            connectContext.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup("show_cg_user"));
+            Assertions.assertEquals(rows.subList(0, 1), command.doRun(connectContext, null).getResultRows());
+
+            executeSql("SET PROPERTY FOR 'show_cg_user' 'resource_tags.location' = 'no_such_resource_group'");
+            connectContext.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup("show_cg_user"));
+            Assertions.assertTrue(command.doRun(connectContext, null).getResultRows().isEmpty());
+        } finally {
+            connectContext.setComputeGroup(null);
+        }
     }
 
     @Test
     public void testShowClustersInCloudMode() throws Exception {
+        Config.deploy_mode = "cloud";
+        Config.cloud_unique_id = "cloud_unique_id";
         ShowClustersCommand command = new ShowClustersCommand(false);
         ShowResultSetMetaData metaData = command.getMetaData();
         Assertions.assertNotNull(metaData);
@@ -82,10 +107,11 @@ public class ShowComputeGroupTest extends TestWithFeService {
 
     @Test
     public void testShowClustersInNonCloudMode() throws Exception {
-        Config.deploy_mode = "not-cloud";
+        Config.deploy_mode = "";
+        Config.cloud_unique_id = "";
         ShowClustersCommand command = new ShowClustersCommand(false);
-        Assertions.assertThrows(AnalysisException.class, () -> {
-            command.doRun(connectContext, null);
-        });
+        List<String> columnNames = command.getMetaData().getColumns().stream()
+                .map(Column::getName).collect(Collectors.toList());
+        Assertions.assertEquals(Lists.newArrayList("cluster", "backend_num"), columnNames);
     }
 }
