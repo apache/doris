@@ -23,10 +23,6 @@
 #include <memory>
 #include <mutex>
 
-#include "core/column/column.h"
-#include "core/data_type/data_type.h"
-#include "core/data_type/primitive_type.h"
-#include "core/string_ref.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vexpr.h"
@@ -34,40 +30,6 @@
 #include "exprs/vslot_ref.h"
 
 namespace doris {
-
-static void materialize_hashes(const VExprSPtr& target_expr, HybridSetBase* hybrid_set,
-                               std::vector<uint32_t>* hashes) {
-    DORIS_CHECK(target_expr != nullptr);
-    DORIS_CHECK(hybrid_set != nullptr);
-
-    const DataTypePtr& data_type = target_expr->data_type();
-    MutableColumnPtr column = data_type->create_column();
-    PrimitiveType primitive_type = data_type->get_primitive_type();
-    auto* iter = hybrid_set->begin();
-    while (iter->has_next()) {
-        const void* value = iter->get_value();
-        DORIS_CHECK(value != nullptr);
-        if (is_string_type(primitive_type)) {
-            const auto* string_value = reinterpret_cast<const StringRef*>(value);
-            column->insert_data(string_value->data, string_value->size);
-        } else {
-            // ColumnVector::insert_data ignores length for fixed-length values.
-            column->insert_data(reinterpret_cast<const char*>(value), 0);
-        }
-        iter->next();
-    }
-    if (hybrid_set->contain_null() && data_type->is_nullable()) {
-        // contain_null() is true only for a null-aware filter. Keep the bucket that owns
-        // NULL probe rows by hashing NULL with the same nullable CRC semantics as partitioning.
-        column->insert_default();
-    }
-
-    hashes->assign(column->size(), 0);
-    if (!hashes->empty()) {
-        column->update_crcs_with_value(hashes->data(), primitive_type,
-                                       static_cast<uint32_t>(column->size()));
-    }
-}
 
 Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
         const std::vector<RuntimeFilterBucketPruneRange>& ranges,
@@ -95,8 +57,8 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
         if (!root->is_rf_wrapper()) {
             continue;
         }
-        auto* wrapper = assert_cast<RuntimeFilterExpr*>(root.get());
-        if (!eligible_filter_ids.contains(wrapper->filter_id())) {
+        auto* rf_expr = assert_cast<RuntimeFilterExpr*>(root.get());
+        if (!eligible_filter_ids.contains(rf_expr->filter_id())) {
             continue;
         }
 
@@ -116,8 +78,8 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
         VExprSPtr target_expr = impl->children()[0];
         DORIS_CHECK_EQ(target_expr->node_type(), TExprNodeType::SLOT_REF);
 
-        std::vector<uint32_t> hashes;
-        materialize_hashes(target_expr, hybrid_set.get(), &hashes);
+        std::shared_ptr<const std::vector<uint32_t>> hashes =
+                rf_expr->get_bucket_prune_hashes(target_expr->data_type());
         phmap::flat_hash_map<int32_t, phmap::flat_hash_set<int32_t>> selected_buckets_by_num;
         for (const auto& range : ranges) {
             if (newly_pruned.contains(range.tablet_id)) {
@@ -131,8 +93,8 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
             if (inserted) {
                 auto& selected_buckets = selected_it->second;
                 selected_buckets.reserve(
-                        std::min(hashes.size(), static_cast<size_t>(range.bucket_num)));
-                for (uint32_t hash : hashes) {
+                        std::min(hashes->size(), static_cast<size_t>(range.bucket_num)));
+                for (uint32_t hash : *hashes) {
                     selected_buckets.insert(
                             static_cast<int32_t>(hash % static_cast<uint32_t>(range.bucket_num)));
                 }

@@ -29,11 +29,14 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
+#include "exec/runtime_filter/runtime_filter_wrapper.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
+#include "util/hash_util.hpp"
+#include "util/raw_value.h"
 
 namespace doris {
 
@@ -41,10 +44,30 @@ class RuntimeFilterBucketPrunerTest : public testing::Test {
 protected:
     static constexpr int SCAN_NODE_ID = 10;
 
-    VExprContextSPtr make_in_conjunct(int filter_id, const std::vector<int32_t>& values) {
-        std::shared_ptr<HybridSetBase> set(create_set(TYPE_INT, false));
+    std::shared_ptr<RuntimeFilterWrapper> make_in_wrapper(int filter_id,
+                                                          const std::vector<int32_t>& values,
+                                                          bool null_aware = false) {
+        RuntimeFilterParams params {.filter_id = filter_id,
+                                    .filter_type = RuntimeFilterType::IN_FILTER,
+                                    .column_return_type = TYPE_INT,
+                                    .null_aware = null_aware,
+                                    .max_in_num = 1024};
+        auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         for (const int32_t value : values) {
-            set->insert(&value);
+            wrapper->hybrid_set()->insert(&value);
+        }
+        if (null_aware) {
+            wrapper->hybrid_set()->insert(static_cast<const void*>(nullptr));
+        }
+        wrapper->set_state(RuntimeFilterWrapper::State::READY);
+        return wrapper;
+    }
+
+    VExprContextSPtr make_in_conjunct(
+            int filter_id, const std::vector<int32_t>& values,
+            std::shared_ptr<RuntimeFilterWrapper> runtime_filter_wrapper = nullptr) {
+        if (runtime_filter_wrapper == nullptr) {
+            runtime_filter_wrapper = make_in_wrapper(filter_id, values);
         }
 
         TExprNode node;
@@ -53,11 +76,14 @@ protected:
         node.in_predicate.__set_is_not_in(false);
         node.__set_opcode(TExprOpcode::FILTER_IN);
         node.__set_is_nullable(false);
-        auto impl = VDirectInPredicate::create_shared(node, std::move(set), true);
+        auto impl =
+                VDirectInPredicate::create_shared(node, runtime_filter_wrapper->hybrid_set(), true);
         impl->add_child(VSlotRef::create_shared(/*slot_id=*/1, /*column_id=*/0,
                                                 /*column_uniq_id=*/1,
                                                 std::make_shared<DataTypeInt32>(), "dist_col"));
-        auto wrapper = RuntimeFilterExpr::create_shared(node, impl, 0, false, filter_id);
+        auto wrapper = RuntimeFilterExpr::create_shared(node, impl, 0, false, filter_id,
+                                                        RuntimeFilterSelectivity::DISABLE_SAMPLING,
+                                                        std::move(runtime_filter_wrapper));
         return std::make_shared<VExprContext>(wrapper);
     }
 
@@ -76,8 +102,7 @@ protected:
     }
 
     VExprContextSPtr make_null_aware_in_conjunct(int filter_id) {
-        std::shared_ptr<HybridSetBase> set(create_set(TYPE_INT, true));
-        set->insert(static_cast<const void*>(nullptr));
+        auto runtime_filter_wrapper = make_in_wrapper(filter_id, {}, true);
 
         TExprNode node;
         node.__set_type(create_type_desc(TYPE_BOOLEAN));
@@ -85,11 +110,14 @@ protected:
         node.in_predicate.__set_is_not_in(false);
         node.__set_opcode(TExprOpcode::FILTER_IN);
         node.__set_is_nullable(false);
-        auto impl = VDirectInPredicate::create_shared(node, std::move(set), true);
+        auto impl =
+                VDirectInPredicate::create_shared(node, runtime_filter_wrapper->hybrid_set(), true);
         impl->add_child(VSlotRef::create_shared(
                 /*slot_id=*/1, /*column_id=*/0, /*column_uniq_id=*/1,
                 std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "dist_col"));
-        auto wrapper = RuntimeFilterExpr::create_shared(node, impl, 0, false, filter_id);
+        auto wrapper = RuntimeFilterExpr::create_shared(node, impl, 0, false, filter_id,
+                                                        RuntimeFilterSelectivity::DISABLE_SAMPLING,
+                                                        std::move(runtime_filter_wrapper));
         return std::make_shared<VExprContext>(wrapper);
     }
 
@@ -109,22 +137,36 @@ protected:
     }
 
     int32_t bucket_for_value(int32_t value, int32_t bucket_num) {
-        auto column = ColumnInt32::create();
-        column->insert_value(value);
-        uint32_t hash = 0;
-        column->update_crcs_with_value(&hash, TYPE_INT, 1, 0, nullptr);
+        uint32_t hash = RawValue::zlib_crc32(&value, sizeof(value), TYPE_INT, 0);
         return static_cast<int32_t>(hash % static_cast<uint32_t>(bucket_num));
     }
 
     int32_t bucket_for_null(int32_t bucket_num) {
-        auto column = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>())
-                              ->create_column();
-        column->insert_default();
-        uint32_t hash = 0;
-        column->update_crcs_with_value(&hash, TYPE_INT, 1, 0, nullptr);
+        uint32_t hash = HashUtil::zlib_crc_hash_null(0);
         return static_cast<int32_t>(hash % static_cast<uint32_t>(bucket_num));
     }
 };
+
+TEST_F(RuntimeFilterBucketPrunerTest, ExactSetHashesSharedAcrossConsumers) {
+    constexpr int filter_id = 13;
+    auto runtime_filter_wrapper = make_in_wrapper(filter_id, {1, 2, 3}, true);
+    auto first = make_in_conjunct(filter_id, {}, runtime_filter_wrapper);
+    auto second = make_in_conjunct(filter_id, {}, runtime_filter_wrapper);
+    auto target_type = first->root()->get_impl()->children()[0]->data_type();
+
+    auto first_hashes = assert_cast<RuntimeFilterExpr*>(first->root().get())
+                                ->get_bucket_prune_hashes(target_type);
+    auto second_hashes = assert_cast<RuntimeFilterExpr*>(second->root().get())
+                                 ->get_bucket_prune_hashes(target_type);
+    auto nullable_hashes = assert_cast<RuntimeFilterExpr*>(first->root().get())
+                                   ->get_bucket_prune_hashes(std::make_shared<DataTypeNullable>(
+                                           std::make_shared<DataTypeInt32>()));
+
+    EXPECT_EQ(first_hashes.get(), second_hashes.get());
+    EXPECT_EQ(first_hashes->size(), 3);
+    EXPECT_NE(first_hashes.get(), nullable_hashes.get());
+    EXPECT_EQ(nullable_hashes->size(), 4);
+}
 
 TEST_F(RuntimeFilterBucketPrunerTest, ExactInKeepsOnlyMatchingBucket) {
     constexpr int filter_id = 7;

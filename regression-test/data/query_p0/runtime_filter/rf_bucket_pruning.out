@@ -2,3 +2,6 @@
 -- !bucket_result --
 3	30
 
+-- !nullable_bucket_result --
+\N	90
+

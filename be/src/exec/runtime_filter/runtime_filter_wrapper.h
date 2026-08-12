@@ -19,8 +19,12 @@
 
 #include <butil/iobuf.h>
 
+#include <mutex>
+#include <vector>
+
 #include "common/status.h"
 #include "core/column/column.h"
+#include "core/data_type/data_type.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/runtime_filter/utils.h"
 #include "exprs/vexpr_fwd.h"
@@ -81,6 +85,9 @@ public:
     PrimitiveType column_type() const { return _column_return_type; }
 
     bool contain_null() const;
+
+    std::shared_ptr<const std::vector<uint32_t>> get_or_compute_bucket_prune_hashes(
+            const DataTypePtr& target_type) const;
 
     bool disable_always_true_logic() const { return _disable_always_true_logic; }
 
@@ -157,5 +164,10 @@ private:
     // on state is thread-safe.
     std::atomic<State> _state;
     AtomicStatus _reason;
+
+    mutable std::once_flag _non_nullable_bucket_prune_hashes_once;
+    mutable std::once_flag _nullable_bucket_prune_hashes_once;
+    mutable std::shared_ptr<const std::vector<uint32_t>> _non_nullable_bucket_prune_hashes;
+    mutable std::shared_ptr<const std::vector<uint32_t>> _nullable_bucket_prune_hashes;
 };
 } // namespace doris

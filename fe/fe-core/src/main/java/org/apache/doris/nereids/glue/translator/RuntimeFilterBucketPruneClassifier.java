@@ -50,6 +50,9 @@ final class RuntimeFilterBucketPruneClassifier {
         }
 
         OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+        if (olapScanNode.isPointQuery()) {
+            return Classification.unsupported("target scan is a point query");
+        }
         OlapTable table = olapScanNode.getOlapTable();
         if (table == null || olapScanNode.getSelectedPartitionIds().isEmpty()) {
             return Classification.unsupported("target scan has no selected partitions");
