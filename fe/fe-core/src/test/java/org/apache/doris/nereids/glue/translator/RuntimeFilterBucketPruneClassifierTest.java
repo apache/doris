@@ -109,7 +109,7 @@ class RuntimeFilterBucketPruneClassifierTest {
     }
 
     @Test
-    void testDifferentUniqueIdsRejectedBeforeNameFallback() {
+    void testDifferentUniqueIdsAllowedForSameBaseColumn() {
         Column distributionColumn = new Column("dist_col", PrimitiveType.INT);
         distributionColumn.setUniqueId(1);
         Column targetColumn = new Column("dist_col", PrimitiveType.INT);
@@ -118,6 +118,43 @@ class RuntimeFilterBucketPruneClassifierTest {
         RuntimeFilterBucketPruneClassifier.Classification classification = classify(
                 TRuntimeFilterType.IN, targetColumn,
                 new HashDistributionInfo(8, ImmutableList.of(distributionColumn)));
+
+        Assertions.assertTrue(classification.canPruneBuckets());
+    }
+
+    @Test
+    void testRollupUniqueIdCollisionRejectedForDifferentBaseColumns() {
+        Column baseDistributionColumn = new Column("k2", PrimitiveType.INT);
+        baseDistributionColumn.setUniqueId(1);
+
+        Column baseTargetColumn = new Column("k1", PrimitiveType.INT);
+        SlotDescriptor baseSlotDescriptor = new SlotDescriptor(new SlotId(2), new TupleId(2));
+        baseSlotDescriptor.setColumn(baseTargetColumn);
+        baseSlotDescriptor.setType(baseTargetColumn.getType());
+        Column rollupTargetColumn = new Column("mv_k1", PrimitiveType.INT);
+        rollupTargetColumn.setUniqueId(1);
+        rollupTargetColumn.setDefineExpr(new SlotRef(baseSlotDescriptor));
+
+        RuntimeFilterBucketPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.IN, rollupTargetColumn,
+                new HashDistributionInfo(8, ImmutableList.of(baseDistributionColumn)));
+
+        Assertions.assertFalse(classification.canPruneBuckets());
+        Assertions.assertTrue(classification.getUnsupportedReason().contains("distribution column"));
+    }
+
+    @Test
+    void testRollupWithDifferentTypeRejected() {
+        Column baseDistributionColumn = new Column("dist_col", PrimitiveType.INT);
+        SlotDescriptor baseSlotDescriptor = new SlotDescriptor(new SlotId(2), new TupleId(2));
+        baseSlotDescriptor.setColumn(baseDistributionColumn);
+        baseSlotDescriptor.setType(baseDistributionColumn.getType());
+        Column rollupTargetColumn = new Column("mv_dist_col", PrimitiveType.BIGINT);
+        rollupTargetColumn.setDefineExpr(new SlotRef(baseSlotDescriptor));
+
+        RuntimeFilterBucketPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.IN, rollupTargetColumn,
+                new HashDistributionInfo(8, ImmutableList.of(baseDistributionColumn)));
 
         Assertions.assertFalse(classification.canPruneBuckets());
         Assertions.assertTrue(classification.getUnsupportedReason().contains("distribution column"));
