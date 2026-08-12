@@ -34,6 +34,7 @@
 
 #include "common/config.h"
 #include "cpp/sync_point.h"
+#include "io/cache/async_cache_write_service_metrics.h"
 #include "io/cache/block_file_cache_test_common.h"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
@@ -216,7 +217,7 @@ TEST_F(AsyncCacheWriteServiceTest, PerKeyRemoveDoesNotInvalidateUnrelatedWriteEp
     const auto target_hash = BlockFileCache::hash("epoch_scope_target");
     const auto target_epoch = service->current_write_epoch(target_hash);
     const uint64_t cache_epoch = service->current_cache_epoch();
-    const uint64_t baseline_key_invalidations = service->_key_epoch_invalidate_metric->get_value();
+    const uint64_t baseline_key_invalidations = service->_metrics->snapshot().key_epoch_invalidate;
     for (size_t index = 0; index < 128; ++index) {
         cache->remove_if_cached_async(
                 BlockFileCache::hash("unrelated_removed_" + std::to_string(index)));
@@ -230,15 +231,15 @@ TEST_F(AsyncCacheWriteServiceTest, PerKeyRemoveDoesNotInvalidateUnrelatedWriteEp
     cache->remove_if_cached_async(removed_hash);
     EXPECT_FALSE(service->is_current_write_epoch(removed_epoch));
     EXPECT_TRUE(service->is_current_write_epoch(target_epoch));
-    EXPECT_EQ(service->_key_epoch_invalidate_metric->get_value() - baseline_key_invalidations, 129);
+    EXPECT_EQ(service->_metrics->snapshot().key_epoch_invalidate - baseline_key_invalidations, 129);
 
     const auto replacement_epoch = service->current_write_epoch(removed_hash);
     const uint64_t baseline_cache_invalidations =
-            service->_cache_epoch_invalidate_metric->get_value();
+            service->_metrics->snapshot().cache_epoch_invalidate;
     EXPECT_EQ(service->invalidate_all_pending_writes(), cache_epoch + 1);
     EXPECT_FALSE(service->is_current_write_epoch(target_epoch));
     EXPECT_FALSE(service->is_current_write_epoch(replacement_epoch));
-    EXPECT_EQ(service->_cache_epoch_invalidate_metric->get_value() - baseline_cache_invalidations,
+    EXPECT_EQ(service->_metrics->snapshot().cache_epoch_invalidate - baseline_cache_invalidations,
               1);
 }
 
@@ -248,23 +249,28 @@ TEST_F(AsyncCacheWriteServiceTest, TaskWritesDownloadedBlockAndCleansInflightEnt
     auto* index = cache->inflight_write_buffer_index();
     ASSERT_NE(service, nullptr);
     ASSERT_NE(index, nullptr);
-    const uint64_t baseline_submitted = service->_submitted_metric->get_value();
-    const uint64_t baseline_submitted_bytes = service->_submitted_bytes_metric->get_value();
-    const uint64_t baseline_finished = service->_finished_metric->get_value();
-    const uint64_t baseline_finished_bytes = service->_finished_bytes_metric->get_value();
+    const uint64_t baseline_submitted = service->_metrics->snapshot().submitted;
+    const uint64_t baseline_submitted_bytes = service->_metrics->snapshot().submitted_bytes;
+    const uint64_t baseline_finished = service->_metrics->snapshot().finished;
+    const uint64_t baseline_finished_bytes = service->_metrics->snapshot().finished_bytes;
     const uint64_t baseline_worker_finished_bytes =
-            service->_worker_finished_bytes_metric->get_value();
-    const uint64_t baseline_persisted_blocks = service->_persisted_blocks_metric->get_value();
-    const uint64_t baseline_persisted_bytes = service->_persisted_bytes_metric->get_value();
-    const int64_t baseline_submit_latency_count = service->_submit_latency_metric->count();
+            service->_metrics->snapshot().worker_finished_bytes;
+    const uint64_t baseline_persisted_blocks = service->_metrics->snapshot().persisted_blocks;
+    const uint64_t baseline_persisted_bytes = service->_metrics->snapshot().persisted_bytes;
+    const int64_t baseline_submit_latency_count =
+            service->_metrics->snapshot().submit_latency_count;
     const int64_t baseline_buffer_alloc_latency_count =
-            service->_buffer_alloc_latency_metric->count();
-    const int64_t baseline_queue_wait_latency_count = service->_queue_wait_latency_metric->count();
+            service->_metrics->snapshot().buffer_alloc_latency_count;
+    const int64_t baseline_queue_wait_latency_count =
+            service->_metrics->snapshot().queue_wait_latency_count;
     const int64_t baseline_worker_task_latency_count =
-            service->_worker_task_latency_metric->count();
-    const int64_t baseline_get_or_set_latency_count = service->_get_or_set_latency_metric->count();
-    const int64_t baseline_append_latency_count = service->_append_latency_metric->count();
-    const int64_t baseline_finalize_latency_count = service->_finalize_latency_metric->count();
+            service->_metrics->snapshot().worker_task_latency_count;
+    const int64_t baseline_get_or_set_latency_count =
+            service->_metrics->snapshot().get_or_set_latency_count;
+    const int64_t baseline_append_latency_count =
+            service->_metrics->snapshot().append_latency_count;
+    const int64_t baseline_finalize_latency_count =
+            service->_metrics->snapshot().finalize_latency_count;
 
     constexpr size_t block_size = 4096;
     const auto hash = BlockFileCache::hash("async_single_task");
@@ -304,23 +310,33 @@ TEST_F(AsyncCacheWriteServiceTest, TaskWritesDownloadedBlockAndCleansInflightEnt
     EXPECT_EQ(service->active_task_count(), 0);
     EXPECT_EQ(service->active_bytes(), 0);
     EXPECT_EQ(index->lookup(hash, 0), nullptr);
-    EXPECT_EQ(service->_submitted_metric->get_value() - baseline_submitted, 1);
-    EXPECT_EQ(service->_submitted_bytes_metric->get_value() - baseline_submitted_bytes, block_size);
-    EXPECT_EQ(service->_finished_metric->get_value() - baseline_finished, 1);
-    EXPECT_EQ(service->_finished_bytes_metric->get_value() - baseline_finished_bytes, block_size);
-    EXPECT_EQ(service->_worker_finished_bytes_metric->get_value() - baseline_worker_finished_bytes,
+    EXPECT_EQ(service->_metrics->snapshot().submitted - baseline_submitted, 1);
+    EXPECT_EQ(service->_metrics->snapshot().submitted_bytes - baseline_submitted_bytes, block_size);
+    EXPECT_EQ(service->_metrics->snapshot().finished - baseline_finished, 1);
+    EXPECT_EQ(service->_metrics->snapshot().finished_bytes - baseline_finished_bytes, block_size);
+    EXPECT_EQ(service->_metrics->snapshot().worker_finished_bytes - baseline_worker_finished_bytes,
               block_size);
-    EXPECT_EQ(service->_persisted_blocks_metric->get_value() - baseline_persisted_blocks, 1);
-    EXPECT_EQ(service->_persisted_bytes_metric->get_value() - baseline_persisted_bytes, block_size);
-    EXPECT_EQ(service->_submit_latency_metric->count() - baseline_submit_latency_count, 1);
-    EXPECT_EQ(service->_buffer_alloc_latency_metric->count() - baseline_buffer_alloc_latency_count,
+    EXPECT_EQ(service->_metrics->snapshot().persisted_blocks - baseline_persisted_blocks, 1);
+    EXPECT_EQ(service->_metrics->snapshot().persisted_bytes - baseline_persisted_bytes, block_size);
+    EXPECT_EQ(service->_metrics->snapshot().submit_latency_count - baseline_submit_latency_count,
               1);
-    EXPECT_EQ(service->_queue_wait_latency_metric->count() - baseline_queue_wait_latency_count, 1);
-    EXPECT_EQ(service->_worker_task_latency_metric->count() - baseline_worker_task_latency_count,
+    EXPECT_EQ(service->_metrics->snapshot().buffer_alloc_latency_count -
+                      baseline_buffer_alloc_latency_count,
               1);
-    EXPECT_EQ(service->_get_or_set_latency_metric->count() - baseline_get_or_set_latency_count, 1);
-    EXPECT_EQ(service->_append_latency_metric->count() - baseline_append_latency_count, 1);
-    EXPECT_EQ(service->_finalize_latency_metric->count() - baseline_finalize_latency_count, 1);
+    EXPECT_EQ(service->_metrics->snapshot().queue_wait_latency_count -
+                      baseline_queue_wait_latency_count,
+              1);
+    EXPECT_EQ(service->_metrics->snapshot().worker_task_latency_count -
+                      baseline_worker_task_latency_count,
+              1);
+    EXPECT_EQ(service->_metrics->snapshot().get_or_set_latency_count -
+                      baseline_get_or_set_latency_count,
+              1);
+    EXPECT_EQ(service->_metrics->snapshot().append_latency_count - baseline_append_latency_count,
+              1);
+    EXPECT_EQ(
+            service->_metrics->snapshot().finalize_latency_count - baseline_finalize_latency_count,
+            1);
 
     ReadStatistics read_stats;
     CacheContext context;
@@ -366,7 +382,7 @@ TEST_F(AsyncCacheWriteServiceTest, LockedQueuePreservesFifoWithSingleWorker) {
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&& args) {
                 const auto* task = try_any_cast<const AsyncCacheWriteTask*>(args[0]);
                 const auto iterator = std::find(hashes.begin(), hashes.end(), task->cache_hash);
@@ -433,7 +449,7 @@ TEST_F(AsyncCacheWriteServiceTest, RejectsWhenAllPendingTasksAreActive) {
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&&) {
                 std::unique_lock lock(mutex);
                 worker_entered = true;
@@ -496,8 +512,8 @@ TEST_F(AsyncCacheWriteServiceTest, RejectsWhenAllPendingTasksAreActive) {
     EXPECT_EQ(service->active_task_count(), 1);
     EXPECT_EQ(service->active_bytes(), 4096);
     EXPECT_EQ(service->_active_get_or_set_count.load(std::memory_order_relaxed), 1);
-    EXPECT_GE(service->_reject_backpressure_metric->get_value(), 1);
-    EXPECT_EQ(service->_evicted_oldest_metric->get_value(), 0);
+    EXPECT_GE(service->_metrics->snapshot().reject_backpressure, 1);
+    EXPECT_EQ(service->_metrics->snapshot().evicted_oldest, 0);
 
     {
         std::lock_guard lock(mutex);
@@ -517,15 +533,15 @@ TEST_F(AsyncCacheWriteServiceTest, RejectsTaskLargerThanPendingMemoryLimit) {
     options.max_pending_bytes = 4095;
     ASSERT_TRUE(service->update_options(options).ok());
 
-    const uint64_t baseline_rejected = service->_rejected_metric->get_value();
-    const uint64_t baseline_backpressure = service->_reject_backpressure_metric->get_value();
+    const uint64_t baseline_rejected = service->_metrics->snapshot().rejected;
+    const uint64_t baseline_backpressure = service->_metrics->snapshot().reject_backpressure;
     size_t finalized = 0;
     EXPECT_FALSE(service->try_submit(make_async_write_task(
             service, "task_too_large", 'l', [&](const AsyncCacheWriteTask&) { ++finalized; })));
     EXPECT_EQ(service->pending_count(), 0);
     EXPECT_EQ(service->pending_bytes(), 0);
-    EXPECT_EQ(service->_rejected_metric->get_value() - baseline_rejected, 1);
-    EXPECT_EQ(service->_reject_backpressure_metric->get_value() - baseline_backpressure, 1);
+    EXPECT_EQ(service->_metrics->snapshot().rejected - baseline_rejected, 1);
+    EXPECT_EQ(service->_metrics->snapshot().reject_backpressure - baseline_backpressure, 1);
     EXPECT_EQ(finalized, 0);
 }
 
@@ -558,7 +574,7 @@ TEST_F(AsyncCacheWriteServiceTest,
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&&) {
                 std::unique_lock lock(mutex);
                 worker_entered = true;
@@ -630,9 +646,10 @@ TEST_F(AsyncCacheWriteServiceTest,
     ASSERT_EQ(service->active_bytes(), 4096);
     auto concurrent_reader = index->lookup(hashes[1], 0);
     ASSERT_NE(concurrent_reader, nullptr);
-    const uint64_t baseline_evicted = service->_evicted_oldest_metric->get_value();
-    const uint64_t baseline_evicted_bytes = service->_evicted_oldest_bytes_metric->get_value();
-    const int64_t baseline_evicted_age_count = service->_evicted_oldest_age_metric->count();
+    const uint64_t baseline_evicted = service->_metrics->snapshot().evicted_oldest;
+    const uint64_t baseline_evicted_bytes = service->_metrics->snapshot().evicted_oldest_bytes;
+    const int64_t baseline_evicted_age_count =
+            service->_metrics->snapshot().evicted_oldest_age_count;
 
     ASSERT_TRUE(service->try_submit(make_indexed_task(3, 'd')));
     EXPECT_EQ(service->pending_count(), 3);
@@ -645,9 +662,10 @@ TEST_F(AsyncCacheWriteServiceTest,
     EXPECT_EQ(finalized[1], 1);
     EXPECT_EQ(finalized[2], 0);
     EXPECT_EQ(finalized[3], 0);
-    EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted, 1);
-    EXPECT_EQ(service->_evicted_oldest_bytes_metric->get_value() - baseline_evicted_bytes, 4096);
-    EXPECT_EQ(service->_evicted_oldest_age_metric->count() - baseline_evicted_age_count, 1);
+    EXPECT_EQ(service->_metrics->snapshot().evicted_oldest - baseline_evicted, 1);
+    EXPECT_EQ(service->_metrics->snapshot().evicted_oldest_bytes - baseline_evicted_bytes, 4096);
+    EXPECT_EQ(service->_metrics->snapshot().evicted_oldest_age_count - baseline_evicted_age_count,
+              1);
     EXPECT_EQ(index->lookup(hashes[1], 0), nullptr);
     EXPECT_NE(index->lookup(hashes[2], 0), nullptr);
     EXPECT_NE(index->lookup(hashes[3], 0), nullptr);
@@ -701,7 +719,7 @@ TEST_F(AsyncCacheWriteServiceTest, InvalidatedVictimBufferRemainsReadableUntilFi
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&&) {
                 std::unique_lock lock(mutex);
                 worker_entered = true;
@@ -765,11 +783,11 @@ TEST_F(AsyncCacheWriteServiceTest, InvalidatedVictimBufferRemainsReadableUntilFi
     EXPECT_EQ(index->lookup(hash, 0), old_entry);
     EXPECT_EQ(index->insert_if_absent(hash, 0, replacement_entry), old_entry);
 
-    const uint64_t baseline_evicted = service->_evicted_oldest_metric->get_value();
+    const uint64_t baseline_evicted = service->_metrics->snapshot().evicted_oldest;
     ASSERT_TRUE(service->try_submit(make_async_write_task(service, "old_epoch_replacer", 'r')));
     EXPECT_EQ(old_callback_count, 1);
     EXPECT_EQ(index->lookup(hash, 0), nullptr);
-    EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted, 1);
+    EXPECT_EQ(service->_metrics->snapshot().evicted_oldest - baseline_evicted, 1);
 
     {
         std::lock_guard lock(mutex);
@@ -805,7 +823,7 @@ TEST_F(AsyncCacheWriteServiceTest, EvictedCallbackRunsOutsideQueueMutex) {
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&& args) {
                 const auto* task = try_any_cast<const AsyncCacheWriteTask*>(args[0]);
                 std::unique_lock lock(mutex);
@@ -1044,9 +1062,9 @@ TEST_F(AsyncCacheWriteServiceTest, ExistingAndDeletingCellsKeepTheirOwners) {
     ASSERT_TRUE(service->try_submit(std::move(task)));
     ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     EXPECT_EQ(service->pending_count(), 0);
-    EXPECT_GE(service->_skip_downloaded_metric->get_value(), 1);
-    EXPECT_GE(service->_skip_downloading_metric->get_value(), 1);
-    EXPECT_GE(service->_skip_deleting_metric->get_value(), 1);
+    EXPECT_GE(service->_metrics->snapshot().skip_downloaded, 1);
+    EXPECT_GE(service->_metrics->snapshot().skip_downloading, 1);
+    EXPECT_GE(service->_metrics->snapshot().skip_deleting, 1);
 
     std::string actual(cell_size, '\0');
     ASSERT_TRUE(downloaded_block->read(Slice(actual.data(), actual.size()), 0).ok());
@@ -1068,7 +1086,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveDuringAppendDoesNotLeaveResurrectedCach
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_append",
+            "AsyncCacheWriteService::_persist_task:before_append",
             [&](auto&&) {
                 std::unique_lock lock(mutex);
                 before_append = true;
@@ -1197,7 +1215,7 @@ TEST_F(AsyncCacheWriteServiceTest, PartialOverlapIsSkippedWithoutOutOfBoundsWrit
     };
     ASSERT_TRUE(service->try_submit(std::move(task)));
     ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-    EXPECT_GE(service->_skip_partial_overlap_metric->get_value(), 1);
+    EXPECT_GE(service->_metrics->snapshot().skip_partial_overlap, 1);
 
     FileBlocks blocks;
     bool fully_covered = false;
@@ -1231,7 +1249,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesOnlyMatchingTaskAndCleansEmp
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&&) {
                 std::unique_lock lock(mutex);
                 worker_entered = true;
@@ -1296,7 +1314,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesOnlyMatchingTaskAndCleansEmp
     ASSERT_EQ(service->pending_count(), 2);
 
     const uint64_t cache_epoch = service->current_cache_epoch();
-    const uint64_t baseline_stale_key = service->_drop_stale_key_epoch_metric->get_value();
+    const uint64_t baseline_stale_key = service->_metrics->snapshot().drop_stale_key_epoch;
     cache->remove_if_cached_async(active_hash);
     EXPECT_EQ(service->current_cache_epoch(), cache_epoch);
     EXPECT_FALSE(service->is_current_write_epoch(active_epoch));
@@ -1309,7 +1327,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesOnlyMatchingTaskAndCleansEmp
     ASSERT_EQ(active_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     ASSERT_EQ(queued_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     EXPECT_EQ(service->pending_count(), 0);
-    EXPECT_GE(service->_drop_stale_key_epoch_metric->get_value() - baseline_stale_key, 1);
+    EXPECT_GE(service->_metrics->snapshot().drop_stale_key_epoch - baseline_stale_key, 1);
 
     ReadStatistics read_stats;
     CacheContext context;
@@ -1340,7 +1358,7 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseKeepsReplacingOldestQueue
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&&) {
                 std::unique_lock lock(mutex);
                 const size_t current_entry = ++worker_entries;
@@ -1388,11 +1406,11 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseKeepsReplacingOldestQueue
 
     options.max_pending_bytes = 2 * 4096;
     ASSERT_TRUE(service->update_options(options).ok());
-    const uint64_t baseline_evicted = service->_evicted_oldest_metric->get_value();
+    const uint64_t baseline_evicted = service->_metrics->snapshot().evicted_oldest;
     ASSERT_TRUE(service->try_submit(
             make_async_write_task(service, "limit_decrease_e", 'e', finalizer(4))));
     EXPECT_EQ(finalized[1], 1);
-    EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted, 1);
+    EXPECT_EQ(service->_metrics->snapshot().evicted_oldest - baseline_evicted, 1);
     EXPECT_EQ(service->pending_count(), 4);
     EXPECT_EQ(service->pending_bytes(), 4 * 4096);
     EXPECT_EQ(service->queued_count(), 3);
@@ -1414,7 +1432,7 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseKeepsReplacingOldestQueue
     ASSERT_TRUE(service->try_submit(
             make_async_write_task(service, "limit_decrease_g", 'g', finalizer(5))));
     EXPECT_EQ(finalized[3], 1);
-    EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted, 2);
+    EXPECT_EQ(service->_metrics->snapshot().evicted_oldest - baseline_evicted, 2);
     EXPECT_EQ(service->pending_count(), 3);
     EXPECT_EQ(service->pending_bytes(), 3 * 4096);
     EXPECT_EQ(service->queued_count(), 2);
@@ -1445,7 +1463,7 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseKeepsReplacingOldestQueue
     EXPECT_EQ(service->queued_count(), 1);
     EXPECT_EQ(service->queued_bytes(), 4096);
     EXPECT_EQ(finalized[5], 1);
-    EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted, 3);
+    EXPECT_EQ(service->_metrics->snapshot().evicted_oldest - baseline_evicted, 3);
 
     {
         std::lock_guard lock(mutex);
@@ -1559,7 +1577,7 @@ TEST_F(AsyncCacheWriteServiceTest, ResizeWorkersPreservesActiveTaskOwnership) {
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&&) {
                 std::unique_lock lock(mutex);
                 ++entered_workers;
@@ -1658,7 +1676,7 @@ TEST_F(AsyncCacheWriteServiceTest, ConcurrentDropOldestMaintainsCounterConservat
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&& args) {
                 const auto* task = try_any_cast<const AsyncCacheWriteTask*>(args[0]);
                 std::unique_lock lock(mutex);
@@ -1693,16 +1711,16 @@ TEST_F(AsyncCacheWriteServiceTest, ConcurrentDropOldestMaintainsCounterConservat
                 }));
     }
 
-    const uint64_t baseline_submitted = service->_submitted_metric->get_value();
-    const uint64_t baseline_submitted_bytes = service->_submitted_bytes_metric->get_value();
-    const uint64_t baseline_finished = service->_finished_metric->get_value();
-    const uint64_t baseline_finished_bytes = service->_finished_bytes_metric->get_value();
-    const uint64_t baseline_worker_finished = service->_worker_finished_metric->get_value();
+    const uint64_t baseline_submitted = service->_metrics->snapshot().submitted;
+    const uint64_t baseline_submitted_bytes = service->_metrics->snapshot().submitted_bytes;
+    const uint64_t baseline_finished = service->_metrics->snapshot().finished;
+    const uint64_t baseline_finished_bytes = service->_metrics->snapshot().finished_bytes;
+    const uint64_t baseline_worker_finished = service->_metrics->snapshot().worker_finished;
     const uint64_t baseline_worker_finished_bytes =
-            service->_worker_finished_bytes_metric->get_value();
-    const uint64_t baseline_evicted = service->_evicted_oldest_metric->get_value();
-    const uint64_t baseline_evicted_bytes = service->_evicted_oldest_bytes_metric->get_value();
-    const uint64_t baseline_rejected = service->_rejected_metric->get_value();
+            service->_metrics->snapshot().worker_finished_bytes;
+    const uint64_t baseline_evicted = service->_metrics->snapshot().evicted_oldest;
+    const uint64_t baseline_evicted_bytes = service->_metrics->snapshot().evicted_oldest_bytes;
+    const uint64_t baseline_rejected = service->_metrics->snapshot().rejected;
     ASSERT_TRUE(service->try_submit(std::move(tasks[0])));
     {
         std::unique_lock lock(mutex);
@@ -1735,13 +1753,13 @@ TEST_F(AsyncCacheWriteServiceTest, ConcurrentDropOldestMaintainsCounterConservat
     EXPECT_EQ(service->queued_bytes(), (max_pending_blocks - 1) * 4096);
     EXPECT_EQ(service->active_task_count(), 1);
     EXPECT_EQ(service->active_bytes(), 4096);
-    EXPECT_EQ(service->_submitted_metric->get_value() - baseline_submitted, total_tasks);
-    EXPECT_EQ(service->_submitted_bytes_metric->get_value() - baseline_submitted_bytes,
+    EXPECT_EQ(service->_metrics->snapshot().submitted - baseline_submitted, total_tasks);
+    EXPECT_EQ(service->_metrics->snapshot().submitted_bytes - baseline_submitted_bytes,
               total_tasks * 4096);
-    EXPECT_EQ(service->_rejected_metric->get_value() - baseline_rejected, 0);
-    EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted,
+    EXPECT_EQ(service->_metrics->snapshot().rejected - baseline_rejected, 0);
+    EXPECT_EQ(service->_metrics->snapshot().evicted_oldest - baseline_evicted,
               total_tasks - max_pending_blocks);
-    EXPECT_EQ(service->_evicted_oldest_bytes_metric->get_value() - baseline_evicted_bytes,
+    EXPECT_EQ(service->_metrics->snapshot().evicted_oldest_bytes - baseline_evicted_bytes,
               (total_tasks - max_pending_blocks) * 4096);
 
     {
@@ -1763,16 +1781,16 @@ TEST_F(AsyncCacheWriteServiceTest, ConcurrentDropOldestMaintainsCounterConservat
     EXPECT_EQ(service->active_task_count(), 0);
     EXPECT_EQ(service->active_bytes(), 0);
     EXPECT_EQ(worker_tasks, max_pending_blocks);
-    EXPECT_EQ(service->_finished_metric->get_value() - baseline_finished, total_tasks);
-    EXPECT_EQ(service->_finished_bytes_metric->get_value() - baseline_finished_bytes,
+    EXPECT_EQ(service->_metrics->snapshot().finished - baseline_finished, total_tasks);
+    EXPECT_EQ(service->_metrics->snapshot().finished_bytes - baseline_finished_bytes,
               total_tasks * 4096);
-    EXPECT_EQ(service->_worker_finished_metric->get_value() - baseline_worker_finished,
+    EXPECT_EQ(service->_metrics->snapshot().worker_finished - baseline_worker_finished,
               max_pending_blocks);
-    EXPECT_EQ(service->_worker_finished_bytes_metric->get_value() - baseline_worker_finished_bytes,
+    EXPECT_EQ(service->_metrics->snapshot().worker_finished_bytes - baseline_worker_finished_bytes,
               max_pending_blocks * 4096);
-    EXPECT_EQ((service->_worker_finished_metric->get_value() - baseline_worker_finished) +
-                      (service->_evicted_oldest_metric->get_value() - baseline_evicted),
-              service->_submitted_metric->get_value() - baseline_submitted);
+    EXPECT_EQ((service->_metrics->snapshot().worker_finished - baseline_worker_finished) +
+                      (service->_metrics->snapshot().evicted_oldest - baseline_evicted),
+              service->_metrics->snapshot().submitted - baseline_submitted);
 }
 
 TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
@@ -1874,7 +1892,7 @@ TEST_F(AsyncCacheWriteServiceTest, ShutdownWaitsForConcurrentReplacementAndDrain
     SyncPoint::CallbackGuard worker_guard;
     SyncPoint::CallbackGuard shutdown_guard;
     sync_point->set_call_back(
-            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            "AsyncCacheWriteService::_persist_task:before_get_or_set",
             [&](auto&& args) {
                 const auto* task = try_any_cast<const AsyncCacheWriteTask*>(args[0]);
                 if (task->cache_hash != active_hash) {

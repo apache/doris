@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <bvar/bvar.h>
-
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
@@ -48,6 +46,12 @@ struct CacheAdmissionContext {
     int64_t expiration_time {0};
     int64_t tablet_id {0};
     bool is_warmup {false};
+
+    /// Capture only the cache-admission fields that remain valid after the query thread returns.
+    static CacheAdmissionContext from_cache_context(const CacheContext& context, int64_t tablet_id);
+
+    /// Recreate the worker-local cache context and attach its temporary statistics sink.
+    CacheContext to_cache_context(ReadStatistics* stats) const;
 };
 
 /// Reference-counted payload whose allocation is charged to the async-write memory tracker.
@@ -107,6 +111,8 @@ struct AsyncCacheWriteEpoch {
 /// only the physical EOF block may use less than the full buffer. `write_epoch` prevents a worker
 /// from resurrecting data after cache invalidation.
 struct AsyncCacheWriteTask {
+    using Finalizer = std::function<void(const AsyncCacheWriteTask&)>;
+
     UInt128Wrapper cache_hash;
     size_t file_offset {0};
     size_t write_size {0};
@@ -114,7 +120,16 @@ struct AsyncCacheWriteTask {
     CacheAdmissionContext admission_ctx;
     int64_t submit_ts_us {0};
     AsyncCacheWriteEpoch write_epoch;
-    std::function<void(const AsyncCacheWriteTask&)> on_finalized;
+    Finalizer on_finalized;
+
+    /// Assert the task contract at the service boundary.
+    void validate() const;
+
+    /// Return the full allocation capacity charged to pending-byte accounting.
+    size_t buffer_size() const;
+
+    /// Run the optional owner cleanup after this task reaches a terminal state.
+    void finalize() const;
 };
 
 /// Complete per-cache-disk worker and memory settings. The service receives this value
@@ -227,7 +242,7 @@ public:
     int64_t buffer_memory_bytes() const { return _mem_tracker->consumption(); }
 
     /// Return tasks displaced by full-queue admission.
-    uint64_t evicted_oldest_count() const { return _evicted_oldest_metric->get_value(); }
+    uint64_t evicted_oldest_count() const;
 
     /// Return the current rolling P99 wait to acquire the FIFO mutex.
     int64_t queue_lock_wait_p99_us() const;
@@ -243,6 +258,9 @@ private:
         EVICTED_OLDEST,
     };
 
+    /// Owns bvar registration and translates service events into coherent metric updates.
+    class Metrics;
+
     /// Resize the owned worker set while `_lifecycle_mutex` is held and `_worker_pool` exists.
     Status _resize_workers_locked(size_t worker_count);
 
@@ -254,16 +272,16 @@ private:
     void _process_task(AsyncCacheWriteTask task);
 
     /// Move the oldest queued task to active ownership.
-    bool _try_take_task(AsyncCacheWriteTask* task);
+    bool _try_activate_task(AsyncCacheWriteTask* task);
 
     /// Revalidate epoch/cache state and persist the task's still-empty complete blocks.
-    Status _write_one(const AsyncCacheWriteTask& task);
+    Status _persist_task(const AsyncCacheWriteTask& task);
 
-    /// Release one active pending slot, then finalize and destroy `task` outside the queue lock.
-    void _finish_active_task(AsyncCacheWriteTask task);
+    /// Move one active task to its terminal state outside the queue lock.
+    void _complete_active_task(AsyncCacheWriteTask task);
 
-    /// Record the terminal reason and invoke the task cleanup callback without the queue lock.
-    void _finalize_task(AsyncCacheWriteTask task, TaskFinalizationReason reason);
+    /// Record the terminal reason and let the task run its owner cleanup without the queue lock.
+    void _complete_task(AsyncCacheWriteTask task, TaskFinalizationReason reason);
 
     BlockFileCache* _cache;
     atomic_shared_ptr<const AsyncCacheWriteServiceOptions> _options;
@@ -294,62 +312,13 @@ private:
     std::shared_ptr<AsyncCacheWriteEpochRegistry> _write_epoch_registry;
 
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    std::unique_ptr<Metrics> _metrics;
     std::unique_ptr<ThreadPool> _worker_pool;
     std::atomic<size_t> _configured_worker_count {0};
     // Serializes start, resize, and shutdown, including all changes to `_workers`.
     std::mutex _lifecycle_mutex;
     // Protected by `_lifecycle_mutex`. Worker stop state is owned by each Worker.
     std::vector<std::shared_ptr<Worker>> _workers;
-
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_bytes_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _queued_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _queued_bytes_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_task_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_bytes_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _running_worker_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _configured_worker_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _max_pending_bytes_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_get_or_set_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_append_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_finalize_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_write_epoch_key_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<int64_t>> _buffer_memory_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _submitted_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _submitted_bytes_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _finished_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _finished_bytes_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _worker_finished_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _worker_finished_bytes_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _evicted_oldest_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _evicted_oldest_bytes_metric;
-    std::shared_ptr<bvar::LatencyRecorder> _evicted_oldest_age_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _rejected_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _reject_not_running_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _reject_backpressure_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _buffer_alloc_fail_metric;
-    std::shared_ptr<bvar::LatencyRecorder> _submit_latency_metric;
-    std::shared_ptr<bvar::LatencyRecorder> _buffer_alloc_latency_metric;
-    std::shared_ptr<bvar::LatencyRecorder> _queue_wait_latency_metric;
-    std::shared_ptr<bvar::LatencyRecorder> _queue_lock_wait_latency_metric;
-    std::shared_ptr<bvar::LatencyRecorder> _queue_lock_hold_latency_metric;
-    std::shared_ptr<bvar::LatencyRecorder> _worker_task_latency_metric;
-    std::shared_ptr<bvar::LatencyRecorder> _get_or_set_latency_metric;
-    std::shared_ptr<bvar::LatencyRecorder> _append_latency_metric;
-    std::shared_ptr<bvar::LatencyRecorder> _finalize_latency_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _skip_downloaded_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _skip_downloading_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _skip_partial_overlap_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _drop_stale_epoch_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _drop_stale_cache_epoch_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _drop_stale_key_epoch_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _cache_epoch_invalidate_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _key_epoch_invalidate_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _skip_deleting_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _append_fail_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _finalize_fail_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _persisted_blocks_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _persisted_bytes_metric;
 };
 
 } // namespace doris::io
