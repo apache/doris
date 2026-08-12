@@ -32,20 +32,20 @@ suite("test_cloud_plugin_auto_download", "p1,external") {
     sql """create table if not exists internal.test_auto_download_db.test_tbl
          (id int, name varchar(20))
          distributed by hash(id) buckets 1
-         properties('replication_num' = '1'); 
+         properties('replication_num' = '1');
          """
     sql """insert into internal.test_auto_download_db.test_tbl values(1, 'auto_download_test')"""
 
     sql """drop catalog if exists test_auto_download_catalog """
     sql """ CREATE CATALOG `test_auto_download_catalog` PROPERTIES (
             "user" = "${jdbcUser}",
-            "type" = "jdbc", 
+            "type" = "jdbc",
             "password" = "${jdbcPassword}",
             "jdbc_url" = "${jdbcUrl}",
             "driver_url" = "mysql-connector-j-8.3.0.jar",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         )"""
-    
+
     def result = sql """
         select * from test_auto_download_catalog.test_auto_download_db.test_tbl
     """
@@ -53,7 +53,7 @@ suite("test_cloud_plugin_auto_download", "p1,external") {
     assertTrue(result.size() > 0)
     assertEquals(result[0][0], 1)
     assertEquals(result[0][1], "auto_download_test")
-    
+
     sql """drop catalog if exists test_auto_download_catalog """
 
     sql """ use internal.test_auto_download_db; """
@@ -79,13 +79,13 @@ suite("test_cloud_plugin_auto_download", "p1,external") {
     try {
         sql """ CREATE CATALOG `test_non_existent_driver_catalog` PROPERTIES (
             "user" = "${jdbcUser}",
-            "type" = "jdbc", 
+            "type" = "jdbc",
             "password" = "${jdbcPassword}",
             "jdbc_url" = "${jdbcUrl}",
             "driver_url" = "non-existent-mysql-driver.jar",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         )"""
-        
+
         sql """
             select * from test_non_existent_driver_catalog.test_auto_download_db.test_tbl
         """
@@ -105,7 +105,7 @@ suite("test_cloud_plugin_auto_download", "p1,external") {
             "symbol"="org.apache.doris.udf.NonExistent",
             "type"="JAVA_UDF"
         ); """
-        
+
         sql """
             select java_udf_non_existent(100) as result
         """

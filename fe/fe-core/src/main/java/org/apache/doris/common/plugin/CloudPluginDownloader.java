@@ -19,7 +19,10 @@ package org.apache.doris.common.plugin;
 
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
-import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.cloud.storage.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.service.FrontendOptions;
@@ -32,8 +35,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Simple cloud plugin downloader for UDF and JDBC drivers.
@@ -131,27 +132,21 @@ public class CloudPluginDownloader {
             throw new RuntimeException("Failed to delete existing file: " + localPath);
         }
 
-        // Download via SPI FileSystem
-        Map<String, String> properties = buildProperties(objInfo);
-        org.apache.doris.filesystem.FileSystem fileSystem =
-                FileSystemFactory.getFileSystem(properties);
-        DorisInputFile inputFile = fileSystem.newInputFile(Location.of(remotePath));
-        try (InputStream in = inputFile.newStream()) {
+        // Bind the provider reported by MetaService explicitly. Raw property auto-detection is
+        // order-dependent when more than one storage provider recognizes the same map.
+        StorageAdapter storageAdapter = createStorageAdapter(objInfo);
+        try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageAdapter);
+                InputStream in = fileSystem.newInputFile(Location.of(remotePath)).newStream()) {
             Files.copy(in, localFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
         return localPath;
     }
 
     /**
-     * Build storage properties map from objInfo
+     * Bind cloud object-store information to the provider selected by MetaService.
+     * Package-private for testing.
      */
-    private static Map<String, String> buildProperties(Cloud.ObjectStoreInfoPB objInfo) {
-        Map<String, String> props = new HashMap<>();
-        props.put("s3.endpoint", objInfo.getEndpoint());
-        props.put("s3.region", objInfo.getRegion());
-        props.put("s3.access_key", objInfo.getAk());
-        props.put("s3.secret_key", objInfo.getSk());
-        props.put("s3.bucket", objInfo.getBucket());
-        return props;
+    static StorageAdapter createStorageAdapter(Cloud.ObjectStoreInfoPB objInfo) {
+        return ObjectInfoAdapter.toStorageAdapter(new ObjectInfo(objInfo));
     }
 }
