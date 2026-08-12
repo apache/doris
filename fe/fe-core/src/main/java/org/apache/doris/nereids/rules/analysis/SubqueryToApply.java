@@ -119,7 +119,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(oldConjuncts.get(i), context);
                         Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyResult =
-                                simplifyConjunctWithMarkJoinSlot(conjunct, filter, ctx.cascadesContext);
+                                simplifyConjunctWithMarkJoinSlot(conjunct, filter, ctx.cascadesContext,
+                                        collectGeneratedAssertionsOfLaterConjuncts(i, subqueryExprsList));
                         conjunct = simplifyResult.first;
                         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo = simplifyResult.second;
                         Pair<LogicalPlan, Optional<Expression>> result = subqueryToApply(subqueryExprs.stream()
@@ -233,7 +234,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(subqueryConjuncts.get(i), context);
                         Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyResult =
-                                    simplifyConjunctWithMarkJoinSlot(conjunct, join, ctx.cascadesContext);
+                                    simplifyConjunctWithMarkJoinSlot(conjunct, join, ctx.cascadesContext,
+                                            collectGeneratedAssertionsOfLaterConjuncts(i, subqueryExprsList));
                         /*
                          * for each mark slot, Pair.first indicates whether the null and false
                          * values of the mark slot are indistinguishable in the conjunct. it's
@@ -553,14 +555,21 @@ public class SubqueryToApply implements AnalysisRuleFactory {
      * when Pair.second is true, the mark slot is replaced by the true literal in the returned
      * conjunct, and the caller can drop the mark join slot to turn the mark join into a plain
      * semi join.
+     *
+     * extraEvaluationDomain extends the evaluation domain with expressions that are not yet
+     * part of the plan but will be evaluated on the same rows later, e.g. the generated
+     * assert_true(count(*) <= 1) that addApply synthesizes for a later correlated scalar
+     * subquery; see collectGeneratedAssertionsOfLaterConjuncts.
      */
     private Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyConjunctWithMarkJoinSlot(
-            Expression conjunct, Plan plan, CascadesContext cascadesContext) {
+            Expression conjunct, Plan plan, CascadesContext cascadesContext,
+            List<Expression> extraEvaluationDomain) {
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(plan, cascadesContext);
         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo;
         if (conjunct.containsType(MarkJoinSlotReference.class)) {
-            markSlotsInfo = ExpressionUtils.inferMarkSlotNotNullMap(
-                    conjunct, rewriteContext, collectEvaluationDomain(plan));
+            List<Expression> evaluationDomain = collectEvaluationDomain(plan);
+            evaluationDomain.addAll(extraEvaluationDomain);
+            markSlotsInfo = ExpressionUtils.inferMarkSlotNotNullMap(conjunct, rewriteContext, evaluationDomain);
         } else {
             markSlotsInfo = Maps.newHashMap();
         }
@@ -584,7 +593,10 @@ public class SubqueryToApply implements AnalysisRuleFactory {
      * a later subquery plan whose input rows are pruned together with the outer rows when an
      * earlier mark join is eliminated. pair.second is only safe when every such expression
      * is still evaluated on the same rows after the elimination, so they all belong to the
-     * evaluation domain that the pair.second proof must be validated against.
+     * evaluation domain that the pair.second proof must be validated against. a generated
+     * assert_true(count(*) <= 1) for a later correlated scalar subquery is not visible here
+     * (it is synthesized by addApply after the collection), so the callers add it separately
+     * via collectGeneratedAssertionsOfLaterConjuncts.
      */
     private List<Expression> collectEvaluationDomain(Plan plan) {
         List<Expression> evaluationDomain = new ArrayList<>();
@@ -609,6 +621,51 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         for (Plan child : plan.children()) {
             collectPlanExpressions(child, expressions);
         }
+    }
+
+    /*
+     * whether addApply will synthesize the runtime assert_true(count(*) <= 1) for the
+     * subquery: a correlated scalar subquery without a top-level scalar agg that is not
+     * limit-one-eliminated. a top-level scalar agg returns at most one row and a
+     * limit-one-eliminated subquery is guaranteed to produce at most one row, so no check
+     * is generated for them. the check references a count slot that only exists after
+     * addApply, so it is invisible to collectEvaluationDomain and a preceding mark join
+     * whose elimination prunes the rows reaching the check must be fenced.
+     */
+    private static boolean isCorrelatedScalarNeedingRuntimeCheck(SubqueryExpr subquery) {
+        if (!(subquery instanceof ScalarSubquery)) {
+            return false;
+        }
+        ScalarSubquery scalar = (ScalarSubquery) subquery;
+        return !scalar.getCorrelateSlots().isEmpty()
+                && !scalar.hasTopLevelScalarAgg()
+                && !scalar.limitOneIsEliminated();
+    }
+
+    /*
+     * collect a representative of the runtime assert_true(count(*) <= 1) that addApply
+     * will synthesize for every correlated scalar subquery in the conjuncts after
+     * currentIndex: those applies are built above the current conjunct's apply, so
+     * eliminating the current conjunct's mark join would prune the rows that reach the
+     * generated assertion and suppress its error. only the sensitive-function type
+     * matters for the inference fence, so a representative assertion with a fresh count
+     * slot is enough to fence the elimination.
+     */
+    private List<Expression> collectGeneratedAssertionsOfLaterConjuncts(
+            int currentIndex, List<Set<SubqueryExpr>> subqueryExprsList) {
+        List<Expression> generatedAssertions = new ArrayList<>();
+        for (int j = currentIndex + 1; j < subqueryExprsList.size(); ++j) {
+            for (SubqueryExpr subquery : subqueryExprsList.get(j)) {
+                if (isCorrelatedScalarNeedingRuntimeCheck(subquery)) {
+                    Slot countSlot = new Alias(new Count()).toSlot();
+                    generatedAssertions.add(new AssertTrue(
+                            ExpressionUtils.or(new IsNull(countSlot),
+                                    new LessThanEqual(countSlot, new BigIntLiteral(1))),
+                            new VarcharLiteral("correlate scalar subquery must return only 1 row")));
+                }
+            }
+        }
+        return generatedAssertions;
     }
 
     /**

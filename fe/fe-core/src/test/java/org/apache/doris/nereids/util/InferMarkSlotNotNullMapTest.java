@@ -172,6 +172,41 @@ public class InferMarkSlotNotNullMapTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    public void testNullBaseThreeDigitAssignmentMatters() {
+        MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");
+        MarkJoinSlotReference markSlot2 = new MarkJoinSlotReference("markSlot2");
+        MarkJoinSlotReference markSlot3 = new MarkJoinSlotReference("markSlot3");
+        MarkJoinSlotReference markSlot4 = new MarkJoinSlotReference("markSlot4");
+
+        // (M1 AND FALSE) OR IS NULL(M2): the enumeration replaces the other mark slot M2
+        // with true/false/null. the first two tuples (M2 = true and M2 = false) both fold
+        // the predicate to FALSE for M1 = false and M1 = null, so both fields would stay
+        // true; only the LATER tuple M2 = null makes IS NULL(M2) true and forces the
+        // correct (false, false). a mutation that replaces the null entry of the other-mark
+        // values with false (so the third base-3 digit is never exercised) would wrongly
+        // report (true, true), so this case covers the null base-3 digit.
+        assertMarkSlotPair(
+                new Or(new And(markSlot1, BooleanLiteral.FALSE), new IsNull(markSlot2)),
+                markSlot1, false, false);
+
+        // (M1 AND FALSE) OR (M2 AND IS NULL(M3)): the deciding tuple is M2 = true AND
+        // M3 = null (code = 6), i.e. the null digit of the second other-mark slot reached
+        // only after the base-3 count carries past M2's digit.
+        assertMarkSlotPair(
+                new Or(new And(markSlot1, BooleanLiteral.FALSE),
+                        new And(markSlot2, new IsNull(markSlot3))),
+                markSlot1, false, false);
+
+        // (M1 AND FALSE) OR (M2 AND M3 AND IS NULL(M4)): the deciding tuple is M2 = true
+        // AND M3 = true AND M4 = null (code = 18), reached after the null digit carries
+        // through two digits.
+        assertMarkSlotPair(
+                new Or(new And(markSlot1, BooleanLiteral.FALSE),
+                        new And(Lists.newArrayList(markSlot2, markSlot3, new IsNull(markSlot4)))),
+                markSlot1, false, false);
+    }
+
+    @Test
     public void testSimplifyWithNonMarkSlot() {
         SlotReference slot = new SlotReference("slot", BooleanType.INSTANCE);
         MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");

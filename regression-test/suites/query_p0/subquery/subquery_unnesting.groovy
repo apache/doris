@@ -260,19 +260,22 @@ suite ("subquery_unnesting") {
     sql """insert into assert_u values (1,1),(2,2),(3,3);"""
 
     // sibling conjunct: assert_true is a SIBLING conjunct of the eliminable mark conjunct.
-    // the mark conjunct is `k1 NOT IN (...)` = NOT M, which keeps the unmatched rows (1,1)
-    // and (3,3) and prunes the matched row (2,2); assert_true(guard) throws exactly on the
-    // kept unmatched rows. the mark conjunct alone infers pair.second = true, so the mark
-    // join would be eliminated into a semi join that only outputs the matched row and
-    // assert_true would never run on the unmatched rows. with the complete evaluation
-    // domain fence the mark join is kept, all rows reach the filter and assert_true throws
-    // on the unmatched guard = false rows.
-    test {
-        sql """select assert_t.k1 from assert_t
-                where assert_t.k1 not in (select assert_s.k1 from assert_s
-                        where assert_s.k2 = assert_t.k2)
-                  and assert_true(assert_t.k2 = 2, 'assert failed');"""
-        exception "assert failed"
+    // the mark conjunct must be a MARKER-REQUIRING form (ifnull(k1 in (...), false)): a bare
+    // `k1 not in (...)` is itself a top-level SubqueryExpr, so shouldOutputMarkJoinSlot returns
+    // false and no mark slot is created (it becomes a plain left anti join that emits the
+    // unmatched rows anyway, so the test would stay green even without the fence). with the
+    // mark form the analyzed plan must keep isMarkJoin=true, which is the sensitive signal:
+    // removing the complete evaluation domain fence turns it into isMarkJoin=false (the mark
+    // join is eliminated into a semi join). note that the error behavior is NOT the sensitive
+    // signal here — assert_true(k2 = 2) only references the outer columns, so the optimizer
+    // pushes it below the join (into the outer scan) and it raises the error on every outer
+    // row regardless of the elimination.
+    explain {
+        sql("""analyzed plan select assert_t.k1 from assert_t
+                where ifnull(assert_t.k1 in (select assert_s.k1 from assert_s
+                        where assert_s.k2 = assert_t.k2), false)
+                  and assert_true(assert_t.k2 = 2, 'assert failed');""")
+        contains("isMarkJoin=true")
     }
 
     // sensitive expression inside a later subquery plan: assert_true lives in the filter of
