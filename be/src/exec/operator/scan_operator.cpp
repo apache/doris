@@ -74,26 +74,26 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 
 Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
                                                               int& arrived_rf_num) {
+    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads.
+    LockGuard lock(_conjuncts_lock);
+    size_t conjuncts_before = _conjuncts.size();
+    RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(
+            state, _parent->operator_row_desc_before_projection(), arrived_rf_num, _conjuncts));
     VExprContextSPtrs new_conjuncts;
-    {
-        // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads.
-        LockGuard lock(_conjuncts_lock);
-        size_t conjuncts_before = _conjuncts.size();
-        RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(
-                state, _parent->operator_row_desc_before_projection(), arrived_rf_num, _conjuncts));
-        if (_conjuncts.size() > conjuncts_before) {
-            new_conjuncts.assign(_conjuncts.begin() + conjuncts_before, _conjuncts.end());
-        }
-        if (state->enable_adjust_conjunct_order_by_cost()) {
-            std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
-                return a->execute_cost() < b->execute_cost();
-            });
-        }
+    if (_conjuncts.size() > conjuncts_before) {
+        new_conjuncts.assign(_conjuncts.begin() + conjuncts_before, _conjuncts.end());
     }
-    if (!new_conjuncts.empty()) {
-        RETURN_IF_ERROR(_on_runtime_filter_update(new_conjuncts));
+    if (state->enable_adjust_conjunct_order_by_cost()) {
+        std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
+            return a->execute_cost() < b->execute_cost();
+        });
     }
-    return Status::OK();
+    if (new_conjuncts.empty()) {
+        return Status::OK();
+    }
+    // Partition projection executes the shared expression tree. Keep it serialized with
+    // clone_conjunct_ctxs(), whose VExprContext::clone() opens that same tree.
+    return _on_runtime_filter_update(new_conjuncts);
 }
 
 Status ScanLocalStateBase::clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts) {

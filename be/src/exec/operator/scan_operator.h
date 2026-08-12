@@ -112,9 +112,9 @@ protected:
 
     virtual Status _init_profile() = 0;
 
-    // Hook for subclasses to process only the runtime-filter conjuncts appended by the
-    // current update. The shared pointers keep this immutable snapshot alive after
-    // _conjuncts_lock is released.
+    // Hook for subclasses to process only the runtime-filter conjuncts appended by the current
+    // update. Late-arrival updates call this while holding _conjuncts_lock because pruning may
+    // execute expression nodes shared with scanner clones.
     virtual Status _on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts);
 
     Status _do_partition_pruning_by_rf(const VExprContextSPtrs& conjuncts);
