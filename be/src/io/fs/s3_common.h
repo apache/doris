@@ -57,9 +57,11 @@ public:
 class S3ResponseStreamBuf final : public std::streambuf {
 public:
     // Bodies beyond this size are truncated. Only error documents are expected to overflow
-    // and their leading bytes already carry the error code and the message. This bounds the
-    // memory a single failing request can hold, whatever the server answers with.
-    static constexpr size_t MAX_SPILL_SIZE = 1024 * 1024;
+    // and one is a few hundred bytes, so this leaves them two orders of magnitude of room
+    // while bounding what a single failing request can hold. Kept small on purpose: this
+    // buffer is allocated on the transport thread of the SDK, out of the reach of the memory
+    // tracker of the query, and every concurrent read that fails holds one of its own.
+    static constexpr size_t MAX_SPILL_SIZE = 64 * 1024;
 
     S3ResponseStreamBuf(void* buf, size_t nbytes) : _buf(static_cast<char*>(buf)) {
         setp(_buf, _buf + nbytes);
