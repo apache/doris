@@ -91,11 +91,11 @@ suite("spark_connector_read_type", "connector") {
                             );
       """
 
-    logger.info("start delete local spark doris demo jar...")
-    def delete_local_spark_jar = "rm -rf spark-doris-regression-case.jar".execute()
+    def jar_name = "spark-doris-regression-case-read-type.jar"
+
     logger.info("start download spark doris demo ...")
     logger.info("getS3Url ==== ${getS3Url()}")
-    def download_spark_jar = "/usr/bin/curl ${getS3Url()}/regression/spark-doris-regression-case.jar --output spark-doris-regression-case.jar".execute().getText()
+    def download_spark_jar = "/usr/bin/curl ${getS3Url()}/regression/spark-doris-regression-case.jar --output ${jar_name}".execute().getText()
     logger.info("finish download spark doris demo ...")
 
     def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
@@ -115,7 +115,7 @@ suite("spark_connector_read_type", "connector") {
 
     def run_cmd = [javaPath]
     run_cmd.addAll(addOpens.tokenize())
-    run_cmd.addAll(["-jar", "spark-doris-regression-case.jar",
+    run_cmd.addAll(["-jar", jar_name,
             "--doris-fe-address", context.config.feHttpAddress,
             "--doris-read-table-identifier", "regression_test_connector_p0_spark_connector.${tableReadName}",
             "--doris-write-table-identifier", "regression_test_connector_p0_spark_connector.${tableWriterName}",

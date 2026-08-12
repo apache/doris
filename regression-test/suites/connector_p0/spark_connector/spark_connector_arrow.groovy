@@ -126,13 +126,11 @@ suite("spark_connector_for_arrow", "connector") {
     sql """DELETE FROM spark_connector_map where id > 0"""
     sql """DELETE FROM spark_connector_struct where id > 0"""
 
-    def jar_name = "spark-doris-regression-case.jar"
+    def jar_name = "spark-doris-regression-case-arrow.jar"
 
-    logger.info("start delete local spark doris demo jar...")
-    def delete_local_spark_jar = "rm -rf ${jar_name}".execute()
     logger.info("start download spark doris demo ...")
     logger.info("getS3Url ==== ${getS3Url()}")
-    def download_spark_jar = "/usr/bin/curl ${getS3Url()}/regression/${jar_name} --output ${jar_name}".execute().getText()
+    def download_spark_jar = "/usr/bin/curl ${getS3Url()}/regression/spark-doris-regression-case.jar --output ${jar_name}".execute().getText()
     logger.info("finish download spark doris demo ...")
 
     def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
