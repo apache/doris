@@ -973,10 +973,9 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
      * slots (the base table's key columns excluding the IVM row-id column), and whether the
      * row-id is deterministic.
      *
-     * <p>When the scanned table's only visible key column is its own IVM row-id (a cascading MV
-     * whose hidden identity-key columns are absent from the scan output), {@code baseTableRowId}
-     * holds that row-id slot so join hash-collision protection still has an identity key to
-     * fall back on.
+     * <p>When the scanned table is itself an IVM MV, {@code baseTableRowId} holds its own row-id
+     * key slot so a downstream join can carry it (renamed) into the join's unique keys for
+     * hash-collision protection.
      */
     final class ScanRowId {
         final Expression rowIdExpr;
@@ -1052,13 +1051,12 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         List<Slot> remainKeys = keySlots.stream()
                 .filter(slot -> !Column.IVM_ROW_ID_COL.equalsIgnoreCase(slot.getName()))
                 .collect(ImmutableList.toImmutableList());
-        // When the only visible key is the IVM row-id itself (a cascading MV created without
-        // ivm_use_full_keys whose hidden identity-key columns are not in the scan output),
-        // keep that row-id as the base-table row-id identity key so join hash-collision
-        // protection is not lost.
-        Optional<Slot> baseTableRowId = remainKeys.isEmpty() ? keySlots.stream()
+        // When the scanned table is itself an IVM MV, its own row-id key column is kept as the
+        // base-table row-id identity key so that a downstream join can carry it (renamed) into
+        // its unique keys for join hash-collision protection.
+        Optional<Slot> baseTableRowId = keySlots.stream()
                 .filter(slot -> Column.IVM_ROW_ID_COL.equalsIgnoreCase(slot.getName()))
-                .findFirst() : Optional.empty();
+                .findFirst();
         Expression rowIdExpr = (keySlots.size() == 1
                 && Column.IVM_ROW_ID_COL.equalsIgnoreCase(keySlots.get(0).getName()))
                 ? keySlots.get(0)

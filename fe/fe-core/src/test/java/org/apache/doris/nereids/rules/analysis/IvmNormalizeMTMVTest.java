@@ -1017,6 +1017,46 @@ class IvmNormalizeMTMVTest {
     }
 
     @Test
+    void testJoinWithFullKeysMvKeepsBaseTableRowIdAsIdentityKeyWithUseFullKeys() {
+        // Left is an IVM MV with keys (k1, row_id); right is an ordinary MOW table.
+        // Under the join, the left's row-id key column is renamed and kept as an identity
+        // key in addition to the business key k1.
+        OlapTable mvTable = newIvmMvOlapTable(45, "ivm_mv_full_keys_join",
+                ImmutableList.of(
+                        new Column("k1", Type.INT, true, AggregateType.NONE, "0", ""),
+                        new Column(Column.IVM_ROW_ID_COL, Type.LARGEINT, true, AggregateType.NONE, "0", ""),
+                        new Column("v1", Type.INT, false, AggregateType.NONE, "0", "")));
+        LogicalOlapScan mvScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), mvTable, ImmutableList.of("db"));
+        OlapTable rightTable = PlanConstructor.newOlapTable(46, "mow_r", 1, KeysType.UNIQUE_KEYS);
+        TableProperty rightProperty = new TableProperty(new java.util.HashMap<>());
+        rightProperty.setEnableUniqueKeyMergeOnWrite(true);
+        rightTable.setTableProperty(rightProperty);
+        enableBinlog(rightTable);
+        LogicalOlapScan rightScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), rightTable, ImmutableList.of("db"));
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(mvScan.getOutput().get(0), rightScan.getOutput().get(0))),
+                ImmutableList.of(), mvScan, rightScan, JoinReorderContext.EMPTY);
+        LogicalResultSink<Plan> sink = new LogicalResultSink<>(
+                ImmutableList.of(mvScan.getOutput().get(0), mvScan.getOutput().get(2),
+                        rightScan.getOutput().get(0), rightScan.getOutput().get(1)), join);
+
+        JobContext jobContext = newJobContextWithFullKeys(sink);
+        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        List<String> keyNames = rewriteResult.getIdentityKeySlots().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        // Left identity keys = [renamed row-id, k1]; right = [id, name].
+        Assertions.assertEquals(4, keyNames.size());
+        String renamedRowIdName = Column.IVM_HIDDEN_COLUMN_PREFIX + "0" + Column.IVM_BASE_ROW_ID_COL_SUFFIX;
+        Assertions.assertTrue(keyNames.get(0).contains(renamedRowIdName),
+                "left row-id should be renamed and kept as an identity key: " + keyNames);
+        Assertions.assertEquals("k1", keyNames.get(1));
+        Assertions.assertEquals(ImmutableList.of("id", "name"), keyNames.subList(2, 4));
+    }
+
+    @Test
     void testScanOfFullKeysMvExcludesAncestorRowIdFromIdentityKeys() {
         // Base table is an IVM MV with useFullKeys: keys = (k1, row_id).
         OlapTable mvTable = newIvmMvOlapTable(41, "ivm_mv_full_keys",
