@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.ToSqlParams;
@@ -1114,6 +1115,19 @@ public class OlapTableSink extends DataSink {
             List<PartitionKey> partitionKeys = partitionItem.getItems();
             // set in keys
             for (PartitionKey partitionKey : partitionKeys) {
+                // TODO: support real MaxLiteral in thrift.
+                // now we dont send it to BE. if BE meet it, treat it as default value.
+                // see VOlapTablePartition's ctor in tablet_info.h
+                boolean hasMaxValue = false;
+                for (int i = 0; i < partColNum; i++) {
+                    if (partitionKey.getKeys().get(i) == MaxLiteral.MAX_VALUE) {
+                        hasMaxValue = true;
+                        break;
+                    }
+                }
+                if (hasMaxValue) {
+                    continue;
+                }
                 List<TExprNode> tExprNodes = new ArrayList<>();
                 for (int i = 0; i < partColNum; i++) {
                     LiteralExpr literalExpr = partitionKey.getKeys().get(i);
