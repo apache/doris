@@ -84,7 +84,9 @@ namespace {
 // Ingest cases parse the same canonical JSON before SegmentWriter. Read cases use the same
 // V1-written physical segment and only switch the requested V1/V2 output representation. Input
 // generation, buffer destruction, warmup, checksum, physical-layout validation, and route
-// validation are paused. Ingest rotates SegmentWriter at
+// validation are paused. Scan-and-rewrite cases query key plus whole Variant from that prevalidated
+// source, then time scan/writer initialization, read, append, and destination finalize; destination
+// validation is paused. Ingest rotates SegmentWriter at
 // DORIS_VARIANT_BENCHMARK_ROWS_PER_SEGMENT; read cases retain their historical single-segment
 // semantics.
 constexpr uint32_t DEFAULT_ROWS = 1'000'000;
@@ -173,6 +175,20 @@ struct ScanResult {
     uint64_t output_bytes = 0;
     uint32_t rows = 0;
     uint32_t hits = 0;
+    OlapReaderStatistics statistics;
+};
+
+struct RewriteResult {
+    uint64_t source_segment_bytes = 0;
+    uint64_t read_output_bytes = 0;
+    uint64_t destination_segment_bytes = 0;
+    uint64_t destination_index_bytes = 0;
+    uint32_t rows = 0;
+    int64_t scan_init_ns = 0;
+    int64_t writer_init_ns = 0;
+    int64_t read_ns = 0;
+    int64_t append_ns = 0;
+    int64_t finalize_ns = 0;
     OlapReaderStatistics statistics;
 };
 
@@ -526,6 +542,111 @@ public:
                                                          std::vector<ColumnId> {output_id});
         prepared->output_column_id = output_id;
         prepared->target = target;
+        return Status::OK();
+    }
+
+    Status prepare_rewrite_scan(PreparedSegment* fixture, VariantVersion version,
+                                PreparedScan* prepared) const {
+        RETURN_IF_ERROR(prepare_scan(fixture, ReadTarget::WHOLE, version, prepared));
+        const int32_t key_id = prepared->query_schema->field_index(KEY_UID);
+        const int32_t root_id = prepared->query_schema->field_index(ROOT_UID);
+        if (key_id < 0 || root_id < 0) {
+            return Status::InternalError("Variant rewrite benchmark columns are missing");
+        }
+        prepared->scan_schema =
+                std::make_shared<Schema>(prepared->query_schema->columns(),
+                                         std::vector<ColumnId> {static_cast<ColumnId>(key_id),
+                                                                static_cast<ColumnId>(root_id)});
+        return Status::OK();
+    }
+
+    Status rewrite_segment(const PreparedScan& prepared, VariantLayout layout,
+                           VariantVersion version, const std::string& destination_path,
+                           RewriteResult* result) const {
+        DORIS_CHECK(prepared.fixture != nullptr);
+        DORIS_CHECK(result != nullptr);
+        if (segment_count() != 1) {
+            return Status::InternalError(
+                    "Variant rewrite benchmark requires one source segment, got {}",
+                    segment_count());
+        }
+
+        const auto scan_init_start = std::chrono::steady_clock::now();
+        StorageReadOptions read_options;
+        read_options.stats = &result->statistics;
+        read_options.tablet_schema = prepared.query_schema;
+        read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+        read_options.use_page_cache = true;
+        read_options.block_row_max = BATCH_ROWS;
+        read_options.preferred_block_size_bytes = 0;
+        RowwiseIteratorUPtr iterator;
+        RETURN_IF_ERROR(prepared.fixture->segment->new_iterator(prepared.scan_schema, read_options,
+                                                                &iterator));
+        result->scan_init_ns += elapsed_ns(scan_init_start);
+
+        const TabletSchemaSPtr& destination_schema = _schemas[static_cast<size_t>(layout)];
+        const auto writer_init_start = std::chrono::steady_clock::now();
+        io::FileWriterPtr file_writer;
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(destination_path, &file_writer));
+        RowsetWriterContext rowset_context;
+        rowset_context.write_type = DataWriteType::TYPE_DIRECT;
+        rowset_context.tablet_schema = destination_schema;
+        rowset_context.tablet_path = _directory;
+
+        segment_v2::SegmentWriterOptions writer_options;
+        writer_options.num_rows_per_block = BATCH_ROWS;
+        writer_options.max_rows_per_segment = _rows_per_segment;
+        writer_options.compression_type = CompressionTypePB::LZ4;
+        writer_options.rowset_ctx = &rowset_context;
+        writer_options.write_type = DataWriteType::TYPE_DIRECT;
+        segment_v2::SegmentWriter writer(file_writer.get(), 0, destination_schema, nullptr, nullptr,
+                                         writer_options, nullptr);
+        RETURN_IF_ERROR(writer.init());
+        result->writer_init_ns += elapsed_ns(writer_init_start);
+
+        const int32_t key_id = prepared.query_schema->field_index(KEY_UID);
+        const int32_t root_id = prepared.query_schema->field_index(ROOT_UID);
+        DORIS_CHECK_GE(key_id, 0);
+        DORIS_CHECK_GE(root_id, 0);
+        Block block = prepared.query_schema->create_block_by_cids(
+                {static_cast<uint32_t>(key_id), static_cast<uint32_t>(root_id)});
+        bool checked_representation = false;
+        while (true) {
+            const auto read_start = std::chrono::steady_clock::now();
+            Status status = iterator->next_batch(&block);
+            result->read_ns += elapsed_ns(read_start);
+            if (status.is<ErrorCode::END_OF_FILE>()) {
+                break;
+            }
+            RETURN_IF_ERROR(status);
+            if (!checked_representation) {
+                const IColumn& root = *block.get_by_position(1).column;
+                const bool is_v2 = check_and_get_column<ColumnVariantV2>(root) != nullptr;
+                const bool is_v1 = check_and_get_column<ColumnVariant>(root) != nullptr;
+                if ((version == VariantVersion::V2 && !is_v2) ||
+                    (version == VariantVersion::V1 && (!is_v1 || is_v2))) {
+                    return Status::InternalError("Variant rewrite query returned the wrong column");
+                }
+                checked_representation = true;
+            }
+            const uint32_t batch_rows = static_cast<uint32_t>(block.rows());
+            result->rows += batch_rows;
+            result->read_output_bytes += block.bytes();
+            const auto append_start = std::chrono::steady_clock::now();
+            RETURN_IF_ERROR(writer.append_block(&block, 0, batch_rows));
+            result->append_ns += elapsed_ns(append_start);
+            block.clear_column_data();
+        }
+        if (result->rows != _rows) {
+            return Status::InternalError("Variant rewrite read {} rows, expected {}", result->rows,
+                                         _rows);
+        }
+
+        const auto finalize_start = std::chrono::steady_clock::now();
+        RETURN_IF_ERROR(writer.finalize(&result->destination_segment_bytes,
+                                        &result->destination_index_bytes));
+        result->finalize_ns += elapsed_ns(finalize_start);
+        result->source_segment_bytes = prepared.fixture->segment_bytes;
         return Status::OK();
     }
 
@@ -1679,6 +1800,93 @@ void BM_VariantRead(benchmark::State& state, VariantLayout layout, ReadTarget ta
     state.counters["doc_columns"] = fixture->counts.doc;
 }
 
+void BM_VariantScanAndRewriteSegment(benchmark::State& state, VariantLayout layout,
+                                     VariantVersion version) {
+    VariantSegmentBenchmarkData* data = nullptr;
+    PreparedSegment* source = nullptr;
+    PreparedScan prepared;
+    RewriteResult result;
+    LayoutCounts destination_counts;
+    std::string destination_path;
+    bool completed = false;
+    for (auto _ : state) {
+        benchmark::DoNotOptimize(_);
+        state.PauseTiming();
+        data = &VariantSegmentBenchmarkData::instance();
+        Status status = data->status();
+        if (status.ok()) {
+            status = data->ensure_read_validation(layout, ReadTarget::WHOLE, &source);
+        }
+        if (status.ok()) {
+            status = data->prepare_rewrite_scan(source, version, &prepared);
+        }
+        if (status.ok()) {
+            destination_path = data->measured_segment_path(layout, version, state.name());
+            status = data->delete_segment_files(destination_path);
+        }
+        state.ResumeTiming();
+        if (!benchmark_status(state, status)) {
+            break;
+        }
+
+        result = RewriteResult {};
+        status = data->rewrite_segment(prepared, layout, version, destination_path, &result);
+        if (!benchmark_status(state, status)) {
+            break;
+        }
+
+        state.PauseTiming();
+        std::vector<uint64_t> destination_bytes {result.destination_segment_bytes};
+        status = data->validate_written_segments(layout, version, destination_path,
+                                                 destination_bytes, &destination_counts, nullptr);
+        state.ResumeTiming();
+        if (!benchmark_status(state, status)) {
+            break;
+        }
+        completed = true;
+    }
+    if (!completed) {
+        return;
+    }
+
+    add_common_counters(state, *data);
+    state.SetItemsProcessed(static_cast<int64_t>(result.rows) * state.iterations());
+    state.SetBytesProcessed(static_cast<int64_t>(result.source_segment_bytes) * state.iterations());
+    state.counters["scan_init_ms"] = result.scan_init_ns / 1e6;
+    state.counters["writer_init_ms"] = result.writer_init_ns / 1e6;
+    state.counters["read_ms"] = result.read_ns / 1e6;
+    state.counters["append_ms"] = result.append_ns / 1e6;
+    state.counters["finalize_ms"] = result.finalize_ns / 1e6;
+    state.counters["stage_sum_ms"] = (result.scan_init_ns + result.writer_init_ns + result.read_ns +
+                                      result.append_ns + result.finalize_ns) /
+                                     1e6;
+    state.counters["read_output_bytes_per_row"] =
+            benchmark::Counter(static_cast<double>(result.read_output_bytes) / result.rows,
+                               benchmark::Counter::kIsIterationInvariant);
+    state.counters["source_segment_bytes_per_row"] =
+            benchmark::Counter(static_cast<double>(result.source_segment_bytes) / result.rows,
+                               benchmark::Counter::kIsIterationInvariant);
+    state.counters["destination_segment_bytes_per_row"] =
+            benchmark::Counter(static_cast<double>(result.destination_segment_bytes) / result.rows,
+                               benchmark::Counter::kIsIterationInvariant);
+    state.counters["destination_index_bytes"] = result.destination_index_bytes;
+    state.counters["source_writer_variant_v1"] = 1;
+    state.counters["query_output_variant_v2"] = version == VariantVersion::V2;
+    state.counters["destination_input_variant_v2"] = version == VariantVersion::V2;
+    state.counters["destination_validation_row_count_full"] = 1;
+    state.counters["destination_validation_footer_layout_full"] = 1;
+    state.counters["destination_validation_canonical_sampled"] = 1;
+    state.counters["destination_validation_route_full_scan"] = 1;
+    state.counters["source_prevalidated"] = 1;
+    state.counters["source_page_cache"] = 1;
+    state.counters["variant_storage_parse_mode"] = config::variant_storage_parse_mode;
+    state.counters["route_hierarchical"] =
+            result.statistics.variant_subtree_hierarchical_iter_count;
+    state.counters["materialized_columns"] = destination_counts.materialized;
+    state.counters["sparse_columns"] = destination_counts.sparse;
+    state.counters["doc_columns"] = destination_counts.doc;
+}
+
 void BM_VariantCumulativeCompaction(benchmark::State& state) {
     CompactionResult result;
     uint32_t total_rows = 0;
@@ -1818,6 +2026,17 @@ bool register_variant_segment_benchmarks() {
                                        name, [target, version](benchmark::State& state) {
                                            BM_VariantRead(state, VariantLayout::SPARSE16, target,
                                                           version);
+                                       });
+                           });
+    }
+    for (VariantLayout layout : layouts) {
+        const std::string prefix = "BM_VariantScanAndRewriteSegment/" +
+                                   std::string(layout_config(layout).name) + "/V1WrittenSource";
+        register_abba_pair(prefix, pair_index++ % 2 != 0,
+                           [layout](const std::string& name, VariantVersion version) {
+                               return benchmark::RegisterBenchmark(
+                                       name, [layout, version](benchmark::State& state) {
+                                           BM_VariantScanAndRewriteSegment(state, layout, version);
                                        });
                            });
     }

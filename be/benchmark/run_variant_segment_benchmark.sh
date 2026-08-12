@@ -26,7 +26,7 @@ fi
 
 benchmark_binary=$1
 result_dir=$2
-benchmark_filter=${3:-'^BM_Variant(IngestToSegment|ReadWholeColumn|ReadExactPath)/'}
+benchmark_filter=${3:-'^BM_Variant(IngestToSegment|ReadWholeColumn|ReadExactPath|ScanAndRewriteSegment)/'}
 script_path=$(realpath "${BASH_SOURCE[0]}")
 repo_root=$(git -C "$(dirname "${script_path}")" rev-parse --show-toplevel)
 be_config=${repo_root}/conf/be.conf
@@ -79,10 +79,15 @@ mkdir -p "${result_dir}"
     fi
     echo "benchmark_root=${benchmark_root}"
     df -h "${benchmark_root}"
+    findmnt -T "${benchmark_root}" -o TARGET,SOURCE,FSTYPE,OPTIONS
+    lsblk -o NAME,TYPE,SIZE,ROTA,MODEL,MOUNTPOINTS
+    free -h
+    swapon --show
     uname -a
     lscpu
     echo "load_before=$(< /proc/loadavg)"
     echo "rows=${DORIS_VARIANT_BENCHMARK_ROWS:-1000000}"
+    echo "rows_per_segment=${DORIS_VARIANT_BENCHMARK_ROWS_PER_SEGMENT:-1000000}"
     echo "filter=${benchmark_filter}"
     echo "cpu=${DORIS_BENCHMARK_CPU:-unbound}"
 } >"${result_dir}/environment.txt"
