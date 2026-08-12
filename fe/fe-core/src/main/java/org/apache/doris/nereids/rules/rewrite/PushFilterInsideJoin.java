@@ -59,7 +59,10 @@ public class PushFilterInsideJoin extends OneRewriteRuleFactory {
                     List<Expression> otherConditions = Lists.newArrayListWithExpectedSize(
                             filter.getConjuncts().size() + join.getOtherJoinConjuncts().size());
                     for (Expression expr : filter.getConjuncts()) {
-                        if (expr.containsVolatileExpression()) {
+                        // a NoneMovableFunction (e.g. assert_true) must stay in the filter:
+                        // turning it into a join condition evaluates it per joined row instead
+                        // of per input row, changing its error behavior.
+                        if (expr.containsNoneMovableOrVolatile()) {
                             remainConditions.add(expr);
                         } else {
                             otherConditions.add(expr);

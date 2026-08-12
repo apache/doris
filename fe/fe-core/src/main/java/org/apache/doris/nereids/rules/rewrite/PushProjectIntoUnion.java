@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -102,23 +103,36 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
         }
         for (List<NamedExpression> constExprs : union.getConstantExprsList()) {
             Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
+            Set<Slot> noneMovableSlots = Sets.newHashSet();
             for (int i = 0; i < constExprs.size(); i++) {
                 NamedExpression ne = constExprs.get(i);
                 if (ne.containsVolatileExpression()) {
                     uniqueFunctionSlots.add(union.getOutput().get(i));
                 }
+                if (ne.containsType(NoneMovableFunction.class)) {
+                    noneMovableSlots.add(union.getOutput().get(i));
+                }
             }
-            if (uniqueFunctionSlots.isEmpty()) {
+            Set<Slot> guardedSlots = Sets.union(uniqueFunctionSlots, noneMovableSlots);
+            if (guardedSlots.isEmpty()) {
                 continue;
             }
             Set<Slot> counterSet = Sets.newHashSet();
-            // for a union slot which contains unique function, if it exists in project multiple times,
-            // then don't push project into union,  otherwise the unique function will be copy multiple times.
+            // for a union slot which contains unique function or a NoneMovableFunction, if it exists
+            // in project multiple times, then don't push project into union, otherwise the expression
+            // will be copied multiple times.
             // e.g. `select a as b, a as c from (select random() as a union all select 2 as a)`
             // if push down the project, then random() will be evaluated twice:  `random() as b, random() as c`
             for (NamedExpression ne : project.getProjects()) {
                 if (ne.anyMatch(expr -> expr instanceof Slot
-                        && uniqueFunctionSlots.contains(expr) && !counterSet.add((Slot) expr))) {
+                        && guardedSlots.contains(expr) && !counterSet.add((Slot) expr))) {
+                    return false;
+                }
+            }
+            // a NoneMovableFunction const slot that the project does not reference at all would be
+            // dropped by the push-down, turning a required assertion/error into plain rows. reject.
+            for (Slot slot : noneMovableSlots) {
+                if (!counterSet.contains(slot)) {
                     return false;
                 }
             }

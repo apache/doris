@@ -139,4 +139,16 @@ public interface ExpressionTrait extends TreeNode<Expression> {
     default boolean containsVolatileExpression() {
         return containsType(VolatileExpression.class) && anyMatch(expr -> ((ExpressionTrait) expr).isVolatile());
     }
+
+    /**
+     * Identify whether the expression contains a volatile expression or a NoneMovableFunction.
+     * Both kinds must not be moved, duplicated or pruned by rewrite rules: a volatile expression
+     * (e.g. rand(), uuid()) is non-deterministic, and a NoneMovableFunction (e.g. assert_true)
+     * has side effects (throws errors). Relocating either to a different row domain, or
+     * duplicating its evaluation, changes query semantics or error behavior, so rules should
+     * treat both identically (keep them above row-changing operators, never clone them).
+     */
+    default boolean containsNoneMovableOrVolatile() {
+        return containsVolatileExpression() || containsType(NoneMovableFunction.class);
+    }
 }

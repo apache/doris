@@ -23,7 +23,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -106,5 +108,32 @@ public class PushDownFilterThroughSortTest implements MemoPatternMatchSupported 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushDownFilterThroughSort())
                 .matchesFromRoot(logicalFilter(logicalOlapScan()));
+    }
+
+    /**
+     * A filter containing a NoneMovableFunction (assert_true) must not be pushed below the sort:
+     * the sort is blocking and evaluates every input row, so the assertion would newly see rows
+     * that an outer limit would otherwise have consumed without reaching it.
+     */
+    @Test
+    void testNotPushDownNoneMovableFunctionThroughSort() {
+        Slot gender = scan.getOutput().get(1);
+        Expression filterPredicate = new AssertTrue(
+                new GreaterThan(gender, Literal.of(1)), new StringLiteral("msg"));
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .sort(Lists.newArrayList(new OrderKey(gender, true, true)))
+                .filter(filterPredicate)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushDownFilterThroughSort())
+                .matchesFromRoot(
+                        logicalFilter(
+                                logicalSort(
+                                        logicalOlapScan()
+                                )
+                        ).when(filter -> filter.getConjuncts().equals(Sets.newHashSet(filterPredicate)))
+                );
     }
 }

@@ -103,8 +103,29 @@ public class HyperGraph {
             return false;
         }
         LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
-        return !join.isMarkJoin() && !join.isLeadingJoin() && !join.hasDistributeHint()
-                && !join.getJoinType().isAsofJoin();
+        if (join.isMarkJoin() || join.isLeadingJoin() || join.hasDistributeHint()
+                || join.getJoinType().isAsofJoin()) {
+            return false;
+        }
+        // a join whose own hash/other conjunct contains a NoneMovableFunction (e.g. assert_true)
+        // or a volatile expression is a boundary: HyperGraph.addJoin would split the conjunct
+        // onto the minimal referenced node pair and let DPHyp evaluate it before other joins
+        // that originally eliminated the rows, changing its error behavior or results.
+        return !hasNoneMovableOrVolatileConjunct(join);
+    }
+
+    private static boolean hasNoneMovableOrVolatileConjunct(LogicalJoin<?, ?> join) {
+        for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            if (conjunct.containsNoneMovableOrVolatile()) {
+                return true;
+            }
+        }
+        for (Expression conjunct : join.getMarkJoinConjuncts()) {
+            if (conjunct.containsNoneMovableOrVolatile()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static Builder builderForDPhyper(Group group, CascadesContext ctx) {

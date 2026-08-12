@@ -108,7 +108,9 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
 
     // 1. expr contains slots from both sides;
     private boolean isConditionNeedRewrite(Expression expr, Set<Slot> leftSlots, Set<Slot> rightSlots) {
-        if (expr.containsVolatileExpression()) {
+        // a NoneMovableFunction (e.g. assert_true) must not be moved by the rewrite either,
+        // like a volatile expression.
+        if (expr.containsNoneMovableOrVolatile()) {
             return false;
         }
         Set<Slot> exprSlots = expr.getInputSlots();

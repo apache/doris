@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -84,9 +85,17 @@ public class ReorderJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class))
-            .whenNot(filter -> filter.child() instanceof LogicalJoin
-                    && ((((LogicalJoin<?, ?>) filter.child()).isMarkJoin())
-                        || ((LogicalJoin<?, ?>) filter.child()).getJoinType().isAsofJoin()))
+            /*
+             * the rule (and joinToMultiJoin) assume the filter's child is the top of the
+             * join cluster. merge filters normally guarantees that, but a transient
+             * filter-over-filter-over-join shape can still reach this rule (e.g. a
+             * NoneMovableFunction conjunct like assert_true that stays above the join while
+             * another conjunct is pushed into the join children). reject such shapes: the
+             * child is not a join, or it is a mark/asof join which must not be reordered.
+             */
+            .whenNot(filter -> !(filter.child() instanceof LogicalJoin)
+                    || (((LogicalJoin<?, ?>) filter.child()).isMarkJoin())
+                    || ((LogicalJoin<?, ?>) filter.child()).getJoinType().isAsofJoin())
             .thenApply(ctx -> {
                 if (ctx.statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()
                         || ctx.cascadesContext.isLeadingDisableJoinReorder()
@@ -111,6 +120,30 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 }
                 LogicalFilter<Plan> nonUniqueExprFilter = uniqueExprConjuncts.isEmpty()
                         ? filter : filter.withConjunctsAndChild(nonUniqueExprConjuncts, filter.child());
+                /*
+                 * a NoneMovableFunction (e.g. assert_true) must not be reordered into the
+                 * join: joinToMultiJoin turns the filter conjuncts into join conditions and
+                 * multiJoinToJoin redistributes them into the join children, where they are
+                 * evaluated on a different (superset) row set, changing their error behavior
+                 * or results. skip the reorder in this case. note: containsType on the filter
+                 * plan node does not traverse its conjunct expressions, so check each conjunct.
+                 */
+                for (Expression conjunct : nonUniqueExprConjuncts) {
+                    if (conjunct.containsType(NoneMovableFunction.class)) {
+                        return null;
+                    }
+                }
+                /*
+                 * a NoneMovableFunction (e.g. assert_true) or a volatile expression stored on an
+                 * inner join's own hash/other conjunct must also make the join a boundary:
+                 * flattening it into the MultiJoin would let multiJoinToJoin move the conjunct
+                 * onto a different edge, where it is evaluated on a superset of rows.
+                 * joinToMultiJoin treats such nested joins as boundaries, but the top join must
+                 * be rejected here so the rule leaves it (and the whole cluster) untouched.
+                 */
+                if (hasNoneMovableOrVolatileConjunct((LogicalJoin<?, ?>) filter.child())) {
+                    return null;
+                }
 
                 Map<Plan, DistributeHint> planToHintType = Maps.newHashMap();
                 Plan plan = joinToMultiJoin(nonUniqueExprFilter, planToHintType);
@@ -126,6 +159,20 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                     return null;
                 }
             }).toRule(RuleType.REORDER_JOIN);
+    }
+
+    private static boolean hasNoneMovableOrVolatileConjunct(LogicalJoin<?, ?> join) {
+        for (Expression conjunct : join.getHashJoinConjuncts()) {
+            if (conjunct.containsNoneMovableOrVolatile()) {
+                return true;
+            }
+        }
+        for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            if (conjunct.containsNoneMovableOrVolatile()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -153,7 +200,10 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 // (t1 join t2) join t3 where t1.a = t3.x + random()
                 // if reorder, then may have ((t1 join t3) on t1.a = t3.x + random()) join t2,
                 // then the reorder result will less rows than origin.
-                if (conjunct.containsVolatileExpression()) {
+                // a NoneMovableFunction (e.g. assert_true) has the same problem: reordering
+                // turns the filter into a join condition that is evaluated on a different
+                // (superset) row set, which changes its error behavior or results.
+                if (conjunct.containsNoneMovableOrVolatile()) {
                     return plan;
                 }
             }
@@ -168,6 +218,13 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         }
 
         if (join.getJoinType().isInnerOrCrossJoin()) {
+            // a join whose own hash/other conjunct contains a NoneMovableFunction (e.g.
+            // assert_true) or a volatile expression must not be flattened into the MultiJoin:
+            // multiJoinToJoin could reorder it so the conjunct moves onto a different edge and
+            // is evaluated on a superset of rows. treat the join as a boundary.
+            if (hasNoneMovableOrVolatileConjunct(join)) {
+                return plan;
+            }
             joinFilter.addAll(join.getHashJoinConjuncts());
             joinFilter.addAll(join.getOtherJoinConjuncts());
         } else {

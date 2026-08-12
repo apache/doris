@@ -17,6 +17,12 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -40,6 +46,30 @@ class PushDownProjectThroughLimitTest implements MemoPatternMatchSupported {
                 .applyTopDown(new PushDownProjectThroughLimit())
                 .matches(
                         logicalLimit(logicalProject())
+                );
+    }
+
+    /**
+     * A project that computes a NoneMovableFunction (assert_true) must not be pushed below the
+     * limit: the limit prunes rows, so assert_true would be evaluated on fewer rows.
+     */
+    @Test
+    void testDoNotPushProjectWithNoneMovableFunction() {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        Alias assertAlias = new Alias(new AssertTrue(
+                new GreaterThan(scan.getOutput().get(0), new IntegerLiteral(0)),
+                new StringLiteral("msg")), "x");
+        LogicalPlan project = new LogicalPlanBuilder(scan)
+                .limit(1, 1)
+                .projectExprs(ImmutableList.of(assertAlias, scan.getOutput().get(0)))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), project)
+                .applyTopDown(new PushDownProjectThroughLimit())
+                .matches(
+                        logicalProject(
+                                logicalLimit(logicalOlapScan())
+                        )
                 );
     }
 }

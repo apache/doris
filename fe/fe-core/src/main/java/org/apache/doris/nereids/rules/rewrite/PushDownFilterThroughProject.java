@@ -123,9 +123,16 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
             // If filter slot is alias and its expression contains non-foldable expression, it can't push down, example:
             // `filter(a > 1) -> project(b + random(1, 10) as a)`, if push down filter, it got
             // `project(b + random(1, 10) as a) -> filter(b + random(1, 10) > 1)`, it contains two distinct RANDOM.
+            // The same applies to NoneMovableFunction (e.g. assert_true): if the referenced
+            // project alias computes a NoneMovableFunction, pushing the filter below would
+            // duplicate its evaluation (once in the project, once in the filter). a conjunct
+            // that itself contains a NoneMovableFunction may still be pushed through a plain
+            // slot project: the project is row-preserving, so the expression is evaluated on
+            // exactly the same rows, and the row-changing operators below (joins,
+            // aggregations, ...) already refuse to accept NoneMovableFunction conjuncts.
             if (childOutputs.containsAll(conjunctSlots)
                     && conjunctSlots.stream().map(childAlias::get).filter(Objects::nonNull)
-                            .noneMatch(Expression::containsVolatileExpression)) {
+                            .noneMatch(Expression::containsNoneMovableOrVolatile)) {
                 pushDownPredicates.add(conjunct);
             } else {
                 remainPredicates.add(conjunct);
