@@ -42,7 +42,7 @@ under the License.
           (org.apache.doris.nereids.lineage) is part of fe-core itself.
 
           Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the lineage SPI
-          surface - additions included. A change to fe-extension-spi means bumping all four families.
+          surface - additions included. A change to fe-extension-spi means bumping all five families.
           See plan-doc/designs/2026-07-29-plugin-api-version-check-design.md.
         -->
         <lineage.plugin.api.version>1.0</lineage.plugin.api.version>

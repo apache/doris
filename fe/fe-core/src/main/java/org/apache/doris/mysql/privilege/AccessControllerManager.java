@@ -38,6 +38,13 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.extension.loader.ApiVersionGate;
+import org.apache.doris.extension.loader.ClassLoadingPolicy;
+import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
+import org.apache.doris.extension.loader.LoadFailure;
+import org.apache.doris.extension.loader.LoadReport;
+import org.apache.doris.extension.loader.PluginHandle;
+import org.apache.doris.extension.loader.PluginRegistry;
 import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -49,6 +56,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +67,7 @@ import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * AccessControllerManager is the entry point of privilege authentication.
@@ -70,6 +81,27 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class AccessControllerManager {
     private static final Logger LOG = LogManager.getLogger(AccessControllerManager.class);
+
+    /**
+     * The authorization plugin API contract this FE serves. Built from the version filtered into
+     * fe-authorization-spi at build time, anchored on {@link AuthorizationPluginFactory} so that it is read
+     * from the very artifact carrying the SPI. A missing or malformed resource is a build defect and fails
+     * class initialization loudly rather than degrading into a check that admits everything.
+     */
+    private static final ApiVersionGate API_VERSION_GATE =
+            ApiVersionGate.forFamily("authorization", AuthorizationPluginFactory.class);
+
+    /**
+     * Loaded from the FE rather than from the plugin jar, so that the types crossing the boundary - the
+     * decision vocabulary in {@code org.apache.doris.authorization} and the contract in its {@code .spi}
+     * sub-package - exist exactly once. A plugin carrying its own copy would hand back objects the engine
+     * refuses to recognise as the types it asked for.
+     */
+    private static final List<String> AUTHORIZATION_PARENT_FIRST_PREFIXES =
+            Collections.singletonList("org.apache.doris.authorization.");
+
+    /** Family label in the process-wide {@link PluginRegistry}, i.e. in information_schema.extensions. */
+    private static final String PLUGIN_FAMILY = "AUTHORIZATION";
 
     private Auth auth;
     // Governs everything no catalog-bound source governs; the built-in model unless configured otherwise
@@ -85,6 +117,18 @@ public class AccessControllerManager {
             = new ConcurrentHashMap<>();
     // Mapping between access controller class names and their identifiers for easy lookup of factory identifiers
     private ConcurrentHashMap<String, String> accessControllerClassNameMapping = new ConcurrentHashMap<>();
+    // Holds the classloader of every plugin loaded from a directory, for the lifetime of the FE
+    private final DirectoryPluginRuntimeManager<AuthorizationPluginFactory> pluginDirectoryRuntime =
+            new DirectoryPluginRuntimeManager<>();
+    /**
+     * Plugin directories refused on the API version they declared.
+     *
+     * <p>Kept because the refusal and the complaint happen in different places: the load is a startup sweep
+     * that logs and carries on, while what an operator sees is "no authorization plugin factory found for
+     * {@code <name>}" from whoever asked for that name. Without this, a plugin refused on its version would be
+     * indistinguishable from one that was never installed.
+     */
+    private final List<String> apiVersionRejections = new CopyOnWriteArrayList<>();
 
     public AccessControllerManager(Auth auth) {
         this.auth = auth;
@@ -117,7 +161,8 @@ public class AccessControllerManager {
         }
         if (!isKnownAuthorizationSource(accessControllerName)) {
             throw new RuntimeException("No authorization plugin factory found for " + accessControllerName
-                    + ". Please confirm that your plugin is placed in the correct location.");
+                    + ". Please confirm that your plugin is placed in the correct location."
+                    + apiVersionRejectionHint());
         }
         Map<String, String> prop;
         try {
@@ -158,13 +203,16 @@ public class AccessControllerManager {
     }
 
     private void loadAccessControllerPlugins() {
-        // Sources shipped with the FE, and any on its class path. Loading them from a plugin directory is
-        // what the version gate guards, so that channel opens with the gate rather than before it.
+        // Sources shipped with the FE, and any on its class path. Deliberately not held to the plugin API
+        // version: what is on the class path was built from this same source tree in the same build, so the
+        // version there would be a number compared against itself. The gate exists for the directory
+        // channel below, where a jar built against some other Doris release can turn up.
         for (AuthorizationPluginFactory factory : ServiceLoader.load(AuthorizationPluginFactory.class)) {
             LOG.info("Found authorization plugin factory: {} from class path.", factory.name());
-            authorizationPluginFactories.put(factory.name(), factory);
-            accessControllerClassNameMapping.put(factory.getClass().getName(), factory.name());
+            registerPluginFactory(factory);
+            PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
         }
+        loadAuthorizationPluginsFromDirectory();
         ServiceLoader<AccessControllerFactory> loaderFromClasspath = ServiceLoader.load(AccessControllerFactory.class);
         for (AccessControllerFactory factory : loaderFromClasspath) {
             LOG.info("Found Authentication Plugin Factories: {} from class path.", factory.factoryIdentifier());
@@ -182,15 +230,109 @@ public class AccessControllerManager {
         }
     }
 
+    /**
+     * Loads authorization plugins from {@code authorization_plugins_dir}, laid out one plugin per
+     * subdirectory: {@code <dir>/*.jar} plus {@code <dir>/lib/*.jar}.
+     *
+     * <p>A directory that fails is logged and skipped: one unusable plugin must not stop an FE from
+     * starting, and if the failed one is the very source {@code access_controller_type} names, the
+     * constructor refuses right afterwards anyway - with the reason attached, see
+     * {@link #apiVersionRejectionHint()}.
+     *
+     * <p>This is a different layout from the one the deprecated {@link AccessControllerFactory} channel
+     * reads out of the same directory, which takes jars lying loose at its root. The two cannot collide:
+     * that channel lists only files, this one lists only subdirectories.
+     */
+    private void loadAuthorizationPluginsFromDirectory() {
+        List<Path> pluginRoots = new ArrayList<>();
+        for (Path root : ClassLoaderUtils.parsePluginRootDirectories(Config.authorization_plugins_dir)) {
+            if (Files.isDirectory(root)) {
+                pluginRoots.add(root);
+            } else {
+                // Having nowhere to put plugins is the normal state of an FE with none, so this is not a
+                // warning: one that fires on every start teaches operators to skip the ones that matter.
+                LOG.info("No authorization plugin directory at {}; skipping the directory channel.", root);
+            }
+        }
+        if (pluginRoots.isEmpty()) {
+            return;
+        }
+        LoadReport<AuthorizationPluginFactory> report = pluginDirectoryRuntime.loadAll(
+                pluginRoots,
+                AccessControllerManager.class.getClassLoader(),
+                AuthorizationPluginFactory.class,
+                new ClassLoadingPolicy(AUTHORIZATION_PARENT_FIRST_PREFIXES),
+                API_VERSION_GATE);
+
+        apiVersionRejections.clear();
+        for (LoadFailure failure : report.getFailures()) {
+            LOG.warn("Skip authorization plugin directory: pluginDir={}, stage={}, message={}",
+                    failure.getPluginDir(), failure.getStage(), failure.getMessage(), failure.getCause());
+            if (LoadFailure.STAGE_API_VERSION.equals(failure.getStage())) {
+                apiVersionRejections.add(failure.getMessage());
+            }
+        }
+
+        for (PluginHandle<AuthorizationPluginFactory> handle : report.getSuccesses()) {
+            String name = handle.getPluginName();
+            if (authorizationPluginFactories.containsKey(name)) {
+                // Whatever is already installed under this name keeps it, so that dropping a jar into the
+                // plugin directory can never displace a source shipped with the FE.
+                LOG.warn("Skip authorization plugin '{}' from {}: that name is already taken by a plugin on"
+                        + " the class path", name, handle.getPluginDir());
+                pluginDirectoryRuntime.discard(name);
+                continue;
+            }
+            registerPluginFactory(handle.getFactory());
+            // Only a plugin that was actually admitted gets an inventory row, so
+            // information_schema.extensions never lists an authorization source nothing can reach.
+            PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
+            LOG.info("Loaded authorization plugin: name={}, pluginDir={}, jarCount={}",
+                    name, handle.getPluginDir(), handle.getResolvedJars().size());
+        }
+    }
+
+    private void registerPluginFactory(AuthorizationPluginFactory factory) {
+        String name = factory.name();
+        authorizationPluginFactories.put(name, factory);
+        // Keeps `access_controller.class = <factory class name>` working for a source published this way,
+        // which is how a catalog written before plugin names existed still names its source.
+        accessControllerClassNameMapping.put(factory.getClass().getName(), name);
+    }
+
     private void registerLegacyFactory(AccessControllerFactory factory) {
         String name = factory.factoryIdentifier();
         if (authorizationPluginFactories.containsKey(name)) {
             // Both were found, so say which one answers rather than letting the loser look installed.
             LOG.warn("Authorization source {} is published both as a plugin and as an access controller"
                     + " factory; the plugin is the one used.", name);
+        } else {
+            LOG.warn("Authorization source {} implements the deprecated {} interface. It keeps working, but"
+                            + " that interface will be removed: implement {} instead and ship the plugin as"
+                            + " a subdirectory of {}, declaring {}={} in its jar manifest.",
+                    name, AccessControllerFactory.class.getName(), AuthorizationPluginFactory.class.getName(),
+                    Config.authorization_plugins_dir, API_VERSION_GATE.getManifestAttribute(),
+                    API_VERSION_GATE.getExpectedVersion());
         }
         accessControllerFactoriesCache.put(name, factory);
         accessControllerClassNameMapping.put(factory.getClass().getName(), name);
+    }
+
+    /**
+     * A clause naming any plugin the startup sweep refused on its declared API version, or the empty string
+     * when there was none.
+     *
+     * <p>Appended to "no authorization plugin factory found for {@code <name>}". A refused plugin never reaches the
+     * factory table, and the sweep itself does not fail, so without this the version rejection would only
+     * ever be an FE log line nobody correlates with the failure they are looking at.
+     */
+    private String apiVersionRejectionHint() {
+        if (apiVersionRejections.isEmpty()) {
+            return "";
+        }
+        return " Note that " + apiVersionRejections.size()
+                + " plugin(s) were refused on their declared API version: "
+                + String.join("; ", apiVersionRejections);
     }
 
     /** The authorization source governing the objects inside {@code ctl}. */
@@ -309,7 +451,8 @@ public class AccessControllerManager {
             pluginIdentifier = acClassName;
         }
         if (null == pluginIdentifier || !isKnownAuthorizationSource(pluginIdentifier)) {
-            throw new RuntimeException("Access Controller Plugin Factory not found for " + acClassName);
+            throw new RuntimeException("Access Controller Plugin Factory not found for " + acClassName
+                    + "." + apiVersionRejectionHint());
         }
         return pluginIdentifier;
     }

@@ -41,7 +41,12 @@ import java.util.Set;
  * one through {@link LegacyAccessControllerPlugin}; a source written today implements
  * {@link org.apache.doris.authorization.spi.AuthorizationPlugin} instead, which asks a single question about
  * a typed resource and answers by refusing rather than by returning false.
+ *
+ * @deprecated implement {@link org.apache.doris.authorization.spi.AuthorizationPlugin} instead. This
+ *         interface still works and is still what {@code access_controller.class} may name, but it is not
+ *         held to a plugin API version, so nothing detects when a Doris upgrade changes what it means.
  */
+@Deprecated
 public interface CatalogAccessController {
     default void close() {
     }
