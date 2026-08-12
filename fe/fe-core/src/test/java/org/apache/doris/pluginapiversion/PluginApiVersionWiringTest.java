@@ -37,6 +37,7 @@ import org.apache.doris.pluginapiversion.testplugins.ShadowingAuthorizationPlugi
 import org.apache.doris.pluginapiversion.testplugins.VersionProbeAuthorizationPluginFactory;
 import org.apache.doris.pluginapiversion.testplugins.VersionProbeConnectorProvider;
 import org.apache.doris.pluginapiversion.testplugins.VersionProbeFileSystemProvider;
+import org.apache.doris.utframe.PluginJarWriter;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -45,19 +46,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.jar.Attributes;
-import java.util.jar.JarEntry;
-import java.util.jar.JarOutputStream;
-import java.util.jar.Manifest;
 
 /**
  * Each fe-core plugin family really enforces its own plugin API version, on real plugin jars.
@@ -353,9 +347,8 @@ public class PluginApiVersionWiringTest {
     }
 
     /**
-     * Writes {@code <root>/<pluginDirName>/<pluginDirName>.jar} the way the assembly really lays a plugin
-     * out: the provider's class bytes, its ServiceLoader registration, and a MANIFEST declaring the plugin
-     * API version. A null {@code declaredApiVersion} omits the attribute entirely.
+     * Writes one plugin under {@code tempDir/rootName} and returns that root, the way the assembly really
+     * lays a plugin out. A null {@code declaredApiVersion} omits the attribute entirely.
      */
     private Path pluginRoot(String rootName, String pluginDirName, Class<?> providerClass,
             Class<?> spiInterface, String manifestAttribute, String declaredApiVersion) throws IOException {
@@ -370,38 +363,7 @@ public class PluginApiVersionWiringTest {
     private Path pluginRoot(String rootName, String pluginDirName, Class<?> providerClass,
             Class<?> spiInterface, String manifestAttribute, String declaredApiVersion,
             List<Class<?>> alsoBundled) throws IOException {
-        Path root = tempDir.resolve(rootName);
-        Path jarPath = root.resolve(pluginDirName).resolve(pluginDirName + ".jar");
-        Files.createDirectories(jarPath.getParent());
-
-        Manifest manifest = new Manifest();
-        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
-        if (declaredApiVersion != null) {
-            manifest.getMainAttributes().putValue(manifestAttribute, declaredApiVersion);
-        }
-        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(jarPath), manifest)) {
-            writeClassEntry(jar, providerClass);
-            for (Class<?> bundled : alsoBundled) {
-                writeClassEntry(jar, bundled);
-            }
-            jar.putNextEntry(new JarEntry("META-INF/services/" + spiInterface.getName()));
-            jar.write((providerClass.getName() + "\n").getBytes(StandardCharsets.UTF_8));
-            jar.closeEntry();
-        }
-        return root;
-    }
-
-    private static void writeClassEntry(JarOutputStream jar, Class<?> clazz) throws IOException {
-        String classEntry = clazz.getName().replace('.', '/') + ".class";
-        jar.putNextEntry(new JarEntry(classEntry));
-        try (InputStream classBytes = clazz.getClassLoader().getResourceAsStream(classEntry)) {
-            Assertions.assertNotNull(classBytes, "class bytes not found: " + classEntry);
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = classBytes.read(buffer)) != -1) {
-                jar.write(buffer, 0, read);
-            }
-        }
-        jar.closeEntry();
+        return PluginJarWriter.writePluginRoot(tempDir.resolve(rootName), pluginDirName, providerClass,
+                spiInterface, manifestAttribute, declaredApiVersion, alsoBundled);
     }
 }

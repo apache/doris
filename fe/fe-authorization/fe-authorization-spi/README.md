@@ -98,6 +98,22 @@ public final class CustomAuthorizationPluginFactory implements AuthorizationPlug
 com.example.authz.CustomAuthorizationPluginFactory
 ```
 
+## Worked example
+
+The snippets above are elided. A complete source — one that really governs a running FE — lives in the test
+tree, together with the test that installs it from a plugin directory and puts SQL through it:
+
+```text
+fe/fe-core/src/test/java/org/apache/doris/authorizationexample/
+├── ExampleAuthorizationPluginFactory.java        # the four lines that make a jar a plugin
+├── ExampleAuthorizationPlugin.java               # privileges by Doris role, plus one row filter
+└── AuthorizationPluginFromDirectoryTest.java     # installs it and checks what SQL then does
+```
+
+It is the shortest thing that answers the questions a first plugin runs into: how to decide when the
+requirement is not one you recognise, why an instance-wide source needs an administration rule of its own,
+and what "returning no row filter" does and does not mean.
+
 ## Lifecycle and cost
 
 A plugin is created once and kept. Unlike an authentication attempt, an authorization decision happens many
