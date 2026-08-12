@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.RowFilterSpec;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
@@ -130,7 +131,7 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         );
 
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
-        CatalogAccessController catalogAccessController = accessManager.getAccessControllerOrDefault(catalog);
+        AuthorizationPlugin catalogAccessController = accessManager.getAccessControllerOrDefault(catalog);
         AccessControllerManager spyAccessManager = Mockito.spy(accessManager);
         Mockito.doReturn(catalogAccessController).when(spyAccessManager)
                 .getAccessControllerOrDefault("internal");

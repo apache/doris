@@ -20,6 +20,7 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.RowFilterSpec;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
@@ -213,11 +214,11 @@ public class AccessControlBehaviorBaselineTest extends TestWithFeService {
         lines.add("USERS: " + String.join(",", USERS));
         lines.add("");
         AccessControllerManager manager = Env.getCurrentEnv().getAccessManager();
-        CatalogAccessController builtin = Deencapsulation.getField(manager, "defaultAccessController");
+        AuthorizationPlugin builtin = Deencapsulation.getField(manager, "defaultAccessController");
 
         renderWithDefaultController(lines, manager, "builtin", builtin);
-        renderWithDefaultController(lines, manager, "ranger",
-                new RangerDorisAccessController(new StubRangerPolicyEngine()));
+        renderWithDefaultController(lines, manager, "ranger", new LegacyAccessControllerPlugin(
+                "stub-ranger-doris", new RangerDorisAccessController(new StubRangerPolicyEngine())));
         return lines;
     }
 
@@ -226,8 +227,8 @@ public class AccessControlBehaviorBaselineTest extends TestWithFeService {
      * {@code fe.conf: access_controller_type}.
      */
     private void renderWithDefaultController(List<String> lines, AccessControllerManager manager,
-            String label, CatalogAccessController defaultController) {
-        CatalogAccessController original = Deencapsulation.getField(manager, "defaultAccessController");
+            String label, AuthorizationPlugin defaultController) {
+        AuthorizationPlugin original = Deencapsulation.getField(manager, "defaultAccessController");
         Map<String, Object> routes = Deencapsulation.getField(manager, "ctlToCtlAccessController");
         Map<String, Object> savedRoutes = new HashMap<>(routes);
         try {

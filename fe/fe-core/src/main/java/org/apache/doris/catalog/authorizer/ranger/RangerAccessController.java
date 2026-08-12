@@ -23,7 +23,7 @@ import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.doris.DorisAccessType;
 import org.apache.doris.common.AuthorizationException;
-import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
@@ -60,9 +60,8 @@ public abstract class RangerAccessController implements CatalogAccessController 
      * own global check answers the same question one line later.
      */
     protected boolean grantedByGlobalScopeAuthority(UserIdentity currentUser, PrivPredicate wanted) {
-        CatalogAccessController authority = Env.getCurrentEnv().getAccessManager()
-                .getAccessControllerOrDefault(InternalCatalog.INTERNAL_CATALOG_NAME);
-        return authority != this && authority.checkGlobalPriv(currentUser, wanted);
+        AccessControllerManager manager = Env.getCurrentEnv().getAccessManager();
+        return !manager.isGlobalScopeAuthority(this) && manager.checkGlobalPriv(currentUser, wanted);
     }
 
     protected static boolean checkRequestResult(RangerAccessRequestImpl request,

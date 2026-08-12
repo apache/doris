@@ -24,6 +24,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
+import org.apache.doris.mysql.privilege.LegacyAccessControllerPlugin;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.StubRangerPolicyEngine;
 
@@ -112,10 +113,17 @@ public class RangerGlobalScopeDeferenceTest {
         return engine.requests.get();
     }
 
-    /** Runs {@code check} against an FE whose {@code access_controller_type} resolves to {@code authority}. */
+    /**
+     * Runs {@code check} against an FE whose {@code access_controller_type} resolves to {@code authority}.
+     *
+     * <p>Installed the way the engine installs one written against the older interface - behind the adapter -
+     * because that is what makes "is this authority me?" a question about the controller rather than about
+     * the object the manager happens to hold.
+     */
     private boolean withGlobalScopeAuthority(CatalogAccessController authority, BooleanSupplier check) {
         AccessControllerManager manager = new AccessControllerManager(new Auth());
-        Deencapsulation.setField(manager, "defaultAccessController", authority);
+        Deencapsulation.setField(manager, "defaultAccessController",
+                new LegacyAccessControllerPlugin("authority", authority));
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             Env env = Mockito.mock(Env.class);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);

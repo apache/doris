@@ -32,10 +32,12 @@ under the License.
     <!--
       The authorization plugin API version property and the manifest stamping it needs (see
       fe-authorization/../fe-authentication/pom.xml for the pattern and the build-cache trap it avoids) land
-      together with the fe-authorization-spi module. Until a plugin contract exists there is no version to
-      declare: fe-authorization-api is consumed only by fe-core, in-tree, at the same revision.
+      together with the loader family registration, which is what reads them. The contract itself exists
+      before that: until a plugin can be loaded from a directory, every implementation of it is in-tree and
+      built at the same revision, so there is nothing yet for a version gate to compare.
     -->
     <modules>
         <module>fe-authorization-api</module>
+        <module>fe-authorization-spi</module>
     </modules>
 </project>
