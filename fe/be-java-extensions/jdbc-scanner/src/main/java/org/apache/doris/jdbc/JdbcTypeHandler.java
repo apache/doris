@@ -17,8 +17,8 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValueConverter;
 
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -35,8 +35,8 @@ import java.sql.SQLException;
  * that customizes how column values are read from ResultSets, how connections are configured,
  * and how output values are converted.
  *
- * <p>Used by {@link JdbcJniScanner} to provide database-specific behavior without
- * requiring the old {@link BaseJdbcExecutor} class hierarchy.
+ * <p>Used by {@link JdbcJniScanner} to provide database-specific behavior: one scanner picks a
+ * handler by table type, rather than one scanner subclass per database.
  */
 public interface JdbcTypeHandler {
 

@@ -1351,7 +1351,6 @@ EOF
     fi
 
     extensions_modules=("java-udf")
-    extensions_modules+=("jdbc-scanner")
     extensions_modules+=("hadoop-hudi-scanner")
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("trino-connector-scanner")
@@ -1409,6 +1408,7 @@ EOF
     BE_JAVA_PLUGINS_DIR="${DORIS_OUTPUT}/be/lib/java/plugins"
     mkdir -p "${BE_JAVA_PLUGINS_DIR}"
     plugin_modules=("java-writer:java-writer")
+    plugin_modules+=("jdbc-scanner:jdbc")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"

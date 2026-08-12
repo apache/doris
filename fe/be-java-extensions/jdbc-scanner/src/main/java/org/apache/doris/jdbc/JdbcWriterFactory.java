@@ -17,16 +17,23 @@
 
 package org.apache.doris.jdbc;
 
-/**
- * @deprecated Legacy exception class for the old JdbcExecutor framework.
- */
-@Deprecated
-public class JdbcExecutorException extends Exception {
-    public JdbcExecutorException(String msg, Throwable cause) {
-        super(msg, cause);
+import org.apache.doris.jni.spi.JniWriter;
+import org.apache.doris.jni.spi.JniWriterFactory;
+
+import java.util.Map;
+
+/** Builds {@link JdbcJniWriter}. BE reaches it as {@code (jdbc, writer)}, paired with reader. */
+public class JdbcWriterFactory implements JniWriterFactory {
+
+    public static final String NAME = "writer";
+
+    @Override
+    public String getName() {
+        return NAME;
     }
 
-    public JdbcExecutorException(String msg) {
-        super(msg);
+    @Override
+    public JniWriter create(int batchSize, Map<String, String> params) {
+        return new JdbcJniWriter(batchSize, params);
     }
 }

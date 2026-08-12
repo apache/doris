@@ -17,14 +17,14 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.cloud.security.SecurityChecker;
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValueConverter;
 import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
 
 import com.zaxxer.hikari.HikariDataSource;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Array;
@@ -66,7 +66,7 @@ import java.util.Map;
  * </ul>
  */
 public class JdbcJniScanner extends JniScanner {
-    private static final Logger LOG = Logger.getLogger(JdbcJniScanner.class);
+    private static final Logger LOG = LoggerFactory.getLogger(JdbcJniScanner.class);
 
     private final String jdbcUrl;
     private final String jdbcUser;
@@ -157,7 +157,7 @@ public class JdbcJniScanner extends JniScanner {
     }
 
     @Override
-    public void open() throws IOException {
+    protected void openInternal() throws IOException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // HikariCP's setDriverClassName() uses the thread context classloader
@@ -297,7 +297,7 @@ public class JdbcJniScanner extends JniScanner {
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         try {
             // Use type handler for database-specific connection abort
             if (conn != null && resultSet != null) {
@@ -331,14 +331,14 @@ public class JdbcJniScanner extends JniScanner {
     }
 
     @Override
-    public Map<String, String> getStatistics() {
+    protected Map<String, String> collectStatistics() {
         Map<String, String> stats = new HashMap<>();
         stats.put("counter:ReadRows", String.valueOf(readRows));
         stats.put("timer:ReadTime", String.valueOf(readTime));
         return stats;
     }
 
-    private void initializeClassLoaderAndDataSource() throws Exception {
+    private void initializeClassLoaderAndDataSource() {
         this.classLoader = JdbcDriverUtils.driverClassLoader(jdbcDriverUrl, getClass().getClassLoader());
         // Must set thread context classloader BEFORE creating HikariDataSource,
         // because HikariCP's setDriverClassName() loads the driver class from
@@ -353,7 +353,11 @@ public class JdbcJniScanner extends JniScanner {
                 if (hikariDataSource == null) {
                     HikariDataSource ds = new HikariDataSource();
                     ds.setDriverClassName(jdbcDriverClass);
-                    ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl));
+                    // The url is used exactly as FE sent it. The configurable url check
+                    // (SecurityChecker) runs in FE, before the catalog's url is handed down, and
+                    // FE is the only side that can run it: it is switched on by a field of
+                    // fe.conf, and nothing ever loads fe.conf into BE's JVM.
+                    ds.setJdbcUrl(jdbcUrl);
                     ds.setUsername(jdbcUser);
                     ds.setPassword(jdbcPassword);
                     ds.setMinimumIdle(connectionPoolMinSize);
