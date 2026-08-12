@@ -54,6 +54,23 @@ suite("rf_bucket_pruning", "nonConcurrent") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES("replication_num" = "1")
     """
+    sql "drop table if exists rf_bucket_prune_nullable"
+    sql """
+        CREATE TABLE rf_bucket_prune_nullable (
+            k INT NULL,
+            v INT NOT NULL
+        )
+        DISTRIBUTED BY HASH(k) BUCKETS 8
+        PROPERTIES("replication_num" = "1")
+    """
+    sql "drop table if exists rf_bucket_prune_dim_nullable"
+    sql """
+        CREATE TABLE rf_bucket_prune_dim_nullable (
+            k INT NULL
+        )
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
 
     sql """
         INSERT INTO rf_bucket_prune_fact VALUES
@@ -66,11 +83,20 @@ suite("rf_bucket_pruning", "nonConcurrent") {
             (5, 50), (6, 60), (7, 70), (8, 80)
     """
     sql "INSERT INTO rf_bucket_prune_dim VALUES (3)"
+    sql "INSERT INTO rf_bucket_prune_nullable VALUES (NULL, 90), (3, 30)"
+    sql "INSERT INTO rf_bucket_prune_dim_nullable VALUES (NULL)"
 
     order_qt_bucket_result """
         SELECT f.k, f.v
         FROM rf_bucket_prune_fact f
         JOIN [broadcast] rf_bucket_prune_dim d ON f.k = d.k
+        ORDER BY f.k, f.v
+    """
+
+    order_qt_nullable_bucket_result """
+        SELECT f.k, f.v
+        FROM rf_bucket_prune_nullable f
+        JOIN [broadcast] rf_bucket_prune_dim_nullable d ON f.k <=> d.k
         ORDER BY f.k, f.v
     """
 
@@ -101,12 +127,12 @@ suite("rf_bucket_pruning", "nonConcurrent") {
                 .collect { it[1].toLong() }
         return values.isEmpty() ? 0L : values.sum()
     }
-    def runProfileQuery = { String tableName ->
+    def runProfileQuery = { String tableName, String dimensionName, String joinOperator ->
         def token = UUID.randomUUID().toString()
         sql """
             SELECT "${token}", COUNT(*)
             FROM ${tableName} f
-            JOIN [broadcast] rf_bucket_prune_dim d ON f.k = d.k
+            JOIN [broadcast] ${dimensionName} d ON f.k ${joinOperator} d.k
         """
         def profile = getProfileByToken(token)
         assertTrue(profile != "", "Profile not found for ${token}")
@@ -115,12 +141,14 @@ suite("rf_bucket_pruning", "nonConcurrent") {
         return extractPrunedBuckets(profile)
     }
 
-    assertTrue(runProfileQuery("rf_bucket_prune_fact") > 0,
+    assertTrue(runProfileQuery("rf_bucket_prune_fact", "rf_bucket_prune_dim", "=") > 0,
             "single-column HASH distribution should be pruned")
-    assertTrue(runProfileQuery("rf_bucket_prune_composite") == 0,
+    assertTrue(runProfileQuery("rf_bucket_prune_composite", "rf_bucket_prune_dim", "=") == 0,
             "multi-column HASH distribution must not be pruned")
+    assertTrue(runProfileQuery("rf_bucket_prune_nullable", "rf_bucket_prune_dim_nullable", "<=>") > 0,
+            "null-aware IN filter should prune buckets while retaining the NULL bucket")
 
     sql "set enable_runtime_filter_bucket_prune=false"
-    assertTrue(runProfileQuery("rf_bucket_prune_fact") == 0,
+    assertTrue(runProfileQuery("rf_bucket_prune_fact", "rf_bucket_prune_dim", "=") == 0,
             "disabled runtime-filter bucket pruning must not prune buckets")
 }

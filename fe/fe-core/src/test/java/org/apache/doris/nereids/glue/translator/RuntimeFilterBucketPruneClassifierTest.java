@@ -57,6 +57,17 @@ class RuntimeFilterBucketPruneClassifierTest {
     }
 
     @Test
+    void testPointQueryRejected() {
+        Column distributionColumn = new Column("dist_col", PrimitiveType.INT);
+        RuntimeFilterBucketPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.IN, distributionColumn,
+                new HashDistributionInfo(8, ImmutableList.of(distributionColumn)), true);
+
+        Assertions.assertFalse(classification.canPruneBuckets());
+        Assertions.assertTrue(classification.getUnsupportedReason().contains("point query"));
+    }
+
+    @Test
     void testBloomRejected() {
         Column distributionColumn = new Column("dist_col", PrimitiveType.INT);
         RuntimeFilterBucketPruneClassifier.Classification classification = classify(
@@ -173,6 +184,12 @@ class RuntimeFilterBucketPruneClassifierTest {
     private RuntimeFilterBucketPruneClassifier.Classification classify(
             TRuntimeFilterType filterType, Column targetColumn,
             org.apache.doris.catalog.DistributionInfo distributionInfo) {
+        return classify(filterType, targetColumn, distributionInfo, false);
+    }
+
+    private RuntimeFilterBucketPruneClassifier.Classification classify(
+            TRuntimeFilterType filterType, Column targetColumn,
+            org.apache.doris.catalog.DistributionInfo distributionInfo, boolean isPointQuery) {
         SlotDescriptor slotDescriptor = new SlotDescriptor(new SlotId(1), new TupleId(1));
         slotDescriptor.setColumn(targetColumn);
         slotDescriptor.setType(targetColumn.getType());
@@ -181,6 +198,7 @@ class RuntimeFilterBucketPruneClassifierTest {
         OlapTable table = Mockito.mock(OlapTable.class);
         Partition partition = Mockito.mock(Partition.class);
         OlapScanNode scanNode = Mockito.mock(OlapScanNode.class);
+        Mockito.when(scanNode.isPointQuery()).thenReturn(isPointQuery);
         Mockito.when(scanNode.getOlapTable()).thenReturn(table);
         Mockito.when(scanNode.getSelectedPartitionIds()).thenReturn(ImmutableList.of(1L));
         Mockito.when(table.getPartition(1L)).thenReturn(partition);

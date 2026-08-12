@@ -18,6 +18,7 @@
 #include "exec/runtime_filter/runtime_filter_wrapper.h"
 
 #include "core/data_type/define_primitive_type.h"
+#include "core/string_ref.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
@@ -613,6 +614,51 @@ bool RuntimeFilterWrapper::contain_null() const {
         return _minmax_func->contain_null();
     }
     return false;
+}
+
+std::shared_ptr<const std::vector<uint32_t>>
+RuntimeFilterWrapper::get_or_compute_bucket_prune_hashes(const DataTypePtr& target_type) const {
+    DORIS_CHECK(_state.load() == State::READY);
+    DORIS_CHECK(_hybrid_set != nullptr);
+    DORIS_CHECK(target_type != nullptr);
+    PrimitiveType primitive_type = target_type->get_primitive_type();
+    DORIS_CHECK_EQ(primitive_type, _column_return_type);
+
+    bool is_nullable = target_type->is_nullable();
+    auto& once = is_nullable ? _nullable_bucket_prune_hashes_once
+                             : _non_nullable_bucket_prune_hashes_once;
+    auto& cached_hashes =
+            is_nullable ? _nullable_bucket_prune_hashes : _non_nullable_bucket_prune_hashes;
+    std::call_once(once, [&] {
+        MutableColumnPtr column = target_type->create_column();
+        auto* iter = _hybrid_set->begin();
+        while (iter->has_next()) {
+            const void* value = iter->get_value();
+            DORIS_CHECK(value != nullptr);
+            if (is_string_type(primitive_type)) {
+                const auto* string_value = reinterpret_cast<const StringRef*>(value);
+                column->insert_data(string_value->data, string_value->size);
+            } else {
+                // ColumnVector::insert_data ignores length for fixed-length values.
+                column->insert_data(reinterpret_cast<const char*>(value), 0);
+            }
+            iter->next();
+        }
+        if (_hybrid_set->contain_null() && is_nullable) {
+            // A null-aware filter can match NULL probe rows, so retain the bucket selected by
+            // the same nullable CRC semantics used during tablet routing.
+            column->insert_default();
+        }
+
+        auto hashes = std::make_shared<std::vector<uint32_t>>(column->size(), 0);
+        if (!hashes->empty()) {
+            column->update_crcs_with_value(hashes->data(), primitive_type,
+                                           static_cast<uint32_t>(column->size()));
+        }
+        cached_hashes = std::move(hashes);
+    });
+    DORIS_CHECK(cached_hashes != nullptr);
+    return cached_hashes;
 }
 
 std::string RuntimeFilterWrapper::debug_string() const {
