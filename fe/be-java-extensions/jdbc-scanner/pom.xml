@@ -41,6 +41,15 @@ under the License.
             <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>
+        <!--
+          Compile scope on purpose: plugin-toolkit is shared source, not a shared runtime, so its
+          classes are packaged into this connector rather than resolved from anywhere else.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>plugin-toolkit</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- For JDBC Scanner PreLoad-->
         <dependency>
             <groupId>com.zaxxer</groupId>
