@@ -1358,7 +1358,6 @@ EOF
     # lakesoul-scanner has been deprecated
     # extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
-    extensions_modules+=("iceberg-metadata-scanner")
     extensions_modules+=("${HADOOP_DEPS_NAME}")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
@@ -1409,6 +1408,7 @@ EOF
     mkdir -p "${BE_JAVA_PLUGINS_DIR}"
     plugin_modules=("java-writer:java-writer")
     plugin_modules+=("jdbc-scanner:jdbc")
+    plugin_modules+=("iceberg-metadata-scanner:iceberg")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
