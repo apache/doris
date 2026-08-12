@@ -28,6 +28,12 @@ under the License.
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>max-compute-connector</artifactId>
+    <name>Doris BE max-compute Plugin</name>
+    <description>
+        Reads and writes Alibaba MaxCompute tables through the ODPS SDK. It is the only plugin that
+        talks back to FE: a write asks FE for the next block id over thrift, so this plugin carries
+        an FE RPC client of its own.
+    </description>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
@@ -37,21 +43,48 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>java-common</artifactId>
+            <artifactId>jni-spi</artifactId>
             <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>
+        <!--
+          Compile, not provided: the write path calls FrontendService for block ids, so the plugin
+          needs the generated thrift and libthrift under it inside its own directory. Every other
+          plugin gets by without thrift; this is the exception the SPI deliberately does not carry.
+        -->
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-thrift</artifactId>
             <version>${project.version}</version>
-            <scope>provided</scope>
         </dependency>
+
         <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
             <version>${maxcompute.version}</version>
+            <!--
+              Declaring exclusions here REPLACES the ones the fe parent pom manages for this
+              artifact rather than adding to them, so the managed set is restated in full. The two
+              codehaus jackson artifacts are this module's own addition: they are jackson 1.x, which
+              the dependency-review gate flags, and nothing here calls them.
+            -->
             <exclusions>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-vector</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.ini4j</groupId>
+                    <artifactId>ini4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.squareup.okhttp3</groupId>
+                    <artifactId>okhttp</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.squareup.okio</groupId>
+                    <artifactId>okio</artifactId>
+                </exclusion>
                 <exclusion>
                     <groupId>org.codehaus.jackson</groupId>
                     <artifactId>jackson-core-asl</artifactId>
@@ -60,17 +93,94 @@ under the License.
                     <groupId>org.codehaus.jackson</groupId>
                     <artifactId>jackson-mapper-asl</artifactId>
                 </exclusion>
+                <!--
+                  The ANTLR tool, not its runtime: odps-sdk-core declares the whole code generator,
+                  which brings icu4j and StringTemplate along for 17MB of a plugin directory that
+                  only ever runs generated parsers. Verified by scanning all three odps jars - they
+                  reference org/antlr/v4/runtime and nothing else under org/antlr.
+                -->
+                <exclusion>
+                    <groupId>org.antlr</groupId>
+                    <artifactId>antlr4</artifactId>
+                </exclusion>
             </exclusions>
+        </dependency>
+        <!--
+          Restored on its own after the exclusion above. The version is the one the fe pom manages
+          rather than odps's 4.11.1, which is also what this scanner resolved before isolation: the
+          shared preload layer carried 4.13.1 and parent-first delegation meant it always won.
+        -->
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr4.version}</version>
         </dependency>
         <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-table-api</artifactId>
             <version>${maxcompute.version}</version>
         </dependency>
+        <!--
+          Pinned to the version the rest of Doris uses rather than the one odps-sdk-core would
+          bring, which is why the transitive copy is excluded above. The allocator underneath it
+          stays netty (odps-sdk-core brings arrow-memory-netty) - the same one this scanner already
+          resolved before isolation, because the shared layer's arrow-memory-unsafe never won
+          against a child-loaded netty factory.
+        -->
         <dependency>
             <groupId>org.apache.arrow</groupId>
             <artifactId>arrow-vector</artifactId>
             <version>${arrow.version}</version>
+        </dependency>
+        <!-- Reached transitively through java-common until this module became a plugin. -->
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          Logging: everything this plugin logs has to reach the one file BE's plugin runtime
+          configures - log/jni.log, written through java.util.logging. So the plugin speaks slf4j
+          and deploys slf4j-jdk14, and that is the whole chain.
+
+          The three log4j artifacts are narrowed to test because the fe parent pom declares them
+          compile on EVERY module: log4j-core is a second logging implementation writing wherever
+          its own configuration says (nowhere, since BE's log4j2 config is not on a plugin's
+          classpath), log4j-slf4j2-impl would route slf4j into it, and log4j-1.2-api is not the pure
+          facade its name suggests - its org.apache.log4j.Logger resolves log4j-core classes, which
+          is why this module's own code moved off log4j 1.x rather than keeping the facade.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j2-impl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -78,26 +188,25 @@ under the License.
         <finalName>max-compute-connector</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!--
+              A plugin is a directory of jars, not one jar with everything shaded into it. Its own
+              jar is built by the parent's jar plugin; its runtime closure lands beside it here.
+              `provided` dependencies are excluded by scope, which is what keeps the SPI out.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <configuration>
-                    <descriptors>
-                        <descriptor>src/main/resources/package.xml</descriptor>
-                    </descriptors>
-                    <archive>
-                        <manifest>
-                            <mainClass></mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
+                <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
+                        <id>copy-plugin-dependencies</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>copy-dependencies</goal>
                         </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
