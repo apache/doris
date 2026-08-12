@@ -240,8 +240,8 @@ public class TabletHealthTest extends TestWithFeService {
         decommissionBe.setDecommissioned(false);
 
         shutdownBackends(Lists.newArrayList(tablet.getReplicas().get(1).getBackendId()));
-        // 1 replica dead
-        checkTabletStatus(tablet, TabletStatus.FORCE_REDUNDANT, table, partition);
+        // 1 replica dead, with a spare backend available
+        checkTabletStatus(tablet, TabletStatus.REPLICA_MISSING, table, partition);
         doRepair();
         checkTabletIsHealth(tablet, table, partition);
 

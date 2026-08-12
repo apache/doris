@@ -229,6 +229,31 @@ public class RowBinlogTabletLocalityTest {
     }
 
     @Test
+    public void spareBackendRepairsBaseBeforeRowBinlogTablet() {
+        TabletPair pair = createTabletPair(
+                replicas(1, 2, 3),
+                replicas(1, 2, 3));
+        infoService.getBackend(3L).setAlive(false);
+        infoService.getBackend(5L).setAlive(false);
+
+        TabletHealth baseHealth = pair.baseTablet.getHealth(
+                infoService, VISIBLE_VERSION, new ReplicaAllocation((short) 3),
+                infoService.getAllBackendIds(true));
+
+        Assertions.assertEquals(TabletStatus.REPLICA_MISSING, baseHealth.status);
+
+        // Simulate completing the base replica clone on the spare backend.
+        Replica repairedBaseReplica = createReplica(replicaSpec(4L, 400L));
+        pair.baseTablet.addReplica(repairedBaseReplica, true);
+
+        RowBinlogTabletLocality.RowBinlogHealthResult rowBinlogHealth = getHealth(pair);
+        Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, rowBinlogHealth.getTabletHealth().status);
+        Assertions.assertEquals(Sets.newHashSet(1L, 2L, 4L), rowBinlogHealth.getRequiredBackends());
+        Assertions.assertEquals(repairedBaseReplica.getPathHash(),
+                rowBinlogHealth.getRequiredDestPathHashByBackend().get(4L));
+    }
+
+    @Test
     public void preferredBaseRepairPathUsesExistingBinlogReplica() {
         TabletPair pair = createTabletPair(
                 replicas(1, 2),

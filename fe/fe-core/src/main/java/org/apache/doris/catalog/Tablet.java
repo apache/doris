@@ -461,17 +461,21 @@ public abstract class Tablet {
             return tabletHealth;
         }
 
+        Set<Long> replicaBeIds = replicas.stream().map(Replica::getBackendIdWithoutException)
+                .collect(Collectors.toSet());
+        Set<Long> availableBeIds = aliveBeIds.stream().filter(systemInfoService::checkBackendScheduleAvailable)
+                .collect(Collectors.toSet());
+
         // 1. alive replicas are not enough
-        int aliveBackendsNum = aliveBeIds.size();
-        if (alive < replicationNum && replicas.size() >= aliveBackendsNum
-                && aliveBackendsNum >= replicationNum && replicationNum > 1) {
+        if (alive < replicationNum && replicaBeIds.containsAll(availableBeIds)
+                && availableBeIds.size() >= replicationNum && replicationNum > 1) {
             // there is no enough backend for us to create a new replica, so we have to delete an existing replica,
             // so there can be available backend for us to create a new replica.
             // And if there is only one replica, we will not handle it(maybe need human interference)
             // condition explain:
             // 1. alive < replicationNum: replica is missing or bad
-            // 2. replicas.size() >= aliveBackendsNum: the existing replicas occupies all available backends
-            // 3. aliveBackendsNum >= replicationNum: make sure after deleting,
+            // 2. replicaBeIds contains all availableBeIds: the existing replicas occupy all available backends
+            // 3. availableBeIds.size() >= replicationNum: make sure after deleting,
             //    there will be at least one backend for new replica.
             // 4. replicationNum > 1: if replication num is set to 1, do not delete any replica, for safety reason
             tabletHealth.status = TabletStatus.FORCE_REDUNDANT;
@@ -504,10 +508,6 @@ public abstract class Tablet {
 
         // 3. replica is under relocating
         if (stable < replicationNum) {
-            Set<Long> replicaBeIds = replicas.stream().map(Replica::getBackendIdWithoutException)
-                    .collect(Collectors.toSet());
-            List<Long> availableBeIds = aliveBeIds.stream().filter(systemInfoService::checkBackendScheduleAvailable)
-                    .collect(Collectors.toList());
             if (replicaBeIds.containsAll(availableBeIds)
                     && availableBeIds.size() >= replicationNum
                     && replicationNum > 1) { // No BE can be choose to create a new replica
