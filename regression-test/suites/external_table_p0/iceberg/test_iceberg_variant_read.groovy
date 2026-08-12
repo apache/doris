@@ -323,6 +323,17 @@ suite("test_iceberg_variant_read",
         TBLPROPERTIES ('format-version'='3', 'write.format.default'='parquet');
         INSERT INTO demo.${dbName}.variant_write_guard VALUES (1);
 
+        DROP TABLE IF EXISTS demo.${dbName}.variant_coercion_guard;
+        CREATE TABLE demo.${dbName}.variant_coercion_guard (
+            id INT,
+            payload VARIANT
+        ) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='false'
+        );
+
         DROP TABLE IF EXISTS demo.${dbName}.variant_operation_column;
         CREATE TABLE demo.${dbName}.variant_operation_column (
             id INT,
@@ -534,6 +545,89 @@ public class AppendVariantEqualityDelete {
         PROPERTIES ('format-version'='3', 'write.format.default'='parquet')
     """
     sql """set enable_variant_v2=true"""
+
+    // Common-type analysis runs before sink binding. Reject implicit Variant-to-scalar casts
+    // instead of persisting an object/array as SQL NULL, while keeping ordinary scalar writes.
+    test {
+        sql """
+            INSERT INTO variant_coercion_guard
+            SELECT id, v FROM variant_values WHERE id = 1
+            UNION ALL
+            SELECT 2, 1
+        """
+        exception "Iceberg VARIANT write cannot safely convert input column 'payload'"
+    }
+    test {
+        sql """
+            INSERT INTO variant_coercion_guard
+            SELECT id + 2, v FROM variant_root_arrays WHERE id = 1
+            UNION ALL
+            SELECT 4, 1
+        """
+        exception "Iceberg VARIANT write cannot safely convert input column 'payload'"
+    }
+    test {
+        sql """
+            INSERT INTO variant_coercion_guard
+            SELECT 5, IF(TRUE, v, 1) FROM variant_values WHERE id = 1
+        """
+        exception "Iceberg VARIANT write cannot safely convert input column 'payload'"
+    }
+    test {
+        sql """
+            INSERT INTO variant_coercion_guard
+            SELECT 6, IF(TRUE, v, 1) FROM variant_root_arrays WHERE id = 2
+        """
+        exception "Iceberg VARIANT write cannot safely convert input column 'payload'"
+    }
+    test {
+        sql """
+            INSERT INTO variant_coercion_guard
+            SELECT 7, CASE WHEN TRUE THEN v ELSE 1 END
+            FROM variant_values WHERE id = 1
+        """
+        exception "Iceberg VARIANT write cannot safely convert input column 'payload'"
+    }
+    test {
+        sql """
+            INSERT INTO variant_coercion_guard
+            SELECT 8, CASE WHEN TRUE THEN v ELSE 1 END
+            FROM variant_root_arrays WHERE id = 2
+        """
+        exception "Iceberg VARIANT write cannot safely convert input column 'payload'"
+    }
+
+    // Primitive-to-Variant coercion remains supported for both inline VALUES and ordinary SELECT.
+    sql """
+        INSERT INTO variant_coercion_guard VALUES
+            (10, 7),
+            (11, 'values-string'),
+            (12, TRUE),
+            (13, ARRAY(1, 2))
+    """
+    sql """INSERT INTO variant_coercion_guard SELECT 20, 8"""
+    sql """INSERT INTO variant_coercion_guard SELECT 21, 'select-string'"""
+    sql """INSERT INTO variant_coercion_guard SELECT 22, FALSE"""
+    sql """INSERT INTO variant_coercion_guard SELECT 23, ARRAY(3, 4)"""
+    spark_iceberg """REFRESH TABLE demo.${dbName}.variant_coercion_guard"""
+    List<List<Object>> sparkCoercionGuardRows = spark_iceberg """
+        SELECT id, to_json(payload)
+        FROM demo.${dbName}.variant_coercion_guard
+        ORDER BY id
+    """
+    assertEquals([
+            ["10", "7"],
+            ["11", '"values-string"'],
+            ["12", "true"],
+            ["13", "[1,2]"],
+            ["20", "8"],
+            ["21", '"select-string"'],
+            ["22", "false"],
+            ["23", "[3,4]"]
+    ], sparkCoercionGuardRows.collect { row ->
+        row.collect { value -> value == null ? null : value.toString() }
+    })
+
     sql """
         INSERT INTO variant_doris_write VALUES
             (1, PARSE_TO_VARIANT('{"name":"doris","n":20,"enabled":true,"ratio":1.25,"nested":{"city":"hangzhou"},"tags":["iceberg","spark"]}')),

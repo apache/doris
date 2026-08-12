@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.VariantWritePlanValidator;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
@@ -818,6 +819,7 @@ public class BindSink implements AnalysisRuleFactory {
         }
 
         IcebergVariantWriteAnalyzer.validate(bindColumns, child.getOutput());
+        VariantWritePlanValidator.validateNoLossyCoercion("Iceberg", bindColumns, child);
 
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
                 boundSink, child, targetSchema);
@@ -1002,6 +1004,7 @@ public class BindSink implements AnalysisRuleFactory {
                 && connectContext.getSessionVariable().isEnableVariantV2();
         PaimonVariantWriteAnalyzer.validate(
                 writeTarget, writeColumns, columnToOutput, enableVariantV2);
+        VariantWritePlanValidator.validateNoLossyCoercion("Paimon", bindColumns, child);
         LogicalProject<?> outputProject = getOutputProjectByCoercion(
                 writeColumns, child, columnToOutput, writeTarget.getColumnTypes());
         return boundSink.withChildAndUpdateOutput(outputProject);
