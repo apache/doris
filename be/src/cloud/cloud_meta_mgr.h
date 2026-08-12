@@ -20,6 +20,7 @@
 
 #include <future>
 #include <memory>
+#include <ranges>
 #include <string>
 #include <tuple>
 #include <variant>
