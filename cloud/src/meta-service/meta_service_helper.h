@@ -56,6 +56,11 @@ inline std::pair<MetaServiceCode, std::string> resolve_response_code_and_msg(Met
         msg += std::string((msg.empty() ? "" : ", ")) +
                "[MS_TOO_BUSY will be converted to code=KV_TXN_CONFLICT for old version clients]";
         return {MetaServiceCode::KV_TXN_CONFLICT, std::move(msg)};
+    case MetaServiceCode::TXN_ALREADY_COMMITED:
+        msg += std::string((msg.empty() ? "" : ", ")) +
+               "[TXN_ALREADY_COMMITED will be converted to code=UNDEFINED_ERR for old version "
+               "clients]";
+        return {MetaServiceCode::UNDEFINED_ERR, std::move(msg)};
     default:
         return {code, std::move(msg)};
     }

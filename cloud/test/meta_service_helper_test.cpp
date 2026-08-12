@@ -70,7 +70,6 @@ const std::set<MetaServiceCode> identity_snapshot = {
         MetaServiceCode::TABLET_NOT_FOUND,
         MetaServiceCode::STALE_TABLET_CACHE,
         MetaServiceCode::STALE_PREPARE_ROWSET,
-        MetaServiceCode::TXN_ALREADY_COMMITED,
         MetaServiceCode::CLUSTER_NOT_FOUND,
         MetaServiceCode::ALREADY_EXISTED,
         MetaServiceCode::CLUSTER_ENDPOINT_MISSING,
@@ -411,6 +410,9 @@ TEST(MetaServiceHelperTest, ResponseStatusCoversEveryMetaServiceCode) {
 
     expect_legacy_fallback_response_status(covered_codes, MetaServiceCode::MS_TOO_BUSY,
                                            LegacyFallbackCode::KV_TXN_CONFLICT);
+
+    expect_legacy_fallback_response_status(covered_codes, MetaServiceCode::TXN_ALREADY_COMMITED,
+                                           LegacyFallbackCode::UNDEFINED_ERR);
     EXPECT_EQ(covered_codes.size(),
               static_cast<size_t>(MetaServiceCode_descriptor()->value_count()))
             << "A new MetaServiceCode was added. Map it to a LegacyFallbackCode in "
