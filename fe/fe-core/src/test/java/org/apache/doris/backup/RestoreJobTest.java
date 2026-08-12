@@ -33,6 +33,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.constraint.ConstraintManager;
@@ -43,6 +44,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.storage.StorageAdapter;
@@ -498,6 +500,66 @@ public class RestoreJobTest {
         Assert.assertNotNull(constraintManager.getConstraint(referencingTableInfo, "fk"));
         Mockito.verify(database, Mockito.never()).unregisterTable(Mockito.anyString());
         Mockito.verify(database, Mockito.never()).registerTable(Mockito.any());
+    }
+
+    @Test
+    public void testAtomicRestoreDropsCleanTableConstraintsAsBatch() throws Exception {
+        ConstraintManager constraintManager = new ConstraintManager();
+        NereidsSqlCacheManager sqlCacheManager = Mockito.mock(NereidsSqlCacheManager.class);
+        Database database = Mockito.mock(Database.class);
+        String originName = "restore_target";
+        String aliasName = RestoreJob.tableAliasWithAtomicRestore(originName);
+        String cleanPrimaryName = "clean_primary";
+        String cleanForeignName = "clean_foreign";
+        OlapTable restoredTable = Mockito.mock(OlapTable.class);
+        OlapTable originTable = Mockito.mock(OlapTable.class);
+        OlapTable cleanPrimaryTable = Mockito.mock(OlapTable.class);
+        OlapTable cleanForeignTable = Mockito.mock(OlapTable.class);
+        TableNameInfo cleanPrimaryInfo = new TableNameInfo(
+                InternalCatalog.INTERNAL_CATALOG_NAME,
+                CatalogMocker.TEST_DB_NAME, cleanPrimaryName);
+        TableNameInfo cleanForeignInfo = new TableNameInfo(
+                InternalCatalog.INTERNAL_CATALOG_NAME,
+                CatalogMocker.TEST_DB_NAME, cleanForeignName);
+        constraintManager.addConstraint(cleanPrimaryInfo, "pk",
+                new PrimaryKeyConstraint("pk", ImmutableSet.of("k1")), true);
+        constraintManager.addConstraint(cleanForeignInfo, "fk",
+                new ForeignKeyConstraint("fk", ImmutableList.of("k1"),
+                        cleanPrimaryInfo, ImmutableList.of("k1")), true);
+
+        jobInfo.backupOlapTableObjects.clear();
+        jobInfo.backupOlapTableObjects.put(originName, new BackupOlapTableInfo());
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(env.getSqlCacheManager()).thenReturn(sqlCacheManager);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(database.isWriteLockHeldByCurrentThread()).thenReturn(true);
+        Mockito.when(database.getFullName()).thenReturn(CatalogMocker.TEST_DB_NAME);
+        Mockito.when(database.getTableNullable(aliasName)).thenReturn(restoredTable);
+        Mockito.when(database.getTableNullable(originName)).thenReturn(originTable);
+        Mockito.when(database.getTables()).thenReturn(
+                ImmutableList.of(cleanPrimaryTable, cleanForeignTable));
+        Mockito.when(restoredTable.getType()).thenReturn(Table.TableType.OLAP);
+        Mockito.when(restoredTable.getTableAttributes()).thenReturn(new TableAttributes());
+        Mockito.when(originTable.getType()).thenReturn(Table.TableType.OLAP);
+        Mockito.when(cleanPrimaryTable.getType()).thenReturn(Table.TableType.OLAP);
+        Mockito.when(cleanPrimaryTable.getName()).thenReturn(cleanPrimaryName);
+        Mockito.when(cleanForeignTable.getType()).thenReturn(Table.TableType.OLAP);
+        Mockito.when(cleanForeignTable.getName()).thenReturn(cleanForeignName);
+        Mockito.doAnswer(invocation -> {
+            Assert.assertTrue(constraintManager.getConstraints(cleanPrimaryInfo).isEmpty());
+            Assert.assertTrue(constraintManager.getConstraints(cleanForeignInfo).isEmpty());
+            return null;
+        }).when(database).unregisterTable(aliasName);
+        Deencapsulation.setField(job, "isAtomicRestore", true);
+        Deencapsulation.setField(job, "isCleanTables", true);
+
+        Status status = Deencapsulation.invoke(
+                job, "atomicReplaceOlapTables", database, false);
+
+        Assert.assertTrue(status.ok());
+        Assert.assertTrue(constraintManager.getConstraints(cleanPrimaryInfo).isEmpty());
+        Assert.assertTrue(constraintManager.getConstraints(cleanForeignInfo).isEmpty());
+        Mockito.verify(database).unregisterTable(aliasName);
     }
 
     @Test

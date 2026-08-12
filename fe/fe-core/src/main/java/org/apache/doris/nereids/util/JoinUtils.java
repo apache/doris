@@ -374,12 +374,12 @@ public class JoinUtils {
         if (!areAllSlotEqualPredicates(conjuncts)) {
             return false;
         }
-        List<Pair<ExprId, ExprId>> equalExprIds = Lists.newArrayList();
+        Set<EqualExprIdPair> equalExprIds = new HashSet<>();
         Set<Integer> coveredIndices = new HashSet<>();
         for (Expression expr : conjuncts) {
             ExprId first = ((SlotReference) ((EqualPredicate) expr).left()).getExprId();
             ExprId second = ((SlotReference) ((EqualPredicate) expr).right()).getExprId();
-            equalExprIds.add(Pair.of(first, second));
+            equalExprIds.add(new EqualExprIdPair(first, second));
 
             Integer leftIndex = leftDistributionExprToIndex.get(first);
             Integer rightIndex = rightDistributionExprToIndex.get(second);
@@ -392,19 +392,25 @@ public class JoinUtils {
             }
         }
 
+        Map<DistributionMappingKey, List<DistributionMapping>> rightMappingsByKey =
+                new HashMap<>();
+        for (DistributionMapping rightMapping : rightMappings) {
+            rightMappingsByKey.computeIfAbsent(
+                    new DistributionMappingKey(rightMapping), ignored -> Lists.newArrayList())
+                    .add(rightMapping);
+        }
         for (DistributionMapping leftMapping : leftMappings) {
-            for (DistributionMapping rightMapping : rightMappings) {
-                if (!leftMapping.getMappingId().equals(rightMapping.getMappingId())
-                        || !leftMapping.getTargetDistributionIndices()
-                                .equals(rightMapping.getTargetDistributionIndices())
-                        || leftMapping.getDeterminantExprIds().size()
-                                != rightMapping.getDeterminantExprIds().size()) {
-                    continue;
-                }
+            List<DistributionMapping> compatibleRightMappings = rightMappingsByKey.get(
+                    new DistributionMappingKey(leftMapping));
+            if (compatibleRightMappings == null) {
+                continue;
+            }
+            for (DistributionMapping rightMapping : compatibleRightMappings) {
                 boolean determinantsEqual = true;
                 for (int i = 0; i < leftMapping.getDeterminantExprIds().size(); i++) {
-                    if (!containsEqualPair(equalExprIds, leftMapping.getDeterminantExprIds().get(i),
-                            rightMapping.getDeterminantExprIds().get(i))) {
+                    if (!equalExprIds.contains(new EqualExprIdPair(
+                            leftMapping.getDeterminantExprIds().get(i),
+                            rightMapping.getDeterminantExprIds().get(i)))) {
                         determinantsEqual = false;
                         break;
                     }
@@ -430,10 +436,63 @@ public class JoinUtils {
                         && ((EqualPredicate) expr).right() instanceof SlotReference);
     }
 
-    private static boolean containsEqualPair(List<Pair<ExprId, ExprId>> equalExprIds, ExprId left, ExprId right) {
-        return equalExprIds.stream().anyMatch(pair ->
-                (pair.first.equals(left) && pair.second.equals(right))
-                        || (pair.first.equals(right) && pair.second.equals(left)));
+    private static final class EqualExprIdPair {
+        private final ExprId first;
+        private final ExprId second;
+
+        private EqualExprIdPair(ExprId first, ExprId second) {
+            if (first.asInt() <= second.asInt()) {
+                this.first = first;
+                this.second = second;
+            } else {
+                this.first = second;
+                this.second = first;
+            }
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof EqualExprIdPair)) {
+                return false;
+            }
+            EqualExprIdPair other = (EqualExprIdPair) obj;
+            return first.equals(other.first) && second.equals(other.second);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(first, second);
+        }
+    }
+
+    private static final class DistributionMappingKey {
+        private final String mappingId;
+        private final List<Integer> targetDistributionIndices;
+        private final int determinantCount;
+
+        private DistributionMappingKey(DistributionMapping mapping) {
+            mappingId = mapping.getMappingId();
+            targetDistributionIndices = mapping.getTargetDistributionIndices();
+            determinantCount = mapping.getDeterminantExprIds().size();
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof DistributionMappingKey)) {
+                return false;
+            }
+            DistributionMappingKey other = (DistributionMappingKey) obj;
+            return determinantCount == other.determinantCount
+                    && mappingId.equals(other.mappingId)
+                    && targetDistributionIndices.equals(
+                            other.targetDistributionIndices);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(
+                    mappingId, targetDistributionIndices, determinantCount);
+        }
     }
 
     public static Set<ExprId> getJoinOutputExprIdSet(Plan left, Plan right) {

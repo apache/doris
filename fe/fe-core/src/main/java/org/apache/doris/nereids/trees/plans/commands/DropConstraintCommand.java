@@ -24,10 +24,12 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.info.TableNameInfoUtils;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -46,6 +48,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -70,9 +73,8 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableNameInfo tableNameInfo;
-        TableIf table = null;
         try {
-            table = extractTable(ctx, plan);
+            TableIf table = extractTable(ctx, plan);
             tableNameInfo = TableNameInfoUtils.fromCatalogDb(
                     table.getDatabase().getCatalog(), table.getDatabase(), table);
         } catch (Exception e) {
@@ -85,56 +87,60 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
         // must be checked on both paths above: table resolution failing (which includes an
         // authorization failure) falls back to a name-only lookup that binds nothing.
         checkAlterPriv(ctx, tableNameInfo);
-        Constraint constraintForAuthorization = getConstraintOrThrow(tableNameInfo);
-        // dropping a primary key cascades into ConstraintManager.cascadeDropForeignKeys(), which
-        // deletes the foreign key constraints of every referencing table, so those tables have to be
-        // authorized too. Checked before dropConstraint() because the cascade is atomic. The snapshot
-        // is taken under the manager lock; a foreign key added after it still needs ALTER on its own
-        // table to be created, so it cannot be used to bypass this.
-        for (TableNameInfo fkTableInfo
-                : Env.getCurrentEnv().getConstraintManager().getCascadeDropTables(constraintForAuthorization)) {
-            checkAlterPriv(ctx, fkTableInfo);
-        }
-
         Constraint constraint;
         List<MTMV> dependentMtmvs;
-        if (table instanceof OlapTable) {
-            DatabaseIf<? extends TableIf> database =
-                    ConstraintCommandUtils.lockCurrentDatabase(tableNameInfo);
+        DatabaseIf<? extends TableIf> database =
+                ConstraintCommandUtils.lockCurrentDatabase(tableNameInfo);
+        try {
+            TableIf currentTable = database.getTableNullable(tableNameInfo.getTbl());
+            if (currentTable != null) {
+                currentTable.writeLockOrDdlException();
+            }
             try {
-                TableIf currentTable = database.getTableOrDdlException(tableNameInfo.getTbl());
-                if (currentTable instanceof OlapTable) {
-                    OlapTable olapTable = (OlapTable) currentTable;
-                    olapTable.writeLockOrDdlException();
-                    try {
-                        constraint = getConstraintOrThrow(tableNameInfo);
-                        dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
-                        Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
-                        if (constraint instanceof DistributionMappingConstraint) {
-                            Env.getCurrentEnv().getSqlCacheManager()
-                                    .invalidateAboutTableAndFencePublication(currentTable);
-                        }
-                    } finally {
-                        olapTable.writeUnlock();
-                    }
-                } else {
-                    constraint = getConstraintOrThrow(tableNameInfo);
-                    dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
-                    if (constraint instanceof DistributionMappingConstraint) {
-                        throw new AnalysisException("Distribution mapping constraint requires an OLAP table");
-                    }
-                    Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
+                constraint = getConstraintOrThrow(tableNameInfo);
+                if (constraint instanceof DistributionMappingConstraint
+                        && !(currentTable instanceof OlapTable)) {
+                    throw new AnalysisException(
+                            "Distribution mapping constraint requires an OLAP table");
+                }
+                List<TableNameInfo> cascadeDropTables = Env.getCurrentEnv()
+                        .getConstraintManager().getCascadeDropTables(constraint);
+                for (TableNameInfo fkTableInfo : cascadeDropTables) {
+                    checkAlterPriv(ctx, fkTableInfo);
+                }
+                dependentMtmvs = getDependentMtmvs(
+                        tableNameInfo, constraint, cascadeDropTables);
+                Env.getCurrentEnv().getConstraintManager()
+                        .dropConstraint(tableNameInfo, name, false);
+                if (constraint instanceof DistributionMappingConstraint) {
+                    Env.getCurrentEnv().getSqlCacheManager()
+                            .invalidateAboutTableAndFencePublication(currentTable);
                 }
             } finally {
-                database.readUnlock();
+                if (currentTable != null) {
+                    currentTable.writeUnlock();
+                }
             }
-        } else {
-            constraint = getConstraintOrThrow(tableNameInfo);
-            dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
-            Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
+        } finally {
+            database.readUnlock();
         }
         MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                 String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
+    }
+
+    private List<MTMV> getDependentMtmvs(TableNameInfo tableNameInfo,
+            Constraint constraint, List<TableNameInfo> cascadeDropTables)
+            throws org.apache.doris.common.AnalysisException {
+        if (!(constraint instanceof PrimaryKeyConstraint)) {
+            return MTMVUtil.getDependentMtmvsByConstraint(
+                    tableNameInfo, constraint);
+        }
+        List<BaseTableInfo> baseTables = new ArrayList<>();
+        baseTables.add(new BaseTableInfo(tableNameInfo));
+        for (TableNameInfo cascadeDropTable : cascadeDropTables) {
+            baseTables.add(new BaseTableInfo(cascadeDropTable));
+        }
+        return MTMVUtil.getDependentMtmvsByBaseTables(baseTables);
     }
 
     private Constraint getConstraintOrThrow(TableNameInfo tableNameInfo) {

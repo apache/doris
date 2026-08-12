@@ -203,6 +203,65 @@ public class JoinUtilsTest {
                     ImmutableList.of(rightMappingWithDifferentId, rightMapping2));
             Assertions.assertFalse(JoinUtils.couldColocateJoin(
                     left, rightWithDifferentMappingId, directAndMapping));
+            DistributionMapping rightMappingWithWrongDeterminant = new DistributionMapping(
+                    "mapping_1", ImmutableList.of(new ExprId(16)), ImmutableList.of(0));
+            DistributionMapping rightMappingWithWrongTarget = new DistributionMapping(
+                    "mapping_1", ImmutableList.of(new ExprId(6)), ImmutableList.of(1));
+            DistributionSpecHash rightWithCompatibleCandidates = new DistributionSpecHash(
+                    ImmutableList.of(new ExprId(3), new ExprId(4)), ShuffleType.NATURAL,
+                    2L, 2L, Collections.emptySet(),
+                    ImmutableList.of(
+                            rightMappingWithWrongDeterminant,
+                            rightMappingWithWrongTarget,
+                            rightMapping1,
+                            rightMapping2));
+            Assertions.assertTrue(JoinUtils.couldColocateJoin(
+                    left, rightWithCompatibleCandidates, directAndMapping));
+            DistributionSpecHash rightWithoutMatchingCandidate = new DistributionSpecHash(
+                    ImmutableList.of(new ExprId(3), new ExprId(4)), ShuffleType.NATURAL,
+                    2L, 2L, Collections.emptySet(),
+                    ImmutableList.of(
+                            rightMappingWithWrongDeterminant,
+                            rightMappingWithWrongTarget,
+                            rightMapping2));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(
+                    left, rightWithoutMatchingCandidate, directAndMapping));
+
+            List<DistributionMapping> mostlyUnrelatedMappings = Lists.newArrayList();
+            for (int i = 0; i < 128; i++) {
+                mostlyUnrelatedMappings.add(new DistributionMapping(
+                        "unrelated_" + i,
+                        ImmutableList.of(new ExprId(1000 + i)),
+                        ImmutableList.of(i % 2)));
+            }
+            mostlyUnrelatedMappings.add(rightMapping1);
+            mostlyUnrelatedMappings.add(rightMapping2);
+            DistributionSpecHash rightWithMostlyUnrelatedMappings = new DistributionSpecHash(
+                    ImmutableList.of(new ExprId(3), new ExprId(4)), ShuffleType.NATURAL,
+                    2L, 2L, Collections.emptySet(), mostlyUnrelatedMappings);
+            Assertions.assertTrue(JoinUtils.couldColocateJoin(
+                    left, rightWithMostlyUnrelatedMappings, directAndMapping));
+
+            DistributionMapping leftOrderedMapping = new DistributionMapping(
+                    "ordered_mapping",
+                    ImmutableList.of(new ExprId(5), new ExprId(9)),
+                    ImmutableList.of(0, 1));
+            DistributionMapping rightReorderedDeterminants = new DistributionMapping(
+                    "ordered_mapping",
+                    ImmutableList.of(new ExprId(10), new ExprId(6)),
+                    ImmutableList.of(0, 1));
+            DistributionSpecHash leftWithOrderedMapping = new DistributionSpecHash(
+                    ImmutableList.of(new ExprId(1), new ExprId(2)), ShuffleType.NATURAL,
+                    1L, 1L, Collections.emptySet(), ImmutableList.of(leftOrderedMapping));
+            DistributionSpecHash rightWithReorderedDeterminants = new DistributionSpecHash(
+                    ImmutableList.of(new ExprId(3), new ExprId(4)), ShuffleType.NATURAL,
+                    2L, 2L, Collections.emptySet(),
+                    ImmutableList.of(rightReorderedDeterminants));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(
+                    leftWithOrderedMapping, rightWithReorderedDeterminants,
+                    ImmutableList.of(
+                            new EqualTo(leftD1, rightD1),
+                            new EqualTo(leftD2, rightD2))));
             Assertions.assertFalse(JoinUtils.couldColocateJoin(
                     left, right, ImmutableList.of(new EqualTo(leftD1, rightD1))));
             Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, ImmutableList.of(

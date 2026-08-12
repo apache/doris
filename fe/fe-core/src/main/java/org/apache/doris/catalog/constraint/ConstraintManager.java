@@ -46,6 +46,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -142,8 +143,8 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
     /**
      * Snapshot the tables whose foreign keys would be cascade-dropped along with the given primary
      * key constraint. Taken under the read lock: {@link PrimaryKeyConstraint#getForeignTableInfos()}
-     * is only a view over a list that {@link #addConstraint} mutates under the write lock, so callers
-     * outside the lock must not iterate it directly. Returns an empty list for other constraint types.
+     * is only a view over a list mutated by manager operations under the write lock, so callers outside
+     * the lock must not iterate it directly. Returns an empty list for other constraint types.
      */
     public List<TableNameInfo> getCascadeDropTables(Constraint constraint) {
         if (!(constraint instanceof PrimaryKeyConstraint)) {
@@ -361,26 +362,6 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
     }
 
     /**
-     * Check that every table can drop its constraints without cascading into a foreign key
-     * owned by another table.
-     */
-    public void checkTableConstraintsCanBeDropped(List<TableNameInfo> tableNameInfos)
-            throws DdlException {
-        readLock();
-        try {
-            Set<String> tableKeys = tableNameInfos.stream()
-                    .map(ConstraintManager::toKey)
-                    .collect(Collectors.toSet());
-            for (TableNameInfo tableNameInfo : tableNameInfos) {
-                String key = toKey(tableNameInfo);
-                checkForeignKeyReferences(key, constraintsMap.get(key), tableKeys);
-            }
-        } finally {
-            readUnlock();
-        }
-    }
-
-    /**
      * Atomically check for referencing foreign keys and then drop all constraints
      * for the given table. Holds the write lock for both operations to prevent
      * TOCTOU races where a new FK could be added between the check and the drop.
@@ -390,21 +371,30 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      */
     public void checkAndDropTableConstraints(TableNameInfo tableNameInfo,
             boolean checkForeignKeys) throws DdlException {
-        String key = toKey(tableNameInfo);
+        checkAndDropTableConstraints(ImmutableList.of(tableNameInfo), checkForeignKeys);
+    }
+
+    /**
+     * Atomically validate and drop constraints for a set of tables.
+     * Foreign keys owned by another table in the same set do not block the operation.
+     */
+    public void checkAndDropTableConstraints(List<TableNameInfo> tableNameInfos,
+            boolean checkForeignKeys) throws DdlException {
         writeLock();
         try {
-            Map<String, Constraint> tableConstraints = constraintsMap.get(key);
-            if (tableConstraints == null) {
-                return;
+            Map<String, TableNameInfo> tablesByKey = new LinkedHashMap<>();
+            for (TableNameInfo tableNameInfo : tableNameInfos) {
+                tablesByKey.putIfAbsent(toKey(tableNameInfo), tableNameInfo);
             }
             if (checkForeignKeys) {
-                checkForeignKeyReferences(key, tableConstraints, Collections.emptySet());
+                for (String tableKey : tablesByKey.keySet()) {
+                    checkForeignKeyReferences(
+                            tableKey, constraintsMap.get(tableKey), tablesByKey.keySet());
+                }
             }
-            constraintsMap.remove(key);
-            for (Constraint constraint : tableConstraints.values()) {
-                cleanupConstraintReferences(tableNameInfo, constraint);
+            for (Entry<String, TableNameInfo> table : tablesByKey.entrySet()) {
+                dropTableConstraintsWithoutLock(table.getKey(), table.getValue());
             }
-            LOG.info("Dropped all constraints for table {}", key);
         } finally {
             writeUnlock();
         }
@@ -445,18 +435,21 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         String key = toKey(tableNameInfo);
         writeLock();
         try {
-            Map<String, Constraint> tableConstraints
-                    = constraintsMap.remove(key);
-            if (tableConstraints == null) {
-                return;
-            }
-            for (Constraint constraint : tableConstraints.values()) {
-                cleanupConstraintReferences(tableNameInfo, constraint);
-            }
-            LOG.info("Dropped all constraints for table {}", key);
+            dropTableConstraintsWithoutLock(key, tableNameInfo);
         } finally {
             writeUnlock();
         }
+    }
+
+    private void dropTableConstraintsWithoutLock(String key, TableNameInfo tableNameInfo) {
+        Map<String, Constraint> tableConstraints = constraintsMap.remove(key);
+        if (tableConstraints == null) {
+            return;
+        }
+        for (Constraint constraint : tableConstraints.values()) {
+            cleanupConstraintReferences(tableNameInfo, constraint);
+        }
+        LOG.info("Dropped all constraints for table {}", key);
     }
 
     /**

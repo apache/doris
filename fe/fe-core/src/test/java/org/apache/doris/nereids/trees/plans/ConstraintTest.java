@@ -32,7 +32,10 @@ import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -50,6 +53,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -392,6 +397,70 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
     }
 
     @Test
+    void primaryKeyDropUsesLockedCascadeSnapshot() throws Exception {
+        addConstraint("alter table t2 add constraint pk_drop_snapshot primary key (k1, k2)");
+        addConstraint("alter table t1 add constraint fk_drop_snapshot "
+                + "foreign key (k1, k2) references t2(k1, k2)");
+        Database database = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        TableIf primaryKeyTable = database.getTableOrDdlException("t2");
+        AccessControllerManager originalAccessManager = Env.getCurrentEnv().getAccessManager();
+        AccessControllerManager accessManager = Mockito.spy(originalAccessManager);
+        setEnvAccessManager(accessManager);
+
+        try (MockedStatic<MTMVUtil> mtmvUtil =
+                Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            Mockito.doAnswer(invocation -> {
+                String tableName = invocation.getArgument(3);
+                if ("t1".equals(tableName)) {
+                    Assertions.assertTrue(primaryKeyTable.isWriteLockHeldByCurrentThread());
+                }
+                return true;
+            }).when(accessManager).checkTblPriv(
+                    Mockito.any(ConnectContext.class),
+                    Mockito.anyString(),
+                    Mockito.anyString(),
+                    Mockito.anyString(),
+                    Mockito.any(PrivPredicate.class));
+            mtmvUtil.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(Mockito.anyList()))
+                    .thenAnswer(invocation -> {
+                        Assertions.assertTrue(primaryKeyTable.isWriteLockHeldByCurrentThread());
+                        List<BaseTableInfo> baseTables = invocation.getArgument(0);
+                        Assertions.assertEquals(
+                                Sets.newHashSet("t1", "t2"),
+                                baseTables.stream()
+                                        .map(BaseTableInfo::getTableName)
+                                        .collect(java.util.stream.Collectors.toSet()));
+                        return java.util.List.of();
+                    });
+            mtmvUtil.when(() -> MTMVUtil.invalidateRewriteCachesBestEffort(
+                            Mockito.anyList(), Mockito.anyString()))
+                    .thenAnswer(invocation -> {
+                        Assertions.assertFalse(primaryKeyTable.isWriteLockHeldByCurrentThread());
+                        Assertions.assertTrue(database.tryWriteLock(1, TimeUnit.SECONDS));
+                        database.writeUnlock();
+                        return null;
+                    });
+
+            dropConstraint("alter table t2 drop constraint pk_drop_snapshot");
+        } finally {
+            setEnvAccessManager(originalAccessManager);
+            TableNameInfo foreignKeyTableInfo =
+                    tableNameInfoOf(database.getTableOrDdlException("t1"));
+            if (getConstraintMgr().getConstraint(
+                    foreignKeyTableInfo, "fk_drop_snapshot") != null) {
+                dropConstraint("alter table t1 drop constraint fk_drop_snapshot");
+            }
+            TableNameInfo primaryKeyTableInfo = tableNameInfoOf(primaryKeyTable);
+            if (getConstraintMgr().getConstraint(
+                    primaryKeyTableInfo, "pk_drop_snapshot") != null) {
+                dropConstraint("alter table t2 drop constraint pk_drop_snapshot");
+            }
+        }
+        Assertions.assertNull(getConstraintMgr().getConstraint(
+                tableNameInfoOf(primaryKeyTable), "pk_drop_snapshot"));
+    }
+
+    @Test
     void constraintAddWaitsForAtomicReplacementDatabaseLock() throws Exception {
         Database database = Env.getCurrentInternalCatalog()
                 .getDbOrDdlException("test");
@@ -430,6 +499,12 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 dropConstraint("alter table t1 drop constraint uk_after_restore");
             }
         }
+    }
+
+    private void setEnvAccessManager(AccessControllerManager accessManager) throws Exception {
+        Field field = Env.class.getDeclaredField("accessManager");
+        field.setAccessible(true);
+        field.set(Env.getCurrentEnv(), accessManager);
     }
 
     @Test

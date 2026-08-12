@@ -2627,11 +2627,15 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         if (!validationStatus.ok()) {
             return validationStatus;
         }
+        try {
+            Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
+                    getAtomicRestoreConstraintDropTargets(db), !isForceReplace);
+        } catch (DdlException e) {
+            return new Status(ErrCode.COMMON_ERROR,
+                    "replace table failed, reason=" + e.getMessage());
+        }
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
-            String originName = jobInfo.getAliasByOriginNameIfSet(tableName);
-            if (GlobalVariable.isStoredTableNamesLowerCase()) {
-                originName = originName.toLowerCase();
-            }
+            String originName = restoreTargetName(tableName);
             String aliasName = tableAliasWithAtomicRestore(originName);
 
             Table newTbl = db.getTableNullable(aliasName);
@@ -2648,16 +2652,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             try {
                 TableNameInfo originTableInfo = new TableNameInfo(
                         InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), originName);
-                Env.getCurrentEnv().getConstraintManager()
-                        .dropTableConstraints(originTableInfo);
                 // rename new table name to origin table name and add the new table to database.
                 db.unregisterTable(aliasName);
                 newOlapTbl.setName(originName);
                 db.unregisterTable(originName);
                 db.registerTable(newOlapTbl);
-                Env.getCurrentEnv().getConstraintManager().dropTableConstraints(
-                        new TableNameInfo(
-                                InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), aliasName));
                 Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
                         originTableInfo, newOlapTbl);
                 Env.getCurrentEnv().getSqlCacheManager()
@@ -2688,10 +2687,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
         for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
-            String originName = jobInfo.getAliasByOriginNameIfSet(backupViewInfo.name);
-            if (GlobalVariable.isStoredTableNamesLowerCase()) {
-                originName = originName.toLowerCase();
-            }
+            String originName = restoreTargetName(backupViewInfo.name);
             String aliasName = tableAliasWithAtomicRestore(originName);
 
             Table newTbl = db.getTableNullable(aliasName);
@@ -2727,14 +2723,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private Status prevalidateAtomicRestoreTargets(Database db) {
-        List<TableNameInfo> originTableInfos = Lists.newArrayList();
-        Set<String> restoredTableNames = Sets.newHashSet();
-        Set<String> temporaryTableNames = Sets.newHashSet();
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             String originName = restoreTargetName(tableName);
             String aliasName = tableAliasWithAtomicRestore(originName);
-            restoredTableNames.add(originName);
-            temporaryTableNames.add(aliasName);
             Table newTable = db.getTableNullable(aliasName);
             if (newTable == null) {
                 return new Status(ErrCode.COMMON_ERROR,
@@ -2762,8 +2753,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
             String originName = restoreTargetName(backupViewInfo.name);
             String aliasName = tableAliasWithAtomicRestore(originName);
-            restoredTableNames.add(originName);
-            temporaryTableNames.add(aliasName);
             Table newView = db.getTableNullable(aliasName);
             if (newView == null) {
                 return new Status(ErrCode.COMMON_ERROR,
@@ -2779,26 +2768,32 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         + originName + " is not VIEW, it is " + originView.getType());
             }
         }
+        return Status.OK;
+    }
+
+    private List<TableNameInfo> getAtomicRestoreConstraintDropTargets(Database db) {
+        Set<String> tableNames = Sets.newLinkedHashSet();
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            String originName = restoreTargetName(tableName);
+            tableNames.add(originName);
+            tableNames.add(tableAliasWithAtomicRestore(originName));
+        }
+        for (BackupJobInfo.BackupViewInfo view : jobInfo.newBackupObjects.views) {
+            String originName = restoreTargetName(view.name);
+            tableNames.add(originName);
+            tableNames.add(tableAliasWithAtomicRestore(originName));
+        }
         if (isCleanTables) {
             for (Table table : db.getTables()) {
-                if ((table.getType() == TableType.OLAP || table.getType() == TableType.VIEW)
-                        && !restoredTableNames.contains(table.getName())
-                        && !temporaryTableNames.contains(table.getName())) {
-                    originTableInfos.add(new TableNameInfo(
-                            InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), table.getName()));
+                if (table.getType() == TableType.OLAP || table.getType() == TableType.VIEW) {
+                    tableNames.add(table.getName());
                 }
             }
         }
-        if (!isForceReplace) {
-            try {
-                Env.getCurrentEnv().getConstraintManager()
-                        .checkTableConstraintsCanBeDropped(originTableInfos);
-            } catch (DdlException e) {
-                return new Status(ErrCode.COMMON_ERROR,
-                        "replace table failed, reason=" + e.getMessage());
-            }
-        }
-        return Status.OK;
+        return tableNames.stream()
+                .map(tableName -> new TableNameInfo(
+                        InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), tableName))
+                .collect(Collectors.toList());
     }
 
     private String restoreTargetName(String backupObjectName) {
