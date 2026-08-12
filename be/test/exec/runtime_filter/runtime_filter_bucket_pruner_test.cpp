@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/create_predicate_function.h"
@@ -74,6 +75,24 @@ protected:
         return std::make_shared<VExprContext>(wrapper);
     }
 
+    VExprContextSPtr make_null_aware_in_conjunct(int filter_id) {
+        std::shared_ptr<HybridSetBase> set(create_set(TYPE_INT, true));
+        set->insert(static_cast<const void*>(nullptr));
+
+        TExprNode node;
+        node.__set_type(create_type_desc(TYPE_BOOLEAN));
+        node.__set_node_type(TExprNodeType::NULL_AWARE_IN_PRED);
+        node.in_predicate.__set_is_not_in(false);
+        node.__set_opcode(TExprOpcode::FILTER_IN);
+        node.__set_is_nullable(false);
+        auto impl = VDirectInPredicate::create_shared(node, std::move(set), true);
+        impl->add_child(VSlotRef::create_shared(
+                /*slot_id=*/1, /*column_id=*/0, /*column_uniq_id=*/1,
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "dist_col"));
+        auto wrapper = RuntimeFilterExpr::create_shared(node, impl, 0, false, filter_id);
+        return std::make_shared<VExprContext>(wrapper);
+    }
+
     TRuntimeFilterDesc bucket_prune_desc(int filter_id) {
         TRuntimeFilterDesc desc;
         desc.__set_filter_id(filter_id);
@@ -92,6 +111,15 @@ protected:
     int32_t bucket_for_value(int32_t value, int32_t bucket_num) {
         auto column = ColumnInt32::create();
         column->insert_value(value);
+        uint32_t hash = 0;
+        column->update_crcs_with_value(&hash, TYPE_INT, 1, 0, nullptr);
+        return static_cast<int32_t>(hash % static_cast<uint32_t>(bucket_num));
+    }
+
+    int32_t bucket_for_null(int32_t bucket_num) {
+        auto column = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>())
+                              ->create_column();
+        column->insert_default();
         uint32_t hash = 0;
         column->update_crcs_with_value(&hash, TYPE_INT, 1, 0, nullptr);
         return static_cast<int32_t>(hash % static_cast<uint32_t>(bucket_num));
@@ -159,6 +187,25 @@ TEST_F(RuntimeFilterBucketPrunerTest, EmptyExactInPrunesAllBuckets) {
                         .ok());
     EXPECT_EQ(newly_pruned, 4);
     EXPECT_EQ(pruner.pruned_tablet_count(), 4);
+}
+
+TEST_F(RuntimeFilterBucketPrunerTest, NullAwareInKeepsNullBucket) {
+    constexpr int filter_id = 12;
+    VExprContextSPtrs conjuncts {make_null_aware_in_conjunct(filter_id)};
+    std::vector<TRuntimeFilterDesc> rf_descs {bucket_prune_desc(filter_id)};
+
+    RuntimeFilterBucketPruner pruner;
+    int64_t newly_pruned = 0;
+    ASSERT_TRUE(pruner.prune_by_runtime_filters(four_bucket_ranges(), conjuncts, rf_descs,
+                                                SCAN_NODE_ID, /*max_in_num=*/1024, &newly_pruned)
+                        .ok());
+
+    EXPECT_EQ(newly_pruned, 3);
+    EXPECT_EQ(pruner.pruned_tablet_count(), 3);
+    int32_t null_bucket = bucket_for_null(4);
+    for (int32_t bucket_seq = 0; bucket_seq < 4; ++bucket_seq) {
+        EXPECT_EQ(pruner.is_tablet_pruned(100 + bucket_seq), bucket_seq != null_bucket);
+    }
 }
 
 TEST_F(RuntimeFilterBucketPrunerTest, NonExactRuntimeRepresentationIsIgnored) {

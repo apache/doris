@@ -82,17 +82,17 @@ final class RuntimeFilterBucketPruneClassifier {
     }
 
     private static boolean sameColumn(Column targetColumn, Column distributionColumn) {
-        if (targetColumn == distributionColumn || targetColumn.equals(distributionColumn)) {
+        if (targetColumn == distributionColumn) {
             return true;
         }
         int targetUniqueId = targetColumn.getUniqueId();
         int distributionUniqueId = distributionColumn.getUniqueId();
         if (targetUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE
-                && distributionUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE
-                && targetUniqueId == distributionUniqueId) {
-            return true;
+                && distributionUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE) {
+            return targetUniqueId == distributionUniqueId;
         }
-        return targetColumn.tryGetBaseColumnName().equalsIgnoreCase(distributionColumn.getName());
+        return targetColumn.tryGetBaseColumnName()
+                .equalsIgnoreCase(distributionColumn.tryGetBaseColumnName());
     }
 
     static final class Classification {
