@@ -28,6 +28,19 @@ under the License.
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>java-writer</artifactId>
+    <name>Doris BE java-writer Plugin</name>
+    <description>
+        Writes blocks to a local delimited file. It carries no third-party dependency of its own,
+        which makes it the smallest complete example of the plugin shape: a DorisPlugin found
+        through ServiceLoader, a factory per thing the plugin provides, and an implementation of an
+        SPI base class.
+
+        The packaging is the part worth copying. jni-spi is `provided` because BE already has it on
+        the system classpath and a plugin that shipped its own copy would be refused at load time -
+        two copies of the SPI means the class BE hands in is not the class the plugin catches.
+        Everything else the plugin needs is copied next to it by copy-dependencies and deployed
+        into the plugin's own directory, where it is visible to this plugin and to nothing else.
+    </description>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
@@ -37,9 +50,44 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>java-common</artifactId>
+            <artifactId>jni-spi</artifactId>
             <version>${project.version}</version>
             <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          The fe parent pom declares slf4j and three log4j artifacts as compile dependencies of
+          EVERY module, so a plugin that leaves them alone ships log4j-core in its own directory
+          and logs through a backend the JVM configured for someone else. Narrowed to test here for
+          the same reason jni-spi narrows them: this plugin logs through java.util.logging, which
+          is a platform module and therefore already flows into the jni log that JniLogging sets
+          up. A plugin that genuinely wants slf4j or log4j declares it and ships it, deliberately.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j2-impl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -47,26 +95,25 @@ under the License.
         <finalName>java-writer</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!--
+              A plugin is a directory of jars, not one jar with everything shaded into it. Its own
+              jar is built by the parent's jar plugin; its runtime closure lands beside it here.
+              `provided` dependencies are excluded by scope, which is what keeps the SPI out.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <configuration>
-                    <descriptors>
-                        <descriptor>src/main/resources/package.xml</descriptor>
-                    </descriptors>
-                    <archive>
-                        <manifest>
-                            <mainClass></mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
+                <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
+                        <id>copy-plugin-dependencies</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>copy-dependencies</goal>
                         </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
