@@ -68,11 +68,12 @@ import java.util.stream.Collectors;
  * Records, in one golden file, every decision {@link AccessControllerManager} makes over the matrix
  * (resource kind x action x built-in/Ranger x privilege level of the caller).
  *
- * <p><b>Why this exists.</b> Two reworks are queued behind it: dropping the {@code hasGlobal} argument from
- * the controller interface (moving "global first, then fine grained" inside the built-in implementation), and
- * collapsing the manager into pure routing with no cross-plugin OR. Both are supposed to change structure and
- * nothing else. "Nothing else" is only checkable against a recording made before the change, so this file is
- * that recording: after either rework, {@code git diff} on the baseline must be empty.
+ * <p><b>Why this exists.</b> It was recorded ahead of two reworks that were meant to change structure and
+ * nothing else - dropping the {@code hasGlobal} argument from the controller interface, and collapsing the
+ * manager into pure routing with no cross-plugin OR - because "nothing else" is only checkable against a
+ * recording made beforehand. Both have since landed against it unchanged. The rest of the plugin work moves
+ * the same decisions around further, so the rule stands: after a structural change, {@code git diff} on the
+ * baseline must be empty.
  *
  * <p><b>What is real and what is faked.</b> The built-in half is entirely real - a real FE, real users, real
  * {@code GRANT} statements, a real row policy - because a baseline built on hand-poked internal state would
@@ -89,11 +90,12 @@ import java.util.stream.Collectors;
  * because Phase 0's contract is structure-only:
  * <ul>
  *   <li>{@code node_user} holds only global NODE_PRIV, and {@link Auth} refuses NODE privileges at
- *       catalog/database/table level - yet the manager's global short circuit lets OPERATOR through there;</li>
- *   <li>{@code admin_user} is denied by Ranger everywhere, yet passes on the Ranger-governed catalog: that is
- *       the cross-plugin OR the rework must reproduce from inside the plugin;</li>
+ *       catalog/database/table level - yet the built-in controller's global check lets OPERATOR through
+ *       there;</li>
+ *   <li>{@code admin_user} is denied by Ranger everywhere, yet passes on the Ranger-governed catalog, because
+ *       the Ranger controller defers to whichever controller owns global scope;</li>
  *   <li>a built-in per-table GRANT on a Ranger-governed catalog is ignored ({@code local_user} on
- *       {@code ext_ranger}), because the OR only exists at the global level;</li>
+ *       {@code ext_ranger}), because that deference exists only at the global level;</li>
  *   <li>the workload group named {@code normal} is allowed unconditionally, in both implementations;</li>
  *   <li>with {@code skip_catalog_priv_check} on, a catalog bound to an external plugin answers SELECT/SHOW
  *       with a flat yes.</li>

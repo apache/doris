@@ -20,9 +20,12 @@ package org.apache.doris.catalog.authorizer.ranger;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.RowFilterSpec;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.doris.DorisAccessType;
 import org.apache.doris.common.AuthorizationException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -42,6 +45,25 @@ public abstract class RangerAccessController implements CatalogAccessController 
     private static final Logger LOG = LogManager.getLogger(RangerAccessController.class);
 
     protected static final String CLIENT_TYPE_DORIS = "doris";
+
+    /**
+     * Whether the privilege is already held at global scope, which the Ranger plugins honour as a grant on
+     * everything they govern.
+     *
+     * <p>Global scope is not a Ranger catalog: it belongs to whichever controller {@code access_controller_type}
+     * installs, so that is who gets asked. With the built-in controller there this reproduces "an administrator
+     * of the cluster can reach a Ranger-governed catalog"; with Ranger installed globally, Ranger decides its
+     * own exemptions and the built-in grants stay out of it. Deciding this here rather than in the engine is
+     * what lets a third-party controller refuse the exemption outright.
+     *
+     * <p>Returns false without asking when this controller is itself the global-scope authority: the caller's
+     * own global check answers the same question one line later.
+     */
+    protected boolean grantedByGlobalScopeAuthority(UserIdentity currentUser, PrivPredicate wanted) {
+        CatalogAccessController authority = Env.getCurrentEnv().getAccessManager()
+                .getAccessControllerOrDefault(InternalCatalog.INTERNAL_CATALOG_NAME);
+        return authority != this && authority.checkGlobalPriv(currentUser, wanted);
+    }
 
     protected static boolean checkRequestResult(RangerAccessRequestImpl request,
             RangerAccessResult result, String name) {

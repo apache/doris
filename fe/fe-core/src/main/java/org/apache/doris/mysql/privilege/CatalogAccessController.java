@@ -27,16 +27,18 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+/**
+ * Decides access to the resources of one catalog.
+ *
+ * <p>A controller is asked only about the resources it governs, and its answer is final: nothing outside it
+ * grants first. In particular the engine no longer establishes a global privilege before routing, so an
+ * implementation that wants "holding the privilege globally is enough" has to say so itself - see
+ * {@link InternalAccessController}, which checks global privileges ahead of the fine grained ones, and
+ * {@link org.apache.doris.catalog.authorizer.ranger.RangerAccessController}, which defers to whichever
+ * controller owns global scope.
+ */
 public interface CatalogAccessController {
     default void close() {
-    }
-
-    // ==== Catalog ====
-    default boolean checkCtlPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        if (hasGlobal) {
-            return true;
-        }
-        return checkCtlPriv(currentUser, ctl, wanted);
     }
 
     // ==== Global ====
@@ -46,35 +48,10 @@ public interface CatalogAccessController {
     boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted);
 
     // ==== Database ====
-    default boolean checkDbPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db,
-            PrivPredicate wanted) {
-        if (hasGlobal) {
-            return true;
-        }
-        return checkDbPriv(currentUser, ctl, db, wanted);
-    }
-
     boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted);
 
     // ==== Table ====
-    default boolean checkTblPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
-            PrivPredicate wanted) {
-        if (hasGlobal) {
-            return true;
-        }
-        return checkTblPriv(currentUser, ctl, db, tbl, wanted);
-    }
-
     boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted);
-
-    // ==== Column ====
-    default void checkColsPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
-            Set<String> cols, PrivPredicate wanted) throws AuthorizationException {
-        if (hasGlobal) {
-            return;
-        }
-        checkColsPriv(currentUser, ctl, db, tbl, cols, wanted);
-    }
 
     // ==== Resource ====
     boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted);

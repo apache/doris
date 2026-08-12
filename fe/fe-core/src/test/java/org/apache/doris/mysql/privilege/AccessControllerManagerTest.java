@@ -62,7 +62,6 @@ public class AccessControllerManagerTest {
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
             Config.skip_catalog_priv_check = true;
 
-            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("custom_catalog")).thenReturn(catalog);
@@ -87,7 +86,6 @@ public class AccessControllerManagerTest {
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
             Config.skip_catalog_priv_check = true;
 
-            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("custom_catalog")).thenReturn(catalog);
@@ -112,9 +110,8 @@ public class AccessControllerManagerTest {
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
             Config.skip_catalog_priv_check = true;
 
-            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
             Mockito.when(defaultAccessController.checkCtlPriv(
-                    Mockito.anyBoolean(), Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(false);
+                    Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(false);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("custom_catalog")).thenReturn(catalog);
@@ -137,9 +134,8 @@ public class AccessControllerManagerTest {
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
             Config.skip_catalog_priv_check = true;
 
-            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
             Mockito.when(defaultAccessController.checkCtlPriv(
-                    Mockito.anyBoolean(), Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(true);
+                    Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(true);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("not_exist_catalog")).thenReturn(null);
@@ -161,9 +157,8 @@ public class AccessControllerManagerTest {
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
             Config.skip_catalog_priv_check = true;
 
-            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
             Mockito.when(defaultAccessController.checkCtlPriv(
-                    Mockito.anyBoolean(), Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(false);
+                    Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(false);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("custom_catalog")).thenReturn(catalog);
@@ -187,7 +182,6 @@ public class AccessControllerManagerTest {
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
             Config.skip_catalog_priv_check = true;
 
-            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("not_exist_catalog")).thenReturn(null);
