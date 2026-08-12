@@ -29,6 +29,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -40,6 +41,7 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Consumer;
 
 /**
  * This is a simple stmt submitter for submitting a statement to the local FE.
@@ -78,33 +80,48 @@ public class StatementSubmitter {
             Config.cloud_copy_into_statement_submitter_threads_num, "SQL submitter with block policy", true);
 
     public Future<ExecutionResultSet> submit(StmtContext queryCtx) {
-        Worker worker = new Worker(ConnectContext.get(), queryCtx);
+        Worker worker = new Worker(ConnectContext.get(), queryCtx, null, true);
         return executor.submit(worker);
+    }
+
+    /**
+     * Executes on a caller-owned connection. The connection is intentionally not closed, so callers can
+     * preserve JDBC session state across statements.
+     */
+    public ExecutionResultSet execute(Connection connection, StmtContext queryCtx) throws Exception {
+        return new Worker(null, queryCtx, connection, false).call();
     }
 
     public Future<ExecutionResultSet> submitBlock(StmtContext queryCtx) {
         LOG.debug("submitBlock {}", queryCtx);
-        Worker worker = new Worker(ConnectContext.get(), queryCtx);
+        Worker worker = new Worker(ConnectContext.get(), queryCtx, null, true);
         return executorBlockPolicy.submit(worker);
     }
 
     private static class Worker implements Callable<ExecutionResultSet> {
         private final ConnectContext ctx;
         private final StmtContext queryCtx;
+        private final Connection suppliedConnection;
+        private final boolean closeConnection;
 
-        public Worker(ConnectContext ctx, StmtContext queryCtx) {
+        public Worker(ConnectContext ctx, StmtContext queryCtx, Connection suppliedConnection,
+                boolean closeConnection) {
             this.ctx = ctx;
             this.queryCtx = queryCtx;
+            this.suppliedConnection = suppliedConnection;
+            this.closeConnection = closeConnection;
         }
 
         @Override
         public ExecutionResultSet call() throws Exception {
-            Connection conn = null;
+            Connection conn = suppliedConnection;
             Statement stmt = null;
-            String dbUrl = String.format(DB_URL_PATTERN, Config.query_port, ctx.getDatabase());
             try {
-                Class.forName(JDBC_DRIVER);
-                conn = DriverManager.getConnection(dbUrl, queryCtx.user, queryCtx.passwd);
+                if (conn == null) {
+                    String dbUrl = String.format(DB_URL_PATTERN, Config.query_port, ctx.getDatabase());
+                    Class.forName(JDBC_DRIVER);
+                    conn = DriverManager.getConnection(dbUrl, queryCtx.user, queryCtx.passwd);
+                }
                 long startTime = System.currentTimeMillis();
 
                 if (!queryCtx.clusterName.isEmpty()) {
@@ -115,6 +132,10 @@ public class StatementSubmitter {
 
                 stmt = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
                 stmt.setFetchSize(1000);
+                if (queryCtx.queryTimeoutSeconds > 0) {
+                    stmt.setQueryTimeout(queryCtx.queryTimeoutSeconds);
+                }
+                queryCtx.statementObserver.accept(stmt);
 
                 boolean hasResultSet = stmt.execute(queryCtx.stmt);
 
@@ -129,6 +150,7 @@ public class StatementSubmitter {
                     boolean isCopyStmt = isCopyStatement(rs);
                     ExecutionResultSet resultSet = generateResultSet(rs, startTime, isCopyStmt);
                     rs.close();
+                    addWarnings(resultSet, stmt);
                     return resultSet;
                 } else {
                     if (queryCtx.isStream) {
@@ -136,9 +158,12 @@ public class StatementSubmitter {
                         streamResponse.handleDdlAndExport(startTime);
                         return new ExecutionResultSet(null);
                     }
-                    return generateExecStatus(startTime);
+                    ExecutionResultSet resultSet = generateExecStatus(startTime, stmt.getUpdateCount());
+                    addWarnings(resultSet, stmt);
+                    return resultSet;
                 }
             } finally {
+                queryCtx.statementObserver.accept(null);
                 try {
                     if (stmt != null) {
                         stmt.close();
@@ -147,7 +172,7 @@ public class StatementSubmitter {
                     LOG.warn("failed to close stmt", se2);
                 }
                 try {
-                    if (conn != null) {
+                    if (closeConnection && conn != null) {
                         conn.close();
                     }
                 } catch (SQLException se) {
@@ -219,25 +244,42 @@ public class StatementSubmitter {
             List<List<Object>> rows = Lists.newArrayList();
             long rowCount = 0;
             Map<String, String> copyResultFields = Maps.newHashMap();
-            while (rs.next() && rowCount < queryCtx.limit) {
+            boolean truncated = false;
+            long resultBytes = 0;
+            while (rs.next()) {
+                if (rowCount >= queryCtx.limit) {
+                    truncated = true;
+                    break;
+                }
                 List<Object> row = Lists.newArrayListWithCapacity(colNum);
+                long rowBytes = 0;
                 // index start from 1
                 for (int i = 1; i <= colNum && (!isCopyStmt || i <= copyResult.length); ++i) {
                     String type = rs.getMetaData().getColumnTypeName(i);
                     if ("DATE".equalsIgnoreCase(type) || "DATETIME".equalsIgnoreCase(type)
                             || "DATEV2".equalsIgnoreCase(type) || "DATETIMEV2".equalsIgnoreCase(type)) {
-                        row.add(rs.getString(i));
+                        String value = rs.getString(i);
+                        row.add(value);
+                        rowBytes += valueSize(value);
                     } else {
-                        row.add(rs.getObject(i));
+                        Object value = rs.getObject(i);
+                        row.add(value);
+                        rowBytes += valueSize(value);
                     }
                     if (isCopyStmt) {
                         // ATTN: java.sql.SQLException: Wrong index position. Is 0 but must be in 1-7 range
                         copyResultFields.put(copyResult[i - 1], rs.getString(i));
                     }
                 }
+                if (resultBytes + rowBytes > queryCtx.maxResultBytes) {
+                    truncated = true;
+                    break;
+                }
                 rows.add(row);
+                resultBytes += rowBytes;
                 rowCount++;
             }
+            result.put("truncated", truncated);
             if (!isCopyStmt) {
                 result.put("data", rows);
             } else {
@@ -255,12 +297,30 @@ public class StatementSubmitter {
          *  "time" : 10
          * }
          */
-        private ExecutionResultSet generateExecStatus(long startTime) {
+        private ExecutionResultSet generateExecStatus(long startTime, int affectedRows) {
             Map<String, Object> result = Maps.newHashMap();
             result.put("type", TYPE_EXEC_STATUS);
             result.put("status", Maps.newHashMap());
+            result.put("affectedRows", Math.max(affectedRows, 0));
             result.put("time", (System.currentTimeMillis() - startTime));
             return new ExecutionResultSet(result);
+        }
+
+        private void addWarnings(ExecutionResultSet resultSet, Statement statement) throws SQLException {
+            if (resultSet == null || resultSet.getResult() == null) {
+                return;
+            }
+            List<String> warnings = Lists.newArrayList();
+            java.sql.SQLWarning warning = statement.getWarnings();
+            while (warning != null) {
+                warnings.add(warning.getMessage());
+                warning = warning.getNextWarning();
+            }
+            resultSet.getResult().put("warnings", warnings);
+        }
+
+        private int valueSize(Object value) {
+            return value == null ? 4 : String.valueOf(value).getBytes(StandardCharsets.UTF_8).length;
         }
     }
 
@@ -273,6 +333,9 @@ public class StatementSubmitter {
         public boolean isStream;
         public HttpServletResponse response;
         public String clusterName;
+        public int queryTimeoutSeconds;
+        public long maxResultBytes = Long.MAX_VALUE;
+        public Consumer<Statement> statementObserver = ignored -> { };
 
         public StmtContext(String stmt, String user, String passwd, long limit,
                             boolean isStream, HttpServletResponse response, String clusterName) {
@@ -283,6 +346,21 @@ public class StatementSubmitter {
             this.isStream = isStream;
             this.response = response;
             this.clusterName = clusterName;
+        }
+
+        public StmtContext withQueryTimeoutSeconds(int timeoutSeconds) {
+            this.queryTimeoutSeconds = timeoutSeconds;
+            return this;
+        }
+
+        public StmtContext withStatementObserver(Consumer<Statement> observer) {
+            this.statementObserver = observer == null ? ignored -> { } : observer;
+            return this;
+        }
+
+        public StmtContext withMaxResultBytes(long byteLimit) {
+            this.maxResultBytes = byteLimit;
+            return this;
         }
     }
 }
