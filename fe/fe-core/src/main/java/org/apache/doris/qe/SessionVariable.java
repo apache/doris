@@ -214,6 +214,8 @@ public class SessionVariable implements Serializable, Writable {
 
     // if set to true, some of stmt will be forwarded to master FE to get result
     public static final String FORWARD_TO_MASTER = "forward_to_master";
+    // if set to true, all queries of this session will be forwarded to master FE
+    public static final String FORCE_FORWARD_ALL_QUERIES = "force_forward_all_queries";
     // user can set instance num after exchange, no need to be equal to nums of before exchange
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
     public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
@@ -1562,6 +1564,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
+
+    @VarAttrDef.VarAttr(name = FORCE_FORWARD_ALL_QUERIES)
+    public boolean forceForwardAllQueries = false;
 
     // compatible with some mysql client connect, say DataGrip of JetBrains
     @VarAttrDef.VarAttr(name = EVENT_SCHEDULER)
@@ -4449,6 +4454,10 @@ public class SessionVariable implements Serializable, Writable {
     // Serialize to thrift object
     public boolean getForwardToMaster() {
         return forwardToMaster;
+    }
+
+    public boolean isForceForwardAllQueries() {
+        return forceForwardAllQueries;
     }
 
     // for unit test
