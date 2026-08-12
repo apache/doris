@@ -39,7 +39,11 @@ struct RecCTESharedState : public BasicSharedState {
     RuntimeProfile::Counter* hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* hash_table_input_counter = nullptr;
 
-    std::unique_ptr<DistinctDataVariants> agg_data = nullptr;
+    // No `= nullptr` initializer: a default member initializer makes GCC
+    // instantiate ~unique_ptr<DistinctDataVariants> in every TU that merely sees
+    // this class, which needs the complete type. The defaulted constructor in
+    // rec_cte_shared_state.cpp already leaves this null.
+    std::unique_ptr<DistinctDataVariants> agg_data;
 
     int current_round = 0;
     int last_round_offset = 0;
