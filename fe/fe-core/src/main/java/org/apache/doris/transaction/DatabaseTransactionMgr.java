@@ -61,6 +61,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.ClearTransactionTask;
@@ -494,6 +495,8 @@ public class DatabaseTransactionMgr {
         TabletInvertedIndex tabletInvertedIndex = env.getTabletInvertedIndex();
         Map<Long, Set<Long>> tabletToBackends = new HashMap<>();
         Map<Long, Table> idToTable = new HashMap<>();
+        Map<String, Integer> crossAzSuccQuorum = Config.getCrossAzSuccQuorum();
+        Map<Long, String> backendLocationTags = crossAzSuccQuorum.isEmpty() ? Map.of() : new HashMap<>();
         for (int i = 0; i < tableList.size(); i++) {
             idToTable.put(tableList.get(i).getId(), tableList.get(i));
         }
@@ -622,6 +625,12 @@ public class DatabaseTransactionMgr {
                         // save the error replica ids for current tablet
                         // this param is used for log
                         for (long tabletBackend : tabletBackends) {
+                            if (!crossAzSuccQuorum.isEmpty()) {
+                                backendLocationTags.computeIfAbsent(tabletBackend, backendId -> {
+                                    Backend backend = env.getCurrentSystemInfo().getBackend(backendId);
+                                    return backend == null ? "" : backend.getLocationTag().value;
+                                });
+                            }
                             Replica replica = tabletInvertedIndex.getReplica(tabletId, tabletBackend);
                             if (replica == null) {
                                 throw new TransactionCommitFailedException("could not find replica for tablet ["
@@ -669,6 +678,41 @@ public class DatabaseTransactionMgr {
                             LOG.info(errMsg);
 
                             throw new TabletQuorumFailedException(transactionId, errMsg);
+                        }
+
+                        for (Entry<String, Integer> entry : crossAzSuccQuorum.entrySet()) {
+                            String az = entry.getKey();
+                            int replicaNumInAz = 0;
+                            for (long backendId : tabletBackends) {
+                                if (az.equals(backendLocationTags.get(backendId))) {
+                                    replicaNumInAz++;
+                                }
+                            }
+                            int requiredInAz = Math.min(entry.getValue(), replicaNumInAz);
+                            if (requiredInAz == 0) {
+                                continue;
+                            }
+
+                            int succInAz = 0;
+                            for (Replica replica : tabletSuccReplicas) {
+                                if (az.equals(backendLocationTags.get(replica.getBackendIdWithoutException()))) {
+                                    succInAz++;
+                                }
+                            }
+                            if (succInAz < requiredInAz) {
+                                String writeDetail = getTabletWriteDetail(tabletSuccReplicas,
+                                        tabletWriteFailedReplicas, tabletVersionFailedReplicas);
+                                String errMsg = String.format("Failed to commit txn %s, cause tablet %s cross AZ "
+                                                + "success quorum failed for %s: required %s successful replicas, "
+                                                + "but only %s succeeded. table %s, partition: [ id=%s, commit "
+                                                + "version %s, visible version %s ], this tablet detail: %s. "
+                                                + "Please try again later.",
+                                        transactionId, tablet.getId(), az, requiredInAz, succInAz, tableId,
+                                        partition.getId(), partition.getCommittedVersion(),
+                                        partition.getVisibleVersion(), writeDetail);
+                                LOG.info(errMsg);
+                                throw new TabletQuorumFailedException(transactionId, errMsg);
+                            }
                         }
                     }
                 }

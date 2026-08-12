@@ -31,6 +31,7 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -443,6 +444,7 @@ struct NodeInfo {
     int64_t option;
     std::string host;
     int32_t brpc_port;
+    std::string location;
 
     NodeInfo() = default;
 
@@ -450,7 +452,8 @@ struct NodeInfo {
             : id(tnode.id),
               option(tnode.option),
               host(tnode.host),
-              brpc_port(tnode.async_internal_port) {}
+              brpc_port(tnode.async_internal_port),
+              location(tnode.__isset.location ? tnode.location : "") {}
 };
 
 class DorisNodesInfo {
@@ -474,6 +477,11 @@ public:
         }
         return nullptr;
     }
+
+    bool is_cross_az_quorum_success(const std::map<std::string, int32_t>& cross_az_succ_quorum,
+                                    const std::vector<int64_t>& tablet_node_ids,
+                                    const std::unordered_set<int64_t>& finished_node_ids,
+                                    const std::unordered_set<int64_t>* version_gap_node_ids) const;
 
     void add_nodes(const std::vector<TNodeInfo>& t_nodes) {
         for (const auto& node : t_nodes) {

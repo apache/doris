@@ -520,4 +520,54 @@ TEST_F(TestVTabletWriterV2, quorum_excludes_streams_not_closing_in_current_stage
     ASSERT_TRUE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
 }
 
+TEST_F(TestVTabletWriterV2, quorum_waits_for_cross_az_success) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    auto streams_1 = load_stream_map->get_or_create(1001);
+    auto streams_2 = load_stream_map->get_or_create(1002);
+    auto streams_3 = load_stream_map->get_or_create(1003);
+    for (const auto& streams : {streams_1, streams_2, streams_3}) {
+        streams->streams().front()->_is_closing.store(true);
+    }
+
+    TPaloNodesInfo t_nodes;
+    for (const auto& [node_id, location] : std::vector<std::pair<int64_t, std::string>> {
+                 {1001, "az1"}, {1002, "az1"}, {1003, "az2"}}) {
+        TNodeInfo node;
+        node.__set_id(node_id);
+        node.__set_location(location);
+        t_nodes.nodes.push_back(node);
+    }
+    DorisNodesInfo nodes_info(t_nodes);
+
+    TOlapTableLocationParam t_location;
+    TTabletLocation tablet;
+    tablet.__set_tablet_id(1);
+    tablet.__set_node_ids({1001, 1002, 1003});
+    t_location.tablets.push_back(tablet);
+    OlapTableLocationParam location(t_location);
+
+    auto writer = create_vtablet_writer();
+    writer->_load_stream_map = load_stream_map;
+    writer->_nodes_info = &nodes_info;
+    writer->_location = &location;
+    for (int64_t node_id : {1001, 1002, 1003}) {
+        writer->_tablets_by_node[node_id].insert(1);
+    }
+
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams {
+            streams_3->streams().front()};
+    std::unordered_set<int64_t> need_finish_tablets {1};
+    ASSERT_TRUE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+
+    writer->_t_sink.olap_table_sink.__set_cross_az_succ_quorum({{"az1", 2}, {"az2", 2}});
+    ASSERT_FALSE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+
+    unfinished_streams.clear();
+    ASSERT_TRUE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+
+    writer->_tablet_version_gap_backends[1].insert(1003);
+    ASSERT_FALSE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+}
+
 } // namespace doris

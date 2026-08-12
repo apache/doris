@@ -238,7 +238,7 @@ public class OlapTableSink extends DataSink {
         tSink.setSchema(tOlapTableSchemaParam);
         tSink.setPartition(tOlapTablePartitionParam);
         tSink.setLocation(tOlapTableLocationParam);
-        tSink.setNodesInfo(createPaloNodesInfo());
+        setNodesInfo(tSink);
 
         if (!olapInsertCtx.isAllowAutoPartition()) {
             setAutoPartition(false);
@@ -293,7 +293,7 @@ public class OlapTableSink extends DataSink {
         tSink.setSchema(tOlapTableSchemaParam);
         tSink.setPartition(tOlapTablePartitionParam);
         tSink.setLocation(tOlapTableLocationParam);
-        tSink.setNodesInfo(createPaloNodesInfo());
+        setNodesInfo(tSink);
     }
 
     public TOlapTableSchemaParam getOlapTableSchemaParam() {
@@ -1324,9 +1324,24 @@ public class OlapTableSink extends DataSink {
             if (backend == null) {
                 continue;
             }
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+            nodesInfo.addToNodes(createNodeInfo(backend));
         }
         return nodesInfo;
+    }
+
+    public static TNodeInfo createNodeInfo(Backend backend) {
+        TNodeInfo nodeInfo = new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort());
+        if (Config.cross_az_succ_quorum.length > 0) {
+            nodeInfo.setLocation(backend.getLocationTag().value);
+        }
+        return nodeInfo;
+    }
+
+    private void setNodesInfo(TOlapTableSink tSink) {
+        tSink.setNodesInfo(createPaloNodesInfo());
+        if (Config.cross_az_succ_quorum.length > 0) {
+            tSink.setCrossAzSuccQuorum(Config.getCrossAzSuccQuorum());
+        }
     }
 
     protected TDataSinkType getDataSinkType() {
