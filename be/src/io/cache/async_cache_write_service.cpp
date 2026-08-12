@@ -231,19 +231,10 @@ private:
                 continue;
             }
 
-            if (_service._shutdown_requested.load(std::memory_order_acquire) &&
-                _service._pending_count.load(std::memory_order_acquire) == 0) {
-                return;
-            }
             std::unique_lock lock(_service._queue_mutex);
             TEST_SYNC_POINT("AsyncCacheWriteService::Worker::_run:before_wait");
             _service._queue_cv.wait(lock, [this]() {
-                const bool shutdown_requested =
-                        _service._shutdown_requested.load(std::memory_order_acquire);
-                return !_service._queue.empty() ||
-                       _stop_requested.load(std::memory_order_acquire) ||
-                       (shutdown_requested &&
-                        _service._pending_count.load(std::memory_order_relaxed) == 0);
+                return !_service._queue.empty() || _stop_requested.load(std::memory_order_acquire);
             });
         }
     }
@@ -489,9 +480,8 @@ size_t AsyncCacheWriteService::active_write_epoch_key_count() const {
 }
 
 Status AsyncCacheWriteService::start() {
-    std::lock_guard resize_lock(_resize_mutex);
-    if (_shutdown_requested.load(std::memory_order_acquire) ||
-        !_accepting.load(std::memory_order_acquire)) {
+    std::lock_guard lifecycle_lock(_lifecycle_mutex);
+    if (!_accepting.load(std::memory_order_acquire)) {
         return Status::InternalError("async file cache write service is shutting down");
     }
     if (_started.load(std::memory_order_acquire)) {
@@ -785,13 +775,13 @@ Status AsyncCacheWriteService::resize_workers(size_t worker_count) {
     if (worker_count == 0) {
         return Status::InvalidArgument("async file cache write worker count must be positive");
     }
-    std::lock_guard resize_lock(_resize_mutex);
+    std::lock_guard lifecycle_lock(_lifecycle_mutex);
+    if (!_accepting.load(std::memory_order_acquire)) {
+        return Status::InternalError("async file cache write service is shutting down");
+    }
     if (!_started.load(std::memory_order_acquire)) {
         _configured_worker_count.store(worker_count, std::memory_order_release);
         return Status::OK();
-    }
-    if (_shutdown_requested.load(std::memory_order_acquire)) {
-        return Status::InternalError("async file cache write service is shutting down");
     }
     _configured_worker_count.store(worker_count, std::memory_order_release);
     return _resize_workers_locked(worker_count);
@@ -800,19 +790,7 @@ Status AsyncCacheWriteService::resize_workers(size_t worker_count) {
 Status AsyncCacheWriteService::_resize_workers_locked(size_t worker_count) {
     DORIS_CHECK(_worker_pool != nullptr);
     if (worker_count < _workers.size()) {
-        TEST_SYNC_POINT("AsyncCacheWriteService::_resize_workers_locked:before_request_stop");
-        {
-            std::lock_guard queue_lock(_queue_mutex);
-            for (size_t index = worker_count; index < _workers.size(); ++index) {
-                _workers[index]->request_stop();
-            }
-            TEST_SYNC_POINT("AsyncCacheWriteService::_resize_workers_locked:after_request_stop");
-        }
-        _queue_cv.notify_all();
-        for (size_t index = worker_count; index < _workers.size(); ++index) {
-            _workers[index]->wait_until_stopped();
-        }
-        _workers.resize(worker_count);
+        _stop_workers_locked(worker_count);
         RETURN_IF_ERROR(_worker_pool->set_max_threads(static_cast<int>(worker_count)));
         return Status::OK();
     }
@@ -824,6 +802,27 @@ Status AsyncCacheWriteService::_resize_workers_locked(size_t worker_count) {
         _workers.emplace_back(std::move(worker));
     }
     return Status::OK();
+}
+
+void AsyncCacheWriteService::_stop_workers_locked(size_t keep_worker_count) {
+    DORIS_CHECK(keep_worker_count <= _workers.size());
+    if (keep_worker_count == _workers.size()) {
+        return;
+    }
+
+    TEST_SYNC_POINT("AsyncCacheWriteService::_stop_workers_locked:before_request_stop");
+    {
+        std::lock_guard queue_lock(_queue_mutex);
+        for (size_t index = keep_worker_count; index < _workers.size(); ++index) {
+            _workers[index]->request_stop();
+        }
+        TEST_SYNC_POINT("AsyncCacheWriteService::_stop_workers_locked:after_request_stop");
+    }
+    _queue_cv.notify_all();
+    for (size_t index = keep_worker_count; index < _workers.size(); ++index) {
+        _workers[index]->wait_until_stopped();
+    }
+    _workers.resize(keep_worker_count);
 }
 
 Status AsyncCacheWriteService::update_options(const AsyncCacheWriteServiceOptions& options) {
@@ -864,7 +863,7 @@ int64_t AsyncCacheWriteService::queue_lock_hold_p99_us() const {
 }
 
 void AsyncCacheWriteService::shutdown() {
-    std::lock_guard resize_lock(_resize_mutex);
+    std::lock_guard lifecycle_lock(_lifecycle_mutex);
     if (!_accepting.exchange(false, std::memory_order_acq_rel)) {
         return;
     }
@@ -872,17 +871,15 @@ void AsyncCacheWriteService::shutdown() {
     while (_active_submitters.load(std::memory_order_acquire) != 0) {
         std::this_thread::yield();
     }
-    {
-        std::lock_guard queue_lock(_queue_mutex);
-        _shutdown_requested.store(true, std::memory_order_release);
-        TEST_SYNC_POINT("AsyncCacheWriteService::shutdown:after_request_stop");
-    }
-    _queue_cv.notify_all();
 
     if (_worker_pool) {
-        for (const auto& worker : _workers) {
-            worker->wait_until_stopped();
+        {
+            std::unique_lock queue_lock(_queue_mutex);
+            _queue_cv.wait(queue_lock, [this]() {
+                return _pending_count.load(std::memory_order_relaxed) == 0;
+            });
         }
+        _stop_workers_locked(0);
         _worker_pool->shutdown();
     }
 }

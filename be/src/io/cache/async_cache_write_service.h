@@ -243,8 +243,12 @@ private:
         EVICTED_OLDEST,
     };
 
-    /// Resize the owned worker set while `_resize_mutex` is held and `_worker_pool` exists.
+    /// Resize the owned worker set while `_lifecycle_mutex` is held and `_worker_pool` exists.
     Status _resize_workers_locked(size_t worker_count);
+
+    /// Stop and join workers in `[keep_worker_count, _workers.size())` while the lifecycle mutex is
+    /// held. Stop requests are published under `_queue_mutex` before waking the worker loops.
+    void _stop_workers_locked(size_t keep_worker_count);
 
     /// Process one task already moved from queued to active ownership.
     void _process_task(AsyncCacheWriteTask task);
@@ -285,9 +289,6 @@ private:
     std::atomic<size_t> _active_finalize_count {0};
     std::atomic<bool> _accepting {true};
     std::atomic<size_t> _active_submitters {0};
-    // Atomic for checks outside `_queue_mutex`, but the transition to true is made while holding
-    // `_queue_mutex` so it cannot race with a worker entering `_queue_cv.wait()`.
-    std::atomic<bool> _shutdown_requested {false};
     std::atomic<bool> _started {false};
     std::atomic<uint64_t> _cache_epoch {1};
     std::shared_ptr<AsyncCacheWriteEpochRegistry> _write_epoch_registry;
@@ -295,8 +296,9 @@ private:
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     std::unique_ptr<ThreadPool> _worker_pool;
     std::atomic<size_t> _configured_worker_count {0};
-    std::mutex _resize_mutex;
-    // Protected by `_resize_mutex`. Worker lifecycle state is owned by each Worker.
+    // Serializes start, resize, and shutdown, including all changes to `_workers`.
+    std::mutex _lifecycle_mutex;
+    // Protected by `_lifecycle_mutex`. Worker stop state is owned by each Worker.
     std::vector<std::shared_ptr<Worker>> _workers;
 
     std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_count_metric;
