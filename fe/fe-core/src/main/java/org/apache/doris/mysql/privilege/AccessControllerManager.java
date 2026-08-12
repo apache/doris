@@ -19,10 +19,13 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessDeniedException;
 import org.apache.doris.authorization.AccessRequirement;
 import org.apache.doris.authorization.AuthorizedResource;
 import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.ResourceKind;
 import org.apache.doris.authorization.RowFilterSpec;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -45,6 +48,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -55,24 +59,22 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * AccessControllerManager is the entry point of privilege authentication.
- * There are 2 kinds of access controller:
- * SystemAccessController: for global level priv, resource priv and other Doris internal priv checking
- * CatalogAccessController: for specified catalog's priv checking, can be customized.
- * And using InternalCatalogAccessController as default.
  *
- * <p>It routes and nothing more: each check goes to the single controller that governs the resource, and that
- * controller's answer is the answer. The manager establishes no privilege of its own beforehand and never
- * combines two controllers' verdicts, so which policies apply to a resource is readable from which controller
- * the catalog is bound to.
+ * <p>Access is decided by authorization sources - the built-in privilege model, or a plugin standing for an
+ * external system - and this class decides only which one to ask: system-wide objects and catalog level
+ * grants go to the source {@code access_controller_type} installs, everything inside a catalog goes to the
+ * source that catalog is bound to. Whatever that source answers is the answer. The manager establishes no
+ * privilege of its own beforehand and never combines two sources' verdicts, so which policies apply to a
+ * resource is readable from which source the catalog is bound to.
  */
 public class AccessControllerManager {
     private static final Logger LOG = LogManager.getLogger(AccessControllerManager.class);
 
     private Auth auth;
-    // Default access controller instance used for handling cases where no specific controller is specified
-    private CatalogAccessController defaultAccessController;
-    // A catalog name can be reused after DROP. Keep the catalog id next to the controller so cleanup from
-    // an old catalog generation can never remove or close the replacement generation's controller.
+    // Governs everything no catalog-bound source governs; the built-in model unless configured otherwise
+    private AuthorizationPlugin defaultAccessController;
+    // A catalog name can be reused after DROP. Keep the catalog id next to the source so cleanup from
+    // an old catalog generation can never remove or close the replacement generation's source.
     private Map<String, CatalogAccessControllerEntry> ctlToCtlAccessController = Maps.newConcurrentMap();
     // Cache of loaded access controller factories for quick creation of new access controllers
     private ConcurrentHashMap<String, AccessControllerFactory> accessControllerFactoriesCache
@@ -92,22 +94,22 @@ public class AccessControllerManager {
 
     private static final class CatalogAccessControllerEntry {
         private final long catalogId;
-        private final CatalogAccessController accessController;
-        // The default controller is shared with the internal catalog. Catalog aliases must detach it but never
+        private final AuthorizationPlugin accessController;
+        // The default source is shared with the internal catalog. Catalog aliases must detach it but never
         // close it when an external catalog is reset or dropped.
         private final boolean owned;
 
         private CatalogAccessControllerEntry(
-                long catalogId, CatalogAccessController accessController, boolean owned) {
+                long catalogId, AuthorizationPlugin accessController, boolean owned) {
             this.catalogId = catalogId;
             this.accessController = accessController;
             this.owned = owned;
         }
     }
 
-    private CatalogAccessController loadAccessControllerOrThrow(String accessControllerName) {
-        if (accessControllerName.equalsIgnoreCase("default")) {
-            return new InternalAccessController(auth);
+    private AuthorizationPlugin loadAccessControllerOrThrow(String accessControllerName) {
+        if (accessControllerName.equalsIgnoreCase(InternalAuthorizationPlugin.NAME)) {
+            return new InternalAuthorizationPlugin(auth);
         }
         if (accessControllerFactoriesCache.containsKey(accessControllerName)) {
             Map<String, String> prop;
@@ -117,10 +119,16 @@ public class AccessControllerManager {
                 throw new RuntimeException("Failed to load authorization properties."
                         + "Please check the configuration file, authorization name is " + accessControllerName, e);
             }
-            return accessControllerFactoriesCache.get(accessControllerName).createAccessController(prop);
+            return adapt(accessControllerName,
+                    accessControllerFactoriesCache.get(accessControllerName).createAccessController(prop));
         }
         throw new RuntimeException("No authorization plugin factory found for " + accessControllerName
                 + ". Please confirm that your plugin is placed in the correct location.");
+    }
+
+    /** Presents a controller written against the older per-scope interface as an authorization source. */
+    private AuthorizationPlugin adapt(String name, CatalogAccessController controller) {
+        return new LegacyAccessControllerPlugin(name, controller);
     }
 
     private void loadAccessControllerPlugins() {
@@ -143,7 +151,8 @@ public class AccessControllerManager {
         }
     }
 
-    public CatalogAccessController getAccessControllerOrDefault(String ctl) {
+    /** The authorization source governing the objects inside {@code ctl}. */
+    public AuthorizationPlugin getAccessControllerOrDefault(String ctl) {
         if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctl)) {
             return defaultAccessController;
         }
@@ -214,8 +223,8 @@ public class AccessControllerManager {
     public void createAccessController(ExternalCatalog catalog, String acFactoryClassName, Map<String, String> prop,
                                        boolean isDryRun) {
         String pluginIdentifier = getPluginIdentifierForAccessController(acFactoryClassName);
-        CatalogAccessController accessController = accessControllerFactoriesCache.get(pluginIdentifier)
-                .createAccessController(prop);
+        AuthorizationPlugin accessController = adapt(pluginIdentifier,
+                accessControllerFactoriesCache.get(pluginIdentifier).createAccessController(prop));
         if (isDryRun) {
             closeAccessController(catalog.getName(), accessController);
             return;
@@ -291,7 +300,7 @@ public class AccessControllerManager {
         closeAccessController(ctl, entry.accessController);
     }
 
-    private void closeAccessController(String ctl, CatalogAccessController accessController) {
+    private void closeAccessController(String ctl, AuthorizationPlugin accessController) {
         try {
             accessController.close();
         } catch (Throwable e) {
@@ -308,55 +317,27 @@ public class AccessControllerManager {
     /**
      * Answers whether {@code subject} may act on {@code resource} as {@code requirement} demands.
      *
-     * <p>This is the one place a check is routed. Which controller is asked follows from the resource
-     * alone - system-wide objects and catalog-level grants go to the controller
-     * {@code access_controller_type} installs, everything inside a catalog goes to the controller that
-     * catalog is bound to - and whatever it answers is the answer. Combining two controllers, or granting
-     * anything before asking, would have to happen here, and deliberately does not.
+     * <p>This is the one place a check is routed. Which source is asked follows from the resource alone -
+     * system-wide objects and catalog-level grants go to the source {@code access_controller_type}
+     * installs, everything inside a catalog goes to the source that catalog is bound to - and whatever it
+     * answers is the answer. Combining two sources, or granting anything before asking, would have to
+     * happen here, and deliberately does not.
      *
      * <p>Columns are not decided here: see {@link #decideColumns}.
      */
     public boolean decide(UserIdentity subject, AuthorizedResource resource, AccessRequirement requirement) {
-        PrivPredicate wanted = AccessTranslation.privPredicateOf(requirement);
-        switch (resource.getKind()) {
-            case GLOBAL:
-                return systemScopeController().checkGlobalPriv(subject, wanted);
-            case CATALOG:
-                // Catalog level grants are only ever stored by the system scope controller, so it answers
-                // for every catalog, including those bound to a controller of their own.
-                return systemScopeController().checkCtlPriv(subject,
-                        ((AuthorizedResource.Catalog) resource).getCatalog(), wanted);
-            case DATABASE: {
-                AuthorizedResource.Database database = (AuthorizedResource.Database) resource;
-                return controllerOf(database.getCatalog())
-                        .checkDbPriv(subject, database.getCatalog(), database.getDatabase(), wanted);
-            }
-            case TABLE: {
-                AuthorizedResource.Table table = (AuthorizedResource.Table) resource;
-                return controllerOf(table.getCatalog()).checkTblPriv(subject, table.getCatalog(),
-                        table.getDatabase(), table.getTable(), wanted);
-            }
-            case RESOURCE:
-                return systemScopeController()
-                        .checkResourcePriv(subject, ((AuthorizedResource.Named) resource).getName(), wanted);
-            case WORKLOAD_GROUP:
-                return systemScopeController()
-                        .checkWorkloadGroupPriv(subject, ((AuthorizedResource.Named) resource).getName(), wanted);
-            case STORAGE_VAULT:
-                return systemScopeController()
-                        .checkStorageVaultPriv(subject, ((AuthorizedResource.Named) resource).getName(), wanted);
-            case CLOUD_GENERAL:
-            case CLOUD_COMPUTE_GROUP:
-            case CLOUD_STAGE:
-            case CLOUD_STORAGE_VAULT:
-                return systemScopeController().checkCloudPriv(subject,
-                        ((AuthorizedResource.Named) resource).getName(), wanted,
-                        AccessTranslation.cloudTypeOf(resource.getKind()));
-            case COLUMNS:
-                throw new IllegalArgumentException("column access is decided by decideColumns(), which"
-                        + " reports which column was refused instead of a yes or no");
-            default:
-                throw new IllegalStateException("no route for resource kind " + resource.getKind());
+        if (resource.getKind() == ResourceKind.COLUMNS) {
+            throw new IllegalArgumentException("column access is decided by decideColumns(), which"
+                    + " reports which column was refused instead of a yes or no");
+        }
+        try {
+            ask(subject, resource, requirement);
+            return true;
+        } catch (AccessDeniedException e) {
+            // The reason travels no further for now: every caller of the boolean facades phrases its own
+            // error message. It is carried this far so that the day one of them stops doing so, there is
+            // something to phrase it from.
+            return false;
         }
     }
 
@@ -364,24 +345,77 @@ public class AccessControllerManager {
      * Checks access to named columns, reporting the column that was refused rather than a yes or no.
      *
      * <p>Kept apart from {@link #decide} because the answer has a different shape, not because the routing
-     * differs: it is the same controller the table itself would be asked about.
+     * differs: it is the same source the table itself would be asked about.
      */
     public void decideColumns(UserIdentity subject, AuthorizedResource.Columns columns,
             AccessRequirement requirement) throws AuthorizationException {
-        controllerOf(columns.getCatalog()).checkColsPriv(subject, columns.getCatalog(), columns.getDatabase(),
-                columns.getTable(), columns.getColumns(), AccessTranslation.privPredicateOf(requirement));
+        try {
+            ask(subject, columns, requirement);
+        } catch (AccessDeniedException e) {
+            throw new AuthorizationException(e.getMessage());
+        }
+    }
+
+    private void ask(UserIdentity subject, AuthorizedResource resource, AccessRequirement requirement)
+            throws AccessDeniedException {
+        controllerOf(resource).checkPrivilege(AccessTranslation.subjectOf(subject), resource, requirement,
+                ConnectionAccessContext.current());
     }
 
     /**
-     * The controller governing everything that is not inside a catalog: global privileges, resources,
+     * The authorization source that answers for {@code resource}. This is the whole of the routing: system
+     * wide objects and catalog level grants belong to the source installed for the instance, everything
+     * inside a catalog to the source that catalog is bound to.
+     */
+    private AuthorizationPlugin controllerOf(AuthorizedResource resource) {
+        switch (resource.getKind()) {
+            case GLOBAL:
+            case RESOURCE:
+            case WORKLOAD_GROUP:
+            case STORAGE_VAULT:
+            case CLOUD_GENERAL:
+            case CLOUD_COMPUTE_GROUP:
+            case CLOUD_STAGE:
+            case CLOUD_STORAGE_VAULT:
+                return systemScopeController();
+            case CATALOG:
+                // Catalog level grants are only ever stored by the system scope source, so it answers for
+                // every catalog, including those bound to a source of their own.
+                return systemScopeController();
+            case DATABASE:
+                return getAccessControllerOrDefault(((AuthorizedResource.Database) resource).getCatalog());
+            case TABLE:
+                return getAccessControllerOrDefault(((AuthorizedResource.Table) resource).getCatalog());
+            case COLUMNS:
+                return getAccessControllerOrDefault(((AuthorizedResource.Columns) resource).getCatalog());
+            default:
+                throw new IllegalStateException("no route for resource kind " + resource.getKind());
+        }
+    }
+
+    /**
+     * The source governing everything that is not inside a catalog: global privileges, resources,
      * workload groups, cloud objects, storage vaults - and catalog level grants, which only it stores.
      */
-    private CatalogAccessController systemScopeController() {
+    private AuthorizationPlugin systemScopeController() {
         return defaultAccessController;
     }
 
-    private CatalogAccessController controllerOf(String ctl) {
-        return getAccessControllerOrDefault(ctl);
+    /**
+     * Whether {@code candidate} is itself the source governing instance scope.
+     *
+     * <p>Asked by a source that would otherwise defer to that authority, so that it does not ask itself a
+     * question it is about to answer - the two would agree, at the price of evaluating the same policies
+     * twice. Identity is the question, so a controller reached through an adapter is compared against the
+     * controller, not against its wrapper.
+     */
+    public boolean isGlobalScopeAuthority(Object candidate) {
+        AuthorizationPlugin authority = systemScopeController();
+        if (authority == candidate) {
+            return true;
+        }
+        return authority instanceof LegacyAccessControllerPlugin
+                && ((LegacyAccessControllerPlugin) authority).getController() == candidate;
     }
 
     // ==== Global ====
@@ -532,15 +566,6 @@ public class AccessControllerManager {
         return true;
     }
 
-    public Map<String, Optional<DataMaskSpec>> evalDataMaskPolicies(UserIdentity currentUser, String
-            ctl, String db, String tbl, Set<String> cols) {
-        Map<String, Optional<DataMaskSpec>> res = Maps.newHashMap();
-        for (String col : cols) {
-            res.put(col, evalDataMaskPolicy(currentUser, ctl, db, tbl, col));
-        }
-        return res;
-    }
-
     public Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String
             ctl, String db, String tbl, String col) {
         Objects.requireNonNull(currentUser, "require currentUser object");
@@ -548,7 +573,14 @@ public class AccessControllerManager {
         Objects.requireNonNull(db, "require db object");
         Objects.requireNonNull(tbl, "require tbl object");
         Objects.requireNonNull(col, "require col object");
-        return getAccessControllerOrDefault(ctl).evalDataMaskPolicy(currentUser, ctl, db, tbl, col.toLowerCase());
+        // Sources are asked about columns in lower case, which is how the ones that store policies per
+        // column have them written.
+        String column = col.toLowerCase();
+        AuthorizedResource.Table table = AuthorizedResource.table(ctl, db, tbl);
+        return Optional.ofNullable(controllerOf(table)
+                .getDataMasks(AccessTranslation.subjectOf(currentUser), table,
+                        Collections.singleton(column), ConnectionAccessContext.current())
+                .get(column));
     }
 
     public List<RowFilterSpec> evalRowFilterPolicies(UserIdentity currentUser, String
@@ -557,6 +589,8 @@ public class AccessControllerManager {
         Objects.requireNonNull(ctl, "require ctl object");
         Objects.requireNonNull(db, "require db object");
         Objects.requireNonNull(tbl, "require tbl object");
-        return getAccessControllerOrDefault(ctl).evalRowFilterPolicies(currentUser, ctl, db, tbl);
+        AuthorizedResource.Table table = AuthorizedResource.table(ctl, db, tbl);
+        return controllerOf(table).getRowFilters(AccessTranslation.subjectOf(currentUser), table,
+                ConnectionAccessContext.current());
     }
 }

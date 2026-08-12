@@ -278,7 +278,7 @@ public class AccessControllerManagerTest {
             manager.createAccessController(newCatalog, "test-controller", ImmutableMap.of(), false);
             manager.removeAccessController("same_name", oldCatalog.getId());
 
-            Assert.assertSame(newController, manager.getAccessControllerOrDefault("same_name"));
+            Assert.assertSame(newController, controllerOf(manager, "same_name"));
         }
 
         Mockito.verify(oldController).close();
@@ -324,7 +324,7 @@ public class AccessControllerManagerTest {
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("fallback")).thenReturn(catalog);
 
-            Assert.assertSame(defaultAccessController, manager.getAccessControllerOrDefault("fallback"));
+            Assert.assertSame(defaultAccessController, controllerOf(manager, "fallback"));
             manager.removeAccessController("fallback", catalog.getId());
         }
 
@@ -351,7 +351,13 @@ public class AccessControllerManagerTest {
 
     private AccessControllerManager createAccessControllerManager(CatalogAccessController defaultAccessController) {
         AccessControllerManager accessControllerManager = new AccessControllerManager(new Auth());
-        Deencapsulation.setField(accessControllerManager, "defaultAccessController", defaultAccessController);
+        Deencapsulation.setField(accessControllerManager, "defaultAccessController",
+                new LegacyAccessControllerPlugin("mock", defaultAccessController));
         return accessControllerManager;
+    }
+
+    /** The controller behind an installed source; what the manager holds is the source, not the controller. */
+    private CatalogAccessController controllerOf(AccessControllerManager manager, String ctl) {
+        return ((LegacyAccessControllerPlugin) manager.getAccessControllerOrDefault(ctl)).getController();
     }
 }

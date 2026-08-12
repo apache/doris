@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Maps;
@@ -198,9 +197,8 @@ public class RangerHiveAccessController extends RangerAccessController {
     @Override
     public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         // hive ranger plugin does not support global privilege
-        // use internal access controller to check
-        return Env.getCurrentEnv().getAccessManager().getAccessControllerOrDefault(
-                InternalCatalog.INTERNAL_CATALOG_NAME).checkGlobalPriv(currentUser, wanted);
+        // use whichever authorization source governs global scope
+        return Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, wanted);
     }
 
     @Override

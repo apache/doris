@@ -28,14 +28,19 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Decides access to the resources of one catalog.
+ * Decides access to the resources of one catalog, one kind of object at a time.
  *
  * <p>A controller is asked only about the resources it governs, and its answer is final: nothing outside it
  * grants first. In particular the engine no longer establishes a global privilege before routing, so an
  * implementation that wants "holding the privilege globally is enough" has to say so itself - see
- * {@link InternalAccessController}, which checks global privileges ahead of the fine grained ones, and
  * {@link org.apache.doris.catalog.authorizer.ranger.RangerAccessController}, which defers to whichever
- * controller owns global scope.
+ * source owns global scope.
+ *
+ * <p>This is the older shape of that contract, kept because a catalog's {@code access_controller.class}
+ * names an implementation of it and such implementations exist outside this repository. The engine reaches
+ * one through {@link LegacyAccessControllerPlugin}; a source written today implements
+ * {@link org.apache.doris.authorization.spi.AuthorizationPlugin} instead, which asks a single question about
+ * a typed resource and answers by refusing rather than by returning false.
  */
 public interface CatalogAccessController {
     default void close() {
