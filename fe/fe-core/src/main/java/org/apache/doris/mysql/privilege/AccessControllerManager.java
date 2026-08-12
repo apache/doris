@@ -56,6 +56,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * SystemAccessController: for global level priv, resource priv and other Doris internal priv checking
  * CatalogAccessController: for specified catalog's priv checking, can be customized.
  * And using InternalCatalogAccessController as default.
+ *
+ * <p>It routes and nothing more: each check goes to the single controller that governs the resource, and that
+ * controller's answer is the answer. The manager establishes no privilege of its own beforehand and never
+ * combines two controllers' verdicts, so which policies apply to a resource is readable from which controller
+ * the catalog is bound to.
  */
 public class AccessControllerManager {
     private static final Logger LOG = LogManager.getLogger(AccessControllerManager.class);
@@ -320,14 +325,13 @@ public class AccessControllerManager {
     }
 
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
         if (shouldSkipCatalogPrivCheck(wanted)) {
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctl);
             if (catalog == null) {
                 return false;
             }
             if (catalog.isInternalCatalog()) {
-                return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
+                return defaultAccessController.checkCtlPriv(currentUser, ctl, wanted);
             }
             // If catalog not set access controller, use internal access controller
             // otherwise, skip catalog priv check
@@ -335,13 +339,13 @@ public class AccessControllerManager {
                     "");
             if (Strings.isNullOrEmpty(className)) {
                 // not set access controller, use internal access controller
-                return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
+                return defaultAccessController.checkCtlPriv(currentUser, ctl, wanted);
             }
             return true;
         }
         // for checking catalog priv, always use InternalAccessController.
         // because catalog priv is only saved in InternalAccessController.
-        return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
+        return defaultAccessController.checkCtlPriv(currentUser, ctl, wanted);
     }
 
     // ==== Database ====
@@ -350,8 +354,7 @@ public class AccessControllerManager {
     }
 
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
-        boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
-        return getAccessControllerOrDefault(ctl).checkDbPriv(hasGlobal, currentUser, ctl, db, wanted);
+        return getAccessControllerOrDefault(ctl).checkDbPriv(currentUser, ctl, db, wanted);
     }
 
     // ==== Table ====
@@ -369,8 +372,7 @@ public class AccessControllerManager {
     }
 
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
-        boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
-        return getAccessControllerOrDefault(ctl).checkTblPriv(hasGlobal, currentUser, ctl, db, tbl, wanted);
+        return getAccessControllerOrDefault(ctl).checkTblPriv(currentUser, ctl, db, tbl, wanted);
     }
 
     // ==== Column ====
@@ -386,11 +388,9 @@ public class AccessControllerManager {
     public void checkColumnsPriv(UserIdentity currentUser, String
             ctl, String qualifiedDb, String tbl, Set<String> cols,
                                  PrivPredicate wanted) throws UserException {
-        boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
         CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
         long start = System.currentTimeMillis();
-        accessController.checkColsPriv(hasGlobal, currentUser, ctl, qualifiedDb,
-                tbl, cols, wanted);
+        accessController.checkColsPriv(currentUser, ctl, qualifiedDb, tbl, cols, wanted);
         if (LOG.isDebugEnabled()) {
             LOG.debug("checkColumnsPriv use {} mills, user: {}, ctl: {}, db: {}, table: {}, cols: {}",
                     System.currentTimeMillis() - start, currentUser, ctl, qualifiedDb, tbl, cols);

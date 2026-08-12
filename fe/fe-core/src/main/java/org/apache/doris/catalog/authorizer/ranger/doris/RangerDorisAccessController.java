@@ -160,6 +160,9 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
+        if (grantedByGlobalScopeAuthority(currentUser, wanted)) {
+            return true;
+        }
         PrivBitSet checkedPrivs = PrivBitSet.of();
         if (checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
                 || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
@@ -187,6 +190,9 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+        if (grantedByGlobalScopeAuthority(currentUser, wanted)) {
+            return true;
+        }
         PrivBitSet checkedPrivs = PrivBitSet.of();
         if (checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
                 || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
@@ -216,6 +222,9 @@ public class RangerDorisAccessController extends RangerAccessController {
     @Override
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
+        if (grantedByGlobalScopeAuthority(currentUser, wanted)) {
+            return;
+        }
         PrivBitSet checkedPrivs = PrivBitSet.of();
         boolean hasTablePriv = checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
                 || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)

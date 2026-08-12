@@ -52,9 +52,10 @@ import java.util.List;
  *       everywhere, and gets no filter and no mask.</li>
  * </ul>
  *
- * <p>Denying the built-in admin is the point: wherever the baseline still records ALLOW for that user on a
- * Ranger-governed resource, the decision provably came from the engine's cross-plugin OR rather than from
- * Ranger, which is exactly the behaviour the routing rework has to reproduce.
+ * <p>Denying the built-in admin is the point: wherever the baseline records ALLOW for that user on a
+ * Ranger-governed resource, the decision provably did not come from Ranger. It comes from the controller
+ * deferring to whoever owns global scope, and pinning it here is what keeps that deference from being dropped
+ * or widened unnoticed.
  */
 public class StubRangerPolicyEngine extends RangerBasePlugin {
     public static final String ALLOWED_USER = "ranger_user";
