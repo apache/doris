@@ -54,13 +54,14 @@ public:
 // is the case for every successful ranged read, and spills the rest into a buffer of its
 // own. The stream never turns bad, so the SDK reports the real status code and can parse
 // the error out of the body.
-class ResponseStreamBuf final : public std::streambuf {
+class S3ResponseStreamBuf final : public std::streambuf {
 public:
     // Bodies beyond this size are truncated. Only error documents are expected to overflow
-    // and their leading bytes already carry the error code and the message.
+    // and their leading bytes already carry the error code and the message. This bounds the
+    // memory a single failing request can hold, whatever the server answers with.
     static constexpr size_t MAX_SPILL_SIZE = 1024 * 1024;
 
-    ResponseStreamBuf(void* buf, size_t nbytes) : _buf(static_cast<char*>(buf)) {
+    S3ResponseStreamBuf(void* buf, size_t nbytes) : _buf(static_cast<char*>(buf)) {
         setp(_buf, _buf + nbytes);
         setg(_buf, _buf, _buf);
     }
@@ -75,7 +76,10 @@ protected:
             }
             _spill_over();
         }
-        auto writable = std::min(static_cast<size_t>(n), MAX_SPILL_SIZE - _spill.size());
+        // Saturating on its own: the spill is clamped when it is filled from the buffer of
+        // the caller, and this must not underflow into an unbounded write if it ever is not.
+        auto room = _spill.size() < MAX_SPILL_SIZE ? MAX_SPILL_SIZE - _spill.size() : 0;
+        auto writable = std::min(static_cast<size_t>(n), room);
         _spill.insert(_spill.end(), s, s + writable);
         // Always report the whole write as consumed. A short write is what makes curl
         // abort the transfer and lose the status code of the response.
@@ -102,11 +106,14 @@ protected:
     pos_type seekoff(off_type off, std::ios_base::seekdir dir,
                      std::ios_base::openmode which) override {
         auto size = static_cast<off_type>(_written());
-        if (which & std::ios_base::out) {
+        if ((which & std::ios_base::out) && !(which & std::ios_base::in)) {
             // The SDK only asks for the write position, to tell an empty body apart from a
             // body it has to parse. Moving the write pointer is not supported.
             return dir == std::ios_base::cur && off == 0 ? pos_type(size) : pos_type(off_type(-1));
         }
+        // A seek asking for both areas at once, which is what the default argument of
+        // `pubseekoff()` and `pubseekpos()` does, is served as a seek of the read area. The
+        // write area is append only, so there is nothing to move there.
         off_type pos = off;
         if (dir == std::ios_base::cur) {
             pos += static_cast<off_type>(_read_pos());
@@ -126,9 +133,15 @@ protected:
 
 private:
     // Moves what has been written so far into the spill buffer, so that the body stays
-    // contiguous and the SDK can parse the error out of it.
+    // contiguous and the SDK can parse the error out of it. Truncated right here: the buffer
+    // of the caller is the size of the range that was asked for, `remote_storage_read_buffer_mb`
+    // of it for a prefetched read and the whole file for a download, so it can be far larger
+    // than the bound of the spill. Starting the spill beyond its own bound would leave no room
+    // for the truncation to ever apply and let a server answering a ranged read with the whole
+    // object be buffered in full.
     void _spill_over() {
-        _spill.assign(_buf, pptr());
+        auto kept = std::min(static_cast<size_t>(pptr() - _buf), MAX_SPILL_SIZE);
+        _spill.assign(_buf, _buf + kept);
         setp(nullptr, nullptr);
         _spilled = true;
     }
@@ -151,20 +164,21 @@ private:
     bool _spilled = false;
 };
 
-class ResponseStream final : public std::iostream {
+class S3ResponseStream final : public std::iostream {
 public:
-    ResponseStream(void* buf, size_t nbytes) : std::iostream(&_buf), _buf(buf, nbytes) {}
+    S3ResponseStream(void* buf, size_t nbytes) : std::iostream(&_buf), _buf(buf, nbytes) {}
 
 private:
-    ResponseStreamBuf _buf;
+    S3ResponseStreamBuf _buf;
 };
 
 // By default, the AWS SDK reads object data into an auto-growing StringStream.
-// To avoid copies, read directly into our preallocated buffer instead.
+// To avoid copies, read the body directly into our preallocated buffer instead, and keep
+// only what does not fit, which is an error document, in a buffer of the stream itself.
 // See https://github.com/aws/aws-sdk-cpp/issues/64 for an alternative but
 // functionally similar recipe.
 inline Aws::IOStreamFactory AwsWriteableStreamFactory(void* buf, int64_t nbytes) {
-    return [=]() { return Aws::New<ResponseStream>("", buf, static_cast<size_t>(nbytes)); };
+    return [=]() { return Aws::New<S3ResponseStream>("", buf, static_cast<size_t>(nbytes)); };
 }
 
 } // namespace doris

@@ -42,11 +42,11 @@ constexpr char SLOW_DOWN_BODY[] =
 } // namespace
 
 // A body of the requested size lands in the buffer of the caller, without a copy.
-TEST(ResponseStreamTest, BodyFits) {
+TEST(S3ResponseStreamTest, BodyFits) {
     std::string body(64, 'a');
     std::vector<char> buffer(body.size());
 
-    ResponseStream stream(buffer.data(), buffer.size());
+    S3ResponseStream stream(buffer.data(), buffer.size());
     stream.write(body.data(), body.size());
     stream.flush();
 
@@ -58,12 +58,12 @@ TEST(ResponseStreamTest, BodyFits) {
 
 // An error body larger than the range of the read leaves the stream usable, which is what
 // keeps curl from aborting the transfer and the SDK from losing the status code.
-TEST(ResponseStreamTest, ErrorBodyOverflowsInOneWrite) {
+TEST(S3ResponseStreamTest, ErrorBodyOverflowsInOneWrite) {
     std::string body(SLOW_DOWN_BODY);
     // A read of the footer of a packed file is far smaller than the error document.
     std::vector<char> buffer(12);
 
-    ResponseStream stream(buffer.data(), buffer.size());
+    S3ResponseStream stream(buffer.data(), buffer.size());
     stream.write(body.data(), body.size());
     stream.flush();
 
@@ -73,11 +73,11 @@ TEST(ResponseStreamTest, ErrorBodyOverflowsInOneWrite) {
 }
 
 // curl hands the body over in chunks, so the overflow can happen in the middle of one.
-TEST(ResponseStreamTest, ErrorBodyOverflowsAcrossWrites) {
+TEST(S3ResponseStreamTest, ErrorBodyOverflowsAcrossWrites) {
     std::string body(SLOW_DOWN_BODY);
     std::vector<char> buffer(16);
 
-    ResponseStream stream(buffer.data(), buffer.size());
+    S3ResponseStream stream(buffer.data(), buffer.size());
     size_t chunk = 7;
     for (size_t pos = 0; pos < body.size(); pos += chunk) {
         stream.write(body.data() + pos, std::min(chunk, body.size() - pos));
@@ -91,11 +91,11 @@ TEST(ResponseStreamTest, ErrorBodyOverflowsAcrossWrites) {
 }
 
 // A body written one character at a time goes through overflow() instead of xsputn().
-TEST(ResponseStreamTest, ErrorBodyOverflowsCharByChar) {
+TEST(S3ResponseStreamTest, ErrorBodyOverflowsCharByChar) {
     std::string body(SLOW_DOWN_BODY);
     std::vector<char> buffer(4);
 
-    ResponseStream stream(buffer.data(), buffer.size());
+    S3ResponseStream stream(buffer.data(), buffer.size());
     for (char c : body) {
         stream.put(c);
     }
@@ -108,25 +108,63 @@ TEST(ResponseStreamTest, ErrorBodyOverflowsCharByChar) {
 // A server answering a ranged read with the whole object must not blow up the memory of the
 // backend. The body is truncated, the stream stays good and the read is rejected later on by
 // the length check of the caller.
-TEST(ResponseStreamTest, OversizedBodyIsTruncated) {
-    std::string body(ResponseStreamBuf::MAX_SPILL_SIZE + 4096, 'x');
+TEST(S3ResponseStreamTest, OversizedBodyIsTruncated) {
+    std::string body(S3ResponseStreamBuf::MAX_SPILL_SIZE + 4096, 'x');
     std::vector<char> buffer(8);
 
-    ResponseStream stream(buffer.data(), buffer.size());
+    S3ResponseStream stream(buffer.data(), buffer.size());
     stream.write(body.data(), body.size());
     stream.flush();
 
     EXPECT_FALSE(stream.fail());
-    EXPECT_EQ(static_cast<std::streampos>(ResponseStreamBuf::MAX_SPILL_SIZE), stream.tellp());
-    EXPECT_EQ(ResponseStreamBuf::MAX_SPILL_SIZE, drain(stream).size());
+    EXPECT_EQ(static_cast<std::streampos>(S3ResponseStreamBuf::MAX_SPILL_SIZE), stream.tellp());
+    EXPECT_EQ(S3ResponseStreamBuf::MAX_SPILL_SIZE, drain(stream).size());
+}
+
+// The same, with a buffer of the caller larger than the bound of the spill: a prefetched
+// read asks for `remote_storage_read_buffer_mb` at a time and a download for the whole file,
+// so the bytes moved out of that buffer on the overflow have to be truncated as well.
+TEST(S3ResponseStreamTest, OversizedBodyIsTruncatedWithLargeBuffer) {
+    std::vector<char> buffer(2 * S3ResponseStreamBuf::MAX_SPILL_SIZE);
+    std::string body(4 * S3ResponseStreamBuf::MAX_SPILL_SIZE, 'x');
+
+    S3ResponseStream stream(buffer.data(), buffer.size());
+    // curl hands the body over in chunks of `CURL_MAX_WRITE_SIZE`, so the buffer of the caller
+    // is filled before a write overflows it.
+    size_t chunk = 16384;
+    for (size_t pos = 0; pos < body.size(); pos += chunk) {
+        stream.write(body.data() + pos, std::min(chunk, body.size() - pos));
+    }
+    stream.flush();
+
+    EXPECT_FALSE(stream.fail());
+    EXPECT_EQ(static_cast<std::streampos>(S3ResponseStreamBuf::MAX_SPILL_SIZE), stream.tellp());
+    EXPECT_EQ(S3ResponseStreamBuf::MAX_SPILL_SIZE, drain(stream).size());
+}
+
+// A truncated body is still a body the SDK rewinds and reads to its end.
+TEST(S3ResponseStreamTest, SeekTruncatedBody) {
+    std::vector<char> buffer(2 * S3ResponseStreamBuf::MAX_SPILL_SIZE);
+    std::string body(4 * S3ResponseStreamBuf::MAX_SPILL_SIZE, 'x');
+
+    S3ResponseStream stream(buffer.data(), buffer.size());
+    stream.write(body.data(), body.size());
+
+    EXPECT_EQ(S3ResponseStreamBuf::MAX_SPILL_SIZE, drain(stream).size());
+    stream.clear();
+    EXPECT_EQ(std::streampos(0), stream.seekg(0).tellg());
+    EXPECT_EQ(S3ResponseStreamBuf::MAX_SPILL_SIZE, drain(stream).size());
+    // Past the end of what has been kept.
+    stream.clear();
+    EXPECT_TRUE(stream.seekg(S3ResponseStreamBuf::MAX_SPILL_SIZE + 1).fail());
 }
 
 // The SDK rewinds the body before parsing an error out of it.
-TEST(ResponseStreamTest, SeekBackAndForth) {
+TEST(S3ResponseStreamTest, SeekBackAndForth) {
     std::string body(SLOW_DOWN_BODY);
     std::vector<char> buffer(12);
 
-    ResponseStream stream(buffer.data(), buffer.size());
+    S3ResponseStream stream(buffer.data(), buffer.size());
     stream.write(body.data(), body.size());
 
     EXPECT_EQ(body, drain(stream));
@@ -140,9 +178,9 @@ TEST(ResponseStreamTest, SeekBackAndForth) {
 }
 
 // An empty body is what tells the SDK to build the error out of the status code alone.
-TEST(ResponseStreamTest, EmptyBody) {
+TEST(S3ResponseStreamTest, EmptyBody) {
     std::vector<char> buffer(16);
-    ResponseStream stream(buffer.data(), buffer.size());
+    S3ResponseStream stream(buffer.data(), buffer.size());
 
     EXPECT_EQ(std::streampos(0), stream.tellp());
     EXPECT_TRUE(drain(stream).empty());
