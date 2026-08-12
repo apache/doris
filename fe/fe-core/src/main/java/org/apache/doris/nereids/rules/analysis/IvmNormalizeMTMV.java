@@ -163,28 +163,34 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     private static final Logger LOG = LogManager.getLogger(IvmNormalizeMTMV.class);
 
     static final class NormalizeContext {
-        private static final NormalizeContext ROOT = new NormalizeContext(true, false);
+        private static final NormalizeContext ROOT = new NormalizeContext(true, false, false);
 
         private final boolean isFirstNonSink;
         private final boolean isInsideAggregate;
+        private final boolean isInsideJoin;
 
-        private NormalizeContext(boolean isFirstNonSink, boolean isInsideAggregate) {
+        private NormalizeContext(boolean isFirstNonSink, boolean isInsideAggregate, boolean isInsideJoin) {
             this.isFirstNonSink = isFirstNonSink;
             this.isInsideAggregate = isInsideAggregate;
+            this.isInsideJoin = isInsideJoin;
         }
 
         private NormalizeContext afterNonSink() {
             if (!isFirstNonSink) {
                 return this;
             }
-            return new NormalizeContext(false, isInsideAggregate);
+            return new NormalizeContext(false, isInsideAggregate, isInsideJoin);
         }
 
         private NormalizeContext enterAggregate() {
             if (isInsideAggregate) {
                 return this;
             }
-            return new NormalizeContext(isFirstNonSink, true);
+            return new NormalizeContext(isFirstNonSink, true, isInsideJoin);
+        }
+
+        private NormalizeContext enterJoin() {
+            return new NormalizeContext(false, isInsideAggregate, true);
         }
     }
 
@@ -195,6 +201,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     private final IdentityHashMap<Plan, List<Slot>> identityKeysByNode = new IdentityHashMap<>();
     private int sinkKeyCounter;
     private int unionIdxCounter;
+    private int baseTableRowIdRenameCounter;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -256,17 +263,39 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         validateBinlogEnabled(scan);
         Alias rowIdAlias = new Alias(scanRowId.rowIdExpr, Column.IVM_ROW_ID_COL);
         rewriteResult.addRowId(rowIdAlias.toSlot(), scanRowId.deterministic);
-        List<NamedExpression> outputs = ImmutableList.<NamedExpression>builder()
-                .add(rowIdAlias)
-                .addAll(scan.getOutput().stream()
-                        .filter(slot -> !IvmUtil.isIvmHiddenColumn(slot.getName()))
-                        .collect(ImmutableList.toImmutableList()))
-                .build();
+        // When the scanned table's only key column is its own IVM row-id (a cascading MV
+        // whose hidden identity-key columns are absent from the scan output) and it is under
+        // a join, alias that base-table row-id under a renamed column so it survives the
+        // project as a real output slot and can be used as an identity key without colliding
+        // with the injected row-id name.
+        Alias renamedBaseRowIdAlias = useFullKeys && !context.isInsideAggregate
+                && context.isInsideJoin && scanRowId.baseTableRowId.isPresent()
+                ? new Alias(scanRowId.baseTableRowId.get(),
+                        Column.IVM_HIDDEN_COLUMN_PREFIX + baseTableRowIdRenameCounter++
+                                + Column.IVM_BASE_ROW_ID_COL_SUFFIX)
+                : null;
+        ImmutableList.Builder<NamedExpression> outputsBuilder = ImmutableList.<NamedExpression>builder()
+                .add(rowIdAlias);
+        if (renamedBaseRowIdAlias != null) {
+            outputsBuilder.add(renamedBaseRowIdAlias);
+        }
+        outputsBuilder.addAll(scan.getOutput().stream()
+                .filter(slot -> !IvmUtil.isIvmHiddenColumn(slot.getName()))
+                .collect(ImmutableList.toImmutableList()));
+        List<NamedExpression> outputs = outputsBuilder.build();
         LogicalProject<?> result = new LogicalProject<>(outputs, scan);
         if (useFullKeys && !context.isInsideAggregate) {
             // remainKeys excludes the base table's own row-id column, so cascading
             // MVs never accumulate ancestor row-id columns in their unique keys.
-            identityKeysByNode.put(result, scanRowId.remainKeys);
+            // When no business key survives (only the scanned MV's own row-id is
+            // visible), the renamed base-table row-id is kept as an identity key,
+            // ahead of the remaining business keys.
+            List<Slot> identityKeys = renamedBaseRowIdAlias == null ? scanRowId.remainKeys
+                    : ImmutableList.<Slot>builder()
+                            .add(renamedBaseRowIdAlias.toSlot())
+                            .addAll(scanRowId.remainKeys)
+                            .build();
+            identityKeysByNode.put(result, identityKeys);
         }
         return result;
     }
@@ -393,7 +422,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support mark join (subquery with disjunction).");
         }
-        NormalizeContext childContext = context.afterNonSink();
+        NormalizeContext childContext = context.enterJoin();
         Plan newLeft = join.left().accept(this, childContext);
         Plan newRight = join.right().accept(this, childContext);
         LogicalJoin<Plan, Plan> newJoin = (LogicalJoin<Plan, Plan>) join.withChildren(newLeft, newRight);
@@ -814,7 +843,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                     sinkKeys.add(keySlot);
                 } else {
                     String hiddenName = Column.IVM_KEY_COL_PREFIX + (++sinkKeyCounter) + "_"
-                            + keyName + "_COL__";
+                            + IvmUtil.sanitizeIvmKeyName(keyName) + "_COL__";
                     Alias hiddenAlias = new Alias(keySlot, hiddenName);
                     finalOutputs.add(hiddenAlias);
                     sinkKeys.add(hiddenAlias.toSlot());
@@ -943,14 +972,22 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
      * Scan-level row-id computation result: the row-id expression, the remaining identity key
      * slots (the base table's key columns excluding the IVM row-id column), and whether the
      * row-id is deterministic.
+     *
+     * <p>When the scanned table's only visible key column is its own IVM row-id (a cascading MV
+     * whose hidden identity-key columns are absent from the scan output), {@code baseTableRowId}
+     * holds that row-id slot so join hash-collision protection still has an identity key to
+     * fall back on.
      */
     final class ScanRowId {
         final Expression rowIdExpr;
+        final Optional<Slot> baseTableRowId;
         final List<Slot> remainKeys;
         final boolean deterministic;
 
-        ScanRowId(Expression rowIdExpr, List<Slot> remainKeys, boolean deterministic) {
+        ScanRowId(Expression rowIdExpr, List<Slot> remainKeys, boolean deterministic,
+                Optional<Slot> baseTableRowId) {
             this.rowIdExpr = rowIdExpr;
+            this.baseTableRowId = baseTableRowId;
             this.remainKeys = remainKeys;
             this.deterministic = deterministic;
         }
@@ -984,7 +1021,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             return buildDeterministicScanRowIdAndKeys(table, scan);
         }
         if (keysType == KeysType.DUP_KEYS) {
-            return new ScanRowId(new UuidNumeric(), ImmutableList.of(), false);
+            return new ScanRowId(new UuidNumeric(), ImmutableList.of(), false, Optional.empty());
         }
         if (keysType == KeysType.AGG_KEYS && isExcluded) {
             return buildDeterministicScanRowIdAndKeys(table, scan);
@@ -1015,11 +1052,18 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         List<Slot> remainKeys = keySlots.stream()
                 .filter(slot -> !Column.IVM_ROW_ID_COL.equalsIgnoreCase(slot.getName()))
                 .collect(ImmutableList.toImmutableList());
+        // When the only visible key is the IVM row-id itself (a cascading MV created without
+        // ivm_use_full_keys whose hidden identity-key columns are not in the scan output),
+        // keep that row-id as the base-table row-id identity key so join hash-collision
+        // protection is not lost.
+        Optional<Slot> baseTableRowId = remainKeys.isEmpty() ? keySlots.stream()
+                .filter(slot -> Column.IVM_ROW_ID_COL.equalsIgnoreCase(slot.getName()))
+                .findFirst() : Optional.empty();
         Expression rowIdExpr = (keySlots.size() == 1
                 && Column.IVM_ROW_ID_COL.equalsIgnoreCase(keySlots.get(0).getName()))
                 ? keySlots.get(0)
                 : IvmUtil.buildRowIdHash(keySlots);
-        return new ScanRowId(rowIdExpr, remainKeys, true);
+        return new ScanRowId(rowIdExpr, remainKeys, true, baseTableRowId);
     }
 
     private void validateBinlogEnabled(LogicalOlapScan scan) {
