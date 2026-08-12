@@ -17,10 +17,9 @@
 
 package org.apache.doris.iceberg;
 
-import org.apache.doris.common.classloader.ThreadClassLoaderContext;
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValue;
 import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
@@ -43,7 +42,6 @@ import java.util.stream.Collectors;
 public class IcebergSysTableJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(IcebergSysTableJniScanner.class);
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
-    private final ClassLoader classLoader;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
     private final FileScanTask scanTask;
     private final int requiredFieldCount;
@@ -51,7 +49,6 @@ public class IcebergSysTableJniScanner extends JniScanner {
     private CloseableIterator<StructLike> reader;
 
     public IcebergSysTableJniScanner(int batchSize, Map<String, String> params) {
-        this.classLoader = this.getClass().getClassLoader();
         String serializedSplitParams = params.get("serialized_split");
         Preconditions.checkArgument(serializedSplitParams != null && !serializedSplitParams.isEmpty(),
                 "serialized_split should not be empty");
@@ -76,23 +73,15 @@ public class IcebergSysTableJniScanner extends JniScanner {
     }
 
     @Override
-    public void open() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            openReader();
-        }
-    }
-
-    private void openReader() throws IOException {
+    protected void openInternal() throws IOException {
         try {
-            try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-                preExecutionAuthenticator.execute(() -> {
-                    // execute FileScanTask to get rows
-                    reader = scanTask.asDataTask().rows().iterator();
-                    return null;
-                });
-            }
+            preExecutionAuthenticator.execute(() -> {
+                // execute FileScanTask to get rows
+                reader = scanTask.asDataTask().rows().iterator();
+                return null;
+            });
         } catch (Exception e) {
-            this.close();
+            closeInternal();
             String msg = String.format("Failed to open scan task: %s", scanTask);
             LOG.error(msg, e);
             throw new IOException(msg, e);
@@ -101,39 +90,38 @@ public class IcebergSysTableJniScanner extends JniScanner {
 
     @Override
     protected int getNext() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            int rows = 0;
-            long startAppendDataTime = System.nanoTime();
-            while (rows < getBatchSize()) {
-                if (!reader.hasNext()) {
-                    break;
-                }
-                StructLike row = reader.next();
-                for (int i = 0; i < requiredFieldCount; i++) {
-                    // Read positionally: FE (IcebergScanPlanProvider.doPlanSystemTableScan) projects the
-                    // metadata-table scan to exactly the BE-requested fields, in required_fields order, so the
-                    // i-th projected row field is the i-th required field. Do NOT index via scanTask.schema():
-                    // for a metadata StaticDataTask, schema() returns the FULL table schema while rows() yields a
-                    // narrowed StructProjection, so a full-schema ordinal overruns the projected row (upstream
-                    // #65262 -- reverting this to a by-name/schema() lookup reintroduces ArrayIndexOutOfBounds).
-                    Object value = row.get(i, Object.class);
-                    ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
-                    appendData(i, columnValue);
-                }
-                rows++;
+        int rows = 0;
+        long startAppendDataTime = System.nanoTime();
+        while (rows < getBatchSize()) {
+            if (!reader.hasNext()) {
+                break;
             }
-            appendDataTime += System.nanoTime() - startAppendDataTime;
-            return rows;
+            StructLike row = reader.next();
+            for (int i = 0; i < requiredFieldCount; i++) {
+                // Read positionally: FE (IcebergScanPlanProvider.doPlanSystemTableScan) projects the
+                // metadata-table scan to exactly the BE-requested fields, in required_fields order, so the
+                // i-th projected row field is the i-th required field. Do NOT index via scanTask.schema():
+                // for a metadata StaticDataTask, schema() returns the FULL table schema while rows() yields a
+                // narrowed StructProjection, so a full-schema ordinal overruns the projected row (upstream
+                // #65262 -- reverting this to a by-name/schema() lookup reintroduces ArrayIndexOutOfBounds).
+                Object value = row.get(i, Object.class);
+                ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
+                appendData(i, columnValue);
+            }
+            rows++;
         }
+        appendDataTime += System.nanoTime() - startAppendDataTime;
+        return rows;
     }
 
     @Override
-    public void close() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            if (reader != null) {
-                // Close the iterator to release resources
-                reader.close();
-            }
+    protected void closeInternal() throws IOException {
+        if (reader != null) {
+            // Called twice whenever openInternal fails - it closes, then BE closes again. That is
+            // within the SPI contract here because closing an iceberg CloseableIterator twice is a
+            // no-op the second time, for both shapes a metadata table produces: a StaticDataTask's
+            // rows have nothing to release, and a ManifestReadTask's avro reader closes idempotently.
+            reader.close();
         }
     }
 
