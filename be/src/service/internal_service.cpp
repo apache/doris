@@ -1116,8 +1116,7 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
 
         // Use JniReader to create JdbcConnectionTester, which tests
         // the connection in its open() method.
-        auto jni_reader =
-                std::make_unique<JniReader>("org/apache/doris/jdbc/JdbcConnectionTester", params);
+        auto jni_reader = std::make_unique<JniReader>(Jni::plugin::JDBC_CONNECTION_TESTER, params);
         st = jni_reader->open(nullptr, nullptr);
         st.to_protobuf(result->mutable_status());
 

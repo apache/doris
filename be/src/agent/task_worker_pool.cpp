@@ -99,6 +99,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/jni-util.h"
+#include "util/jni_plugin_registry.h"
 #include "util/mem_info.h"
 #include "util/random.h"
 #include "util/s3_util.h"
@@ -2593,9 +2594,7 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req) {
 
     if (doris::config::enable_java_support) {
         WARN_IF_ERROR(
-                Jni::Util::clean_udf_class_load_cache(
-                        clean_req.function_signature,
-                        drop_by_function_id ? clean_req.function_id : 0),
+                Jni::PluginRegistry::clean_udf_cache(clean_req.function_signature),
                 fmt::format("failed to clean Java UDF cache, function_signature={}, function_id={}",
                             clean_req.function_signature, clean_req.function_id));
     }
