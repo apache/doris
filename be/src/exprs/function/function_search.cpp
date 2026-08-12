@@ -789,22 +789,75 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
     if (binding.use_snii_native_reader()) {
         DORIS_CHECK(binding.inverted_reader != nullptr);
-        if (clause_type != "WILDCARD") {
-            return Status::NotSupported(
-                    "SNII native SEARCH supports only WILDCARD clauses; got '{}'", clause_type);
+        // The SNII reader answers a clause directly from a query type: it tokenizes the value
+        // itself and owns the matching operator, so unlike the CLucene path below there is no
+        // query tree to assemble here. RANGE and LIST reach the same TERM fallback the CLucene
+        // path uses, because neither is implemented there either.
+        InvertedIndexQueryType snii_query_type = (clause_type == "RANGE" || clause_type == "LIST")
+                                                         ? InvertedIndexQueryType::EQUAL_QUERY
+                                                         : clause_type_to_query_type(clause_type);
+
+        if (clause_type == "TERM") {
+            // minimum_should_match ("at least N of M terms") has no SNII query type: the reader
+            // only knows AND-all (MATCH_ALL_QUERY) or OR-all (EQUAL_QUERY/MATCH_ANY_QUERY) of the
+            // terms it tokenizes internally, never a partial threshold. The CLucene path builds
+            // an OccurBooleanQuery for this (function_search.cpp:913-926); SNII cannot, so refuse
+            // explicitly instead of silently answering a plain OR query.
+            //
+            // But the CLucene path only ever reaches that OccurBooleanQuery when the field is
+            // analysed (:925's `if (should_analyze)` short-circuits first): a keyword (non-
+            // analysed) TERM value tokenizes to at most one term, so msm is never consulted for
+            // it there either -- it is simply ignored. Refusing it here for a keyword field would
+            // hard-error a query V2/V3 answers fine, so gate the refusal the same way.
+            if (minimum_should_match > 0 &&
+                inverted_index::InvertedIndexAnalyzer::should_analyzer(binding.index_properties)) {
+                return Status::NotSupported(
+                        "SNII native SEARCH does not support minimum_should_match for TERM "
+                        "clauses (got {})",
+                        minimum_should_match);
+            }
+            // default_operator selects how a multi-token TERM value combines: "and" requires
+            // every term (MATCH_ALL_QUERY), "or" -- the default -- requires any term, which is
+            // already snii_query_type above (EQUAL_QUERY). A single-token value is unaffected
+            // either way, since the reader special-cases terms.size() == 1 for both query types.
+            if (default_operator == "and") {
+                snii_query_type = InvertedIndexQueryType::MATCH_ALL_QUERY;
+            }
+        } else if (clause_type == "PREFIX" &&
+                   !inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                           binding.index_properties)) {
+            // FE keeps the trailing '*' in the PREFIX value unstripped (SearchDslParser.java).
+            // On an analysed field the tokenizer drops it, leaving a clean single prefix term,
+            // so the default clause_type_to_query_type mapping (MATCH_PHRASE_PREFIX_QUERY) is
+            // correct as-is. On a keyword (non-analysed) field the whole string -- '*' included
+            // -- becomes one literal term (InvertedIndexAnalyzer::get_analyse_result), so
+            // MATCH_PHRASE_PREFIX_QUERY would search for a term that can never exist. Route
+            // those to WILDCARD_QUERY instead, exactly like the CLucene path's
+            // WildcardQuery(value) for PREFIX (function_search.cpp:1075-1076): the reader
+            // forwards a WILDCARD_QUERY value unanalysed, so the trailing '*' works the same way.
+            snii_query_type = InvertedIndexQueryType::WILDCARD_QUERY;
         }
 
         auto data_bitmap = std::make_shared<roaring::Roaring>();
-        if (value == "*") {
+        if (clause_type == "WILDCARD" && value == "*") {
             data_bitmap->addRange(0, num_rows);
         } else {
-            std::string pattern = normalize_wildcard_pattern(value, binding.index_properties);
+            // Wildcard patterns carry the analyzer's lower_case semantics; every other clause
+            // passes its value through untouched, since the reader analyses it.
+            std::string pattern =
+                    clause_type == "WILDCARD"
+                            ? normalize_wildcard_pattern(value, binding.index_properties)
+                            : value;
             Field query_value = Field::create_field<TYPE_STRING>(pattern);
-            RETURN_IF_ERROR(binding.inverted_reader->query(
-                    context, binding.stored_field_name, query_value,
-                    InvertedIndexQueryType::WILDCARD_QUERY, data_bitmap, nullptr));
-            VLOG_DEBUG << "search: SNII WILDCARD clause processed, field=" << field_name
-                       << ", pattern='" << pattern << "' (original='" << value << "')";
+            RETURN_IF_ERROR(binding.inverted_reader->query(context, binding.stored_field_name,
+                                                           query_value, snii_query_type,
+                                                           data_bitmap, nullptr));
+            // Restore the pre-normalization value for WILDCARD so the trace still shows what the
+            // caller actually asked for, not just what was sent to the reader.
+            std::string log_suffix =
+                    clause_type == "WILDCARD" ? (" (original='" + value + "')") : std::string();
+            VLOG_DEBUG << "search: SNII clause processed, type=" << clause_type
+                       << ", field=" << field_name << ", value='" << pattern << "'" << log_suffix;
         }
 
         auto null_bitmap = std::make_shared<roaring::Roaring>();

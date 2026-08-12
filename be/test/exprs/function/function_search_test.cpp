@@ -2455,13 +2455,20 @@ TEST_F(FunctionSearchTest, TestSniiWildcardPreservesThreeValuedBooleanAndFieldEx
     EXPECT_EQ(3, reader->query_calls);
 }
 
-TEST_F(FunctionSearchTest, TestSniiNativeRejectsNonWildcardClause) {
+// SNII native SEARCH forwards every clause type to the reader as a query type (see
+// FunctionSearch::build_leaf_query's SNII branch); it no longer refuses non-WILDCARD clauses.
+// A TERM clause maps to EQUAL_QUERY via clause_type_to_query_type and is forwarded unmodified
+// (no normalize_wildcard_pattern -- that only applies to WILDCARD).
+TEST_F(FunctionSearchTest, TestSniiNativeForwardsTermClauseAsEqualQuery) {
+    OlapReaderStatistics stats;
     auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
     auto index_meta = make_test_inverted_index(
             18, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}});
     auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
     auto reader =
             std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
+    reader->set_query_result("alpha", make_bitmap({0, 2}));
     segment_v2::InvertedIndexIterator iterator;
     iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
 
@@ -2482,12 +2489,151 @@ TEST_F(FunctionSearchTest, TestSniiNativeRejectsNonWildcardClause) {
     auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
                                                     "OR", 0, 4);
 
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(nullptr, query);
+    EXPECT_EQ(1, reader->query_calls);
+    EXPECT_EQ(InvertedIndexQueryType::EQUAL_QUERY, reader->last_query_type);
+    EXPECT_EQ("alpha", reader->last_query_value);
+    EXPECT_EQ(0, index_file_reader->open_calls);
+
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = 4;
+    auto scorer = weight->scorer(exec_ctx, binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {0, 2});
+}
+
+// default_operator "and" maps a multi-token TERM clause onto MATCH_ALL_QUERY instead of the
+// default EQUAL_QUERY (which is an OR of terms) -- SNII has no boolean query tree to build, so
+// this is expressed entirely as which query type gets forwarded to the reader.
+TEST_F(FunctionSearchTest, TestSniiNativeTermDefaultOperatorAndMapsToMatchAllQuery) {
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    auto index_meta = make_test_inverted_index(
+            21, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}});
+    auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto reader =
+            std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["body"] = &iterator;
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "body";
+    field_binding.index_properties = index_meta.properties();
+    field_binding.__isset.index_properties = true;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+
+    auto clause = make_leaf_clause("TERM", "alpha beta");
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
+                                                    "and", 0, 4);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(1, reader->query_calls);
+    EXPECT_EQ(InvertedIndexQueryType::MATCH_ALL_QUERY, reader->last_query_type);
+    EXPECT_EQ("alpha beta", reader->last_query_value);
+}
+
+// minimum_should_match ("at least N of M terms") has no SNII query type -- EQUAL_QUERY is
+// unconditionally ANY and MATCH_ALL_QUERY is unconditionally ALL, with nothing in between. SNII
+// must refuse it explicitly for a TERM clause instead of silently answering a plain OR query.
+TEST_F(FunctionSearchTest, TestSniiNativeTermRejectsMinimumShouldMatch) {
+    auto context = std::make_shared<IndexQueryContext>();
+    auto index_meta = make_test_inverted_index(
+            22, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}});
+    auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto reader =
+            std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["body"] = &iterator;
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "body";
+    field_binding.index_properties = index_meta.properties();
+    field_binding.__isset.index_properties = true;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+
+    auto clause = make_leaf_clause("TERM", "alpha beta");
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
+                                                    "OR", 2, 4);
+
     ASSERT_FALSE(status.ok());
     EXPECT_EQ(ErrorCode::NOT_IMPLEMENTED_ERROR, status.code());
-    EXPECT_NE(std::string::npos, status.to_string().find("TERM"));
-    EXPECT_NE(std::string::npos, status.to_string().find("WILDCARD"));
+    EXPECT_NE(std::string::npos, status.to_string().find("minimum_should_match"));
     EXPECT_EQ(0, reader->query_calls);
     EXPECT_EQ(0, index_file_reader->open_calls);
+}
+
+// On a NON-analysed (keyword) field, PREFIX cannot map to MATCH_PHRASE_PREFIX_QUERY: FE keeps
+// the trailing '*' in the value (SearchDslParser.java), and on a keyword field the whole string
+// -- '*' included -- becomes one literal term (InvertedIndexAnalyzer::get_analyse_result), so
+// MATCH_PHRASE_PREFIX_QUERY would search for a term that can never exist. build_leaf_query's SNII
+// branch (function_search.cpp:819-832) special-cases this by checking
+// !InvertedIndexAnalyzer::should_analyzer(binding.index_properties) and routing to WILDCARD_QUERY
+// instead, exactly like the CLucene path's WildcardQuery(value) for PREFIX. index_meta below omits
+// the parser property entirely, which should_analyzer() (analyzer.cpp:261-273) treats as
+// PARSER_UNKNOWN -- not analysed -- the same as an explicit "none" parser.
+TEST_F(FunctionSearchTest, TestSniiNativeKeywordPrefixRoutesToWildcardQuery) {
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    auto index_meta = make_test_inverted_index(23);
+    auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto reader =
+            std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
+    reader->set_query_result("al*", make_bitmap({0, 2}));
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["body"] = &iterator;
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "body";
+    field_binding.index_properties = index_meta.properties();
+    field_binding.__isset.index_properties = true;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+
+    auto clause = make_leaf_clause("PREFIX", "al*");
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
+                                                    "OR", 0, 4);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(nullptr, query);
+    EXPECT_EQ(1, reader->query_calls);
+    EXPECT_EQ(InvertedIndexQueryType::WILDCARD_QUERY, reader->last_query_type);
+    // The trailing '*' must survive unmodified: WILDCARD_QUERY on the reader interprets it as a
+    // wildcard, unlike the tokenizer path that would have stripped it.
+    EXPECT_EQ("al*", reader->last_query_value);
+    EXPECT_EQ(0, index_file_reader->open_calls);
+
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = 4;
+    auto scorer = weight->scorer(exec_ctx, binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {0, 2});
 }
 
 TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledForSniiNativeExecution) {

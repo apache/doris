@@ -1563,33 +1563,24 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexRejectsSearchFallback) {
                   std::string::npos);
     }
 
-    test_node.search_param.root.clause_type = "TERM";
-    test_node.search_param.root.value = "hello";
-    test_node.search_param.field_bindings[0].index_properties[INVERTED_INDEX_PARSER_KEY] =
-            INVERTED_INDEX_PARSER_STANDARD;
-    auto snii_expr = VSearchExpr::create_shared(test_node);
-    snii_expr->add_child(create_slot_ref(0, "title"));
-
-    auto snii_file_reader = std::make_shared<segment_v2::IndexFileReader>(
-            nullptr, "/tmp/search_fallback_snii_idx", InvertedIndexStorageFormatPB::SNII);
-    auto snii_reader =
-            std::make_shared<segment_v2::FullTextIndexReader>(&index_meta, snii_file_reader);
-    auto snii_iterator = std::make_unique<segment_v2::InvertedIndexIterator>();
-    snii_iterator->add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, snii_reader);
-
-    std::vector<std::unique_ptr<segment_v2::IndexIterator>> snii_index_iterators;
-    snii_index_iterators.emplace_back(std::move(snii_iterator));
-    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> snii_status_map;
-    snii_status_map[0][snii_expr.get()] = false;
-    auto snii_inverted_ctx =
-            make_inverted_context(col_ids, snii_index_iterators, storage_types, snii_status_map);
-    auto snii_context = std::make_shared<VExprContext>(snii_expr);
-    snii_context->set_index_context(snii_inverted_ctx);
-
-    status = snii_expr->evaluate_inverted_index(snii_context.get(), 256);
-    EXPECT_FALSE(status.ok());
-    EXPECT_EQ(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, status.code());
-    EXPECT_NE(status.to_string().find("supports only WILDCARD"), std::string::npos);
+    // A SNII sub-case used to live here: a TERM clause against a binding whose IndexFileReader
+    // reported SNII storage format, asserting the old hard refusal ("supports only WILDCARD").
+    // That refusal was removed -- SNII SEARCH now forwards every clause type to the reader as a
+    // query type (see FunctionSearch::build_leaf_query's SNII branch) -- so the assertion no
+    // longer holds. It is not being replaced with a corrected assertion here, because the mock
+    // combination it used was never reachable in production to begin with: it paired a SNII-
+    // format IndexFileReader with a segment_v2::FullTextIndexReader (a CLucene reader). In real
+    // code the two are set atomically at the single production construction site
+    // (ColumnReader::_load_index, storage/segment/column_reader.cpp:727-743): that function
+    // returns as soon as it sees SNII storage format, having constructed only a SniiIndexReader
+    // or SniiBkdIndexReader; a FullTextIndexReader is built exclusively in the mutually
+    // exclusive non-SNII branch below it. So "use_snii_native_reader() true with a CLucene
+    // reader bound" cannot occur outside a hand-built test double. Forwarding coverage for SNII
+    // TERM clauses (EQUAL_QUERY, default_operator "and" -> MATCH_ALL_QUERY, and the explicit
+    // minimum_should_match refusal) lives in FunctionSearchTest
+    // (TestSniiNativeForwardsTermClauseAsEqualQuery and friends,
+    // be/test/exprs/function/function_search_test.cpp), which uses a reader double shaped like
+    // the real SNII reader instead of a mismatched CLucene one.
 }
 
 // Note: Full testing with actual IndexExecContext and real iterators
