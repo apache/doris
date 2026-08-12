@@ -403,6 +403,7 @@ import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
 import org.apache.doris.nereids.DorisParser.ShowFunctionsContext;
 import org.apache.doris.nereids.DorisParser.ShowGlobalFunctionsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
+import org.apache.doris.nereids.DorisParser.ShowGrantsForRoleContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexAnalyzerContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexCharFilterContext;
@@ -10339,5 +10340,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return sortFields.build();
+    }
+
+    @Override
+    public LogicalPlan visitShowGrantsForRole(ShowGrantsForRoleContext ctx) {
+        String roleName = visitIdentifierOrText(ctx.identifierOrText());
+        return new ShowGrantsCommand(roleName);
     }
 }
