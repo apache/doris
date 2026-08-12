@@ -26,7 +26,9 @@ public class RootKeyInfo {
         LOCAL("local"),
         AWS_KMS("aws_kms"),
         ALIYUN_KMS("aliyun_kms"),
-        RANGER_KMS("ranger_kms");
+        RANGER_KMS("ranger_kms"),
+        GCP_KMS("gcp_kms"),
+        AZURE_KMS("azure_kms");
 
         public static RootKeyType tryFrom(String name) {
             Objects.requireNonNull(name);
@@ -41,6 +43,12 @@ public class RootKeyInfo {
             }
             if (RANGER_KMS.name.equalsIgnoreCase(name)) {
                 return RANGER_KMS;
+            }
+            if (GCP_KMS.name.equalsIgnoreCase(name)) {
+                return GCP_KMS;
+            }
+            if (AZURE_KMS.name.equalsIgnoreCase(name)) {
+                return AZURE_KMS;
             }
             throw new IllegalArgumentException("invalid name: " + name);
         }

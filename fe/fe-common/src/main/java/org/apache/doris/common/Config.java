@@ -3559,7 +3559,7 @@ public class Config extends ConfigBase {
     public static String doris_tde_key_region = "";
 
     @ConfField(mutable = true, description = "The key provider identifier for TDE (Transparent Data Encryption). "
-            + "Recognized values include aws_kms, aliyun_kms, and ranger_kms.")
+            + "Recognized values include aws_kms, aliyun_kms, ranger_kms, gcp_kms, and azure_kms.")
     public static String doris_tde_key_provider = "";
 
     @ConfField(mutable = true, description = "The simple authentication user name for TDE Hadoop KMS")

@@ -17,16 +17,50 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.encryption.RootKeyInfo;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.Locale;
 
 public class AdminSetEncryptionRootKeyCommandTest {
+    private Env env;
+    private ConnectContext connectContext;
+    private AccessControllerManager accessControllerManager;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
+
+    @BeforeEach
+    public void setUp() {
+        env = Mockito.mock(Env.class);
+        connectContext = Mockito.mock(ConnectContext.class);
+        accessControllerManager = Mockito.mock(AccessControllerManager.class);
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(connectContext);
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN)).thenReturn(true);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        ctxMockedStatic.close();
+        envMockedStatic.close();
+    }
+
     @Test
     public void testValidateAliyunKmsUnderTurkishLocale() throws Exception {
         Locale originalLocale = Locale.getDefault();
@@ -41,9 +75,29 @@ public class AdminSetEncryptionRootKeyCommandTest {
             command.validate();
 
             Assertions.assertEquals(RootKeyInfo.RootKeyType.ALIYUN_KMS, getRootKeyInfo(command).type);
+            Assertions.assertEquals(EncryptionKey.Algorithm.AES256, getRootKeyInfo(command).algorithm);
         } finally {
             Locale.setDefault(originalLocale);
         }
+    }
+
+    @Test
+    public void testValidateGcpAndAzureKms() throws Exception {
+        AdminSetEncryptionRootKeyCommand gcpCommand = createCommand("gcp_kms");
+        gcpCommand.validate();
+        Assertions.assertEquals(RootKeyInfo.RootKeyType.GCP_KMS, getRootKeyInfo(gcpCommand).type);
+
+        AdminSetEncryptionRootKeyCommand azureCommand = createCommand("azure_kms");
+        azureCommand.validate();
+        Assertions.assertEquals(RootKeyInfo.RootKeyType.AZURE_KMS, getRootKeyInfo(azureCommand).type);
+    }
+
+    private AdminSetEncryptionRootKeyCommand createCommand(String type) {
+        return new AdminSetEncryptionRootKeyCommand(ImmutableMap.of(
+                AdminSetEncryptionRootKeyCommand.PROPERTIES_TYPE, type,
+                AdminSetEncryptionRootKeyCommand.PROPERTIES_ENCRYPTION_ALGORITHM, "aes256",
+                AdminSetEncryptionRootKeyCommand.PROPERTIES_REGION, "test-region",
+                AdminSetEncryptionRootKeyCommand.PROPERTIES_CMK_ID, "test-cmk"));
     }
 
     private RootKeyInfo getRootKeyInfo(AdminSetEncryptionRootKeyCommand command) throws Exception {
