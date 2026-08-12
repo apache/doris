@@ -19,10 +19,15 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
 #include <set>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#include "common/config.h"
 
 namespace doris::Jni {
 
@@ -104,6 +109,61 @@ TEST_F(PluginRefTableTest, NoPairIsOverloadedBeyondScannerAndWriter) {
 // used to answer this went away.
 TEST(PluginRegistryTest, CleanUdfCacheIsSilentWhenNoPluginWasEverLoaded) {
     EXPECT_TRUE(PluginRegistry::clean_udf_cache("f(INT)").ok());
+}
+
+// A BE that reads no Java table format runs with no JVM at all. Everything else reaches Java
+// only because a query asked it to, so warmup - the one thing that runs unprompted at startup
+// - is the only way that property can be lost, and it is lost the moment warmup decides there
+// is something to warm when there isn't.
+class WarmupTest : public testing::Test {
+protected:
+    void SetUp() override {
+        _saved_dir = config::java_plugin_dir;
+        _root = std::filesystem::temp_directory_path() / "doris_jni_plugin_registry_test";
+        std::filesystem::remove_all(_root);
+        std::filesystem::create_directories(_root);
+        config::java_plugin_dir = _root.string();
+    }
+
+    void TearDown() override {
+        config::java_plugin_dir = _saved_dir;
+        std::filesystem::remove_all(_root);
+    }
+
+    void touch(const std::string& name) const { std::ofstream {_root / name} << "x"; }
+
+    std::filesystem::path _root;
+    std::string _saved_dir;
+};
+
+// The ordinary state of a BE nobody deployed a plugin on. Not an error, and not worth a JVM.
+TEST_F(WarmupTest, AMissingDirectoryIsNotADeployment) {
+    config::java_plugin_dir = (_root / "never-created").string();
+    EXPECT_FALSE(PluginRegistry::any_plugin_deployed());
+}
+
+TEST_F(WarmupTest, AnEmptyDirectoryIsNotADeployment) {
+    EXPECT_FALSE(PluginRegistry::any_plugin_deployed());
+}
+
+// A plugin is a directory. Counting entries instead would let a README, or a jar an operator
+// dropped one level too high, start a JVM in order to discover it holds no plugin.
+TEST_F(WarmupTest, LooseFilesAreNotPlugins) {
+    touch("README.txt");
+    touch("paimon-scanner-jar-with-dependencies.jar");
+    EXPECT_FALSE(PluginRegistry::any_plugin_deployed());
+}
+
+TEST_F(WarmupTest, ADirectoryIsAPlugin) {
+    std::filesystem::create_directories(_root / "paimon");
+    EXPECT_TRUE(PluginRegistry::any_plugin_deployed());
+}
+
+// The check has to happen before anything reaches Java, not inside it: asking the registry
+// whether it has plugins is already enough to create the JVM. There is no JVM in this test
+// binary, so a warmup that tried would not merely fail here - it would take the process down.
+TEST_F(WarmupTest, WarmupTouchesNoJavaWithNothingDeployed) {
+    EXPECT_TRUE(PluginRegistry::warmup().ok());
 }
 
 } // namespace doris::Jni

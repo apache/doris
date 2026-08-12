@@ -216,9 +216,30 @@ if [[ "${SKIP_CHECK_ULIMIT:- "false"}" != "true" ]]; then
     fi
 fi
 
+# Build the ONE classpath the JVM is created from. It used to be assembled twice - once into
+# CLASSPATH for hadoop's libhdfs and once into DORIS_CLASSPATH for Doris' own JNI - and the two
+# never held the same thing, so which of them the JVM was built from decided what the JVM could
+# see. Both are exported from this single list below.
+
+# The shared layer: the plugin SPI and the loader that reads lib/java/plugins. These are the only
+# Doris classes a plugin is allowed to share with BE, which is why they are the only ones that
+# belong on the system classpath.
+if [[ -d "${DORIS_HOME}/lib/java/spi" ]]; then
+    for f in "${DORIS_HOME}/lib/java/spi"/*.jar; do
+        if [[ -z "${DORIS_CLASSPATH}" ]]; then
+            DORIS_CLASSPATH="${f}"
+        else
+            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+        fi
+    done
+fi
+
 # add java libs
 # Must add hadoop libs, because we should load specified jars
 # instead of jars in hadoop libs, such as avro
+# ATTN: every module still listed here is one that has not been converted into a plugin yet.
+# They leave this list as they are converted, and the list - along with lib/java_extensions
+# itself - goes away with the last of them.
 preload_jars=("preload-extensions")
 preload_jars+=("java-udf")
 
@@ -229,9 +250,9 @@ for preload_jar_dir in "${preload_jars[@]}"; do
             DORIS_PRELOAD_JAR="${f}"
             continue
         elif [[ -z "${DORIS_CLASSPATH}" ]]; then
-            export DORIS_CLASSPATH="${f}"
+            DORIS_CLASSPATH="${f}"
         else
-            export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
         fi
     done
 done
@@ -270,25 +291,38 @@ if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     done
 fi
 
-# add plugins/java_extensions to CLASSPATH
+# add plugins/java_extensions
 if [[ -d "${DORIS_HOME}/plugins/java_extensions" ]]; then
     for f in "${DORIS_HOME}/plugins/java_extensions"/*.jar; do
-        CLASSPATH="${CLASSPATH}:${f}"
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
 fi
 
 # make sure the preload-extensions-project.jar is at first order, so that some classed
 # with same qualified name can be loaded priority from preload-extensions-project.jar.
-DORIS_CLASSPATH="${DORIS_PRELOAD_JAR}:${DORIS_CLASSPATH}"
-
-if [[ -n "${HADOOP_CONF_DIR}" ]]; then
-    export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
+# Guarded because that jar stops being deployed once preload-extensions is gone, and an empty
+# leading element would silently put the current directory on the classpath.
+if [[ -n "${DORIS_PRELOAD_JAR}" ]]; then
+    DORIS_CLASSPATH="${DORIS_PRELOAD_JAR}:${DORIS_CLASSPATH}"
 fi
 
-# the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
-# and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
-export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
-# DORIS_CLASSPATH is for self-managed jni
+if [[ -n "${HADOOP_CONF_DIR}" ]]; then
+    DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
+fi
+
+# conf/ comes first so that hadoop libhdfs finds the .xml config files there.
+DORIS_CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}"
+
+# Anything the operator already had on CLASSPATH keeps working, appended last. Only when it is
+# non-empty: an empty element in a classpath means the current directory, not nothing.
+if [[ -n "${CLASSPATH}" ]]; then
+    DORIS_CLASSPATH="${DORIS_CLASSPATH}:${CLASSPATH}"
+fi
+
+# One list, two names. CLASSPATH is what hadoop's libhdfs reads; DORIS_CLASSPATH carries the
+# same paths as a ready-made JVM option. BE prefers CLASSPATH and strips the option prefix off
+# the other, so whichever it ends up using it builds the same JVM.
+export CLASSPATH="${DORIS_CLASSPATH}"
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
 # log ${DORIS_CLASSPATH}

@@ -231,7 +231,7 @@ Status Util::_init_register_natives() {
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     // Find JNINativeMethod class and create a global ref.
     jclass local_jni_native_exc_cl =
-            env->FindClass("org/apache/doris/common/jni/utils/JNINativeMethod");
+            env->FindClass("org/apache/doris/jni/spi/utils/JNINativeMethod");
     if (local_jni_native_exc_cl == nullptr) {
         if (env->ExceptionOccurred()) {
             env->ExceptionDescribe();
