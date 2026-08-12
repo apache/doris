@@ -44,4 +44,19 @@ public interface UdfExecutorFactory {
      * @return the executor instance; never null
      */
     Object create(byte[] thriftParams) throws Exception;
+
+    /**
+     * Release whatever was cached for one user function, because it has been dropped.
+     *
+     * <p>Compiling a user function means building a classloader over the user's jar and keeping it
+     * for the life of the process - there is no safe time-based eviction, since closing a
+     * classloader another query still holds fails that query with a NoClassDefFoundError. DROP
+     * FUNCTION is the one moment when discarding it is correct, so BE forwards it here.
+     *
+     * <p>Called for every loaded plugin, not only the one that ran the function: BE drops a
+     * function without knowing which plugin executed it. A signature this factory never cached is
+     * therefore normal, and the default does nothing.
+     */
+    default void invalidate(String functionSignature) {
+    }
 }
