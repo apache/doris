@@ -47,7 +47,7 @@ public:
 #endif
 
 protected:
-    std::string connector_class() const override;
+    Jni::PluginRef plugin_ref() const override;
     Status validate_scan_range(const TFileRangeDesc& range) const override;
     Status build_scanner_params(std::map<std::string, std::string>* params) const override;
     bool supports_batch_size_update_after_open() const override { return false; }

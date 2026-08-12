@@ -20,13 +20,13 @@
 #include <string_view>
 
 #include "common/config.h"
-#include "util/jni-util.h"
 
 namespace doris::format::trino_connector {
 namespace {
 
 constexpr std::string_view TRINO_CONNECTOR_OPTION_PREFIX = "trino.";
 constexpr std::string_view TRINO_CONNECTOR_NAME = "connector.name";
+constexpr std::string_view TRINO_CONNECTOR_PLUGIN_DIR = "trino_connector_plugin_dir";
 
 } // namespace
 
@@ -91,13 +91,12 @@ Status TrinoConnectorJniReader::prepare_split(const format::SplitReadOptions& op
         SCOPED_TIMER(_profile.prepare_split_timer);
         SCOPED_TIMER(connector_total_timer());
         RETURN_IF_ERROR(validate_scan_range(options.current_range));
-        RETURN_IF_ERROR(_set_spi_plugins_dir());
     }
     return format::JniTableReader::prepare_split(options);
 }
 
-std::string TrinoConnectorJniReader::connector_class() const {
-    return "org/apache/doris/trinoconnector/TrinoConnectorJniScanner";
+Jni::PluginRef TrinoConnectorJniReader::plugin_ref() const {
+    return Jni::plugin::TRINO_CONNECTOR_SCANNER;
 }
 
 Status TrinoConnectorJniReader::build_scanner_params(
@@ -119,30 +118,12 @@ Status TrinoConnectorJniReader::build_scanner_params(
     for (const auto& kv : trino_params.trino_connector_options) {
         (*params)[std::string(TRINO_CONNECTOR_OPTION_PREFIX) + kv.first] = kv.second;
     }
+    // Where the plugin should look for the Trino connector plugins it loads inside itself.
+    // BE used to push this by calling a static setter on a class it named directly, which
+    // stopped being possible once a plugin's classes became private to its own classloader.
+    // A scan parameter is the channel that survives isolation.
+    (*params)[std::string(TRINO_CONNECTOR_PLUGIN_DIR)] = doris::config::trino_connector_plugin_dir;
     return Status::OK();
-}
-
-Status TrinoConnectorJniReader::_set_spi_plugins_dir() const {
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-
-    Jni::LocalClass plugin_loader_cls;
-    const std::string plugin_loader_class =
-            "org/apache/doris/trinoconnector/TrinoConnectorPluginLoader";
-    RETURN_IF_ERROR(
-            Jni::Util::get_jni_scanner_class(env, plugin_loader_class.c_str(), &plugin_loader_cls));
-
-    Jni::MethodId set_plugins_dir_method;
-    RETURN_IF_ERROR(plugin_loader_cls.get_static_method(
-            env, "setPluginsDir", "(Ljava/lang/String;)V", &set_plugins_dir_method));
-
-    Jni::LocalString trino_connector_plugin_path;
-    RETURN_IF_ERROR(Jni::LocalString::new_string(
-            env, doris::config::trino_connector_plugin_dir.c_str(), &trino_connector_plugin_path));
-
-    return plugin_loader_cls.call_static_void_method(env, set_plugins_dir_method)
-            .with_arg(trino_connector_plugin_path)
-            .call();
 }
 
 } // namespace doris::format::trino_connector

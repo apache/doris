@@ -100,12 +100,7 @@ Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix
     return Status::JniError("{}{}", prefix, return_msg);
 }
 
-std::atomic<bool> Util::scanner_loader_ready_ = false;
-
 jlong Util::max_jvm_heap_memory_size_ = 0;
-GlobalObject Util::jni_scanner_loader_obj_;
-MethodId Util::jni_scanner_loader_method_;
-MethodId Util::_clean_udf_cache_method_id;
 GlobalClass Util::hashmap_class;
 MethodId Util::hashmap_constructor;
 MethodId Util::hashmap_put;
@@ -176,66 +171,6 @@ size_t Util::get_max_jni_heap_memory_size() {
     std::call_once(_parse_max_heap_memory_size_from_jvm_flag, _parse_max_heap_memory_size_from_jvm);
     return max_jvm_heap_memory_size_;
 #endif
-}
-
-Status Util::_init_jni_scanner_loader() {
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-    LocalClass jni_scanner_loader_cls;
-    std::string jni_scanner_loader_str = "org/apache/doris/common/classloader/ScannerLoader";
-    RETURN_IF_ERROR(find_class(env, jni_scanner_loader_str.c_str(), &jni_scanner_loader_cls));
-
-    MethodId jni_scanner_loader_constructor;
-    RETURN_IF_ERROR(jni_scanner_loader_cls.get_method(env, "<init>", "()V",
-                                                      &jni_scanner_loader_constructor));
-
-    RETURN_IF_ERROR(jni_scanner_loader_cls.get_method(env, "getLoadedClass",
-                                                      "(Ljava/lang/String;)Ljava/lang/Class;",
-                                                      &jni_scanner_loader_method_));
-
-    MethodId load_jni_scanner;
-    RETURN_IF_ERROR(
-            jni_scanner_loader_cls.get_method(env, "loadAllScannerJars", "()V", &load_jni_scanner));
-
-    RETURN_IF_ERROR(jni_scanner_loader_cls.get_method(
-            env, "cleanUdfClassLoader", "(Ljava/lang/String;)V", &_clean_udf_cache_method_id));
-
-    RETURN_IF_ERROR(jni_scanner_loader_cls.new_object(env, jni_scanner_loader_constructor)
-                            .call(&jni_scanner_loader_obj_));
-
-    RETURN_IF_ERROR(jni_scanner_loader_obj_.call_void_method(env, load_jni_scanner).call());
-    scanner_loader_ready_ = true;
-    return Status::OK();
-}
-
-Status Util::_ensure_scanner_loader() {
-    static std::once_flag scanner_loader_once;
-    static Status scanner_loader_status;
-    std::call_once(scanner_loader_once,
-                   []() { scanner_loader_status = _init_jni_scanner_loader(); });
-    return scanner_loader_status;
-}
-
-Status Util::clean_udf_class_load_cache(const std::string& function_signature) {
-    if (!scanner_loader_ready_) {
-        // Nothing has ever been loaded, so there is no per-function class loader to drop.
-        // Worth checking: dropping a function must not be the thing that starts a JVM and
-        // loads every scanner jar on a BE that runs no Java code at all.
-        return Status::OK();
-    }
-
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-
-    LocalString function_signature_jstr;
-    RETURN_IF_ERROR(
-            LocalString::new_string(env, function_signature.c_str(), &function_signature_jstr));
-
-    RETURN_IF_ERROR(jni_scanner_loader_obj_.call_void_method(env, _clean_udf_cache_method_id)
-                            .with_arg(function_signature_jstr)
-                            .call());
-
-    return Status::OK();
 }
 
 Status Util::_init_collect_class() {

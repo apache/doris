@@ -22,6 +22,7 @@
 
 #include "format/transformer/vfile_format_transformer.h"
 #include "util/jni-util.h"
+#include "util/jni_plugin_registry.h"
 
 namespace doris {
 
@@ -30,13 +31,13 @@ namespace doris {
  * write operations to a Java-side JniWriter via JNI. It sits alongside
  * VCSVTransformer/VParquetTransformer/VOrcTransformer as a peer implementation.
  *
- * The Java writer class must extend org.apache.doris.common.jni.JniWriter and
- * follow the same constructor signature as JniScanner: (int batchSize, Map<String,String> params).
+ * The Java writer class must extend org.apache.doris.jni.spi.JniWriter and is built by the
+ * plugin factory named by the PluginRef, from the same (batchSize, params) pair a scanner gets.
  */
 class VJniFormatTransformer final : public VFileFormatTransformer {
 public:
     VJniFormatTransformer(RuntimeState* state, const VExprContextSPtrs& output_vexpr_ctxs,
-                          std::string writer_class,
+                          Jni::PluginRef plugin_ref,
                           std::map<std::string, std::string> writer_params);
 
     ~VJniFormatTransformer() override = default;
@@ -52,15 +53,14 @@ public:
 private:
     Status _init_jni_writer(JNIEnv* env, int batch_size);
 
-    std::string _writer_class;
+    Jni::PluginRef _plugin_ref;
     std::map<std::string, std::string> _writer_params;
 
     // JNI handles (same pattern as JniConnector)
     Jni::GlobalObject _jni_writer_obj;
-    Jni::MethodId _jni_writer_open;
-    Jni::MethodId _jni_writer_write;
-    Jni::MethodId _jni_writer_close;
-    Jni::MethodId _jni_writer_get_statistics;
+    // Resolved on the SPI base class and shared process-wide, so this is a borrowed pointer
+    // into storage that outlives any transformer.
+    const Jni::WriterApi* _writer_api = nullptr;
 
     // Schema cache (computed on first write, reused afterwards)
     bool _schema_cached = false;
