@@ -41,6 +41,106 @@ int64_t calculate_cpu_usage_percent(double delta_cpu_ns, double delta_wall_ns, d
 } // namespace internal
 
 namespace {
+// IMPORTANT: Never-Never-Never add new codes to this snapshot. New codes must be mapped to a
+// LegacyFallbackCode and verified with expect_legacy_fallback_response_status().
+const std::set<MetaServiceCode> identity_snapshot = {
+        MetaServiceCode::OK,
+        MetaServiceCode::INVALID_ARGUMENT,
+        MetaServiceCode::KV_TXN_CREATE_ERR,
+        MetaServiceCode::KV_TXN_GET_ERR,
+        MetaServiceCode::KV_TXN_COMMIT_ERR,
+        MetaServiceCode::KV_TXN_CONFLICT,
+        MetaServiceCode::PROTOBUF_PARSE_ERR,
+        MetaServiceCode::PROTOBUF_SERIALIZE_ERR,
+        MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE,
+        MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE,
+        MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE,
+        MetaServiceCode::KV_TXN_TOO_OLD,
+        MetaServiceCode::KV_TXN_MAYBE_COMMITTED,
+        MetaServiceCode::TXN_GEN_ID_ERR,
+        MetaServiceCode::TXN_DUPLICATED_REQ,
+        MetaServiceCode::TXN_LABEL_ALREADY_USED,
+        MetaServiceCode::TXN_INVALID_STATUS,
+        MetaServiceCode::TXN_LABEL_NOT_FOUND,
+        MetaServiceCode::TXN_ID_NOT_FOUND,
+        MetaServiceCode::TXN_ALREADY_ABORTED,
+        MetaServiceCode::TXN_ALREADY_VISIBLE,
+        MetaServiceCode::TXN_ALREADY_PRECOMMITED,
+        MetaServiceCode::VERSION_NOT_FOUND,
+        MetaServiceCode::TABLET_NOT_FOUND,
+        MetaServiceCode::STALE_TABLET_CACHE,
+        MetaServiceCode::STALE_PREPARE_ROWSET,
+        MetaServiceCode::TXN_ALREADY_COMMITED,
+        MetaServiceCode::CLUSTER_NOT_FOUND,
+        MetaServiceCode::ALREADY_EXISTED,
+        MetaServiceCode::CLUSTER_ENDPOINT_MISSING,
+        MetaServiceCode::STORAGE_VAULT_NOT_FOUND,
+        MetaServiceCode::STAGE_NOT_FOUND,
+        MetaServiceCode::STAGE_GET_ERR,
+        MetaServiceCode::STATE_ALREADY_EXISTED_FOR_USER,
+        MetaServiceCode::COPY_JOB_NOT_FOUND,
+        MetaServiceCode::JOB_EXPIRED,
+        MetaServiceCode::JOB_TABLET_BUSY,
+        MetaServiceCode::JOB_ALREADY_SUCCESS,
+        MetaServiceCode::ROUTINE_LOAD_DATA_INCONSISTENT,
+        MetaServiceCode::ROUTINE_LOAD_PROGRESS_NOT_FOUND,
+        MetaServiceCode::JOB_CHECK_ALTER_VERSION,
+        MetaServiceCode::STREAMING_JOB_PROGRESS_NOT_FOUND,
+        MetaServiceCode::MAX_QPS_LIMIT,
+        MetaServiceCode::ERR_ENCRYPT,
+        MetaServiceCode::ERR_DECPYPT,
+        MetaServiceCode::LOCK_EXPIRED,
+        MetaServiceCode::LOCK_CONFLICT,
+        MetaServiceCode::ROWSETS_EXPIRED,
+        MetaServiceCode::VERSION_NOT_MATCH,
+        MetaServiceCode::UPDATE_OVERRIDE_EXISTING_KV,
+        MetaServiceCode::ROWSET_META_NOT_FOUND,
+        MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES,
+        MetaServiceCode::SCHEMA_DICT_NOT_FOUND,
+        MetaServiceCode::UNDEFINED_ERR,
+};
+
+// IMPORTANT: Never-Never-Never modify or extend this enum. New error codes must be mapped to one of the
+// existing legacy fallback codes below.
+enum class LegacyFallbackCode : int32_t {
+    UNDEFINED_ERR = static_cast<int32_t>(MetaServiceCode::UNDEFINED_ERR),
+    KV_TXN_CONFLICT = static_cast<int32_t>(MetaServiceCode::KV_TXN_CONFLICT),
+};
+
+void verify_response_status_impl(std::set<MetaServiceCode>& covered_codes, MetaServiceCode code,
+                                 int32_t expected_legacy_code) {
+    EXPECT_TRUE(covered_codes.insert(code).second)
+            << "Duplicate MetaServiceCode: " << MetaServiceCode_Name(code);
+
+    MetaServiceResponseStatus status;
+    set_response_code(&status, code, "");
+    EXPECT_EQ(static_cast<int32_t>(status.code()), expected_legacy_code)
+            << "MetaServiceCode: " << MetaServiceCode_Name(code);
+    EXPECT_EQ(status.actual_code(), static_cast<int32_t>(code))
+            << "MetaServiceCode: " << MetaServiceCode_Name(code);
+}
+
+void verify_response_status(std::set<MetaServiceCode>& covered_codes, MetaServiceCode code,
+                            int32_t expected_legacy_code) {
+    if (!identity_snapshot.contains(code)) {
+        EXPECT_TRUE(false)
+                << "MetaServiceCode " << MetaServiceCode_Name(code)
+                << " is not in identity_snapshot. New error codes must be mapped to a "
+                   "LegacyFallbackCode in resolve_response_code_and_msg() and verified with "
+                   "expect_legacy_fallback_response_status().";
+    }
+    verify_response_status_impl(covered_codes, code, expected_legacy_code);
+}
+
+// New error codes may only be converted to a value allowed by LegacyFallbackCode.
+// Resolve the conversion in resolve_response_code_and_msg();
+// For example, MS_TOO_BUSY maps to KV_TXN_CONFLICT so that the BE can retry it.
+void expect_legacy_fallback_response_status(std::set<MetaServiceCode>& covered_codes,
+                                            MetaServiceCode code,
+                                            LegacyFallbackCode expected_legacy_code) {
+    verify_response_status_impl(covered_codes, code, static_cast<int32_t>(expected_legacy_code));
+}
+
 struct MsRateLimitInjectionConfigGuard {
     ~MsRateLimitInjectionConfigGuard() {
         config::enable_ms_rate_limit_injection = original_enable;
@@ -305,107 +405,17 @@ TEST(MetaServiceHelperTest, ResponseStatusUsesExactAndLegacyCodes) {
 
 TEST(MetaServiceHelperTest, ResponseStatusCoversEveryMetaServiceCode) {
     std::set<MetaServiceCode> covered_codes;
-    auto expect_response_status = [&](MetaServiceCode code, MetaServiceCode expected_legacy_code) {
-        EXPECT_TRUE(covered_codes.insert(code).second)
-                << "Duplicate MetaServiceCode: " << MetaServiceCode_Name(code);
+    for (auto code : identity_snapshot) {
+        verify_response_status(covered_codes, code, static_cast<int32_t>(code));
+    }
 
-        MetaServiceResponseStatus status;
-        set_response_code(&status, code, "");
-        EXPECT_EQ(status.code(), expected_legacy_code)
-                << "MetaServiceCode: " << MetaServiceCode_Name(code);
-        EXPECT_EQ(status.actual_code(), static_cast<int32_t>(code))
-                << "MetaServiceCode: " << MetaServiceCode_Name(code);
-    };
-
-    expect_response_status(MetaServiceCode::OK, MetaServiceCode::OK);
-    expect_response_status(MetaServiceCode::INVALID_ARGUMENT, MetaServiceCode::INVALID_ARGUMENT);
-    expect_response_status(MetaServiceCode::KV_TXN_CREATE_ERR, MetaServiceCode::KV_TXN_CREATE_ERR);
-    expect_response_status(MetaServiceCode::KV_TXN_GET_ERR, MetaServiceCode::KV_TXN_GET_ERR);
-    expect_response_status(MetaServiceCode::KV_TXN_COMMIT_ERR, MetaServiceCode::KV_TXN_COMMIT_ERR);
-    expect_response_status(MetaServiceCode::KV_TXN_CONFLICT, MetaServiceCode::KV_TXN_CONFLICT);
-    expect_response_status(MetaServiceCode::PROTOBUF_PARSE_ERR,
-                           MetaServiceCode::PROTOBUF_PARSE_ERR);
-    expect_response_status(MetaServiceCode::PROTOBUF_SERIALIZE_ERR,
-                           MetaServiceCode::PROTOBUF_SERIALIZE_ERR);
-    expect_response_status(MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE,
-                           MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE);
-    expect_response_status(MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE,
-                           MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE);
-    expect_response_status(MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE,
-                           MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE);
-    expect_response_status(MetaServiceCode::KV_TXN_TOO_OLD, MetaServiceCode::KV_TXN_TOO_OLD);
-    expect_response_status(MetaServiceCode::KV_TXN_MAYBE_COMMITTED,
-                           MetaServiceCode::KV_TXN_MAYBE_COMMITTED);
-    expect_response_status(MetaServiceCode::TXN_GEN_ID_ERR, MetaServiceCode::TXN_GEN_ID_ERR);
-    expect_response_status(MetaServiceCode::TXN_DUPLICATED_REQ,
-                           MetaServiceCode::TXN_DUPLICATED_REQ);
-    expect_response_status(MetaServiceCode::TXN_LABEL_ALREADY_USED,
-                           MetaServiceCode::TXN_LABEL_ALREADY_USED);
-    expect_response_status(MetaServiceCode::TXN_INVALID_STATUS,
-                           MetaServiceCode::TXN_INVALID_STATUS);
-    expect_response_status(MetaServiceCode::TXN_LABEL_NOT_FOUND,
-                           MetaServiceCode::TXN_LABEL_NOT_FOUND);
-    expect_response_status(MetaServiceCode::TXN_ID_NOT_FOUND, MetaServiceCode::TXN_ID_NOT_FOUND);
-    expect_response_status(MetaServiceCode::TXN_ALREADY_ABORTED,
-                           MetaServiceCode::TXN_ALREADY_ABORTED);
-    expect_response_status(MetaServiceCode::TXN_ALREADY_VISIBLE,
-                           MetaServiceCode::TXN_ALREADY_VISIBLE);
-    expect_response_status(MetaServiceCode::TXN_ALREADY_PRECOMMITED,
-                           MetaServiceCode::TXN_ALREADY_PRECOMMITED);
-    expect_response_status(MetaServiceCode::VERSION_NOT_FOUND, MetaServiceCode::VERSION_NOT_FOUND);
-    expect_response_status(MetaServiceCode::TABLET_NOT_FOUND, MetaServiceCode::TABLET_NOT_FOUND);
-    expect_response_status(MetaServiceCode::STALE_TABLET_CACHE,
-                           MetaServiceCode::STALE_TABLET_CACHE);
-    expect_response_status(MetaServiceCode::STALE_PREPARE_ROWSET,
-                           MetaServiceCode::STALE_PREPARE_ROWSET);
-    expect_response_status(MetaServiceCode::TXN_ALREADY_COMMITED,
-                           MetaServiceCode::TXN_ALREADY_COMMITED);
-    expect_response_status(MetaServiceCode::CLUSTER_NOT_FOUND, MetaServiceCode::CLUSTER_NOT_FOUND);
-    expect_response_status(MetaServiceCode::ALREADY_EXISTED, MetaServiceCode::ALREADY_EXISTED);
-    expect_response_status(MetaServiceCode::CLUSTER_ENDPOINT_MISSING,
-                           MetaServiceCode::CLUSTER_ENDPOINT_MISSING);
-    expect_response_status(MetaServiceCode::STORAGE_VAULT_NOT_FOUND,
-                           MetaServiceCode::STORAGE_VAULT_NOT_FOUND);
-    expect_response_status(MetaServiceCode::STAGE_NOT_FOUND, MetaServiceCode::STAGE_NOT_FOUND);
-    expect_response_status(MetaServiceCode::STAGE_GET_ERR, MetaServiceCode::STAGE_GET_ERR);
-    expect_response_status(MetaServiceCode::STATE_ALREADY_EXISTED_FOR_USER,
-                           MetaServiceCode::STATE_ALREADY_EXISTED_FOR_USER);
-    expect_response_status(MetaServiceCode::COPY_JOB_NOT_FOUND,
-                           MetaServiceCode::COPY_JOB_NOT_FOUND);
-    expect_response_status(MetaServiceCode::JOB_EXPIRED, MetaServiceCode::JOB_EXPIRED);
-    expect_response_status(MetaServiceCode::JOB_TABLET_BUSY, MetaServiceCode::JOB_TABLET_BUSY);
-    expect_response_status(MetaServiceCode::JOB_ALREADY_SUCCESS,
-                           MetaServiceCode::JOB_ALREADY_SUCCESS);
-    expect_response_status(MetaServiceCode::ROUTINE_LOAD_DATA_INCONSISTENT,
-                           MetaServiceCode::ROUTINE_LOAD_DATA_INCONSISTENT);
-    expect_response_status(MetaServiceCode::ROUTINE_LOAD_PROGRESS_NOT_FOUND,
-                           MetaServiceCode::ROUTINE_LOAD_PROGRESS_NOT_FOUND);
-    expect_response_status(MetaServiceCode::JOB_CHECK_ALTER_VERSION,
-                           MetaServiceCode::JOB_CHECK_ALTER_VERSION);
-    expect_response_status(MetaServiceCode::STREAMING_JOB_PROGRESS_NOT_FOUND,
-                           MetaServiceCode::STREAMING_JOB_PROGRESS_NOT_FOUND);
-    expect_response_status(MetaServiceCode::MAX_QPS_LIMIT, MetaServiceCode::MAX_QPS_LIMIT);
-    expect_response_status(MetaServiceCode::MS_TOO_BUSY, MetaServiceCode::KV_TXN_CONFLICT);
-    expect_response_status(MetaServiceCode::ERR_ENCRYPT, MetaServiceCode::ERR_ENCRYPT);
-    expect_response_status(MetaServiceCode::ERR_DECPYPT, MetaServiceCode::ERR_DECPYPT);
-    expect_response_status(MetaServiceCode::LOCK_EXPIRED, MetaServiceCode::LOCK_EXPIRED);
-    expect_response_status(MetaServiceCode::LOCK_CONFLICT, MetaServiceCode::LOCK_CONFLICT);
-    expect_response_status(MetaServiceCode::ROWSETS_EXPIRED, MetaServiceCode::ROWSETS_EXPIRED);
-    expect_response_status(MetaServiceCode::VERSION_NOT_MATCH, MetaServiceCode::VERSION_NOT_MATCH);
-    expect_response_status(MetaServiceCode::UPDATE_OVERRIDE_EXISTING_KV,
-                           MetaServiceCode::UPDATE_OVERRIDE_EXISTING_KV);
-    expect_response_status(MetaServiceCode::ROWSET_META_NOT_FOUND,
-                           MetaServiceCode::ROWSET_META_NOT_FOUND);
-    expect_response_status(MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES,
-                           MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES);
-    expect_response_status(MetaServiceCode::SCHEMA_DICT_NOT_FOUND,
-                           MetaServiceCode::SCHEMA_DICT_NOT_FOUND);
-    expect_response_status(MetaServiceCode::UNDEFINED_ERR, MetaServiceCode::UNDEFINED_ERR);
-
+    expect_legacy_fallback_response_status(covered_codes, MetaServiceCode::MS_TOO_BUSY,
+                                           LegacyFallbackCode::KV_TXN_CONFLICT);
     EXPECT_EQ(covered_codes.size(),
               static_cast<size_t>(MetaServiceCode_descriptor()->value_count()))
-            << "A new MetaServiceCode was added. Add it to this test and handle it in "
-               "resolve_response_code_and_msg().";
+            << "A new MetaServiceCode was added. Map it to a LegacyFallbackCode in "
+               "resolve_response_code_and_msg() and verify it with "
+               "expect_legacy_fallback_response_status().";
 }
 
 } // namespace doris::cloud
