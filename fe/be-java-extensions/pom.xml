@@ -28,6 +28,7 @@ under the License.
         <module>hadoop-hudi-scanner</module>
         <module>java-common</module>
         <module>hive-udf-shade</module>
+        <module>hive-apache-shade</module>
         <module>java-udf</module>
         <module>jdbc-scanner</module>
         <module>paimon-scanner</module>
