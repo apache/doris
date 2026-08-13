@@ -72,7 +72,7 @@ inline constexpr PluginRef JDBC_WRITER {"jdbc", "writer"};
 // Testing a JDBC connection is a scan of zero rows, so it is a scanner factory of its own
 // rather than a second entry point.
 inline constexpr PluginRef JDBC_CONNECTION_TESTER {"jdbc", "connection-tester"};
-inline constexpr PluginRef TRINO_CONNECTOR_SCANNER {"trino-connector", "trino-connector"};
+inline constexpr PluginRef TRINO_CONNECTOR_SCANNER {"trino-connector", "reader"};
 
 } // namespace plugin
 
