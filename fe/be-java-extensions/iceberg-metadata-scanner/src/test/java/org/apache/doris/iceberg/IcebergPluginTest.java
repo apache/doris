@@ -23,6 +23,7 @@ import org.apache.doris.jni.spi.JniScannerFactory;
 import org.apache.doris.jni.spi.utils.OffHeap;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataTableType;
@@ -110,6 +111,35 @@ public class IcebergPluginTest {
     public void providesNeitherWritersNorUdfs() {
         Assertions.assertFalse(loadPlugin().getWriterFactories().iterator().hasNext());
         Assertions.assertFalse(loadPlugin().getUdfExecutorFactories().iterator().hasNext());
+    }
+
+    /**
+     * A task's FileIO reads from wherever the table lives, so every scheme FE can hand down has to
+     * resolve to an implementation inside this plugin. hadoop-common carries only file, har, http
+     * and viewfs; the rest used to come from BE's system classpath, which a plugin cannot see - a
+     * scan of a table on HDFS would end at "No FileSystem for scheme: hdfs".
+     *
+     * <p>Unlike the closure caveat in this class's javadoc, this test does bite: the artifacts it
+     * asserts are compile-scope, so dropping one from the pom drops it from the test classpath too.
+     * Which class serves which scheme is FE's choice - see the fe-filesystem property classes, which
+     * point cosn and (in some configurations) obs at S3A rather than at a vendor filesystem.
+     */
+    @Test
+    public void resolvesEveryFilesystemSchemeAScanCanArriveOn() throws IOException {
+        Configuration conf = new Configuration();
+        Map<String, String> expected = new HashMap<>();
+        expected.put("hdfs", "org.apache.hadoop.hdfs.DistributedFileSystem");
+        expected.put("webhdfs", "org.apache.hadoop.hdfs.web.WebHdfsFileSystem");
+        expected.put("s3a", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        expected.put("obs", "org.apache.hadoop.fs.obs.OBSFileSystem");
+        expected.put("abfs", "org.apache.hadoop.fs.azurebfs.AzureBlobFileSystem");
+        expected.put("wasb", "org.apache.hadoop.fs.azure.NativeAzureFileSystem");
+        expected.put("file", "org.apache.hadoop.fs.LocalFileSystem");
+        for (Map.Entry<String, String> scheme : expected.entrySet()) {
+            Assertions.assertEquals(scheme.getValue(),
+                    FileSystem.getFileSystemClass(scheme.getKey(), conf).getName(),
+                    scheme.getKey() + ":// must resolve inside the plugin");
+        }
     }
 
     /**
