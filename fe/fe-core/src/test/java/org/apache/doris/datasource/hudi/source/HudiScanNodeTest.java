@@ -173,12 +173,22 @@ public class HudiScanNodeTest {
     @Test
     public void testPartitionCacheKeySeparatesReaderAndRuntimePruneModes() throws Exception {
         HivePartition partition = partition("file:///table/p=1", Collections.singletonList("1"));
-        Object nativeKey = newPartitionCacheKey("100", true, false, partition);
-        Object sameKey = newPartitionCacheKey("100", true, false, partition);
-        Object jniKey = newPartitionCacheKey("100", false, false, partition);
-        Object runtimePruneKey = newPartitionCacheKey("100", true, true, partition);
+        Object nativeKey = newPartitionCacheKey("100", true, false, "serde-1", partition);
+        Object sameKey = newPartitionCacheKey("100", true, false, "serde-1", partition);
+        Object jniKey = newPartitionCacheKey("100", false, false, "serde-1", partition);
+        Object runtimePruneKey = newPartitionCacheKey("100", true, true, "serde-1", partition);
 
         assertCacheHitsOnlyEquivalentKeys(nativeKey, sameKey, jniKey, runtimePruneKey);
+    }
+
+    @Test
+    public void testPartitionCacheKeySeparatesHmsMetadataGenerations() throws Exception {
+        HivePartition partition = partition("file:///table/p=1", Collections.singletonList("1"));
+        Object firstGeneration = newPartitionCacheKey("100", false, false, "serde-1", partition);
+        Object sameGeneration = newPartitionCacheKey("100", false, false, "serde-1", partition);
+        Object refreshedGeneration = newPartitionCacheKey("100", false, false, "serde-2", partition);
+
+        assertCacheHitsOnlyEquivalentKeys(firstGeneration, sameGeneration, refreshedGeneration);
     }
 
     @Test
@@ -330,13 +340,18 @@ public class HudiScanNodeTest {
     }
 
     private static Object newPartitionCacheKey(
-            String instant, boolean nativeReader, boolean runtimePrune, HivePartition partition)
+            String instant, boolean nativeReader, boolean runtimePrune, String serdeLib,
+            HivePartition partition)
             throws Exception {
         Class<?> keyClass = Class.forName(HudiScanNode.class.getName() + "$HudiFileScanTaskCacheKey");
         Constructor<?> constructor = keyClass.getDeclaredConstructor(
-                long.class, long.class, String.class, boolean.class, boolean.class, HivePartition.class);
+                long.class, long.class, String.class, boolean.class, boolean.class,
+                String.class, String.class, String.class, List.class, List.class, HivePartition.class);
         constructor.setAccessible(true);
-        return constructor.newInstance(1L, 2L, instant, nativeReader, runtimePrune, partition);
+        return constructor.newInstance(
+                1L, 2L, instant, nativeReader, runtimePrune,
+                "file:///table", "parquet", serdeLib,
+                Collections.singletonList("id"), Collections.singletonList("int"), partition);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

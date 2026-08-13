@@ -424,7 +424,8 @@ public class HudiScanNode extends HiveScanNode {
         if (useStatementCache) {
             HudiFileScanTaskCacheKey cacheKey = new HudiFileScanTaskCacheKey(
                     hmsTable.getCatalog().getId(), hmsTable.getId(), queryInstant,
-                    canUseNativeReader(), sessionVariable.isEnableRuntimeFilterPartitionPrune(), partition);
+                    canUseNativeReader(), sessionVariable.isEnableRuntimeFilterPartitionPrune(),
+                    basePath, inputFormat, serdeLib, columnNames, columnTypes, partition);
             plannedSplits = getOrLoadExternalScanTasks(
                     cacheKey, ignored -> planPartitionSplits(partition),
                     FileQueryScanNode::externalScanTaskCount,
@@ -681,18 +682,30 @@ public class HudiScanNode extends HiveScanNode {
         private final String queryInstant;
         private final boolean nativeReader;
         private final boolean runtimePartitionPrune;
+        private final String basePath;
+        private final String tableInputFormat;
+        private final String serdeLib;
+        private final List<String> columnNames;
+        private final List<String> columnTypes;
         private final String inputFormat;
         private final String path;
         private final List<String> partitionValues;
 
         private HudiFileScanTaskCacheKey(
                 long catalogId, long tableId, String queryInstant, boolean nativeReader,
-                boolean runtimePartitionPrune, HivePartition partition) {
+                boolean runtimePartitionPrune, String basePath, String tableInputFormat,
+                String serdeLib, List<String> columnNames, List<String> columnTypes,
+                HivePartition partition) {
             this.catalogId = catalogId;
             this.tableId = tableId;
             this.queryInstant = queryInstant;
             this.nativeReader = nativeReader;
             this.runtimePartitionPrune = runtimePartitionPrune;
+            this.basePath = basePath;
+            this.tableInputFormat = tableInputFormat;
+            this.serdeLib = serdeLib;
+            this.columnNames = immutableCopy(columnNames);
+            this.columnTypes = immutableCopy(columnTypes);
             this.inputFormat = partition.getInputFormat();
             this.path = partition.getPath();
             this.partitionValues = partition.getPartitionValues() == null
@@ -713,6 +726,11 @@ public class HudiScanNode extends HiveScanNode {
                     && nativeReader == that.nativeReader
                     && runtimePartitionPrune == that.runtimePartitionPrune
                     && Objects.equals(queryInstant, that.queryInstant)
+                    && Objects.equals(basePath, that.basePath)
+                    && Objects.equals(tableInputFormat, that.tableInputFormat)
+                    && Objects.equals(serdeLib, that.serdeLib)
+                    && Objects.equals(columnNames, that.columnNames)
+                    && Objects.equals(columnTypes, that.columnTypes)
                     && Objects.equals(inputFormat, that.inputFormat)
                     && Objects.equals(path, that.path)
                     && Objects.equals(partitionValues, that.partitionValues);
@@ -722,7 +740,13 @@ public class HudiScanNode extends HiveScanNode {
         public int hashCode() {
             return Objects.hash(
                     catalogId, tableId, queryInstant, nativeReader, runtimePartitionPrune,
+                    basePath, tableInputFormat, serdeLib, columnNames, columnTypes,
                     inputFormat, path, partitionValues);
+        }
+
+        private static <T> List<T> immutableCopy(List<T> values) {
+            return values == null
+                    ? null : Collections.unmodifiableList(new ArrayList<>(values));
         }
     }
 

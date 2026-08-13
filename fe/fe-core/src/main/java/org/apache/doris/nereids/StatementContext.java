@@ -1410,13 +1410,16 @@ public class StatementContext implements Closeable {
         /** Independent cumulative budgets used by task-count and serialized-byte retention. */
         public enum WeightBudget {
             TASK_COUNT,
+            ICEBERG_SERIALIZED_BYTES,
             PAIMON_SERIALIZED_BYTES
         }
 
         private final Map<ExternalScanTaskCacheKey<?>, CompletableFuture<List<?>>> tasks =
                 new ConcurrentHashMap<>();
         private long retainedTaskCount;
+        private long retainedIcebergBytes;
         private long retainedPaimonBytes;
+        private long reservedIcebergBytes;
         private long reservedPaimonBytes;
         private boolean invalidated;
 
@@ -1557,7 +1560,9 @@ public class StatementContext implements Closeable {
             invalidated = true;
             tasks.clear();
             retainedTaskCount = 0;
+            retainedIcebergBytes = 0;
             retainedPaimonBytes = 0;
+            reservedIcebergBytes = 0;
             reservedPaimonBytes = 0;
         }
 
@@ -1566,26 +1571,59 @@ public class StatementContext implements Closeable {
         }
 
         private long retainedWeight(WeightBudget weightBudget) {
-            return weightBudget == WeightBudget.TASK_COUNT
-                    ? retainedTaskCount : retainedPaimonBytes;
+            switch (weightBudget) {
+                case TASK_COUNT:
+                    return retainedTaskCount;
+                case ICEBERG_SERIALIZED_BYTES:
+                    return retainedIcebergBytes;
+                case PAIMON_SERIALIZED_BYTES:
+                    return retainedPaimonBytes;
+                default:
+                    throw new IllegalStateException("Unknown external scan task weight budget: " + weightBudget);
+            }
         }
 
         private long reservedWeight(WeightBudget weightBudget) {
-            return weightBudget == WeightBudget.PAIMON_SERIALIZED_BYTES
-                    ? reservedPaimonBytes : 0;
+            switch (weightBudget) {
+                case TASK_COUNT:
+                    return 0;
+                case ICEBERG_SERIALIZED_BYTES:
+                    return reservedIcebergBytes;
+                case PAIMON_SERIALIZED_BYTES:
+                    return reservedPaimonBytes;
+                default:
+                    throw new IllegalStateException("Unknown external scan task weight budget: " + weightBudget);
+            }
         }
 
         private void addRetainedWeight(WeightBudget weightBudget, long weight) {
-            if (weightBudget == WeightBudget.TASK_COUNT) {
-                retainedTaskCount += weight;
-            } else {
-                retainedPaimonBytes += weight;
+            switch (weightBudget) {
+                case TASK_COUNT:
+                    retainedTaskCount += weight;
+                    break;
+                case ICEBERG_SERIALIZED_BYTES:
+                    retainedIcebergBytes += weight;
+                    break;
+                case PAIMON_SERIALIZED_BYTES:
+                    retainedPaimonBytes += weight;
+                    break;
+                default:
+                    throw new IllegalStateException("Unknown external scan task weight budget: " + weightBudget);
             }
         }
 
         private void addReservedWeight(WeightBudget weightBudget, long weight) {
-            if (weightBudget == WeightBudget.PAIMON_SERIALIZED_BYTES) {
-                reservedPaimonBytes += weight;
+            switch (weightBudget) {
+                case TASK_COUNT:
+                    break;
+                case ICEBERG_SERIALIZED_BYTES:
+                    reservedIcebergBytes += weight;
+                    break;
+                case PAIMON_SERIALIZED_BYTES:
+                    reservedPaimonBytes += weight;
+                    break;
+                default:
+                    throw new IllegalStateException("Unknown external scan task weight budget: " + weightBudget);
             }
         }
 

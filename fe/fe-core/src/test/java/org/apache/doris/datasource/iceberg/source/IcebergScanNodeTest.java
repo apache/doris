@@ -177,10 +177,6 @@ public class IcebergScanNodeTest {
             this.tableScan = tableScan;
         }
 
-        void setMaxRetainedExternalScanTasks(long maxRetainedExternalScanTasks) {
-            this.maxRetainedExternalScanTasks = maxRetainedExternalScanTasks;
-        }
-
         @Override
         public TableScan createTableScan() {
             return tableScan;
@@ -707,7 +703,7 @@ public class IcebergScanNodeTest {
             setIcebergSource(secondNode, mockIcebergSource(10L, 20L));
             TableScan firstScan = mockTableScan(30L, 40, Expressions.equal("id", 1));
             TableScan secondScan = mockTableScan(30L, 40, Expressions.equal("id", 1));
-            FileScanTask task = Mockito.mock(FileScanTask.class);
+            FileScanTask task = Mockito.mock(FileScanTask.class, Mockito.withSettings().serializable());
             AtomicInteger planCalls = new AtomicInteger();
 
             List<FileScanTask> firstTasks = firstNode.getOrPlanFileScanTasks(firstScan, () -> {
@@ -720,8 +716,8 @@ public class IcebergScanNodeTest {
             });
 
             Assert.assertEquals(1, planCalls.get());
-            Assert.assertSame(firstTasks, secondTasks);
-            Assert.assertEquals(Collections.singletonList(task), secondTasks);
+            Assert.assertNotSame(firstTasks, secondTasks);
+            Assert.assertEquals(1, secondTasks.size());
         } finally {
             statementContext.close();
             ConnectContext.remove();
@@ -737,8 +733,8 @@ public class IcebergScanNodeTest {
         try {
             TestIcebergScanNode firstNode = new TestIcebergScanNode(new SessionVariable());
             TestIcebergScanNode secondNode = new TestIcebergScanNode(new SessionVariable());
-            firstNode.setMaxRetainedExternalScanTasks(1);
-            secondNode.setMaxRetainedExternalScanTasks(1);
+            firstNode.setMaxRetainedSerializedTaskBytes(1);
+            secondNode.setMaxRetainedSerializedTaskBytes(1);
             setIcebergSource(firstNode, mockIcebergSource(10L, 20L));
             setIcebergSource(secondNode, mockIcebergSource(10L, 20L));
             TableScan scan = mockTableScan(30L, 40, Expressions.equal("id", 1));
@@ -763,6 +759,14 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testIcebergTaskSerializationStopsAtByteLimit() {
+        byte[] largePayload = new byte[Math.toIntExact(MB)];
+
+        Assert.assertFalse(IcebergScanNode.serializeIcebergTaskWithinLimit(largePayload, 1024).isPresent());
+        Assert.assertTrue(IcebergScanNode.serializeIcebergTaskWithinLimit(largePayload, 2 * MB).isPresent());
+    }
+
+    @Test
     public void testOversizedPositionDeletePlanIsNotRetained() throws Exception {
         StatementContext statementContext = new StatementContext();
         ConnectContext context = new ConnectContext();
@@ -771,8 +775,8 @@ public class IcebergScanNodeTest {
         try {
             TestIcebergScanNode firstNode = new TestIcebergScanNode(new SessionVariable());
             TestIcebergScanNode secondNode = new TestIcebergScanNode(new SessionVariable());
-            firstNode.setMaxRetainedExternalScanTasks(1);
-            secondNode.setMaxRetainedExternalScanTasks(1);
+            firstNode.setMaxRetainedSerializedTaskBytes(1);
+            secondNode.setMaxRetainedSerializedTaskBytes(1);
             setIcebergSource(firstNode, mockIcebergSource(10L, 20L));
             setIcebergSource(secondNode, mockIcebergSource(10L, 20L));
             BatchScan scan = Mockito.mock(BatchScan.class);
@@ -1127,7 +1131,8 @@ public class IcebergScanNodeTest {
 
     private static List<FileScanTask> plannedTask(AtomicInteger planCalls) {
         planCalls.incrementAndGet();
-        return Collections.singletonList(Mockito.mock(FileScanTask.class));
+        return Collections.singletonList(
+                Mockito.mock(FileScanTask.class, Mockito.withSettings().serializable()));
     }
 
     @Test
