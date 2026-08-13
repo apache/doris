@@ -102,6 +102,11 @@ TEST_F(CompactionTaskTest, TestSubmitCompactionTask) {
         bool* pred = try_any_cast<bool*>(values.back());
         *pred = true;
     });
+    Defer defer {[&]() {
+        _storage_engine->_cumu_compaction_thread_pool->shutdown();
+        _storage_engine->_base_compaction_thread_pool->shutdown();
+        sp->clear_call_back("olap_server::execute_compaction");
+    }};
 
     for (int tablet_cnt = 0; tablet_cnt < 10; ++tablet_cnt) {
         TabletMetaSharedPtr tablet_meta;
@@ -124,9 +129,16 @@ TEST_F(CompactionTaskTest, TestSubmitCompactionTask) {
         EXPECT_TRUE(st.OK());
     }
 
-    int executing_task_num =
-            _storage_engine->_compaction_submit_registry.count_executing_cumu_and_base(
-                    _data_dir.get());
+    int executing_task_num = 0;
+    for (int retry = 0; retry < 500; ++retry) {
+        executing_task_num =
+                _storage_engine->_compaction_submit_registry.count_executing_cumu_and_base(
+                        _data_dir.get());
+        if (executing_task_num == 2) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     EXPECT_EQ(executing_task_num, 2);
 }
 
