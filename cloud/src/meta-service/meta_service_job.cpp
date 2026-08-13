@@ -807,6 +807,67 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
     }
 }
 
+static bool should_accept_cumulative_point(const std::string& instance_id, int64_t tablet_id,
+                                           const TabletCompactionJobPB& compaction,
+                                           const TabletCompactionJobPB& recorded_compaction,
+                                           const TabletStatsPB& stats) {
+    if (compaction.type() != TabletCompactionJobPB::CUMULATIVE &&
+        compaction.type() != TabletCompactionJobPB::EMPTY_CUMULATIVE) {
+        return true;
+    }
+    // Safe because tablet stats keep max(current, proposal).
+    if (compaction.output_cumulative_point() <= stats.cumulative_point()) {
+        return true;
+    }
+    // The committed output covers [current point, proposal - 1].
+    if (compaction.type() == TabletCompactionJobPB::CUMULATIVE &&
+        compaction.input_versions_size() == 2 &&
+        compaction.input_versions(0) == stats.cumulative_point() &&
+        compaction.output_cumulative_point() == compaction.input_versions(1) + 1) {
+        return true;
+    }
+
+    // For legacy BEs:
+    // 1. The snapshot comes from START.
+    // 2. Parallel jobs may share it, so it cannot prove that a FINISH proposal is current.
+    const bool finish_has_counters = compaction.has_base_compaction_cnt();
+    const auto& snapshot = finish_has_counters ? compaction : recorded_compaction;
+    const int64_t snapshot_base_cnt = snapshot.base_compaction_cnt();
+    const int64_t snapshot_cumu_cnt = snapshot.cumulative_compaction_cnt();
+    // FULL also increments base_compaction_cnt
+    bool accept = snapshot_base_cnt == stats.base_compaction_cnt() &&
+                  snapshot_cumu_cnt == stats.cumulative_compaction_cnt();
+    if (!finish_has_counters) {
+        if (compaction.type() == TabletCompactionJobPB::CUMULATIVE) {
+            // An advancing legacy CUMULATIVE proposal is safe only when:
+            // With point=2, accept [2-4] -> 5 but reject [5-7] -> 8.
+            // 1. The BASE/FULL layout is unchanged.
+            // 2. The current point is inside its input range.
+            // 3. The proposal is exactly input_end + 1.
+            accept = compaction.input_versions_size() == 2 &&
+                     recorded_compaction.base_compaction_cnt() == stats.base_compaction_cnt() &&
+                     compaction.input_versions(0) <= stats.cumulative_point() &&
+                     stats.cumulative_point() <= compaction.input_versions(1) &&
+                     compaction.output_cumulative_point() == compaction.input_versions(1) + 1;
+        }
+        // Legacy EMPTY has no output range, so its START snapshot must match current stats.
+    }
+    if (accept) {
+        return true;
+    }
+
+    INSTANCE_LOG(INFO) << "ignore stale cumulative point=" << compaction.output_cumulative_point()
+                       << ", tablet_id=" << tablet_id << ", job_id=" << compaction.id()
+                       << ", base_cnt=" << recorded_compaction.base_compaction_cnt() << "(start),"
+                       << snapshot_base_cnt << "(finish)," << stats.base_compaction_cnt()
+                       << "(stats); cumu_cnt=" << recorded_compaction.cumulative_compaction_cnt()
+                       << "(start)," << snapshot_cumu_cnt << "(finish),"
+                       << stats.cumulative_compaction_cnt()
+                       << "(stats); full_cnt=" << stats.full_compaction_cnt()
+                       << "; finish_has_counters=" << finish_has_counters;
+    return false;
+}
+
 int compaction_update_tablet_stats(const TabletCompactionJobPB& compaction, TabletStatsPB* stats,
                                    bool accept_cumulative_point_proposal, MetaServiceCode& code,
                                    std::string& msg, int64_t now) {
@@ -1049,10 +1110,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     // 4. remove compaction job
     //
     //==========================================================================
-    const bool has_cumulative_point_proposal =
-            compaction.type() == TabletCompactionJobPB::CUMULATIVE ||
-            compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE;
-    if (has_cumulative_point_proposal &&
+    if ((compaction.type() == TabletCompactionJobPB::CUMULATIVE ||
+         compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE) &&
         compaction.has_base_compaction_cnt() != compaction.has_cumulative_compaction_cnt()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "incomplete compaction counters for cumulative point proposal";
@@ -1103,56 +1162,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         }
     }
 
-    // Older BEs only put the proposal snapshot in START. A parallel cumulative job cannot use
-    // that snapshot as proof because sibling jobs may have started with the same counters.
-    const bool has_finish_proposal_snapshot = compaction.has_base_compaction_cnt();
-    const int64_t proposal_base_compaction_cnt =
-            has_finish_proposal_snapshot ? compaction.base_compaction_cnt()
-                                         : recorded_compaction->base_compaction_cnt();
-    const int64_t proposal_cumulative_compaction_cnt =
-            has_finish_proposal_snapshot ? compaction.cumulative_compaction_cnt()
-                                         : recorded_compaction->cumulative_compaction_cnt();
-    bool legacy_proposal_covers_current_input = false;
-    if (!has_finish_proposal_snapshot && compaction.type() == TabletCompactionJobPB::CUMULATIVE &&
-        compaction.input_versions_size() == 2) {
-        legacy_proposal_covers_current_input =
-                recorded_compaction->base_compaction_cnt() == stats->base_compaction_cnt() &&
-                compaction.input_versions(0) <= stats->cumulative_point() &&
-                stats->cumulative_point() <= compaction.input_versions(1) &&
-                compaction.output_cumulative_point() == compaction.input_versions(1) + 1;
-    }
-    // FULL also increments base_compaction_cnt, so a base counter change covers both BASE and FULL.
-    const bool finish_snapshot_matches =
-            proposal_base_compaction_cnt == stats->base_compaction_cnt() &&
-            proposal_cumulative_compaction_cnt == stats->cumulative_compaction_cnt();
-    const bool accept_cumulative_point_proposal =
-            !has_cumulative_point_proposal ||
-            (has_finish_proposal_snapshot && finish_snapshot_matches) ||
-            (!has_finish_proposal_snapshot &&
-             compaction.output_cumulative_point() <= stats->cumulative_point()) ||
-            legacy_proposal_covers_current_input ||
-            (!has_finish_proposal_snapshot &&
-             compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE &&
-             finish_snapshot_matches);
-    if (has_cumulative_point_proposal && !accept_cumulative_point_proposal) {
-        INSTANCE_LOG(INFO) << "ignore stale cumulative point proposal, tablet_id=" << tablet_id
-                           << ", job_id=" << compaction.id()
-                           << ", output_cumulative_point=" << compaction.output_cumulative_point()
-                           << ", start_base_compaction_cnt="
-                           << recorded_compaction->base_compaction_cnt()
-                           << ", proposal_base_compaction_cnt=" << proposal_base_compaction_cnt
-                           << ", current_base_compaction_cnt=" << stats->base_compaction_cnt()
-                           << ", start_cumulative_compaction_cnt="
-                           << recorded_compaction->cumulative_compaction_cnt()
-                           << ", proposal_cumulative_compaction_cnt="
-                           << proposal_cumulative_compaction_cnt
-                           << ", current_cumulative_compaction_cnt="
-                           << stats->cumulative_compaction_cnt()
-                           << ", current_full_compaction_cnt=" << stats->full_compaction_cnt()
-                           << ", has_finish_proposal_snapshot=" << has_finish_proposal_snapshot
-                           << ", legacy_proposal_covers_current_input="
-                           << legacy_proposal_covers_current_input;
-    }
+    const bool accept_cumulative_point_proposal = should_accept_cumulative_point(
+            instance_id, tablet_id, compaction, *recorded_compaction, *stats);
     if (compaction_update_tablet_stats(compaction, stats, accept_cumulative_point_proposal, code,
                                        msg, now) == -1) {
         return;
