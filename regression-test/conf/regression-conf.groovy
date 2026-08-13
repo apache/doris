@@ -301,6 +301,8 @@ icebergS3TablesCatalogGlueRest=""
 // The path of the cert configuration file for the testing framework 
 // is consistent with the path of the cert file for the cluster
 enableTLS=false
+// Comma-separated Doris connector protocols that remain plaintext when TLS is enabled
+tlsExcludedProtocols=""
 tlsVerifyMode="strict"
 keyStorePath="/your/keystore.p12"
 keyStorePassword="yourPwd"
