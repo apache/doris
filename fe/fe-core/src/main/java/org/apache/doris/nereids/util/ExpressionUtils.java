@@ -717,10 +717,26 @@ public class ExpressionUtils {
      * assert_true) does not need to be inside the current predicate, it may be a sibling
      * conjunct or live in a later subquery plan whose input rows are pruned when the mark
      * join is eliminated, so pair.second must be validated against the whole evaluation
-     * domain.
+     * domain. the same domain is used for every target mark slot here.
      */
     public static Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> inferMarkSlotNotNullMap(
             Expression predicate, ExpressionRewriteContext ctx, Collection<Expression> evaluationDomain) {
+        return inferMarkSlotNotNullMap(predicate, ctx, ignored -> evaluationDomain);
+    }
+
+    /**
+     * same as inferMarkSlotNotNullMap(predicate, ctx, Collection), but the evaluation domain
+     * is resolved PER TARGET MARK SLOT through the provider. when a conjunct contains several
+     * subqueries, subqueryToApply stacks their applies, and eliminating a mark join only
+     * prunes the rows below the applies built after it: the target's own and already-lower
+     * applies are evaluated identically or before the target, while the subsequent (higher)
+     * same-conjunct applies and their generated assertions are evaluated above it and CAN be
+     * suppressed by the elimination. the provider lets the caller give each target exactly the
+     * domain that can observe the elimination.
+     */
+    public static Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> inferMarkSlotNotNullMap(
+            Expression predicate, ExpressionRewriteContext ctx,
+            Function<MarkJoinSlotReference, Collection<Expression>> evaluationDomainProvider) {
         Expression simplifiedPredicate = TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(predicate, ctx);
         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> result = Maps.newLinkedHashMap();
         List<MarkJoinSlotReference> markJoinSlotReferenceList = new ArrayList<>(
@@ -728,14 +744,14 @@ public class ExpressionUtils {
         int markSlotSize = markJoinSlotReferenceList.size();
         // if the conjunct has mark slot, and maximum 4 mark slots(for performance)
         if (markSlotSize > 0 && markSlotSize <= MAX_MARK_SLOT_COUNT) {
-            // both sensitivity checks are per-conjunct, not per-target-slot: hoist them out of
-            // the per-slot loop so containsNoneMovableOrVolatile runs once per conjunct instead
-            // of once per target mark slot (up to MAX_MARK_SLOT_COUNT times)
+            // predicateSensitive is per-conjunct (the same predicate for every target); the
+            // evaluation-domain sensitivity is per-target and resolved through the provider
             boolean predicateSensitive = containsNoneMovableOrVolatile(ImmutableList.of(predicate));
-            boolean evaluationDomainSensitive = containsNoneMovableOrVolatile(evaluationDomain);
             for (int targetIdx = 0; targetIdx < markSlotSize; ++targetIdx) {
-                result.put(markJoinSlotReferenceList.get(targetIdx),
-                        inferMarkSlotNotNullForTargetMarkSlot(
+                MarkJoinSlotReference target = markJoinSlotReferenceList.get(targetIdx);
+                boolean evaluationDomainSensitive =
+                        containsNoneMovableOrVolatile(evaluationDomainProvider.apply(target));
+                result.put(target, inferMarkSlotNotNullForTargetMarkSlot(
                                 predicate, simplifiedPredicate, markJoinSlotReferenceList, targetIdx, ctx,
                                 predicateSensitive, evaluationDomainSensitive));
             }

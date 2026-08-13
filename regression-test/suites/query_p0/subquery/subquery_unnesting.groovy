@@ -411,6 +411,12 @@ suite ("subquery_unnesting") {
     // branch: eliminating the left mark join (semi join pruning the left rows) does not
     // change which right rows reach the generated assertion, so the fence on it is
     // unnecessary and the left mark join can be eliminated (isMarkJoin=false).
+    // note: the positive `contains("isMarkJoin=false")` alone cannot pin this down, because
+    // the right correlated scalar Apply never has a marker and independently prints
+    // isMarkJoin=false; a regression that wrongly retains the IN marker would then show both
+    // isMarkJoin=true and isMarkJoin=false and the positive check still passes. the
+    // `notContains("isMarkJoin=true")` is the real signal: it fails as soon as the left IN
+    // marker is retained.
     sql "drop table if exists side_join_t"
     sql "drop table if exists side_join_s"
     sql "drop table if exists side_join_u"
@@ -435,5 +441,134 @@ suite ("subquery_unnesting") {
                         where side_join_v.h = side_join_u.h)
                 order by side_join_t.k;""")
         contains("isMarkJoin=false")
+        notContains("isMarkJoin=true")
+    }
+
+    // =====================================================================
+    // same-conjunct apply-order regression: a higher scalar apply in the SAME conjunct
+    // must fence a lower mark join. within one filter conjunct such as
+    //   nvl(nvl(o.k in (select ...), false) and o.x = (select ...), false)
+    // the applies are stacked in the conjunct's subquery order: the IN apply is built BELOW
+    // the correlated scalar apply. eliminating the IN mark join would turn it into a
+    // left-semi join that discards the only outer row whose scalar group has multiple
+    // results BEFORE the later Count/AssertTrue runs, so the query would return instead of
+    // raising 'correlate scalar subquery must return only 1 row'. the later-conjunct fence
+    // does not cover this same-index shape, so the evaluation domain is resolved per target:
+    // the target's own and already-lower applies are excluded while subsequent same-conjunct
+    // applies' generated assertions are included, which keeps the IN mark join
+    // (isMarkJoin=true) and the error is raised.
+    sql "drop table if exists same_conj_o"
+    sql "drop table if exists same_conj_i"
+    sql "drop table if exists same_conj_s"
+    sql """create table same_conj_o (k bigint, g bigint, x bigint) DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table same_conj_i (k bigint, g bigint) DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table same_conj_s (v bigint, g bigint) DUPLICATE KEY(v)
+            DISTRIBUTED BY HASH(v) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into same_conj_o values (1,10,7),(2,20,9);"""
+    sql """insert into same_conj_i values (2,20);"""
+    sql """insert into same_conj_s values (100,10),(101,10),(200,20);"""
+    explain {
+        sql("""analyzed plan select same_conj_o.k from same_conj_o
+                where nvl(nvl(same_conj_o.k in (select same_conj_i.k from same_conj_i
+                            where same_conj_i.g = same_conj_o.g), false)
+                    and same_conj_o.x = (select same_conj_s.v from same_conj_s
+                            where same_conj_s.g = same_conj_o.g), false)
+                order by same_conj_o.k;""")
+        contains("isMarkJoin=true")
+    }
+    test {
+        sql """select same_conj_o.k from same_conj_o
+                where nvl(nvl(same_conj_o.k in (select same_conj_i.k from same_conj_i
+                            where same_conj_i.g = same_conj_o.g), false)
+                    and same_conj_o.x = (select same_conj_s.v from same_conj_s
+                            where same_conj_s.g = same_conj_o.g), false)
+                order by same_conj_o.k;"""
+        exception "correlate scalar subquery must return only 1 row"
+    }
+
+    // =====================================================================
+    // downstream-reachability regression: only subquery plans that are actually DOWNSTREAM
+    // of the target may fence its elimination. in the join path the two conjuncts' applies
+    // live on opposite children of the join, so the right scalar's subquery plan (with
+    // assert_true inside it) is in an independent subtree: eliminating the left IN mark join
+    // cannot skip it, so the left mark join is eliminated (the analyzed plan contains no
+    // isMarkJoin=true and the left IN conjunct is replaced by TRUE). before this fix the
+    // plan collection scanned every non-current subquery plan regardless of the join child,
+    // so the right scalar's assert_true fenced the left IN (isMarkJoin=true), retaining the
+    // marker apply plus its join-reordering, runtime-filter, selectivity and exploration
+    // barriers for no safety gain.
+    sql "drop table if exists side_plan_t"
+    sql "drop table if exists side_plan_s"
+    sql "drop table if exists side_plan_u"
+    sql "drop table if exists side_plan_v"
+    sql """create table side_plan_t (k bigint, g bigint) DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table side_plan_s (k bigint, g bigint) DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table side_plan_u (b bigint, h bigint) DUPLICATE KEY(b)
+            DISTRIBUTED BY HASH(b) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table side_plan_v (c bigint, h bigint) DUPLICATE KEY(c)
+            DISTRIBUTED BY HASH(c) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    explain {
+        sql("""analyzed plan select side_plan_t.k, side_plan_u.b from side_plan_t
+                join side_plan_u on side_plan_t.k in (select side_plan_s.k from side_plan_s
+                        where side_plan_s.g = side_plan_t.g)
+                    and side_plan_u.b = (select side_plan_v.c from side_plan_v
+                        where side_plan_v.h = side_plan_u.h
+                          and assert_true(side_plan_v.c > 0, 'bad'))
+                order by side_plan_t.k;""")
+        notContains("isMarkJoin=true")
+    }
+
+    // =====================================================================
+    // same-physical-join-child regression: the fence must compare the EFFECTIVE PHYSICAL
+    // CHILDREN of the join, not the RelatedInfo enum identity. in JOIN_SUBQUERY_TO_APPLY
+    // only RelatedToLeft maps to the left child; Unrelated and RelatedToRight both map to
+    // the right child. for an inner-join ON conjunct list ordered as an uncorrelated EXISTS
+    // (select 1 from the empty side_phys_e) followed by an output-used right-correlated
+    // scalar
+    //     join u on exists (select 1 from side_phys_e)
+    //            and u.b = (select v.c from v where v.h = u.h)
+    // both applies are built on the RIGHT child with the scalar's apply ABOVE the EXISTS
+    // apply. the pre-fix check compared enum identity (Unrelated != RelatedToRight), so it
+    // treated them as opposite sides, skipped the scalar's generated count-assertion, and
+    // eliminated the EXISTS marker: the marker-free EXISTS became a cross join with
+    // Limit(1, empty side_phys_e), removed every right row below the scalar apply, and
+    // suppressed the duplicate-group cardinality error. comparing physical sides keeps the
+    // EXISTS mark join (isMarkJoin=true) and the error is raised.
+    sql "drop table if exists side_phys_t"
+    sql "drop table if exists side_phys_u"
+    sql "drop table if exists side_phys_v"
+    sql "drop table if exists side_phys_e"
+    sql """create table side_phys_t (k bigint) DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table side_phys_u (b bigint, h bigint) DUPLICATE KEY(b)
+            DISTRIBUTED BY HASH(b) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table side_phys_v (c bigint, h bigint) DUPLICATE KEY(c)
+            DISTRIBUTED BY HASH(c) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table side_phys_e (e bigint) DUPLICATE KEY(e)
+            DISTRIBUTED BY HASH(e) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into side_phys_t values (1),(2);"""
+    sql """insert into side_phys_u values (10,10),(20,20);"""
+    sql """insert into side_phys_v values (100,10),(101,10),(200,20);"""
+    // side_phys_e is intentionally left EMPTY: eliminating the EXISTS mark join would turn
+    // it into a cross join with Limit(1, empty side_phys_e) that discards every right row
+    explain {
+        sql("""analyzed plan select side_phys_t.k, side_phys_u.b from side_phys_t
+                join side_phys_u on exists (select 1 from side_phys_e)
+                    and side_phys_u.b = (select side_phys_v.c from side_phys_v
+                        where side_phys_v.h = side_phys_u.h)
+                order by side_phys_t.k;""")
+        contains("isMarkJoin=true")
+    }
+    test {
+        sql """select side_phys_t.k, side_phys_u.b from side_phys_t
+                join side_phys_u on exists (select 1 from side_phys_e)
+                    and side_phys_u.b = (select side_phys_v.c from side_phys_v
+                        where side_phys_v.h = side_phys_u.h)
+                order by side_phys_t.k;"""
+        exception "correlate scalar subquery must return only 1 row"
     }
 }

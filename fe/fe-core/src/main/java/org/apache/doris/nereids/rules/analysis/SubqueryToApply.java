@@ -68,6 +68,7 @@ import com.google.common.collect.Maps;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -118,14 +119,18 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                                 ctx.statementContext, shouldOutputMarkJoinSlot.get(i));
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(oldConjuncts.get(i), context);
+                        // the apply-stacking order inside the conjunct: subqueryToApply builds the
+                        // applies in this order, the first element being the lowest
+                        List<SubqueryExpr> orderedSubqueryExprs = ImmutableList.copyOf(subqueryExprs);
                         Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyResult =
                                 simplifyConjunctWithMarkJoinSlot(conjunct, filter, ctx.cascadesContext,
-                                        collectGeneratedAssertionsOfLaterConjuncts(i, subqueryExprsList, null),
-                                        subqueryExprs);
+                                        i, subqueryExprsList, null,
+                                        context.getSubqueryToMarkJoinSlot(), orderedSubqueryExprs,
+                                        collectGeneratedAssertionsOfLaterConjuncts(i, subqueryExprsList, null));
                         conjunct = simplifyResult.first;
                         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo = simplifyResult.second;
-                        Pair<LogicalPlan, Optional<Expression>> result = subqueryToApply(subqueryExprs.stream()
-                                    .collect(ImmutableList.toImmutableList()), tmpPlan,
+                        Pair<LogicalPlan, Optional<Expression>> result = subqueryToApply(
+                                orderedSubqueryExprs, tmpPlan,
                                 context.getSubqueryToMarkJoinSlot(),
                                 ctx.cascadesContext,
                                 Optional.of(conjunct), markSlotsInfo);
@@ -234,11 +239,13 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         ReplaceSubquery replaceSubquery = new ReplaceSubquery(ctx.statementContext, true);
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(subqueryConjuncts.get(i), context);
+                        List<SubqueryExpr> orderedSubqueryExprs = ImmutableList.copyOf(subqueryExprs);
                         Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyResult =
                                     simplifyConjunctWithMarkJoinSlot(conjunct, join, ctx.cascadesContext,
+                                            i, subqueryExprsList, relatedInfoList,
+                                            context.getSubqueryToMarkJoinSlot(), orderedSubqueryExprs,
                                             collectGeneratedAssertionsOfLaterConjuncts(i, subqueryExprsList,
-                                                    relatedInfoList),
-                                            subqueryExprs);
+                                                    relatedInfoList));
                         /*
                          * for each mark slot, Pair.first indicates whether the null and false
                          * values of the mark slot are indistinguishable in the conjunct. it's
@@ -278,7 +285,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                             }
                         }
                         Pair<LogicalPlan, Optional<Expression>> result = subqueryToApply(
-                                subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
+                                orderedSubqueryExprs,
                                 relatedInfoList.get(i) == RelatedInfo.RelatedToLeft ? leftChildPlan : rightChildPlan,
                                 context.getSubqueryToMarkJoinSlot(),
                                 ctx.cascadesContext, Optional.of(conjunct), markSlotsInfo);
@@ -373,6 +380,19 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             correlatedInfoList.add(relatedInfo);
         }
         return correlatedInfoList.build();
+    }
+
+    /*
+     * whether two conjuncts' applies end up on the same physical child of the join: only
+     * RelatedToLeft maps to the left child, while Unrelated and RelatedToRight both map to
+     * the right child (see the JOIN_SUBQUERY_TO_APPLY construction). comparing the enum
+     * identity would wrongly treat an uncorrelated EXISTS (Unrelated) and a right-correlated
+     * scalar (RelatedToRight) as different sides even though their applies are stacked on
+     * the same right child, so the scalar Apply above the EXISTS mark join would be skipped
+     * and its generated assertion / sensitive plan not fenced.
+     */
+    private static boolean sameJoinSide(RelatedInfo a, RelatedInfo b) {
+        return (a == RelatedInfo.RelatedToLeft) == (b == RelatedInfo.RelatedToLeft);
     }
 
     private Pair<LogicalPlan, Optional<Expression>> subqueryToApply(
@@ -564,21 +584,31 @@ public class SubqueryToApply implements AnalysisRuleFactory {
      * assert_true(count(*) <= 1) that addApply synthesizes for a later correlated scalar
      * subquery; see collectGeneratedAssertionsOfLaterConjuncts.
      *
-     * currentConjunctSubqueries are the subqueries of the conjunct being processed: their own
-     * query plans are evaluated identically whether the mark join is kept or eliminated (both
-     * the apply and the resulting semi/anti join evaluate the inner plan, only the output row
-     * set differs), so a sensitive expression inside them cannot be affected by the
-     * elimination and must be excluded from the evaluation domain; see collectEvaluationDomain.
+     * subqueryToMarkJoinSlot maps every subquery of the conjunct to its (optional) mark slot,
+     * and currentConjunctSubqueryOrder lists them in the order subqueryToApply stacks the
+     * applies (first = lowest). currentIndex is the conjunct being processed, subqueryExprsList
+     * the subqueries of every conjunct, and relatedInfoList (null in the filter path) the join
+     * side of every conjunct's apply. the evaluation domain is resolved PER TARGET mark slot
+     * and only includes the subquery plans that are actually downstream of the target: later
+     * applies on the filter chain or on the same join child, plus the higher same-conjunct
+     * applies and their generated assertions; the target and already-lower applies and
+     * opposite-side join applies are excluded; see collectTargetEvaluationDomain.
      */
     private Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyConjunctWithMarkJoinSlot(
             Expression conjunct, Plan plan, CascadesContext cascadesContext,
-            List<Expression> extraEvaluationDomain, Set<SubqueryExpr> currentConjunctSubqueries) {
+            int currentIndex,
+            List<Set<SubqueryExpr>> subqueryExprsList,
+            List<RelatedInfo> relatedInfoList,
+            Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
+            List<SubqueryExpr> currentConjunctSubqueryOrder,
+            List<Expression> extraEvaluationDomain) {
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(plan, cascadesContext);
         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo;
         if (conjunct.containsType(MarkJoinSlotReference.class)) {
-            List<Expression> evaluationDomain = collectEvaluationDomain(plan, currentConjunctSubqueries);
-            evaluationDomain.addAll(extraEvaluationDomain);
-            markSlotsInfo = ExpressionUtils.inferMarkSlotNotNullMap(conjunct, rewriteContext, evaluationDomain);
+            markSlotsInfo = ExpressionUtils.inferMarkSlotNotNullMap(conjunct, rewriteContext,
+                    target -> collectTargetEvaluationDomain(plan, target, currentIndex, subqueryExprsList,
+                            relatedInfoList, subqueryToMarkJoinSlot, currentConjunctSubqueryOrder,
+                            extraEvaluationDomain));
         } else {
             markSlotsInfo = Maps.newHashMap();
         }
@@ -595,31 +625,15 @@ public class SubqueryToApply implements AnalysisRuleFactory {
     }
 
     /*
-     * collect the complete evaluation domain of the mark slot inference: the containing
-     * conjunct set of the filter/join, plus all the expressions inside the correlated
-     * subquery plans. a sensitive expression (e.g. assert_true) does not need to be inside
-     * the current conjunct: it may be a sibling conjunct of the same filter/join, or live in
-     * a later subquery plan whose input rows are pruned together with the outer rows when an
-     * earlier mark join is eliminated. pair.second is only safe when every such expression
-     * is still evaluated on the same rows after the elimination, so they all belong to the
-     * evaluation domain that the pair.second proof must be validated against. a generated
-     * assert_true(count(*) <= 1) for a later correlated scalar subquery is not visible here
-     * (it is synthesized by addApply after the collection), so the callers add it separately
-     * via collectGeneratedAssertionsOfLaterConjuncts.
-     *
-     * the current conjunct's OWN subquery plans are excluded: they are evaluated identically
-     * whether the mark join is kept or eliminated (the apply and the resulting semi/anti
-     * join both evaluate the inner plan per outer row, or once for uncorrelated; only the
-     * output row set differs), so a NoneMovableFunction/volatile inside them cannot be
-     * affected by the elimination and fencing pair.second on it would only lose valid
-     * eliminations.
-     * e.g. `ifnull(k in (select ... where assert_true(inner)), false)`: the assert_true is
-     * inside the current conjunct's own subquery plan, which is evaluated identically by the
-     * apply and by the resulting semi join, so eliminating the mark join cannot suppress it;
-     * before the exclusion the mark join was kept (isMarkJoin=true) purely because of that
-     * unreachable assert_true.
+     * collect the base evaluation domain of the mark slot inference: the containing conjunct
+     * set of the filter/join (always in the domain, since every conjunct expression is
+     * evaluated above all the stacked applies), plus the expressions inside the subquery
+     * plans that are DOWNSTREAM of the target. only those downstream plans can have their
+     * sensitive expressions skipped by the target's elimination: an earlier filter apply is
+     * already below the target, and an opposite-side join apply is in an independent subtree,
+     * so neither is affected and collecting them would only lose valid eliminations.
      */
-    private List<Expression> collectEvaluationDomain(Plan plan, Set<SubqueryExpr> currentConjunctSubqueries) {
+    private List<Expression> collectEvaluationDomain(Plan plan, Collection<SubqueryExpr> downstreamSubqueries) {
         List<Expression> evaluationDomain = new ArrayList<>();
         if (plan instanceof LogicalFilter) {
             evaluationDomain.addAll(((LogicalFilter<? extends Plan>) plan).getConjuncts());
@@ -627,15 +641,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             evaluationDomain.addAll(((LogicalJoin<?, ?>) plan).getExpressions());
         }
         List<Expression> subqueryPlanExpressions = new ArrayList<>();
-        for (Expression expression : evaluationDomain) {
-            Set<SubqueryExpr> subqueries = expression.collect(SubqueryExpr.class::isInstance);
-            for (SubqueryExpr subquery : subqueries) {
-                // skip the current conjunct's own subquery plans: see the domain doc above
-                if (currentConjunctSubqueries.contains(subquery)) {
-                    continue;
-                }
-                collectPlanExpressions(subquery.getQueryPlan(), subqueryPlanExpressions);
-            }
+        for (SubqueryExpr subquery : downstreamSubqueries) {
+            collectPlanExpressions(subquery.getQueryPlan(), subqueryPlanExpressions);
         }
         evaluationDomain.addAll(subqueryPlanExpressions);
         return evaluationDomain;
@@ -668,6 +675,80 @@ public class SubqueryToApply implements AnalysisRuleFactory {
     }
 
     /*
+     * the representative assert_true(count(*) <= 1) that addApply synthesizes for a
+     * correlated scalar subquery whose output is used in the outer expression: only the
+     * sensitive-function type matters for the inference fence, so a fresh count slot is
+     * enough.
+     */
+    private static Expression generatedCorrelatedScalarAssertion() {
+        Slot countSlot = new Alias(new Count()).toSlot();
+        return new AssertTrue(
+                ExpressionUtils.or(new IsNull(countSlot),
+                        new LessThanEqual(countSlot, new BigIntLiteral(1))),
+                new VarcharLiteral("correlate scalar subquery must return only 1 row"));
+    }
+
+    /*
+     * resolve the evaluation domain for ONE target mark slot. an eliminated apply prunes
+     * rows BEFORE the applies built after it evaluate, so the domain of a target must contain
+     * exactly the subquery plans that are DOWNSTREAM of it:
+     *  - the higher same-conjunct applies (positions after the target in
+     *    currentConjunctSubqueryOrder, first = lowest)
+     *  - the later conjuncts on the same reachability: later applies on the filter chain
+     *    (relatedInfoList == null) or later applies on the same join child
+     * and must NOT contain the target's own plan, the already-lower applies, or the
+     * applies on the opposite physical join child (evaluated identically / before /
+     * independently, so the elimination cannot skip their sensitive expressions). the higher
+     * same-conjunct output-used correlated scalars additionally contribute their generated
+     * assert_true(count(*) <= 1), and the later conjuncts contribute extraEvaluationDomain.
+     */
+    private List<Expression> collectTargetEvaluationDomain(Plan plan,
+            MarkJoinSlotReference target,
+            int currentIndex,
+            List<Set<SubqueryExpr>> subqueryExprsList,
+            List<RelatedInfo> relatedInfoList,
+            Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
+            List<SubqueryExpr> currentConjunctSubqueryOrder,
+            List<Expression> extraEvaluationDomain) {
+        // the position of the target's subquery in the apply-stacking order
+        int targetPos = -1;
+        for (int k = 0; k < currentConjunctSubqueryOrder.size(); ++k) {
+            Optional<MarkJoinSlotReference> markSlot =
+                    subqueryToMarkJoinSlot.get(currentConjunctSubqueryOrder.get(k));
+            if (markSlot.isPresent() && markSlot.get().equals(target)) {
+                targetPos = k;
+                break;
+            }
+        }
+        // the subquery plans that are actually downstream of the target
+        Set<SubqueryExpr> downstreamSubqueries = new HashSet<>();
+        // higher same-conjunct applies (built after the target, so above it)
+        for (int k = targetPos + 1; k < currentConjunctSubqueryOrder.size(); ++k) {
+            downstreamSubqueries.add(currentConjunctSubqueryOrder.get(k));
+        }
+        // later conjuncts: later applies on the filter chain (relatedInfoList == null) or on
+        // the same physical join child; an apply on the opposite join child is an independent
+        // subtree and skipped
+        for (int j = currentIndex + 1; j < subqueryExprsList.size(); ++j) {
+            if (relatedInfoList != null && !sameJoinSide(relatedInfoList.get(j), relatedInfoList.get(currentIndex))) {
+                continue;
+            }
+            downstreamSubqueries.addAll(subqueryExprsList.get(j));
+        }
+        List<Expression> evaluationDomain = collectEvaluationDomain(plan, downstreamSubqueries);
+        // higher same-conjunct output-used correlated scalars are evaluated above this apply:
+        // their generated assertion can be suppressed by the elimination, so fence it
+        for (int k = targetPos + 1; k < currentConjunctSubqueryOrder.size(); ++k) {
+            SubqueryExpr higher = currentConjunctSubqueryOrder.get(k);
+            if (isCorrelatedScalarNeedingRuntimeCheck(higher)) {
+                evaluationDomain.add(generatedCorrelatedScalarAssertion());
+            }
+        }
+        evaluationDomain.addAll(extraEvaluationDomain);
+        return evaluationDomain;
+    }
+
+    /*
      * collect a representative of the runtime assert_true(count(*) <= 1) that addApply
      * will synthesize for every correlated scalar subquery in the conjuncts after
      * currentIndex: those applies are built above the current conjunct's apply, so
@@ -695,8 +776,9 @@ public class SubqueryToApply implements AnalysisRuleFactory {
      * later conjuncts must be fenced here.
      *
      * join path (JOIN_SUBQUERY_TO_APPLY, relatedInfoList != null): each conjunct's apply is
-     * attached to the LEFT or RIGHT child of the join (collectRelatedInfo decides the side),
-     * so for
+     * attached to the LEFT or RIGHT child of the join (only RelatedToLeft maps to the left
+     * child; Unrelated and RelatedToRight both map to the right child, see sameJoinSide), so
+     * for
      *     `t1 join t2 on t1.k in (sub1) and t2.b = (scalar2)`
      * the plan becomes
      *     Join(other=[M1, t2.b = scalar2_out])
@@ -706,27 +788,23 @@ public class SubqueryToApply implements AnalysisRuleFactory {
      *             +-- Apply1(t2.b = scalar2)
      *                  +-- t2
      * the left and right subtrees are evaluated independently BEFORE the join combines them,
-     * so eliminating the current mark join only prunes rows on its OWN side: an OPPOSITE-side
-     * later conjunct is unaffected and must NOT be fenced (the pre-fix code fenced it, losing
-     * a valid elimination), while a SAME-side later conjunct is stacked above the current
-     * apply and IS fenced.
+     * so eliminating the current mark join only prunes rows on its OWN physical child: a
+     * later conjunct on the opposite join child is unaffected and must NOT be fenced (the
+     * pre-fix code fenced it, losing a valid elimination), while a later conjunct on the
+     * SAME physical child is stacked above the current apply and IS fenced.
      */
     private List<Expression> collectGeneratedAssertionsOfLaterConjuncts(
             int currentIndex, List<Set<SubqueryExpr>> subqueryExprsList,
             List<RelatedInfo> relatedInfoList) {
         List<Expression> generatedAssertions = new ArrayList<>();
         for (int j = currentIndex + 1; j < subqueryExprsList.size(); ++j) {
-            if (relatedInfoList != null && relatedInfoList.get(j) != relatedInfoList.get(currentIndex)) {
-                // opposite side of the join: an independent subtree, see the doc above
+            if (relatedInfoList != null && !sameJoinSide(relatedInfoList.get(j), relatedInfoList.get(currentIndex))) {
+                // opposite physical child of the join: an independent subtree, see the doc above
                 continue;
             }
             for (SubqueryExpr subquery : subqueryExprsList.get(j)) {
                 if (isCorrelatedScalarNeedingRuntimeCheck(subquery)) {
-                    Slot countSlot = new Alias(new Count()).toSlot();
-                    generatedAssertions.add(new AssertTrue(
-                            ExpressionUtils.or(new IsNull(countSlot),
-                                    new LessThanEqual(countSlot, new BigIntLiteral(1))),
-                            new VarcharLiteral("correlate scalar subquery must return only 1 row")));
+                    generatedAssertions.add(generatedCorrelatedScalarAssertion());
                 }
             }
         }

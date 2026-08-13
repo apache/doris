@@ -334,6 +334,28 @@ public class InferMarkSlotNotNullMapTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    public void testTargetSpecificEvaluationDomain() {
+        MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");
+        MarkJoinSlotReference markSlot2 = new MarkJoinSlotReference("markSlot2");
+
+        // And(M1, M2) with a clean domain: every target gets (true, true)
+        Expression predicate = new And(markSlot1, markSlot2);
+
+        // a per-target domain: only M1's domain is sensitive (e.g. M1's apply is the lower
+        // one, with a higher same-conjunct scalar's generated assertion above it), so only
+        // M1's pair.second is fenced while M2 (whose apply is above and unaffected by M1's
+        // elimination) keeps its elimination
+        Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> result = ExpressionUtils
+                .inferMarkSlotNotNullMap(predicate, context,
+                        target -> target.equals(markSlot1)
+                                ? ImmutableList.of(new AssertTrue(BooleanLiteral.TRUE,
+                                        new VarcharLiteral("bad")))
+                                : ImmutableList.of());
+        Assertions.assertEquals(Pair.of(Boolean.TRUE, Boolean.FALSE), result.get(markSlot1));
+        Assertions.assertEquals(Pair.of(Boolean.TRUE, Boolean.TRUE), result.get(markSlot2));
+    }
+
+    @Test
     public void testMarkSlotCountLimit() {
         MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");
         MarkJoinSlotReference markSlot2 = new MarkJoinSlotReference("markSlot2");
