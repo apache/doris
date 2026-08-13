@@ -117,4 +117,9 @@ jobs:
           export LDFLAGS="-L${LIBOMP_PREFIX}/lib ${LDFLAGS:-}"
           export EXTRA_CXX_FLAGS="-I${LIBOMP_PREFIX}/include ${EXTRA_CXX_FLAGS:-}"
 
+          # The arm64 ASAN build has no useful ccache hits and needs the space
+          # occupied by restored and newly written cache entries during linking.
+          ccache -C
+          export CCACHE_DISABLE=1
+
           ./run-be-ut.sh --run -j "$(nproc)" --clean
