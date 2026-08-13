@@ -1351,7 +1351,6 @@ EOF
     fi
 
     extensions_modules=("java-udf")
-    extensions_modules+=("hadoop-hudi-scanner")
     extensions_modules+=("trino-connector-scanner")
     # lakesoul-scanner has been deprecated
     # extensions_modules+=("lakesoul-scanner")
@@ -1409,6 +1408,7 @@ EOF
     plugin_modules+=("iceberg-metadata-scanner:iceberg")
     plugin_modules+=("max-compute-connector:max-compute")
     plugin_modules+=("paimon-scanner:paimon")
+    plugin_modules+=("hadoop-hudi-scanner:hudi")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
@@ -1506,7 +1506,7 @@ EOF
     # classloader. A BE that reads oss-hdfs:// natively through libhdfs loads it from the system
     # classpath; a plugin loading its own copy in the same process is the second bind, which fails.
     # The two paths are therefore mutually exclusive until that is measured on a real deployment.
-    for fs_plugin in paimon iceberg; do
+    for fs_plugin in paimon iceberg hudi; do
         fs_plugin_dir="${BE_JAVA_PLUGINS_DIR}/${fs_plugin}"
         [[ -d "${fs_plugin_dir}" ]] || continue
         for fs_libs in jindofs juicefs; do
