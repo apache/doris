@@ -3448,7 +3448,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
         req.set_cloud_unique_id("test_cloud_unique_id");
         meta_service->abort_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                 &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_ALREADY_COMMITED);
+        ASSERT_EQ(res.status().actual_code(), MetaServiceCode::TXN_ALREADY_COMMITED);
     });
 
     // mock rowset and tablet
