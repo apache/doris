@@ -422,7 +422,11 @@ Status AggSharedState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
     return Status::OK();
 }
 
-LocalExchangeSharedState::~LocalExchangeSharedState() = default;
+LocalExchangeSharedState::~LocalExchangeSharedState() {
+    // BlockWrapper instances refer back to this shared state while the exchanger is destroyed.
+    // Release them before the shared state's counters and dependencies are torn down.
+    exchanger.reset();
+}
 
 Status SetSharedState::update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs) {
     if (ctxs.size() > build_not_ignore_null.size()) {

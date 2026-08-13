@@ -21,6 +21,9 @@
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
 
+#include <filesystem>
+#include <fstream>
+
 #include "gmock/gmock.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "util/s3_util.h"
@@ -121,8 +124,17 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
 }
 
 TEST_F(S3ObjStorageClientMockTest, test_ca_cert) {
+    auto ca_cert = std::filesystem::temp_directory_path() / "doris-test-ca-cert.pem";
+    {
+        std::ofstream out(ca_cert);
+        out << "test ca certificate";
+    }
+    auto original_paths = config::ca_cert_file_paths;
+    config::ca_cert_file_paths = ca_cert.string();
     auto path = doris::get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
     LOG(INFO) << "config:" << config::ca_cert_file_paths << " path:" << path;
-    ASSERT_FALSE(path.empty());
+    EXPECT_EQ(path, ca_cert.string());
+    config::ca_cert_file_paths = original_paths;
+    std::filesystem::remove(ca_cert);
 }
 } // namespace doris::io

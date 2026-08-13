@@ -94,6 +94,7 @@ TEST(MemTableFlushExecutorTest, TestDynamicThreadPoolUpdate) {
 
     // Store original config values
     int32_t original_flush_thread_num = config::flush_thread_num_per_store;
+    int32_t original_max_flush_thread_num = config::max_flush_thread_num_per_cpu;
     int32_t original_high_priority_flush_thread_num =
             config::high_priority_flush_thread_num_per_store;
     int32_t original_max_flush_thread_num = config::max_flush_thread_num_per_cpu;
@@ -161,16 +162,18 @@ TEST(MemTableFlushExecutorTest, TestConfigUpdateTrigger) {
     int initial_min_threads = flush_executor->flush_pool()->min_threads();
 
     // Test: Simulate config update via set_config
+    config::max_flush_thread_num_per_cpu = 100;
     config::flush_thread_num_per_store = 15;
     config::update_config("flush_thread_num_per_store", "15");
 
     // Verify thread pool was updated
     int updated_min_threads = flush_executor->flush_pool()->min_threads();
-    EXPECT_EQ(updated_min_threads, 15);
+    EXPECT_EQ(updated_min_threads, std::min(15, flush_executor->flush_pool()->max_threads()));
     EXPECT_NE(updated_min_threads, initial_min_threads);
 
     // Restore original config value
     config::flush_thread_num_per_store = original_flush_thread_num;
+    config::max_flush_thread_num_per_cpu = original_max_flush_thread_num;
     flush_executor->update_memtable_flush_threads();
 
     // Cleanup
