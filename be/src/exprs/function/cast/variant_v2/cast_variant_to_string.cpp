@@ -164,8 +164,25 @@ Status cast_values_to_string(FunctionContext* context, size_t rows, ForcedNulls 
 Status cast_typed_variant_to_string(FunctionContext* context, const ColumnVariantV2& source,
                                     size_t rows, ForcedNulls forced_nulls, ColumnPtr* output) {
     const auto& typed = assert_cast<const ColumnNullable&>(source.typed_column());
-    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    const PrimitiveType source_primitive = source.typed_type()->get_primitive_type();
     const NullMap& inner_nulls = typed.get_null_map_data();
+    if (is_string_type(source_primitive)) {
+        bool has_visible_inner_null = false;
+        for (size_t row = 0; row < rows; ++row) {
+            if (inner_nulls[row] != 0 && (forced_nulls.empty() || forced_nulls[row] == 0)) {
+                has_visible_inner_null = true;
+                break;
+            }
+        }
+        if (!has_visible_inner_null) {
+            // The physical payload already has the requested representation. Missing shredded
+            // values are both inner and forced nulls, so their payload can also be shared. A
+            // visible inner null is a Variant null and must still stringify as literal "null".
+            return apply_forced_nulls(typed.get_ptr(), forced_nulls, output);
+        }
+    }
+
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
     size_t concrete_rows = 0;
     for (size_t row = 0; row < rows; ++row) {
         if (inner_nulls[row] == 0 && (forced_nulls.empty() || forced_nulls[row] == 0)) {
