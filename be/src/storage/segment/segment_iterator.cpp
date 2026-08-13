@@ -550,6 +550,10 @@ Status SegmentIterator::_lazy_init(Block* block) {
 
     RETURN_IF_ERROR(_apply_ann_topn_predicate());
 
+    // _row_bitmap is immutable after _range_iter is created. Cache its cardinality to avoid
+    // traversing all roaring containers for every batch.
+    _row_bitmap_cardinality = _row_bitmap.cardinality();
+
     if (_opts.read_orderby_key_reverse) {
         _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
     } else {
@@ -560,8 +564,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
     // prediction) because the predictor may increase block_row_max on subsequent batches
     // up to this ceiling. Using the current (possibly reduced) _opts.block_row_max would
     // cause heap-buffer-overflow if a later prediction is larger.
-    auto nrows_reserve_limit =
-            std::min(_row_bitmap.cardinality(), uint64_t(_initial_block_row_max));
+    auto nrows_reserve_limit = std::min(_row_bitmap_cardinality, uint64_t(_initial_block_row_max));
     if (_lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval) {
         _block_rowids.resize(_initial_block_row_max);
     }
@@ -2895,7 +2898,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
     // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
     uint32_t nrows_read_limit =
-            std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _opts.block_row_max);
+            std::min(cast_set<uint32_t>(_row_bitmap_cardinality), _opts.block_row_max);
     if (_can_opt_limit_reads()) {
         // No SegmentIterator-side conjunct remains to be evaluated, so LIMIT is equivalent before
         // and after filtering. Cap the first read directly; this is the no-conjunct fast path that
