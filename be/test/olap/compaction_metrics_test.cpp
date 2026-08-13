@@ -133,7 +133,23 @@ TEST_F(CompactionMetricsTest, TestCompactionTaskNumWithDiffStatus) {
         st = _storage_engine->_submit_compaction_task(tablet, CompactionType::CUMULATIVE_COMPACTION,
                                                       false);
         EXPECT_TRUE(st.ok());
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        for (int retry = 0; retry < 500; ++retry) {
+            bool metrics_are_consistent =
+                    _storage_engine->_cumu_compaction_thread_pool->num_active_threads() ==
+                            DorisMetrics::instance()
+                                    ->cumulative_compaction_task_running_total->value() &&
+                    _storage_engine->_cumu_compaction_thread_pool->get_queue_size() ==
+                            DorisMetrics::instance()
+                                    ->cumulative_compaction_task_pending_total->value() &&
+                    _storage_engine->_base_compaction_thread_pool->num_active_threads() ==
+                            DorisMetrics::instance()->base_compaction_task_running_total->value() &&
+                    _storage_engine->_base_compaction_thread_pool->get_queue_size() ==
+                            DorisMetrics::instance()->base_compaction_task_pending_total->value();
+            if (metrics_are_consistent) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
         EXPECT_EQ(_storage_engine->_cumu_compaction_thread_pool->num_active_threads(),
                   DorisMetrics::instance()->cumulative_compaction_task_running_total->value());
         EXPECT_EQ(_storage_engine->_cumu_compaction_thread_pool->get_queue_size(),
