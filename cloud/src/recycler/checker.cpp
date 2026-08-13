@@ -34,6 +34,7 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
@@ -2351,17 +2352,76 @@ int InstanceChecker::do_table_stream_check() {
                 return decode_key(&key, components) == 0 && components->size() == expected_size;
             };
 
-    std::unordered_map<int64_t, int> recycling_streams;
-    auto is_recycling = [&](int64_t stream_id) {
-        auto cached = recycling_streams.find(stream_id);
-        if (cached != recycling_streams.end()) {
-            return cached->second;
+    auto classify_recycle_index = [&](const RecycleIndexPB* recycle_index, int64_t base_db_id,
+                                      int64_t base_table_id, int64_t stream_db_id,
+                                      int64_t stream_id) {
+        if (recycle_index == nullptr) {
+            return 0;
         }
-        const int existence =
-                key_exist(txn_kv_.get(), recycle_index_key({instance_id_, stream_id}));
-        const int result = existence < 0 ? -1 : existence == 0;
-        recycling_streams.emplace(stream_id, result);
-        return result;
+        if (recycle_index->object_type() != TABLE_STREAM || !recycle_index->has_db_id() ||
+            recycle_index->db_id() != base_db_id || !recycle_index->has_table_id() ||
+            recycle_index->table_id() != base_table_id || !recycle_index->has_stream_db_id() ||
+            recycle_index->stream_db_id() != stream_db_id || !recycle_index->has_state()) {
+            LOG_WARNING("Recycle Index does not match Table Stream Offset")
+                    .tag("instance_id", instance_id_)
+                    .tag("stream_id", stream_id)
+                    .tag("recycle_index", recycle_index->ShortDebugString());
+            return 1;
+        }
+        switch (recycle_index->state()) {
+        case RecycleIndexPB::PREPARED:
+        case RecycleIndexPB::DROPPED:
+            return 0;
+        case RecycleIndexPB::RECYCLING:
+            return 2;
+        default:
+            LOG_WARNING("Recycle Index has invalid state for Table Stream Offset")
+                    .tag("instance_id", instance_id_)
+                    .tag("stream_id", stream_id)
+                    .tag("state", recycle_index->state());
+            return 1;
+        }
+    };
+
+    std::unordered_map<int64_t, std::optional<RecycleIndexPB>> recycle_indexes;
+    auto classify_cached_recycle_index = [&](int64_t base_db_id, int64_t base_table_id,
+                                             int64_t stream_db_id, int64_t stream_id) {
+        auto cached = recycle_indexes.find(stream_id);
+        if (cached == recycle_indexes.end()) {
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to create transaction for Recycle Index check")
+                        .tag("instance_id", instance_id_)
+                        .tag("stream_id", stream_id)
+                        .tag("error", err);
+                return -1;
+            }
+            std::string value;
+            err = txn->get(recycle_index_key({instance_id_, stream_id}), &value, true);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                cached = recycle_indexes.emplace(stream_id, std::nullopt).first;
+            } else if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to read Recycle Index during Table Stream Offset check")
+                        .tag("instance_id", instance_id_)
+                        .tag("stream_id", stream_id)
+                        .tag("error", err);
+                return -1;
+            } else {
+                RecycleIndexPB recycle_index;
+                if (!recycle_index.ParseFromString(value)) {
+                    LOG_WARNING("failed to parse Recycle Index during Table Stream Offset check")
+                            .tag("instance_id", instance_id_)
+                            .tag("stream_id", stream_id);
+                    return -1;
+                }
+                cached = recycle_indexes.emplace(stream_id, std::move(recycle_index)).first;
+            }
+        }
+        const RecycleIndexPB* recycle_index =
+                cached->second.has_value() ? &cached->second.value() : nullptr;
+        return classify_recycle_index(recycle_index, base_db_id, base_table_id, stream_db_id,
+                                      stream_id);
     };
 
     int check_ret = 0;
@@ -2383,14 +2443,7 @@ int InstanceChecker::do_table_stream_check() {
             return 1;
         }
 
-        const int recycling = is_recycling(stream_id);
-        if (recycling < 0) {
-            return -1;
-        }
-        if (recycling > 0) {
-            return 2;
-        }
-        return 0;
+        return classify_cached_recycle_index(base_db_id, base_table_id, stream_db_id, stream_id);
     };
 
     std::string begin = table_stream_offset_key({instance_id_, 0, 0, 0, 0, 0});
@@ -2525,9 +2578,20 @@ int InstanceChecker::do_table_stream_check() {
             std::string recycle_value;
             err = txn->get(recycle_index_key({instance_id_, stream_id}), &recycle_value, true);
             if (err == TxnErrorCode::TXN_OK) {
-                return 0;
+                RecycleIndexPB recycle_index;
+                if (!recycle_index.ParseFromString(recycle_value)) {
+                    LOG_WARNING("failed to parse Recycle Index during Table Stream Offset recheck")
+                            .tag("instance_id", instance_id_)
+                            .tag("stream_id", stream_id);
+                    return -1;
+                }
+                int action = classify_recycle_index(&recycle_index, base_db_id, base_table_id,
+                                                    stream_db_id, stream_id);
+                if (action != 0) {
+                    return action == 2 ? 0 : action;
+                }
             }
-            if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
                 LOG_WARNING("failed to read Recycle Index during Table Stream Offset recheck")
                         .tag("instance_id", instance_id_)
                         .tag("stream_id", stream_id)
