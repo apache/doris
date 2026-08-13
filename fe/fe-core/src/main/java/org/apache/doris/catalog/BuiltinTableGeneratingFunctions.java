@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.JsonEachTe
 import org.apache.doris.nereids.trees.expressions.functions.generator.JsonEachTextOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Stack;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 
 import com.google.common.collect.ImmutableList;
@@ -88,6 +89,7 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             tableGenerating(JsonEachTextOuter.class, "json_each_text_outer"),
             tableGenerating(PosExplode.class, "posexplode"),
             tableGenerating(PosExplodeOuter.class, "posexplode_outer"),
+            tableGenerating(Stack.class, "stack"),
             tableGenerating(Unnest.class, "unnest")
     );
 
@@ -99,7 +101,7 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             .add("explode_json_array_json_outer").add("explode_split").add("explode_split_outer")
             .add("json_each").add("json_each_outer")
             .add("json_each_text").add("json_each_text_outer")
-            .add("posexplode").add("posexplode_outer").build();
+            .add("posexplode").add("posexplode_outer").add("stack").build();
 
     public Set<String> getReturnManyColumnFunctions() {
         return RETURN_MULTI_COLUMNS_FUNCTIONS;
