@@ -24,6 +24,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "brpc/stream.h"
 #include "butil/iobuf.h"
@@ -128,17 +129,15 @@ public:
 
     Status init(const POpenLoadStreamRequest* request);
 
-    void add_source(int64_t src_id) {
+    void add_source(int64_t src_id, bool need_final_tablet_result) {
         std::lock_guard lock_guard(_lock);
+        // Mixed-version source BEs may omit the flag; enable fan-out if any source requests it.
+        _need_final_tablet_result |= need_final_tablet_result;
         _open_streams[src_id]++;
         if (_is_incremental) {
             _total_streams++;
         }
     }
-
-    // return true if all streams are closed, otherwise return false
-    bool close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
-               std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
     // callbacks called by brpc
     int on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) override;
@@ -148,9 +147,20 @@ public:
     friend std::ostream& operator<<(std::ostream& ostr, const LoadStream& load_stream);
 
 private:
+    struct CloseLoadResult {
+        std::vector<int64_t> success_tablet_ids;
+        FailedTablets failed_tablets;
+        std::vector<StreamId> streams_to_report;
+        std::vector<StreamId> streams_to_close;
+        bool report_current_stream = true;
+        bool report_final_result_on_current_stream = true;
+        bool close_current_stream = false;
+    };
+
     void _parse_header(butil::IOBuf* const message, PStreamHeader& hdr);
     void _dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data);
     Status _append_data(const PStreamHeader& header, butil::IOBuf* data);
+    CloseLoadResult _close_load(StreamId stream, const PStreamHeader& header);
 
     void _report_result(StreamId stream, const Status& status,
                         const std::vector<int64_t>& success_tablet_ids,
@@ -191,6 +201,8 @@ private:
     std::shared_ptr<ResourceContext> _resource_ctx;
     std::vector<int64_t> _closing_stream_ids;
     bool _is_incremental = false;
+    bool _need_final_tablet_result = false;
+    std::unordered_map<int64_t, StreamId> _final_result_stream_by_source;
 };
 
 using LoadStreamPtr = std::unique_ptr<LoadStream>;

@@ -320,7 +320,8 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreamStubs
                     { tablets_for_schema.clear(); });
     auto st = streams.open(_state->exec_env()->brpc_streaming_client_cache(), *node_info, _txn_id,
                            *_schema, tablets_for_schema, _total_streams, idle_timeout_ms,
-                           _state->enable_profile());
+                           _state->enable_profile(),
+                           _t_sink.olap_table_sink.__isset.cross_az_succ_quorum);
     if (!st.ok()) {
         LOG(WARNING) << "failed to open stream to backend " << dst_id
                      << ", load_id=" << print_id(_load_id) << ", err=" << st;
@@ -850,7 +851,8 @@ Status VTabletWriterV2::_close_wait(
         int64_t close_wait_version = _load_stream_map->close_wait_version();
         RETURN_IF_ERROR(_check_timeout());
         RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
-        bool quorum_success = _quorum_success(unfinished_streams, need_finish_tablets);
+        bool quorum_success = _quorum_success(unfinished_streams, need_finish_tablets,
+                                              need_wait_after_quorum_success);
         if (quorum_success || unfinished_streams.empty()) {
             LOG(INFO) << "quorum_success: " << quorum_success
                       << ", is all finished: " << unfinished_streams.empty()
@@ -898,7 +900,7 @@ Status VTabletWriterV2::_close_wait(
 
 bool VTabletWriterV2::_quorum_success(
         const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams,
-        const std::unordered_set<int64_t>& need_finish_tablets) {
+        const std::unordered_set<int64_t>& need_finish_tablets, bool final_close_stage) {
     if (!config::enable_quorum_success_write) {
         return false;
     }
@@ -924,7 +926,7 @@ bool VTabletWriterV2::_quorum_success(
         }
         if (finished) {
             finished_dst_ids.insert(dst_id);
-            if (table_sink.__isset.cross_az_succ_quorum) {
+            if (final_close_stage && table_sink.__isset.cross_az_succ_quorum) {
                 for (int64_t tablet_id : streams->success_tablets()) {
                     successful_dst_ids_by_tablet[tablet_id].insert(dst_id);
                 }
@@ -952,7 +954,7 @@ bool VTabletWriterV2::_quorum_success(
             return false;
         }
     }
-    if (table_sink.__isset.cross_az_succ_quorum) {
+    if (final_close_stage && table_sink.__isset.cross_az_succ_quorum) {
         for (int64_t tablet_id : need_finish_tablets) {
             const auto* tablet = _location->find_tablet(tablet_id);
             if (tablet == nullptr) {

@@ -153,7 +153,7 @@ private:
 
     bool _quorum_success(
             const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams,
-            const std::unordered_set<int64_t>& need_finish_tablets);
+            const std::unordered_set<int64_t>& need_finish_tablets, bool final_close_stage = true);
 
     int _load_required_replicas_num(int64_t tablet_id);
 

@@ -382,7 +382,8 @@ Status IndexChannel::close_wait(
         int64_t close_wait_version = this->close_wait_version();
         RETURN_IF_ERROR(check_each_node_channel_close(
                 &unfinished_node_channel_ids, node_add_batch_counter_map, writer_stats, status));
-        bool quorum_success = _quorum_success(unfinished_node_channel_ids, need_finish_tablets);
+        bool quorum_success = _quorum_success(unfinished_node_channel_ids, need_finish_tablets,
+                                              need_wait_after_quorum_success);
         if (unfinished_node_channel_ids.empty() || quorum_success) {
             LOG(INFO) << "quorum_success: " << quorum_success
                       << ", is all finished: " << unfinished_node_channel_ids.empty()
@@ -460,7 +461,8 @@ Status IndexChannel::check_each_node_channel_close(
 }
 
 bool IndexChannel::_quorum_success(const std::unordered_set<int64_t>& unfinished_node_channel_ids,
-                                   const std::unordered_set<int64_t>& need_finish_tablets) {
+                                   const std::unordered_set<int64_t>& need_finish_tablets,
+                                   bool check_cross_az) {
     if (!config::enable_quorum_success_write) {
         return false;
     }
@@ -493,29 +495,20 @@ bool IndexChannel::_quorum_success(const std::unordered_set<int64_t>& unfinished
     }
 
     const auto& table_sink = _parent->_t_sink.olap_table_sink;
-    if (table_sink.__isset.cross_az_succ_quorum) {
-        std::unordered_set<int64_t> finished_node_ids;
-        for (const auto& [node_id, node_channel] : _node_channels) {
-            if (!unfinished_node_channel_ids.contains(node_id) &&
-                node_channel->check_status().ok()) {
-                finished_node_ids.insert(node_id);
-            }
-        }
+    if (check_cross_az && table_sink.__isset.cross_az_succ_quorum) {
         for (int64_t tablet_id : need_finish_tablets) {
             const auto* tablet = _parent->_location->find_tablet(tablet_id);
             if (tablet == nullptr) {
                 continue;
             }
             std::unordered_set<int64_t> successful_node_ids;
-            {
-                std::lock_guard<std::mutex> l(_fail_lock);
-                const auto failed_it = _failed_channels.find(tablet_id);
-                for (int64_t node_id : tablet->node_ids) {
-                    if (finished_node_ids.contains(node_id) &&
-                        (failed_it == _failed_channels.end() ||
-                         !failed_it->second.contains(node_id))) {
-                        successful_node_ids.insert(node_id);
-                    }
+            for (int64_t node_id : tablet->node_ids) {
+                const auto node_channel = _node_channels.find(node_id);
+                if (node_channel != _node_channels.end() &&
+                    !unfinished_node_channel_ids.contains(node_id) &&
+                    node_channel->second->check_status().ok() &&
+                    node_channel->second->is_tablet_successful(tablet_id)) {
+                    successful_node_ids.insert(node_id);
                 }
             }
             const auto gap_it = _parent->_tablet_version_gap_backends.find(tablet_id);
@@ -1286,6 +1279,12 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
                         continue;
                     }
                 });
+                if (_parent->_t_sink.olap_table_sink.__isset.cross_az_succ_quorum) {
+                    _successful_tablet_ids.insert(tablet.tablet_id());
+                }
+                if (result.final_tablet_result_fanout()) {
+                    continue;
+                }
                 TTabletCommitInfo commit_info;
                 commit_info.tabletId = tablet.tablet_id();
                 commit_info.backendId = _node_id;
@@ -1506,6 +1505,9 @@ void VNodeChannel::mark_close(bool hang_wait) {
         }
         _cur_add_block_request->set_eos(true);
         _cur_add_block_request->set_hang_wait(hang_wait);
+        if (_parent->_t_sink.olap_table_sink.__isset.cross_az_succ_quorum) {
+            _cur_add_block_request->set_need_final_tablet_result(true);
+        }
         auto tmp_add_block_request =
                 std::make_shared<PTabletWriterAddBlockRequest>(*_cur_add_block_request);
         // when prepare to close, add block to queue so that try_send_pending_block thread will send it.

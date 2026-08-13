@@ -39,6 +39,10 @@
 #include "util/lru_cache.h"
 #include "util/uid_util.h"
 
+namespace google::protobuf {
+class Closure;
+}
+
 namespace doris {
 
 class PTabletWriterCancelRequest;
@@ -57,7 +61,8 @@ public:
     Status open(const PTabletWriterOpenRequest& request);
 
     Status add_batch(const PTabletWriterAddBlockRequest& request,
-                     PTabletWriterAddBlockResult* response);
+                     PTabletWriterAddBlockResult* response,
+                     google::protobuf::Closure** done = nullptr);
 
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
@@ -76,9 +81,10 @@ public:
 
 private:
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
-                             const UniqueId& load_id, const PTabletWriterAddBlockRequest& request);
+                             const UniqueId& load_id, const PTabletWriterAddBlockRequest& request,
+                             PTabletWriterAddBlockResult* response);
 
-    void _finish_load_channel(UniqueId load_id);
+    void _finish_load_channel(UniqueId load_id, const std::shared_ptr<LoadChannel>& channel);
 
     Status _start_bg_worker();
 
@@ -98,6 +104,23 @@ private:
 
     using CacheValue = LoadStateChannelCache::CacheValue;
 
+    class FinalTabletResultCache : public LRUCachePolicy {
+    public:
+        static constexpr size_t MAX_ENTRIES = 1024;
+        static constexpr size_t MAX_BYTES = 64 * 1024 * 1024;
+
+        class CacheValue : public LRUCacheValueBase {
+        public:
+            std::unordered_map<int64_t, LoadChannel::FinalTabletResult> _results;
+        };
+
+        FinalTabletResultCache()
+                : LRUCachePolicy(CachePolicy::CacheType::LOAD_FINAL_TABLET_RESULT_CACHE, MAX_BYTES,
+                                 LRUCacheType::SIZE, /*sweep time*/ -1, /*num shards*/ 1,
+                                 /*element capacity*/ MAX_ENTRIES, /*enable prune */ true,
+                                 /*is lru k*/ false) {}
+    };
+
 protected:
     // lock protect the load channel map
     std::mutex _lock;
@@ -105,6 +128,7 @@ protected:
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
     // load id window, remember the recently initiated load id, regardless of whether they succeed or fail
     std::unique_ptr<LoadStateChannelCache> _load_state_channels;
+    std::unique_ptr<FinalTabletResultCache> _final_tablet_result_cache;
 
     MemTableMemoryLimiter* _memtable_memory_limiter = nullptr;
 

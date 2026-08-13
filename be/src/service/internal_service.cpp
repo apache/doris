@@ -516,21 +516,28 @@ void PInternalService::tablet_writer_add_block(google::protobuf::RpcController* 
                                                PTabletWriterAddBlockResult* response,
                                                google::protobuf::Closure* done) {
     int64_t submit_task_time_ns = MonotonicNanos();
-    bool ret = _heavy_work_pool.try_offer([request, response, done, submit_task_time_ns, this]() {
+    bool ret = _heavy_work_pool.try_offer([request, response, done, submit_task_time_ns,
+                                           this]() mutable {
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
-        brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;
+        brpc::ClosureGuard closure_guard(done);
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
             signal::SignalTaskIdKeeper keeper(request->id());
-            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
+            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response, &done);
+            if (done == nullptr) {
+                closure_guard.release();
+                return;
+            }
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add block failed, message=" << st
                              << ", id=" << request->id() << ", index_id=" << request->index_id()
                              << ", sender_id=" << request->sender_id()
                              << ", backend id=" << request->backend_id();
             }
-            st.to_protobuf(response->mutable_status());
+            if (!st.ok() || !response->has_status()) {
+                st.to_protobuf(response->mutable_status());
+            }
         }
         response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
         response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);

@@ -192,6 +192,7 @@ message PTabletWriterAddBlockRequest {
     // Per-row row-binlog LSNs allocated by olap table sink. The order is the same
     // as rows in block/tablet_ids.
     repeated int64 row_binlog_lsns = 17;
+    optional bool need_final_tablet_result = 18 [default = false];
 };
 
 message PSlaveTabletNodes {
@@ -224,6 +225,7 @@ message PTabletWriterAddBlockResult {
     repeated PTabletError tablet_errors = 6;
     map<int64, PSuccessSlaveTabletNodeIds> success_slave_tablet_node_ids = 7;
     optional bytes load_channel_profile = 8;
+    optional bool final_tablet_result_fanout = 9 [default = false];
 
     // For cloud
     optional int64 build_rowset_latency_ms = 1000;
@@ -1017,6 +1019,7 @@ message POpenLoadStreamRequest {
     optional bool enable_profile = 6 [default = false];
     optional int64 total_streams = 7;
     optional int64 idle_timeout_ms = 8;
+    optional bool need_final_tablet_result = 9 [default = false];
 }
 
 message PTabletSchemaWithIndex {

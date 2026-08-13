@@ -59,7 +59,7 @@ Status LoadStreamMgr::open_load_stream(const POpenLoadStreamRequest* request,
             load_stream = p.get();
             _load_streams_map[load_id] = std::move(p);
         }
-        load_stream->add_source(request->src_id());
+        load_stream->add_source(request->src_id(), request->need_final_tablet_result());
     }
     return Status::OK();
 }

@@ -75,6 +75,7 @@ void LoadChannelMgr::stop() {
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     _load_state_channels = std::make_unique<LoadStateChannelCache>(1024);
+    _final_tablet_result_cache = std::make_unique<FinalTabletResultCache>();
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }
@@ -112,7 +113,8 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 
 Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                                          const UniqueId& load_id,
-                                         const PTabletWriterAddBlockRequest& request) {
+                                         const PTabletWriterAddBlockRequest& request,
+                                         PTabletWriterAddBlockResult* response) {
     is_eof = false;
     std::lock_guard<std::mutex> l(_lock);
     auto it = _load_channels.find(load_id);
@@ -121,7 +123,8 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
         if (handle != nullptr) {
             // load is cancelled
             if (auto* value = _load_state_channels->value(handle); value != nullptr) {
-                const auto& cancel_reason = reinterpret_cast<CacheValue*>(value)->_cancel_reason;
+                const auto* cache_value = reinterpret_cast<CacheValue*>(value);
+                const auto& cancel_reason = cache_value->_cancel_reason;
                 _load_state_channels->release(handle);
                 if (!cancel_reason.empty()) {
                     LOG(INFO) << fmt::format(
@@ -133,6 +136,31 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
                 // load is success, success only when eos be true
                 _load_state_channels->release(handle);
                 if (request.has_eos() && request.eos()) {
+                    if (request.need_final_tablet_result()) {
+                        auto* result_handle =
+                                _final_tablet_result_cache->lookup(load_id.to_string());
+                        if (result_handle == nullptr) {
+                            LOG(WARNING) << "Final tablet result is unavailable for retried load "
+                                         << load_id;
+                            is_eof = true;
+                            return Status::OK();
+                        }
+                        const auto* result_cache_value =
+                                reinterpret_cast<FinalTabletResultCache::CacheValue*>(
+                                        _final_tablet_result_cache->value(result_handle));
+                        const auto result = result_cache_value->_results.find(request.index_id());
+                        if (result == result_cache_value->_results.end()) {
+                            _final_tablet_result_cache->release(result_handle);
+                            LOG(WARNING) << "Final tablet result is unavailable for retried load "
+                                         << load_id << ", index_id=" << request.index_id();
+                            is_eof = true;
+                            return Status::OK();
+                        }
+                        response->CopyFrom(result->second.result);
+                        response->set_final_tablet_result_fanout(request.sender_id() !=
+                                                                 result->second.owner_sender_id);
+                        _final_tablet_result_cache->release(result_handle);
+                    }
                     is_eof = true;
                     return Status::OK();
                 }
@@ -145,16 +173,20 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
                 load_id.to_string());
     }
     channel = it->second;
+    if (request.eos() && request.need_final_tablet_result()) {
+        channel->_reserve_final_tablet_result(request.index_id());
+    }
     return Status::OK();
 }
 
 Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
-                                 PTabletWriterAddBlockResult* response) {
+                                 PTabletWriterAddBlockResult* response,
+                                 google::protobuf::Closure** done) {
     UniqueId load_id(request.id());
     // 1. get load channel
     std::shared_ptr<LoadChannel> channel;
     bool is_eof;
-    auto status = _get_load_channel(channel, is_eof, load_id, request);
+    auto status = _get_load_channel(channel, is_eof, load_id, request, response);
     if (!status.ok() || is_eof) {
         return status;
     }
@@ -175,27 +207,76 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
     // 3. add batch to load channel
     // batch may not exist in request(eg: eos request without batch),
     // this case will be handled in load channel's add batch method.
-    Status st = channel->add_batch(request, response);
+    Status st = channel->add_batch(request, response, done);
     if (UNLIKELY(!st.ok())) {
-        RETURN_IF_ERROR(channel->cancel());
+        RETURN_IF_ERROR(channel->cancel(st));
         return st;
     }
 
     // 4. handle finish
     if (channel->is_finished()) {
-        _finish_load_channel(load_id);
+        _finish_load_channel(load_id, channel);
     }
     return Status::OK();
 }
 
-void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
+void LoadChannelMgr::_finish_load_channel(const UniqueId load_id,
+                                          const std::shared_ptr<LoadChannel>& channel) {
     VLOG_NOTICE << "removing load channel " << load_id << " because it's finished";
+    const std::string cache_key = load_id.to_string();
+    bool need_final_tablet_result = false;
     {
         std::lock_guard<std::mutex> l(_lock);
-        if (_load_channels.contains(load_id)) {
-            _load_channels.erase(load_id);
+        const auto channel_it = _load_channels.find(load_id);
+        if (channel_it == _load_channels.end() || channel_it->second != channel) {
+            return;
         }
-        auto* handle = _load_state_channels->insert(load_id.to_string(), nullptr, 1, 1);
+        need_final_tablet_result = channel->need_final_tablet_result();
+        if (!need_final_tablet_result) {
+            _load_channels.erase(channel_it);
+            auto* handle = _load_state_channels->insert(cache_key, nullptr, 1, 1);
+            _load_state_channels->release(handle);
+        }
+    }
+    if (!need_final_tablet_result) {
+        VLOG_CRITICAL << "removed load channel " << load_id;
+        return;
+    }
+
+    std::unique_ptr<FinalTabletResultCache::CacheValue> cache_value;
+    size_t cache_size = 0;
+    std::unordered_map<int64_t, LoadChannel::FinalTabletResult> final_tablet_results;
+    bool oversized = false;
+    size_t result_bytes = 0;
+    const size_t cache_overhead =
+            sizeof(FinalTabletResultCache::CacheValue) + sizeof(LRUHandle) - 1 + cache_key.size();
+    const bool ready = channel->copy_final_tablet_results(
+            &final_tablet_results, FinalTabletResultCache::MAX_BYTES - cache_overhead, &oversized,
+            &result_bytes);
+    if (ready && !oversized && !final_tablet_results.empty()) {
+        cache_value = std::make_unique<FinalTabletResultCache::CacheValue>();
+        cache_value->_results = std::move(final_tablet_results);
+        cache_size = sizeof(FinalTabletResultCache::CacheValue) + result_bytes;
+    } else if (!ready || oversized) {
+        LOG(WARNING) << "Skip caching final tablet result for load " << load_id
+                     << ", ready=" << ready << ", oversized=" << oversized;
+    }
+
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        const auto channel_it = _load_channels.find(load_id);
+        if (channel_it == _load_channels.end() || channel_it->second != channel) {
+            return;
+        }
+        _load_channels.erase(channel_it);
+        _final_tablet_result_cache->erase(cache_key);
+        if (cache_value != nullptr) {
+            auto* result_handle = _final_tablet_result_cache->insert(cache_key, cache_value.get(),
+                                                                     cache_size, cache_size);
+            cache_value.release();
+            _final_tablet_result_cache->release(result_handle);
+        }
+        auto* handle = _load_state_channels->insert(cache_key, nullptr, 1, 1);
         _load_state_channels->release(handle);
     }
     VLOG_CRITICAL << "removed load channel " << load_id;
@@ -231,7 +312,10 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
     }
 
     if (cancelled_channel != nullptr) {
-        RETURN_IF_ERROR(cancelled_channel->cancel());
+        const Status reason = params.has_cancel_reason()
+                                      ? Status::Cancelled(params.cancel_reason())
+                                      : Status::Cancelled("Load channel cancelled");
+        RETURN_IF_ERROR(cancelled_channel->cancel(reason));
         LOG(INFO) << "load channel has been cancelled: " << load_id;
     }
 
@@ -279,7 +363,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
     // otherwise some object may be invalid before trying to visit it.
     // eg: MemTracker in load channel
     for (auto& channel : need_delete_channels) {
-        RETURN_IF_ERROR(channel->cancel());
+        RETURN_IF_ERROR(channel->cancel(Status::TimedOut("Load channel timed out")));
         LOG(INFO) << "load channel has been safely deleted: " << channel->load_id()
                   << ", timeout(s): " << channel->timeout();
     }

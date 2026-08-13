@@ -491,38 +491,80 @@ Status LoadStream::init(const POpenLoadStreamRequest* request) {
         _index_streams_map[index.id()] = std::make_shared<IndexStream>(
                 _load_id, index.id(), _txn_id, _schema, _load_stream_mgr, _profile.get());
     }
+    _need_final_tablet_result = request->need_final_tablet_result();
     LOG(INFO) << "succeed to init load stream " << *this;
     return Status::OK();
 }
 
-bool LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
-                       std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablets) {
+LoadStream::CloseLoadResult LoadStream::_close_load(StreamId stream, const PStreamHeader& header) {
+    CloseLoadResult result;
+    const int64_t src_id = header.src_id();
     std::lock_guard<bthread::Mutex> lock_guard(_lock);
     SCOPED_TIMER(_close_wait_timer);
 
     // we do nothing until recv CLOSE_LOAD from all stream to ensure all data are handled before ack
-    _open_streams[src_id]--;
-    if (_open_streams[src_id] == 0) {
+    auto& source_streams = _open_streams[src_id];
+    source_streams--;
+    const bool last_stream_from_source = source_streams == 0;
+    if (last_stream_from_source) {
         _open_streams.erase(src_id);
     }
     _close_load_cnt++;
     LOG(INFO) << "received CLOSE_LOAD from sender " << src_id << ", remaining "
               << _total_streams - _close_load_cnt << " senders, " << *this;
 
-    _tablets_to_commit.insert(_tablets_to_commit.end(), tablets_to_commit.begin(),
-                              tablets_to_commit.end());
+    _tablets_to_commit.insert(_tablets_to_commit.end(), header.tablets().begin(),
+                              header.tablets().end());
 
-    if (_close_load_cnt < _total_streams) {
-        // do not return commit info if there is remaining streams.
-        return false;
+    const bool all_closed = _close_load_cnt == _total_streams;
+    const bool waits_for_incremental_streams =
+            header.has_num_incremental_streams() && header.num_incremental_streams() > 0;
+
+    if (_need_final_tablet_result) {
+        // Retain one stream per source so every source receives the global tablet outcome.
+        // Additional physical streams only need an empty EOS.
+        const auto [_, is_representative] =
+                _final_result_stream_by_source.try_emplace(src_id, stream);
+        if (is_representative) {
+            result.report_current_stream = false;
+        } else {
+            result.report_final_result_on_current_stream = false;
+            if (waits_for_incremental_streams) {
+                _closing_stream_ids.push_back(stream);
+            } else {
+                result.close_current_stream = true;
+            }
+        }
+    } else if (waits_for_incremental_streams) {
+        _closing_stream_ids.push_back(stream);
+    } else {
+        result.close_current_stream = true;
+    }
+
+    if (!all_closed) {
+        return result;
     }
 
     for (auto& [_, index_stream] : _index_streams_map) {
-        index_stream->close(_tablets_to_commit, success_tablet_ids, failed_tablets);
+        index_stream->close(_tablets_to_commit, &result.success_tablet_ids, &result.failed_tablets);
     }
-    LOG(INFO) << "close load " << *this << ", success_tablet_num=" << success_tablet_ids->size()
-              << ", failed_tablet_num=" << failed_tablets->size();
-    return true;
+    LOG(INFO) << "close load " << *this
+              << ", success_tablet_num=" << result.success_tablet_ids.size()
+              << ", failed_tablet_num=" << result.failed_tablets.size();
+
+    result.streams_to_report.reserve(_final_result_stream_by_source.size());
+    result.streams_to_close.reserve(_closing_stream_ids.size() +
+                                    _final_result_stream_by_source.size());
+    for (const auto& [_, final_result_stream] : _final_result_stream_by_source) {
+        result.streams_to_report.push_back(final_result_stream);
+        result.streams_to_close.push_back(final_result_stream);
+    }
+    _final_result_stream_by_source.clear();
+
+    result.streams_to_close.insert(result.streams_to_close.end(), _closing_stream_ids.begin(),
+                                   _closing_stream_ids.end());
+    _closing_stream_ids.clear();
+    return result;
 }
 
 void LoadStream::_report_result(StreamId stream, const Status& status,
@@ -759,27 +801,24 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     } break;
     case PStreamHeader::CLOSE_LOAD: {
         DBUG_EXECUTE_IF("LoadStream.close_load.block", DBUG_BLOCK);
-        std::vector<int64_t> success_tablet_ids;
-        FailedTablets failed_tablets;
-        std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
-        bool all_closed =
-                close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
-        _report_result(id, Status::OK(), success_tablet_ids, failed_tablets, true);
-        std::lock_guard<bthread::Mutex> lock_guard(_lock);
-        // if incremental stream, we need to wait for all non-incremental streams to be closed
-        // before closing incremental streams. We need a fencing mechanism to avoid use after closing
-        // across different be.
-        if (hdr.has_num_incremental_streams() && hdr.num_incremental_streams() > 0) {
-            _closing_stream_ids.push_back(id);
-        } else {
+        auto result = _close_load(id, hdr);
+        if (result.report_current_stream) {
+            if (result.report_final_result_on_current_stream) {
+                _report_result(id, Status::OK(), result.success_tablet_ids, result.failed_tablets,
+                               true);
+            } else {
+                _report_result(id, Status::OK(), {}, {}, true);
+            }
+        }
+        for (auto stream : result.streams_to_report) {
+            _report_result(stream, Status::OK(), result.success_tablet_ids, result.failed_tablets,
+                           true);
+        }
+        if (result.close_current_stream) {
             brpc::StreamClose(id);
         }
-
-        if (all_closed) {
-            for (auto& closing_id : _closing_stream_ids) {
-                brpc::StreamClose(closing_id);
-            }
-            _closing_stream_ids.clear();
+        for (auto stream : result.streams_to_close) {
+            brpc::StreamClose(stream);
         }
     } break;
     case PStreamHeader::GET_SCHEMA: {

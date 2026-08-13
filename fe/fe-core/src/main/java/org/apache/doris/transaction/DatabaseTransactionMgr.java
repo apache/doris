@@ -497,6 +497,7 @@ public class DatabaseTransactionMgr {
         Map<Long, Table> idToTable = new HashMap<>();
         Map<String, Integer> crossAzSuccQuorum = Config.getCrossAzSuccQuorum();
         Map<Long, String> backendLocationTags = crossAzSuccQuorum.isEmpty() ? Map.of() : new HashMap<>();
+        Map<String, Integer> loadReplicaNumByAz = crossAzSuccQuorum.isEmpty() ? Map.of() : new HashMap<>();
         for (int i = 0; i < tableList.size(); i++) {
             idToTable.put(tableList.get(i).getId(), tableList.get(i));
         }
@@ -618,6 +619,9 @@ public class DatabaseTransactionMgr {
                         tabletSuccReplicas.clear();
                         tabletWriteFailedReplicas.clear();
                         tabletVersionFailedReplicas.clear();
+                        if (!crossAzSuccQuorum.isEmpty()) {
+                            loadReplicaNumByAz.clear();
+                        }
                         long tabletId = tablet.getId();
                         Set<Long> tabletBackends = tablet.getBackendIds();
                         totalInvolvedBackends.addAll(tabletBackends);
@@ -625,16 +629,23 @@ public class DatabaseTransactionMgr {
                         // save the error replica ids for current tablet
                         // this param is used for log
                         for (long tabletBackend : tabletBackends) {
+                            Replica replica = tabletInvertedIndex.getReplica(tabletId, tabletBackend);
+                            if (replica == null) {
+                                throw new TransactionCommitFailedException("could not find replica for tablet ["
+                                        + tabletId + "], backend [" + tabletBackend + "]");
+                            }
                             if (!crossAzSuccQuorum.isEmpty()) {
                                 backendLocationTags.computeIfAbsent(tabletBackend, backendId -> {
                                     Backend backend = env.getCurrentSystemInfo().getBackend(backendId);
                                     return backend == null ? "" : backend.getLocationTag().value;
                                 });
-                            }
-                            Replica replica = tabletInvertedIndex.getReplica(tabletId, tabletBackend);
-                            if (replica == null) {
-                                throw new TransactionCommitFailedException("could not find replica for tablet ["
-                                        + tabletId + "], backend [" + tabletBackend + "]");
+                                boolean canLoad = replica.getState().canLoad()
+                                        || (replica.getState() == Replica.ReplicaState.DECOMMISSION
+                                        && replica.getPostWatermarkTxnId() < 0
+                                        && replica.getLastFailedVersion() < 0);
+                                if (canLoad) {
+                                    loadReplicaNumByAz.merge(backendLocationTags.get(tabletBackend), 1, Integer::sum);
+                                }
                             }
 
                             // if the tablet have no replica's to commit or the tablet is a rolling up tablet,
@@ -682,12 +693,7 @@ public class DatabaseTransactionMgr {
 
                         for (Entry<String, Integer> entry : crossAzSuccQuorum.entrySet()) {
                             String az = entry.getKey();
-                            int replicaNumInAz = 0;
-                            for (long backendId : tabletBackends) {
-                                if (az.equals(backendLocationTags.get(backendId))) {
-                                    replicaNumInAz++;
-                                }
-                            }
+                            int replicaNumInAz = loadReplicaNumByAz.getOrDefault(az, 0);
                             int requiredInAz = Math.min(entry.getValue(), replicaNumInAz);
                             if (requiredInAz == 0) {
                                 continue;
