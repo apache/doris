@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
@@ -73,6 +74,7 @@ import org.apache.iceberg.util.SerializationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.ZoneId;
@@ -207,6 +209,87 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertTrue(ranges.isEmpty());
         Assertions.assertEquals("db1", ops.lastLoadDb);
         Assertions.assertEquals("t1", ops.lastLoadTable);
+    }
+
+    @Test
+    public void planScanMissingMetadataFileHasStableTableError() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.loadTableFailure = new RuntimeException(
+                "Failed to open input stream", new FileNotFoundException("missing metadata file"));
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), ops);
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(null, ConnectorScanRequest.builder(
+                        new IcebergTableHandle("default", "missing_table"), Collections.emptyList()).build()));
+        Assertions.assertTrue(ex.getMessage().contains(
+                "Metadata not found in metadata location for table default.missing_table"), ex.getMessage());
+    }
+
+    @Test
+    public void planScanMissingManifestListHasStableTableError() {
+        Table table = createTable("missing_manifest_list", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/missing_manifest_list/f1.parquet", 1024, null, null)).commit();
+        table.io().deleteFile(table.currentSnapshot().manifestListLocation());
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(emptySession(), ConnectorScanRequest.builder(
+                        new IcebergTableHandle("db1", "missing_manifest_list"), Collections.emptyList()).build()));
+        Assertions.assertTrue(ex.getMessage().contains(
+                "Metadata not found in metadata location for table db1.missing_manifest_list"), ex.getMessage());
+    }
+
+    @Test
+    public void streamingMissingManifestListHasStableTableError() {
+        Table table = createTable("missing_stream_manifest", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/missing_stream_manifest/f1.parquet", 1024, null, null)).commit();
+        table.io().deleteFile(table.currentSnapshot().manifestListLocation());
+        IcebergScanPlanProvider provider = providerOver(table);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "missing_stream_manifest");
+
+        DorisConnectorException estimate = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.streamingSplitEstimate(batchSession(1, true), handle, Optional.empty(), false));
+        Assertions.assertTrue(estimate.getMessage().contains(
+                "Metadata not found in metadata location for table db1.missing_stream_manifest"),
+                estimate.getMessage());
+
+        DorisConnectorException lazy = Assertions.assertThrows(DorisConnectorException.class, () -> {
+            try (ConnectorSplitSource source = provider.streamSplits(
+                    emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L)) {
+                source.hasNext();
+            }
+        });
+        Assertions.assertTrue(lazy.getMessage().contains(
+                "Metadata not found in metadata location for table db1.missing_stream_manifest"),
+                lazy.getMessage());
+    }
+
+    @Test
+    public void scanPropertiesMissingDeleteManifestHasStableTableError() {
+        Schema schema = new Schema(
+                Arrays.asList(
+                        Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                        Types.NestedField.optional(2, "name", Types.StringType.get())),
+                Collections.singleton(1));
+        Table table = createTable("missing_delete_manifest", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/missing_delete_manifest/f1.parquet", 1024, null, null)).commit();
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/missing_delete_manifest/eq.parquet", FileFormat.PARQUET, 1)).commit();
+        String deleteManifest = table.currentSnapshot().deleteManifests(table.io()).get(0).path().toString();
+        table.io().deleteFile(deleteManifest);
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.getScanNodeProperties(emptySession(),
+                        new IcebergTableHandle("db1", "missing_delete_manifest"),
+                        Collections.singletonList(new IcebergColumnHandle("name", 2)), Optional.empty()));
+        Assertions.assertTrue(ex.getMessage().contains(
+                "Metadata not found in metadata location for table db1.missing_delete_manifest"), ex.getMessage());
     }
 
     @Test
@@ -1356,6 +1439,23 @@ public class IcebergScanPlanProviderTest {
                         IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
                         cols)
                 .build());
+    }
+
+    @Test
+    public void positionDeletesMissingManifestListHasStableTableError() {
+        DeleteFile deleteFile = FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())
+                .ofPositionDeletes()
+                .withPath("s3://b/db/t1/pos-delete.parquet")
+                .withFileSizeInBytes(100)
+                .withRecordCount(1)
+                .build();
+        Table table = tableWithPositionDelete(deleteFile);
+        table.io().deleteFile(table.currentSnapshot().manifestListLocation());
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planPositionDeletes(table, Collections.emptyList()));
+        Assertions.assertTrue(ex.getMessage().contains(
+                "Metadata not found in metadata location for table db1.t1"), ex.getMessage());
     }
 
     @Test
