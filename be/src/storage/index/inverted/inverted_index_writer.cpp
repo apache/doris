@@ -17,6 +17,10 @@
 
 #include "storage/index/inverted/inverted_index_writer.h"
 
+#include <algorithm>
+#include <cstring>
+
+#include "common/cast_set.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
@@ -31,6 +35,46 @@ const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
 const float MAXMBSortInHeap = 512.0 * 8;
 const int DIMS = 1;
+
+namespace {
+
+int64_t index_writer_memory_size(const std::unique_ptr<lucene::index::IndexWriter>& index_writer) {
+    if (index_writer == nullptr) {
+        return 0;
+    }
+    return index_writer->ramSizeInBytes();
+}
+
+int64_t ram_directory_memory_size(const std::shared_ptr<DorisFSDirectory>& dir) {
+    if (dir == nullptr || std::strcmp(dir->getObjectName(), "DorisRAMFSDirectory") != 0) {
+        return 0;
+    }
+
+    int64_t size = 0;
+    std::vector<std::string> files;
+    dir->list(&files);
+    for (const auto& file : files) {
+        size += dir->fileLength(file.c_str());
+    }
+    return size;
+}
+
+bool is_fs_directory(const std::shared_ptr<DorisFSDirectory>& dir) {
+    return dir != nullptr && std::strcmp(dir->getObjectName(), "DorisFSDirectory") == 0;
+}
+
+float index_writer_ram_buffer_size(const std::shared_ptr<DorisFSDirectory>& dir,
+                                   bool should_analyzer) {
+    auto ram_buffer_size = config::inverted_index_ram_buffer_size;
+    if (should_analyzer && is_fs_directory(dir) && ram_buffer_size > 0 &&
+        config::inverted_index_ram_buffer_size_when_ram_dir_disabled > 0) {
+        ram_buffer_size = std::min(ram_buffer_size,
+                                   config::inverted_index_ram_buffer_size_when_ram_dir_disabled);
+    }
+    return static_cast<float>(ram_buffer_size);
+}
+
+} // namespace
 
 template <FieldType field_type>
 InvertedIndexColumnWriter<field_type>::InvertedIndexColumnWriter(const std::string& field_name,
@@ -141,7 +185,7 @@ InvertedIndexColumnWriter<field_type>::create_index_writer() {
                     { index_writer->setMaxBufferedDocs(1); })
     DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_index_writer_setMergeFactor_error",
                     { index_writer->setMergeFactor(1); })
-    index_writer->setRAMBufferSizeMB(static_cast<float>(config::inverted_index_ram_buffer_size));
+    index_writer->setRAMBufferSizeMB(index_writer_ram_buffer_size(_dir, _should_analyzer));
     index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
     index_writer->setMaxFieldLength(MAX_FIELD_LEN);
     index_writer->setMergeFactor(MERGE_FACTOR);
@@ -566,8 +610,14 @@ Status InvertedIndexColumnWriter<field_type>::add_value(const CppType& value) {
 
 template <FieldType field_type>
 int64_t InvertedIndexColumnWriter<field_type>::size() const {
-    //TODO: get memory size of inverted index
-    return 0;
+    int64_t size = cast_set<int64_t>(_null_bitmap.getSizeInBytes(false));
+    if constexpr (field_is_slice_type(field_type)) {
+        if (_should_analyzer) {
+            size += index_writer_memory_size(_index_writer);
+        }
+    }
+    size += ram_directory_memory_size(_dir);
+    return size;
 }
 
 template <FieldType field_type>
