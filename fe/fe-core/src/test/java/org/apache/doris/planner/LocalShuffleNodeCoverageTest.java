@@ -930,7 +930,7 @@ public class LocalShuffleNodeCoverageTest {
     public void testAggregationNodeNoPartitionFinalizeStaysNoRequire() {
         // COUNT(*)-style agg (no group keys, no DISTINCT aggregates) genuinely has no
         // partition requirement: the input distribution is irrelevant.
-        AggContext agg = buildAggContext(Collections.emptyList(), /* groupByExprs */ true,
+        AggContext agg = buildAggContext(Collections.singletonList(plainAggregateFunction("count")), /* groupByExprs */ true,
                 /* merge */ true, /* needsFinalize */ true, LocalExchangeType.NOOP, null);
         Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
                 agg.ctx, null, LocalExchangeTypeRequire.noRequire());
@@ -993,7 +993,7 @@ public class LocalShuffleNodeCoverageTest {
     public void testAggregationNodeGroupByFinalizeRequiresHash() {
         // GROUP BY finalize agg requires hash input; when the parent has no hash
         // requirement the semantic partition exprs (group keys) drive the decision.
-        AggContext agg = buildAggContext(Collections.emptyList(), /* groupByExprs */ false,
+        AggContext agg = buildAggContext(Collections.singletonList(plainAggregateFunction("count")), /* groupByExprs */ false,
                 /* merge */ true, /* needsFinalize */ true, LocalExchangeType.NOOP, null);
         Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
                 agg.ctx, null, LocalExchangeTypeRequire.noRequire());
@@ -1030,12 +1030,12 @@ public class LocalShuffleNodeCoverageTest {
         Assertions.assertTrue(distinctAgg.node.requiresShuffleForCorrectness(),
                 "distinct finalize agg must require shuffle for correctness");
 
-        AggContext noPartitionAgg = buildAggContext(Collections.emptyList(), /* groupByExprs */ true,
+        AggContext noPartitionAgg = buildAggContext(Collections.singletonList(plainAggregateFunction("count")), /* groupByExprs */ true,
                 /* merge */ true, /* needsFinalize */ true, LocalExchangeType.NOOP, null);
         Assertions.assertFalse(noPartitionAgg.node.requiresShuffleForCorrectness(),
                 "COUNT(*) finalize agg has no partition requirement");
 
-        AggContext groupByAgg = buildAggContext(Collections.emptyList(), /* groupByExprs */ false,
+        AggContext groupByAgg = buildAggContext(Collections.singletonList(plainAggregateFunction("count")), /* groupByExprs */ false,
                 /* merge */ true, /* needsFinalize */ true, LocalExchangeType.NOOP, null);
         Assertions.assertTrue(groupByAgg.node.requiresShuffleForCorrectness(),
                 "GROUP BY finalize agg must require shuffle for correctness");
@@ -1045,6 +1045,25 @@ public class LocalShuffleNodeCoverageTest {
                 LocalExchangeType.NOOP, KEYED_DISTRIBUTE_EXPRS);
         Assertions.assertFalse(localAgg.node.requiresShuffleForCorrectness(),
                 "non-finalize agg does not require shuffle for correctness");
+    }
+
+    @Test
+    public void testAggregationNodeInheritedShuffleUsesChildDistributeExprs() {
+        // An intermediate agg that inherits a shuffle-for-correctness ancestor (e.g.
+        // DISTINCT_GLOBAL/FIRST_MERGE chain above a Union) keeps the child distribute
+        // exprs as its hash key even though the agg itself has no DISTINCT functions.
+        // Dropping the inherited half of selfOrInheritedShuffled must fail this test.
+        AggContext agg = buildAggContext(
+                Collections.singletonList(plainAggregateFunction("count")), /* groupByExprs */ true,
+                /* merge */ true, /* needsFinalize */ true, LocalExchangeType.NOOP,
+                KEYED_DISTRIBUTE_EXPRS);
+        Mockito.when(agg.ctx.hasShuffleForCorrectnessAncestor(agg.node)).thenReturn(true);
+        Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                agg.ctx, null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeNode.RequireHash.class, agg.child.lastRequire.getClass(),
+                "inherited shuffle ancestor must keep the hash demand");
+        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second);
+        assertChildLocalExchangeType(agg.node, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
     }
 
     /** A non-empty child distribute expr list, as fragment planning sets for a keyed DISTINCT agg. */
