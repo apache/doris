@@ -421,6 +421,12 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
     case InvertedIndexQueryType::RANGE_QUERY:
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SNII inverted index storage format does not support BKD/range query");
+    case InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY:
+        // SNII has no native edge-phrase operator yet. V3 answers this through
+        // PhraseEdgeQuery, and a row implementation exists (match_phrase_edge), so
+        // downgrade to scalar evaluation instead of failing the query outright.
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "SNII does not implement MATCH_PHRASE_EDGE; evaluating by function");
     default:
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SNII unsupported inverted index query type {}", query_type_to_string(query_type));

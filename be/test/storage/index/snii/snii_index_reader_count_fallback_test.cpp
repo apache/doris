@@ -775,6 +775,40 @@ TEST_F(SniiIndexReaderCountFallback, PublicPhraseQueryLeaderRecordsPrxWork) {
     EXPECT_GT(execution.stats.snii_stats.prx_total_docs, 0);
 }
 
+TEST_F(SniiIndexReaderCountFallback, PublicPhraseEdgeQueryDowngradesToEvaluateSkipped) {
+    // SNII has no native edge-phrase operator yet; V3 answers MATCH_PHRASE_EDGE_QUERY via
+    // PhraseEdgeQuery and a row implementation exists (match_phrase_edge), so the SNII reader
+    // must downgrade to scalar evaluation instead of failing the query outright.
+    // INVERTED_INDEX_NOT_SUPPORTED is accepted by neither the top-level fallback
+    // (segment_iterator.cpp _downgrade_without_index) nor the compound fallback
+    // (vsearch.cpp search_status_allows_row_fallback), so returning it here turns this
+    // predicate into a deterministic query error despite enable_fallback_on_missing_inverted_index.
+    QueryExecutionContext execution(/*enable_query_cache=*/false);
+    Field query_value = Field::create_field<TYPE_STRING>(std::string("failed order"));
+    std::shared_ptr<roaring::Roaring> bitmap;
+
+    const Status status =
+            _index_reader->query(execution.context, "content", query_value,
+                                 InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY, bitmap);
+
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED) << status;
+}
+
+TEST_F(SniiIndexReaderCountFallback, PublicBooleanQueryStillReturnsNotSupportedFromDefaultBranch) {
+    // BOOLEAN_QUERY is a composite query type resolved above this reader; it should never
+    // reach SniiIndexReader's leaf query_type switch. Pin the `default:` branch to
+    // INVERTED_INDEX_NOT_SUPPORTED so a future refactor cannot silently widen the
+    // MATCH_PHRASE_EDGE_QUERY downgrade into a blanket "unknown type -> evaluate skipped".
+    QueryExecutionContext execution(/*enable_query_cache=*/false);
+    Field query_value = Field::create_field<TYPE_STRING>(std::string("failed order"));
+    std::shared_ptr<roaring::Roaring> bitmap;
+
+    const Status status = _index_reader->query(execution.context, "content", query_value,
+                                               InvertedIndexQueryType::BOOLEAN_QUERY, bitmap);
+
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) << status;
+}
+
 TEST_F(SniiIndexReaderCountFallback, PublicBooleanQueriesScoreOnlyFinalBitmapWithPlainTerms) {
     const auto provider = make_common_grams_provider();
     ASSERT_NE(provider->common_grams_identity(), nullptr);
