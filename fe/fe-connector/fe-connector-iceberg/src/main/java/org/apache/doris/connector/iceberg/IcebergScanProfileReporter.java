@@ -43,10 +43,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * behavior in the plugin architecture: it is a self-contained port (the connector cannot import fe-core, so
  * {@code DebugUtil}'s time/byte formatters are inlined and Guava is avoided).
  *
- * <p>The SDK invokes {@link #report} on CLOSE of the {@code planFiles} iterable, which the connector performs
- * synchronously on the planScan thread — so a fresh reporter is created per scan bound to that scan's queryId,
- * and attached ONLY on the synchronous data/count path (never the streaming or system-table path, which fe-core
- * never drains).</p>
+ * <p>The SDK invokes {@link #report} on CLOSE of the {@code planFiles} iterable. A fresh reporter is created per
+ * scan and bound to that scan's queryId; fe-core drains eager scans after {@code planScan} and streaming scans
+ * after closing their split source.</p>
  */
 public class IcebergScanProfileReporter implements MetricsReporter {
     /**
@@ -55,7 +54,6 @@ public class IcebergScanProfileReporter implements MetricsReporter {
      * pinned by a test.
      */
     static final String GROUP_NAME = "Iceberg Scan Metrics";
-    private static final DecimalFormat BYTES_FORMAT = new DecimalFormat("0.000");
     private static final long KB = 1024L;
     private static final long MB = 1024 * KB;
     private static final long GB = 1024 * MB;
@@ -173,7 +171,9 @@ public class IcebergScanProfileReporter implements MetricsReporter {
         } else {
             unit = "B";
         }
-        return BYTES_FORMAT.format(d) + " " + unit;
+        // DecimalFormat is mutable and not thread-safe. Reporters from concurrent eager/streaming scans share
+        // this class, so keep the formatter local instead of sharing one static instance.
+        return new DecimalFormat("0.000").format(d) + " " + unit;
     }
 
     /** Inlined fe-core {@code DebugUtil.getPrettyStringMs}: {@code Nhour Nmin Nsec} / {@code Nms}. */

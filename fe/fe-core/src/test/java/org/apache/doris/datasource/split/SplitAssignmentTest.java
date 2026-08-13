@@ -30,6 +30,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -375,5 +376,26 @@ public class SplitAssignmentTest {
 
         // Init should complete immediately without waiting
         Assertions.assertDoesNotThrow(() -> splitAssignment.init());
+    }
+
+    @Test
+    void testStopClosesRegisteredResourceOnce() throws Exception {
+        Closeable resource = Mockito.mock(Closeable.class);
+        splitAssignment.addCloseable(resource);
+
+        splitAssignment.stop();
+        splitAssignment.stop();
+
+        Mockito.verify(resource, Mockito.times(1)).close();
+    }
+
+    @Test
+    void testResourceAddedAfterStopIsClosedImmediately() throws Exception {
+        Closeable resource = Mockito.mock(Closeable.class);
+        splitAssignment.stop();
+
+        splitAssignment.addCloseable(resource);
+
+        Mockito.verify(resource, Mockito.times(1)).close();
     }
 }

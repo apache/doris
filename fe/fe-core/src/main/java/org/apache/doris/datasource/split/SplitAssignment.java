@@ -61,6 +61,7 @@ public class SplitAssignment {
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
 
     private UserException exception = null;
+    private final Object closeableResourcesLock = new Object();
     private final List<Closeable> closeableResources = new ArrayList<>();
 
     public SplitAssignment(
@@ -192,18 +193,15 @@ public class SplitAssignment {
     }
 
     public void stop() {
-        if (isStop()) {
-            return;
-        }
-        isStopped.set(true);
-        closeableResources.forEach((closeable) -> {
-            try {
-                closeable.close();
-            } catch (Exception e) {
-                LOG.warn("close resource error:{}", e.getMessage(), e);
-                // ignore
+        List<Closeable> resourcesToClose;
+        synchronized (closeableResourcesLock) {
+            if (!isStopped.compareAndSet(false, true)) {
+                return;
             }
-        });
+            resourcesToClose = new ArrayList<>(closeableResources);
+            closeableResources.clear();
+        }
+        resourcesToClose.forEach(this::closeResource);
         notifyAssignment();
         if (exception != null) {
             throw new RuntimeException(exception);
@@ -215,6 +213,24 @@ public class SplitAssignment {
     }
 
     public void addCloseable(Closeable resource) {
-        closeableResources.add(resource);
+        boolean closeNow;
+        synchronized (closeableResourcesLock) {
+            closeNow = isStopped.get();
+            if (!closeNow) {
+                closeableResources.add(resource);
+            }
+        }
+        if (closeNow) {
+            closeResource(resource);
+        }
+    }
+
+    private void closeResource(Closeable resource) {
+        try {
+            resource.close();
+        } catch (Exception e) {
+            LOG.warn("close resource error:{}", e.getMessage(), e);
+            // ignore
+        }
     }
 }

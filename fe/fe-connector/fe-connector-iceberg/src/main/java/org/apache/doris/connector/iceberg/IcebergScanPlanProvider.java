@@ -244,10 +244,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private final IcebergFormatCache formatCache;
 
     // FIX-SCAN-METRICS: per-query stash of the iceberg SDK scan diagnostics captured by the attached
-    // IcebergScanProfileReporter during planScan, keyed by session queryId. fe-core drains it
-    // (collectScanProfiles) right after planScan on the same thread; releaseReadTransaction reclaims any entry
-    // a thrown planScan left behind. Attached only on the synchronous data/count path (never streaming or
-    // system-table, which fe-core never drains), so the value list is appended single-threaded.
+    // IcebergScanProfileReporter during eager or streaming planning, keyed by session queryId. fe-core drains it
+    // (collectScanProfiles) right after planScan or after closing the streaming split source;
+    // releaseReadTransaction reclaims any entry left behind by a failed planning path. Never attached to system
+    // tables, whose serialized-task planning does not contribute these scan metrics.
     private final ConcurrentHashMap<String, List<ConnectorScanProfile>> scanProfileStash = new ConcurrentHashMap<>();
 
     // Test-only gate for the PERF-11 per-file memo: how many times computePerFileInvariants actually ran across
@@ -354,6 +354,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     @Override
     public List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
+        return drainScanProfiles(session);
+    }
+
+    @Override
+    public List<ConnectorScanProfile> collectStreamingScanProfiles(ConnectorSession session) {
+        return drainScanProfiles(session);
+    }
+
+    private List<ConnectorScanProfile> drainScanProfiles(ConnectorSession session) {
         String queryId = session.getQueryId();
         if (queryId == null || queryId.isEmpty()) {
             return Collections.emptyList();
@@ -366,7 +375,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public void releaseReadTransaction(String queryId) {
         // Iceberg opens no metastore read transaction (it inherits the SPI no-op); this override only reclaims
         // the scan-metrics stash for a query whose planScan threw AFTER the reporter fired (the normal path
-        // drains it via collectScanProfiles). Same queryId fe-core registered the query-finish callback with.
+        // drains it via the eager or streaming collection hook). Same queryId fe-core registered the query-finish
+        // callback with.
         if (queryId != null && !queryId.isEmpty()) {
             scanProfileStash.remove(queryId);
         }
@@ -491,6 +501,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         Table table = resolveTable(session, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
+        // Match the eager planScan path: planFiles() emits its ScanReport when the streaming source closes.
+        // The engine drains the queryId-keyed profile after closing that source, so batch and non-batch scans
+        // expose the same Iceberg scan metrics without relying on a thread-local query context here.
+        if (session != null) {
+            scan = scan.metricsReporter(new IcebergScanProfileReporter(session.getQueryId(), scanProfileStash));
+        }
         int formatVersion = getFormatVersion(table);
         List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
         ZoneId zone = resolveSessionZone(session);

@@ -282,17 +282,34 @@ public interface ConnectorScanPlanProvider {
      * {@link ConnectorScanProfile} groups the engine writes into the query's profile execution summary.
      *
      * <p>The default returns an empty list (connector reports nothing). A connector that wants scan
-     * diagnostics harvests them from its SDK during {@code planScan} (the paimon SDK exposes a metric
-     * registry, the iceberg SDK a metrics reporter), stashes them keyed by {@link ConnectorSession#getQueryId()},
-     * and drains them here — mirroring the per-query queryId stashes this SPI already uses (read-transaction
-     * release, rewritable-delete supply). The engine calls this immediately after {@code planScan} on the
-     * same thread, so the harvest is complete; the connector must also drop its stash on
-     * {@link #releaseReadTransaction} to reclaim any entry a thrown {@code planScan} left behind.</p>
+     * diagnostics harvests them from its SDK during {@code planScan} (the paimon SDK exposes a metric registry,
+     * the iceberg SDK a metrics reporter), stashes them keyed by {@link ConnectorSession#getQueryId()}, and drains
+     * them here — mirroring the per-query queryId stashes this SPI already uses (read-transaction release,
+     * rewritable-delete supply). The engine calls this immediately after {@code planScan} on the same thread, so
+     * the harvest is complete; the connector must also drop its stash on {@link #releaseReadTransaction} to
+     * reclaim an entry left by a failed planning path.</p>
      *
      * @param session the current session (its queryId keys the connector's per-query stash)
      * @return this scan's diagnostics, or an empty list (the default) to contribute nothing to the profile
      */
     default List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Connector SDK scan diagnostics harvested while the engine consumes the source returned by
+     * {@link #streamSplits}. The engine calls this on the streaming producer thread only after closing that
+     * source, and publishes the returned profiles before signaling split completion or failure.
+     *
+     * <p>This is deliberately separate from {@link #collectScanProfiles}: an existing connector may validly
+     * implement that eager hook using state established by {@link #planScan} or thread-local planning context.
+     * Streaming never calls {@code planScan} and runs on a background thread, so reusing the eager hook would
+     * violate its lifecycle contract. The empty default is an explicit opt-in boundary.</p>
+     *
+     * @param session the current session
+     * @return this streaming scan's diagnostics, or an empty list (the default) to contribute nothing
+     */
+    default List<ConnectorScanProfile> collectStreamingScanProfiles(ConnectorSession session) {
         return Collections.emptyList();
     }
 
