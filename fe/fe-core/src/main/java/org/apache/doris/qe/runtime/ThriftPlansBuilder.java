@@ -199,8 +199,10 @@ public class ThriftPlansBuilder {
 
     static void setRuntimePredicateIfNeed(Collection<ScanNode> scanNodes) {
         for (ScanNode scanNode : scanNodes) {
-            for (SortNode topnFilterSortNode : scanNode.getTopnFilterSortNodes()) {
-                topnFilterSortNode.setHasRuntimePredicate();
+            for (PlanNode topnFilterSourceNode : scanNode.getTopnFilterSourceNodes()) {
+                if (topnFilterSourceNode instanceof SortNode) {
+                    ((SortNode) topnFilterSourceNode).setHasRuntimePredicate();
+                }
             }
         }
     }

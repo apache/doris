@@ -66,6 +66,7 @@ public class AggregationNode extends PlanNode {
     private boolean useStreamingPreagg;
 
     private SortInfo sortByGroupKey;
+    private List<Pair<Integer, Integer>> topnFilterTargets;
 
     private boolean queryCacheCandidate;
 
@@ -242,6 +243,9 @@ public class AggregationNode extends PlanNode {
             output.append(detailPrefix).append("having: ").append(getExplainString(conjuncts)).append("\n");
         }
         output.append(detailPrefix).append("sortByGroupKey:").append(sortByGroupKey != null).append("\n");
+        if (topnFilterTargets != null) {
+            output.append(detailPrefix).append("TOPN filter targets: ").append(topnFilterTargets).append("\n");
+        }
         output.append(detailPrefix).append(String.format(
                 "cardinality=%,d", cardinality)).append("\n");
         return output.toString();
@@ -263,6 +267,10 @@ public class AggregationNode extends PlanNode {
 
     public void setSortByGroupKey(SortInfo sortByGroupKey) {
         this.sortByGroupKey = sortByGroupKey;
+    }
+
+    public void setTopnFilterTargets(List<Pair<Integer, Integer>> topnFilterTargets) {
+        this.topnFilterTargets = topnFilterTargets;
     }
 
     public boolean isQueryCacheCandidate() {

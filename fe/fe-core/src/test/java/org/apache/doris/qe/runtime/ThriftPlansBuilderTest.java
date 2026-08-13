@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
+import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RecursiveCteScanNode;
 import org.apache.doris.planner.ScanNode;
@@ -44,11 +45,14 @@ public class ThriftPlansBuilderTest {
     public void testSetRuntimePredicateForNonOlapScanNode() {
         ScanNode scanNode = Mockito.mock(ScanNode.class);
         SortNode sortNode = Mockito.mock(SortNode.class);
-        Mockito.when(scanNode.getTopnFilterSortNodes()).thenReturn(Collections.singletonList(sortNode));
+        AggregationNode aggregationNode = Mockito.mock(AggregationNode.class);
+        Mockito.when(scanNode.getTopnFilterSourceNodes())
+                .thenReturn(Arrays.asList(sortNode, aggregationNode));
 
         ThriftPlansBuilder.setRuntimePredicateIfNeed(Collections.singletonList(scanNode));
 
         Mockito.verify(sortNode).setHasRuntimePredicate();
+        Mockito.verifyNoInteractions(aggregationNode);
     }
 
     @Test

@@ -24,12 +24,14 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -66,16 +68,18 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     public static class PushDownContext {
         final Expression probeExpr;
         final TopN topn;
+        final AbstractPlan source;
         final boolean nullsFirst;
 
-        public PushDownContext(TopN topn, Expression probeExpr, boolean nullsFirst) {
+        public PushDownContext(TopN topn, AbstractPlan source, Expression probeExpr, boolean nullsFirst) {
             this.topn = topn;
+            this.source = source;
             this.probeExpr = probeExpr;
             this.nullsFirst = nullsFirst;
         }
 
         public PushDownContext withNewProbeExpression(Expression newProbe) {
-            return new PushDownContext(topn, newProbe, nullsFirst);
+            return new PushDownContext(topn, source, newProbe, nullsFirst);
         }
 
     }
@@ -158,10 +162,22 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     @Override
     public Boolean visitPhysicalTopN(PhysicalTopN<? extends Plan> topn, PushDownContext ctx) {
-        if (topn.equals(ctx.topn)) {
+        if (topn.getId() == ctx.source.getId()) {
             return topn.child().accept(this, ctx);
         }
         return false;
+    }
+
+    @Override
+    public Boolean visitPhysicalHashAggregate(
+            PhysicalHashAggregate<? extends Plan> aggregate, PushDownContext ctx) {
+        if (ctx.source instanceof PhysicalHashAggregate) {
+            if (aggregate.getId() == ctx.source.getId()) {
+                return aggregate.child().accept(this, ctx);
+            }
+            return false;
+        }
+        return visit(aggregate, ctx);
     }
 
     @Override
@@ -248,7 +264,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
                     || Math.max(relation.getStats().getRowCount(), 1)
                             * ConnectContext.get().getSessionVariable().topnFilterRatio > ctx.topn.getLimit()
                                     + ctx.topn.getOffset()) {
-                topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr);
+                topnFilterContext.addTopnFilter(ctx.topn, ctx.source, relation, ctx.probeExpr);
                 return true;
             }
         }

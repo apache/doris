@@ -1126,7 +1126,7 @@ public class OlapScanNode extends ScanNode {
 
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
-                    topnFilterSortNodes.stream()
+                    topnFilterSourceNodes.stream()
                             .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
             output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
         }

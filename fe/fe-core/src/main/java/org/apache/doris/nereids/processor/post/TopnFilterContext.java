@@ -21,11 +21,12 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
 
@@ -40,26 +41,26 @@ import java.util.Map;
  * topN runtime filter context
  */
 public class TopnFilterContext {
-    private final Map<ObjectId, TopnFilter> filters = Maps.newHashMap();
+    private final Map<Integer, TopnFilter> filters = Maps.newHashMap();
 
     /**
      * add topN filter
      */
-    public void addTopnFilter(TopN topn, PhysicalRelation scan, Expression expr) {
-        TopnFilter filter = filters.get(topn.getObjectId());
+    public void addTopnFilter(TopN topn, AbstractPlan source, PhysicalRelation scan, Expression expr) {
+        TopnFilter filter = filters.get(source.getId());
         if (filter == null) {
-            filters.put(topn.getObjectId(), new TopnFilter(topn, scan, expr));
+            filters.put(source.getId(), new TopnFilter(topn, source, scan, expr));
         } else {
             filter.addTarget(scan, expr);
         }
     }
 
-    public boolean isTopnFilterSource(TopN topn) {
-        return filters.containsKey(topn.getObjectId());
+    public boolean isTopnFilterSource(AbstractPlan source) {
+        return filters.containsKey(source.getId());
     }
 
-    public TopnFilter getTopnFilter(TopN topn) {
-        return filters.get(topn.getObjectId());
+    public TopnFilter getTopnFilter(AbstractPlan source) {
+        return filters.get(source.getId());
     }
 
     public List<TopnFilter> getTopnFilters() {
@@ -91,16 +92,18 @@ public class TopnFilterContext {
     /**
      * translate topn-filter
      */
-    public void translateSource(TopN topn, SortNode sortNode) {
-        TopnFilter filter = filters.get(topn.getObjectId());
+    public void translateSource(AbstractPlan source, PlanNode legacySourceNode) {
+        TopnFilter filter = filters.get(source.getId());
         if (filter == null) {
             return;
         }
-        filter.legacySortNode = sortNode;
-        sortNode.setUseTopnOpt(true);
+        filter.legacySourceNode = legacySourceNode;
+        if (legacySourceNode instanceof SortNode) {
+            ((SortNode) legacySourceNode).setUseTopnOpt(true);
+        }
         Preconditions.checkArgument(!filter.legacyTargets.isEmpty(), "missing targets: " + filter);
         for (ScanNode scan : filter.legacyTargets.keySet()) {
-            scan.addTopnFilterSortNode(sortNode);
+            scan.addTopnFilterSourceNode(legacySourceNode);
         }
     }
 
@@ -112,8 +115,8 @@ public class TopnFilterContext {
         String indent = "   ";
         String arrow = " -> ";
         builder.append("filters:\n");
-        for (ObjectId topnId : filters.keySet()) {
-            builder.append(indent).append(arrow).append(filters.get(topnId)).append("\n");
+        for (Integer sourceId : filters.keySet()) {
+            builder.append(indent).append(arrow).append(filters.get(sourceId)).append("\n");
         }
         return builder.toString();
     }

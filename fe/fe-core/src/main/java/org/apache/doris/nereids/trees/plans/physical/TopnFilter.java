@@ -20,9 +20,10 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.SortNode;
 import org.apache.doris.thrift.TTopnFilterDesc;
 
 import com.google.common.collect.Maps;
@@ -34,12 +35,14 @@ import java.util.Map;
  */
 public class TopnFilter {
     public TopN topn;
-    public SortNode legacySortNode;
+    public AbstractPlan source;
+    public PlanNode legacySourceNode;
     public Map<PhysicalRelation, Expression> targets = Maps.newHashMap();
     public Map<ScanNode, Expr> legacyTargets = Maps.newHashMap();
 
-    public TopnFilter(TopN topn, PhysicalRelation rel, Expression expr) {
+    public TopnFilter(TopN topn, AbstractPlan source, PhysicalRelation rel, Expression expr) {
         this.topn = topn;
+        this.source = source;
         targets.put(rel, expr);
     }
 
@@ -54,7 +57,7 @@ public class TopnFilter {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        builder.append(topn).append("->[ ");
+        builder.append(source).append("->[ ");
         for (PhysicalRelation rel : targets.keySet()) {
             builder.append("(").append(rel).append(":").append(targets.get(rel)).append(") ");
         }
@@ -67,7 +70,7 @@ public class TopnFilter {
      */
     public TTopnFilterDesc toThrift() {
         TTopnFilterDesc tFilter = new TTopnFilterDesc();
-        tFilter.setSourceNodeId(legacySortNode.getId().asInt());
+        tFilter.setSourceNodeId(legacySourceNode.getId().asInt());
         tFilter.setIsAsc(topn.getOrderKeys().get(0).isAsc());
         tFilter.setNullFirst(topn.getOrderKeys().get(0).isNullFirst());
         for (ScanNode scan : legacyTargets.keySet()) {

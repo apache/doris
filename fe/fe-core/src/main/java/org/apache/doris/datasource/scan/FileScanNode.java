@@ -189,7 +189,7 @@ public abstract class FileScanNode extends ExternalScanNode {
 
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
-                    topnFilterSortNodes.stream()
+                    topnFilterSourceNodes.stream()
                             .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
             output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
         }

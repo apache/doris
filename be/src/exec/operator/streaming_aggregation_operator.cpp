@@ -31,6 +31,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vslot_ref.h"
+#include "runtime/query_context.h"
 
 namespace doris {
 class RuntimeState;
@@ -72,6 +73,7 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _get_results_timer = ADD_TIMER(custom_profile(), "GetResultsTime");
     _hash_table_iterate_timer = ADD_TIMER(custom_profile(), "HashTableIterateTime");
     _insert_keys_to_column_timer = ADD_TIMER(custom_profile(), "InsertKeysToColumnTime");
+    _update_runtime_predicate_timer = ADD_TIMER(custom_profile(), "UpdateRuntimePredicateTime");
 
     return Status::OK();
 }
@@ -189,6 +191,31 @@ Status StreamingAggLocalState::do_pre_agg(RuntimeState* state, Block* input_bloc
     _cur_num_rows_returned += output_block->rows();
     make_nullable_output_key(output_block);
     _update_memusage_with_serialized_key();
+    return Status::OK();
+}
+
+Status StreamingAggLocalState::_update_runtime_predicate(RuntimeState* state) {
+    auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
+    auto* query_ctx = state->get_query_ctx();
+    if (!query_ctx->has_runtime_predicate(p.node_id()) || need_do_sort_limit != 1) {
+        return Status::OK();
+    }
+
+    SCOPED_TIMER(_update_runtime_predicate_timer);
+    auto& predicate = query_ctx->get_runtime_predicate(p.node_id());
+    if (!predicate.enable()) {
+        return Status::OK();
+    }
+
+    DCHECK(do_sort_limit);
+    DCHECK(!limit_columns.empty());
+    DCHECK_GE(limit_columns_min, 0);
+    Field new_top {PrimitiveType::TYPE_NULL};
+    limit_columns[0]->get(limit_columns_min, new_top);
+    if (!new_top.is_null() && new_top != _old_top) {
+        RETURN_IF_ERROR(predicate.update(new_top));
+        _old_top = std::move(new_top);
+    }
     return Status::OK();
 }
 
@@ -992,6 +1019,13 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         }
     }
 
+    auto* query_ctx = state->get_query_ctx();
+    if (query_ctx->has_runtime_predicate(_node_id)) {
+        DORIS_CHECK(_do_sort_limit);
+        DORIS_CHECK_GT(_sort_limit, 0);
+        query_ctx->get_runtime_predicate(_node_id).set_detected_source();
+    }
+
     _op_name = "STREAMING_AGGREGATION_OPERATOR";
     return Status::OK();
 }
@@ -1124,6 +1158,7 @@ Status StreamingAggOperatorX::push(RuntimeState* state, Block* in_block, bool eo
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(
                 local_state.do_pre_agg(state, in_block, local_state._pre_aggregated_block.get()));
+        RETURN_IF_ERROR(local_state._update_runtime_predicate(state));
     }
     in_block->clear_column_data(_child->row_desc().num_materialized_slots());
     return Status::OK();
