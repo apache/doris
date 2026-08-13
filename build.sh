@@ -842,6 +842,12 @@ if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("hive-udf")
 fi
 if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
+    # This list is the complete enumeration of be-java-extensions modules that get built, not just
+    # the ones -am cannot reach. Keep it that way: reading it should answer "does my module get
+    # built" without also having to work out who depends on whom.
+    #
+    # The plugins. Each one deploys as its own directory under lib/java/plugins; see the deploy
+    # list far below, which maps module name -> plugin directory name.
     modules+=("be-java-extensions/iceberg-metadata-scanner")
     modules+=("be-java-extensions/hadoop-hudi-scanner")
     modules+=("be-java-extensions/java-udf")
@@ -849,11 +855,20 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/paimon-scanner")
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-connector")
-    modules+=("be-java-extensions/${HADOOP_DEPS_NAME}")
     modules+=("be-java-extensions/java-writer")
-    # The shared layer. Nothing depends on these two, so -am does not reach them.
+    # The hadoop drop C++ libhdfs loads. Not a plugin: it deploys whole into lib/hadoop_hdfs and BE
+    # resolves it off the system classpath, so no plugin ever sees it and it has no plugin name.
+    modules+=("be-java-extensions/${HADOOP_DEPS_NAME}")
+    # The shared layer, deployed to lib/java/spi. ATTN: nothing depends on these two, so -am cannot
+    # reach them - dropping either line means they silently stop being built.
     modules+=("be-java-extensions/jni-spi")
     modules+=("be-java-extensions/jni-bootstrap")
+    # Not deployed on their own; they are dependencies of the plugins above and land inside the
+    # plugin directories. -am would reach them, but they are named here so this list stays a
+    # complete enumeration.
+    modules+=("be-java-extensions/plugin-toolkit")
+    modules+=("be-java-extensions/hive-udf-shade")
+    modules+=("be-java-extensions/hive-apache-shade")
 
     # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then

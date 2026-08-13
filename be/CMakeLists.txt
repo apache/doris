@@ -611,7 +611,6 @@ else()
     else()
         include_directories(${DORIS_JAVA_HOME}/include/darwin)
     endif()
-    add_definitions("-DLIBJVM")
 endif()
 
 if (NOT OS_MACOSX)

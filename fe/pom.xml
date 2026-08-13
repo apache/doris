@@ -240,7 +240,6 @@ under the License.
         <module>fe-grpc</module>
     </modules>
     <properties>
-        <doris.hive.catalog.shade.version>3.1.1</doris.hive.catalog.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.1</avro.version>
         <parquet.version>1.17.0</parquet.version>
@@ -852,15 +851,6 @@ under the License.
                     </exclusion>
                 </exclusions>
             </dependency>
-            <!-- The fat hive-catalog-shade is no longer consumed by any fe/fe-connector module (the plain-HMS
-                 client + iceberg HiveCatalog moved to the slim fe-connector-hms-hive-shade). This version pin
-                 is kept because be-java-extensions (avro-scanner, java-udf) still depend on hive-catalog-shade
-                 — do NOT delete it. -->
-            <dependency>
-                <groupId>org.apache.doris</groupId>
-                <artifactId>hive-catalog-shade</artifactId>
-                <version>${doris.hive.catalog.shade.version}</version>
-            </dependency>
             <!-- Hive-UDF compatibility. User JAVA_UDF jars may declare a symbol class extending
                  org.apache.hadoop.hive.ql.exec.UDF; regression-test/java-udf-src/pom.xml compiles
                  against this exact artifact at scope=provided, i.e. the base classes are deliberately
@@ -955,8 +945,11 @@ under the License.
                 <artifactId>commons-codec</artifactId>
                 <version>${commons-codec.version}</version>
             </dependency>
-            <!-- commons-lang 2.x: required at RUNTIME by hive-catalog-shade's HiveConf
-                 (org.apache.commons.lang.StringUtils). Not referenced by any fe source. -->
+            <!-- commons-lang 2.x: not referenced by any fe source, only by hadoop/hive classes that
+                 call org.apache.commons.lang.StringUtils while declaring no commons-lang themselves.
+                 The consumers state their own reason: fe-core declares it at runtime scope for
+                 OBSFileSystem, and fe-connector-{hms,hive,iceberg} at test scope for HiveConf's
+                 static init. This entry only pins the version for them. -->
             <dependency>
                 <groupId>commons-lang</groupId>
                 <artifactId>commons-lang</artifactId>
@@ -1961,8 +1954,13 @@ under the License.
                          fe-connector-trino the same jar walked back in by a second path. fe-core is
                          the only module in fe/ that imports jakarta.servlet at all, and it declares
                          jakarta.servlet-api 6.1.0 explicitly, so nothing loses an API it uses. No
-                         production artifact changes either: this jar is already pinned to
-                         <scope>test</scope> repo-wide above. -->
+                         production artifact changes either: jetty-jakarta-servlet-api - the excluded
+                         jar, NOT trino-main - is already pinned to <scope>test</scope> by its own
+                         managed entry far above.
+                         ATTN: trino-main itself is compile scope on purpose. It is the whole Trino
+                         engine and the BE trino-connector plugin bundles it; moving THIS entry to
+                         test scope would leave that plugin directory holding nothing but its own
+                         jar, which fails at load time, not at build time. -->
                     <exclusion>
                         <groupId>org.eclipse.jetty.toolchain</groupId>
                         <artifactId>jetty-jakarta-servlet-api</artifactId>
