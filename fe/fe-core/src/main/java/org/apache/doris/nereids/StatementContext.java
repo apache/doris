@@ -1413,6 +1413,10 @@ public class StatementContext implements Closeable {
             return getOrLoad(key, loader, ignored -> 0, Long.MAX_VALUE);
         }
 
+        /**
+         * Return the tasks for {@code key}, retaining the loaded result only when its weight fits
+         * within the cache generation's cumulative limit.
+         */
         @SuppressWarnings("unchecked")
         public <T> List<T> getOrLoad(
                 ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader,
