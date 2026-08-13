@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_write_variant_errors", "p0,external,paimon") {
+suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
@@ -59,56 +59,36 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon") {
     """
     sql """SWITCH ${catalogName}"""
     sql """USE ${dbName}"""
-    sql """CREATE DATABASE IF NOT EXISTS internal.${dbName}"""
 
     try {
         // Both top-level and nested targets fail during analysis when V2 is disabled.
-        sql """SET enable_variant_v2 = false"""
-        test {
-            sql """INSERT INTO t_variant_error VALUES
-                (1, parse_to_variant('{"disabled":"top"}'))"""
-            exception "set enable_variant_v2=true"
-        }
-        test {
-            sql """INSERT INTO t_variant_nested_error VALUES
-                (1, CAST(NULL AS ARRAY<VARIANT>))"""
-            exception "set enable_variant_v2=true"
+        setFeConfigTemporary([enable_variant_v2: false]) {
+            assertFalse(getFeConfig("enable_variant_v2").toBoolean())
+            test {
+                sql """INSERT INTO t_variant_error VALUES
+                    (1, parse_to_variant('{"disabled":"top"}'))"""
+                exception "set FE config enable_variant_v2=true"
+            }
+            test {
+                sql """INSERT INTO t_variant_nested_error VALUES
+                    (1, CAST(NULL AS ARRAY<VARIANT>))"""
+                exception "set FE config enable_variant_v2=true"
+            }
+            test {
+                sql """
+                    INSERT INTO t_variant_error
+                    SELECT 2, parse_to_variant('{"disabled":"select"}')
+                """
+                exception "set FE config enable_variant_v2=true"
+            }
+
         }
 
-        // Capture V1 output types without executing a V1 load, then verify that a
-        // later Paimon write rejects them in analysis before reaching the BE.
-        sql """DROP VIEW IF EXISTS internal.${dbName}.v_variant_v1"""
-        sql """DROP VIEW IF EXISTS internal.${dbName}.v_variant_v1_nested"""
-        sql """
-            CREATE VIEW internal.${dbName}.v_variant_v1 AS
-            SELECT 10 AS id, parse_to_variant('{"legacy":true}') AS payload
-        """
-        sql """
-            CREATE VIEW internal.${dbName}.v_variant_v1_nested AS
-            SELECT 11 AS id,
-                   CAST(NULL AS ARRAY<VARIANT>) AS payloads
-        """
+        setFeConfigTemporary([enable_variant_v2: true]) {
+            assertTrue(getFeConfig("enable_variant_v2").toBoolean())
+            sql """SET force_jni_scanner = true"""
 
-        sql """SET enable_variant_v2 = true"""
-        sql """SET force_jni_scanner = true"""
-        test {
-            sql """
-                INSERT INTO t_variant_error
-                SELECT id, payload
-                FROM internal.${dbName}.v_variant_v1
-            """
-            exception "Variant V1"
-        }
-        test {
-            sql """
-                INSERT INTO t_variant_nested_error
-                SELECT id, payloads
-                FROM internal.${dbName}.v_variant_v1_nested
-            """
-            exception "Variant V1"
-        }
-
-        // Valid V2 writes still work after analysis failures in the same session.
+        // Valid V2 writes still work after Config-gated analysis failures.
         sql """
             INSERT INTO t_variant_error VALUES
                 (20, parse_to_variant('{"recovered":true}')),
@@ -124,10 +104,9 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon") {
             FROM t_variant_error
             ORDER BY id
         """
+        }
     } finally {
         sql """SET force_jni_scanner = false"""
-        sql """DROP VIEW IF EXISTS internal.${dbName}.v_variant_v1"""
-        sql """DROP VIEW IF EXISTS internal.${dbName}.v_variant_v1_nested"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }
 }

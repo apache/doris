@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
+suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
@@ -90,7 +90,6 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
         """
         sql """SWITCH ${catalogName}"""
         sql """USE ${dbName}"""
-        sql """SET enable_variant_v2 = true"""
         sql """SET force_jni_scanner = true"""
     }
 
@@ -133,6 +132,8 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
 
     createDorisCatalog()
     try {
+        setFeConfigTemporary([enable_variant_v2: true]) {
+            assertTrue(getFeConfig("enable_variant_v2").toBoolean())
         // Cover typed fields, residual object fields, type mismatch fallback, nested ROW/ARRAY,
         // root scalars, empty objects, Variant null, and SQL null.
         sql """
@@ -296,6 +297,7 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon") {
             FROM t_variant_inferred
             ORDER BY id
         """
+        }
     } finally {
         sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""

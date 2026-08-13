@@ -21,6 +21,7 @@
 //   the sparse path are read back as only the timezone suffix (e.g. "+00:00")
 //   instead of the full timestamp.
 suite("test_variant_timestamptz_sparse", "p0"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql " set time_zone = '+08:00' "
     sql " set default_variant_enable_doc_mode = false "
 
@@ -70,7 +71,7 @@ suite("test_variant_timestamptz_sparse", "p0"){
 
     sql """
         INSERT INTO test_variant_timestamptz_sparse_repro VALUES
-        (1, '{"c1":1699516324,"c2":1690122421,"d1":"2024-02-25","d2":"2024-11-27","dt0":"2002-12-25 12:42:19","dt0n":"2015-02-05 02:36:13","dt3":"2015-02-22 02:09:01","dt3n":"2015-09-16 02:55:07","dt6":"2001-09-19 09:53:52","dt6n":"2003-12-21 02:29:00","ts0":"2003-12-21 02:29:00 +00:00","ts0n":"2003-12-21 02:29:00 +00:00","ts3":"2003-12-21 02:29:00 +00:00","ts3n":"2003-12-21 02:29:00 -05:00","ts6":"2003-12-21 02:29:00 -05:00","ts6n":"2003-12-21 02:29:00 +03:00","v1":"2024-12-10 10:16:19","v2":"2023-12-31 23:59:59"}');
+        (1, ${variantV2Function}('{"c1":1699516324,"c2":1690122421,"d1":"2024-02-25","d2":"2024-11-27","dt0":"2002-12-25 12:42:19","dt0n":"2015-02-05 02:36:13","dt3":"2015-02-22 02:09:01","dt3n":"2015-09-16 02:55:07","dt6":"2001-09-19 09:53:52","dt6n":"2003-12-21 02:29:00","ts0":"2003-12-21 02:29:00 +00:00","ts0n":"2003-12-21 02:29:00 +00:00","ts3":"2003-12-21 02:29:00 +00:00","ts3n":"2003-12-21 02:29:00 -05:00","ts6":"2003-12-21 02:29:00 -05:00","ts6n":"2003-12-21 02:29:00 +03:00","v1":"2024-12-10 10:16:19","v2":"2023-12-31 23:59:59"}'));
     """
 
     sql "SYNC"
@@ -80,12 +81,12 @@ suite("test_variant_timestamptz_sparse", "p0"){
     qt_select_all """
         SELECT
           pk,
-          CAST(var['ts0']  AS string) AS str_ts0,
-          CAST(var['ts0n'] AS string) AS str_ts0n,
-          CAST(var['ts3']  AS string) AS str_ts3,
-          CAST(var['ts3n'] AS string) AS str_ts3n,
-          CAST(var['ts6']  AS string) AS str_ts6,
-          CAST(var['ts6n'] AS string) AS str_ts6n
+          CAST(CAST(var['ts0']  AS timestamptz(6)) AS string) AS str_ts0,
+          CAST(CAST(var['ts0n'] AS timestamptz(6)) AS string) AS str_ts0n,
+          CAST(CAST(var['ts3']  AS timestamptz(6)) AS string) AS str_ts3,
+          CAST(CAST(var['ts3n'] AS timestamptz(6)) AS string) AS str_ts3n,
+          CAST(CAST(var['ts6']  AS timestamptz(6)) AS string) AS str_ts6,
+          CAST(CAST(var['ts6n'] AS timestamptz(6)) AS string) AS str_ts6n
         FROM test_variant_timestamptz_sparse_repro
         ORDER BY pk;
     """

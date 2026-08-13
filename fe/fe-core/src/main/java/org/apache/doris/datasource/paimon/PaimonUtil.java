@@ -345,9 +345,8 @@ public class PaimonUtil {
                 }
                 return ScalarType.createDatetimeV2Type(tsScale);
             case VARIANT:
-                // External-table schemas are cached and shared across sessions, so this mapping
-                // must not depend on enable_variant_v2. PaimonScanNode checks that
-                // session variable against the VARIANT slots projected by each query instead.
+                // External-table schemas are cached and shared, so the physical marker must not
+                // depend on enable_variant_v2. PaimonScanNode checks the global switch per query.
                 return VariantType.COMPUTE_V2_INSTANCE;
             case ARRAY:
                 ArrayType arrayType = (ArrayType) dataType;

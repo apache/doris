@@ -29,6 +29,7 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
@@ -84,7 +85,9 @@ import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentMatchers;
@@ -106,11 +109,23 @@ import java.util.OptionalLong;
 
 @RunWith(MockitoJUnitRunner.class)
 public class PaimonScanNodeTest {
+    private boolean originalEnableVariantV2;
+
     @Mock
     private SessionVariable sv;
 
     @Mock
     private PaimonFileExternalCatalog paimonFileExternalCatalog;
+
+    @Before
+    public void saveVariantV2Config() {
+        originalEnableVariantV2 = Config.enable_variant_v2;
+    }
+
+    @After
+    public void restoreVariantV2Config() {
+        Config.enable_variant_v2 = originalEnableVariantV2;
+    }
 
     @Test
     public void testVariantProjectionRequiresVariantV2Recursively() throws UserException {
@@ -131,10 +146,12 @@ public class PaimonScanNodeTest {
         slot.setColumn(new Column("payload", variantType));
         desc.addSlot(slot);
 
+        Config.enable_variant_v2 = false;
         ExceptionChecker.expectThrowsWithMsg(UserException.class,
-                "Paimon VARIANT columns require enable_variant_v2=true",
-                () -> PaimonScanNode.checkVariantV2Enabled(desc, false));
-        PaimonScanNode.checkVariantV2Enabled(desc, true);
+                "Paimon VARIANT columns require FE config enable_variant_v2=true",
+                () -> PaimonScanNode.checkVariantV2Enabled(desc));
+        Config.enable_variant_v2 = true;
+        PaimonScanNode.checkVariantV2Enabled(desc);
     }
 
     @Test

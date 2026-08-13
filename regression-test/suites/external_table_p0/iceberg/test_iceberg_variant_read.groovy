@@ -30,7 +30,10 @@ suite("test_iceberg_variant_read",
         logger.info("disable iceberg test")
         return
     }
-    sql "SET ENABLE_VARIANT_V2=true"
+    // Iceberg VARIANT carries the external computeV2 physical marker and must work with either
+    // native Doris VARIANT mode selected by the cluster's FE config.
+    logger.info("run Iceberg VARIANT with FE enable_variant_v2={}",
+            getFeConfig("enable_variant_v2"))
 
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")

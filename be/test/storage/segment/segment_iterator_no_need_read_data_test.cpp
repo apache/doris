@@ -15,9 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_variant.h"
+#include "exec/common/variant_util.h"
 #include "gtest/gtest.h"
 #include "storage/segment/segment_iterator.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/json/path_in_data.h"
 
 namespace doris::segment_v2 {
 
@@ -37,8 +41,10 @@ TEST(SegmentIteratorNoNeedReadDataTest, extracted_variant_count_on_index) {
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->init_from_pb(schema_pb);
 
-    TabletColumn subcol =
-            TabletColumn::create_materialized_variant_column("data", {"items", "content"}, 1, 3);
+    const PathInData path("data", std::vector<std::string> {"items", "content"});
+    TabletColumn subcol = variant_util::get_column_by_type(
+            make_nullable(std::make_shared<DataTypeVariant>(3)), path.get_path(),
+            variant_util::ExtraInfo {.parent_unique_id = 1, .path_info = path});
     tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
 
     const ColumnId subcol_cid = tablet_schema->field_index(*subcol.path_info_ptr());

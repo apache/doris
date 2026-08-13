@@ -19,6 +19,7 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -44,8 +45,7 @@ public final class PaimonVariantWriteAnalyzer {
     public static void validate(
             PaimonWriteTarget writeTarget,
             List<Column> writeColumns,
-            Map<String, NamedExpression> columnToOutput,
-            boolean enableVariantV2) throws AnalysisException {
+            Map<String, NamedExpression> columnToOutput) throws AnalysisException {
         for (Column column : writeColumns) {
             Type targetCatalogType = writeTarget.getColumnTypes().get(column.getName());
             if (targetCatalogType == null) {
@@ -55,10 +55,10 @@ public final class PaimonVariantWriteAnalyzer {
             if (!VariantType.containsVariant(targetType)) {
                 continue;
             }
-            if (!enableVariantV2) {
+            if (!Config.enable_variant_v2) {
                 throw new AnalysisException(
                         "Paimon VARIANT write only supports Variant V2; "
-                                + "set enable_variant_v2=true");
+                                + "set FE config enable_variant_v2=true");
             }
             NamedExpression output = columnToOutput.get(column.getName());
             if (output != null) {
@@ -72,16 +72,16 @@ public final class PaimonVariantWriteAnalyzer {
      * column. An empty result defers coercion until sink binding can validate the resolved source.
      */
     public static Optional<DataType> resolveInlineCoercionTarget(
-            DataType targetType, NamedExpression value, boolean enableVariantV2) {
+            DataType targetType, NamedExpression value) {
         if (!VariantType.containsVariant(targetType)) {
             return Optional.of(targetType);
         }
-        if (!enableVariantV2) {
+        if (!Config.enable_variant_v2) {
             return Optional.empty();
         }
         try {
             if (VariantType.containsVariant(value.getDataType())) {
-                // Preserve the source layout so final analysis can distinguish V1 from V2.
+                // Preserve an already resolved Variant source for final sink validation.
                 return Optional.empty();
             }
         } catch (UnboundException ignored) {
@@ -137,11 +137,6 @@ public final class PaimonVariantWriteAnalyzer {
 
     private static void validateVariantSource(
             DataType sourceType, String path) throws AnalysisException {
-        if (VariantType.isLegacyVariant(sourceType)) {
-            throw new AnalysisException(
-                    "Paimon VARIANT write only supports Variant V2, but input column '"
-                            + path + "' is Variant V1");
-        }
         if (sourceType instanceof ArrayType) {
             validateVariantSource(((ArrayType) sourceType).getItemType(), path + "[]");
             return;

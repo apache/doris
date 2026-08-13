@@ -17,7 +17,7 @@
 
 import org.apache.doris.regression.action.ProfileAction
 
-suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external_docker_doris,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
@@ -37,9 +37,10 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             );"""
         sql """use `${catalogName}`.`test_paimon_spark`"""
         // JNI reader cases.
-        sql """set enable_variant_v2 = true"""
-        sql """set enable_file_scanner_v2 = true"""
-        sql """set force_jni_scanner = true"""
+        setFeConfigTemporary([enable_variant_v2: true]) {
+            assertTrue(getFeConfig("enable_variant_v2").toBoolean())
+            sql """set enable_file_scanner_v2 = true"""
+            sql """set force_jni_scanner = true"""
 
         explain {
             sql "select * from variant_smoke order by id"
@@ -169,7 +170,6 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
 
         // Native reader cases. Reset every relevant switch explicitly so the JNI cases above do
         // not leak their session state into this block.
-        sql """set enable_variant_v2 = true"""
         sql """set enable_file_scanner_v2 = true"""
         sql """set force_jni_scanner = false"""
 
@@ -366,7 +366,6 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
         }
 
         // FileScannerV2 is required by both the native and JNI scan paths for external VARIANT.
-        sql """set enable_variant_v2 = true"""
         sql """set enable_file_scanner_v2 = false"""
         sql """set force_jni_scanner = false"""
         test {
@@ -379,20 +378,23 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
             exception "External VARIANT columns require FileScannerV2"
         }
-
-        // The Paimon VARIANT feature switch is checked for both JNI and native planning.
-        sql """set enable_file_scanner_v2 = true"""
-        sql """set enable_variant_v2 = false"""
-        sql """set force_jni_scanner = true"""
-        test {
-            sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
-            exception "Paimon VARIANT columns require enable_variant_v2=true"
         }
 
-        sql """set force_jni_scanner = false"""
-        test {
-            sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
-            exception "Paimon VARIANT columns require enable_variant_v2=true"
+        // The Paimon VARIANT feature switch is checked for both JNI and native planning.
+        setFeConfigTemporary([enable_variant_v2: false]) {
+            assertFalse(getFeConfig("enable_variant_v2").toBoolean())
+            sql """set enable_file_scanner_v2 = true"""
+            sql """set force_jni_scanner = true"""
+            test {
+                sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+                exception "Paimon VARIANT columns require FE config enable_variant_v2=true"
+            }
+
+            sql """set force_jni_scanner = false"""
+            test {
+                sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+                exception "Paimon VARIANT columns require FE config enable_variant_v2=true"
+            }
         }
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.collect.ImmutableList;
@@ -40,7 +41,6 @@ public class VariantType extends PrimitiveType {
 
     public static final VariantType INSTANCE = new VariantType(0);
     public static final VariantType COMPUTE_V2_INSTANCE = new VariantType(0, true);
-
     public static final int WIDTH = 24;
 
     public static final String UNSUPPORTED_ORDERING_COMPARISON_MESSAGE =
@@ -109,6 +109,8 @@ public class VariantType extends PrimitiveType {
      * @param variantSparseHashShardCount hash buckets count when writing sparse shards
      * @param enableVariantDocMode whether to enable variant doc snapshot writing mode
      * @param variantDocMaterializationMinRows minimum rows to generate doc snapshot columns
+     * @param variantDocShardCount shard count for variant doc snapshot columns
+     * @param enableNestedGroup whether to enable nested group storage
      */
     public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount,
             boolean enableTypedPathsToSparse, int variantMaxSparseColumnStatisticsSize,
@@ -122,7 +124,18 @@ public class VariantType extends PrimitiveType {
     }
 
     /**
-     * Creates a Variant type and selects its compute-only physical representation.
+     * Creates a Variant type with predefined fields and an execution-only V2 marker.
+     *
+     * @param fields predefined variant path fields
+     * @param variantMaxSubcolumnsCount max number of subcolumns allowed
+     * @param enableTypedPathsToSparse whether typed paths should be materialized as sparse columns
+     * @param variantMaxSparseColumnStatisticsSize upper bound of sparse path statistics entries
+     * @param variantSparseHashShardCount hash buckets count when writing sparse shards
+     * @param enableVariantDocMode whether to enable variant doc snapshot writing mode
+     * @param variantDocMaterializationMinRows minimum rows to generate doc snapshot columns
+     * @param variantDocShardCount shard count for variant doc snapshot columns
+     * @param enableNestedGroup whether to enable nested group storage
+     * @param computeV2 whether this external execution type requires the V2 representation
      */
     public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount,
             boolean enableTypedPathsToSparse, int variantMaxSparseColumnStatisticsSize,
@@ -143,7 +156,7 @@ public class VariantType extends PrimitiveType {
 
     @Override
     public boolean isInjectiveCastTo(DataType target) {
-        return target.equals(this) || target instanceof VariantType;
+        return target instanceof VariantType;
     }
 
     @Override
@@ -336,25 +349,24 @@ public class VariantType extends PrimitiveType {
         return false;
     }
 
-    /** Whether this is a legacy Variant leaf rather than the compute-only V2 representation. */
+    /** Whether this is a legacy Variant leaf rather than a V2 execution representation. */
     public static boolean isLegacyVariant(DataType dataType) {
-        return dataType instanceof VariantType && !((VariantType) dataType).isComputeV2();
+        return dataType instanceof VariantType && !((VariantType) dataType).isExecutionV2();
     }
 
     /**
      * Whether the Variant V2 execution kernel can convert this source type.
      *
      * <p>This mirrors the BE {@code execute_to_variant} contract: encoded JSON, nested arrays,
-     * compute V2 values, and the scalar types supported by the typed Variant representation.
-     * MAP, STRUCT, TIMEV2 and DECIMAL256 are intentionally excluded until their BE conversions
-     * are implemented.</p>
+     * V2 values, and the scalar types supported by the typed Variant representation. MAP, STRUCT,
+     * TIMEV2 and DECIMAL256 are intentionally excluded until their BE conversions are implemented.</p>
      */
     public static boolean isSupportedComputeV2CastSource(DataType dataType) {
         if (dataType.isNullType() || dataType.isJsonType()) {
             return true;
         }
         if (dataType instanceof VariantType) {
-            return ((VariantType) dataType).isComputeV2();
+            return ((VariantType) dataType).isExecutionV2();
         }
         if (dataType instanceof ArrayType) {
             return isSupportedComputeV2CastSource(((ArrayType) dataType).getItemType());
@@ -389,25 +401,18 @@ public class VariantType extends PrimitiveType {
         return dataType;
     }
 
-    /**
-     * Whether two Variant values use an execution-compatible physical representation.
-     *
-     * <p>Legacy Variant values retain their existing common-type behavior. Compute-only Variant
-     * V2 values share one physical representation, independent of source layout properties.</p>
-     */
-    public boolean hasCommonExecutionTypeWith(VariantType other) {
-        return computeV2 == other.computeV2;
+    public boolean isExecutionV2() {
+        return Config.enable_variant_v2 || computeV2;
     }
 
-    /**
-     * Whether a cast between two Variant types is safe.
-     *
-     * <p>Variant V1 embeds layout properties in its execution type, so V1 casts still require
-     * exact type equality. All compute-only V2 types share the same physical value/metadata
-     * representation, therefore layout-property differences do not require conversion.</p>
-     */
+    /** Whether two Variant values use an execution-compatible physical representation. */
+    public boolean hasCommonExecutionTypeWith(VariantType other) {
+        return (isExecutionV2() && other.isExecutionV2()) || equals(other);
+    }
+
+    /** Whether a cast between two Variant types is safe for their execution representations. */
     public boolean isCastCompatibleWith(VariantType other) {
-        return (computeV2 && other.computeV2) || equals(other);
+        return (isExecutionV2() && other.isExecutionV2()) || equals(other);
     }
 
     /** Returns this Variant type with the requested compute-only physical representation. */
@@ -419,4 +424,5 @@ public class VariantType extends PrimitiveType {
                 variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
                 variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, enabled);
     }
+
 }
