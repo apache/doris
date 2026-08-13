@@ -1911,12 +1911,11 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
                std::ranges::all_of(value.substr(digits_begin),
                                    [](unsigned char c) { return std::isdigit(c); });
     };
-    if (path.size() != 1 || path[0].empty() || path[0] == "NULL" ||
-        path[0].find('.') != std::string::npos || is_numeric_selector(path[0]) ||
-        !mapping.file_local_id.has_value()) {
-        // Thrift currently carries access paths as strings without segment-kind or escaping
-        // metadata. Signed numeric tokens are therefore also ambiguous between an array selector
-        // and an object key, so only a single unambiguous key can be mapped losslessly to a leaf.
+    if (path.empty() || !mapping.file_local_id.has_value() ||
+        std::ranges::any_of(path, is_numeric_selector)) {
+        // The legacy path cannot distinguish a numeric object key from an array index. Preserve
+        // correctness by falling back for the whole path until typed array-index segments exist.
+        // TODO: Support numeric array indexes with an explicitly typed access-path protocol.
         return false;
     }
     *root_projection = LocalColumnIndex::partial_local(*mapping.file_local_id);
@@ -1950,6 +1949,11 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
                 return false;
             }
             typed_projection.project_all_children = true;
+        } else if (typed->type == nullptr ||
+                   remove_nullable(typed->type)->get_primitive_type() != TYPE_STRUCT) {
+            // Every intermediate typed_value must be an object. This prevents a legacy untyped
+            // path produced through an array/explode operation from crossing a repeated node.
+            return false;
         }
         current_projection->children.push_back(std::move(typed_projection));
         current_projection = &current_projection->children.back();

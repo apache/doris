@@ -409,8 +409,6 @@ public class InsertUtils {
         }
 
         ConnectContext context = ConnectContext.get();
-        boolean enableVariantV2 = context != null
-                && context.getSessionVariable().isEnableVariantV2();
         boolean isPaimonSink = unboundLogicalSink instanceof UnboundPaimonTableSink;
         boolean isIcebergSink = unboundLogicalSink instanceof UnboundIcebergTableSink;
         ExpressionRewriteContext rewriteContext = null;
@@ -467,8 +465,7 @@ public class InsertUtils {
                                     null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = targetTypeForInlineValue(
-                                    sameNameColumn, values.get(i), isPaimonSink, isIcebergSink,
-                                    enableVariantV2);
+                                    sameNameColumn, values.get(i), isPaimonSink, isIcebergSink);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
                                     targetType, rewriteContext, strictCast);
                         }
@@ -490,8 +487,7 @@ public class InsertUtils {
                                     null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = targetTypeForInlineValue(
-                                    columns.get(i), values.get(i), isPaimonSink, isIcebergSink,
-                                    enableVariantV2);
+                                    columns.get(i), values.get(i), isPaimonSink, isIcebergSink);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType,
                                     rewriteContext, strictCast);
                         }
@@ -504,12 +500,11 @@ public class InsertUtils {
     }
 
     private static DataType targetTypeForInlineValue(
-            Column column, NamedExpression value, boolean isPaimonSink, boolean isIcebergSink,
-            boolean enableVariantV2) {
+            Column column, NamedExpression value, boolean isPaimonSink, boolean isIcebergSink) {
         DataType targetType = DataType.fromCatalogType(column.getType());
         if (isPaimonSink) {
             return PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
-                    targetType, value, enableVariantV2).orElse(null);
+                    targetType, value).orElse(null);
         }
         if (isIcebergSink) {
             return IcebergVariantWriteAnalyzer.resolveInlineCoercionTarget(

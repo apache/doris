@@ -142,6 +142,36 @@ ParquetColumnSchema shredded_named_object_schema(std::string field_name) {
     return schema;
 }
 
+ParquetColumnSchema shredded_deep_object_schema() {
+    auto schema = unshredded_schema();
+    auto root_typed = std::make_unique<ParquetColumnSchema>();
+    root_typed->name = "typed_value";
+    root_typed->kind = ParquetColumnSchemaKind::STRUCT;
+
+    auto profile = std::make_unique<ParquetColumnSchema>();
+    profile->name = "profile";
+    profile->kind = ParquetColumnSchemaKind::STRUCT;
+    auto profile_typed = std::make_unique<ParquetColumnSchema>();
+    profile_typed->name = "typed_value";
+    profile_typed->kind = ParquetColumnSchemaKind::STRUCT;
+
+    auto address = std::make_unique<ParquetColumnSchema>();
+    address->name = "address";
+    address->kind = ParquetColumnSchemaKind::STRUCT;
+    auto address_typed = std::make_unique<ParquetColumnSchema>();
+    address_typed->name = "typed_value";
+    address_typed->kind = ParquetColumnSchemaKind::PRIMITIVE;
+    address_typed->type = make_nullable(std::make_shared<DataTypeInt64>());
+    address_typed->type_descriptor.integer_bit_width = 64;
+
+    address->children.push_back(std::move(address_typed));
+    profile_typed->children.push_back(std::move(address));
+    profile->children.push_back(std::move(profile_typed));
+    root_typed->children.push_back(std::move(profile));
+    schema.children.push_back(std::move(root_typed));
+    return schema;
+}
+
 ParquetColumnSchema shredded_binary_object_schema() {
     auto schema = shredded_object_schema();
     auto* leaf = schema.children.back()->children[0]->children[0].get();
@@ -163,6 +193,24 @@ ParquetColumnSchema shredded_array_schema() {
     element_typed->type = make_nullable(std::make_shared<DataTypeInt64>());
     element_typed->type_descriptor.integer_bit_width = 64;
     element->children.push_back(std::move(element_typed));
+    typed->children.push_back(std::move(element));
+    schema.children.push_back(std::move(typed));
+    return schema;
+}
+
+ParquetColumnSchema shredded_fallback_only_array_schema() {
+    auto schema = unshredded_schema();
+    auto typed = std::make_unique<ParquetColumnSchema>();
+    typed->name = "typed_value";
+    typed->kind = ParquetColumnSchemaKind::LIST;
+    auto element = std::make_unique<ParquetColumnSchema>();
+    element->name = "element";
+    element->kind = ParquetColumnSchemaKind::STRUCT;
+    auto value = std::make_unique<ParquetColumnSchema>();
+    value->name = "value";
+    value->kind = ParquetColumnSchemaKind::PRIMITIVE;
+    value->type = std::make_shared<DataTypeString>();
+    element->children.push_back(std::move(value));
     typed->children.push_back(std::move(element));
     schema.children.push_back(std::move(typed));
     return schema;
@@ -237,6 +285,35 @@ MutableColumnPtr projected_shredded_object_physical(const std::vector<int64_t>& 
             ColumnNullable::create(std::move(object), ColumnUInt8::create(values.size(), 0)));
     auto root = ColumnStruct::create(std::move(root_fields));
     return ColumnNullable::create(std::move(root), ColumnUInt8::create(values.size(), 0));
+}
+
+MutableColumnPtr projected_shredded_deep_object_physical(const std::vector<int64_t>& values) {
+    auto integers = ColumnInt64::create();
+    integers->get_data().assign(values.begin(), values.end());
+    MutableColumns address_wrapper_fields;
+    address_wrapper_fields.push_back(
+            ColumnNullable::create(std::move(integers), ColumnUInt8::create(values.size(), 0)));
+    auto address_wrapper = ColumnStruct::create(std::move(address_wrapper_fields));
+
+    MutableColumns profile_object_fields;
+    profile_object_fields.push_back(ColumnNullable::create(std::move(address_wrapper),
+                                                           ColumnUInt8::create(values.size(), 0)));
+    auto profile_object = ColumnStruct::create(std::move(profile_object_fields));
+
+    MutableColumns profile_wrapper_fields;
+    profile_wrapper_fields.push_back(ColumnNullable::create(std::move(profile_object),
+                                                            ColumnUInt8::create(values.size(), 0)));
+    auto profile_wrapper = ColumnStruct::create(std::move(profile_wrapper_fields));
+
+    MutableColumns root_object_fields;
+    root_object_fields.push_back(ColumnNullable::create(std::move(profile_wrapper),
+                                                        ColumnUInt8::create(values.size(), 0)));
+    auto root_object = ColumnStruct::create(std::move(root_object_fields));
+    MutableColumns root_fields;
+    root_fields.push_back(
+            ColumnNullable::create(std::move(root_object), ColumnUInt8::create(values.size(), 0)));
+    return ColumnNullable::create(ColumnStruct::create(std::move(root_fields)),
+                                  ColumnUInt8::create(values.size(), 0));
 }
 
 MutableColumnPtr projected_shredded_int32_object_physical(const std::vector<int32_t>& values) {
@@ -1737,6 +1814,47 @@ TEST(VariantColumnReaderTest, MaterializesShreddedArrayElements) {
     EXPECT_EQ(value.array_at(1).get_int(), 4);
 }
 
+TEST(VariantColumnReaderTest, MaterializesFallbackOnlyArrayFromRequiredValueLeaf) {
+    const StringRef metadata(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size());
+    const std::array<char, 2> first_value {
+            static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT8)
+                              << VARIANT_VALUE_HEADER_SHIFT),
+            3};
+    const std::array<char, 2> second_value {
+            static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT8)
+                              << VARIANT_VALUE_HEADER_SHIFT),
+            4};
+
+    auto values = ColumnString::create();
+    values->insert_data(first_value.data(), first_value.size());
+    values->insert_data(second_value.data(), second_value.size());
+    MutableColumns wrapper_fields;
+    wrapper_fields.push_back(std::move(values));
+    auto wrappers = ColumnStruct::create(std::move(wrapper_fields));
+    auto elements = ColumnNullable::create(std::move(wrappers), ColumnUInt8::create(2, 0));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(2);
+    auto array = ColumnArray::create(std::move(elements), std::move(offsets));
+
+    const std::array<char, 1> ignored {0};
+    MutableColumns root_fields;
+    root_fields.push_back(nullable_strings({metadata}, {0}));
+    root_fields.push_back(nullable_strings({{ignored.data(), 0}}, {1}));
+    root_fields.push_back(ColumnNullable::create(std::move(array), ColumnUInt8::create(1, 0)));
+    auto physical = root_wrapper(std::move(root_fields));
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const auto status =
+            materialize_variant_rows(shredded_fallback_only_array_schema(), *physical, output);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    const VariantRef value = variants.get_value_ref(0);
+    ASSERT_EQ(value.num_elements(), 2);
+    EXPECT_EQ(value.array_at(0).get_int(), 3);
+    EXPECT_EQ(value.array_at(1).get_int(), 4);
+}
+
 TEST(VariantColumnReaderTest, RejectsCorruptShreddedWrappersWithoutCrashing) {
     const std::array<char, 2> int_seven {
             static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT8)
@@ -2337,6 +2455,64 @@ TEST(VariantColumnReaderTest, ProjectedShreddedStateRejectsRootMaterialization) 
     const auto& variants = assert_cast<const ColumnVariantV2&>(
             assert_cast<const ColumnNullable&>(*output).get_nested_column());
     EXPECT_THROW((void)variants.get_value_ref(0), Exception);
+}
+
+TEST(VariantColumnReaderTest, ProjectedShreddedStateServesBinaryDeepPathChain) {
+    auto schema = shredded_deep_object_schema();
+    schema.local_id = 0;
+    schema.children[2]->local_id = 2;
+    auto* profile = schema.children[2]->children[0].get();
+    profile->local_id = 0;
+    profile->children[0]->local_id = 0;
+    auto* address = profile->children[0]->children[0].get();
+    address->local_id = 0;
+    address->children[0]->local_id = 0;
+
+    auto projection = format::LocalColumnIndex::partial_local(0);
+    projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+    projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
+    projection.children.back().children.back().children.push_back(
+            format::LocalColumnIndex::partial_local(0));
+    projection.children.back().children.back().children.back().children.push_back(
+            format::LocalColumnIndex::partial_local(0));
+    projection.children.back().children.back().children.back().children.back().children.push_back(
+            format::LocalColumnIndex::local(0));
+
+    VariantMaterializationNode plan;
+    plan.schema = &schema;
+    plan.contains_variant = true;
+    plan.variant_projection = std::move(projection);
+    plan.variant_state_schema = create_variant_state_schema(schema, &*plan.variant_projection);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(
+            materialize_variant_columns(plan, projected_shredded_deep_object_physical({17}), output)
+                    .ok());
+    const auto& root = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    EXPECT_THROW((void)root.get_value_ref(0), Exception);
+
+    const std::array profile_segment {
+            VariantElementV2PathSegment::object_key(StringRef("profile"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> profile_path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(profile_segment, &profile_path).ok());
+    ColumnPtr profile_value;
+    const Status profile_status =
+            extract_variant_element_v2(root, *profile_path, {}, &profile_value);
+    ASSERT_TRUE(profile_status.ok()) << profile_status;
+    const auto& profile_value_variant = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*profile_value).get_nested_column());
+
+    const std::array address_segment {
+            VariantElementV2PathSegment::object_key(StringRef("address"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> address_path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(address_segment, &address_path).ok());
+    ColumnPtr address_value;
+    const Status address_status =
+            extract_variant_element_v2(profile_value_variant, *address_path, {}, &address_value);
+    ASSERT_TRUE(address_status.ok()) << address_status;
+    const auto& address_value_variant = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*address_value).get_nested_column());
+    EXPECT_EQ(address_value_variant.get_value_ref(0).get_int(), 17);
 }
 
 TEST(VariantColumnReaderTest, AlignsNestedPrimitiveNullabilityAroundVariant) {

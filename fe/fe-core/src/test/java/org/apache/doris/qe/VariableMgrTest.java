@@ -249,4 +249,13 @@ public class VariableMgrTest {
                         new StringLiteral("0"))));
         Assert.assertTrue(blockSizeException.getMessage().contains("preferred_block_size_bytes"));
     }
+
+    @Test
+    public void testVariantV2IsNotSessionVariable() {
+        SessionVariable var = new SessionVariable();
+
+        DdlException exception = Assert.assertThrows(DdlException.class, () -> VariableMgr.setVar(var,
+                new SetVar(SetType.SESSION, "enable_variant_v2", new StringLiteral("true"))));
+        Assert.assertTrue(exception.getMessage().contains("Unknown system variable"));
+    }
 }

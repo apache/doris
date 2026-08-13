@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -50,13 +51,26 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
 import java.util.function.Function;
 
 public class VariantWritePlanValidatorTest {
+    private boolean originalEnableVariantV2;
+
+    @Before
+    public void saveVariantV2Config() {
+        originalEnableVariantV2 = Config.enable_variant_v2;
+    }
+
+    @After
+    public void restoreVariantV2Config() {
+        Config.enable_variant_v2 = originalEnableVariantV2;
+    }
 
     @Test
     public void testUnionIfAndCaseImplicitVariantLossAreRejectedForBothSinks() {
@@ -92,7 +106,7 @@ public class VariantWritePlanValidatorTest {
     @Test
     public void testAnalyzedUnionIfAndCaseObjectAndArrayPlansAreRejected() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
-        connectContext.getSessionVariable().enableVariantV2 = true;
+        Config.enable_variant_v2 = true;
         List<String> sqlStatements = ImmutableList.of(
                 "SELECT 1, parse_to_variant('{\"kind\":\"union\"}') "
                         + "UNION ALL SELECT 2, 1",
@@ -105,49 +119,8 @@ public class VariantWritePlanValidatorTest {
                 "SELECT 6, CASE WHEN TRUE THEN parse_to_variant('[\"case\", 6]') "
                         + "ELSE 1 END");
 
-        try {
-            for (String sql : sqlStatements) {
-                Plan analyzedPlan = PlanChecker.from(connectContext).analyze(sql).getPlan();
-                for (String sinkName : ImmutableList.of("Iceberg", "Paimon")) {
-                    AnalysisException exception = Assert.assertThrows(
-                            AnalysisException.class,
-                            () -> VariantWritePlanValidator.validateNoLossyCoercion(
-                                    sinkName, variantTargetWithId(), analyzedPlan));
-                    Assert.assertTrue(exception.getMessage(),
-                            exception.getMessage().contains("input column 'payload'"));
-                }
-            }
-        } finally {
-            connectContext.getSessionVariable().enableVariantV2 = false;
-        }
-    }
-
-    @Test
-    public void testAnalyzedExplicitVariantCastIsAccepted() {
-        ConnectContext connectContext = MemoTestUtils.createConnectContext();
-        connectContext.getSessionVariable().enableVariantV2 = true;
-        try {
-            Plan analyzedPlan = PlanChecker.from(connectContext)
-                    .analyze("SELECT 1, CAST(parse_to_variant('{\"explicit\":true}') AS INT)")
-                    .getPlan();
-            VariantWritePlanValidator.validateNoLossyCoercion(
-                    "Iceberg", variantTargetWithId(), analyzedPlan);
-            VariantWritePlanValidator.validateNoLossyCoercion(
-                    "Paimon", variantTargetWithId(), analyzedPlan);
-        } finally {
-            connectContext.getSessionVariable().enableVariantV2 = false;
-        }
-    }
-
-    @Test
-    public void testAnalyzedCteProducerLossIsRejected() {
-        ConnectContext connectContext = MemoTestUtils.createConnectContext();
-        connectContext.getSessionVariable().enableVariantV2 = true;
-        try {
-            Plan analyzedPlan = PlanChecker.from(connectContext).analyze(
-                    "WITH source AS (SELECT CASE WHEN TRUE "
-                            + "THEN parse_to_variant('{\"cte\":true}') ELSE 1 END AS payload) "
-                            + "SELECT 1, payload FROM source").getPlan();
+        for (String sql : sqlStatements) {
+            Plan analyzedPlan = PlanChecker.from(connectContext).analyze(sql).getPlan();
             for (String sinkName : ImmutableList.of("Iceberg", "Paimon")) {
                 AnalysisException exception = Assert.assertThrows(
                         AnalysisException.class,
@@ -156,15 +129,44 @@ public class VariantWritePlanValidatorTest {
                 Assert.assertTrue(exception.getMessage(),
                         exception.getMessage().contains("input column 'payload'"));
             }
-        } finally {
-            connectContext.getSessionVariable().enableVariantV2 = false;
+        }
+    }
+
+    @Test
+    public void testAnalyzedExplicitVariantCastIsAccepted() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        Config.enable_variant_v2 = true;
+        Plan analyzedPlan = PlanChecker.from(connectContext)
+                .analyze("SELECT 1, CAST(parse_to_variant('{\"explicit\":true}') AS INT)")
+                .getPlan();
+        VariantWritePlanValidator.validateNoLossyCoercion(
+                "Iceberg", variantTargetWithId(), analyzedPlan);
+        VariantWritePlanValidator.validateNoLossyCoercion(
+                "Paimon", variantTargetWithId(), analyzedPlan);
+    }
+
+    @Test
+    public void testAnalyzedCteProducerLossIsRejected() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        Config.enable_variant_v2 = true;
+        Plan analyzedPlan = PlanChecker.from(connectContext).analyze(
+                "WITH source AS (SELECT CASE WHEN TRUE "
+                        + "THEN parse_to_variant('{\"cte\":true}') ELSE 1 END AS payload) "
+                        + "SELECT 1, payload FROM source").getPlan();
+        for (String sinkName : ImmutableList.of("Iceberg", "Paimon")) {
+            AnalysisException exception = Assert.assertThrows(
+                    AnalysisException.class,
+                    () -> VariantWritePlanValidator.validateNoLossyCoercion(
+                            sinkName, variantTargetWithId(), analyzedPlan));
+            Assert.assertTrue(exception.getMessage(),
+                    exception.getMessage().contains("input column 'payload'"));
         }
     }
 
     @Test
     public void testAnalyzedRecursiveUnionAndGenerateLossAreRejectedForBothSinks() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
-        connectContext.getSessionVariable().enableVariantV2 = true;
+        Config.enable_variant_v2 = true;
         List<String> sqlStatements = ImmutableList.of(
                 "WITH RECURSIVE source AS ("
                         + "SELECT IF(TRUE, parse_to_variant("
@@ -176,20 +178,16 @@ public class VariantWritePlanValidatorTest {
                         + "parse_to_variant('{\"kind\":\"generate\"}'), 1))) generated "
                         + "AS generated_payload");
 
-        try {
-            for (String sql : sqlStatements) {
-                Plan analyzedPlan = PlanChecker.from(connectContext).analyze(sql).getPlan();
-                for (String sinkName : ImmutableList.of("Iceberg", "Paimon")) {
-                    AnalysisException exception = Assert.assertThrows(
-                            AnalysisException.class,
-                            () -> VariantWritePlanValidator.validateNoLossyCoercion(
-                                    sinkName, variantTargetWithId(), analyzedPlan));
-                    Assert.assertTrue(exception.getMessage(),
-                            exception.getMessage().contains("input column 'payload'"));
-                }
+        for (String sql : sqlStatements) {
+            Plan analyzedPlan = PlanChecker.from(connectContext).analyze(sql).getPlan();
+            for (String sinkName : ImmutableList.of("Iceberg", "Paimon")) {
+                AnalysisException exception = Assert.assertThrows(
+                        AnalysisException.class,
+                        () -> VariantWritePlanValidator.validateNoLossyCoercion(
+                                sinkName, variantTargetWithId(), analyzedPlan));
+                Assert.assertTrue(exception.getMessage(),
+                        exception.getMessage().contains("input column 'payload'"));
             }
-        } finally {
-            connectContext.getSessionVariable().enableVariantV2 = false;
         }
     }
 

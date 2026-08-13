@@ -96,6 +96,13 @@ void write_json_value(VariantRef value, Writer& writer,
     to_json(value, writer, json_options);
 }
 
+template <typename Writer>
+void write_sql_value(VariantRef value, Writer& writer,
+                     const DataTypeSerDe::FormatOptions& options) {
+    VariantJsonFormatOptions json_options {.timezone = options.timezone};
+    to_sql_string(value, writer, json_options);
+}
+
 constexpr size_t VARIANT_V2_TYPE_META_BYTES = sizeof(int32_t) * 4;
 
 const ColumnVariantV2& get_variant_v2_column(const IColumn& column) {
@@ -667,12 +674,15 @@ Status write_arrow(const IColumn& column, const NullMap* null_map, Builder& buil
 
 void DataTypeVariantV2SerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                        const FormatOptions& options) const {
-    const DorisVector<size_t> lengths =
-            json_lengths(column, row_num, row_num + 1, nullptr, options);
-    DCHECK_EQ(lengths.size(), 1);
     visit_variant_v2_values(
             column, row_num, row_num + 1, {}, [](size_t) {},
-            [&](size_t, VariantRef value) { write_json_value(value, bw, options); });
+            [&](size_t, VariantRef value) {
+                if (_nesting_level > 1) {
+                    write_json_value(value, bw, options);
+                } else {
+                    write_sql_value(value, bw, options);
+                }
+            });
 }
 
 Status DataTypeVariantV2SerDe::write_column_to_mysql_binary(const IColumn& column,
@@ -681,17 +691,20 @@ Status DataTypeVariantV2SerDe::write_column_to_mysql_binary(const IColumn& colum
                                                             const FormatOptions& options) const {
     RETURN_IF_CATCH_EXCEPTION({
         const size_t row = col_const ? 0 : checked_row(row_idx);
-        const DorisVector<size_t> lengths = json_lengths(column, row, row + 1, nullptr, options);
-        DorisVector<char> rendered(lengths[0]);
+        CountingWriter counter;
+        visit_variant_v2_values(
+                column, row, row + 1, {}, [](size_t) {},
+                [&](size_t, VariantRef value) { write_sql_value(value, counter, options); });
+        const size_t rendered_size = counter.count;
+        DorisVector<char> rendered(rendered_size == 0 ? 1 : rendered_size);
         visit_variant_v2_values(
                 column, row, row + 1, {}, [](size_t) {},
                 [&](size_t, VariantRef value) {
-                    FixedWriter writer {.destination = rendered.data(),
-                                        .capacity = rendered.size()};
-                    write_json_value(value, writer, options);
-                    DCHECK_EQ(writer.written, rendered.size());
+                    FixedWriter writer {.destination = rendered.data(), .capacity = rendered_size};
+                    write_sql_value(value, writer, options);
+                    DCHECK_EQ(writer.written, rendered_size);
                 });
-        if (row_buffer.push_string(rendered.data(), rendered.size()) != 0) {
+        if (row_buffer.push_string(rendered.data(), rendered_size) != 0) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "Failed to pack Variant MySQL buffer");
         }
     });

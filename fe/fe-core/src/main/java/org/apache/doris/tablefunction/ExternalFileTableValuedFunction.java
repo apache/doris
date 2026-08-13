@@ -138,7 +138,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     public FileFormatProperties fileFormatProperties;
     private long tableId;
     private long lanceDatasetVersion = -1;
-    private List<Long> lanceFragmentIds = Collections.emptyList();
+    private List<LanceTableMetadata.LanceFragmentInfo> lanceFragments = Collections.emptyList();
 
     public abstract TFileType getTFileType();
 
@@ -162,8 +162,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return lanceDatasetVersion;
     }
 
-    public List<Long> getLanceFragmentIds() {
-        return lanceFragmentIds;
+    public List<LanceTableMetadata.LanceFragmentInfo> getLanceFragments() {
+        return lanceFragments;
     }
 
     public Map<String, String> getBackendConnectProperties() {
@@ -358,7 +358,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("Lance returned an invalid dataset version: "
                     + metadata.getVersion());
         }
-        List<Long> fragmentIds = new ArrayList<>(metadata.getFragments().size());
+        List<LanceTableMetadata.LanceFragmentInfo> fragments =
+                new ArrayList<>(metadata.getFragments().size());
         Set<Long> uniqueIds = new HashSet<>();
         for (LanceTableMetadata.LanceFragmentInfo fragment : metadata.getFragments()) {
             long fragmentId = fragment.getId();
@@ -368,7 +369,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             if (!uniqueIds.add(fragmentId)) {
                 throw new AnalysisException("Lance returned duplicate fragment id: " + fragmentId);
             }
-            fragmentIds.add(fragmentId);
+            fragments.add(fragment);
         }
 
         List<Column> lanceColumns = new ArrayList<>(metadata.getSchema().getFields().size());
@@ -390,7 +391,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         lanceDatasetVersion = metadata.getVersion();
-        lanceFragmentIds = Collections.unmodifiableList(fragmentIds);
+        lanceFragments = Collections.unmodifiableList(fragments);
         columns = lanceColumns;
     }
 

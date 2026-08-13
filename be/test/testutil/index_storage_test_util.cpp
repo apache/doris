@@ -39,6 +39,8 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "exec/common/variant_util.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
@@ -560,10 +562,15 @@ void collect_variant_values_from_block(const TabletSchema& schema,
 
         auto full_column = block.get_by_position(pos).column->convert_to_full_column_if_const();
         const auto* nullable_column = check_and_get_column<ColumnNullable>(*full_column);
-        const auto* variant_column =
-                nullable_column != nullptr
-                        ? assert_cast<const ColumnVariant*>(&nullable_column->get_nested_column())
-                        : assert_cast<const ColumnVariant*>(full_column.get());
+        const IColumn* nested_column = nullable_column != nullptr
+                                               ? &nullable_column->get_nested_column()
+                                               : full_column.get();
+        const auto* variant_column = check_and_get_column<ColumnVariant>(nested_column);
+        const auto* variant_v2_column = check_and_get_column<ColumnVariantV2>(nested_column);
+        DORIS_CHECK(variant_column != nullptr || variant_v2_column != nullptr);
+        if (variant_v2_column != nullptr) {
+            result->variant_v2_output_uids.insert(tablet_column.unique_id());
+        }
         auto& values = result->variant_values_by_uid[tablet_column.unique_id()];
         for (size_t row = 0; row < full_column->size(); ++row) {
             if (full_column->is_null_at(row)) {
@@ -571,7 +578,18 @@ void collect_variant_values_from_block(const TabletSchema& schema,
                 continue;
             }
             std::string value;
-            variant_column->serialize_one_row_to_string(row, &value, options);
+            if (variant_v2_column != nullptr) {
+                auto output = ColumnString::create();
+                BufferWritable writer(*output);
+                DataTypeVariantV2SerDe serde;
+                auto status =
+                        serde.serialize_one_cell_to_json(*variant_v2_column, row, writer, options);
+                DORIS_CHECK(status.ok()) << status;
+                writer.commit();
+                value = output->get_data_at(0).to_string();
+            } else {
+                variant_column->serialize_one_row_to_string(row, &value, options);
+            }
             values.emplace_back(std::move(value));
         }
     }
@@ -1260,6 +1278,17 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         std::iota(return_columns.begin(), return_columns.end(), 0);
     }
 
+    TabletSchemaSPtr read_schema = _tablet_schema;
+    if (options.use_variant_v2) {
+        read_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+        for (int32_t column_id = 0; column_id < read_schema->num_columns(); ++column_id) {
+            auto& column = read_schema->mutable_column(column_id);
+            if (column.is_variant_type()) {
+                column.set_variant_is_v2(true);
+            }
+        }
+    }
+
     RuntimeState runtime_state;
     runtime_state.set_exec_env(ExecEnv::GetInstance());
     runtime_state.set_query_options(make_read_query_options(options));
@@ -1276,7 +1305,7 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
 
         RowsetReaderContext context;
         context.reader_type = options.reader_type;
-        context.tablet_schema = _tablet_schema;
+        context.tablet_schema = read_schema;
         context.need_ordered_result = options.need_ordered_result;
         context.return_columns = &return_columns;
         context.predicates = &options.predicates;
@@ -1290,17 +1319,17 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         RETURN_RESULT_IF_ERROR(reader->init(&context));
 
         while (true) {
-            Block block = _tablet_schema->create_block_by_cids(return_columns);
+            Block block = read_schema->create_block_by_cids(return_columns);
             auto status = reader->next_batch(&block);
             if (status.is<ErrorCode::END_OF_FILE>()) {
                 break;
             }
             RETURN_RESULT_IF_ERROR(status);
             if (options.collect_string_values) {
-                collect_string_values_from_block(*_tablet_schema, return_columns, block, &result);
+                collect_string_values_from_block(*read_schema, return_columns, block, &result);
             }
             if (options.collect_variant_values) {
-                collect_variant_values_from_block(*_tablet_schema, return_columns, block, &result);
+                collect_variant_values_from_block(*read_schema, return_columns, block, &result);
             }
             result.rows_read += block.rows();
         }
@@ -1557,6 +1586,10 @@ int32_t IndexStorageTestFixture::column_id_by_path(const std::string& path) cons
     const int32_t column_id = _tablet_schema->field_index(PathInData(path));
     if (column_id >= 0) {
         return column_id;
+    }
+    const int32_t root_column_id = _tablet_schema->field_index(path);
+    if (root_column_id >= 0) {
+        return root_column_id;
     }
 
     const std::string relative_query_path = relative_variant_path(path);

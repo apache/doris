@@ -14,7 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){ 
+suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
+    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    def variantTypeExpression = "variant_type(var)"
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
@@ -90,7 +93,7 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
     sql """
          INSERT INTO test_variant_predefine_types_with_indexes_profile (`var`) VALUES
         (
-            '{
+            ${variantV2Function}('{
               "array_decimal_1": ["12345678901234567.123456789", "987.654321"],
               "array_ipv6_1": ["2001:0db8:85a3:0000:0000:8a2e:0370:7334", "::1"],
               "int_1": 42,
@@ -115,8 +118,8 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
               "ipv6_1": "::1",
               "largeint_1": "12345678901234567890123456789012345678",
               "char_1": "short text"
-            }'
-        ); 
+            }')
+        );
     """
     for (int i = 1; i < 10; i++) {
       load_json_data.call(tableName, getS3Url() + "/regression/variant/schema_tmpt${i}.json")
@@ -183,11 +186,23 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
     }
 
     sql "set enable_two_phase_read_opt = false"
-    qt_sql "select * from test_variant_predefine_types_with_indexes_profile order by id limit 10"
+    def stableRowsQuery = """select id,
+                cast(var['array_decimal_1'] as array<decimalv3(26, 9)>),
+                cast(var['array_ipv6_1'] as array<ipv6>)
+            from test_variant_predefine_types_with_indexes_profile
+            where arrays_overlap(cast(var['array_decimal_1'] as array<decimalv3(26, 9)>),
+                    array(cast(12345678901234567.123456789 as decimalv3(26, 9))))
+              and arrays_overlap(cast(var['array_ipv6_1'] as array<ipv6>),
+                    array(cast('::1' as ipv6)))
+            order by id limit 10"""
+    qt_sql stableRowsQuery
     trigger_and_wait_compaction(tableName, "cumulative", 1800)
     sql "set enable_two_phase_read_opt = true"
-    qt_sql "select * from test_variant_predefine_types_with_indexes_profile order by id limit 10"
-    qt_sql "select variant_type(var) from test_variant_predefine_types_with_indexes_profile where id = 1"
+    qt_sql stableRowsQuery
+    if (!enableVariantV2) {
+        qt_variant_type_v1 "select ${variantTypeExpression} from ${tableName} where id = 1"
+    }
+    qt_variant_type_supported "select variant_type(var) is not null from ${tableName} where id = 1"
     accurateCheckIndexWithQueries()
 
     sql """ alter table test_variant_predefine_types_with_indexes_profile set ("bloom_filter_columns" = "var"); """
@@ -224,10 +239,10 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
     queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['largeint_1'] as largeint) = 12345678901234567890123456789012345678")
 
     for (int i = 1; i < 10; i++) {
-      sql """insert into test_variant_predefine_types_with_indexes_profile values (1, '{"a" : 123, "b" : 456, "d" : 789, "f" : "12345678901234567890123456789012345678", "int_1" : 123}')"""
+      sql """insert into test_variant_predefine_types_with_indexes_profile values (1, ${variantV2Function}('{"a" : 123, "b" : 456, "d" : 789, "f" : "12345678901234567890123456789012345678", "int_1" : 123}'))"""
     }
     for (int i = 1; i < 10; i++) {
-      sql """insert into test_variant_predefine_types_with_indexes_profile values (1, '{"a" : 123, "b" : 456, "d" : 789, "f" : "12345678901234567890123456789012345678"}')"""
+      sql """insert into test_variant_predefine_types_with_indexes_profile values (1, ${variantV2Function}('{"a" : 123, "b" : 456, "d" : 789, "f" : "12345678901234567890123456789012345678"}'))"""
     }
-    trigger_and_wait_compaction(tableName, "full", 1800) 
+    trigger_and_wait_compaction(tableName, "full", 1800)
 }

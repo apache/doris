@@ -724,6 +724,17 @@ public:
     // column_vector and column_decimal override this method to return true
     virtual bool support_replace_column_null_data() const { return false; }
 
+    /**
+     * Try to replace the payload of NULL rows with the nested column's default value without
+     * going through COW. Implementations must return false without modifying data unless the
+     * complete column ownership chain is exclusive. This is only safe because payloads of rows
+     * that are already NULL are not observable through the nullable column. In particular, a
+     * shared nested column may belong to another nullable column with a different null map.
+     *
+     * This bypasses the normal COW mutation path. Do not use it for general column mutation.
+     */
+    virtual bool try_replace_null_payload_with_default_without_cow() const { return false; }
+
     // For float/double types, replace -0.0 with 0.0, set NaN to quiet NaN,
     // used to ensure data hash equality for -0.0 and +0.0, e.g. aggregate and join
     virtual void replace_float_special_values() {}

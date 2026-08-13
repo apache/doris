@@ -1000,11 +1000,8 @@ public class BindSink implements AnalysisRuleFactory {
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
                 sink.getDMLCommandType(), Optional.empty(), Optional.empty(), child);
-        ConnectContext connectContext = ctx.cascadesContext.getConnectContext();
-        boolean enableVariantV2 = connectContext != null
-                && connectContext.getSessionVariable().isEnableVariantV2();
         PaimonVariantWriteAnalyzer.validate(
-                writeTarget, writeColumns, columnToOutput, enableVariantV2);
+                writeTarget, writeColumns, columnToOutput);
         VariantWritePlanValidator.validateNoLossyCoercion(
                 "Paimon", bindColumns, child, ctx.cascadesContext.getCteContext());
         LogicalProject<?> outputProject = getOutputProjectByCoercion(

@@ -243,7 +243,7 @@ public:
     void operator()(const BitmapValue& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
-    void operator()(const VariantMap& x, JsonbWriter* writer) const {
+    void operator()(const VariantField& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     void operator()(const Map& x, JsonbWriter* writer) const {

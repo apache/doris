@@ -1612,6 +1612,9 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_
     } else if constexpr (T == TYPE_IPV6) {
         col.insert_value(unaligned_load<Int128>(data));
         data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        col.insert_value(unaligned_load<VecDateTimeValue>(data));
+        data += sizeof(VecDateTimeValue);
     } else if constexpr (T == TYPE_DATEV2) {
         col.insert_value(unaligned_load<UInt32>(data));
         data += sizeof(UInt32);
@@ -1676,6 +1679,10 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         auto v = pack.value;
         field = Field::create_field<TYPE_IPV6>(v);
         data += sizeof(PackedUInt128);
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        const auto value = unaligned_load<VecDateTimeValue>(data);
+        field = Field::create_field<T>(value);
+        data += sizeof(VecDateTimeValue);
     } else if constexpr (T == TYPE_DATEV2) {
         UInt32 v = unaligned_load<UInt32>(data);
         field = Field::create_field<TYPE_DATEV2>(v);

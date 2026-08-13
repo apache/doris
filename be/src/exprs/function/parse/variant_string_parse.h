@@ -267,6 +267,57 @@ public:
         }
     }
 
+    void write_plain_scalar(VariantRef value) {
+        require_json_depth(0);
+        if (value.basic_type() == VariantBasicType::SHORT_STRING) {
+            const StringRef string = value.get_string();
+            require_valid_json_utf8(string, "string");
+            _out.write(string.data, string.size);
+            return;
+        }
+        if (value.basic_type() != VariantBasicType::PRIMITIVE) {
+            write(value, 0);
+            return;
+        }
+
+        switch (value.primitive_id()) {
+        case VariantPrimitiveId::STRING: {
+            const StringRef string = value.get_string();
+            require_valid_json_utf8(string, "string");
+            _out.write(string.data, string.size);
+            return;
+        }
+        case VariantPrimitiveId::DATE:
+            write_scalar(_out, format_json_date(value.get_date()));
+            return;
+        case VariantPrimitiveId::TIMESTAMP_MICROS:
+            write_scalar(_out, format_json_timestamp(value.get_timestamp_micros(), 6, true,
+                                                     _options.timezone));
+            return;
+        case VariantPrimitiveId::TIMESTAMP_NTZ_MICROS:
+            write_scalar(_out, format_json_timestamp(value.get_timestamp_ntz_micros(), 6, false,
+                                                     nullptr));
+            return;
+        case VariantPrimitiveId::TIME_NTZ_MICROS:
+            write_scalar(_out, format_json_time_micros(value.get_time_ntz_micros()));
+            return;
+        case VariantPrimitiveId::TIMESTAMP_NANOS:
+            write_scalar(_out, format_json_timestamp(value.get_timestamp_nanos(), 9, true,
+                                                     _options.timezone));
+            return;
+        case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
+            write_scalar(_out,
+                         format_json_timestamp(value.get_timestamp_ntz_nanos(), 9, false, nullptr));
+            return;
+        case VariantPrimitiveId::UUID:
+            write_scalar(_out, format_json_uuid(value.get_uuid()));
+            return;
+        default:
+            write_primitive(value);
+            return;
+        }
+    }
+
 private:
     void write_primitive(VariantRef value) {
         const VariantPrimitiveId id = value.primitive_id();
@@ -399,6 +450,16 @@ void to_json(VariantRef value, Writer& out,
              const VariantJsonFormatOptions& options = VariantJsonFormatOptions {}) {
     variant_json::require_exact_json_value(value);
     variant_json::Printer<Writer>(out, options).write(value, 0);
+}
+
+// Preserve the current Variant V1 SQL result contract for top-level scalar values: JSON strings
+// such as "value" and "2" are returned as value and 2. Once V1 is removed, this compatibility
+// output will change to the uniform JSON representation ("value" and "2").
+template <typename Writer>
+void to_sql_string(VariantRef value, Writer& out,
+                   const VariantJsonFormatOptions& options = VariantJsonFormatOptions {}) {
+    variant_json::require_exact_json_value(value);
+    variant_json::Printer<Writer>(out, options).write_plain_scalar(value);
 }
 
 } // namespace doris

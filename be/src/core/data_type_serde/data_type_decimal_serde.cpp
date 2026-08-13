@@ -1285,7 +1285,10 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_column(const uint8
     auto& col = assert_cast<ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column);
     data += sizeof(uint8_t);
     data += sizeof(uint8_t);
-    if constexpr (T == TYPE_DECIMAL32) {
+    if constexpr (T == TYPE_DECIMALV2) {
+        col.insert_value(DecimalV2Value(unaligned_load<Int128>(data)));
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DECIMAL32) {
         col.insert_value(unaligned_load<Int32>(data));
         data += sizeof(Int32);
     } else if constexpr (T == TYPE_DECIMAL64) {
@@ -1313,7 +1316,11 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_
     data += sizeof(uint8_t);
     info.precision = static_cast<int>(precision);
     info.scale = static_cast<int>(scale);
-    if constexpr (T == TYPE_DECIMAL32) {
+    if constexpr (T == TYPE_DECIMALV2) {
+        const auto value = DecimalV2Value(unaligned_load<Int128>(data));
+        field = Field::create_field<TYPE_DECIMALV2>(value);
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DECIMAL32) {
         Int32 v = unaligned_load<Int32>(data);
         field = Field::create_field<TYPE_DECIMAL32>(Decimal32(v));
         data += sizeof(Int32);

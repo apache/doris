@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -198,7 +199,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
-        checkVariantV2Enabled(desc, sessionVariable.isEnableVariantV2());
+        checkVariantV2Enabled(desc);
         Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
         if (desc.getTable() instanceof PaimonExternalTable
                 || desc.getTable() instanceof PaimonSysExternalTable) {
@@ -254,13 +255,14 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @VisibleForTesting
-    static void checkVariantV2Enabled(TupleDescriptor tuple, boolean enabled) throws UserException {
-        // Enforce the session switch here instead of during Paimon schema conversion. The cached
-        // external schema is shared by sessions, while this tuple contains only the slots projected
-        // by the current query and therefore does not reject scans of unrelated non-VARIANT columns.
-        if (!enabled && tuple.getSlots().stream().anyMatch(slot -> PaimonUtil.containsVariant(slot.getType()))) {
+    static void checkVariantV2Enabled(TupleDescriptor tuple) throws UserException {
+        // Enforce the global switch here instead of during Paimon schema conversion. The cached
+        // external schema is shared, while this tuple contains only the slots projected by the
+        // current query and therefore does not reject scans of unrelated non-VARIANT columns.
+        if (!Config.enable_variant_v2
+                && tuple.getSlots().stream().anyMatch(slot -> PaimonUtil.containsVariant(slot.getType()))) {
             throw new UserException(
-                    "Paimon VARIANT columns require enable_variant_v2=true");
+                    "Paimon VARIANT columns require FE config enable_variant_v2=true");
         }
     }
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_write_variant", "p0,external,paimon") {
+suite("test_paimon_write_variant", "p0,external,paimon,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
@@ -55,14 +55,17 @@ suite("test_paimon_write_variant", "p0,external,paimon") {
 
     try {
         // Paimon Variant writes are deliberately V2-only.
-        sql """SET enable_variant_v2 = false"""
-        test {
-            sql """INSERT INTO t_variant_basic VALUES
-                (0, parse_to_variant('{"disabled":true}'), NULL)"""
-            exception "set enable_variant_v2=true"
+        setFeConfigTemporary([enable_variant_v2: false]) {
+            assertFalse(getFeConfig("enable_variant_v2").toBoolean())
+            test {
+                sql """INSERT INTO t_variant_basic VALUES
+                    (0, parse_to_variant('{"disabled":true}'), NULL)"""
+                exception "set FE config enable_variant_v2=true"
+            }
         }
-        sql """SET enable_variant_v2 = true"""
-        sql """SET force_jni_scanner = true"""
+        setFeConfigTemporary([enable_variant_v2: true]) {
+            assertTrue(getFeConfig("enable_variant_v2").toBoolean())
+            sql """SET force_jni_scanner = true"""
 
         // JSON containers, JSON null and SQL NULL are different logical values.
         sql """
@@ -149,6 +152,7 @@ suite("test_paimon_write_variant", "p0,external,paimon") {
         // Paimon JNI Variant reader.
         sql """REFRESH TABLE t_variant_basic"""
         qt_variant_row_count """SELECT COUNT(*) FROM t_variant_basic"""
+        }
     } finally {
         sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
