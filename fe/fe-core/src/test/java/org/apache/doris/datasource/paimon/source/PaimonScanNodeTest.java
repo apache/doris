@@ -221,6 +221,63 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testStatementCacheSeparatesIncrementalSnapshotRanges() throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext(context, null);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        try {
+            PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+            PaimonExternalTable relationTable = Mockito.mock(PaimonExternalTable.class);
+            PaimonExternalTable targetTable = Mockito.mock(PaimonExternalTable.class);
+            Mockito.when(catalog.getId()).thenReturn(31L);
+            Mockito.when(relationTable.getId()).thenReturn(37L);
+            Mockito.when(targetTable.getId()).thenReturn(41L);
+            RowType rowType = new RowType(Collections.singletonList(
+                    new DataField(0, "id", DataTypes.INT())));
+            AtomicInteger planCount = new AtomicInteger();
+            Table table = mockPlanningTable(rowType, Collections.emptyMap(), planCount);
+
+            Map<String, String> firstRange = new HashMap<>();
+            firstRange.put("startSnapshotId", "1");
+            firstRange.put("endSnapshotId", "2");
+            PaimonScanNode first = newPlanningNode(
+                    9, relationTable, targetTable, catalog, table,
+                    101L, 3L, Collections.emptyMap(), Collections.emptyList(), "id");
+            first.setScanParams(new TableScanParams(
+                    TableScanParams.INCREMENTAL_READ, firstRange, Collections.emptyList()));
+            assertPlanCount(first, planCount, 1);
+
+            Map<String, String> sameRange = new HashMap<>();
+            sameRange.put("endSnapshotId", "2");
+            sameRange.put("startSnapshotId", "1");
+            PaimonScanNode equivalent = newPlanningNode(
+                    10, relationTable, targetTable, catalog, table,
+                    101L, 3L, Collections.emptyMap(), Collections.emptyList(), "id");
+            equivalent.setScanParams(new TableScanParams(
+                    TableScanParams.INCREMENTAL_READ, sameRange, Collections.emptyList()));
+            assertPlanCount(equivalent, planCount, 1);
+
+            Map<String, String> secondRange = new HashMap<>();
+            secondRange.put("startSnapshotId", "3");
+            secondRange.put("endSnapshotId", "4");
+            PaimonScanNode different = newPlanningNode(
+                    11, relationTable, targetTable, catalog, table,
+                    101L, 3L, Collections.emptyMap(), Collections.emptyList(), "id");
+            different.setScanParams(new TableScanParams(
+                    TableScanParams.INCREMENTAL_READ, secondRange, Collections.emptyList()));
+            assertPlanCount(different, planCount, 2);
+        } finally {
+            statementContext.close();
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     public void testPinnedFileCreationCacheIgnoresUnusedProjection() throws Exception {
         ConnectContext previousContext = ConnectContext.get();
         ConnectContext context = new ConnectContext();

@@ -101,6 +101,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final Logger LOG = LogManager.getLogger(PaimonScanNode.class);
 
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
+    private static final long MAX_RETAINED_SERIALIZED_TASK_BYTES = 16L * 1024 * 1024;
     // The keys of incremental read params for Paimon SDK
     private static final String PAIMON_INCREMENTAL_BETWEEN = "incremental-between";
     private static final String PAIMON_INCREMENTAL_BETWEEN_SCAN_MODE = "incremental-between-scan-mode";
@@ -759,11 +760,16 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             int[] projected = projectedColumns;
             PaimonSplitTaskCacheKey cacheKey = createPaimonSplitTaskCacheKey(
-                    relationSnapshot, paimonTable, resolvedOptions, projected);
+                    relationSnapshot, paimonTable, resolvedOptions,
+                    scanParams != null && scanParams.incrementalRead()
+                            ? getIncrReadParams() : Collections.emptyMap(),
+                    projected);
             List<PaimonSerializedScanTask> serializedSplits = getOrLoadExternalScanTasks(cacheKey,
                     () -> planPaimonSplits(paimonTable, resolvedOptions, projected).stream()
                             .map(PaimonSerializedScanTask::new)
-                            .collect(Collectors.toList()));
+                            .collect(Collectors.toList()),
+                    PaimonScanNode::serializedTaskBytes,
+                    MAX_RETAINED_SERIALIZED_TASK_BYTES);
             return serializedSplits.stream()
                     .map(PaimonSerializedScanTask::deserialize)
                     .collect(Collectors.toList());
@@ -816,7 +822,8 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     private PaimonSplitTaskCacheKey createPaimonSplitTaskCacheKey(
             Optional<MvccSnapshot> relationSnapshot, Table paimonTable,
-            Map<String, String> resolvedOptions, int[] projected) {
+            Map<String, String> resolvedOptions, Map<String, String> incrementalOptions,
+            int[] projected) {
         Long snapshotId = null;
         Long schemaId = null;
         if (relationSnapshot.isPresent() && relationSnapshot.get() instanceof PaimonMvccSnapshot) {
@@ -834,9 +841,14 @@ public class PaimonScanNode extends FileQueryScanNode {
                 scanParams == null ? null : scanParams.getParamType(),
                 scanParams == null ? Collections.emptyList() : scanParams.getListParams(),
                 resolvedOptions,
+                incrementalOptions,
                 paimonTable.options(),
                 projected,
                 PaimonUtil.encodeObjectToString(predicates));
+    }
+
+    private static long serializedTaskBytes(List<PaimonSerializedScanTask> tasks) {
+        return tasks.stream().mapToLong(PaimonSerializedScanTask::serializedSize).sum();
     }
 
     private static final class PaimonSplitTaskCacheKey
@@ -849,6 +861,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         private final String scanParamType;
         private final List<String> listParams;
         private final Map<String, String> resolvedOptions;
+        private final Map<String, String> incrementalOptions;
         private final Map<String, String> tableOptions;
         private final int[] projected;
         private final String serializedPredicates;
@@ -856,7 +869,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         private PaimonSplitTaskCacheKey(
                 long catalogId, long relationTableId, long targetTableId, Long snapshotId, Long schemaId,
                 String scanParamType, List<String> listParams,
-                Map<String, String> resolvedOptions, Map<String, String> tableOptions, int[] projected,
+                Map<String, String> resolvedOptions, Map<String, String> incrementalOptions,
+                Map<String, String> tableOptions, int[] projected,
                 String serializedPredicates) {
             this.catalogId = catalogId;
             this.relationTableId = relationTableId;
@@ -866,6 +880,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             this.scanParamType = scanParamType;
             this.listParams = Collections.unmodifiableList(new ArrayList<>(listParams));
             this.resolvedOptions = Collections.unmodifiableMap(new HashMap<>(resolvedOptions));
+            this.incrementalOptions = Collections.unmodifiableMap(new HashMap<>(incrementalOptions));
             this.tableOptions = Collections.unmodifiableMap(new HashMap<>(tableOptions));
             this.projected = Arrays.copyOf(projected, projected.length);
             this.serializedPredicates = serializedPredicates;
@@ -888,6 +903,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && Objects.equals(scanParamType, that.scanParamType)
                     && listParams.equals(that.listParams)
                     && resolvedOptions.equals(that.resolvedOptions)
+                    && incrementalOptions.equals(that.incrementalOptions)
                     && tableOptions.equals(that.tableOptions)
                     && Arrays.equals(projected, that.projected)
                     && serializedPredicates.equals(that.serializedPredicates);
@@ -897,7 +913,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         public int hashCode() {
             return 31 * Objects.hash(
                     catalogId, relationTableId, targetTableId, snapshotId, schemaId, scanParamType, listParams,
-                    resolvedOptions, tableOptions, serializedPredicates)
+                    resolvedOptions, incrementalOptions, tableOptions, serializedPredicates)
                     + Arrays.hashCode(projected);
         }
     }
@@ -911,6 +927,10 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         private org.apache.paimon.table.source.Split deserialize() {
             return PaimonUtil.deserializeObject(Arrays.copyOf(serializedSplit, serializedSplit.length));
+        }
+
+        private int serializedSize() {
+            return serializedSplit.length;
         }
     }
 

@@ -88,6 +88,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
 
 /**
@@ -151,6 +152,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return loader.call();
         }
         return externalScanTaskCache.getOrLoad(key, loader);
+    }
+
+    protected <T> List<T> getOrLoadExternalScanTasks(
+            ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader,
+            ToLongFunction<List<T>> weigher, long maxRetainedWeight) throws Exception {
+        if (externalScanTaskCache == null) {
+            return loader.call();
+        }
+        return externalScanTaskCache.getOrLoad(key, loader, weigher, maxRetainedWeight);
     }
 
     /**

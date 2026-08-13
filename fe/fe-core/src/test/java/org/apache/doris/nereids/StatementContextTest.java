@@ -786,6 +786,48 @@ public class StatementContextTest {
     }
 
     @Test
+    public void testExternalScanTaskCacheDoesNotRetainTasksOverWeightBudget() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        StatementContext.ExternalScanTaskCache cache = statementContext.getExternalScanTaskCache();
+        ExternalScanTaskCacheKey<String> retainedKey = new TestScanTaskCacheKey("retained");
+        ExternalScanTaskCacheKey<String> uncachedKey = new TestScanTaskCacheKey("uncached");
+        AtomicInteger retainedLoads = new AtomicInteger();
+        AtomicInteger uncachedLoads = new AtomicInteger();
+        try {
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("abc"),
+                    cache.getOrLoad(retainedKey, () -> {
+                        retainedLoads.incrementAndGet();
+                        return Collections.singletonList("abc");
+                    }, tasks -> tasks.get(0).length(), 4));
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("abc"),
+                    cache.getOrLoad(retainedKey, () -> {
+                        retainedLoads.incrementAndGet();
+                        return Collections.singletonList("duplicate");
+                    }, tasks -> tasks.get(0).length(), 4));
+
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("de"),
+                    cache.getOrLoad(uncachedKey, () -> {
+                        uncachedLoads.incrementAndGet();
+                        return Collections.singletonList("de");
+                    }, tasks -> tasks.get(0).length(), 4));
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("fg"),
+                    cache.getOrLoad(uncachedKey, () -> {
+                        uncachedLoads.incrementAndGet();
+                        return Collections.singletonList("fg");
+                    }, tasks -> tasks.get(0).length(), 4));
+
+            org.junit.jupiter.api.Assertions.assertEquals(1, retainedLoads.get());
+            org.junit.jupiter.api.Assertions.assertEquals(2, uncachedLoads.get());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
     public void testExternalScanTaskGenerationIsIsolatedByResetAndExecutionEnd() throws Exception {
         StatementContext statementContext = new StatementContext();
         CountDownLatch loaderStarted = new CountDownLatch(1);

@@ -105,6 +105,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.ToLongFunction;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
@@ -1399,6 +1400,7 @@ public class StatementContext implements Closeable {
     public static final class ExternalScanTaskCache {
         private final Map<ExternalScanTaskCacheKey<?>, CompletableFuture<List<?>>> tasks =
                 new ConcurrentHashMap<>();
+        private long retainedWeight;
         private boolean invalidated;
 
         /**
@@ -1408,6 +1410,13 @@ public class StatementContext implements Closeable {
         @SuppressWarnings("unchecked")
         public <T> List<T> getOrLoad(
                 ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader) throws Exception {
+            return getOrLoad(key, loader, ignored -> 0, Long.MAX_VALUE);
+        }
+
+        @SuppressWarnings("unchecked")
+        public <T> List<T> getOrLoad(
+                ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader,
+                ToLongFunction<List<T>> weigher, long maxRetainedWeight) throws Exception {
             CompletableFuture<List<?>> newLoad = new CompletableFuture<>();
             CompletableFuture<List<?>> load;
             boolean cacheable;
@@ -1425,6 +1434,14 @@ public class StatementContext implements Closeable {
             if (load == null) {
                 try {
                     List<T> loadedTasks = immutableCopy(loader.call());
+                    long weight = weigher.applyAsLong(loadedTasks);
+                    synchronized (this) {
+                        if (invalidated || weight > maxRetainedWeight - retainedWeight) {
+                            tasks.remove(key, newLoad);
+                        } else {
+                            retainedWeight += weight;
+                        }
+                    }
                     newLoad.complete(loadedTasks);
                     return loadedTasks;
                 } catch (Exception | Error throwable) {
@@ -1450,6 +1467,7 @@ public class StatementContext implements Closeable {
         private synchronized void invalidate() {
             invalidated = true;
             tasks.clear();
+            retainedWeight = 0;
         }
 
         private static <T> List<T> immutableCopy(List<T> loadedTasks) {
