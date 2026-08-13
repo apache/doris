@@ -3256,10 +3256,12 @@ TEST(MetaServiceHttpTest, VirtualClusterTest) {
 }
 
 TEST(MetaServiceHttpTest, ShortGetTabletStatsDebugStringTest) {
+    const bool previous_injection_enabled = config::enable_idempotent_request_injection;
     config::enable_idempotent_request_injection = true;
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
     DORIS_CLOUD_DEFER {
+        config::enable_idempotent_request_injection = previous_injection_enabled;
         sp->disable_processing();
     };
 
