@@ -1586,14 +1586,14 @@ Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
     Status st = engine.txn_delete_bitmap_cache().get_delete_bitmap(
             txn_id, tablet_id(), &cached_delete_bitmap, nullptr, nullptr);
     if (st.ok()) {
-        bool res = (expected_delete_bitmap->cardinality() == cached_delete_bitmap->cardinality());
-        auto msg = fmt::format(
-                "delete bitmap cache check failed, cur_cardinality={}, cached_cardinality={}"
-                "txn_id={}, tablet_id={}",
-                expected_delete_bitmap->cardinality(), cached_delete_bitmap->cardinality(), txn_id,
-                tablet_id());
-        if (!res) {
-            DCHECK(res) << msg;
+        const auto expected_cardinality = expected_delete_bitmap->cardinality();
+        const auto cached_cardinality = cached_delete_bitmap->cardinality();
+        if (expected_cardinality != cached_cardinality) {
+            auto msg = fmt::format(
+                    "delete bitmap cache check failed, cur_cardinality={}, cached_cardinality={}"
+                    ", txn_id={}, tablet_id={}",
+                    expected_cardinality, cached_cardinality, txn_id, tablet_id());
+            DCHECK_EQ(expected_cardinality, cached_cardinality) << msg;
             return Status::InternalError<false>(msg);
         }
     }
