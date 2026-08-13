@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <shared_mutex>
 #include <vector>
 
@@ -27,30 +28,27 @@
 
 namespace doris {
 
+class TPaloScanRange;
 struct TRuntimeFilterDesc;
 
-struct RuntimeFilterBucketPruneRange {
-    int64_t tablet_id = 0;
-    int32_t bucket_seq = 0;
-    int32_t bucket_num = 0;
-};
-
 // Per-scan-instance state for single-column HASH bucket pruning. Runtime filters
-// are conjunctive, so each exact IN filter can monotonically add tablet ids to
-// the pruned set without retaining or combining its original value set.
-// Both pruning updates and is_tablet_pruned() are safe to call concurrently.
+// are conjunctive, so each exact IN filter can monotonically shrink the selected
+// bucket set for each bucket count. The retained state is bounded by bucket
+// counts rather than the number of tablets across all partitions.
+// Both pruning updates and is_bucket_pruned() are safe to call concurrently.
 class RuntimeFilterBucketPruner {
 public:
-    Status prune_by_runtime_filters(const std::vector<RuntimeFilterBucketPruneRange>& ranges,
+    Status prune_by_runtime_filters(const std::vector<std::unique_ptr<TPaloScanRange>>& ranges,
                                     const VExprContextSPtrs& conjuncts,
                                     const std::vector<TRuntimeFilterDesc>& rf_descs,
                                     int scan_node_id, int max_in_num, int64_t* newly_pruned_count);
 
-    bool is_tablet_pruned(int64_t tablet_id) const;
+    bool is_bucket_pruned(int32_t bucket_seq, int32_t bucket_num) const;
     int64_t pruned_tablet_count() const;
 
 private:
-    phmap::flat_hash_set<int64_t> _pruned_tablet_ids;
+    phmap::flat_hash_map<int32_t, phmap::flat_hash_set<int32_t>> _selected_buckets_by_num;
+    int64_t _pruned_tablet_count = 0;
     mutable std::shared_mutex _prune_mutex;
 };
 

@@ -80,6 +80,8 @@ public:
         bool aggregation;
         bool read_row_binlog = false;
         TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
+        int32_t bucket_seq = 0;
+        int32_t bucket_num = 0;
         std::optional<int64_t> start_tso;
         std::optional<int64_t> end_tso;
     };
@@ -121,6 +123,8 @@ private:
     std::unique_ptr<TabletReader> _tablet_reader;
     std::optional<int64_t> _start_tso;
     std::optional<int64_t> _end_tso;
+    int32_t _bucket_seq;
+    int32_t _bucket_num;
 
 public:
     io::FileCacheStatistics _initial_file_cache_stats;

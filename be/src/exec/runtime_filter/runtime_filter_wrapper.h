@@ -19,6 +19,7 @@
 
 #include <butil/iobuf.h>
 
+#include <atomic>
 #include <mutex>
 #include <vector>
 
@@ -168,6 +169,7 @@ private:
     AtomicStatus _reason;
 
     mutable std::once_flag _bucket_prune_hashes_once;
+    mutable std::atomic_bool _bucket_prune_hashes_started = false;
     mutable std::shared_ptr<const std::vector<uint32_t>> _bucket_prune_hashes;
 };
 } // namespace doris

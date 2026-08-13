@@ -176,6 +176,13 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
     Status status = Status::OK();
     bool eos = false;
+    auto append_late_arrival_runtime_filter = [&] {
+        Status rf_status = scanner->try_append_late_arrival_runtime_filter();
+        if (!rf_status.ok()) {
+            LOG(WARNING) << "Failed to append late arrival runtime filter: "
+                         << rf_status.to_string();
+        }
+    };
 
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
@@ -192,6 +199,15 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 }
             }
 
+            // A filter may become ready while prepare() is doing tablet setup. Apply it before
+            // open() so a newly pruned OLAP scanner never initializes its reader or eagerly reads.
+            if (!eos && !scanner->is_open()) {
+                append_late_arrival_runtime_filter();
+                if (scanner->is_pruned_by_runtime_filter()) {
+                    eos = true;
+                }
+            }
+
             if (!eos && !scanner->is_open()) {
                 status = scanner->open(state);
                 if (!status.ok()) {
@@ -200,13 +216,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 scanner->set_opened();
             }
 
-            if (!eos) {
-                Status rf_status = scanner->try_append_late_arrival_runtime_filter();
-                if (!rf_status.ok()) {
-                    LOG(WARNING) << "Failed to append late arrival runtime filter: "
-                                 << rf_status.to_string();
-                }
-            }
+            if (!eos) { append_late_arrival_runtime_filter(); }
 
             // After processing late RFs, check whether this scanner's scan range was pruned.
             if (!eos && scanner->is_pruned_by_runtime_filter()) { eos = true; }

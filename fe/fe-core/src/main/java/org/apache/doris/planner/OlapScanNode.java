@@ -1486,12 +1486,6 @@ public class OlapScanNode extends ScanNode {
                 && hasRfDrivingPartitionPruning()) {
             setPartitionBoundariesForRuntimeFilter(msg.olap_scan_node);
         }
-        if (rfPruneCtx != null
-                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterBucketPrune()
-                && hasRfDrivingBucketPruning()) {
-            setRuntimeFilterBucketPruneParameters();
-        }
-
         super.toThrift(msg);
     }
 
@@ -1551,7 +1545,10 @@ public class OlapScanNode extends ScanNode {
         return false;
     }
 
-    private void setRuntimeFilterBucketPruneParameters() {
+    public void setRuntimeFilterBucketPruneParameters() {
+        if (!hasRfDrivingBucketPruning()) {
+            return;
+        }
         for (TScanRangeLocations locations : scanRangeLocations) {
             TPaloScanRange scanRange = locations.getScanRange().getPaloScanRange();
             Long bucketInfo = tabletId2BucketInfo.get(scanRange.getTabletId());
