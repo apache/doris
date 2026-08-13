@@ -174,12 +174,8 @@ under the License.
             <artifactId>hadoop-azure</artifactId>
             <scope>runtime</scope>
         </dependency>
-        <!-- A fat jar: it self-contains the esdk-obs SDK, so OBS needs nothing else. -->
-        <dependency>
-            <groupId>com.huaweicloud</groupId>
-            <artifactId>hadoop-huaweicloud</artifactId>
-            <scope>runtime</scope>
-        </dependency>
+        <!-- Huawei OBS: hadoop-huaweicloud lives in the `obs` profile below;
+             disabled via -Ddisable.obs=true (build.sh exclude-obs-dependencies flag). -->
 
         <dependency>
             <groupId>com.google.guava</groupId>
@@ -238,16 +234,40 @@ under the License.
     </dependencies>
 
     <!--
-      com.huaweicloud:hadoop-huaweicloud is not published to Maven Central, and a module does not
-      inherit repositories from its parent here. hadoop-deps and the two FE modules that use the
-      same artifact each declare this the same way.
+      Huawei OBS support. Active by default; disabled by -Ddisable.obs=true (build.sh
+      exclude-obs-dependencies flag), which drops the hadoop-huaweicloud dependency and the Huawei
+      Maven repository so nothing from com.huaweicloud is resolved or bundled into this plugin.
+      Without it the plugin simply has no obs:// filesystem, which is what the flag asks for.
+
+      The repository has to be declared here rather than inherited: com.huaweicloud:hadoop-huaweicloud
+      is not on Maven Central, and a module does not inherit repositories from its parent in this
+      tree. hadoop-deps and the two FE modules that use the same artifact each declare it the same way.
+
+      The artifact is a fat jar - it self-contains the esdk-obs SDK, so OBS needs nothing else.
     -->
-    <repositories>
-        <repository>
-            <id>huawei-obs-sdk</id>
-            <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
-        </repository>
-    </repositories>
+    <profiles>
+        <profile>
+            <id>obs</id>
+            <activation>
+                <property>
+                    <name>!disable.obs</name>
+                </property>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.huaweicloud</groupId>
+                    <artifactId>hadoop-huaweicloud</artifactId>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+            <repositories>
+                <repository>
+                    <id>huawei-obs-sdk</id>
+                    <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+                </repository>
+            </repositories>
+        </profile>
+    </profiles>
 
     <build>
         <finalName>iceberg-metadata-scanner</finalName>
