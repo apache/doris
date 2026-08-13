@@ -23,6 +23,7 @@
 #include "service/http/http_channel.h"
 #include "service/http/utils.h"
 #include "util/client_cache.h"
+#include "util/security.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
@@ -119,7 +120,12 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
 #endif
     Status status(Status::create(auth_result.status));
     if (!status.ok()) {
-        LOG(WARNING) << "permission verification failed, request: " << auth_request;
+        // Do not stream the thrift struct: its generated printTo() dumps every field,
+        // including `passwd` in clear text.
+        LOG(WARNING) << "permission verification failed, user: " << auth_request.user
+                     << ", user_ip: " << auth_request.user_ip
+                     << ", cluster: " << auth_request.cluster
+                     << ", url: " << mask_token(req->uri());
         HttpChannel::send_reply(req, HttpStatus::FORBIDDEN);
         return -1;
     }
