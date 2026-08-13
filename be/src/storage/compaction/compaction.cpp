@@ -1669,9 +1669,7 @@ int64_t CompactionMixin::calc_input_rowsets_total_size() const {
 int64_t CompactionMixin::calc_input_rowsets_row_num() const {
     int64_t input_rowsets_row_num = 0;
     for (const auto& rowset : _input_rowsets) {
-        const auto& rowset_meta = rowset->rowset_meta();
-        auto total_size = rowset_meta->total_disk_size();
-        input_rowsets_row_num += total_size;
+        input_rowsets_row_num += rowset->num_rows();
     }
     return input_rowsets_row_num;
 }
