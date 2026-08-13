@@ -745,9 +745,9 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             key_ranges.emplace_back(range.get());
         }
 
-        ParallelScannerBuilder scanner_builder(this, _tablets, _read_sources, _scanner_profile,
-                                               key_ranges, state(), p._limit, true,
-                                               p._olap_scan_node.is_preaggregation);
+        ParallelScannerBuilder scanner_builder(this, _tablets, _read_sources, _scan_ranges,
+                                               _scanner_profile, key_ranges, state(), p._limit,
+                                               true, p._olap_scan_node.is_preaggregation);
 
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 

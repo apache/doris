@@ -102,6 +102,7 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
             }
         }
 
+        int64_t current_filter_pruned_count = 0;
         std::unique_lock lock(_prune_mutex);
         for (const auto& range_ptr : ranges) {
             const auto& range = *range_ptr;
@@ -110,7 +111,7 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
                                 current_it->second.contains(range.bucket_seq);
             if (was_selected &&
                 !new_selected_buckets_by_num.at(range.bucket_num).contains(range.bucket_seq)) {
-                ++*newly_pruned_count;
+                ++current_filter_pruned_count;
             }
         }
         for (auto& [bucket_num, new_selected_buckets] : new_selected_buckets_by_num) {
@@ -128,7 +129,8 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
                 }
             }
         }
-        _pruned_tablet_count += *newly_pruned_count;
+        *newly_pruned_count += current_filter_pruned_count;
+        _pruned_tablet_count += current_filter_pruned_count;
     }
     return Status::OK();
 }

@@ -204,6 +204,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             if (!eos && !scanner->is_open()) {
                 append_late_arrival_runtime_filter();
                 if (scanner->is_pruned_by_runtime_filter()) {
+                    scanner->release_prepared_resources();
                     eos = true;
                 }
             }

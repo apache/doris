@@ -32,11 +32,15 @@
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
+#include "exec/scan/parallel_scanner_builder.h"
 #include "exec/scan/scanner.h"
 #include "exec/scan/scanner_context.h"
 #include "exec/scan/scanner_scheduler.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "storage/iterator/block_reader.h"
+#include "storage/rowset/rowset_writer.h"
+#include "storage/tablet/tablet_meta.h"
 #include "testutil/column_helper.h"
 #include "testutil/desc_tbl_builder.h"
 #include "testutil/mock/mock_descriptors.h"
@@ -79,6 +83,60 @@ private:
     std::list<Block> _blocks;
 };
 
+class FakeTablet final : public BaseTablet {
+public:
+    FakeTablet(int64_t partition_id, int64_t tablet_id)
+            : BaseTablet(create_meta(partition_id, tablet_id)) {}
+
+    std::string tablet_path() const override { return ""; }
+
+    bool exceed_version_limit(int32_t /*limit*/) override { return false; }
+
+    Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(RowsetWriterContext& /*context*/,
+                                                               bool /*vertical*/) override {
+        return ResultError(Status::NotSupported("fake tablet"));
+    }
+
+    Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
+            const Rowset& /*rowset*/, std::shared_ptr<PartialUpdateInfo> /*partial_update_info*/,
+            int64_t /*txn_expiration*/ = 0) override {
+        return ResultError(Status::NotSupported("fake tablet"));
+    }
+
+    Status capture_rs_readers(const Version& /*spec_version*/,
+                              std::vector<RowSetSplits>* /*rs_splits*/,
+                              const CaptureRowsetOps& /*opts*/) override {
+        return Status::NotSupported("fake tablet");
+    }
+
+    Status save_delete_bitmap(const TabletTxnInfo* /*txn_info*/, int64_t /*txn_id*/,
+                              DeleteBitmapPtr /*delete_bitmap*/, RowsetWriter* /*rowset_writer*/,
+                              const RowsetIdUnorderedSet& /*cur_rowset_ids*/,
+                              int64_t /*lock_id*/ = -1,
+                              int64_t /*next_visible_version*/ = -1) override {
+        return Status::NotSupported("fake tablet");
+    }
+
+    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() override { return nullptr; }
+
+    void clear_cache() override {}
+
+    Versions calc_missed_versions(int64_t /*spec_version*/,
+                                  Versions /*existing_versions*/) const override {
+        return {};
+    }
+
+    size_t tablet_footprint() override { return 0; }
+
+private:
+    static TabletMetaSharedPtr create_meta(int64_t partition_id, int64_t tablet_id) {
+        auto meta = std::make_shared<TabletMeta>(std::make_shared<TabletSchema>());
+        meta->_partition_id = partition_id;
+        meta->_tablet_id = tablet_id;
+        return meta;
+    }
+};
+
 class LateBucketScanner final : public Scanner {
 public:
     LateBucketScanner(RuntimeState* state, OlapScanLocalState* local_state, int32_t bucket_seq,
@@ -98,6 +156,12 @@ public:
 
     int read_calls() const { return _read_calls.load(); }
     int open_calls() const { return _open_calls.load(); }
+    int release_calls() const { return _release_calls.load(); }
+
+    void release_prepared_resources() override {
+        ++_release_calls;
+        Scanner::release_prepared_resources();
+    }
 
 protected:
     Status _prepare_impl() override {
@@ -136,6 +200,7 @@ private:
     std::latch* _filter_published;
     std::atomic<int> _read_calls {0};
     std::atomic<int> _open_calls {0};
+    std::atomic<int> _release_calls {0};
     bool _returned = false;
 };
 
@@ -352,10 +417,12 @@ TEST_F(ScannerLateArrivalRfTest, bucket_pruning_after_probe_tasks_start) {
         if (bucket_seq == selected_bucket) {
             EXPECT_GT(scanners[bucket_seq]->open_calls(), 0);
             EXPECT_GT(scanners[bucket_seq]->read_calls(), 0);
+            EXPECT_EQ(scanners[bucket_seq]->release_calls(), 0);
             EXPECT_NE(tasks[bucket_seq]->cached_block, nullptr);
         } else {
             EXPECT_EQ(scanners[bucket_seq]->open_calls(), 0);
             EXPECT_EQ(scanners[bucket_seq]->read_calls(), 0);
+            EXPECT_EQ(scanners[bucket_seq]->release_calls(), 1);
         }
     }
     int64_t result_rows = 0;
@@ -368,6 +435,116 @@ TEST_F(ScannerLateArrivalRfTest, bucket_pruning_after_probe_tasks_start) {
     ASSERT_GT(local_state->_buckets_pruned_by_rf_counter->value(), 0);
     ASSERT_GT(local_state->_rf_bucket_pruner.pruned_tablet_count(), 0);
     ASSERT_LT(local_state->_rf_bucket_pruner.pruned_tablet_count(), bucket_num);
+}
+
+TEST_F(ScannerLateArrivalRfTest, parallel_scanner_factory_preserves_bucket_identity) {
+    constexpr int scan_node_id = 0;
+    constexpr int32_t bucket_seq = 3;
+    constexpr int32_t bucket_num = 8;
+    constexpr int64_t partition_id = 10;
+    constexpr int64_t tablet_id = 20;
+
+    ObjectPool pool;
+    DescriptorTblBuilder desc_builder(&pool);
+    desc_builder.declare_tuple() << TupleDescBuilder::SlotType {std::make_shared<DataTypeInt32>(),
+                                                                "dist_col"};
+    DescriptorTbl* desc_tbl = desc_builder.build();
+    ASSERT_NE(desc_tbl, nullptr);
+
+    TOlapScanNode olap_scan_node;
+    olap_scan_node.__set_tuple_id(0);
+    olap_scan_node.__set_keyType(TKeysType::DUP_KEYS);
+    TPlanNode plan_node;
+    plan_node.__set_node_id(scan_node_id);
+    plan_node.__set_node_type(TPlanNodeType::OLAP_SCAN_NODE);
+    plan_node.__set_num_children(0);
+    plan_node.__set_limit(-1);
+    plan_node.__set_row_tuples({0});
+    plan_node.__set_olap_scan_node(olap_scan_node);
+
+    auto op = std::make_shared<OlapScanOperatorX>(&pool, plan_node, 0, *desc_tbl, bucket_num,
+                                                  TQueryCacheParam {});
+    auto* state = _runtime_states[0].get();
+    state->set_desc_tbl(desc_tbl);
+    auto local_state = OlapScanLocalState::create_shared(state, op.get());
+    local_state->_has_rf_bucket_prune_metadata = true;
+    local_state->_rf_bucket_pruner._selected_buckets_by_num[bucket_num] = {bucket_seq - 1};
+
+    auto tablet = std::make_shared<FakeTablet>(partition_id, tablet_id);
+    std::vector<TabletWithVersion> tablets {{tablet, 1}};
+    std::vector<TabletReadSource> read_sources(1);
+    std::vector<std::unique_ptr<TPaloScanRange>> scan_ranges;
+    auto scan_range = std::make_unique<TPaloScanRange>();
+    scan_range->__set_tablet_id(tablet_id);
+    scan_range->__set_bucket_seq(bucket_seq);
+    scan_range->__set_bucket_num(bucket_num);
+    scan_ranges.push_back(std::move(scan_range));
+    auto profile = std::make_shared<RuntimeProfile>("parallel scanner bucket identity");
+    ParallelScannerBuilder builder(local_state.get(), tablets, read_sources, scan_ranges, profile,
+                                   {}, state, -1, true, true);
+
+    auto scanner =
+            builder._build_scanner(tablet, 1, {}, TabletReadSource {}, io::FileCacheStatistics {});
+    EXPECT_EQ(scanner->_bucket_seq, bucket_seq);
+    EXPECT_EQ(scanner->_bucket_num, bucket_num);
+    EXPECT_TRUE(scanner->is_pruned_by_runtime_filter());
+}
+
+TEST_F(ScannerLateArrivalRfTest, olap_scanner_releases_prepared_resources_before_open) {
+    constexpr int scan_node_id = 0;
+    constexpr int64_t partition_id = 10;
+    constexpr int64_t tablet_id = 20;
+
+    ObjectPool pool;
+    DescriptorTblBuilder desc_builder(&pool);
+    desc_builder.declare_tuple() << TupleDescBuilder::SlotType {std::make_shared<DataTypeInt32>(),
+                                                                "dist_col"};
+    DescriptorTbl* desc_tbl = desc_builder.build();
+    ASSERT_NE(desc_tbl, nullptr);
+
+    TOlapScanNode olap_scan_node;
+    olap_scan_node.__set_tuple_id(0);
+    olap_scan_node.__set_keyType(TKeysType::DUP_KEYS);
+    TPlanNode plan_node;
+    plan_node.__set_node_id(scan_node_id);
+    plan_node.__set_node_type(TPlanNodeType::OLAP_SCAN_NODE);
+    plan_node.__set_num_children(0);
+    plan_node.__set_limit(-1);
+    plan_node.__set_row_tuples({0});
+    plan_node.__set_olap_scan_node(olap_scan_node);
+
+    auto op = std::make_shared<OlapScanOperatorX>(&pool, plan_node, 0, *desc_tbl, 1,
+                                                  TQueryCacheParam {});
+    auto* state = _runtime_states[0].get();
+    state->set_desc_tbl(desc_tbl);
+    auto local_state = OlapScanLocalState::create_shared(state, op.get());
+    auto tablet = std::make_shared<FakeTablet>(partition_id, tablet_id);
+    RuntimeProfile profile("prepared scanner cleanup");
+    OlapScanner::Params params;
+    params.state = state;
+    params.profile = &profile;
+    params.tablet = tablet;
+    params.version = 1;
+    params.limit = -1;
+    params.aggregation = true;
+    auto scanner = OlapScanner::create_shared(local_state.get(), std::move(params));
+    ASSERT_TRUE(scanner->Scanner::_prepare_impl().ok());
+    scanner->_tablet_reader = std::make_unique<BlockReader>();
+    scanner->_tablet_reader_params.rs_splits.emplace_back();
+
+    ASSERT_TRUE(scanner->has_prepared());
+    ASSERT_FALSE(scanner->is_open());
+    ASSERT_NE(scanner->_tablet_reader, nullptr);
+    ASSERT_FALSE(scanner->_tablet_reader_params.rs_splits.empty());
+
+    scanner->release_prepared_resources();
+
+    EXPECT_FALSE(scanner->has_prepared());
+    EXPECT_FALSE(scanner->is_open());
+    EXPECT_EQ(scanner->_tablet_reader, nullptr);
+    EXPECT_TRUE(scanner->_tablet_reader_params.rs_splits.empty());
+    EXPECT_EQ(scanner->_tablet_reader_params.tablet, tablet);
+    scanner->update_realtime_counters();
 }
 
 TEST(ScannerProjectionTest, merges_padding_block_when_limit_eos_without_extra_flag) {
