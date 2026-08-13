@@ -834,6 +834,17 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
     done
     unset _conn_mod
+    # Authorization plugin modules (loaded at runtime from plugins/authorization/). Keep this list
+    # identical to the deploy loop's (search AUTHZ_PLUGIN_DIR), for the same reason as the connectors:
+    # the deploy step unzips whatever archive is left in the module's target/, so a module built here
+    # but not deployed there - or the other way round - ships a stale plugin without failing anything.
+    # ranger-common is a library the two below depend on; -am builds it, nothing deploys it alone.
+    for _authz_mod in ranger-doris ranger-hive; do
+        if [[ -d "${DORIS_HOME}/fe/fe-authorization/fe-authorization-plugins/fe-authorization-plugin-${_authz_mod}" ]]; then
+            modules+=("fe-authorization/fe-authorization-plugins/fe-authorization-plugin-${_authz_mod}")
+        fi
+    done
+    unset _authz_mod
     for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
         modules+=("${extra_module_path}")
     done
@@ -1245,6 +1256,28 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         done
     done
     unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip conn_conf_tpl
+
+    # Deploy authorization sources as independent plugin directories.
+    # Each sub-directory is one source AccessControllerManager can install, named in fe.conf by
+    # access_controller_type or in a catalog's access_controller.class. Created even when no module
+    # produced a zip, because it is also where an administrator drops a third-party source.
+    # Keep the module list identical to the build list's (search _authz_mod).
+    AUTHZ_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/authorization"
+    mkdir -p "${AUTHZ_PLUGIN_DIR}"
+    for authz_module in ranger-doris ranger-hive; do
+        authz_plugin_target="${AUTHZ_PLUGIN_DIR}/${authz_module}"
+        authz_module_dir="${DORIS_HOME}/fe/fe-authorization/fe-authorization-plugins/fe-authorization-plugin-${authz_module}"
+        if [ ! -d "${authz_module_dir}" ]; then
+            continue
+        fi
+        authz_zip="${authz_module_dir}/target/doris-fe-authorization-${authz_module}.zip"
+        if [ ! -f "${authz_zip}" ]; then
+            continue
+        fi
+        mkdir -p "${authz_plugin_target}"
+        unzip -o "${authz_zip}" -d "${authz_plugin_target}/"
+    done
+    unset AUTHZ_PLUGIN_DIR authz_module authz_plugin_target authz_module_dir authz_zip
 
     # RC-4: self-contain the paimon connector plugin for OSS. The connector sets
     # fs.oss.impl=com.aliyun.jindodata.oss.JindoOssFileSystem; that impl lives in the jindofs jars,
