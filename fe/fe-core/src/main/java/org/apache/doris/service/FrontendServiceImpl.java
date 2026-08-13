@@ -4787,7 +4787,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
             int quorum = partitionSnapshot.quorum;
-            for (Tablet tablet : partitionSnapshot.tablets) {
+            for (TabletLocationSnapshot tabletSnapshot : partitionSnapshot.tablets) {
+                Tablet tablet = tabletSnapshot.tablet;
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 // BE id -> path hash
@@ -4804,6 +4805,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             }
                             bePathsMap = cloudTablet.getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
                         }
+                    } else if (tabletSnapshot.isRowBinlog()) {
+                        bePathsMap = OlapTableSink.getBinlogColocatedReplicaBackendPathMap(
+                                tabletSnapshot.rowBinlogBaseTablet, tablet);
                     } else {
                         bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     }
@@ -4816,7 +4820,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (bePathsMap.keySet().size() < quorum) {
                     LOG.warn("auto go quorum exception");
                 }
-                partitionTablets.add(new TTabletLocation(tablet.getId(),
+                partitionTablets.add(tabletSnapshot.createLocation(
                         Lists.newArrayList(bePathsMap.keySet())));
             }
 
@@ -5116,7 +5120,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
             int quorum = partitionSnapshot.quorum;
-            for (Tablet tablet : partitionSnapshot.tablets) {
+            for (TabletLocationSnapshot tabletSnapshot : partitionSnapshot.tablets) {
+                Tablet tablet = tabletSnapshot.tablet;
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 // BE id -> path hash
@@ -5134,6 +5139,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             bePathsMap = cloudTablet
                                     .getNormalReplicaBackendPathMapByClusterId(replaceCachedClusterId);
                         }
+                    } else if (tabletSnapshot.isRowBinlog()) {
+                        bePathsMap = OlapTableSink.getBinlogColocatedReplicaBackendPathMap(
+                                tabletSnapshot.rowBinlogBaseTablet, tablet);
                     } else {
                         bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     }
@@ -5146,7 +5154,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (bePathsMap.keySet().size() < quorum) {
                     LOG.warn("auto go quorum exception");
                 }
-                partitionTablets.add(new TTabletLocation(tablet.getId(),
+                partitionTablets.add(tabletSnapshot.createLocation(
                         Lists.newArrayList(bePathsMap.keySet())));
             }
 
@@ -5215,18 +5223,41 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         private final Partition partition;
         private final long partitionId;
         private final TOlapTablePartition tPartition;
-        private final List<Tablet> tablets;
+        private final List<TabletLocationSnapshot> tablets;
         private final int quorum;
         private final boolean cacheLoadTabletIdx;
 
         private PartitionResultSnapshot(Partition partition, long partitionId,
-                TOlapTablePartition tPartition, List<Tablet> tablets, int quorum, boolean cacheLoadTabletIdx) {
+                TOlapTablePartition tPartition, List<TabletLocationSnapshot> tablets, int quorum,
+                boolean cacheLoadTabletIdx) {
             this.partition = partition;
             this.partitionId = partitionId;
             this.tPartition = tPartition;
             this.tablets = tablets;
             this.quorum = quorum;
             this.cacheLoadTabletIdx = cacheLoadTabletIdx;
+        }
+    }
+
+    private static final class TabletLocationSnapshot {
+        private final Tablet tablet;
+        private final Tablet rowBinlogBaseTablet;
+
+        private TabletLocationSnapshot(Tablet tablet, Tablet rowBinlogBaseTablet) {
+            this.tablet = tablet;
+            this.rowBinlogBaseTablet = rowBinlogBaseTablet;
+        }
+
+        private boolean isRowBinlog() {
+            return rowBinlogBaseTablet != null;
+        }
+
+        private TTabletLocation createLocation(List<Long> nodeIds) {
+            TTabletLocation location = new TTabletLocation(tablet.getId(), nodeIds);
+            if (isRowBinlog()) {
+                location.setBaseTabletId(rowBinlogBaseTablet.getId());
+            }
+            return location;
         }
     }
 
@@ -5282,13 +5313,26 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TOlapTablePartition tPartition = new TOlapTablePartition();
         tPartition.setId(partitionId);
         OlapTableSink.setPartitionKeys(tPartition, partitionItem, partColNum);
-        List<Tablet> partitionTabletSnapshot = new ArrayList<>();
+        List<TabletLocationSnapshot> partitionTabletSnapshot = new ArrayList<>();
         for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true)) {
             List<Tablet> indexTablets = new ArrayList<>(index.getTablets());
-            tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
-                    indexTablets.stream().map(Tablet::getId).collect(Collectors.toList()))));
-            tPartition.setNumBuckets(indexTablets.size());
-            partitionTabletSnapshot.addAll(indexTablets);
+            if (index.isRowBinlog()) {
+                for (Tablet tablet : indexTablets) {
+                    long baseTabletId = tablet.getRowBinlogBaseTabletId();
+                    Tablet baseTablet = partition.getBaseIndex().getTablet(baseTabletId);
+                    Preconditions.checkNotNull(baseTablet,
+                            "row binlog tablet %s's base tablet %s can not be found in partition %s",
+                            tablet.getId(), baseTabletId, partitionId);
+                    partitionTabletSnapshot.add(new TabletLocationSnapshot(tablet, baseTablet));
+                }
+            } else {
+                tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
+                        indexTablets.stream().map(Tablet::getId).collect(Collectors.toList()))));
+                tPartition.setNumBuckets(indexTablets.size());
+                for (Tablet tablet : indexTablets) {
+                    partitionTabletSnapshot.add(new TabletLocationSnapshot(tablet, null));
+                }
+            }
         }
         tPartition.setIsMutable(partitionInfo.getIsMutable(partitionId));
         boolean randomDistribution =
