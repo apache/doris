@@ -190,7 +190,7 @@ public class WebSqlSessionManagerTest {
 
     private WebSqlLimits limits(int maxSessions, int perUser, long idleMillis, int waitMillis) {
         return new WebSqlLimits(true, idleMillis, maxSessions, perUser, 100, 1024 * 1024,
-                5, waitMillis, 2, 60);
+                waitMillis, 2, 60);
     }
 
     private WebSqlExecutionResult emptyResult() {

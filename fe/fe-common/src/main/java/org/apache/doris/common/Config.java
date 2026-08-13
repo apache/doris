@@ -2786,8 +2786,8 @@ public class Config extends ConfigBase {
     public static int http_sql_submitter_max_worker_threads = 2;
 
     @ConfField(mutable = false, masterOnly = false,
-            description = "Whether to enable stateful SQL sessions for the new Web UI.")
-    public static boolean enable_web_sql_session = false;
+            description = "Whether to enable stateful Web SQL HTTP sessions.")
+    public static boolean enable_web_sql_session = true;
 
     @ConfField(mutable = false, masterOnly = false,
             description = "Idle timeout for Web SQL sessions, in seconds.")

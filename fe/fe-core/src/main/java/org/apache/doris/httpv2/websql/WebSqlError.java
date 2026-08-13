@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.websql;
 
 import org.springframework.http.HttpStatus;
 
+/** Defines the stable HTTP status, machine code, and public message for each Web SQL failure. */
 public enum WebSqlError {
     DISABLED(HttpStatus.SERVICE_UNAVAILABLE, "WEB_SQL_DISABLED", "Web SQL sessions are disabled."),
     INVALID_STATEMENT(HttpStatus.BAD_REQUEST, "WEB_SQL_INVALID_STATEMENT",

@@ -47,11 +47,11 @@ The resulting FE serves the selected static assets from its configured
 `http_port`, which is 8030 by default. Vite, port 5173, and port 8090 are only
 development conveniences and are not required in a production deployment.
 
-The Playground's persistent JDBC-backed SQL sessions are disabled by default.
-Set the following FE configuration and restart FE before testing that feature:
+The Playground's persistent JDBC-backed SQL sessions are enabled by default.
+They can be disabled explicitly in FE configuration when the HTTP capability is not wanted:
 
 ```text
-enable_web_sql_session = true
+enable_web_sql_session = false
 ```
 
 ## Quality gates

@@ -40,6 +40,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 
+/**
+ * Manages bounded FE-local Web SQL sessions from creation through execution, reset, cancellation, and cleanup.
+ * Each registered session is owner-scoped and holds exactly one persistent JDBC connection.
+ */
 @Component
 public class WebSqlSessionManager implements DisposableBean {
     private static final Logger LOG = LogManager.getLogger(WebSqlSessionManager.class);

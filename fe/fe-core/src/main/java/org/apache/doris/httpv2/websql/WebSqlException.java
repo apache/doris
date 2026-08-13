@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.websql;
 
+/** Carries a {@link WebSqlError} and optional safe details from the service layer to the HTTP error mapper. */
 public class WebSqlException extends RuntimeException {
     private final WebSqlError error;
     private final Object details;
