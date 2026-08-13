@@ -283,6 +283,21 @@ public class MTMVTest {
     }
 
     @Test
+    public void testRewriteQuerySqlForAddColumnWithSubqueryFrom() {
+        String originSql = "SELECT k1, (SELECT max(v1) FROM t2) AS mv FROM t1 WHERE k1 > 1";
+        String rewritten = MTMV.rewriteQuerySqlForAddColumn(originSql, "k1 + 1", "new_col");
+        Assert.assertEquals("SELECT k1, (SELECT max(v1) FROM t2) AS mv, k1 + 1 AS `new_col` FROM t1 WHERE k1 > 1",
+                rewritten);
+    }
+
+    @Test
+    public void testRewriteQuerySqlForAddColumnWithCte() {
+        String originSql = "WITH cte AS (SELECT k1 FROM t2) SELECT k1 FROM cte";
+        String rewritten = MTMV.rewriteQuerySqlForAddColumn(originSql, "k1 * 2", "x`");
+        Assert.assertEquals("WITH cte AS (SELECT k1 FROM t2) SELECT k1, k1 * 2 AS `x``` FROM cte", rewritten);
+    }
+
+    @Test
     public void testAlterStatus() {
         MTMV mtmv = new MTMV();
         MTMVStatus status = new MTMVStatus();
