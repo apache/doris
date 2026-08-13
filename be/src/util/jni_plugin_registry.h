@@ -55,12 +55,12 @@ struct PluginRef {
 // half already says which connector this is. A connector's ordinary read side is "reader" and
 // its write side "writer"; anything else says what it is, as "connection-tester" does.
 //
-// The three entries still repeating their plugin's name predate that rule and are renamed to
+// The two entries still repeating their plugin's name predate that rule and are renamed to
 // "reader" by the change that turns each of them into a plugin, together with the getName() of
 // the factory that change writes. Renaming one earlier would name a factory nothing implements.
 namespace plugin {
 
-inline constexpr PluginRef PAIMON_SCANNER {"paimon", "paimon"};
+inline constexpr PluginRef PAIMON_SCANNER {"paimon", "reader"};
 inline constexpr PluginRef HUDI_SCANNER {"hudi", "hudi"};
 // Only the Iceberg system tables come through Java; Iceberg data files are read natively - so
 // this one keeps its own name when it is migrated. It is not the connector's reader.
