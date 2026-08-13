@@ -318,7 +318,7 @@ TEST(CastVariantV2FromTest, TypedStringIdentityReusesPayload) {
     EXPECT_EQ(masked_nullable.get_null_map_data(), (NullMap {0, 1, 0}));
 }
 
-TEST(CastVariantV2FromTest, TypedStringReusesPayloadWhenInnerNullIsForced) {
+TEST(CastVariantV2FromTest, TypedStringPreservesForcedInnerNullSemantics) {
     auto values = ColumnString::create();
     values->insert_data("alice", 5);
     values->insert_default();
@@ -330,8 +330,6 @@ TEST(CastVariantV2FromTest, TypedStringReusesPayloadWhenInnerNullIsForced) {
     ColumnPtr source = ColumnVariantV2::create_typed(
             ColumnNullable::create(std::move(values), std::move(inner_nulls)),
             std::make_shared<DataTypeString>());
-    const auto& typed = assert_cast<const ColumnVariantV2&>(*source);
-    const auto& source_nullable = assert_cast<const ColumnNullable&>(typed.typed_column());
 
     CastResult visible_null = execute_from_variant(source, std::make_shared<DataTypeString>());
     ASSERT_TRUE(visible_null.status.ok()) << visible_null.status;
@@ -346,8 +344,10 @@ TEST(CastVariantV2FromTest, TypedStringReusesPayloadWhenInnerNullIsForced) {
             execute_from_variant(source, std::make_shared<DataTypeString>(), FORCED_NULLS.data());
     ASSERT_TRUE(masked.status.ok()) << masked.status;
     const auto& masked_nullable = nullable_result(masked.column);
-    EXPECT_EQ(masked_nullable.get_nested_column_ptr().get(),
-              source_nullable.get_nested_column_ptr().get());
+    const auto& masked_strings =
+            assert_cast<const ColumnString&>(masked_nullable.get_nested_column());
+    EXPECT_EQ(masked_strings.get_data_at(0), StringRef("alice"));
+    EXPECT_EQ(masked_strings.get_data_at(2), StringRef("carol"));
     EXPECT_EQ(masked_nullable.get_null_map_data(), (NullMap {0, 1, 0}));
 }
 
