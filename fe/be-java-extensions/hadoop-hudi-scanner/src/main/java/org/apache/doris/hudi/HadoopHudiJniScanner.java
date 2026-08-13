@@ -17,9 +17,8 @@
 
 package org.apache.doris.hudi;
 
-import org.apache.doris.common.classloader.ThreadClassLoaderContext;
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
@@ -92,7 +91,6 @@ public class HadoopHudiJniScanner extends JniScanner {
     // scanner info
     private final HadoopHudiColumnValue columnValue;
     private final int fetchSize;
-    private final ClassLoader classLoader;
 
     private final PreExecutionAuthenticator preExecutionAuthenticator;
 
@@ -140,12 +138,11 @@ public class HadoopHudiJniScanner extends JniScanner {
         // Hudi keeps one session zone for every timestamp encoding to preserve its JNI contract.
         this.columnValue = new HadoopHudiColumnValue(zoneId);
         this.fetchSize = fetchSize;
-        this.classLoader = this.getClass().getClassLoader();
     }
 
     @Override
-    public void open() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+    protected void openInternal() throws IOException {
+        try {
             preExecutionAuthenticator.execute(() -> {
                 initRequiredColumnsAndTypes();
                 initTableInfo(requiredTypes, requiredFields, fetchSize);
@@ -155,15 +152,15 @@ public class HadoopHudiJniScanner extends JniScanner {
             });
 
         } catch (Exception e) {
-            close();
+            closeInternal();
             LOG.warn("failed to open hadoop hudi jni scanner", e);
             throw new IOException("failed to open hadoop hudi jni scanner: " + e.getMessage(), e);
         }
     }
 
     @Override
-    public int getNext() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+    protected int getNext() throws IOException {
+        try {
             return preExecutionAuthenticator.execute(() -> {
                 NullWritable key = reader.createKey();
                 ArrayWritable value = reader.createValue();
@@ -191,15 +188,15 @@ public class HadoopHudiJniScanner extends JniScanner {
                 return numRows;
             });
         } catch (Exception e) {
-            close();
+            closeInternal();
             LOG.warn("failed to get next in hadoop hudi jni scanner", e);
             throw new IOException("failed to get next in hadoop hudi jni scanner: " + e.getMessage(), e);
         }
     }
 
     @Override
-    public void close() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+    protected void closeInternal() throws IOException {
+        try {
             if (reader != null) {
                 reader.close();
             }

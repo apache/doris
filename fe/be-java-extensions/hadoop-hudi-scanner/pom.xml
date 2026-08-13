@@ -28,6 +28,13 @@ under the License.
     </parent>
     <modelVersion>4.0.0</modelVersion>
     <artifactId>hadoop-hudi-scanner</artifactId>
+    <name>Doris BE hudi Plugin</name>
+    <description>
+        Reads Hudi tables through hudi-hadoop-mr: FE names a base file, its delta logs and the hive
+        input format and serde to read them with, and this plugin merges them on the fly. So the
+        plugin carries a Hudi runtime, hive's serde and object inspectors, hadoop's mapred record
+        reader machinery, and the filesystems a Hudi table can live on.
+    </description>
 
     <properties>
         <doris.home>${basedir}/../../</doris.home>
@@ -39,24 +46,29 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>java-common</artifactId>
-            <version>${project.version}</version>
-            
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.thrift</groupId>
-                    <artifactId>libthrift</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>hadoop-deps</artifactId>
+            <artifactId>jni-spi</artifactId>
             <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>
-      
-        <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
+        <!--
+          The kerberos machinery FE and BE share: a scan carries the catalog's hadoop.* options and
+          runs under the same UGI doAs wrapper FE used to plan it. Reached transitively through
+          java-common until this module became a plugin.
+
+          It brings fe-foundation, which is where this module's fastutil-core declaration came from:
+          two of fe-foundation's classes extend fastutil maps, fe-foundation marks fastutil optional
+          so it does not propagate, and BE used to eagerly load every org.apache.doris.* class in
+          this module's jar at startup - so the superclasses had to be bundled or BE would not
+          start. That eager loader is gone with plugin isolation, nothing in this closure references
+          it.unimi.dsi, and those two classes have no caller anywhere in the tree, so fastutil is no
+          longer declared here.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-kerberos</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-common</artifactId>
@@ -74,35 +86,65 @@ under the License.
                     <groupId>org.apache.thrift</groupId>
                     <artifactId>libthrift</artifactId>
                 </exclusion>
+                <!-- Excluded so the version below decides, rather than hudi's own. -->
                 <exclusion>
                     <groupId>com.fasterxml.jackson.core</groupId>
                     <artifactId>jackson-databind</artifactId>
                 </exclusion>
+                <!--
+                  Reaches this closure again under orc-core, which is what needs the standalone
+                  artifact's newer methods in the first place. Merged into hive-apache-shade below.
+                -->
+                <exclusion>
+                    <groupId>org.apache.hive</groupId>
+                    <artifactId>hive-storage-api</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-io -->
         <dependency>
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-io</artifactId>
             <version>${hudi.version}</version>
+            <!-- Merged into hive-apache-shade below, and must not arrive a second time. -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hive</groupId>
+                    <artifactId>hive-storage-api</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->
         <dependency>
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-hadoop-mr</artifactId>
             <version>${hudi.version}</version>
+            <!-- Merged into hive-apache-shade below, and must not arrive a second time. -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hive</groupId>
+                    <artifactId>hive-storage-api</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.apache.parquet/parquet-avro -->
+        <!--
+          The exclusion above leaves hudi's jackson users - afterburner, jsr310 and hudi's own
+          object mapper - without an implementation, and until this module became a plugin the
+          version that answered came transitively through java-common. It is named here so that it
+          keeps being the fe-managed one.
+        -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-avro</artifactId>
             <version>${parquet.version}</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.apache.avro/avro -->
         <dependency>
             <groupId>org.apache.avro</groupId>
             <artifactId>avro</artifactId>
@@ -121,7 +163,6 @@ under the License.
             <version>202</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/io.airlift/aircompressor -->
         <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>aircompressor</artifactId>
@@ -140,67 +181,266 @@ under the License.
             <version>4.0.2</version>
         </dependency>
 
-        <!-- hive -->
+        <!--
+          Hive, repackaged by Trino: the serde and object inspectors this scanner deserializes rows
+          with, named by FE as class names and instantiated reflectively. Taken through
+          hive-apache-shade, which merges it with the standalone hive-storage-api that ORC and Hudi
+          call into - see that module for why a plugin cannot simply carry both jars.
+
+          Isolation changes which copy answers. Four of these classes - the contract a Hive UDF is
+          written against - are also inside java-udf's jar, built from hive-exec 3.1.3, and that jar
+          is on BE's system classpath. Parent-first meant this scanner ran 3.1.3's copies of those
+          four and 3.1.2-22's of everything else; a plugin sees only what is in its own directory,
+          so the version here is the one that runs. HadoopHudiPluginTest pins that down.
+        -->
         <dependency>
-            <groupId>io.trino.hive</groupId>
-            <artifactId>hive-apache</artifactId>
-            <version>${hive-apache.version}</version>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hive-apache-shade</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!--
+          Hadoop, declared here rather than taken transitively so this plugin has exactly one copy
+          at depth one. Until this module became a plugin it declared hadoop provided and let BE's
+          system classpath - lib/hadoop_hdfs, which a plugin cannot see - answer at runtime.
+
+          mapreduce-client-core is not incidental here: this scanner reads through the old mapred
+          API, so JobConf, InputFormat, FileSplit and RecordReader are its own compile-time contract
+          with the input format FE names.
+
+          Both blocks exclude the logging implementations hadoop brings with it - see the logging
+          note below. Nothing here calls log4j 1.x directly: of hadoop-common's classes only the
+          daemon startup banner and the log-level servlet mention org.apache.log4j, and neither is
+          reachable from a scan.
+        -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
             <exclusions>
                 <exclusion>
-                    <groupId>org.apache.thrift</groupId>
-                    <artifactId>libthrift</artifactId>
+                    <groupId>ch.qos.reload4j</groupId>
+                    <artifactId>reload4j</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
+            <exclusions>
+                <!--
+                  Two logging implementations, both arriving under the yarn client: slf4j-reload4j
+                  would be a second slf4j provider next to slf4j-jdk14, and reload4j is log4j 1.x
+                  itself, which would compete with the log4j-over-slf4j bridge below for
+                  org.apache.log4j. Which one won would be decided by the order the plugin
+                  classloader happens to read its directory in.
+                -->
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-reload4j</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>org.apache.parquet</groupId>
-                    <artifactId>*</artifactId>
+                    <groupId>ch.qos.reload4j</groupId>
+                    <artifactId>reload4j</artifactId>
                 </exclusion>
+                <!--
+                  It carries hadoop-hdfs-client, which would put DistributedFileSystem in this
+                  plugin as a side effect of reading through the mapred API. The filesystems below
+                  are a deliberate list and this keeps them the only source of one.
+                -->
                 <exclusion>
-                    <groupId>org.apache.avro</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.airlift</groupId>
-                    <artifactId>aircompressor</artifactId>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-hdfs-client</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
 
-        <!-- fastutil-core: this scanner's fat jar transitively bundles fe-foundation's
-             ConcurrentLong2LongHashMap / ConcurrentLong2ObjectHashMap, which extend fastutil
-             abstract maps. fe-foundation marks fastutil-core optional (to stay out of the FE SPI
-             plugin zips), so it is not propagated here. BE's ScannerLoader eagerly loads every
-             org.apache.doris.* class in this jar at startup, so the fastutil superclasses must be
-             bundled or the BE fails JNI init (doris_main.cpp) and cannot start. -->
+        <!--
+          The filesystem implementations themselves. hadoop-common registers only file, har, http
+          and viewfs; every other scheme's FileSystem lives in its own artifact, and until this
+          module became a plugin those artifacts arrived from BE's system classpath - lib/hadoop_hdfs
+          (hdfs, obs, azure) and the shared preload jar (s3a). A plugin sees no system classpath at
+          all, so without them a table on HDFS fails with "No FileSystem for scheme: hdfs".
+          Which class serves which scheme is FE's decision - it points cosn and, in some
+          configurations, obs at S3A rather than at a vendor filesystem - and is asserted in
+          HadoopHudiPluginTest.
+
+          hadoop-cos is deliberately not here even though it is on that shared classpath: nothing in
+          the tree names org.apache.hadoop.fs.CosFileSystem, because FE points fs.cosn.impl at S3A.
+        -->
         <dependency>
-            <groupId>it.unimi.dsi</groupId>
-            <artifactId>fastutil-core</artifactId>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs-client</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>runtime</scope>
+            <!-- Keep the plugin's single hadoop-common (declared above): two copies would put
+                 FileSystem in one and DistributedFileSystem's superclass in the other. -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aws</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-azure</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- A fat jar: it self-contains the esdk-obs SDK, so OBS needs nothing else. -->
+        <dependency>
+            <groupId>com.huaweicloud</groupId>
+            <artifactId>hadoop-huaweicloud</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!--
+          The AWS SDK hadoop-aws runs on. fe/pom.xml excludes hadoop-aws's own dependency on the
+          monolithic software.amazon.awssdk:bundle, so the modules it actually uses are named here:
+          s3 brings the client and its protocol/auth/http closure, apache-client is the http
+          implementation hadoop-aws wires up, and s3-transfer-manager is not optional either -
+          S3AFileSystem's own methods reference software.amazon.awssdk.transfer.s3, so the class
+          does not load without it.
+        -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Reached transitively through java-common until this module became a plugin. -->
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+        </dependency>
+
+        <!--
+          Logging: this plugin and the libraries inside it must reach the one file BE's plugin
+          runtime configures - log/jni.log, written through java.util.logging. So the plugin speaks
+          slf4j and deploys slf4j-jdk14.
+
+          The three log4j artifacts are narrowed to test because the fe parent pom declares them
+          compile on EVERY module: log4j-core is a second logging implementation writing wherever
+          its own configuration says (nowhere, since BE's log4j2 config is not on a plugin's
+          classpath), log4j-slf4j2-impl would route slf4j into it, and log4j-1.2-api is not the pure
+          facade its name suggests - its org.apache.log4j.Logger resolves log4j-core classes. Maven
+          cannot drop an inherited dependency, only narrow its scope.
+
+          Both bridges are here because both facades have callers in this closure. log4j-to-slf4j
+          covers log4j2: fe-kerberos, whose UGI login and ticket-renewal messages are the ones an
+          operator goes looking for. log4j-over-slf4j covers log4j 1.x, which the repackaged hive
+          reaches for from its shim loader - a pure facade, unlike log4j-1.2-api, so nothing behind
+          it has to exist. Commons-logging, which hive also uses, has an implementation in this
+          closure already (hadoop's) and finds log4j-over-slf4j through its own discovery.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-to-slf4j</artifactId>
+            <version>${log4j2.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>log4j-over-slf4j</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j2-impl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <!--
+      com.huaweicloud:hadoop-huaweicloud is not published to Maven Central, and a module does not
+      inherit repositories from its parent here. hadoop-deps and the two FE modules that use the
+      same artifact each declare this the same way.
+    -->
+    <repositories>
+        <repository>
+            <id>huawei-obs-sdk</id>
+            <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+        </repository>
+    </repositories>
 
     <build>
         <finalName>hadoop-hudi-scanner</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!--
+              Give the tests the same logging the deployed plugin has: slf4j-jdk14 as slf4j's only
+              provider, the two bridges as log4j's. The three artifacts excluded here are declared
+              test only because maven cannot drop what the fe parent pom declares compile on every
+              module - narrowing the scope keeps them out of the plugin directory, and this keeps
+              them out of the test JVM, where each would compete for a slot a bridge already holds:
+              log4j-1.2-api against log4j-over-slf4j for org.apache.log4j, log4j-slf4j2-impl against
+              log4j-to-slf4j for log4j2, and log4j-core behind both.
+            -->
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>
+                            org.apache.logging.log4j:log4j-core
+                        </classpathDependencyExclude>
+                        <classpathDependencyExclude>
+                            org.apache.logging.log4j:log4j-slf4j2-impl
+                        </classpathDependencyExclude>
+                        <classpathDependencyExclude>
+                            org.apache.logging.log4j:log4j-1.2-api
+                        </classpathDependencyExclude>
+                    </classpathDependencyExcludes>
+                </configuration>
+            </plugin>
+            <!--
+              A plugin is a directory of jars, not one jar with everything shaded into it. Its own
+              jar is built by the parent's jar plugin; its runtime closure lands beside it here.
+              `provided` dependencies are excluded by scope, which is what keeps the SPI out.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <configuration>
-                    <descriptors>
-                        <descriptor>src/main/resources/package.xml</descriptor>
-                    </descriptors>
-                    <archive>
-                        <manifest>
-                            <mainClass></mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
+                <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
+                        <id>copy-plugin-dependencies</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>copy-dependencies</goal>
                         </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
