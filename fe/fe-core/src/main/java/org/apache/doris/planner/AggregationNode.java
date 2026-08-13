@@ -409,9 +409,7 @@ public class AggregationNode extends PlanNode {
         // isDistinct() is already false and the function name is the only signal.
         return aggInfo.getAggregateExprs().stream()
                 .map(FunctionCallExpr::getFnName)
-                .filter(name -> name != null)
                 .map(name -> name.getFunction())
-                .filter(name -> name != null)
                 .anyMatch(name -> name.startsWith("multi_distinct_"));
     }
 

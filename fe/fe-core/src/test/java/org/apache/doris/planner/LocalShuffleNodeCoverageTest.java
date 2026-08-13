@@ -1052,11 +1052,15 @@ public class LocalShuffleNodeCoverageTest {
         // An intermediate agg that inherits a shuffle-for-correctness ancestor (e.g.
         // DISTINCT_GLOBAL/FIRST_MERGE chain above a Union) keeps the child distribute
         // exprs as its hash key even though the agg itself has no DISTINCT functions.
-        // Dropping the inherited half of selfOrInheritedShuffled must fail this test.
+        // The grouping key is deliberately different from the child distribution key:
+        // dropping the inherited state or selecting the grouping key must fail this test.
+        Expr groupingExpr = Mockito.mock(Expr.class, "groupingExpr");
+        Expr childDistributeExpr = Mockito.mock(Expr.class, "childDistributeExpr");
+        List<Expr> childDistributeExprs = Collections.singletonList(childDistributeExpr);
         AggContext agg = buildAggContext(
-                Collections.singletonList(plainAggregateFunction("count")), /* groupByExprs */ true,
-                /* merge */ true, /* needsFinalize */ true, LocalExchangeType.NOOP,
-                KEYED_DISTRIBUTE_EXPRS);
+                Collections.singletonList(plainAggregateFunction("count")),
+                Collections.singletonList(groupingExpr), /* merge */ true,
+                /* needsFinalize */ false, LocalExchangeType.NOOP, childDistributeExprs);
         Mockito.when(agg.ctx.hasShuffleForCorrectnessAncestor(agg.node)).thenReturn(true);
         Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
                 agg.ctx, null, LocalExchangeTypeRequire.noRequire());
@@ -1064,6 +1068,11 @@ public class LocalShuffleNodeCoverageTest {
                 "inherited shuffle ancestor must keep the hash demand");
         Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second);
         assertChildLocalExchangeType(agg.node, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        LocalExchangeNode exchangeNode = (LocalExchangeNode) agg.node.getChild(0);
+        Assertions.assertEquals(childDistributeExprs, exchangeNode.getDistributeExprLists(),
+                "inherited intermediate agg must hash by the child's distribution key");
+        Assertions.assertNotEquals(Collections.singletonList(groupingExpr), exchangeNode.getDistributeExprLists(),
+                "the grouping key must not replace the inherited child distribution key");
     }
 
     /** A non-empty child distribute expr list, as fragment planning sets for a keyed DISTINCT agg. */
@@ -1086,12 +1095,21 @@ public class LocalShuffleNodeCoverageTest {
     }
 
     /**
-     * groupByExprs == true → no group keys (mirrors the RQG scalar COUNT(DISTINCT));
+     * noGroupByExprs == true → no group keys (mirrors the scalar COUNT(DISTINCT));
      * distributeExprs != null → the plan set child distribute exprs for this agg
      * (as fragment planning does for a DISTINCT agg), which is what makes
      * hasPartitionRequirement() true for a keyed agg.
      */
-    private static AggContext buildAggContext(List<FunctionCallExpr> aggExprs, boolean groupByExprs,
+    private static AggContext buildAggContext(List<FunctionCallExpr> aggExprs, boolean noGroupByExprs,
+            boolean merge, boolean needsFinalize, LocalExchangeType childProvided,
+            List<Expr> distributeExprs) {
+        List<Expr> groupingExprs = noGroupByExprs
+                ? Collections.emptyList() : Collections.singletonList(Mockito.mock(Expr.class));
+        return buildAggContext(aggExprs, groupingExprs, merge, needsFinalize,
+                childProvided, distributeExprs);
+    }
+
+    private static AggContext buildAggContext(List<FunctionCallExpr> aggExprs, List<Expr> groupingExprs,
             boolean merge, boolean needsFinalize, LocalExchangeType childProvided,
             List<Expr> distributeExprs) {
         PlanTranslatorContext ctx = Mockito.mock(PlanTranslatorContext.class);
@@ -1101,11 +1119,7 @@ public class LocalShuffleNodeCoverageTest {
 
         AggregateInfo aggInfo = Mockito.mock(AggregateInfo.class);
         Mockito.when(aggInfo.getOutputTupleId()).thenReturn(new TupleId(NEXT_ID.getAndIncrement()));
-        ArrayList<Expr> groupingExprs = new ArrayList<>();
-        if (!groupByExprs) {
-            groupingExprs.add(Mockito.mock(Expr.class));
-        }
-        Mockito.when(aggInfo.getGroupingExprs()).thenReturn(groupingExprs);
+        Mockito.when(aggInfo.getGroupingExprs()).thenReturn(new ArrayList<>(groupingExprs));
         Mockito.when(aggInfo.getAggregateExprs()).thenReturn(new ArrayList<>(aggExprs));
         Mockito.when(aggInfo.isMerge()).thenReturn(merge);
 
