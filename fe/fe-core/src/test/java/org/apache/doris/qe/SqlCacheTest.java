@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -29,6 +30,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -42,13 +44,29 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 public class SqlCacheTest extends TestWithFeService {
+    private int originalSqlCacheManageNum;
+
     @Override
     public void runBeforeAll() throws Exception {
+        originalSqlCacheManageNum = Config.sql_cache_manage_num;
         createDatabase("sql_cache_constraint_test");
         createTable("create table sql_cache_constraint_test.t (k int) "
                 + "distributed by hash(k) buckets 1 properties('replication_num'='1')");
         createTable("create table sql_cache_constraint_test.t2 (k int) "
                 + "distributed by hash(k) buckets 1 properties('replication_num'='1')");
+    }
+
+    @Override
+    protected void runBeforeEach() {
+        Env.getCurrentEnv().getSqlCacheManager().invalidateAll();
+    }
+
+    @AfterEach
+    public void resetSqlCacheState() {
+        NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
+        sqlCacheManager.invalidateAll();
+        Config.sql_cache_manage_num = originalSqlCacheManageNum;
+        NereidsSqlCacheManager.updateConfig();
     }
 
     @Test

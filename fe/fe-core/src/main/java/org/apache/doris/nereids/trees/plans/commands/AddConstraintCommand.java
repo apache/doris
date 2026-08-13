@@ -80,10 +80,12 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         checkAlterPriv(ctx, tableNameInfo);
 
         Pair<ImmutableList<String>, TableNameInfo> referencedColumnsAndTable = null;
+        TableIf referencedTable = null;
         if (constraint.isForeignKey()) {
             Pair<ImmutableList<String>, TableIf> refColumnsAndTable =
                     extractColumnsAndTable(ctx, constraint.toReferenceProject());
             TableIf refTable = refColumnsAndTable.second;
+            referencedTable = refTable;
             TableNameInfo refTableInfo = TableNameInfoUtils.fromCatalogDb(
                     refTable.getDatabase().getCatalog(), refTable.getDatabase(), refTable);
             // a foreign key also registers a reverse reference on the referenced table
@@ -112,7 +114,8 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         } else {
             throw new AnalysisException("Unsupported constraint type: " + constraint);
         }
-        addConstraintWithLocks(tableNameInfo, affectedTables, catalogConstraint);
+        addConstraintWithLocks(
+                tableNameInfo, affectedTables, catalogConstraint, table, referencedTable);
     }
 
     private void checkAlterPriv(ConnectContext ctx, TableNameInfo tableNameInfo)
@@ -127,22 +130,33 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
 
     private void addConstraintWithLocks(TableNameInfo tableNameInfo,
             List<TableNameInfo> affectedTableInfos,
-            org.apache.doris.catalog.constraint.Constraint constraint) throws Exception {
+            org.apache.doris.catalog.constraint.Constraint constraint,
+            TableIf analyzedTable, TableIf analyzedReferencedTable) throws Exception {
         List<MTMV> dependentMtmvs;
         try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
                 ConstraintCommandUtils.lockCurrentDatabases(affectedTableInfos);
                 ConstraintCommandUtils.LockedTables lockedTables =
                         ConstraintCommandUtils.lockCurrentTables(
                                 lockedDatabases, affectedTableInfos)) {
+            lockedTables.requireSame(tableNameInfo, analyzedTable);
             TableIf currentTable = lockedTables.get(tableNameInfo);
             if (constraint instanceof DistributionMappingConstraint) {
                 Preconditions.checkState(currentTable instanceof OlapTable,
                         "distribution mapping constraint requires an OLAP table");
                 ((OlapTable) currentTable).checkNormalStateForAlter();
             }
+            TableIf referencedTable = null;
+            if (constraint instanceof ForeignKeyConstraint) {
+                TableNameInfo referencedTableInfo =
+                        ((ForeignKeyConstraint) constraint).getReferencedTableName();
+                Preconditions.checkNotNull(referencedTableInfo);
+                referencedTable = lockedTables.get(referencedTableInfo);
+                lockedTables.requireSame(referencedTableInfo, analyzedReferencedTable);
+            }
             dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
             Env.getCurrentEnv().getConstraintManager()
-                    .addConstraint(tableNameInfo, name, constraint, false);
+                    .addConstraintWithResolvedTables(
+                            tableNameInfo, name, constraint, currentTable, referencedTable);
             if (constraint instanceof DistributionMappingConstraint) {
                 Env.getCurrentEnv().getSqlCacheManager()
                         .invalidateAboutTableAndFencePublication(currentTable);

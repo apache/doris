@@ -17,9 +17,12 @@
 
 package org.apache.doris.catalog.constraint;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.persist.EditLog;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -27,6 +30,8 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -81,6 +86,23 @@ class ConstraintManagerTest {
         PrimaryKeyConstraint pk = newPk("pk", "k1");
         mgr.addConstraint(T1, "pk", pk, true);
         Assertions.assertSame(pk, mgr.getConstraint(T1, "pk"));
+    }
+
+    @Test
+    void addWithResolvedTableDoesNotLoadSchemaUnderManagerLock() {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        TableIf resolvedTable = Mockito.mock(TableIf.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        PrimaryKeyConstraint pk = newPk("pk", "k1");
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mgr.addConstraintWithResolvedTables(T1, "pk", pk, resolvedTable, null);
+        }
+
+        Assertions.assertSame(pk, mgr.getConstraint(T1, "pk"));
+        Mockito.verify(resolvedTable, Mockito.never()).getColumn(Mockito.anyString());
     }
 
     @Test

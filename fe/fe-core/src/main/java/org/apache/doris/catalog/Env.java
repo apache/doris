@@ -6942,6 +6942,10 @@ public class Env {
                     }
                 }
             }
+            if (!constraintManager.getDistributionMappingConstraints(tbl).isEmpty()) {
+                throw new DdlException("Cannot change distribution type of table with"
+                        + " distribution mapping constraints. Drop the constraints first.");
+            }
             if (!tbl.convertHashDistributionToRandomDistribution()) {
                 throw new DdlException("Table " + tbl.getName() + " is not hash distributed");
             }
@@ -6958,6 +6962,11 @@ public class Env {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
+            Preconditions.checkState(
+                    constraintManager.getDistributionMappingConstraints(olapTable).isEmpty(),
+                    "Cannot replay HASH-to-RANDOM conversion for table %s"
+                            + " with distribution mapping constraints",
+                    olapTable.getName());
             olapTable.convertHashDistributionToRandomDistribution();
             LOG.info("replay modify distribution type of table from hash to random : " + olapTable.getName());
         } finally {

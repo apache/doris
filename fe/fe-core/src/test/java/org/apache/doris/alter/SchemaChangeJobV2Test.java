@@ -41,13 +41,16 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
@@ -55,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.persist.TableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -519,6 +523,48 @@ public class SchemaChangeJobV2Test {
         Assert.assertTrue(olapTable.getDefaultDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);
         Partition partition1 = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         Assert.assertTrue(partition1.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);
+    }
+
+    @Test
+    public void testModifyTableDistributionTypeRejectsDistributionMapping() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
+        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1).get();
+        TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(
+                db.getCatalog(), db, olapTable);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "distribution_mapping", "distribution_mapping",
+                List.of("v"), List.of("k1"));
+        masterEnv.getConstraintManager()
+                .addConstraint(tableNameInfo, mapping.getName(), mapping, true);
+
+        DdlException exception = Assert.assertThrows(
+                DdlException.class,
+                () -> Env.getCurrentEnv().convertDistributionType(db, olapTable));
+        Assert.assertTrue(exception.getMessage().contains("Drop the constraints first"));
+        Assert.assertEquals(
+                DistributionInfo.DistributionInfoType.HASH,
+                olapTable.getDefaultDistributionInfo().getType());
+        Assert.assertEquals(
+                List.of(mapping),
+                masterEnv.getConstraintManager().getDistributionMappingConstraints(olapTable));
+
+        TableInfo tableInfo = TableInfo.createForModifyDistribution(
+                db.getId(), olapTable.getId());
+        Assert.assertThrows(
+                IllegalStateException.class,
+                () -> Env.getCurrentEnv().replayConvertDistributionType(tableInfo));
+        Assert.assertEquals(
+                DistributionInfo.DistributionInfoType.HASH,
+                olapTable.getDefaultDistributionInfo().getType());
     }
 
     @Test

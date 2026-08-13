@@ -103,20 +103,26 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      * Add a constraint to the specified table.
      * For FK constraints, validates that the referenced PK exists
      * and registers bidirectional reference via foreignTableInfos.
-     *
-     * <p>Note: validation is performed inside the write lock to prevent TOCTOU races
-     * (e.g., table dropped between validation and registration). For external catalogs,
-     * this could cause longer lock hold times if catalog initialization is slow.
-     * This tradeoff is intentional — correctness over performance.</p>
      */
     public void addConstraint(TableNameInfo tableNameInfo, String constraintName,
             Constraint constraint, boolean replay) {
+        addConstraint(tableNameInfo, constraintName, constraint, null, null, replay);
+    }
+
+    private void addConstraint(TableNameInfo tableNameInfo, String constraintName,
+            Constraint constraint, TableIf resolvedTable, TableIf resolvedReferencedTable, boolean replay) {
         String key = toKey(tableNameInfo);
         writeLock();
         try {
             TableIf table = null;
             if (!replay) {
-                table = validateTableAndColumns(tableNameInfo, constraint);
+                if (resolvedTable == null) {
+                    table = validateTableAndColumns(tableNameInfo, constraint);
+                } else {
+                    table = resolvedTable;
+                    validateResolvedConstraint(
+                            tableNameInfo, table, resolvedReferencedTable, constraint);
+                }
             } else if (constraint instanceof DistributionMappingConstraint) {
                 table = resolveTableIfPresent(tableNameInfo);
             }
@@ -138,6 +144,18 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
+    }
+
+    /**
+     * Add a non-replay constraint using tables already analyzed and resolved by the command.
+     *
+     * <p>This avoids connector table/schema load-through while database locks are held. Column
+     * existence was established by Nereids analysis before locking; internal table identities are
+     * then revalidated before this method is called.</p>
+     */
+    public void addConstraintWithResolvedTables(TableNameInfo tableNameInfo, String constraintName,
+            Constraint constraint, TableIf table, TableIf referencedTable) {
+        addConstraint(tableNameInfo, constraintName, constraint, table, referencedTable, false);
     }
 
     /**
@@ -1105,6 +1123,18 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                     tableNameInfo, table, (DistributionMappingConstraint) constraint);
         }
         return table;
+    }
+
+    private void validateResolvedConstraint(TableNameInfo tableNameInfo, TableIf table,
+            TableIf referencedTable, Constraint constraint) {
+        if (constraint instanceof ForeignKeyConstraint && referencedTable == null) {
+            throw new AnalysisException("Referenced table changed while adding constraint on "
+                    + tableNameInfo);
+        }
+        if (constraint instanceof DistributionMappingConstraint) {
+            validateDistributionMappingConstraint(
+                    tableNameInfo, table, (DistributionMappingConstraint) constraint);
+        }
     }
 
     private TableIf resolveTableIfPresent(TableNameInfo tableNameInfo) {
