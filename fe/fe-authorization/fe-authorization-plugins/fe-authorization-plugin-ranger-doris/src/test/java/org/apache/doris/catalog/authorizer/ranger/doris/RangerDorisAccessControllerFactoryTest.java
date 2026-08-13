@@ -39,6 +39,25 @@ public class RangerDorisAccessControllerFactoryTest {
     }
 
     /**
+     * The two strings an operator selects this source by, frozen.
+     *
+     * <p>The name is what {@code access_controller_type} in fe.conf holds; the factory's class name is what a
+     * catalog's {@code access_controller.class} may hold, and that one is persisted with the catalog and read
+     * back verbatim by later releases. Written as literals on purpose: derived from the class, they would
+     * travel with it and a package move would leave this green. Moving this class again means adding the name
+     * it has today to the table of superseded class names in {@code AccessControllerManager}.
+     */
+    @Test
+    public void testTheSelectorsThisSourceIsNamedBy() {
+        RangerDorisAccessControllerFactory factory = new RangerDorisAccessControllerFactory();
+
+        Assert.assertEquals("ranger-doris", factory.name());
+        Assert.assertEquals(
+                "org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessControllerFactory",
+                factory.getClass().getName());
+    }
+
+    /**
      * One controller per FE, whoever asks for it: it starts a Ranger policy refresher, and a second one would
      * mean a second refresher polling the same service.
      */
