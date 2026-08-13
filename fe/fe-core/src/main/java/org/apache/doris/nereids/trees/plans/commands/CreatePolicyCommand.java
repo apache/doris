@@ -135,9 +135,6 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                     if (user.isRootUser() || user.isAdminUser()) {
                         throw new AnalysisException("not allow add row policy for system user");
                     }
-                    if (!Env.getCurrentEnv().getAuth().doesUserExist(user)) {
-                        throw new AnalysisException("user not exist: " + user);
-                    }
                 }
 
                 if (!StringUtils.isEmpty(roleName)) {

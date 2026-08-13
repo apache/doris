@@ -70,12 +70,10 @@ suite("test_row_policy") {
           exception "id2"
     }
 
-     test {
-          sql """
-              CREATE ROW POLICY IF NOT EXISTS policy_01 ON ${tableName} AS restrictive TO non_exist_user USING(id=1)
-          """
-          exception "non_exist_user"
-    }
+     sql """
+               CREATE ROW POLICY IF NOT EXISTS policy_02 ON ${tableName} AS restrictive TO non_exist_user USING(id=1)
+     """
+     sql """DROP ROW POLICY IF EXISTS policy_02 ON ${tableName} FOR non_exist_user"""
 
     test {
           sql """
@@ -90,4 +88,8 @@ suite("test_row_policy") {
           """
           exception "system user"
     }
+
+    sql """
+               DROP ROW POLICY IF EXISTS policy_01 ON ${tableName} FOR non_exist_user
+    """
 }
