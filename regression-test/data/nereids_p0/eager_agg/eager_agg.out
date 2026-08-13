@@ -306,19 +306,13 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------PhysicalUnion
 --------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-<<<<<<< HEAD:regression-test/data/nereids_p0/eager_agg/eager_agg.out
 ----------PhysicalOlapScan[store_sales]
-----------PhysicalOlapScan[date_dim]
---------PhysicalOlapScan[date_dim]
-=======
-----------PhysicalOlapScan[store_sales(ss)]
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
---------------PhysicalOlapScan[date_dim(dt)]
+--------------PhysicalOlapScan[date_dim]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[date_dim]
->>>>>>> c45d1a60670 ([fix](eager-agg) Handle duplicate aggregate functions pushed through projects (#66531)):regression-test/data/query_p0/eager_agg/eager_agg.out
 
 Hint log:
 Used:
