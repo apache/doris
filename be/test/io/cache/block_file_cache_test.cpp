@@ -4316,15 +4316,14 @@ TEST_F(BlockFileCacheTest, test_async_load_with_error_file_2) {
     context.cache_type = io::FileCacheType::INDEX;
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
-    ASSERT_TRUE(cache.initialize());
     std::string dir;
-    if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
-        storage != nullptr) {
-        dir = storage->get_path_in_local_cache(key, 0);
-    }
     std::atomic_bool flag1 = false;
     std::atomic_bool flag2 = false;
     sp->set_call_back("BlockFileCache::TmpFile1", [&](auto&&) {
+        if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
+            storage != nullptr) {
+            dir = storage->get_path_in_local_cache(key, 0);
+        }
         FileWriterPtr writer;
         ASSERT_TRUE(global_local_filesystem()->create_file(dir / "error", &writer).ok());
         ASSERT_TRUE(writer->append(Slice("111", 3)).ok());
@@ -4349,6 +4348,7 @@ TEST_F(BlockFileCacheTest, test_async_load_with_error_file_2) {
             static_cast<void>(global_local_filesystem()->delete_file(dir / "30086_idx"));
         }
     });
+    ASSERT_TRUE(cache.initialize());
     while (!flag2) {
     }
     auto holder = cache.get_or_set(key, 100, 1, context); /// Add range [9, 9]
