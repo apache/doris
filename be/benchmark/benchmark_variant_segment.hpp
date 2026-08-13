@@ -843,15 +843,7 @@ public:
                             continue;
                         }
 
-                        std::string actual;
-                        const auto* variant = check_and_get_column<ColumnVariantV2>(*output.column);
-                        if (variant != nullptr && variant->is_shredded()) {
-                            auto encoded = variant->materialize_encoded_range(row, 1);
-                            DORIS_CHECK_EQ(encoded->size(), 1);
-                            actual = output.type->to_string(*encoded, 0);
-                        } else {
-                            actual = output.type->to_string(*output.column, row);
-                        }
+                        const std::string actual = output.type->to_string(*output.column, row);
                         const uint32_t global_row = global_row_offset + local_row;
                         const std::string expected = make_json(global_row);
                         if (actual != expected) {
@@ -861,24 +853,9 @@ public:
                         }
                     }
                 } else {
-                    // A shredded ColumnVariantV2 assembles the complete value when SerDe renders
-                    // it. Materialize this iterator block once so validation does not repeat the
-                    // same whole-value assembly for every row. Keep nullable extracted paths, V1,
-                    // and any other column shape on the ordinary SerDe path below.
-                    const IColumn* checksum_column = output.column.get();
-                    ColumnVariantV2::MutablePtr encoded;
-                    if (prepared.target == ReadTarget::WHOLE) {
-                        const auto* variant =
-                                check_and_get_column<ColumnVariantV2>(*checksum_column);
-                        if (variant != nullptr && variant->is_shredded()) {
-                            encoded = variant->materialize_encoded_range(0, block.rows());
-                            DORIS_CHECK_EQ(encoded->size(), block.rows());
-                            checksum_column = encoded.get();
-                        }
-                    }
                     for (size_t row = 0; row < block.rows(); ++row) {
                         result->checksum = update_checksum(
-                                result->checksum, output.type->to_string(*checksum_column, row));
+                                result->checksum, output.type->to_string(*output.column, row));
                     }
                 }
             } else {
