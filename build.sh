@@ -1351,7 +1351,6 @@ EOF
     fi
 
     extensions_modules=("java-udf")
-    extensions_modules+=("trino-connector-scanner")
     # lakesoul-scanner has been deprecated
     # extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
@@ -1409,6 +1408,7 @@ EOF
     plugin_modules+=("max-compute-connector:max-compute")
     plugin_modules+=("paimon-scanner:paimon")
     plugin_modules+=("hadoop-hudi-scanner:hudi")
+    plugin_modules+=("trino-connector-scanner:trino-connector")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
