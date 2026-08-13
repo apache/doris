@@ -15,18 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-export type UiCapability =
-  | 'PLAYGROUND_USE'
-  | 'QUERY_PROFILE_VIEW_OWN'
-  | 'QUERY_PROFILE_VIEW_ALL'
-  | 'NODE_STATUS_VIEW'
-  | 'OPERATIONS_VIEW'
-  | 'LOG_MODIFY'
-  | 'CONFIGURATION_MODIFY';
-
 export interface UiMe {
   user: string;
-  capabilities: UiCapability[];
   csrfToken: string;
 }
 
@@ -41,6 +31,17 @@ export interface UiVersionInfo {
 export interface UiNodeTable {
   columnNames: string[];
   rows: string[][];
+}
+
+export interface UiLogSnapshot {
+  level: string;
+  mode: string;
+  verboseNames: string[];
+  auditNames: string[];
+  logPath: string;
+  showingLastBytes: number;
+  contents: string;
+  contentError: string | null;
 }
 
 export interface WebSqlSessionInfo {
@@ -74,14 +75,9 @@ export interface WebSqlCloseResult {
   closed: boolean;
 }
 
-export interface UiSuccess<T> {
-  data: T;
-  requestId: string;
-}
-
 export interface UiErrorBody {
   code: string;
   message: string;
-  requestId: string;
+  requestId?: string;
   details?: unknown;
 }

@@ -21,24 +21,11 @@ import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import java.util.UUID;
-
 public final class UiRequestContext {
-    public static final String REQUEST_ID_ATTRIBUTE = UiRequestContext.class.getName() + ".requestId";
     public static final String SESSION_ATTRIBUTE = UiRequestContext.class.getName() + ".session";
-    public static final String REQUEST_ID_HEADER = "X-Request-Id";
     public static final String CSRF_HEADER = "X-Doris-CSRF-Token";
 
     private UiRequestContext() {
-    }
-
-    public static String newRequestId() {
-        return UUID.randomUUID().toString();
-    }
-
-    public static String requestId(HttpServletRequest request) {
-        Object value = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        return value instanceof String ? (String) value : newRequestId();
     }
 
     public static SessionValue session(HttpServletRequest request) {

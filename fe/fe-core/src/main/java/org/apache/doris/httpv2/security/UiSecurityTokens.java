@@ -29,6 +29,11 @@ public final class UiSecurityTokens {
     private UiSecurityTokens() {
     }
 
+    /**
+     * Generates a token bound to an authenticated HTTP session. Browsers automatically attach the Doris
+     * session cookie, so state-changing Web UI requests must also present this non-cookie value to prove
+     * that they originated from the Doris page rather than from another web site.
+     */
     public static String newCsrfToken() {
         byte[] value = new byte[CSRF_TOKEN_BYTES];
         RANDOM.nextBytes(value);

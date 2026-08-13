@@ -68,16 +68,29 @@ Playwright requires its Chromium runtime. The browser path may be isolated with 
 
 ## Implemented scope
 
-- Cookie-only login and logout for Doris users with global `ADMIN` privilege,
-  route protection, capability checks, CSRF protection, request IDs, and
-  stable English error envelopes.
-- Home version information and complete `SHOW FRONTENDS` / `SHOW BACKENDS`
-  node tables.
+- English-only login and logout for Doris users with global `ADMIN` privilege.
+  UI Next reuses the legacy `/rest/v1/login` and `/rest/v1/logout` endpoints
+  and uses a thin `/rest/v1/ui/me` bootstrap endpoint for the authenticated
+  user and CSRF token.
+- Home version information and complete frontend/backend node tables. The page
+  reuses the existing hardware-version and `/rest/v1/system` APIs.
 - Playground SQL editing and formatting, a database/table/column object tree,
   and FE-managed JDBC sessions that preserve SQL session state across
   statements.
+- System proc navigation and active Sessions views, both backed by existing
+  Doris HTTP APIs.
+- Log configuration, content, and verbose logger management, reusing the
+  existing `/rest/v1/log` API.
 - React, TypeScript, Vite, React Router, Ant Design, TanStack Query, CodeMirror,
   Vitest, Testing Library, and Playwright infrastructure.
 
-System, Log, Query Profiles, Sessions, and Configuration are intentional
-placeholders in this draft implementation.
+Query Profiles and Configuration remain intentional placeholders in this
+draft implementation.
+
+## Backend scope
+
+The FE addition is intentionally concentrated on the persistent Web SQL
+session lifecycle: session ownership, one JDBC connection per active session,
+statement execution and cancellation, idle cleanup, and bounded results.
+Existing Doris HTTP controllers remain the preferred backend for the other UI
+pages.

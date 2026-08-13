@@ -26,38 +26,30 @@ import type {
 const basePath = '/rest/v1/ui/sql-sessions';
 
 export async function createWebSqlSession(): Promise<WebSqlSessionInfo> {
-  return (await uiRequest<WebSqlSessionInfo>(basePath, { method: 'POST' })).data;
+  return uiRequest<WebSqlSessionInfo>(basePath, { method: 'POST' });
 }
 
 export async function executeWebSql(sessionId: string, sql: string): Promise<WebSqlExecutionResult> {
-  return (
-    await uiRequest<WebSqlExecutionResult>(`${basePath}/${encodeURIComponent(sessionId)}/statements`, {
+  return uiRequest<WebSqlExecutionResult>(`${basePath}/${encodeURIComponent(sessionId)}/statements`, {
       method: 'POST',
       body: JSON.stringify({ sql }),
-    })
-  ).data;
+    });
 }
 
 export async function cancelWebSql(sessionId: string): Promise<WebSqlCancelResult> {
-  return (
-    await uiRequest<WebSqlCancelResult>(`${basePath}/${encodeURIComponent(sessionId)}/cancel`, {
+  return uiRequest<WebSqlCancelResult>(`${basePath}/${encodeURIComponent(sessionId)}/cancel`, {
       method: 'POST',
-    })
-  ).data;
+    });
 }
 
 export async function resetWebSqlSession(sessionId: string): Promise<WebSqlSessionInfo> {
-  return (
-    await uiRequest<WebSqlSessionInfo>(`${basePath}/${encodeURIComponent(sessionId)}/reset`, {
+  return uiRequest<WebSqlSessionInfo>(`${basePath}/${encodeURIComponent(sessionId)}/reset`, {
       method: 'POST',
-    })
-  ).data;
+    });
 }
 
 export async function closeWebSqlSession(sessionId: string): Promise<WebSqlCloseResult> {
-  return (
-    await uiRequest<WebSqlCloseResult>(`${basePath}/${encodeURIComponent(sessionId)}`, {
+  return uiRequest<WebSqlCloseResult>(`${basePath}/${encodeURIComponent(sessionId)}`, {
       method: 'DELETE',
-    })
-  ).data;
+    });
 }

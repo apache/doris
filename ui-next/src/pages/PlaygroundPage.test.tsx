@@ -50,7 +50,7 @@ vi.mock('./playground/useWebSqlSession', () => ({
   }),
 }));
 
-const me: UiMe = { user: 'root', capabilities: ['PLAYGROUND_USE'], csrfToken: 'csrf' };
+const me: UiMe = { user: 'root', csrfToken: 'csrf' };
 
 function emptyResult(overrides: Partial<WebSqlExecutionResult> = {}): WebSqlExecutionResult {
   return {

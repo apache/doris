@@ -20,7 +20,7 @@ package org.apache.doris.httpv2.ui;
 import org.apache.doris.httpv2.ui.websql.WebSqlError;
 import org.apache.doris.httpv2.ui.websql.WebSqlException;
 
-import jakarta.servlet.http.HttpServletRequest;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.core.Ordered;
@@ -38,39 +38,54 @@ public class UiApiExceptionHandler {
     private static final Logger LOG = LogManager.getLogger(UiApiExceptionHandler.class);
 
     @ExceptionHandler(UiApiException.class)
-    public ResponseEntity<UiErrorResponse> handleUiApiException(
-            UiApiException exception, HttpServletRequest request) {
-        UiErrorResponse error = new UiErrorResponse(
-                exception.getCode(), exception.getMessage(), UiRequestContext.requestId(request),
-                exception.getDetails());
+    public ResponseEntity<ApiError> handleUiApiException(UiApiException exception) {
+        ApiError error = new ApiError(exception.getCode(), exception.getMessage(), null);
         return ResponseEntity.status(exception.getStatus()).body(error);
     }
 
     @ExceptionHandler(WebSqlException.class)
-    public ResponseEntity<UiErrorResponse> handleWebSqlException(
-            WebSqlException exception, HttpServletRequest request) {
+    public ResponseEntity<ApiError> handleWebSqlException(WebSqlException exception) {
         WebSqlError error = exception.getError();
-        UiErrorResponse response = new UiErrorResponse(
-                error.getCode(), error.getMessage(), UiRequestContext.requestId(request), exception.getDetails());
+        ApiError response = new ApiError(error.getCode(), error.getMessage(), exception.getDetails());
         return ResponseEntity.status(error.getStatus()).body(response);
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
-    public ResponseEntity<UiErrorResponse> handleInvalidRequest(
-            Exception exception, HttpServletRequest request) {
-        UiErrorResponse response = new UiErrorResponse(
-                "UI_INVALID_REQUEST", "The request body or parameters are invalid.",
-                UiRequestContext.requestId(request), null);
+    public ResponseEntity<ApiError> handleInvalidRequest(Exception exception) {
+        ApiError response = new ApiError(
+                "UI_INVALID_REQUEST", "The request body or parameters are invalid.", null);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<UiErrorResponse> handleUnexpectedException(
-            Exception exception, HttpServletRequest request) {
-        String requestId = UiRequestContext.requestId(request);
-        LOG.warn("Unexpected UI API exception, request id: {}", requestId, exception);
-        UiErrorResponse error = new UiErrorResponse(
-                "UI_INTERNAL_ERROR", "An internal error occurred.", requestId, null);
+    public ResponseEntity<ApiError> handleUnexpectedException(Exception exception) {
+        LOG.warn("Unexpected UI API exception", exception);
+        ApiError error = new ApiError("UI_INTERNAL_ERROR", "An internal error occurred.", null);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private static class ApiError {
+        private final String code;
+        private final String message;
+        private final Object details;
+
+        ApiError(String code, String message, Object details) {
+            this.code = code;
+            this.message = message;
+            this.details = details;
+        }
+
+        public String getCode() {
+            return code;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+
+        public Object getDetails() {
+            return details;
+        }
     }
 }

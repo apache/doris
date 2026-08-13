@@ -17,60 +17,83 @@
 
 package org.apache.doris.httpv2.ui.websql;
 
-import org.apache.doris.httpv2.util.ExecutionResultSet;
-import org.apache.doris.httpv2.util.StatementSubmitter;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
-import java.util.Arrays;
+import java.sql.Statement;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
 
 public class WebSqlStatementExecutorTest {
     @Test
-    void preservesColumnsAndTruncatesAtByteLimit() throws Exception {
-        StatementSubmitter submitter = Mockito.mock(StatementSubmitter.class);
+    void usesThePersistentConnectionAndTruncatesAtByteLimit() throws Exception {
         Connection connection = Mockito.mock(Connection.class);
-        Mockito.when(connection.getCatalog()).thenReturn("tpcds");
+        Statement statement = Mockito.mock(Statement.class);
+        ResultSet resultSet = Mockito.mock(ResultSet.class);
+        ResultSetMetaData metadata = Mockito.mock(ResultSetMetaData.class);
+        Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
+                .thenReturn(statement);
         Mockito.when(connection.createStatement()).thenThrow(new SQLException("metadata unavailable"));
+        Mockito.when(connection.getCatalog()).thenReturn("tpcds");
+        Mockito.when(statement.execute("SELECT value")).thenReturn(true);
+        Mockito.when(statement.getResultSet()).thenReturn(resultSet);
+        Mockito.when(resultSet.getMetaData()).thenReturn(metadata);
+        Mockito.when(metadata.getColumnCount()).thenReturn(1);
+        Mockito.when(metadata.getColumnName(1)).thenReturn("value");
+        Mockito.when(metadata.getColumnTypeName(1)).thenReturn("VARCHAR");
+        Mockito.when(resultSet.next()).thenReturn(true, true, false);
+        Mockito.when(resultSet.getObject(1)).thenReturn("small", "this row exceeds the byte budget");
         WebSqlSession session = new WebSqlSession("id", "alice", connection, 0);
-        Map<String, Object> raw = new HashMap<>();
-        Map<String, String> field = new HashMap<>();
-        field.put("name", "value");
-        field.put("type", "VARCHAR");
-        raw.put("meta", Collections.singletonList(field));
-        raw.put("data", Arrays.asList(Collections.<Object>singletonList("small"),
-                Collections.<Object>singletonList("this row exceeds the byte budget")));
-        raw.put("time", 12L);
-        raw.put("warnings", Collections.singletonList("warning"));
-        Mockito.when(submitter.execute(Mockito.eq(connection), Mockito.any())).thenReturn(new ExecutionResultSet(raw));
 
-        WebSqlExecutionResult result = new WebSqlStatementExecutor(submitter).execute(
+        WebSqlExecutionResult result = new WebSqlStatementExecutor().execute(
                 session, "SELECT value", limits(20));
 
         Assertions.assertEquals(1, result.getColumns().size());
-        Assertions.assertEquals(1, result.getRows().size());
+        Assertions.assertEquals(Collections.singletonList("small"), result.getRows().get(0));
         Assertions.assertTrue(result.isTruncated());
         Assertions.assertEquals("tpcds", result.getDatabase());
-        Assertions.assertEquals(Collections.singletonList("warning"), result.getWarnings());
+        Assertions.assertFalse(session.cancel());
+        Mockito.verify(connection, Mockito.never()).close();
+    }
+
+    @Test
+    void exposesTheActiveStatementForCancel() throws Exception {
+        Connection connection = Mockito.mock(Connection.class);
+        Statement statement = Mockito.mock(Statement.class);
+        Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
+                .thenReturn(statement);
+        Mockito.when(connection.createStatement()).thenThrow(new SQLException("metadata unavailable"));
+        Mockito.when(statement.execute("USE tpcds")).thenAnswer(invocation -> {
+            Assertions.assertTrue(activeSession.cancel());
+            return false;
+        });
+        Mockito.when(statement.getUpdateCount()).thenReturn(0);
+        activeSession = new WebSqlSession("id", "alice", connection, 0);
+
+        new WebSqlStatementExecutor().execute(activeSession, "USE tpcds", limits(100));
+
+        Assertions.assertFalse(activeSession.cancel());
+        Mockito.verify(statement).cancel();
         Mockito.verify(connection, Mockito.never()).close();
     }
 
     @Test
     void convertsSqlExceptionToSafeStableDetails() throws Exception {
-        StatementSubmitter submitter = Mockito.mock(StatementSubmitter.class);
         Connection connection = Mockito.mock(Connection.class);
+        Statement statement = Mockito.mock(Statement.class);
+        Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
+                .thenReturn(statement);
+        Mockito.when(statement.execute("SELECT * FROM missing"))
+                .thenThrow(new SQLException("table secret_table does not exist", "42S02", 2));
         WebSqlSession session = new WebSqlSession("id", "alice", connection, 0);
-        SQLException sqlException = new SQLException("table secret_table does not exist", "42S02", 2);
-        Mockito.when(submitter.execute(Mockito.eq(connection), Mockito.any())).thenThrow(sqlException);
 
         WebSqlException exception = Assertions.assertThrows(WebSqlException.class,
-                () -> new WebSqlStatementExecutor(submitter).execute(session, "SELECT * FROM missing", limits(100)));
+                () -> new WebSqlStatementExecutor().execute(session, "SELECT * FROM missing", limits(100)));
 
         Assertions.assertEquals(WebSqlError.QUERY_ERROR, exception.getError());
         Assertions.assertFalse(exception.getMessage().contains("secret_table"));
@@ -80,7 +103,9 @@ public class WebSqlStatementExecutorTest {
         Assertions.assertEquals(2, details.get("vendorCode"));
     }
 
+    private WebSqlSession activeSession;
+
     private WebSqlLimits limits(long bytes) {
-        return new WebSqlLimits(true, 1000, 5, 5, 10, bytes, 5, 20, 1, 60);
+        return new WebSqlLimits(true, 1000, 5, 5, 10, bytes, 0, 0, 1, 60);
     }
 }

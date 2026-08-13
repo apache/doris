@@ -31,15 +31,19 @@ function jsonResponse(body: unknown, status = 200, requestId = 'req-test') {
 describe('uiRequest', () => {
   afterEach(() => setCsrfToken(null));
 
-  it('returns a typed success envelope', async () => {
+  it('returns a direct typed response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ user: 'root' }),
+    );
+
+    await expect(uiRequest<{ user: string }>('/rest/v1/ui/me')).resolves.toEqual({ user: 'root' });
+  });
+
+  it('unwraps the previous response during a rolling FE replacement', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       jsonResponse({ data: { user: 'root' }, requestId: 'req-body' }),
     );
-
-    await expect(uiRequest<{ user: string }>('/rest/v1/ui/me')).resolves.toEqual({
-      data: { user: 'root' },
-      requestId: 'req-body',
-    });
+    await expect(uiRequest<{ user: string }>('/rest/v1/ui/me')).resolves.toEqual({ user: 'root' });
   });
 
   it('adds a CSRF header to mutation requests without persisting the token', async () => {

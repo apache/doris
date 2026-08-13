@@ -33,7 +33,7 @@ import java.lang.reflect.Proxy;
 import java.util.HashMap;
 import java.util.Map;
 
-public class UiAuthInterceptorTest {
+class UiAuthInterceptorTest {
     private SessionValue session;
     private HttpServletResponse response;
     private final Map<String, String> responseHeaders = new HashMap<>();
@@ -51,33 +51,19 @@ public class UiAuthInterceptorTest {
     @Test
     void acceptsAValidCookieSessionForReads() {
         HttpServletRequest request = request("GET", null);
-        UiAuthInterceptor interceptor = interceptorReturning(session);
+        AuthInterceptor interceptor = interceptorReturning(session);
 
         Assertions.assertTrue(interceptor.preHandle(request, response, new Object()));
         Assertions.assertSame(session, requestAttributes.get(UiRequestContext.SESSION_ATTRIBUTE));
-        Assertions.assertNotNull(responseHeaders.get(UiRequestContext.REQUEST_ID_HEADER));
-    }
-
-    @Test
-    void allowsLoginWithoutAnExistingCookieSession() {
-        HttpServletRequest request = request("POST", null, "/rest/v1/ui/login");
-        UiAuthInterceptor interceptor = new UiAuthInterceptor() {
-            @Override
-            protected SessionValue authenticate(HttpServletRequest ignoredRequest, HttpServletResponse ignoredResponse) {
-                Assertions.fail("The login endpoint must authenticate its Basic credentials in the controller");
-                return null;
-            }
-        };
-
-        Assertions.assertTrue(interceptor.preHandle(request, response, new Object()));
     }
 
     @Test
     void rejectsAValidSessionAfterAdminPrivilegeIsRevoked() {
         HttpServletRequest request = request("GET", null);
-        UiAuthInterceptor interceptor = new UiAuthInterceptor() {
+        AuthInterceptor interceptor = new AuthInterceptor() {
             @Override
-            protected SessionValue authenticate(HttpServletRequest ignoredRequest, HttpServletResponse ignoredResponse) {
+            public SessionValue checkUiAuthWithCookie(
+                    HttpServletRequest ignoredRequest, HttpServletResponse ignoredResponse) {
                 return session;
             }
 
@@ -96,9 +82,10 @@ public class UiAuthInterceptorTest {
     @Test
     void rejectsAnInvalidOrExpiredCookieSession() {
         HttpServletRequest request = request("GET", null);
-        UiAuthInterceptor interceptor = new UiAuthInterceptor() {
+        AuthInterceptor interceptor = new AuthInterceptor() {
             @Override
-            protected SessionValue authenticate(HttpServletRequest ignoredRequest, HttpServletResponse ignoredResponse) {
+            public SessionValue checkUiAuthWithCookie(
+                    HttpServletRequest ignoredRequest, HttpServletResponse ignoredResponse) {
                 throw new UnauthorizedException("Cookie is invalid");
             }
         };
@@ -111,7 +98,7 @@ public class UiAuthInterceptorTest {
 
     @Test
     void rejectsMissingAndIncorrectCsrfTokensForMutations() {
-        UiAuthInterceptor interceptor = interceptorReturning(session);
+        AuthInterceptor interceptor = interceptorReturning(session);
 
         UiApiException missing = Assertions.assertThrows(
                 UiApiException.class,
@@ -126,7 +113,7 @@ public class UiAuthInterceptorTest {
 
     @Test
     void acceptsTheSessionCsrfTokenForMutations() {
-        UiAuthInterceptor interceptor = interceptorReturning(session);
+        AuthInterceptor interceptor = interceptorReturning(session);
 
         Assertions.assertTrue(interceptor.preHandle(
                 request("PATCH", session.csrfToken), response, new Object()));
@@ -199,10 +186,11 @@ public class UiAuthInterceptorTest {
         return 0D;
     }
 
-    private UiAuthInterceptor interceptorReturning(SessionValue value) {
-        return new UiAuthInterceptor() {
+    private AuthInterceptor interceptorReturning(SessionValue value) {
+        return new AuthInterceptor() {
             @Override
-            protected SessionValue authenticate(HttpServletRequest ignoredRequest, HttpServletResponse ignoredResponse) {
+            public SessionValue checkUiAuthWithCookie(
+                    HttpServletRequest ignoredRequest, HttpServletResponse ignoredResponse) {
                 return value;
             }
 

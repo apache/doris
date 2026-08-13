@@ -23,7 +23,6 @@ import { useLocation } from 'react-router-dom';
 import { UiApiError } from '../api/client';
 import { useBackends, useFrontends, useVersion } from '../api/home';
 import type { UiNodeTable } from '../api/types';
-import { useCurrentUser } from '../app/useCurrentUser';
 import { cellValue, filterNodeRecords, summarizeNodes, toNodeRecords, type NodeRecord } from './nodeTable';
 
 interface NodeTablePanelProps {
@@ -35,13 +34,13 @@ interface NodeTablePanelProps {
   onRefresh: () => void;
 }
 
-function ErrorState({ error }: { error: Error }) {
+function ErrorState({ error, title }: { error: Error; title: string }) {
   const requestId = error instanceof UiApiError ? error.requestId : 'unavailable';
   return (
     <Alert
       type="error"
       showIcon
-      title="Node status could not be loaded."
+      title={title}
       description={<span>{error.message} <strong>Request ID:</strong> {requestId}</span>}
     />
   );
@@ -128,7 +127,7 @@ function NodeTablePanel({ kind, table, loading, error, updatedAt, onRefresh }: N
           {updatedAt > 0 ? `Updated ${new Date(updatedAt).toLocaleTimeString()}` : 'Not refreshed'}
         </span>
       </div>
-      {error && <ErrorState error={error} />}
+      {error && <ErrorState error={error} title="Node status could not be loaded." />}
       {!error && loading && !table && <Skeleton active paragraph={{ rows: 5 }} />}
       {!error && table && table.rows.length === 0 && <Empty description={`No ${kind.toLocaleLowerCase()} nodes returned.`} />}
       {!error && table && table.rows.length > 0 && (
@@ -164,12 +163,10 @@ function NodeTablePanel({ kind, table, loading, error, updatedAt, onRefresh }: N
 }
 
 export function HomePage() {
-  const me = useCurrentUser();
   const location = useLocation();
-  const canViewNodes = me.capabilities.includes('NODE_STATUS_VIEW');
   const version = useVersion();
-  const frontends = useFrontends(canViewNodes);
-  const backends = useBackends(canViewNodes);
+  const frontends = useFrontends(true);
+  const backends = useBackends(true);
   const emptyPassword = Boolean((location.state as { emptyPassword?: boolean } | null)?.emptyPassword);
 
   return (
@@ -189,7 +186,7 @@ export function HomePage() {
       <section className="version-section" aria-labelledby="version-heading">
         <div className="section-heading"><div><p className="ui-label">Build identity</p><h2 id="version-heading">Version</h2></div></div>
         {version.isPending && <Skeleton active paragraph={{ rows: 2 }} />}
-        {version.error && <ErrorState error={version.error} />}
+        {version.error && <ErrorState error={version.error} title="Version information could not be loaded." />}
         {version.data && (
           <Descriptions className="version-grid" bordered column={{ xs: 1, sm: 1, md: 2, lg: 3 }} size="small">
             <Descriptions.Item label="Version">{version.data.version || '—'}</Descriptions.Item>
@@ -202,15 +199,7 @@ export function HomePage() {
       </section>
       <section className="nodes-section" aria-labelledby="nodes-heading">
         <div className="section-heading"><div><p className="ui-label">Live topology</p><h2 id="nodes-heading">Nodes</h2></div></div>
-        {!canViewNodes ? (
-          <Alert
-            type="info"
-            showIcon
-            title="Node status is restricted for this account."
-            description="The NODE_STATUS_VIEW capability is required."
-          />
-        ) : (
-          <Tabs
+        <Tabs
             defaultActiveKey="frontends"
             items={[
               {
@@ -225,7 +214,6 @@ export function HomePage() {
               },
             ]}
           />
-        )}
       </section>
     </main>
   );

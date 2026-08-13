@@ -17,15 +17,15 @@
 
 package org.apache.doris.httpv2.ui.websql;
 
-import org.apache.doris.httpv2.util.ExecutionResultSet;
-import org.apache.doris.httpv2.util.StatementSubmitter;
-
 import com.google.common.collect.Lists;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.SQLTimeoutException;
+import java.sql.SQLWarning;
 import java.sql.Statement;
 import java.util.Collections;
 import java.util.HashMap;
@@ -33,73 +33,94 @@ import java.util.List;
 import java.util.Map;
 
 public class WebSqlStatementExecutor {
-    private final StatementSubmitter statementSubmitter;
-
-    public WebSqlStatementExecutor() {
-        this(new StatementSubmitter());
-    }
-
-    WebSqlStatementExecutor(StatementSubmitter statementSubmitter) {
-        this.statementSubmitter = statementSubmitter;
-    }
-
-    @SuppressWarnings("unchecked")
     public WebSqlExecutionResult execute(WebSqlSession session, String sql, WebSqlLimits limits) {
-        String statement = SingleStatementValidator.requireSingleStatement(sql);
-        StatementSubmitter.StmtContext context = new StatementSubmitter.StmtContext(
-                statement, "", "", limits.maxResultRows, false, null, "")
-                .withQueryTimeoutSeconds(limits.statementTimeoutSeconds)
-                .withMaxResultBytes(limits.maxResultBytes)
-                .withStatementObserver(session::setActiveStatement);
-        try {
-            ExecutionResultSet execution = statementSubmitter.execute(session.getConnection(), context);
-            Map<String, Object> result = execution.getResult();
-            List<WebSqlColumn> columns = Lists.newArrayList();
-            for (Map<String, String> field : (List<Map<String, String>>) result.getOrDefault(
-                    "meta", Collections.emptyList())) {
-                columns.add(new WebSqlColumn(field.get("name"), field.get("type")));
-            }
+        String validatedSql = SingleStatementValidator.requireSingleStatement(sql);
+        Connection connection = session.getConnection();
+        long startTime = System.currentTimeMillis();
+        QueryResult queryResult;
 
-            List<List<Object>> boundedRows = Lists.newArrayList();
-            long bytes = estimateColumnsBytes(columns);
-            boolean truncated = Boolean.TRUE.equals(result.get("truncated"));
-            for (List<Object> row : (List<List<Object>>) result.getOrDefault("data", Collections.emptyList())) {
-                long rowBytes = estimateRowBytes(row);
-                if (bytes + rowBytes > limits.maxResultBytes) {
-                    truncated = true;
-                    break;
+        try (Statement statement = connection.createStatement(
+                ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+            statement.setFetchSize(1000);
+            session.setActiveStatement(statement);
+            boolean hasResultSet = statement.execute(validatedSql);
+            if (hasResultSet) {
+                try (ResultSet resultSet = statement.getResultSet()) {
+                    queryResult = readResultSet(resultSet, limits);
                 }
-                boundedRows.add(row);
-                bytes += rowBytes;
+            } else {
+                queryResult = new QueryResult(Collections.emptyList(), Collections.emptyList(),
+                        Math.max(statement.getUpdateCount(), 0), false);
             }
-
-            SessionMetadata metadata = readSessionMetadata(session.getConnection());
-            long affectedRows = ((Number) result.getOrDefault("affectedRows", 0)).longValue();
-            long elapsedTime = ((Number) result.getOrDefault("time", 0)).longValue();
-            List<String> warnings = (List<String>) result.getOrDefault("warnings", Collections.emptyList());
-            return new WebSqlExecutionResult(columns, boundedRows, affectedRows, elapsedTime,
-                    metadata.queryId, warnings, metadata.catalog, metadata.database, truncated);
+            queryResult.warnings.addAll(readWarnings(statement));
         } catch (SQLTimeoutException exception) {
             throw new WebSqlException(WebSqlError.QUERY_TIMEOUT, sqlDetails(exception), exception);
         } catch (SQLException exception) {
             throw new WebSqlException(WebSqlError.QUERY_ERROR, sqlDetails(exception), exception);
-        } catch (WebSqlException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            Throwable cause = exception.getCause();
-            if (cause instanceof SQLTimeoutException) {
-                SQLTimeoutException timeout = (SQLTimeoutException) cause;
-                throw new WebSqlException(WebSqlError.QUERY_TIMEOUT, sqlDetails(timeout), timeout);
-            }
-            if (cause instanceof SQLException) {
-                SQLException sqlException = (SQLException) cause;
-                throw new WebSqlException(WebSqlError.QUERY_ERROR, sqlDetails(sqlException), sqlException);
-            }
-            throw new WebSqlException(WebSqlError.QUERY_ERROR, exception);
+        } finally {
+            session.setActiveStatement(null);
         }
+
+        SessionMetadata metadata = readSessionMetadata(connection);
+        return new WebSqlExecutionResult(queryResult.columns, queryResult.rows, queryResult.affectedRows,
+                System.currentTimeMillis() - startTime, metadata.queryId, queryResult.warnings,
+                metadata.catalog, metadata.database, queryResult.truncated);
     }
 
-    private SessionMetadata readSessionMetadata(java.sql.Connection connection) {
+    private QueryResult readResultSet(ResultSet resultSet, WebSqlLimits limits) throws SQLException {
+        ResultSetMetaData metadata = resultSet.getMetaData();
+        int columnCount = metadata.getColumnCount();
+        List<WebSqlColumn> columns = Lists.newArrayListWithCapacity(columnCount);
+        for (int column = 1; column <= columnCount; column++) {
+            columns.add(new WebSqlColumn(metadata.getColumnName(column), metadata.getColumnTypeName(column)));
+        }
+
+        List<List<Object>> rows = Lists.newArrayList();
+        long resultBytes = 0;
+        boolean truncated = false;
+        while (resultSet.next()) {
+            if (rows.size() >= limits.maxResultRows) {
+                truncated = true;
+                break;
+            }
+            List<Object> row = Lists.newArrayListWithCapacity(columnCount);
+            long rowBytes = 0;
+            for (int column = 1; column <= columnCount; column++) {
+                String type = metadata.getColumnTypeName(column);
+                Object value = isDateType(type) ? resultSet.getString(column) : resultSet.getObject(column);
+                row.add(value);
+                rowBytes += valueSize(value);
+            }
+            if (resultBytes + rowBytes > limits.maxResultBytes) {
+                truncated = true;
+                break;
+            }
+            rows.add(row);
+            resultBytes += rowBytes;
+        }
+        return new QueryResult(columns, rows, 0, truncated);
+    }
+
+    private boolean isDateType(String type) {
+        return "DATE".equalsIgnoreCase(type) || "DATETIME".equalsIgnoreCase(type)
+                || "DATEV2".equalsIgnoreCase(type) || "DATETIMEV2".equalsIgnoreCase(type);
+    }
+
+    private long valueSize(Object value) {
+        return value == null ? 4 : String.valueOf(value).getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    private List<String> readWarnings(Statement statement) throws SQLException {
+        List<String> warnings = Lists.newArrayList();
+        SQLWarning warning = statement.getWarnings();
+        while (warning != null) {
+            warnings.add(warning.getMessage());
+            warning = warning.getNextWarning();
+        }
+        return warnings;
+    }
+
+    private SessionMetadata readSessionMetadata(Connection connection) {
         try (Statement statement = connection.createStatement();
                 ResultSet resultSet = statement.executeQuery(
                         "SELECT CURRENT_CATALOG(), DATABASE(), LAST_QUERY_ID()")) {
@@ -123,24 +144,19 @@ public class WebSqlStatementExecutor {
         return details;
     }
 
-    private long estimateColumnsBytes(List<WebSqlColumn> columns) {
-        long bytes = 0;
-        for (WebSqlColumn column : columns) {
-            bytes += utf8Length(column.getName()) + utf8Length(column.getType());
-        }
-        return bytes;
-    }
+    private static class QueryResult {
+        private final List<WebSqlColumn> columns;
+        private final List<List<Object>> rows;
+        private final long affectedRows;
+        private final boolean truncated;
+        private final List<String> warnings = Lists.newArrayList();
 
-    private long estimateRowBytes(List<Object> row) {
-        long bytes = 0;
-        for (Object value : row) {
-            bytes += utf8Length(value == null ? null : String.valueOf(value));
+        QueryResult(List<WebSqlColumn> columns, List<List<Object>> rows, long affectedRows, boolean truncated) {
+            this.columns = columns;
+            this.rows = rows;
+            this.affectedRows = affectedRows;
+            this.truncated = truncated;
         }
-        return bytes;
-    }
-
-    private int utf8Length(String value) {
-        return value == null ? 4 : value.getBytes(StandardCharsets.UTF_8).length;
     }
 
     private static class SessionMetadata {
