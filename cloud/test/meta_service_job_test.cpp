@@ -1445,6 +1445,22 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         insert_rowset(meta_service.get(), 1, "commit_rowset_3", table_id, partition_id, tablet_id);
     }
 
+    constexpr int64_t last_active_time_ms = 123456789;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        auto stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string stats_val;
+        ASSERT_EQ(txn->get(stats_key, &stats_val), TxnErrorCode::TXN_OK);
+        TabletStatsPB stats;
+        ASSERT_TRUE(stats.ParseFromString(stats_val));
+        stats.set_last_active_cluster_id("cluster_a");
+        stats.set_last_active_time_ms(last_active_time_ms);
+        txn->put(stats_key, stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
     auto get_tablet_stats = [&](int64_t tid) -> TabletStatsPB {
         GetTabletStatsRequest get_tablet_stats_req;
         get_tablet_stats_req.set_cloud_unique_id(cloud_unique_id);
@@ -1576,6 +1592,8 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
                           req.job().schema_change().segment_size_output_rowsets());
         EXPECT_EQ(new_stats.cumulative_point(),
                   req.job().schema_change().output_cumulative_point());
+        EXPECT_EQ(new_stats.last_active_cluster_id(), "cluster_a");
+        EXPECT_EQ(new_stats.last_active_time_ms(), last_active_time_ms);
     }
 
     {
@@ -3626,6 +3644,22 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_ALREADY_SUCCESS);
     }
 
+    constexpr int64_t last_active_time_ms = 123456789;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        auto stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string stats_val;
+        ASSERT_EQ(txn->get(stats_key, &stats_val), TxnErrorCode::TXN_OK);
+        TabletStatsPB stats;
+        ASSERT_TRUE(stats.ParseFromString(stats_val));
+        stats.set_last_active_cluster_id("cluster_a");
+        stats.set_last_active_time_ms(last_active_time_ms);
+        txn->put(stats_key, stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
     // commit schema_change job with txn_ids
     {
         int64_t new_tablet_id = 24;
@@ -3665,6 +3699,8 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
         EXPECT_EQ(tablet_stats.data_size(), 50000);
         EXPECT_EQ(tablet_stats.index_size(), 25000);
         EXPECT_EQ(tablet_stats.segment_size(), 25000);
+        EXPECT_EQ(tablet_stats.last_active_cluster_id(), "cluster_a");
+        EXPECT_EQ(tablet_stats.last_active_time_ms(), last_active_time_ms);
 
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
