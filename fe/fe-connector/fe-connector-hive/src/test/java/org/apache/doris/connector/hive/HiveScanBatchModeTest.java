@@ -177,6 +177,27 @@ public class HiveScanBatchModeTest {
         Assertions.assertEquals(1, lister.totalCalls);
     }
 
+    @Test
+    public void statementReusePlansAnIdenticalScanOnce() {
+        CountingLister lister = new CountingLister();
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .build();
+        ConnectorSession session = new ScopeSession(7L, "same-statement", new TestStatementScope());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle, Collections.<ConnectorColumnHandle>emptyList()).build();
+
+        List<ConnectorScanRange> first = provider.planScan(session, request);
+        List<ConnectorScanRange> second = provider.planScan(session, request);
+
+        Assertions.assertSame(first, second, "an identical scan must reuse the statement's planned range list");
+        Assertions.assertEquals(1, lister.totalCalls, "the underlying Hive file listing must run once");
+    }
+
     // ===== object-store native read (FIX-hive-s3a: scheme normalization + canonical creds) =====
 
     @Test
