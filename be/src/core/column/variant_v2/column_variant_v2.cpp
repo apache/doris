@@ -527,6 +527,41 @@ public:
                                               .normalized = nullptr};
         }
 
+        const bool all_direct_values =
+                all_direct && std::ranges::all_of(matches, [](const auto& match) {
+                    const bool typed = match.column && match.type && !match.normalized;
+                    const bool normalized = match.normalized && !match.column && !match.type;
+                    return typed || normalized;
+                });
+        if (all_direct_values) {
+            auto values = ColumnVariantV2::create();
+            auto nulls = ColumnUInt8::create();
+            nulls->reserve(size());
+            for (size_t index = 0; index < matches.size(); ++index) {
+                const auto& match = matches[index];
+                std::optional<ColumnPtr> normalized_typed;
+                if (!match.normalized) {
+                    // Typed Parquet leaves need their segment's schema-aware normalization to
+                    // preserve physical distinctions such as INT32 versus INT64. Normalize only
+                    // those segments; a normalized unshredded match already contains exact bytes.
+                    normalized_typed = _segments[index]->find_normalized_value(path);
+                    if (!normalized_typed.has_value()) {
+                        return std::nullopt;
+                    }
+                }
+                const ColumnPtr& matched = match.normalized ? match.normalized : *normalized_typed;
+                const auto& nullable = assert_cast<const ColumnNullable&>(*matched);
+                nulls->insert_range_from(nullable.get_null_map_column(), 0, nullable.size());
+                const auto& variants =
+                        assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+                values->insert_range_from(variants, 0, variants.size());
+            }
+            return VariantShreddedTypedValue {
+                    .column = nullptr,
+                    .type = nullptr,
+                    .normalized = ColumnNullable::create(std::move(values), std::move(nulls))};
+        }
+
         auto normalized = find_normalized_value(path);
         if (!normalized.has_value()) {
             return std::nullopt;
@@ -985,8 +1020,16 @@ size_t ColumnVariantV2::EncodedRowsAppender::metadata_comparisons_for_test() con
 }
 #endif
 
-void ColumnVariantV2::EncodedRowsAppender::append( // NOLINT(readability-function-size)
-        std::span<const VariantRef> rows) {
+void ColumnVariantV2::EncodedRowsAppender::append(std::span<const VariantRef> rows) {
+    _append(rows, true);
+}
+
+void ColumnVariantV2::EncodedRowsAppender::append_prevalidated(std::span<const VariantRef> rows) {
+    _append(rows, false);
+}
+
+void ColumnVariantV2::EncodedRowsAppender::_append( // NOLINT(readability-function-size)
+        std::span<const VariantRef> rows, bool validate) {
     if (rows.empty()) {
         return;
     }
@@ -1020,13 +1063,19 @@ void ColumnVariantV2::EncodedRowsAppender::append( // NOLINT(readability-functio
                 value.metadata.data == nullptr ? "" : value.metadata.data, value.metadata.size);
         uint32_t source_metadata_id = 0;
         if (unique_metadatas.empty()) {
-            validate_variant_metadata(value.metadata);
+            if (validate) {
+                validate_variant_metadata(value.metadata);
+            }
             unique_metadatas.push_back(value.metadata);
         } else if (unique_metadatas.size() == 1 && metadata_ids_by_value.empty() &&
-                   StringRef(unique_metadatas.front().data, unique_metadatas.front().size) ==
-                           StringRef(value.metadata.data, value.metadata.size)) {
+                   unique_metadatas.front().size == value.metadata.size &&
+                   (unique_metadatas.front().data == value.metadata.data ||
+                    StringRef(unique_metadatas.front().data, unique_metadatas.front().size) ==
+                            StringRef(value.metadata.data, value.metadata.size))) {
             // Iceberg files normally share one metadata dictionary across a batch. Avoid a hash
-            // table and per-row ids until a second distinct dictionary is actually observed.
+            // table and per-row ids until a second distinct dictionary is actually observed. A
+            // prevalidated reader batch also interns equal metadata views, making this pointer
+            // check O(1) for every row after the first.
         } else {
             if (metadata_ids_by_value.empty()) {
                 const VariantMetadataRef first = unique_metadatas.front();
@@ -1043,7 +1092,9 @@ void ColumnVariantV2::EncodedRowsAppender::append( // NOLINT(readability-functio
                             ErrorCode::INVALID_ARGUMENT,
                             "Variant encoded metadata dictionary exceeds the uint32 id limit");
                 }
-                validate_variant_metadata(value.metadata);
+                if (validate) {
+                    validate_variant_metadata(value.metadata);
+                }
                 source_metadata_id = static_cast<uint32_t>(unique_metadatas.size());
                 unique_metadatas.push_back(value.metadata);
                 metadata_ids_by_value.emplace(metadata_key, source_metadata_id);
@@ -1052,7 +1103,9 @@ void ColumnVariantV2::EncodedRowsAppender::append( // NOLINT(readability-functio
         if (!source_metadata_ids.empty()) {
             source_metadata_ids[row] = source_metadata_id;
         }
-        validate_variant_payload(value);
+        if (validate) {
+            validate_variant_payload(value);
+        }
         source_values[row] = value.value;
         if (value.value.size > std::numeric_limits<size_t>::max() - total_value_bytes) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,

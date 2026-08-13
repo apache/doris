@@ -26,6 +26,7 @@
 #include <mutex>
 #include <optional>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -43,6 +44,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/value/variant/variant_batch_builder.h"
+#include "core/value/variant/variant_field.h"
 #include "core/value/variant/variant_metadata.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 
@@ -514,6 +516,200 @@ void import_unshredded_variant_range(const ParquetColumnSchema& schema, const Co
     appender.append(std::span<const VariantRef>(encoded_rows));
 }
 
+struct DirectResidualSeekResult {
+    ColumnPtr column;
+    int64_t selected_value_bytes = 0;
+};
+
+struct UnshreddedMetadataCache {
+    static constexpr uint32_t NO_METADATA = std::numeric_limits<uint32_t>::max();
+
+    DorisVector<VariantMetadataRef> metadatas;
+    DorisVector<uint32_t> row_metadata_ids;
+
+    size_t allocated_bytes() const {
+        return metadatas.capacity() * sizeof(VariantMetadataRef) +
+               row_metadata_ids.capacity() * sizeof(uint32_t);
+    }
+};
+
+std::shared_ptr<const UnshreddedMetadataCache> build_unshredded_metadata_cache(
+        const ParquetColumnSchema& schema, const IColumn& physical, size_t metadata_index) {
+    const auto* outer_nullable = check_and_get_column<ColumnNullable>(physical);
+    const IColumn& wrapper =
+            outer_nullable == nullptr ? physical : outer_nullable->get_nested_column();
+    const auto& structure = assert_cast<const ColumnStruct&>(wrapper);
+    if (structure.tuple_size() != schema.children.size()) {
+        throw Exception(ErrorCode::CORRUPTION, "Parquet Variant {} physical field count mismatch",
+                        schema.name);
+    }
+
+    using MetadataIndex =
+            std::unordered_map<std::string_view, uint32_t, std::hash<std::string_view>,
+                               std::equal_to<std::string_view>,
+                               CustomStdAllocator<std::pair<const std::string_view, uint32_t>>>;
+    auto cache = std::make_shared<UnshreddedMetadataCache>();
+    cache->row_metadata_ids.resize(physical.size(), UnshreddedMetadataCache::NO_METADATA);
+    MetadataIndex metadata_index_by_value;
+    std::optional<uint32_t> previous_metadata_id;
+
+    auto same_metadata = [&](uint32_t id, StringRef bytes) {
+        const VariantMetadataRef cached = cache->metadatas[id];
+        return StringRef(cached.data, cached.size) == bytes;
+    };
+    for (size_t row = 0; row < physical.size(); ++row) {
+        if (outer_nullable != nullptr && outer_nullable->get_null_map_data()[row] != 0) {
+            continue;
+        }
+        const Cell metadata_cell = cell_at(structure.get_column(metadata_index), row);
+        if (metadata_cell.is_null) {
+            throw Exception(ErrorCode::CORRUPTION, "Parquet Variant {} has null metadata at row {}",
+                            schema.name, row);
+        }
+        const StringRef metadata_bytes = metadata_cell.column->get_data_at(row);
+        if (previous_metadata_id.has_value() &&
+            same_metadata(*previous_metadata_id, metadata_bytes)) {
+            cache->row_metadata_ids[row] = *previous_metadata_id;
+            continue;
+        }
+
+        const std::string_view key(metadata_bytes.data == nullptr ? "" : metadata_bytes.data,
+                                   metadata_bytes.size);
+        if (!metadata_index_by_value.empty()) {
+            if (const auto found = metadata_index_by_value.find(key);
+                found != metadata_index_by_value.end()) {
+                cache->row_metadata_ids[row] = found->second;
+                previous_metadata_id = found->second;
+                continue;
+            }
+        }
+
+        VariantMetadataRef metadata {.data = metadata_bytes.data, .size = metadata_bytes.size};
+        validate_variant_metadata(metadata);
+        if (cache->metadatas.size() == std::numeric_limits<uint32_t>::max()) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Parquet Variant metadata dictionary exceeds the uint32 id limit");
+        }
+        if (cache->metadatas.size() == 1 && metadata_index_by_value.empty()) {
+            const VariantMetadataRef first = cache->metadatas.front();
+            metadata_index_by_value.emplace(
+                    std::string_view(first.data == nullptr ? "" : first.data, first.size), 0);
+        }
+        const auto id = static_cast<uint32_t>(cache->metadatas.size());
+        cache->metadatas.push_back(metadata);
+        if (!metadata_index_by_value.empty()) {
+            metadata_index_by_value.emplace(key, id);
+        }
+        cache->row_metadata_ids[row] = id;
+        previous_metadata_id = id;
+    }
+    return cache;
+}
+
+DirectResidualSeekResult seek_unshredded_variant_path(
+        const ParquetColumnSchema& schema, const IColumn& physical, size_t value_index,
+        const UnshreddedMetadataCache& metadata_cache,
+        std::span<const VariantShreddedPathSegment> path) {
+    const auto* outer_nullable = check_and_get_column<ColumnNullable>(physical);
+    const IColumn& wrapper =
+            outer_nullable == nullptr ? physical : outer_nullable->get_nested_column();
+    const auto& structure = assert_cast<const ColumnStruct&>(wrapper);
+    if (structure.tuple_size() != schema.children.size()) {
+        throw Exception(ErrorCode::CORRUPTION, "Parquet Variant {} physical field count mismatch",
+                        schema.name);
+    }
+
+    DORIS_CHECK_EQ(metadata_cache.row_metadata_ids.size(), physical.size());
+    if (!metadata_cache.metadatas.empty() &&
+        path.size() > std::numeric_limits<size_t>::max() / metadata_cache.metadatas.size()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Parquet Variant direct-seek path cache size overflows size_t");
+    }
+    DorisVector<int64_t> object_ids(metadata_cache.metadatas.size() * path.size(), -1);
+    for (size_t metadata_id = 0; metadata_id < metadata_cache.metadatas.size(); ++metadata_id) {
+        for (size_t position = 0; position < path.size(); ++position) {
+            if (path[position].kind == VariantShreddedPathSegment::Kind::OBJECT_KEY) {
+                object_ids[metadata_id * path.size() + position] =
+                        metadata_cache.metadatas[metadata_id].find_key(path[position].key);
+            }
+        }
+    }
+    DorisVector<VariantRef> selected_rows;
+    selected_rows.reserve(physical.size());
+    auto nulls = ColumnUInt8::create();
+    nulls->reserve(physical.size());
+    std::vector<uint32_t> object_offset_scratch;
+    int64_t selected_value_bytes = 0;
+
+    auto add_selected_bytes = [&](size_t bytes) {
+        DORIS_CHECK_LE(bytes, static_cast<size_t>(std::numeric_limits<int64_t>::max() -
+                                                  selected_value_bytes));
+        selected_value_bytes += static_cast<int64_t>(bytes);
+    };
+    auto append_missing = [&](VariantMetadataRef metadata) {
+        selected_rows.push_back({.metadata = metadata,
+                                 .value = {VARIANT_NULL_VALUE.data(), VARIANT_NULL_VALUE.size()}});
+        nulls->insert_value(1);
+        add_selected_bytes(VARIANT_NULL_VALUE.size());
+    };
+    for (size_t row = 0; row < physical.size(); ++row) {
+        if (outer_nullable != nullptr && outer_nullable->get_null_map_data()[row] != 0) {
+            append_missing(
+                    {.data = VARIANT_EMPTY_METADATA.data(), .size = VARIANT_EMPTY_METADATA.size()});
+            continue;
+        }
+
+        const uint32_t metadata_id = metadata_cache.row_metadata_ids[row];
+        DORIS_CHECK_NE(metadata_id, UnshreddedMetadataCache::NO_METADATA);
+        DORIS_CHECK_LT(metadata_id, metadata_cache.metadatas.size());
+        const VariantMetadataRef metadata = metadata_cache.metadatas[metadata_id];
+        const Cell value_cell = cell_at(structure.get_column(value_index), row);
+        if (value_cell.is_null) {
+            append_missing(metadata);
+            continue;
+        }
+
+        VariantRef current {.metadata = metadata, .value = value_cell.column->get_data_at(row)};
+        bool found = true;
+        for (size_t position = 0; position < path.size(); ++position) {
+            VariantRef selected;
+            if (path[position].kind == VariantShreddedPathSegment::Kind::OBJECT_KEY) {
+                const int64_t field_id = object_ids[metadata_id * path.size() + position];
+                if (current.basic_type() != VariantBasicType::OBJECT ||
+                    !current.object_find_by_id_untrusted(field_id, &selected,
+                                                         object_offset_scratch)) {
+                    found = false;
+                    break;
+                }
+            } else {
+                if (current.basic_type() != VariantBasicType::ARRAY ||
+                    !current.array_find_untrusted(path[position].index, &selected)) {
+                    found = false;
+                    break;
+                }
+            }
+            current = selected;
+        }
+        if (!found) {
+            append_missing(metadata);
+            continue;
+        }
+
+        // Traversed containers perform bounded reads. Validate the selected subtree exactly, but
+        // intentionally do not visit unrelated siblings in the unshredded root.
+        validate_variant_payload(current);
+        selected_rows.push_back(current);
+        nulls->insert_value(0);
+        add_selected_bytes(current.value.size);
+    }
+
+    auto values = ColumnVariantV2::create();
+    auto appender = values->create_encoded_rows_appender();
+    appender.append_prevalidated(std::span<const VariantRef>(selected_rows));
+    return {.column = ColumnNullable::create(std::move(values), std::move(nulls)),
+            .selected_value_bytes = selected_value_bytes};
+}
+
 ColumnVariantV2::MutablePtr encode_variant_column(
         const ParquetColumnSchema& schema, const IColumn& physical, bool require_metadata = true,
         const ParquetColumnReaderProfile* profile = nullptr) {
@@ -805,7 +1001,8 @@ public:
         std::lock_guard lock(_materialization_lock);
         return _physical->allocated_bytes() +
                (_materialized ? _materialized->allocated_bytes() : 0) +
-               (_serialized ? _serialized->allocated_bytes() : 0);
+               (_serialized ? _serialized->allocated_bytes() : 0) +
+               (_unshredded_metadata_cache ? _unshredded_metadata_cache->allocated_bytes() : 0);
     }
     void sanity_check() const override { _physical->sanity_check(); }
 
@@ -851,17 +1048,31 @@ public:
         std::lock_guard lock(_materialization_lock);
         _materialized.reset();
         _serialized.reset();
+        _unshredded_metadata_cache.reset();
         return true;
     }
 
     std::optional<VariantShreddedTypedValue> find_typed_value(
             std::span<const VariantShreddedPathSegment> path) const override {
+        auto residual_seek_fallback = [&]() -> std::optional<VariantShreddedTypedValue> {
+            // Complete mixed shredded states still need canonical reconstruction when neither a
+            // typed leaf nor the pure unshredded direct-seek path can answer the request.
+            if (_complete && !unshredded_child_indices(*_schema).has_value() &&
+                find_child(*_schema, "value", nullptr) != nullptr) {
+                update_counter(_profile.variant_direct_residual_seek_fallbacks, 1);
+            }
+            return std::nullopt;
+        };
         auto path_miss = [&]() -> std::optional<VariantShreddedTypedValue> {
             update_counter(_profile.variant_direct_leaf_path_misses, 1);
-            return std::nullopt;
+            return residual_seek_fallback();
         };
         if (path.empty()) {
             return path_miss();
+        }
+        if (auto normalized = find_unshredded_normalized_value(path); normalized.has_value()) {
+            return VariantShreddedTypedValue {
+                    .column = nullptr, .type = nullptr, .normalized = std::move(*normalized)};
         }
 
         const ParquetColumnSchema* typed_schema = nullptr;
@@ -887,7 +1098,7 @@ public:
                 // A residual value can contribute data to the same logical object. Reconstructing
                 // is required in that case; returning only the typed leaf would drop information.
                 update_counter(_profile.variant_direct_leaf_residual_fallbacks, 1);
-                return std::nullopt;
+                return residual_seek_fallback();
             }
 
             typed = struct_child(*wrapper_schema, wrapper, "typed_value", &typed_schema);
@@ -906,12 +1117,12 @@ public:
                                     .column = nullptr, .type = nullptr, .normalized = *normalized};
                         }
                     }
-                    return std::nullopt;
+                    return residual_seek_fallback();
                 }
                 if (!supports_direct_typed_variant_state(*typed_schema)) {
                     if (_complete) {
                         update_counter(_profile.variant_direct_leaf_unsupported_fallbacks, 1);
-                        return std::nullopt;
+                        return residual_seek_fallback();
                     }
                     // A partial projection cannot reconstruct its root. Normalize only the exact
                     // requested leaf so Parquet annotations survive heterogeneous file schemas.
@@ -932,13 +1143,16 @@ public:
                 return path_miss();
             }
         }
-        return std::nullopt;
+        return residual_seek_fallback();
     }
 
     std::optional<ColumnPtr> find_normalized_value(
             std::span<const VariantShreddedPathSegment> path) const override {
         if (path.empty()) {
             return std::nullopt;
+        }
+        if (auto normalized = find_unshredded_normalized_value(path); normalized.has_value()) {
+            return normalized;
         }
 
         const ParquetColumnSchema* typed_schema = nullptr;
@@ -1018,6 +1232,41 @@ public:
     }
 
 private:
+    std::optional<ColumnPtr> find_unshredded_normalized_value(
+            std::span<const VariantShreddedPathSegment> path) const {
+        if (!_complete) {
+            return std::nullopt;
+        }
+        const auto indices = unshredded_child_indices(*_schema);
+        if (!indices.has_value()) {
+            return std::nullopt;
+        }
+
+        DirectResidualSeekResult result;
+        {
+            // Publish elapsed time even when an accessed node is corrupt. Row/byte counters only
+            // describe complete direct-seek results.
+            SCOPED_TIMER(_profile.variant_direct_residual_seek_time.get());
+            const auto metadata_cache = unshredded_metadata_cache(indices->first);
+            result = seek_unshredded_variant_path(*_schema, *_physical, indices->second,
+                                                  *metadata_cache, path);
+        }
+        update_counter(_profile.variant_direct_residual_seek_rows,
+                       static_cast<int64_t>(_physical->size()));
+        update_counter(_profile.variant_direct_residual_seek_bytes, result.selected_value_bytes);
+        return std::move(result.column);
+    }
+
+    std::shared_ptr<const UnshreddedMetadataCache> unshredded_metadata_cache(
+            size_t metadata_index) const {
+        std::lock_guard lock(_materialization_lock);
+        if (!_unshredded_metadata_cache) {
+            _unshredded_metadata_cache =
+                    build_unshredded_metadata_cache(*_schema, *_physical, metadata_index);
+        }
+        return _unshredded_metadata_cache;
+    }
+
     static void update_counter(const std::shared_ptr<RuntimeProfile::Counter>& counter,
                                int64_t value) {
         if (counter != nullptr) {
@@ -1032,6 +1281,7 @@ private:
     mutable std::mutex _materialization_lock;
     mutable ColumnVariantV2::MutablePtr _materialized;
     mutable ColumnVariantV2::MutablePtr _serialized;
+    mutable std::shared_ptr<const UnshreddedMetadataCache> _unshredded_metadata_cache;
 };
 
 MutableColumnPtr build_variant_column(std::shared_ptr<const ParquetColumnSchema> schema,

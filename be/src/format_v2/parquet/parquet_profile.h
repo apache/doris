@@ -47,6 +47,13 @@ struct ParquetColumnReaderProfile {
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_time;
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_bytes;
+    // Path extraction directly from complete unshredded metadata/value columns. Bytes count the
+    // selected encoded value slices copied to the result; metadata is deduplicated separately.
+    // Fallbacks count complete mixed residual states that still require canonical reconstruction.
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_time;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_bytes;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_fallbacks;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;
@@ -190,6 +197,10 @@ struct ParquetProfile {
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_time;
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_bytes;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_time;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_bytes;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_fallbacks;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;

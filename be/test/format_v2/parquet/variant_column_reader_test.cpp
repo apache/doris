@@ -24,6 +24,7 @@
 #include <functional>
 #include <initializer_list>
 #include <limits>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -511,6 +512,32 @@ MutableColumnPtr root_wrapper(MutableColumns fields, NullMap root_nulls) {
     return ColumnNullable::create(ColumnStruct::create(std::move(fields)), std::move(null_map));
 }
 
+MutableColumnPtr unshredded_physical(const std::vector<VariantRef>& rows, NullMap value_nulls = {},
+                                     NullMap root_nulls = {}) {
+    if (value_nulls.empty()) {
+        value_nulls = NullMap(rows.size(), 0);
+    }
+    if (root_nulls.empty()) {
+        root_nulls = NullMap(rows.size(), 0);
+    }
+    DORIS_CHECK_EQ(value_nulls.size(), rows.size());
+    DORIS_CHECK_EQ(root_nulls.size(), rows.size());
+
+    std::vector<StringRef> metadatas;
+    std::vector<StringRef> values;
+    metadatas.reserve(rows.size());
+    values.reserve(rows.size());
+    for (const VariantRef row : rows) {
+        metadatas.emplace_back(row.metadata.data, row.metadata.size);
+        values.push_back(row.value);
+    }
+    MutableColumns fields;
+    fields.push_back(nullable_strings(metadatas, std::vector<uint8_t>(rows.size(), 0)));
+    fields.push_back(
+            nullable_strings(values, std::vector<uint8_t>(value_nulls.begin(), value_nulls.end())));
+    return root_wrapper(std::move(fields), std::move(root_nulls));
+}
+
 MutableColumnPtr nullable_int64(const std::vector<int64_t>& values,
                                 const std::vector<uint8_t>& nulls) {
     auto data = ColumnInt64::create();
@@ -769,6 +796,329 @@ TEST(VariantColumnReaderTest, UnshreddedDirectImportProfilesCompletedChunksBefor
     EXPECT_EQ(direct_import_rows->value(), VALID_ROWS);
     EXPECT_EQ(direct_import_bytes->value(),
               static_cast<int64_t>(VALID_ROWS * (metadata.size + encoded_value.size)));
+}
+
+TEST(VariantColumnReaderTest, DirectlySeeksUnshreddedObjectAndArrayPaths) {
+    VariantBatchBuilder builder;
+    {
+        auto row = builder.begin_row();
+        auto object = row.start_object();
+        object.add_key(StringRef("a"));
+        row.add_int(7);
+        object.add_key(StringRef("arr"));
+        auto array = row.start_array();
+        row.add_int(1);
+        row.add_int(2);
+        array.finish();
+        object.add_key(StringRef("0"));
+        row.add_string(StringRef("zero"));
+        object.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        auto object = row.start_object();
+        object.add_key(StringRef("a"));
+        row.add_string(StringRef("seven"));
+        object.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        auto object = row.start_object();
+        object.add_key(StringRef("other"));
+        row.add_int(3);
+        object.finish();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        row.add_null();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        row.add_null();
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        auto object = row.start_object();
+        object.add_key(StringRef("a"));
+        row.add_null();
+        object.finish();
+        row.finish();
+    }
+    VariantBatchBuilder batch = builder.finish_batch();
+    std::vector<VariantRef> rows;
+    for (size_t row = 0; row < batch.num_rows(); ++row) {
+        rows.push_back(batch.value_at(row));
+    }
+
+    RuntimeProfile runtime_profile("unshredded-direct-residual-seek");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(),
+                                         unshredded_physical(rows, NullMap {0, 0, 0, 1, 0, 0},
+                                                             NullMap {0, 0, 0, 0, 1, 0}),
+                                         output, parquet_profile.column_reader_profile())
+                        .ok());
+    const auto& source_nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(source_nullable.get_nested_column());
+    ASSERT_TRUE(source.is_shredded());
+
+    auto extract = [&](std::span<const VariantElementV2PathSegment> segments) {
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        EXPECT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        ColumnPtr result;
+        EXPECT_TRUE(extract_variant_element_v2(source, *path, source_nullable.get_null_map_data(),
+                                               &result)
+                            .ok());
+        return result;
+    };
+
+    const std::array a_path {VariantElementV2PathSegment::object_key(StringRef("a"))};
+    const ColumnPtr a_result = extract(a_path);
+    const auto& a_nullable = assert_cast<const ColumnNullable&>(*a_result);
+    EXPECT_EQ(a_nullable.get_null_map_data(), (NullMap {0, 0, 1, 1, 1, 0}));
+    const auto& a_values = assert_cast<const ColumnVariantV2&>(a_nullable.get_nested_column());
+    EXPECT_EQ(a_values.get_value_ref(0).get_int(), 7);
+    EXPECT_EQ(a_values.get_value_ref(1).get_string(), StringRef("seven"));
+    EXPECT_TRUE(a_values.get_value_ref(5).is_null());
+
+    const std::array array_path {VariantElementV2PathSegment::object_key(StringRef("arr")),
+                                 VariantElementV2PathSegment::array_index(-1)};
+    const ColumnPtr array_result = extract(array_path);
+    const auto& array_nullable = assert_cast<const ColumnNullable&>(*array_result);
+    EXPECT_EQ(array_nullable.get_null_map_data(), (NullMap {0, 1, 1, 1, 1, 1}));
+    EXPECT_EQ(assert_cast<const ColumnVariantV2&>(array_nullable.get_nested_column())
+                      .get_value_ref(0)
+                      .get_int(),
+              2);
+
+    const std::array numeric_key_path {VariantElementV2PathSegment::object_key(StringRef("0"))};
+    const ColumnPtr numeric_key_result = extract(numeric_key_path);
+    const auto& numeric_key_nullable = assert_cast<const ColumnNullable&>(*numeric_key_result);
+    EXPECT_EQ(numeric_key_nullable.get_null_map_data(), (NullMap {0, 1, 1, 1, 1, 1}));
+    EXPECT_EQ(assert_cast<const ColumnVariantV2&>(numeric_key_nullable.get_nested_column())
+                      .get_value_ref(0)
+                      .get_string(),
+              StringRef("zero"));
+
+    const std::array missing_path {VariantElementV2PathSegment::object_key(StringRef("missing"))};
+    const ColumnPtr missing_result = extract(missing_path);
+    const auto& missing_nullable = assert_cast<const ColumnNullable&>(*missing_result);
+    EXPECT_EQ(missing_nullable.get_null_map_data(), (NullMap {1, 1, 1, 1, 1, 1}));
+
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 24);
+    EXPECT_GT(runtime_profile.get_counter("VariantDirectResidualSeekBytes")->value(), 0);
+    EXPECT_GT(runtime_profile.get_counter("VariantDirectResidualSeekTime")->value(), 0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekFallbacks")->value(), 0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 0);
+}
+
+TEST(VariantColumnReaderTest, DirectSeekHandlesDistinctMetadataAcrossAppendedBatches) {
+    auto build = [](std::string_view extra_key, int64_t value) {
+        VariantBatchBuilder builder;
+        auto row = builder.begin_row();
+        auto object = row.start_object();
+        object.add_key(StringRef("a"));
+        row.add_int(value);
+        if (!extra_key.empty()) {
+            object.add_key(StringRef(extra_key.data(), extra_key.size()));
+            row.add_int(0);
+        }
+        object.finish();
+        row.finish();
+        return builder.finish_batch();
+    };
+    VariantBatchBuilder first = build("", 1);
+    VariantBatchBuilder second = build("z", 2);
+
+    RuntimeProfile runtime_profile("unshredded-direct-residual-metadata");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const std::array segments {VariantElementV2PathSegment::object_key(StringRef("a"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(),
+                                         unshredded_physical({first.value_at(0)}), output,
+                                         parquet_profile.column_reader_profile())
+                        .ok());
+    {
+        const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+        const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+        ColumnPtr first_result;
+        ASSERT_TRUE(extract_variant_element_v2(source, *path, nullable.get_null_map_data(),
+                                               &first_result)
+                            .ok());
+        const auto& first_values = assert_cast<const ColumnVariantV2&>(
+                assert_cast<const ColumnNullable&>(*first_result).get_nested_column());
+        EXPECT_EQ(first_values.get_value_ref(0).get_int(), 1);
+    }
+
+    // Appending another decoded reader batch must invalidate the cached per-row metadata ids.
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(),
+                                         unshredded_physical({second.value_at(0)}), output,
+                                         parquet_profile.column_reader_profile())
+                        .ok());
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    ColumnPtr result;
+    ASSERT_TRUE(
+            extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result).ok());
+    const auto& values = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*result).get_nested_column());
+    EXPECT_EQ(values.get_value_ref(0).get_int(), 1);
+    EXPECT_EQ(values.get_value_ref(1).get_int(), 2);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 3);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
+}
+
+TEST(VariantColumnReaderTest, ProfilesMixedResidualSeekFallback) {
+    RuntimeProfile runtime_profile("mixed-residual-seek-fallback");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(shredded_named_object_schema("a"),
+                                         complete_shredded_object_physical("left", 1, 11), output,
+                                         parquet_profile.column_reader_profile())
+                        .ok());
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    const std::array segments {VariantElementV2PathSegment::object_key(StringRef("left"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+    ColumnPtr result;
+    ASSERT_TRUE(
+            extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result).ok());
+    const auto& values = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*result).get_nested_column());
+    EXPECT_EQ(values.get_value_ref(0).get_int(), 1);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekFallbacks")->value(), 1);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 1);
+}
+
+TEST(VariantColumnReaderTest, DirectSeekValidatesOnlyTheSelectedUnshreddedBranch) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    object.add_key(StringRef("bad"));
+    row.add_int(1);
+    object.add_key(StringRef("good"));
+    row.add_int(7);
+    object.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    const VariantRef valid = batch.value_at(0);
+    VariantRef bad_child;
+    ASSERT_TRUE(valid.object_find(StringRef("bad"), &bad_child));
+    std::string corrupt_value(valid.value.data, valid.value.size);
+    const size_t bad_offset = bad_child.value.data - valid.value.data;
+    ASSERT_LT(bad_offset, corrupt_value.size());
+    corrupt_value[bad_offset] = static_cast<char>(0xff);
+    const VariantRef corrupt {
+            .metadata = valid.metadata,
+            .value = {corrupt_value.data(), corrupt_value.size()},
+    };
+
+    RuntimeProfile runtime_profile("unshredded-direct-residual-validation");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), unshredded_physical({corrupt}),
+                                         output, parquet_profile.column_reader_profile())
+                        .ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+
+    auto extract = [&](StringRef key, ColumnPtr* result) {
+        const std::array segments {VariantElementV2PathSegment::object_key(key)};
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        EXPECT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        return extract_variant_element_v2(source, *path, nullable.get_null_map_data(), result);
+    };
+    ColumnPtr good_result;
+    const Status good_status = extract(StringRef("good"), &good_result);
+    ASSERT_TRUE(good_status.ok()) << good_status;
+    const auto& good_values = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*good_result).get_nested_column());
+    EXPECT_EQ(good_values.get_value_ref(0).get_int(), 7);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
+
+    ColumnPtr bad_result;
+    const Status bad_status = extract(StringRef("bad"), &bad_result);
+    EXPECT_FALSE(bad_status.ok());
+    EXPECT_NE(bad_status.to_string().find("Invalid Variant V2 input"), std::string::npos)
+            << bad_status;
+
+    // Whole-column observation retains the original eager validation contract.
+    EXPECT_THROW((void)source.get_value_ref(0), Exception);
+    EXPECT_THROW((void)binary_round_trip(source), Exception);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 1);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 0);
+}
+
+TEST(VariantColumnReaderTest, DirectSeekRejectsMalformedTraversedObjectTable) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    object.add_key(StringRef("a"));
+    row.add_int(7);
+    object.add_key(StringRef("b"));
+    row.add_int(8);
+    object.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    const VariantRef valid = batch.value_at(0);
+
+    std::string corrupt_value(valid.value.data, valid.value.size);
+    const uint8_t value_header =
+            static_cast<uint8_t>(corrupt_value[0]) >> VARIANT_VALUE_HEADER_SHIFT;
+    ASSERT_EQ(value_header & VARIANT_OBJECT_LARGE_MASK, 0);
+    const uint8_t id_width =
+            static_cast<uint8_t>(((value_header >> VARIANT_OBJECT_ID_SIZE_SHIFT) & 0x03U) + 1);
+    ASSERT_EQ(id_width, 1);
+    constexpr size_t IDS_OFFSET = 2;
+    ASSERT_EQ(static_cast<uint8_t>(corrupt_value[IDS_OFFSET]), 0);
+    ASSERT_EQ(static_cast<uint8_t>(corrupt_value[IDS_OFFSET + id_width]), 1);
+    std::swap(corrupt_value[IDS_OFFSET], corrupt_value[IDS_OFFSET + id_width]);
+    const VariantRef corrupt {
+            .metadata = valid.metadata,
+            .value = {corrupt_value.data(), corrupt_value.size()},
+    };
+
+    RuntimeProfile runtime_profile("unshredded-direct-malformed-object-table");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), unshredded_physical({corrupt}),
+                                         output, parquet_profile.column_reader_profile())
+                        .ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+
+    // With the IDs physically encoded as [1, 0], the old binary lookup returned the wrong value
+    // for "a", returned SQL NULL for the physically present "b", and skipped validation entirely
+    // for a key absent from metadata.
+    for (const StringRef key : {StringRef("a"), StringRef("b"), StringRef("missing")}) {
+        const std::array segments {VariantElementV2PathSegment::object_key(key)};
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        ColumnPtr result;
+        const Status status =
+                extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("not strictly"), std::string::npos) << status;
+    }
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 0);
 }
 
 TEST(VariantColumnReaderTest, RequiredPhysicalGroupAppendsToNullableExternalSlot) {
@@ -1485,6 +1835,72 @@ TEST(VariantColumnReaderTest, GathersCompleteAndProjectedShreddedBatches) {
     // complete file must contribute NULL without forcing the projected file to materialize.
     verify_order(*projected, *complete, NullMap({0, 1}), 0);
     verify_order(*complete, *projected, NullMap({1, 0}), 1);
+}
+
+TEST(VariantColumnReaderTest, ReusesMixedUnshreddedAndTypedDirectMatches) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    object.add_key(StringRef("a"));
+    row.add_int(7);
+    object.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+
+    auto projected_schema = shredded_object_schema();
+    projected_schema.local_id = 0;
+    projected_schema.children[2]->local_id = 2;
+    projected_schema.children[2]->children[0]->local_id = 0;
+    projected_schema.children[2]->children[0]->children[0]->local_id = 0;
+    auto projection = format::LocalColumnIndex::partial_local(0);
+    projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+    projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
+    projection.children.back().children.back().children.push_back(
+            format::LocalColumnIndex::local(0));
+    VariantMaterializationNode projected_plan;
+    projected_plan.schema = &projected_schema;
+    projected_plan.contains_variant = true;
+    projected_plan.variant_projection = std::move(projection);
+    projected_plan.variant_state_schema =
+            create_variant_state_schema(projected_schema, &*projected_plan.variant_projection);
+
+    RuntimeProfile runtime_profile("mixed-unshredded-typed-direct-matches");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    const ParquetColumnReaderProfile profile = parquet_profile.column_reader_profile();
+    auto unshredded = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    auto projected = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(),
+                                         unshredded_physical({batch.value_at(0)}), unshredded,
+                                         profile)
+                        .ok());
+    ASSERT_TRUE(materialize_variant_columns(projected_plan, projected_shredded_object_physical({8}),
+                                            projected, profile)
+                        .ok());
+
+    const std::array<uint32_t, 1> selected {0};
+    auto gathered = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    gathered->insert_indices_from(*unshredded, selected.begin(), selected.end());
+    gathered->insert_indices_from(*projected, selected.begin(), selected.end());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*gathered);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    const std::array segments {VariantElementV2PathSegment::object_key(StringRef("a"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+    ColumnPtr result;
+    ASSERT_TRUE(
+            extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result).ok());
+    const auto& result_nullable = assert_cast<const ColumnNullable&>(*result);
+    EXPECT_EQ(result_nullable.get_null_map_data(), (NullMap {0, 0}));
+    const auto& values = assert_cast<const ColumnVariantV2&>(result_nullable.get_nested_column());
+    EXPECT_EQ(values.get_value_ref(0).get_int(), 7);
+    EXPECT_EQ(values.get_value_ref(1).get_int(), 8);
+
+    // The unshredded segment is sought once by find_typed_value(). Combining the direct matches
+    // must not call its find_normalized_value() and seek the same row again.
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 1);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectLeafRows")->value(), 1);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
 }
 
 TEST(VariantColumnReaderTest, PreservesPrimitiveWidthsAcrossProjectedFiles) {

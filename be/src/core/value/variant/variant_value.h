@@ -20,6 +20,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "core/string_ref.h"
 #include "core/value/variant/variant_metadata.h"
@@ -54,6 +55,14 @@ struct VariantRef {
     uint32_t num_elements() const;
     bool object_find(StringRef key, VariantRef* out) const;
     bool object_find_by_id(uint32_t field_id, VariantRef* out) const;
+    // Direct readers may traverse payloads that have not passed recursive Variant validation.
+    // These accessors validate the complete container lookup table, but decode only the selected
+    // child so malformed unrelated sibling payloads remain outside the seek path. A negative object
+    // field id represents a metadata miss; the object table is still validated before returning
+    // false. Callers should reuse offset_scratch across rows.
+    bool object_find_by_id_untrusted(int64_t field_id, VariantRef* out,
+                                     std::vector<uint32_t>& offset_scratch) const;
+    bool array_find_untrusted(int64_t index, VariantRef* out) const;
     VariantRef object_value_at(uint32_t index, uint32_t* field_id_out) const;
     VariantRef array_at(uint32_t index) const;
 
@@ -69,6 +78,7 @@ private:
     };
 
     ContainerLayout _container_layout(VariantBasicType expected_type) const;
+    uint32_t _container_offset(const ContainerLayout& layout, uint32_t index) const;
     uint32_t _object_field_id(const ContainerLayout& layout, uint32_t index) const;
     bool _object_find_by_id(const ContainerLayout& layout, uint32_t field_id,
                             VariantRef* out) const;
