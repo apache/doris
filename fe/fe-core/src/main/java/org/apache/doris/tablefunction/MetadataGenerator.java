@@ -41,6 +41,7 @@ import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.TableKeyMeta;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
@@ -180,6 +181,27 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> TSO_STATUS_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> STATISTICS_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> KEY_COLUMN_USAGE_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> TABLE_CONSTRAINTS_COLUMN_TO_INDEX;
+
+    static {
+        STATISTICS_COLUMN_TO_INDEX = buildColumnToIndex("statistics");
+        KEY_COLUMN_USAGE_COLUMN_TO_INDEX = buildColumnToIndex("key_column_usage");
+        TABLE_CONSTRAINTS_COLUMN_TO_INDEX = buildColumnToIndex("table_constraints");
+    }
+
+    private static ImmutableMap<String, Integer> buildColumnToIndex(String schemaTableName) {
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<>();
+        List<Column> columns = SchemaTable.TABLE_MAP.get(schemaTableName).getFullSchema();
+        for (int i = 0; i < columns.size(); i++) {
+            builder.put(columns.get(i).getName().toLowerCase(), i);
+        }
+        return builder.build();
+    }
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -438,6 +460,18 @@ public class MetadataGenerator {
             case TSO_STATUS:
                 result = tsoStatusMetadataResult();
                 columnIndex = TSO_STATUS_COLUMN_TO_INDEX;
+                break;
+            case STATISTICS:
+                result = statisticsMetadataResult(schemaTableParams);
+                columnIndex = STATISTICS_COLUMN_TO_INDEX;
+                break;
+            case KEY_COLUMN_USAGE:
+                result = keyColumnUsageMetadataResult(schemaTableParams);
+                columnIndex = KEY_COLUMN_USAGE_COLUMN_TO_INDEX;
+                break;
+            case TABLE_CONSTRAINTS:
+                result = tableConstraintsMetadataResult(schemaTableParams);
+                columnIndex = TABLE_CONSTRAINTS_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -1597,6 +1631,132 @@ public class MetadataGenerator {
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    /** Emits the rows one table contributes to a key metadata schema table. */
+    private interface KeyMetadataRowEmitter {
+        void emit(CatalogIf catalog, DatabaseIf database, TableIf table, List<TRow> dataBatch);
+    }
+
+    /**
+     * Walks the tables of one database and lets the caller turn each into rows. Shared by
+     * STATISTICS, KEY_COLUMN_USAGE and TABLE_CONSTRAINTS so that the three of them agree on
+     * what they can see and on how they lock.
+     */
+    private static TFetchSchemaTableDataResult keyMetadataResult(TSchemaTableRequestParams params,
+            KeyMetadataRowEmitter emitter) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        if (!params.isSetDbId()) {
+            return errorResult("current db id is not set.");
+        }
+        if (!params.isSetCatalog()) {
+            return errorResult("current catalog is not set.");
+        }
+
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(params.getCatalog());
+        // The BE asks for one database at a time from a list it fetched earlier, so a catalog
+        // or database that has since been dropped is an empty answer, not an error.
+        DatabaseIf database = catalog == null ? null : catalog.getDbNullable(params.getDbId());
+        if (database != null) {
+            List<TableIf> tables = database.getTables();
+            for (TableIf table : tables) {
+                if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
+                        database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+                    continue;
+                }
+                table.readLock();
+                try {
+                    emitter.emit(catalog, database, table, dataBatch);
+                } finally {
+                    table.readUnlock();
+                }
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TCell nullCell() {
+        return new TCell().setIsNull(true);
+    }
+
+    private static TCell stringOrNull(String value) {
+        return value == null ? nullCell() : new TCell().setStringVal(value);
+    }
+
+    private static TCell longOrNull(Long value) {
+        return value == null ? nullCell() : new TCell().setLongVal(value);
+    }
+
+    private static TFetchSchemaTableDataResult statisticsMetadataResult(TSchemaTableRequestParams params) {
+        return keyMetadataResult(params, (catalog, database, table, dataBatch) -> {
+            for (TableKeyMeta.KeyRow row : TableKeyMeta.buildKeyRows(table)) {
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                trow.addToColumnValue(new TCell().setLongVal(row.isNonUnique() ? 1 : 0)); // NON_UNIQUE
+                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // INDEX_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(row.getIndexName())); // INDEX_NAME
+                trow.addToColumnValue(new TCell().setLongVal(row.getSeqInIndex())); // SEQ_IN_INDEX
+                trow.addToColumnValue(new TCell().setStringVal(row.getColumnName())); // COLUMN_NAME
+                trow.addToColumnValue(stringOrNull(row.getCollation())); // COLLATION
+                trow.addToColumnValue(longOrNull(row.getCardinality())); // CARDINALITY
+                trow.addToColumnValue(nullCell()); // SUB_PART, Doris indexes whole columns
+                trow.addToColumnValue(nullCell()); // PACKED
+                trow.addToColumnValue(new TCell().setStringVal(row.isNullable() ? "YES" : "")); // NULLABLE
+                trow.addToColumnValue(new TCell().setStringVal(row.getIndexType())); // INDEX_TYPE
+                trow.addToColumnValue(new TCell().setStringVal("")); // COMMENT
+                trow.addToColumnValue(new TCell().setStringVal(
+                        row.getComment() == null ? "" : row.getComment())); // INDEX_COMMENT
+                trow.addToColumnValue(new TCell().setStringVal("YES")); // IS_VISIBLE
+                trow.addToColumnValue(nullCell()); // EXPRESSION, Doris has no functional indexes
+                dataBatch.add(trow);
+            }
+        });
+    }
+
+    private static TFetchSchemaTableDataResult keyColumnUsageMetadataResult(TSchemaTableRequestParams params) {
+        return keyMetadataResult(params, (catalog, database, table, dataBatch) -> {
+            for (TableKeyMeta.KeyColumnUsageRow row : TableKeyMeta.buildKeyColumnUsageRows(table)) {
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // CONSTRAINT_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // CONSTRAINT_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(row.getConstraintName())); // CONSTRAINT_NAME
+                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(row.getColumnName())); // COLUMN_NAME
+                trow.addToColumnValue(new TCell().setLongVal(row.getOrdinalPosition())); // ORDINAL_POSITION
+                trow.addToColumnValue(row.getPositionInUniqueConstraint() == null ? nullCell()
+                        : new TCell().setLongVal(row.getPositionInUniqueConstraint())); // POSITION_IN_UNIQUE_CONSTRAINT
+                trow.addToColumnValue(stringOrNull(row.getReferencedTableSchema())); // REFERENCED_TABLE_SCHEMA
+                trow.addToColumnValue(stringOrNull(row.getReferencedTableName())); // REFERENCED_TABLE_NAME
+                trow.addToColumnValue(stringOrNull(row.getReferencedColumnName())); // REFERENCED_COLUMN_NAME
+                dataBatch.add(trow);
+            }
+        });
+    }
+
+    private static TFetchSchemaTableDataResult tableConstraintsMetadataResult(TSchemaTableRequestParams params) {
+        return keyMetadataResult(params, (catalog, database, table, dataBatch) -> {
+            for (TableKeyMeta.ConstraintRow row : TableKeyMeta.buildConstraintRows(table)) {
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // CONSTRAINT_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // CONSTRAINT_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(row.getConstraintName())); // CONSTRAINT_NAME
+                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(row.getConstraintType())); // CONSTRAINT_TYPE
+                dataBatch.add(trow);
+            }
+        });
     }
 
     private static void tablePropertiesForInternalCatalog(UserIdentity currentUserIdentity,

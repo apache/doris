@@ -959,6 +959,9 @@ struct TSchemaScanNode {
   14: optional string catalog
   15: optional list<Types.TNetworkAddress> fe_addr_list
   16: optional string frontend_conjuncts
+  // Captured from the session at plan time, because the FE cannot see the session of the
+  // query when the BE calls back into it for schema metadata.
+  17: optional bool mysql_compatible_index_metadata = false
 }
 
 struct TMetaScanNode {

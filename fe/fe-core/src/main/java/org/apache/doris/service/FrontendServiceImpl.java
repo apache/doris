@@ -46,6 +46,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.TableKeyMeta;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
@@ -995,6 +996,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (table != null && !table.isTemporary()) {
                     table.readLock();
                     try {
+                        // MySQL marks a column PRI, UNI or MUL depending on the kind of index it
+                        // leads. Doris used to report its table model here instead, which meant
+                        // values such as AGG and DUP that no MySQL client knows what to do with.
+                        Map<String, String> columnKeys = params.isMysqlCompatibleIndexMetadata()
+                                ? TableKeyMeta.buildColumnKeys(table) : Collections.emptyMap();
                         List<Column> baseSchema = table.getBaseSchemaOrEmpty();
                         for (Column column : baseSchema) {
                             final TColumnDesc desc = getColumnDesc(column);
@@ -1008,10 +1014,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                     colDef.setComment(comment);
                                 }
                             }
-                            if (column.isKey()) {
-                                if (table instanceof OlapTable) {
-                                    desc.setColumnKey(((OlapTable) table).getKeysType().toMetadata());
+                            if (params.isMysqlCompatibleIndexMetadata()) {
+                                String columnKey = columnKeys.get(column.getName());
+                                if (columnKey != null) {
+                                    desc.setColumnKey(columnKey);
                                 }
+                            } else if (column.isKey() && table instanceof OlapTable) {
+                                desc.setColumnKey(((OlapTable) table).getKeysType().toMetadata());
                             }
                             columns.add(colDef);
                         }

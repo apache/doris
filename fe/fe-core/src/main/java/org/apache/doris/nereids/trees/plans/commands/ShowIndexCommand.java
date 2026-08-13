@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableKeyMeta;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -107,11 +108,54 @@ public class ShowIndexCommand extends ShowCommand {
     private ShowResultSet handleShowIndex(ConnectContext ctx, StmtExecutor executor) throws Exception {
         analyze(ctx);
 
-        List<List<String>> rows = Lists.newArrayList();
-        // in show index, only support internal catalog
         DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(tableNameInfo.getCtl())
                 .getDbOrAnalysisException(tableNameInfo.getDb());
+        List<List<String>> rows = ctx.getSessionVariable().enableMysqlCompatibleIndexMetadata()
+                ? mysqlCompatibleRows(db) : legacyRows(db);
+        return new ShowResultSet(getMetaData(), rows);
+    }
+
+    /**
+     * Reports keys and indexes the way MySQL does: one row per indexed column, with the
+     * unique key of the table named PRIMARY so that ODBC and JDBC clients recognize it.
+     */
+    private List<List<String>> mysqlCompatibleRows(DatabaseIf db) throws Exception {
+        List<List<String>> rows = Lists.newArrayList();
+        TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
+        table.readLock();
+        try {
+            for (TableKeyMeta.KeyRow row : TableKeyMeta.buildKeyRows(table)) {
+                // A null cell is sent as SQL NULL, which is what MySQL reports for a
+                // value that does not apply to the index.
+                rows.add(Lists.newArrayList(
+                        row.getTableName(),
+                        row.isNonUnique() ? "1" : "0",
+                        row.getIndexName(),
+                        String.valueOf(row.getSeqInIndex()),
+                        row.getColumnName(),
+                        row.getCollation(),
+                        row.getCardinality() == null ? null : String.valueOf(row.getCardinality()),
+                        null,
+                        null,
+                        row.isNullable() ? "YES" : "",
+                        row.getIndexType(),
+                        row.getComment(),
+                        row.getProperties()));
+            }
+        } finally {
+            table.readUnlock();
+        }
+        return rows;
+    }
+
+    /**
+     * The output Doris has always produced: secondary indexes only, one row per index,
+     * with the columns of an index joined into a single cell.
+     */
+    private List<List<String>> legacyRows(DatabaseIf db) throws Exception {
+        List<List<String>> rows = Lists.newArrayList();
+        // in show index, only support internal catalog
         if (db instanceof Database) {
             TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
             if (table instanceof OlapTable) {
@@ -129,7 +173,7 @@ public class ShowIndexCommand extends ShowCommand {
                 }
             }
         }
-        return new ShowResultSet(getMetaData(), rows);
+        return rows;
     }
 
     @Override
