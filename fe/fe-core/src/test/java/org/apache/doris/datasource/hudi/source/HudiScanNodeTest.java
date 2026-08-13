@@ -164,7 +164,7 @@ public class HudiScanNodeTest {
     }
 
     @Test
-    public void testIncrementalPlanningCacheUsesConnectorWrapperAndCopiesSplits() throws Exception {
+    public void testIncrementalPlanningBypassesStatementCache() throws Exception {
         StatementContext.ExternalScanTaskCache cache = new StatementContext.ExternalScanTaskCache();
         Map<String, String> options = ImmutableMap.of("hoodie.datasource.query.type", "incremental");
         AtomicInteger firstLoads = new AtomicInteger();
@@ -191,7 +191,7 @@ public class HudiScanNodeTest {
                 incrementalScanNode(cache, differentOptionsRelation, true));
 
         Assertions.assertEquals(1, firstLoads.get());
-        Assertions.assertEquals(0, duplicateLoads.get());
+        Assertions.assertEquals(1, duplicateLoads.get());
         Assertions.assertEquals(1, differentStartLoads.get());
         Assertions.assertEquals(1, differentOptionsLoads.get());
         Assertions.assertEquals(1, first.size());
@@ -199,14 +199,12 @@ public class HudiScanNodeTest {
         Assertions.assertEquals(1, differentStart.size());
         Assertions.assertEquals(1, differentOptions.size());
         Assertions.assertNotSame(first.get(0), duplicate.get(0));
-        Assertions.assertEquals(first.get(0).getPathString(), duplicate.get(0).getPathString());
+        Assertions.assertNotEquals(first.get(0).getPathString(), duplicate.get(0).getPathString());
 
         HudiSplit firstSplit = (HudiSplit) first.get(0);
         HudiSplit duplicateSplit = (HudiSplit) duplicate.get(0);
         firstSplit.getPartitionValues().set(0, "changed");
-        firstSplit.setTargetSplitSize(123L);
         Assertions.assertEquals(Collections.singletonList("p=1"), duplicateSplit.getPartitionValues());
-        Assertions.assertNull(duplicateSplit.getTargetSplitSize());
     }
 
     private static HudiScanNode partitionScanNode(

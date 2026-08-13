@@ -624,6 +624,40 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testSystemTableTasksAreConsumedWhilePlanningRemainsStreaming() throws Exception {
+        AtomicInteger outstandingTasks = new AtomicInteger();
+        AtomicInteger consumedTasks = new AtomicInteger();
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.planFiles()).thenAnswer(invocation -> {
+            Iterable<FileScanTask> tasks = () -> new Iterator<FileScanTask>() {
+                private int index;
+
+                @Override
+                public boolean hasNext() {
+                    return index < 100;
+                }
+
+                @Override
+                public FileScanTask next() {
+                    Assert.assertEquals(0, outstandingTasks.get());
+                    index++;
+                    outstandingTasks.incrementAndGet();
+                    return Mockito.mock(FileScanTask.class);
+                }
+            };
+            return CloseableIterable.withNoopClose(tasks);
+        });
+
+        IcebergScanNode.consumeSystemTableTasks(tableScan, task -> {
+            Assert.assertEquals(1, outstandingTasks.getAndDecrement());
+            consumedTasks.incrementAndGet();
+        });
+
+        Assert.assertEquals(100, consumedTasks.get());
+        Assert.assertEquals(0, outstandingTasks.get());
+    }
+
+    @Test
     public void testCountStarVariantCompatibilityExemptionRequiresSnapshotCount() throws Exception {
         SessionVariable sv = Mockito.mock(SessionVariable.class);
         Mockito.when(sv.getEnableExternalTableBatchMode()).thenReturn(false);

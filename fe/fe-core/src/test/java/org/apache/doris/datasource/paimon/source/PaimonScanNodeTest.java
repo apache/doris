@@ -161,7 +161,7 @@ public class PaimonScanNodeTest {
     }
 
     @Test
-    public void testStatementCacheIncludesSnapshotOptionsPredicateAndProjection() throws Exception {
+    public void testPlanningDoesNotRetainTasksInStatementCache() throws Exception {
         ConnectContext previousContext = ConnectContext.get();
         ConnectContext context = new ConnectContext();
         StatementContext statementContext = new StatementContext(context, null);
@@ -171,10 +171,6 @@ public class PaimonScanNodeTest {
             PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
             PaimonExternalTable relationTable = Mockito.mock(PaimonExternalTable.class);
             PaimonExternalTable targetTable = Mockito.mock(PaimonExternalTable.class);
-            Mockito.when(catalog.getId()).thenReturn(7L);
-            Mockito.when(relationTable.getId()).thenReturn(11L);
-            Mockito.when(targetTable.getId()).thenReturn(13L);
-
             RowType rowType = new RowType(Arrays.asList(
                     new DataField(0, "id", DataTypes.INT()),
                     new DataField(1, "value", DataTypes.INT())));
@@ -183,34 +179,34 @@ public class PaimonScanNodeTest {
             List<Predicate> idEqualsTwo = Collections.singletonList(predicateBuilder.equal(0, 2));
             AtomicInteger planCount = new AtomicInteger();
 
-            Table baselineTable = mockPlanningTable(rowType, Collections.emptyMap(), planCount);
-            assertPlanCount(newCachedPlanningNode(
+            Table baselineTable = mockPlanningTable(rowType, planCount);
+            assertPlanCount(newPlanningNode(
                     0, relationTable, targetTable, catalog, baselineTable,
                     101L, 3L, Collections.emptyMap(), idEqualsOne, "id"), planCount, 1);
-            assertPlanCount(newCachedPlanningNode(
+            assertPlanCount(newPlanningNode(
                     1, relationTable, targetTable, catalog, baselineTable,
-                    101L, 3L, Collections.emptyMap(), idEqualsOne, "id"), planCount, 1);
+                    101L, 3L, Collections.emptyMap(), idEqualsOne, "id"), planCount, 2);
 
-            assertPlanCount(newCachedPlanningNode(
+            assertPlanCount(newPlanningNode(
                     2, relationTable, targetTable, catalog,
-                    mockPlanningTable(rowType, Collections.emptyMap(), planCount),
-                    102L, 3L, Collections.emptyMap(), idEqualsOne, "id"), planCount, 2);
-            assertPlanCount(newCachedPlanningNode(
+                    mockPlanningTable(rowType, planCount),
+                    102L, 3L, Collections.emptyMap(), idEqualsOne, "id"), planCount, 3);
+            assertPlanCount(newPlanningNode(
                     3, relationTable, targetTable, catalog,
-                    mockPlanningTable(rowType, Collections.emptyMap(), planCount),
-                    101L, 3L, ImmutableMap.of("scan.mode", "delta"), idEqualsOne, "id"), planCount, 3);
-            assertPlanCount(newCachedPlanningNode(
+                    mockPlanningTable(rowType, planCount),
+                    101L, 3L, ImmutableMap.of("scan.mode", "delta"), idEqualsOne, "id"), planCount, 4);
+            assertPlanCount(newPlanningNode(
                     4, relationTable, targetTable, catalog,
-                    mockPlanningTable(rowType, Collections.emptyMap(), planCount),
-                    101L, 3L, Collections.emptyMap(), idEqualsTwo, "id"), planCount, 4);
-            assertPlanCount(newCachedPlanningNode(
+                    mockPlanningTable(rowType, planCount),
+                    101L, 3L, Collections.emptyMap(), idEqualsTwo, "id"), planCount, 5);
+            assertPlanCount(newPlanningNode(
                     5, relationTable, targetTable, catalog,
-                    mockPlanningTable(rowType, Collections.emptyMap(), planCount),
-                    101L, 3L, Collections.emptyMap(), idEqualsOne, "value"), planCount, 5);
-            assertPlanCount(newCachedPlanningNode(
+                    mockPlanningTable(rowType, planCount),
+                    101L, 3L, Collections.emptyMap(), idEqualsOne, "value"), planCount, 6);
+            assertPlanCount(newPlanningNode(
                     6, relationTable, targetTable, catalog,
-                    mockPlanningTable(rowType, ImmutableMap.of("bucket", "2"), planCount),
-                    101L, 3L, Collections.emptyMap(), idEqualsOne, "id"), planCount, 6);
+                    mockPlanningTable(rowType, planCount),
+                    101L, 3L, Collections.emptyMap(), idEqualsOne, "id"), planCount, 7);
         } finally {
             statementContext.close();
             ConnectContext.remove();
@@ -221,7 +217,7 @@ public class PaimonScanNodeTest {
     }
 
     @Test
-    public void testPinnedFileCreationCacheIgnoresUnusedProjection() throws Exception {
+    public void testPinnedFileCreationPlanningDoesNotRetainTasks() throws Exception {
         ConnectContext previousContext = ConnectContext.get();
         ConnectContext context = new ConnectContext();
         StatementContext statementContext = new StatementContext(context, null);
@@ -231,10 +227,6 @@ public class PaimonScanNodeTest {
             PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
             PaimonExternalTable relationTable = Mockito.mock(PaimonExternalTable.class);
             PaimonExternalTable targetTable = Mockito.mock(PaimonExternalTable.class);
-            Mockito.when(catalog.getId()).thenReturn(17L);
-            Mockito.when(relationTable.getId()).thenReturn(19L);
-            Mockito.when(targetTable.getId()).thenReturn(23L);
-
             FileStoreTable table = Mockito.mock(FileStoreTable.class);
             CoreOptions coreOptions = Mockito.mock(CoreOptions.class);
             SnapshotReader reader = Mockito.mock(SnapshotReader.class);
@@ -251,7 +243,7 @@ public class PaimonScanNodeTest {
             Mockito.when(reader.read()).thenReturn(plan);
             Mockito.when(plan.splits()).thenAnswer(invocation -> {
                 planCount.incrementAndGet();
-                return Collections.emptyList();
+                return Collections.singletonList(createDataSplit("planned.parquet"));
             });
             Snapshot latestSnapshot = Mockito.mock(Snapshot.class);
             Mockito.when(latestSnapshot.id()).thenReturn(29L);
@@ -259,12 +251,12 @@ public class PaimonScanNodeTest {
             Map<String, String> options = PaimonScanParams.resolveOptions(
                     table, ImmutableMap.of("scan.file-creation-time-millis", "1234"));
 
-            assertPlanCount(newCachedPlanningNode(
+            assertPlanCount(newPlanningNode(
                     7, relationTable, targetTable, catalog, table,
                     29L, 4L, options, Collections.emptyList(), "projected_a"), planCount, 1);
-            assertPlanCount(newCachedPlanningNode(
+            assertPlanCount(newPlanningNode(
                     8, relationTable, targetTable, catalog, table,
-                    29L, 4L, options, Collections.emptyList(), "projected_b"), planCount, 1);
+                    29L, 4L, options, Collections.emptyList(), "projected_b"), planCount, 2);
         } finally {
             statementContext.close();
             ConnectContext.remove();
@@ -877,7 +869,6 @@ public class PaimonScanNodeTest {
     public void testPinnedFileCreationScanPreservesBatchReaderFilters() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
-        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
         FileStoreTable table = Mockito.mock(FileStoreTable.class);
         Snapshot snapshot = Mockito.mock(Snapshot.class);
@@ -887,9 +878,7 @@ public class PaimonScanNodeTest {
         org.apache.paimon.options.Options configuration = new org.apache.paimon.options.Options();
         configuration.set(CoreOptions.BATCH_SCAN_MODE, CoreOptions.BatchScanMode.NONE);
 
-        Mockito.when(source.getCatalog()).thenReturn(catalog);
         Mockito.when(source.getExternalTable()).thenReturn(externalTable);
-        Mockito.when(source.getTargetTable()).thenReturn(externalTable);
         Mockito.when(source.getPaimonTable()).thenReturn(table);
         Mockito.when(source.getPaimonTable(ArgumentMatchers.any(TableScanParams.class))).thenReturn(table);
         Mockito.when(snapshot.id()).thenReturn(23L);
@@ -945,7 +934,6 @@ public class PaimonScanNodeTest {
     public void testBoundEmptyDataSnapshotStillPlansMetadataSystemTable() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
-        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
         Table paimonTable = Mockito.mock(Table.class);
         ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class);
@@ -954,7 +942,6 @@ public class PaimonScanNodeTest {
         org.apache.paimon.table.source.Split schemaSplit =
                 Mockito.mock(org.apache.paimon.table.source.Split.class);
 
-        Mockito.when(source.getCatalog()).thenReturn(catalog);
         Mockito.when(source.getExternalTable()).thenReturn(systemTable);
         Mockito.when(source.getTargetTable()).thenReturn(systemTable);
         Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);
@@ -1582,14 +1569,12 @@ public class PaimonScanNodeTest {
         Mockito.doReturn(false).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
     }
 
-    private Table mockPlanningTable(RowType rowType, Map<String, String> tableOptions,
-            AtomicInteger planCount) {
+    private Table mockPlanningTable(RowType rowType, AtomicInteger planCount) {
         Table table = Mockito.mock(Table.class);
         ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class);
         TableScan scan = Mockito.mock(TableScan.class);
         TableScan.Plan plan = Mockito.mock(TableScan.Plan.class);
         Mockito.when(table.rowType()).thenReturn(rowType);
-        Mockito.when(table.options()).thenReturn(tableOptions);
         Mockito.when(table.newReadBuilder()).thenReturn(readBuilder);
         Mockito.when(readBuilder.withFilter(ArgumentMatchers.anyList())).thenReturn(readBuilder);
         Mockito.when(readBuilder.withProjection(ArgumentMatchers.any(int[].class))).thenReturn(readBuilder);
@@ -1597,12 +1582,12 @@ public class PaimonScanNodeTest {
         Mockito.when(scan.plan()).thenReturn(plan);
         Mockito.when(plan.splits()).thenAnswer(invocation -> {
             planCount.incrementAndGet();
-            return Collections.emptyList();
+            return Collections.singletonList(createDataSplit("planned.parquet"));
         });
         return table;
     }
 
-    private PaimonScanNode newCachedPlanningNode(int id, PaimonExternalTable relationTable,
+    private PaimonScanNode newPlanningNode(int id, PaimonExternalTable relationTable,
             PaimonExternalTable targetTable, PaimonExternalCatalog catalog, Table paimonTable,
             long snapshotId, long schemaId, Map<String, String> resolvedOptions,
             List<Predicate> predicates, String projectedColumn) throws Exception {
@@ -1620,7 +1605,6 @@ public class PaimonScanNodeTest {
         PaimonScanNode node =
                 new PaimonScanNode(new PlanNodeId(id), desc, false, sv, ScanContext.EMPTY);
         PaimonSource source = Mockito.mock(PaimonSource.class);
-        Mockito.when(source.getCatalog()).thenReturn(catalog);
         Mockito.when(source.getExternalTable()).thenReturn(relationTable);
         Mockito.when(source.getTargetTable()).thenReturn(targetTable);
         node.setSource(source);
@@ -1640,7 +1624,7 @@ public class PaimonScanNodeTest {
 
     private void assertPlanCount(PaimonScanNode node, AtomicInteger planCount, int expected)
             throws UserException {
-        Assert.assertTrue(node.getPaimonSplitFromAPI().isEmpty());
+        Assert.assertEquals(1, node.getPaimonSplitFromAPI().size());
         Assert.assertEquals(expected, planCount.get());
     }
 

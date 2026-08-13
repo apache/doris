@@ -168,6 +168,38 @@ public class HiveScanNodeTest {
     }
 
     @Test
+    public void testSmallTableSampleCopiesOnlySelectedFiles() throws Exception {
+        HiveScanNode node = createHiveScanNode();
+        node.setTableSample(new TableSample(true, 1L, 0L));
+        HiveExternalMetaCache.FileCacheValue cacheValue =
+                new HiveExternalMetaCache.FileCacheValue();
+        cacheValue.setSplittable(true);
+        for (int index = 0; index < 1_000; index++) {
+            HiveExternalMetaCache.HiveFileStatus cachedStatus =
+                    new HiveExternalMetaCache.HiveFileStatus();
+            cachedStatus.setLength(1L);
+            cacheValue.getFiles().add(cachedStatus);
+        }
+
+        Method method = HiveScanNode.class.getDeclaredMethod("selectFiles", List.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<HiveExternalMetaCache.HiveFileStatus> sampled =
+                (List<HiveExternalMetaCache.HiveFileStatus>) method.invoke(
+                        node, Collections.singletonList(cacheValue));
+
+        Assert.assertEquals(10, sampled.size());
+        Assert.assertEquals(ArrayList.class, sampled.getClass());
+        for (HiveExternalMetaCache.HiveFileStatus sampledStatus : sampled) {
+            Assert.assertTrue(sampledStatus.isSplittable());
+            Assert.assertFalse(cacheValue.getFiles().contains(sampledStatus));
+        }
+        for (HiveExternalMetaCache.HiveFileStatus cachedStatus : cacheValue.getFiles()) {
+            Assert.assertFalse(cachedStatus.isSplittable());
+        }
+    }
+
+    @Test
     public void testTransactionalListingBypassesStatementCachePath() throws Exception {
         ConnectContext previousContext = ConnectContext.get();
         ConnectContext context = new ConnectContext();

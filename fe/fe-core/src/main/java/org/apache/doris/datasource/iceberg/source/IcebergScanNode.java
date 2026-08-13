@@ -135,6 +135,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 public class IcebergScanNode extends FileQueryScanNode {
@@ -1465,10 +1466,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         TableScan scan = createTableScan();
         long startTime = System.currentTimeMillis();
         try {
-            List<FileScanTask> fileScanTasks = getOrLoadExternalScanTasks(
-                    createFileScanTaskCacheKey(scan), () -> materializeFileScanTasks(scan));
-            fileScanTasks.forEach(task -> splits.add(createIcebergSysSplit(task)));
-        } catch (Exception e) {
+            consumeSystemTableTasks(scan, task -> splits.add(createIcebergSysSplit(task)));
+        } catch (IOException e) {
             throw new UserException(e.getMessage(), e);
         } finally {
             if (getSummaryProfile() != null) {
@@ -1477,6 +1476,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         selectedPartitionNum = 0;
         return splits;
+    }
+
+    @VisibleForTesting
+    static void consumeSystemTableTasks(
+            TableScan scan, Consumer<FileScanTask> consumer) throws IOException {
+        try (CloseableIterable<FileScanTask> fileScanTasks = scan.planFiles()) {
+            fileScanTasks.forEach(consumer);
+        }
     }
 
     private boolean isPositionDeletesSystemTable() {

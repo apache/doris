@@ -54,7 +54,6 @@ import org.apache.doris.thrift.THudiFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -385,42 +384,27 @@ public class HudiScanNode extends HiveScanNode {
     private List<Split> getIncrementalSplits() {
         long startTime = System.currentTimeMillis();
         try {
-            HudiIncrementalScanTaskCacheKey cacheKey = new HudiIncrementalScanTaskCacheKey(
-                    hmsTable.getCatalog().getId(), hmsTable.getId(),
-                    incrementalRelation.getStartTs(), incrementalRelation.getEndTs(),
-                    canUseNativeReader(), incrementalRelation.getHoodieParams());
-            List<HudiSplit> plannedSplits = getOrLoadExternalScanTasks(cacheKey, () -> {
-                if (canUseNativeReader()) {
-                    return incrementalRelation.collectSplits().stream()
-                            .map(split -> {
-                                Preconditions.checkState(split instanceof HudiSplit,
-                                        "Hudi COW incremental relation must produce HudiSplit");
-                                return (HudiSplit) split;
-                            })
-                            .collect(Collectors.toList());
-                }
-                Option<String[]> partitionColumns = hudiClient.getTableConfig().getPartitionFields();
-                List<String> partitionNames = partitionColumns.isPresent()
-                        ? Arrays.asList(partitionColumns.get()) : Collections.emptyList();
-                return incrementalRelation.collectFileSlices().stream()
-                        .map(fileSlice -> generateHudiSplit(fileSlice,
-                                HudiPartitionUtils.parsePartitionValues(
-                                        partitionNames, fileSlice.getPartitionPath()),
-                                incrementalRelation.getEndTs()))
-                        .collect(Collectors.toList());
-            });
-            List<Split> splits = plannedSplits.stream()
-                    .map(HudiScanNode::copyHudiSplit)
+            if (canUseNativeReader()) {
+                List<Split> splits = incrementalRelation.collectSplits();
+                noLogsSplitNum.addAndGet(splits.size());
+                return splits;
+            }
+            Option<String[]> partitionColumns = hudiClient.getTableConfig().getPartitionFields();
+            List<String> partitionNames = partitionColumns.isPresent()
+                    ? Arrays.asList(partitionColumns.get()) : Collections.emptyList();
+            List<Split> splits = incrementalRelation.collectFileSlices().stream()
+                    .map(fileSlice -> generateHudiSplit(fileSlice,
+                            HudiPartitionUtils.parsePartitionValues(
+                                    partitionNames, fileSlice.getPartitionPath()),
+                            incrementalRelation.getEndTs()))
                     .collect(Collectors.toList());
-            for (HudiSplit split : plannedSplits) {
-                if (canUseNativeReader()
-                        || (!sessionVariable.isForceJniScanner() && split.getHudiDeltaLogs().isEmpty())) {
-                    noLogsSplitNum.incrementAndGet();
-                }
+            if (!sessionVariable.isForceJniScanner()) {
+                splits.stream()
+                        .map(split -> (HudiSplit) split)
+                        .filter(split -> split.getHudiDeltaLogs().isEmpty())
+                        .forEach(split -> noLogsSplitNum.incrementAndGet());
             }
             return splits;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to plan Hudi incremental scan tasks", e);
         } finally {
             if (getSummaryProfile() != null) {
                 getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
@@ -734,49 +718,6 @@ public class HudiScanNode extends HiveScanNode {
             return Objects.hash(
                     catalogId, tableId, queryInstant, nativeReader, runtimePartitionPrune,
                     inputFormat, path, partitionValues);
-        }
-    }
-
-    private static final class HudiIncrementalScanTaskCacheKey
-            implements ExternalScanTaskCacheKey<HudiSplit> {
-        private final long catalogId;
-        private final long tableId;
-        private final String startTs;
-        private final String endTs;
-        private final boolean nativeReader;
-        private final Map<String, String> hoodieParams;
-
-        private HudiIncrementalScanTaskCacheKey(
-                long catalogId, long tableId, String startTs, String endTs,
-                boolean nativeReader, Map<String, String> hoodieParams) {
-            this.catalogId = catalogId;
-            this.tableId = tableId;
-            this.startTs = startTs;
-            this.endTs = endTs;
-            this.nativeReader = nativeReader;
-            this.hoodieParams = Collections.unmodifiableMap(new HashMap<>(hoodieParams));
-        }
-
-        @Override
-        public boolean equals(Object object) {
-            if (this == object) {
-                return true;
-            }
-            if (!(object instanceof HudiIncrementalScanTaskCacheKey)) {
-                return false;
-            }
-            HudiIncrementalScanTaskCacheKey that = (HudiIncrementalScanTaskCacheKey) object;
-            return catalogId == that.catalogId
-                    && tableId == that.tableId
-                    && nativeReader == that.nativeReader
-                    && Objects.equals(startTs, that.startTs)
-                    && Objects.equals(endTs, that.endTs)
-                    && hoodieParams.equals(that.hoodieParams);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(catalogId, tableId, startTs, endTs, nativeReader, hoodieParams);
         }
     }
 

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
@@ -443,14 +444,13 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     private List<HiveExternalMetaCache.HiveFileStatus> selectFiles(List<FileCacheValue> inputCacheValue) {
-        List<HiveExternalMetaCache.HiveFileStatus> fileList = Lists.newArrayList();
+        List<Pair<HiveExternalMetaCache.HiveFileStatus, FileCacheValue>> filesWithCacheValue =
+                Lists.newArrayList();
         long totalSize = 0;
         for (FileCacheValue value : inputCacheValue) {
             for (HiveExternalMetaCache.HiveFileStatus file : value.getFiles()) {
-                HiveExternalMetaCache.HiveFileStatus sampledFile =
-                        copyFileStatus(file, value);
-                fileList.add(sampledFile);
-                totalSize += sampledFile.getLength();
+                filesWithCacheValue.add(Pair.of(file, value));
+                totalSize += file.getLength();
             }
         }
         long sampleSize = 0;
@@ -464,16 +464,18 @@ public class HiveScanNode extends FileQueryScanNode {
             sampleSize = estimatedRowSize * tableSample.getSampleValue();
         }
         long selectedSize = 0;
-        Collections.shuffle(fileList, new Random(tableSample.getSeek()));
-        int index = 0;
-        for (HiveExternalMetaCache.HiveFileStatus file : fileList) {
+        Collections.shuffle(filesWithCacheValue, new Random(tableSample.getSeek()));
+        List<HiveExternalMetaCache.HiveFileStatus> selectedFiles = Lists.newArrayList();
+        for (Pair<HiveExternalMetaCache.HiveFileStatus, FileCacheValue> fileWithCacheValue
+                : filesWithCacheValue) {
+            HiveExternalMetaCache.HiveFileStatus file = fileWithCacheValue.first;
+            selectedFiles.add(copyFileStatus(file, fileWithCacheValue.second));
             selectedSize += file.getLength();
-            index += 1;
             if (selectedSize >= sampleSize) {
                 break;
             }
         }
-        return fileList.subList(0, index);
+        return selectedFiles;
     }
 
     private HiveExternalMetaCache.HiveFileStatus copyFileStatus(
