@@ -149,7 +149,7 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
         _scanner_params.emplace("time_zone", _state->timezone());
     }
     RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
-    // Call org.apache.doris.common.jni.JniScanner#open
+    // Call org.apache.doris.jni.spi.JniScanner#open
     RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _scanner_api->open).call());
 
     RETURN_ERROR_IF_EXC(env);
