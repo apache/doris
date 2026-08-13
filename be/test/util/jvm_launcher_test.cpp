@@ -64,22 +64,22 @@ private:
     std::vector<std::pair<std::string, std::string>> _saved;
 };
 
-// start_be.sh publishes the class path under two names and only CLASSPATH carries conf/ -
-// where the hadoop *-site.xml files live - and plugins/java_extensions. Reading the other
-// one builds a JVM that cannot see its own configuration.
+// start_be.sh publishes the class path under two names and only CLASSPATH carries conf/,
+// where the hadoop *-site.xml files live. Reading the other one builds a JVM that cannot
+// see its own configuration.
 TEST_F(JvmLauncherOptionsTest, ClassPathComesFromTheListThatCarriesConf) {
-    setenv("CLASSPATH", "/opt/be/conf/:/opt/be/lib/preload.jar", 1);
-    setenv("DORIS_CLASSPATH", "-Djava.class.path=/opt/be/lib/preload.jar", 1);
+    setenv("CLASSPATH", "/opt/be/conf/:/opt/be/lib/plugin-spi.jar", 1);
+    setenv("DORIS_CLASSPATH", "-Djava.class.path=/opt/be/lib/plugin-spi.jar", 1);
 
-    EXPECT_TRUE(has(options(), "-Djava.class.path=/opt/be/conf/:/opt/be/lib/preload.jar"));
+    EXPECT_TRUE(has(options(), "-Djava.class.path=/opt/be/conf/:/opt/be/lib/plugin-spi.jar"));
     EXPECT_EQ(1, count_prefixed(options(), "-Djava.class.path="));
 }
 
 // DORIS_CLASSPATH is exported as a whole JVM option rather than a bare path.
 TEST_F(JvmLauncherOptionsTest, DorisClassPathIsNotWrappedTwice) {
-    setenv("DORIS_CLASSPATH", "-Djava.class.path=/opt/be/lib/preload.jar", 1);
+    setenv("DORIS_CLASSPATH", "-Djava.class.path=/opt/be/lib/plugin-spi.jar", 1);
 
-    EXPECT_TRUE(has(options(), "-Djava.class.path=/opt/be/lib/preload.jar"));
+    EXPECT_TRUE(has(options(), "-Djava.class.path=/opt/be/lib/plugin-spi.jar"));
     EXPECT_EQ(1, count_prefixed(options(), "-Djava.class.path="));
 }
 

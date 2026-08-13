@@ -65,49 +65,52 @@ under the License.
         <finalName>hive-udf-shade</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!--
+              Unpack rather than shade, into this module's own class output. The shade plugin
+              produces its jar in the package phase, so a `mvn test` run - which stops before
+              that - left a downstream module resolving this artifact to an empty target/classes
+              and failing to find the UDF base class. Writing the classes where compiled sources
+              would go means a reactor build sees them at the same moment it would see sources.
+              hive-apache-shade is built the same way, for the same reason.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <version>3.2.4</version>
+                <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
-                        <phase>package</phase>
+                        <id>unpack-hive-udf-contract</id>
+                        <phase>process-resources</phase>
                         <goals>
-                            <goal>shade</goal>
+                            <goal>unpack</goal>
                         </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>org.apache.hive</groupId>
+                                    <artifactId>hive-exec</artifactId>
+                                    <classifier>core</classifier>
+                                    <version>${hive.version}</version>
+                                    <overWrite>true</overWrite>
+                                    <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                                    <!--
+                                      Keep ONLY the Hive UDF contract + its load-time closure:
+                                        - ql/exec/UDF*                  UDF base class, UDFMethodResolver,
+                                                                        UDFArgument*Exception, UDFClassLoader
+                                        - ql/exec/DefaultUDFMethodResolver  instantiated by the UDF ctor
+                                        - ql/exec/Description           the @Description annotation
+                                        - ql/metadata/HiveException*    declared by some user UDFs
+                                      FunctionRegistry is referenced only inside the never-called
+                                      DefaultUDFMethodResolver.getEvalMethod(), so it is intentionally
+                                      excluded. Everything else in hive-exec is dropped.
+                                    -->
+                                    <includes>
+                                        org/apache/hadoop/hive/ql/exec/UDF*.class,org/apache/hadoop/hive/ql/exec/DefaultUDFMethodResolver*.class,org/apache/hadoop/hive/ql/exec/Description*.class,org/apache/hadoop/hive/ql/metadata/HiveException*.class
+                                    </includes>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
                     </execution>
                 </executions>
-                <configuration>
-                    <createDependencyReducedPom>false</createDependencyReducedPom>
-                    <!-- Bundle only hive-exec; the project itself has no sources. -->
-                    <artifactSet>
-                        <includes>
-                            <include>org.apache.hive:hive-exec</include>
-                        </includes>
-                    </artifactSet>
-                    <!--
-                      Keep ONLY the Hive UDF contract + its load-time closure:
-                        - ql/exec/UDF*                  UDF base class, UDFMethodResolver,
-                                                        UDFArgument*Exception, UDFClassLoader
-                        - ql/exec/DefaultUDFMethodResolver  instantiated by the UDF ctor
-                        - ql/exec/Description           the @Description annotation
-                        - ql/metadata/HiveException*    declared by some user UDFs
-                      FunctionRegistry is referenced only inside the never-called
-                      DefaultUDFMethodResolver.getEvalMethod(), so it is intentionally
-                      excluded. Everything else in hive-exec is dropped.
-                    -->
-                    <filters>
-                        <filter>
-                            <artifact>org.apache.hive:hive-exec</artifact>
-                            <includes>
-                                <include>org/apache/hadoop/hive/ql/exec/UDF*.class</include>
-                                <include>org/apache/hadoop/hive/ql/exec/DefaultUDFMethodResolver*.class</include>
-                                <include>org/apache/hadoop/hive/ql/exec/Description*.class</include>
-                                <include>org/apache/hadoop/hive/ql/metadata/HiveException*.class</include>
-                            </includes>
-                        </filter>
-                    </filters>
-                </configuration>
             </plugin>
         </plugins>
     </build>

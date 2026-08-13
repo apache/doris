@@ -46,19 +46,18 @@ if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
     exit 1
 fi
 
-# add java libs
-preload_jars=("preload-extensions")
-preload_jars+=("java-udf")
-
-for preload_jar_dir in "${preload_jars[@]}"; do
-    for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
+# The shared layer, the same one start_be.sh puts in front of BE: the plugin SPI and the loader
+# that reads lib/java/plugins. What used to be here were two fat jars that no longer deploy -
+# every Java scanner and the UDF executors are plugins now, each with its own directory.
+if [[ -d "${DORIS_HOME}/lib/java/spi" ]]; then
+    for f in "${DORIS_HOME}/lib/java/spi"/*.jar; do
         if [[ -z "${DORIS_CLASSPATH}" ]]; then
             export DORIS_CLASSPATH="${f}"
         else
             export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
         fi
     done
-done
+fi
 
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     # add hadoop libs

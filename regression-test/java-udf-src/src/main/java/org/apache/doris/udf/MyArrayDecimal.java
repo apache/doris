@@ -19,12 +19,9 @@ package org.apache.doris.udf;
 import java.math.BigDecimal;
 
 import org.apache.hadoop.hive.ql.exec.UDF;
-import org.apache.log4j.Logger;
 import java.util.*;
 
 public class MyArrayDecimal extends UDF {
-    private static final Logger LOG = Logger.getLogger(MyArrayDecimal.class);
-
     public Integer evaluate(ArrayList<BigDecimal> arr) {
         Integer scale = 0;
         for (BigDecimal value : arr) {

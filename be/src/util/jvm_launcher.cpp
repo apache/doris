@@ -100,8 +100,7 @@ std::string JvmLauncher::_class_path_option() {
     // start_be.sh publishes one and the same class path under two names: CLASSPATH, which
     // libhdfs used to build the JVM from, and DORIS_CLASSPATH, which is the same list
     // already spelled as a JVM option. CLASSPATH wins because it is the one the JVM of
-    // every running BE was created from, and the only one that carries conf/ and
-    // plugins/java_extensions.
+    // every running BE was created from, and the only one that carries conf/.
     std::string class_path = env_value("CLASSPATH");
     if (class_path.empty()) {
         static constexpr std::string_view kOptionPrefix = "-Djava.class.path=";

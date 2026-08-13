@@ -15,13 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 package org.apache.doris.udf;
-import org.apache.log4j.Logger;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
 public class MyGroupConcatString {
-    private static final Logger LOG = Logger.getLogger(MyGroupConcatString.class);
     public static class State {
         public String data = new String();
         public String separator = "-";

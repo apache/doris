@@ -17,16 +17,26 @@
 
 package org.apache.doris.udf;
 
-import org.apache.hadoop.hive.ql.exec.UDF;
+import org.apache.doris.jni.spi.UdfExecutorFactory;
 
-import java.util.*;
+/** Builds {@link UdafExecutor}. BE reaches it as {@code (java-udf, aggregate)}. */
+public class AggregateUdfExecutorFactory implements UdfExecutorFactory {
 
-public class MapidTest extends UDF {
-    public HashMap<Integer, Double> evaluate(HashMap<Integer, Double> mid) {
-        HashMap<Integer, Double> ans = new HashMap<>();
-        for (Map.Entry<Integer, Double> it : mid.entrySet()) {
-            ans.put(it.getKey() * 10, it.getValue() * 10);
-        }
-        return ans;
+    public static final String NAME = "aggregate";
+
+    @Override
+    public String getName() {
+        return NAME;
+    }
+
+    @Override
+    public Object create(byte[] thriftParams) throws Exception {
+        return new UdafExecutor(thriftParams);
+    }
+
+    /** See {@link ScalarUdfExecutorFactory#invalidate}: one cache, reached from either factory. */
+    @Override
+    public void invalidate(String functionSignature) {
+        UdfClassCacheRegistry.invalidate(functionSignature);
     }
 }

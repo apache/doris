@@ -58,6 +58,8 @@ protected:
                 {"JDBC_WRITER", plugin::JDBC_WRITER},
                 {"JDBC_CONNECTION_TESTER", plugin::JDBC_CONNECTION_TESTER},
                 {"TRINO_CONNECTOR_SCANNER", plugin::TRINO_CONNECTOR_SCANNER},
+                {"JAVA_UDF_SCALAR", plugin::JAVA_UDF_SCALAR},
+                {"JAVA_UDF_AGGREGATE", plugin::JAVA_UDF_AGGREGATE},
         };
     }
 };

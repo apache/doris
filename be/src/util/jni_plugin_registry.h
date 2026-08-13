@@ -73,6 +73,11 @@ inline constexpr PluginRef JDBC_WRITER {"jdbc", "writer"};
 // rather than a second entry point.
 inline constexpr PluginRef JDBC_CONNECTION_TESTER {"jdbc", "connection-tester"};
 inline constexpr PluginRef TRINO_CONNECTOR_SCANNER {"trino-connector", "reader"};
+// A table function's executor is the scalar one: the same evaluate() runs per row and the
+// serialized parameters carry the flag that makes its return type an array. Hence two entries
+// for three kinds of function.
+inline constexpr PluginRef JAVA_UDF_SCALAR {"java-udf", "scalar"};
+inline constexpr PluginRef JAVA_UDF_AGGREGATE {"java-udf", "aggregate"};
 
 } // namespace plugin
 
@@ -131,8 +136,13 @@ public:
     // struct all the way into the plugin, which owns the only copy of thrift that can read
     // them; the executor comes back as a plain object because the three function kinds do
     // not share a method shape. See UdfExecutorFactory.
-    static Status create_udf_executor(JNIEnv* env, const PluginRef& ref, const jbyte* thrift_params,
-                                      jint length, GlobalObject* executor);
+    //
+    // Its class comes back with it, and it is the only way the caller can get one: the
+    // executor's class lives in the plugin's classloader, so FindClass by name - which searches
+    // BE's loader - would not find it. The caller resolves the methods of its own kind on this.
+    static Status create_udf_executor(JNIEnv* env, const PluginRef& ref,
+                                      const LocalArray& thrift_params, GlobalObject* executor,
+                                      GlobalClass* executor_class);
 
     // Forwarded to every loaded plugin on DROP FUNCTION, so whichever one compiled that
     // function can drop what it cached for it.

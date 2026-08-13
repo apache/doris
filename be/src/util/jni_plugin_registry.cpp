@@ -154,8 +154,8 @@ Status PluginRegistry::create_writer(JNIEnv* env, const PluginRef& ref, int batc
 }
 
 Status PluginRegistry::create_udf_executor(JNIEnv* env, const PluginRef& ref,
-                                           const jbyte* thrift_params, jint length,
-                                           GlobalObject* executor) {
+                                           const LocalArray& thrift_params, GlobalObject* executor,
+                                           GlobalClass* executor_class) {
     const Registry* registry = nullptr;
     RETURN_IF_ERROR(_ensure_registry(&registry));
 
@@ -163,14 +163,13 @@ Status PluginRegistry::create_udf_executor(JNIEnv* env, const PluginRef& ref,
     RETURN_IF_ERROR(LocalString::new_string(env, std::string(ref.plugin).c_str(), &plugin));
     LocalString factory;
     RETURN_IF_ERROR(LocalString::new_string(env, std::string(ref.factory).c_str(), &factory));
-    LocalArray params;
-    RETURN_IF_ERROR(LocalArray::WriteBufferToByteArray(env, thrift_params, length, &params));
 
-    return registry->cls.call_static_object_method(env, registry->create_udf_executor)
-            .with_arg(plugin)
-            .with_arg(factory)
-            .with_arg(params)
-            .call(executor);
+    RETURN_IF_ERROR(registry->cls.call_static_object_method(env, registry->create_udf_executor)
+                            .with_arg(plugin)
+                            .with_arg(factory)
+                            .with_arg(thrift_params)
+                            .call(executor));
+    return Util::get_object_class(env, *executor, executor_class);
 }
 
 Status PluginRegistry::clean_udf_cache(const std::string& function_signature) {
