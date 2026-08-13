@@ -26,8 +26,11 @@ import org.apache.doris.nereids.trees.plans.commands.info.PaimonRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -48,18 +51,20 @@ public class PaimonDeleteCommand extends Command implements ForwardWithSync, Exp
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        new InsertIntoTableCommand(buildPlan(), Optional.empty(), Optional.empty(), Optional.empty())
+        new InsertIntoTableCommand(buildPlan(ctx), Optional.empty(), Optional.empty(), Optional.empty())
                 .run(ctx, executor);
     }
 
-    private LogicalPlan buildPlan() {
+    private LogicalPlan buildPlan(ConnectContext ctx) {
+        List<String> targetNameInPlan = tableAlias != null
+                ? ImmutableList.of(tableAlias) : RelationUtil.getQualifierName(ctx, nameParts);
         return new UnboundPaimonTableSink<>(nameParts, logicalQuery,
-                new PaimonRowChangeSpec.Delete(tableAlias));
+                new PaimonRowChangeSpec.Delete(targetNameInPlan));
     }
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
-        return buildPlan();
+        return buildPlan(ctx);
     }
 
     @Override

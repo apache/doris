@@ -28,8 +28,11 @@ import org.apache.doris.nereids.trees.plans.commands.info.PaimonRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -64,8 +67,10 @@ public class PaimonUpdateCommand extends Command implements ForwardWithSync, Exp
             UpdateCommand.checkAssignmentColumn(ctx,
                     ((UnboundSlot) assignment.left()).getNameParts(), nameParts, tableAlias);
         }
+        List<String> targetNameInPlan = tableAlias != null
+                ? ImmutableList.of(tableAlias) : RelationUtil.getQualifierName(ctx, nameParts);
         return new UnboundPaimonTableSink<>(nameParts, logicalQuery,
-                new PaimonRowChangeSpec.Update(tableAlias, assignments));
+                new PaimonRowChangeSpec.Update(targetNameInPlan, assignments));
     }
 
     @Override

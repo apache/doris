@@ -34,6 +34,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
 
 import java.util.Collection;
@@ -49,6 +50,7 @@ final class PaimonRowChangeCapabilities {
     static void check(PaimonWriteTarget target, PaimonRowChangeSpec spec,
             CascadesContext cascadesContext) {
         requireNoDataMask(target, spec, cascadesContext);
+        requireCompleteKeyDynamicIndex(target.getTable(), spec);
         if (spec instanceof PaimonRowChangeSpec.Update) {
             checkUpdate(target,
                     updatedColumns(((PaimonRowChangeSpec.Update) spec).getAssignments()));
@@ -108,10 +110,17 @@ final class PaimonRowChangeCapabilities {
                 throw new AnalysisException("Paimon UPDATE cannot modify sequence-field column '"
                         + column + "'");
             }
-            if (partitionKeys.contains(column) && options.bucket() != -1) {
-                throw new AnalysisException("Paimon UPDATE cannot modify partition column '"
-                        + column + "' unless bucket=-1 because the old partition row cannot be "
-                        + "removed without an UPDATE_BEFORE record");
+            if (partitionKeys.contains(column)) {
+                if (options.bucket() != -1) {
+                    throw new AnalysisException("Paimon UPDATE cannot modify partition column '"
+                            + column + "' unless bucket=-1 because the old partition row cannot be "
+                            + "removed without an UPDATE_BEFORE record");
+                }
+                if (options.ignoreDelete()) {
+                    throw new AnalysisException("Paimon UPDATE cannot modify partition column '"
+                            + column + "' when ignore-delete=true because removing the old "
+                            + "partition row requires a delete record");
+                }
             }
         }
         CoreOptions.MergeEngine engine = options.mergeEngine();
@@ -170,6 +179,17 @@ final class PaimonRowChangeCapabilities {
     private static void requirePrimaryKey(FileStoreTable table, String operation) {
         if (table.primaryKeys().isEmpty()) {
             throw new AnalysisException("Paimon " + operation + " requires a primary-key table");
+        }
+    }
+
+    private static void requireCompleteKeyDynamicIndex(
+            FileStoreTable table, PaimonRowChangeSpec spec) {
+        CoreOptions options = CoreOptions.fromMap(table.options());
+        if (table.bucketMode() == BucketMode.KEY_DYNAMIC
+                && options.crossPartitionUpsertIndexTtl() != null) {
+            throw new AnalysisException("Paimon " + spec.getDmlCommandType()
+                    + " is not supported when cross-partition-upsert.index-ttl is configured "
+                    + "because row-change DML requires a complete key-dynamic index");
         }
     }
 

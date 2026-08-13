@@ -36,16 +36,16 @@ public abstract class PaimonRowChangeSpec {
 
     /** UPDATE description. */
     public static final class Update extends PaimonRowChangeSpec {
-        private final String tableAlias;
+        private final List<String> targetNameInPlan;
         private final List<EqualTo> assignments;
 
-        public Update(String tableAlias, List<EqualTo> assignments) {
-            this.tableAlias = tableAlias;
+        public Update(List<String> targetNameInPlan, List<EqualTo> assignments) {
+            this.targetNameInPlan = Utils.copyRequiredList(targetNameInPlan);
             this.assignments = Utils.copyRequiredList(assignments);
         }
 
-        public String getTableAlias() {
-            return tableAlias;
+        public List<String> getTargetNameInPlan() {
+            return targetNameInPlan;
         }
 
         public List<EqualTo> getAssignments() {
@@ -71,26 +71,26 @@ public abstract class PaimonRowChangeSpec {
                 return false;
             }
             Update update = (Update) other;
-            return Objects.equals(tableAlias, update.tableAlias)
+            return Objects.equals(targetNameInPlan, update.targetNameInPlan)
                     && Objects.equals(assignments, update.assignments);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(tableAlias, assignments);
+            return Objects.hash(targetNameInPlan, assignments);
         }
     }
 
     /** DELETE description. */
     public static final class Delete extends PaimonRowChangeSpec {
-        private final String tableAlias;
+        private final List<String> targetNameInPlan;
 
-        public Delete(String tableAlias) {
-            this.tableAlias = tableAlias;
+        public Delete(List<String> targetNameInPlan) {
+            this.targetNameInPlan = Utils.copyRequiredList(targetNameInPlan);
         }
 
-        public String getTableAlias() {
-            return tableAlias;
+        public List<String> getTargetNameInPlan() {
+            return targetNameInPlan;
         }
 
         @Override
@@ -106,12 +106,12 @@ public abstract class PaimonRowChangeSpec {
         @Override
         public boolean equals(Object other) {
             return other instanceof Delete
-                    && Objects.equals(tableAlias, ((Delete) other).tableAlias);
+                    && Objects.equals(targetNameInPlan, ((Delete) other).targetNameInPlan);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(tableAlias);
+            return Objects.hash(targetNameInPlan);
         }
     }
 

@@ -163,6 +163,37 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
             'bucket' = '2',
             'bucket-key' = 'id'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_cross_partition_ttl;
+        CREATE TABLE paimon.${dbName}.t_cross_partition_ttl (
+            pt STRING, id INT, name STRING
+        ) USING paimon
+        PARTITIONED BY (pt)
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '-1',
+            'cross-partition-upsert.index-ttl' = '1 h'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_cross_partition_ignore_delete;
+        CREATE TABLE paimon.${dbName}.t_cross_partition_ignore_delete (
+            pt STRING, id INT, name STRING
+        ) USING paimon
+        PARTITIONED BY (pt)
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '-1',
+            'ignore-delete' = 'true'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_same_name;
+        CREATE TABLE paimon.${dbName}.t_same_name (
+            id INT, name STRING
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -195,8 +226,49 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
         (2, 'ignored', 0, 'D'),
         (5, 'Eve', 50, 'I')
     """
+    sql """drop table if exists internal.${dbName}.t_delete_source"""
+    sql """
+        CREATE TABLE internal.${dbName}.t_delete_source (
+            id INT
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES('replication_num'='1')
+    """
+    sql """INSERT INTO internal.${dbName}.t_delete_source VALUES (10), (10)"""
+    sql """drop table if exists internal.${dbName}.t_same_name"""
+    sql """
+        CREATE TABLE internal.${dbName}.t_same_name (
+            id INT, name STRING
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES('replication_num'='1')
+    """
 
     try {
+        def latestSnapshotId = { String tableName ->
+            def rows = spark_paimon """
+                SELECT max(snapshot_id)
+                FROM paimon.${dbName}.`${tableName}\$snapshots`
+            """
+            assertEquals(1, rows.size())
+            assertTrue(rows[0][0] != null)
+            return rows[0][0].toString()
+        }
+
+        def incrementalAuditLog = { tableName, columns, beforeSnapshot, afterSnapshot ->
+            return spark_paimon """
+                SELECT ${columns}
+                FROM paimon_incremental_query(
+                    'paimon.${dbName}.`${tableName}\$audit_log`',
+                    '${beforeSnapshot}',
+                    '${afterSnapshot}'
+                )
+                ORDER BY id, rowkind
+            """
+        }
+
         sql """INSERT INTO t_dml VALUES
             (1, 'Alice', 10, 'active'),
             (2, 'Bob', 20, 'active'),
@@ -258,6 +330,80 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
             """
             exception "Paimon UPDATE cannot modify partition column 'pt' unless bucket=-1"
         }
+        test {
+            sql """UPDATE t_cross_partition_ttl SET name = 'updated' WHERE id = 1"""
+            exception "cross-partition-upsert.index-ttl is configured"
+        }
+        test {
+            sql """DELETE FROM t_cross_partition_ttl WHERE id = 1"""
+            exception "cross-partition-upsert.index-ttl is configured"
+        }
+        test {
+            sql """
+                MERGE INTO t_cross_partition_ttl t
+                USING internal.${dbName}.t_merge_source s ON t.id = s.id
+                WHEN MATCHED THEN DELETE
+            """
+            exception "cross-partition-upsert.index-ttl is configured"
+        }
+        test {
+            sql """
+                UPDATE t_cross_partition_ignore_delete
+                SET pt = 'new_pt' WHERE id = 1
+            """
+            exception "cannot modify partition column 'pt' when ignore-delete=true"
+        }
+        test {
+            sql """
+                MERGE INTO t_cross_partition_ignore_delete t
+                USING internal.${dbName}.t_merge_source s ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET pt = 'new_pt', name = s.name
+            """
+            exception "cannot modify partition column 'pt' when ignore-delete=true"
+        }
+
+        sql """INSERT INTO t_input_changelog VALUES (10, 'delete-me')"""
+        String deleteInputBefore = latestSnapshotId("t_input_changelog")
+        sql """
+            DELETE FROM t_input_changelog t
+            USING internal.${dbName}.t_delete_source s
+            WHERE t.id = s.id
+        """
+        String deleteInputAfter = latestSnapshotId("t_input_changelog")
+        assertEquals([
+                ["-D", 10, "delete-me"]
+        ], incrementalAuditLog("t_input_changelog", "rowkind, id, name",
+                deleteInputBefore, deleteInputAfter))
+        assertEquals([[0L]], sql("SELECT count(*) FROM t_input_changelog"))
+
+        sql """INSERT INTO t_same_name VALUES (1, 'old')"""
+        sql """INSERT INTO internal.${dbName}.t_same_name VALUES (1, 'from-update')"""
+        sql """
+            UPDATE ${catalogName}.${dbName}.t_same_name
+            SET name = internal.${dbName}.t_same_name.name
+            FROM internal.${dbName}.t_same_name
+            WHERE ${catalogName}.${dbName}.t_same_name.id
+                    = internal.${dbName}.t_same_name.id
+        """
+        assertEquals([[1, "from-update"]], sql("SELECT * FROM t_same_name"))
+        sql """TRUNCATE TABLE internal.${dbName}.t_same_name"""
+        sql """INSERT INTO internal.${dbName}.t_same_name VALUES (1, 'from-merge')"""
+        sql """
+            MERGE INTO t_same_name
+            USING internal.${dbName}.t_same_name
+            ON ${catalogName}.${dbName}.t_same_name.id
+                    = internal.${dbName}.t_same_name.id
+            WHEN MATCHED THEN UPDATE
+                SET name = internal.${dbName}.t_same_name.name
+        """
+        assertEquals([[1, "from-merge"]], sql("SELECT * FROM t_same_name"))
+        sql """
+            DELETE FROM ${catalogName}.${dbName}.t_same_name
+            USING internal.${dbName}.t_same_name
+            WHERE ${catalogName}.${dbName}.t_same_name.id
+                    = internal.${dbName}.t_same_name.id
+        """
+        assertEquals([[0L]], sql("SELECT count(*) FROM t_same_name"))
 
         sql """
             UPDATE t_dml
@@ -475,5 +621,7 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
     } finally {
         sql """drop catalog if exists ${catalogName}"""
         sql """drop table if exists internal.${dbName}.t_merge_source"""
+        sql """drop table if exists internal.${dbName}.t_delete_source"""
+        sql """drop table if exists internal.${dbName}.t_same_name"""
     }
 }

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.paimon.PaimonRowChangeOperation;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.nereids.CascadesContext;
@@ -80,16 +79,13 @@ final class PaimonRowChangePlanBuilder {
             }
         }
 
-        String targetName = update.getTableAlias() != null
-                ? update.getTableAlias()
-                : Util.getTempTableDisplayName(target.getDorisTable().getName());
         ExpressionAnalyzer analyzer = expressionAnalyzer(child, cascadesContext);
         List<NamedExpression> projects = new ArrayList<>();
         projects.add(operation(PaimonRowChangeOperation.UPDATE));
         for (Column column : target.getSchema()) {
             Expression value = changes.remove(column.getName());
             if (value == null) {
-                value = new UnboundSlot(targetName, column.getName());
+                value = targetSlot(update.getTargetNameInPlan(), column.getName());
             }
             projects.add(bindColumn(analyzer, value, column));
         }
@@ -103,17 +99,21 @@ final class PaimonRowChangePlanBuilder {
     private static LogicalProject<?> buildDelete(PaimonWriteTarget target,
             PaimonRowChangeSpec.Delete delete, LogicalPlan child,
             CascadesContext cascadesContext) {
-        String targetName = delete.getTableAlias() != null
-                ? delete.getTableAlias()
-                : Util.getTempTableDisplayName(target.getDorisTable().getName());
         ExpressionAnalyzer analyzer = expressionAnalyzer(child, cascadesContext);
         List<NamedExpression> projects = new ArrayList<>();
         projects.add(operation(PaimonRowChangeOperation.DELETE));
         for (Column column : target.getSchema()) {
             projects.add(bindColumn(
-                    analyzer, new UnboundSlot(targetName, column.getName()), column));
+                    analyzer, targetSlot(delete.getTargetNameInPlan(), column.getName()), column));
         }
-        return new LogicalProject<>(projects, child);
+        // SQL DELETE changes each target row once even when a USING join matches it repeatedly.
+        return new LogicalProject<>(projects, true, child);
+    }
+
+    private static UnboundSlot targetSlot(List<String> targetNameInPlan, String columnName) {
+        List<String> nameParts = new ArrayList<>(targetNameInPlan);
+        nameParts.add(columnName);
+        return new UnboundSlot(nameParts);
     }
 
     private static Alias operation(byte operation) {

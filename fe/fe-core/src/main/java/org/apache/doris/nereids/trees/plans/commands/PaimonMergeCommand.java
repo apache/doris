@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -50,7 +51,6 @@ import java.util.Optional;
 public class PaimonMergeCommand extends Command implements ForwardWithSync, Explainable {
     private final List<String> targetNameParts;
     private final Optional<String> targetAlias;
-    private final List<String> targetNameInPlan;
     private final Optional<LogicalPlan> cte;
     private final LogicalPlan source;
     private final Expression onClause;
@@ -65,8 +65,6 @@ public class PaimonMergeCommand extends Command implements ForwardWithSync, Expl
         super(PlanType.MERGE_INTO_COMMAND);
         this.targetNameParts = targetNameParts;
         this.targetAlias = targetAlias;
-        this.targetNameInPlan = targetAlias.isPresent()
-                ? ImmutableList.of(targetAlias.get()) : targetNameParts;
         this.cte = cte;
         this.source = source;
         this.onClause = onClause;
@@ -88,6 +86,9 @@ public class PaimonMergeCommand extends Command implements ForwardWithSync, Expl
                         targetNameParts, targetAlias.orElse(null));
             }
         }
+        List<String> targetNameInPlan = targetAlias.isPresent()
+                ? ImmutableList.of(targetAlias.get())
+                : RelationUtil.getQualifierName(ctx, targetNameParts);
         PaimonRowChangeSpec.Merge spec = new PaimonRowChangeSpec.Merge(
                 targetNameInPlan, matchedClauses, notMatchedClauses);
         return new UnboundPaimonTableSink<>(targetNameParts, generateBasePlan(), spec);
