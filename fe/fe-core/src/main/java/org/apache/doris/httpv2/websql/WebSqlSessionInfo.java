@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.websql;
 
+/** Public session metadata returned after a Web SQL session is created or reset. */
 public class WebSqlSessionInfo {
     private final String sessionId;
     private final long createdAtMillis;

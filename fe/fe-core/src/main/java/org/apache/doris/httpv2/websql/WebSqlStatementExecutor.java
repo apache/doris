@@ -32,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/** Executes one validated statement on an existing Web SQL connection and builds a bounded JSON result. */
 public class WebSqlStatementExecutor {
     public WebSqlExecutionResult execute(WebSqlSession session, String sql, WebSqlLimits limits) {
         String validatedSql = SingleStatementValidator.requireSingleStatement(sql);
@@ -144,6 +145,7 @@ public class WebSqlStatementExecutor {
         return details;
     }
 
+    /** Intermediate result-set data collected before supplementary session metadata is queried. */
     private static class QueryResult {
         private final List<WebSqlColumn> columns;
         private final List<List<Object>> rows;
@@ -159,6 +161,7 @@ public class WebSqlStatementExecutor {
         }
     }
 
+    /** Best-effort catalog, database, and query ID observed after a statement finishes. */
     private static class SessionMetadata {
         private final String catalog;
         private final String database;

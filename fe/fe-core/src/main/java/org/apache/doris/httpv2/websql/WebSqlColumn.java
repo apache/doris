@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.websql;
 
+/** Describes one result-set column in the Web SQL JSON response. */
 public class WebSqlColumn {
     private final String name;
     private final String type;

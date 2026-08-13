@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.websql;
 
 import java.util.List;
 
+/** JSON result of one statement, including rows or update count plus session metadata used by HTTP clients. */
 public class WebSqlExecutionResult {
     private final List<WebSqlColumn> columns;
     private final List<List<Object>> rows;

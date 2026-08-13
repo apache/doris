@@ -19,8 +19,11 @@ package org.apache.doris.httpv2.websql;
 
 import org.apache.doris.common.Config;
 
+/**
+ * Immutable resource and concurrency limits captured by the Web SQL manager when the FE starts.
+ * Public FE configuration supplies operational limits; internal invariants keep each session single-threaded.
+ */
 public class WebSqlLimits {
-    private static final int NO_JDBC_TIMEOUT_OVERRIDE = 0;
     private static final int FAIL_FAST_LOCK_WAIT_MILLIS = 0;
     private static final int MAX_REQUESTS_IN_OR_WAITING_FOR_A_SESSION = 1;
     private static final int MAX_SESSIONS_PER_USER = 5;
@@ -31,21 +34,19 @@ public class WebSqlLimits {
     public final int maxSessionsPerUser;
     public final int maxResultRows;
     public final long maxResultBytes;
-    public final int statementTimeoutSeconds;
     public final int lockWaitTimeoutMillis;
     public final int maxQueuedStatements;
     public final int cleanupIntervalSeconds;
 
     public WebSqlLimits(boolean enabled, long idleTimeoutMillis, int maxSessions, int maxSessionsPerUser,
-            int maxResultRows, long maxResultBytes, int statementTimeoutSeconds, int lockWaitTimeoutMillis,
-            int maxQueuedStatements, int cleanupIntervalSeconds) {
+            int maxResultRows, long maxResultBytes, int lockWaitTimeoutMillis, int maxQueuedStatements,
+            int cleanupIntervalSeconds) {
         this.enabled = enabled;
         this.idleTimeoutMillis = idleTimeoutMillis;
         this.maxSessions = maxSessions;
         this.maxSessionsPerUser = maxSessionsPerUser;
         this.maxResultRows = maxResultRows;
         this.maxResultBytes = maxResultBytes;
-        this.statementTimeoutSeconds = statementTimeoutSeconds;
         this.lockWaitTimeoutMillis = lockWaitTimeoutMillis;
         this.maxQueuedStatements = maxQueuedStatements;
         this.cleanupIntervalSeconds = cleanupIntervalSeconds;
@@ -58,7 +59,6 @@ public class WebSqlLimits {
                 Config.web_sql_session_idle_timeout_seconds * 1000L,
                 Config.web_sql_max_sessions, Math.min(Config.web_sql_max_sessions, MAX_SESSIONS_PER_USER),
                 MAX_RESULT_ROWS, Config.web_sql_max_result_bytes,
-                NO_JDBC_TIMEOUT_OVERRIDE, FAIL_FAST_LOCK_WAIT_MILLIS,
-                MAX_REQUESTS_IN_OR_WAITING_FOR_A_SESSION, cleanupIntervalSeconds);
+                FAIL_FAST_LOCK_WAIT_MILLIS, MAX_REQUESTS_IN_OR_WAITING_FOR_A_SESSION, cleanupIntervalSeconds);
     }
 }

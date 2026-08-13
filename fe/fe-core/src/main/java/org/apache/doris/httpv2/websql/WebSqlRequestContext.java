@@ -38,6 +38,7 @@ public final class WebSqlRequestContext {
         throw new WebSqlException(WebSqlError.ACCESS_DENIED);
     }
 
+    /** Authenticated Doris credentials needed to create or reset the session's JDBC connection. */
     public static final class Authentication {
         private final String owner;
         private final String password;

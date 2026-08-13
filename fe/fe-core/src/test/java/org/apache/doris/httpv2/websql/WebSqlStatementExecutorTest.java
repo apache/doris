@@ -106,6 +106,6 @@ public class WebSqlStatementExecutorTest {
     private WebSqlSession activeSession;
 
     private WebSqlLimits limits(long bytes) {
-        return new WebSqlLimits(true, 1000, 5, 5, 10, bytes, 0, 0, 1, 60);
+        return new WebSqlLimits(true, 1000, 5, 5, 10, bytes, 0, 1, 60);
     }
 }

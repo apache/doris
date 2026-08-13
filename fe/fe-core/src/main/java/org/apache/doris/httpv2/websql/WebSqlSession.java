@@ -24,6 +24,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
+/**
+ * Owns one FE-local JDBC connection and serializes all statements that use its Doris session state.
+ * It also tracks the active statement for cancellation and timestamps for idle cleanup.
+ */
 public class WebSqlSession {
     private final String id;
     private final String owner;

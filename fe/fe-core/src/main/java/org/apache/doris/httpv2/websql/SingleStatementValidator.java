@@ -17,6 +17,10 @@
 
 package org.apache.doris.httpv2.websql;
 
+/**
+ * Accepts exactly one SQL statement while ignoring semicolons inside quoted values, identifiers, and comments.
+ * Keeping one statement per HTTP request makes cancellation, result ownership, and error reporting unambiguous.
+ */
 public final class SingleStatementValidator {
     private SingleStatementValidator() {
     }
@@ -108,6 +112,7 @@ public final class SingleStatementValidator {
         return statement.trim();
     }
 
+    /** Scanner states needed to distinguish a statement terminator from SQL text containing a semicolon. */
     private enum State {
         NORMAL,
         SINGLE_QUOTE,

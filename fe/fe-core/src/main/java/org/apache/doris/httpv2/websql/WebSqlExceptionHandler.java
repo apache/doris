@@ -55,6 +55,7 @@ public class WebSqlExceptionHandler {
                 .body(new ApiError("WEB_SQL_INTERNAL_ERROR", "An internal error occurred.", null));
     }
 
+    /** JSON error body returned by Web SQL endpoints without exposing internal exception text. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private static class ApiError {
         private final String code;

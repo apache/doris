@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.websql;
 import java.sql.Connection;
 import java.sql.SQLException;
 
+/** Creates the persistent JDBC connection owned by one Web SQL session. */
 public interface WebSqlConnectionFactory {
     Connection open(String user, String password) throws SQLException;
 }

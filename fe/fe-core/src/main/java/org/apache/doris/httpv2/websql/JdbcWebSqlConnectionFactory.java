@@ -23,6 +23,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 
+/** Opens Web SQL connections to the current FE's MySQL query port with the authenticated Doris user. */
 public class JdbcWebSqlConnectionFactory implements WebSqlConnectionFactory {
     private static final String JDBC_DRIVER = "org.mariadb.jdbc.Driver";
     private static final String DB_URL_PATTERN = "jdbc:mariadb://127.0.0.1:%d/";
