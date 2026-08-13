@@ -97,7 +97,6 @@ TEST(MemTableFlushExecutorTest, TestDynamicThreadPoolUpdate) {
     int32_t original_max_flush_thread_num = config::max_flush_thread_num_per_cpu;
     int32_t original_high_priority_flush_thread_num =
             config::high_priority_flush_thread_num_per_store;
-    int32_t original_max_flush_thread_num = config::max_flush_thread_num_per_cpu;
 
     // Test 1: Get initial thread pool sizes
     int initial_max_threads = flush_executor->flush_pool()->max_threads();
@@ -157,6 +156,7 @@ TEST(MemTableFlushExecutorTest, TestConfigUpdateTrigger) {
 
     // Store original config values
     int32_t original_flush_thread_num = config::flush_thread_num_per_store;
+    int32_t original_max_flush_thread_num = config::max_flush_thread_num_per_cpu;
 
     // Get initial thread pool size
     int initial_min_threads = flush_executor->flush_pool()->min_threads();
