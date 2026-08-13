@@ -44,6 +44,7 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
     int abs_offset = std::abs(time_offset);
     int offset_hours = abs_offset / 3600;
     int offset_mins = (abs_offset % 3600) / 60;
+    int offset_secs = abs_offset % 60;
 
     /// TODO: We could directly use datetime's to_string here. In the future,
     /// when we support a function like 'show datetime with timezone',
@@ -65,6 +66,11 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
     buffer[len++] = ':';
     buffer[len++] = static_cast<char>('0' + offset_mins / 10);
     buffer[len++] = '0' + offset_mins % 10;
+    if (offset_secs != 0) {
+        buffer[len++] = ':';
+        buffer[len++] = static_cast<char>('0' + offset_secs / 10);
+        buffer[len++] = '0' + offset_secs % 10;
+    }
     return {buffer, static_cast<size_t>(len)};
 }
 

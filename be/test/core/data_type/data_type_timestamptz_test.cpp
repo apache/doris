@@ -113,6 +113,24 @@ TEST_F(DataTypeTimeStampTzTest, test_to_string_negative_sub_hour_offset) {
     EXPECT_EQ(value.to_string(time_zone), "2023-12-31 23:45:00.000000-00:30");
 }
 
+TEST_F(DataTypeTimeStampTzTest, test_to_string_second_offset_round_trip) {
+    TimestampTzValue value = make_timestamptz(1900, 1, 1, 0, 0, 0, 0);
+
+    cctz::time_zone shanghai;
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));
+    auto rendered = value.to_string(shanghai, 0);
+    EXPECT_EQ(rendered, "1900-01-01 08:05:43+08:05:43");
+
+    DataTypeSerDe::FormatOptions options;
+    options.timezone = &shanghai;
+    auto column = type->create_column();
+    ASSERT_TRUE(serder->from_string(StringRef {rendered}, *column, options).ok());
+    EXPECT_EQ(assert_cast<ColumnTimeStampTz&>(*column).get_data()[0], value);
+
+    auto negative_second_offset = cctz::fixed_time_zone(std::chrono::seconds(-1845));
+    EXPECT_EQ(value.to_string(negative_second_offset, 0), "1899-12-31 23:29:15-00:30:45");
+}
+
 TEST_F(DataTypeTimeStampTzTest, test_sort) {
     MockRuntimeState _state;
     RuntimeProfile _profile {"test"};

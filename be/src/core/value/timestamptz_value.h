@@ -60,7 +60,7 @@ public:
     // Returns an integer value for storage in a column
     underlying_value to_date_int_val() const { return _utc_dt.to_date_int_val(); }
 
-    // Outputs a string representation with timezone information in the format +03:00
+    // Outputs a string representation with timezone information in the format +03:00[:SS]
     std::string to_string(const cctz::time_zone& local_time_zone, int scale = 6) const;
 
     // Parses a string, CastParameters can control whether strict mode is used
