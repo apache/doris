@@ -237,15 +237,15 @@ public class PluginApiVersionWiringTest {
                 Deencapsulation.getField(manager, "authorizationPluginFactories");
         AuthorizationPluginFactory installed = factories.get(
                 ShadowingAuthorizationPluginFactory.SHADOWED_NAME);
-        Assertions.assertNotNull(installed, "the shipped ranger-doris source disappeared from the test setup,"
-                + " so this test would pass without proving anything");
+        Assertions.assertNotNull(installed, "the class-path ranger-doris source disappeared from the test"
+                + " setup, so this test would pass without proving anything");
         // By class NAME, not by Class object. A directory plugin is loaded through its own classloader, so
         // its factory class is never the same object as the one this test holds - even when it did displace
         // the shipped source. Written as an identity comparison first, this assertion could not fail at all:
         // a mutation deleting the guard below left the whole test green.
         Assertions.assertNotEquals(ShadowingAuthorizationPluginFactory.class.getName(),
                 installed.getClass().getName(),
-                "a jar dropped into the plugin directory displaced a source shipped with the FE; an"
+                "a jar dropped into the plugin directory displaced a source on the FE's class path; an"
                         + " allow-everything plugin under a real source's name is the whole point of"
                         + " refusing this");
         // Refusing it has to release it too: a plugin kept in the directory runtime keeps its classloader,

@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql.privilege;
+package org.apache.doris.catalog.authorizer.ranger.doris;
 
 import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
-import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

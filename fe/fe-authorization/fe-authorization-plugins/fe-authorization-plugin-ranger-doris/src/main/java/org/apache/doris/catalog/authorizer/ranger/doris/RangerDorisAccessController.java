@@ -26,7 +26,6 @@ import org.apache.doris.authorization.AuthorizedResource;
 import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
-import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
@@ -55,6 +54,16 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     // ranger must set name, we agreed that this name must be used
     private static final String GLOBAL_PRIV_FIXED_NAME = "*";
+
+    /**
+     * The workload group every user may use without holding a privilege on it, spelled out here rather than
+     * read from the engine so that this plugin compiles against the authorization contract alone.
+     *
+     * <p>It has to stay equal to {@code WorkloadGroupMgr.DEFAULT_GROUP_NAME}. Nothing enforces that across
+     * the two, so if the engine ever renames its default group, users of a Ranger-governed instance start
+     * needing an explicit Ranger policy for the group they were silently allowed before.
+     */
+    private static final String ENGINE_DEFAULT_WORKLOAD_GROUP = "normal";
 
     private RangerBasePlugin dorisPlugin;
     // private static ScheduledThreadPoolExecutor logFlushTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
@@ -129,7 +138,7 @@ public class RangerDorisAccessController extends RangerAccessController {
             case WORKLOAD_GROUP: {
                 // For compatibility with older versions, it is not needed to check the privileges of the
                 // default group.
-                if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(named(resource))) {
+                if (ENGINE_DEFAULT_WORKLOAD_GROUP.equals(named(resource))) {
                     return;
                 }
                 EnumSet<AccessAction> granted = EnumSet.noneOf(AccessAction.class);
@@ -183,6 +192,11 @@ public class RangerDorisAccessController extends RangerAccessController {
         request.setAction(accessType.name());
         request.setAccessType(accessType.name());
         return request;
+    }
+
+    @Override
+    protected String readAccessTypeName() {
+        return DorisAccessType.SELECT.name();
     }
 
     @Override

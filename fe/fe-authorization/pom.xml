@@ -79,5 +79,6 @@ under the License.
     <modules>
         <module>fe-authorization-api</module>
         <module>fe-authorization-spi</module>
+        <module>fe-authorization-plugins</module>
     </modules>
 </project>
