@@ -23,12 +23,13 @@
 #include <vector>
 
 #include "exec/partitioner/partitioner.h"
+#include "exec/partitioner/writer_assigner.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
-// Strictly maps one external-table ownership key to one exchange channel. Optional
-// partition transforms are evaluated transiently and never appended to the sink row.
+// Computes logical sink partitions and maps them to standard Doris exchange channels.
+// Optional partition transforms are evaluated transiently and never appended to the sink row.
 class ExternalTableSinkHashPartitioner final : public PartitionerBase {
 public:
     ExternalTableSinkHashPartitioner(HashValType partition_count, bool use_new_shuffle_hash_method,
@@ -49,8 +50,10 @@ private:
 
     bool _use_new_shuffle_hash_method;
     TExternalTableSinkHashPartitionInfo _partition_info;
-    std::unique_ptr<PartitionerBase> _hash_partitioner;
+    HashValType _logical_partition_count;
     std::unique_ptr<PartitionFunction> _partition_function;
+    mutable std::unique_ptr<WriterAssigner> _writer_assigner;
+    mutable std::vector<HashValType> _logical_partition_ids;
     mutable std::vector<HashValType> _channel_ids;
 };
 

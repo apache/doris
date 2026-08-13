@@ -145,8 +145,9 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
             }
             DistributionSpecIcebergTableSinkHashPartitioned distributionSpec
                     = buildPartitionDistributionSpec();
-            // An unsupported transform must not silently route one Iceberg partition to
-            // multiple writers. GATHER is the safe fallback until the transform is supported.
+            // An unsupported transform must not silently hash its raw source column as though it
+            // were the final Iceberg partition value. GATHER is the safe fallback until the
+            // transform is supported.
             return distributionSpec == null
                     ? PhysicalProperties.GATHER
                     : new PhysicalProperties(distributionSpec);

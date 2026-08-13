@@ -8,12 +8,11 @@
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #pragma once
 
@@ -27,6 +26,7 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
+// Maps logical partitions computed by a PartitionFunction to Doris exchange channels.
 class WriterAssigner {
 public:
     virtual ~WriterAssigner() = default;
@@ -36,6 +36,7 @@ public:
                         std::vector<uint32_t>& writer_ids) = 0;
 };
 
+// Preserves stable ownership: one logical partition always maps to one writer id.
 class IdentityWriterAssigner final : public WriterAssigner {
 public:
     void assign(const std::vector<uint32_t>& partition_ids, const std::vector<uint8_t>* mask,
@@ -61,6 +62,8 @@ public:
     }
 };
 
+// Allows a hot logical partition to use multiple writers while retaining the existing
+// ScaleWriter affinity and rebalance behavior.
 class SkewedWriterAssigner final : public WriterAssigner {
 public:
     SkewedWriterAssigner(int partition_count, int task_count, int task_bucket_count,

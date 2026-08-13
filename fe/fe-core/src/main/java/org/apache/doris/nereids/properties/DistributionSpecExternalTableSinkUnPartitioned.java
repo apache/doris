@@ -17,7 +17,13 @@
 
 package org.apache.doris.nereids.properties;
 
-/** Adaptive writer distribution for external sinks without an ownership key. */
+/**
+ * Adaptive writer distribution for external sinks without an ownership key.
+ *
+ * <p>This preserves the original Hive non-partitioned ScaleWriter behavior. Hive and Iceberg
+ * choose it explicitly in the first phase of the common sink-exchange work; other external
+ * formats continue to share it until their own distribution contracts are modeled.
+ */
 public final class DistributionSpecExternalTableSinkUnPartitioned extends DistributionSpec {
 
     public static final DistributionSpecExternalTableSinkUnPartitioned INSTANCE =

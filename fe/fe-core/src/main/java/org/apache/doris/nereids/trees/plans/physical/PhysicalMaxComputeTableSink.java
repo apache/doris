@@ -123,6 +123,8 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
             boolean hasDynamicPartition = partitionNames.stream().anyMatch(colNames::contains);
             if (!hasDynamicPartition) {
                 // All partition columns are statically specified, no sort needed
+                // Keep sharing the original Hive-style non-partitioned writer scaling until
+                // MaxCompute defines an independent sink-exchange contract.
                 return PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;
             }
 
@@ -149,6 +151,8 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
             return new PhysicalProperties(shuffleInfo)
                     .withOrderSpec(new MustLocalSortOrderSpec(orderKeys));
         }
+        // Keep sharing the original Hive-style non-partitioned writer scaling until
+        // MaxCompute defines an independent sink-exchange contract.
         return PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;
     }
 }

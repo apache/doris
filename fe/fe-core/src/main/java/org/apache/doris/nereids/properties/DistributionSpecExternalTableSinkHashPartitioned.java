@@ -24,7 +24,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 
-/** Common strict-ownership distribution contract for external table sink writers. */
+/** Common logical-partition and writer-assignment contract for external table sink writers. */
 public abstract class DistributionSpecExternalTableSinkHashPartitioned extends DistributionSpec {
     public static final int MIN_BE_EXEC_VERSION = 12;
 
@@ -43,6 +43,8 @@ public abstract class DistributionSpecExternalTableSinkHashPartitioned extends D
     }
 
     public abstract HashAlgorithm getHashAlgorithm();
+
+    public abstract WriterAssignment getWriterAssignment();
 
     public List<String> getPartitionTransforms() {
         return ImmutableList.of();
@@ -70,12 +72,13 @@ public abstract class DistributionSpecExternalTableSinkHashPartitioned extends D
                 (DistributionSpecExternalTableSinkHashPartitioned) other;
         return outputColumnExprIds.equals(that.outputColumnExprIds)
                 && getHashAlgorithm() == that.getHashAlgorithm()
+                && getWriterAssignment() == that.getWriterAssignment()
                 && getPartitionTransforms().equals(that.getPartitionTransforms());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(getClass(), outputColumnExprIds, getHashAlgorithm(),
+        return Objects.hash(getClass(), outputColumnExprIds, getHashAlgorithm(), getWriterAssignment(),
                 getPartitionTransforms());
     }
 
@@ -83,5 +86,11 @@ public abstract class DistributionSpecExternalTableSinkHashPartitioned extends D
     public enum HashAlgorithm {
         DIRECT_HASH,
         ICEBERG_TRANSFORM
+    }
+
+    /** Maps logical sink partitions to Doris exchange writers. */
+    public enum WriterAssignment {
+        IDENTITY,
+        SKEWED
     }
 }

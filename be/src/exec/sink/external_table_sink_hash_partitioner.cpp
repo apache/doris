@@ -20,20 +20,51 @@
 #include <utility>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "format/transformer/iceberg_partition_function.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
+namespace {
+int64_t scale_threshold_by_task(int64_t value, int task_num) {
+    if (task_num <= 0) {
+        return value;
+    }
+    int64_t scaled = value / task_num;
+    return scaled == 0 ? value : scaled;
+}
+
+uint32_t logical_partition_count(uint32_t writer_count,
+                                 TExternalTableSinkWriterAssignment::type assignment) {
+    if (assignment != TExternalTableSinkWriterAssignment::SKEWED) {
+        return writer_count;
+    }
+    return writer_count *
+           std::max(1, config::table_sink_partition_write_max_partition_nums_per_writer);
+}
+} // namespace
+
 ExternalTableSinkHashPartitioner::ExternalTableSinkHashPartitioner(
         HashValType partition_count, bool use_new_shuffle_hash_method,
         TExternalTableSinkHashPartitionInfo partition_info)
         : PartitionerBase(partition_count),
           _use_new_shuffle_hash_method(use_new_shuffle_hash_method),
-          _partition_info(std::move(partition_info)) {}
+          _partition_info(std::move(partition_info)),
+          _logical_partition_count(partition_count) {}
 
 Status ExternalTableSinkHashPartitioner::init(const std::vector<TExpr>& texprs) {
+    if (!_partition_info.__isset.writer_assignment) {
+        return Status::InvalidArgument("External sink writer assignment is missing");
+    }
+    if (_partition_info.writer_assignment != TExternalTableSinkWriterAssignment::IDENTITY &&
+        _partition_info.writer_assignment != TExternalTableSinkWriterAssignment::SKEWED) {
+        return Status::InvalidArgument("Unsupported external sink writer assignment {}",
+                                       static_cast<int>(_partition_info.writer_assignment));
+    }
+    _logical_partition_count =
+            logical_partition_count(_partition_count, _partition_info.writer_assignment);
     if (_partition_info.algorithm == TExternalTableSinkHashAlgorithm::ICEBERG_TRANSFORM) {
         if (!_partition_info.__isset.partition_transforms) {
             return Status::InvalidArgument(
@@ -53,7 +84,7 @@ Status ExternalTableSinkHashPartitioner::init(const std::vector<TExpr>& texprs) 
             fields.emplace_back(std::move(field));
         }
         _partition_function = std::make_unique<IcebergInsertPartitionFunction>(
-                _partition_count, _hash_method(), std::vector<TExpr> {}, std::move(fields));
+                _logical_partition_count, _hash_method(), std::vector<TExpr> {}, std::move(fields));
         return _partition_function->init({});
     }
 
@@ -67,67 +98,74 @@ Status ExternalTableSinkHashPartitioner::init(const std::vector<TExpr>& texprs) 
                 "Direct external sink hash must not contain partition transforms");
     }
 
-    if (_use_new_shuffle_hash_method) {
-        _hash_partitioner = std::make_unique<Crc32CHashPartitioner>(_partition_count);
-    } else {
-        _hash_partitioner =
-                std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(_partition_count);
-    }
-    return _hash_partitioner->init(texprs);
+    _partition_function =
+            std::make_unique<HashPartitionFunction>(_logical_partition_count, _hash_method());
+    return _partition_function->init(texprs);
 }
 
 Status ExternalTableSinkHashPartitioner::prepare(RuntimeState* state,
                                                  const RowDescriptor& row_desc) {
-    if (_partition_function != nullptr) {
-        return _partition_function->prepare(state, row_desc);
-    }
-    return _hash_partitioner->prepare(state, row_desc);
+    return _partition_function->prepare(state, row_desc);
 }
 
 Status ExternalTableSinkHashPartitioner::open(RuntimeState* state) {
-    if (_partition_function != nullptr) {
-        RETURN_IF_ERROR(_partition_function->open(state));
+    RETURN_IF_ERROR(_partition_function->open(state));
+    if (_partition_info.algorithm == TExternalTableSinkHashAlgorithm::ICEBERG_TRANSFORM) {
         auto* iceberg_function =
                 assert_cast<IcebergInsertPartitionFunction*>(_partition_function.get());
         if (iceberg_function->fallback_to_random()) {
             return Status::NotSupported("External sink partition transform is not supported");
         }
-        return Status::OK();
     }
-    return _hash_partitioner->open(state);
+
+    if (_partition_info.writer_assignment == TExternalTableSinkWriterAssignment::IDENTITY) {
+        _writer_assigner = std::make_unique<IdentityWriterAssigner>();
+    } else {
+        const int task_num = state == nullptr ? 0 : state->task_num();
+        _writer_assigner = std::make_unique<SkewedWriterAssigner>(
+                cast_set<int>(_logical_partition_count), cast_set<int>(_partition_count), 1,
+                scale_threshold_by_task(
+                        config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold,
+                        task_num),
+                scale_threshold_by_task(
+                        config::table_sink_partition_write_min_data_processed_rebalance_threshold,
+                        task_num));
+    }
+    return Status::OK();
 }
 
 Status ExternalTableSinkHashPartitioner::close(RuntimeState* state) {
-    if (_partition_function != nullptr) {
-        return _partition_function->close(state);
-    }
-    return _hash_partitioner->close(state);
+    return _partition_function->close(state);
 }
 
 Status ExternalTableSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* block) const {
-    if (_partition_function != nullptr) {
-        return _partition_function->get_partitions(state, block, _partition_count, _channel_ids);
+    if (_writer_assigner == nullptr) {
+        return Status::InternalError("External sink writer assigner is not open");
     }
-    return _hash_partitioner->do_partitioning(state, block);
+    const size_t rows = block->rows();
+    const size_t block_bytes = block->bytes();
+    if (rows == 0) {
+        _logical_partition_ids.clear();
+        _channel_ids.clear();
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_partition_function->get_partitions(state, block, _logical_partition_count,
+                                                        _logical_partition_ids));
+
+    _writer_assigner->assign(_logical_partition_ids, nullptr, rows, block_bytes, _channel_ids);
+    return Status::OK();
 }
 
 const std::vector<ExternalTableSinkHashPartitioner::HashValType>&
 ExternalTableSinkHashPartitioner::get_channel_ids() const {
-    if (_partition_function != nullptr) {
-        return _channel_ids;
-    }
-    return _hash_partitioner->get_channel_ids();
+    return _channel_ids;
 }
 
 Status ExternalTableSinkHashPartitioner::clone(RuntimeState* state,
                                                std::unique_ptr<PartitionerBase>& partitioner) {
     auto cloned = std::make_unique<ExternalTableSinkHashPartitioner>(
             _partition_count, _use_new_shuffle_hash_method, _partition_info);
-    if (_partition_function != nullptr) {
-        RETURN_IF_ERROR(_partition_function->clone(state, cloned->_partition_function));
-    } else {
-        RETURN_IF_ERROR(_hash_partitioner->clone(state, cloned->_hash_partitioner));
-    }
+    RETURN_IF_ERROR(_partition_function->clone(state, cloned->_partition_function));
     partitioner = std::move(cloned);
     return Status::OK();
 }

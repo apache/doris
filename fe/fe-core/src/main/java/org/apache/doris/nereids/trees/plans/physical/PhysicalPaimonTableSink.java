@@ -114,6 +114,9 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
 
         List<String> primaryKeys = paimonTable.primaryKeys();
         if (primaryKeys.isEmpty()) {
+            // Keep the pre-refactoring Hive-style adaptive writer distribution for Paimon modes
+            // that are already safe without bucket ownership. Paimon bucket-aware exchange is
+            // intentionally deferred to the next phase.
             return PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;
         }
 

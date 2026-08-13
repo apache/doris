@@ -21,7 +21,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 
 import java.util.List;
 
-/** Hash MaxCompute partition values to a unique external table sink writer. */
+/** Hash MaxCompute partition values using the legacy Hive ScaleWriter behavior. */
 public final class DistributionSpecMaxComputeTableSinkHashPartitioned
         extends DistributionSpecExternalTableSinkHashPartitioned {
 
@@ -33,5 +33,13 @@ public final class DistributionSpecMaxComputeTableSinkHashPartitioned
     @Override
     public HashAlgorithm getHashAlgorithm() {
         return HashAlgorithm.DIRECT_HASH;
+    }
+
+    @Override
+    public WriterAssignment getWriterAssignment() {
+        // Keep the pre-refactoring behavior for external formats that have not yet defined
+        // their own writer-ownership contract. Only Hive and Iceberg are modeled explicitly
+        // in this phase.
+        return WriterAssignment.SKEWED;
     }
 }

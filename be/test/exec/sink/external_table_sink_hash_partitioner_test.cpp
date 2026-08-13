@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -97,6 +98,7 @@ protected:
 TEST_F(ExternalTableSinkHashPartitionerTest, DirectHashKeepsOneKeyOnOneWriter) {
     TExternalTableSinkHashPartitionInfo info;
     info.__set_algorithm(TExternalTableSinkHashAlgorithm::DIRECT_HASH);
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
     ExternalTableSinkHashPartitioner partitioner(8, false, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
     ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
@@ -113,9 +115,42 @@ TEST_F(ExternalTableSinkHashPartitionerTest, DirectHashKeepsOneKeyOnOneWriter) {
     ASSERT_TRUE(partitioner.close(&_state).ok());
 }
 
+TEST_F(ExternalTableSinkHashPartitionerTest, MissingWriterAssignmentFailsClosed) {
+    TExternalTableSinkHashPartitionInfo info;
+    info.__set_algorithm(TExternalTableSinkHashAlgorithm::DIRECT_HASH);
+    ExternalTableSinkHashPartitioner partitioner(8, false, info);
+
+    Status status = partitioner.init({slot_ref()});
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("writer assignment is missing"), std::string::npos);
+}
+
+TEST_F(ExternalTableSinkHashPartitionerTest, DirectHashSupportsSkewedWriterAssignment) {
+    TExternalTableSinkHashPartitionInfo info;
+    info.__set_algorithm(TExternalTableSinkHashAlgorithm::DIRECT_HASH);
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::SKEWED);
+    ExternalTableSinkHashPartitioner partitioner(4, false, info);
+    ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
+    ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
+    ASSERT_TRUE(partitioner.open(&_state).ok());
+
+    Block input = block({7, 3, 7, 9, 3});
+    ASSERT_TRUE(partitioner.do_partitioning(&_state, &input).ok());
+    const auto& channels = partitioner.get_channel_ids();
+    ASSERT_EQ(5, channels.size());
+    EXPECT_EQ(channels[0], channels[2]);
+    EXPECT_EQ(channels[1], channels[4]);
+    for (uint32_t channel : channels) {
+        EXPECT_LT(channel, 4);
+    }
+
+    ASSERT_TRUE(partitioner.close(&_state).ok());
+}
+
 TEST_F(ExternalTableSinkHashPartitionerTest, IcebergTransformHashesTransformedValue) {
     TExternalTableSinkHashPartitionInfo info;
     info.__set_algorithm(TExternalTableSinkHashAlgorithm::ICEBERG_TRANSFORM);
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::SKEWED);
     info.__set_partition_transforms({"truncate[10]"});
     ExternalTableSinkHashPartitioner partitioner(64, false, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
@@ -136,6 +171,7 @@ TEST_F(ExternalTableSinkHashPartitionerTest, IcebergTransformHashesTransformedVa
 TEST_F(ExternalTableSinkHashPartitionerTest, UnsupportedTransformFailsClosed) {
     TExternalTableSinkHashPartitionInfo info;
     info.__set_algorithm(TExternalTableSinkHashAlgorithm::ICEBERG_TRANSFORM);
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
     info.__set_partition_transforms({"unsupported"});
     ExternalTableSinkHashPartitioner partitioner(4, false, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());

@@ -21,7 +21,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 
 import java.util.List;
 
-/** Hash Hive partition values to a unique external table sink writer. */
+/** Hash Hive partition values and scale hot partitions across writers. */
 public final class DistributionSpecHiveTableSinkHashPartitioned
         extends DistributionSpecExternalTableSinkHashPartitioned {
 
@@ -33,5 +33,10 @@ public final class DistributionSpecHiveTableSinkHashPartitioned
     @Override
     public HashAlgorithm getHashAlgorithm() {
         return HashAlgorithm.DIRECT_HASH;
+    }
+
+    @Override
+    public WriterAssignment getWriterAssignment() {
+        return WriterAssignment.SKEWED;
     }
 }

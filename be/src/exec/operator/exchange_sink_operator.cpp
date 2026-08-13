@@ -177,6 +177,11 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         custom_profile()->add_info_string(
                 "Partitioner",
                 fmt::format("ExternalTableSinkHashPartitioner({})", _partition_count));
+        custom_profile()->add_info_string(
+                "WriterAssignment", p._external_table_sink_hash_partition_info.writer_assignment ==
+                                                    TExternalTableSinkWriterAssignment::IDENTITY
+                                            ? "IDENTITY"
+                                            : "SKEWED");
     } else if (_part_type == TPartitionType::MERGE_PARTITIONED) {
         if (!p._has_merge_partition_info) {
             return Status::InternalError("Merge partition info is missing");

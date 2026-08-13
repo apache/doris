@@ -32,6 +32,7 @@ import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned.WriterAssignment;
 import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -589,6 +590,9 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         PhysicalDistribute<?> distribute2 = (PhysicalDistribute<?>) physicalSink;
         Assertions.assertTrue(distribute2.getDistributionSpec()
                 instanceof DistributionSpecHiveTableSinkHashPartitioned);
+        DistributionSpecHiveTableSinkHashPartitioned distributionSpec =
+                (DistributionSpecHiveTableSinkHashPartitioned) distribute2.getDistributionSpec();
+        Assertions.assertEquals(WriterAssignment.SKEWED, distributionSpec.getWriterAssignment());
         Assertions.assertSame(distribute2.child(0).getType(), PlanType.PHYSICAL_HIVE_TABLE_SINK);
         // check sink
         PhysicalHiveTableSink<?> physicalHiveSink2 = (PhysicalHiveTableSink<?>) physicalSink.child(0);

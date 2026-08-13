@@ -48,6 +48,13 @@ public final class DistributionSpecIcebergTableSinkHashPartitioned
     }
 
     @Override
+    public WriterAssignment getWriterAssignment() {
+        // Iceberg ordinary INSERT historically reused Hive ScaleWriter. Keep that concurrency
+        // behavior while making the logical partition calculation match Iceberg transforms.
+        return WriterAssignment.SKEWED;
+    }
+
+    @Override
     public List<String> getPartitionTransforms() {
         return partitionTransforms;
     }

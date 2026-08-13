@@ -117,6 +117,14 @@ enum TExternalTableSinkHashAlgorithm {
   ICEBERG_TRANSFORM = 1
 }
 
+// Maps the logical partitions produced by the hash algorithm to Doris exchange writers.
+// IDENTITY preserves one-writer ownership; SKEWED retains ScaleWriter behavior for formats
+// which allow a hot partition to be written by multiple writers.
+enum TExternalTableSinkWriterAssignment {
+  IDENTITY = 0,
+  SKEWED = 1
+}
+
 // Connector-independent routing metadata for an external table sink hash
 // exchange. Algorithm-specific fields are optional for protocol evolution, but
 // each algorithm validates the fields it requires before processing rows.
@@ -126,6 +134,10 @@ struct TExternalTableSinkHashPartitionInfo {
   // Positional Iceberg transforms. Required by ICEBERG_TRANSFORM and must have
   // the same size as partition_exprs.
   2: optional list<string> partition_transforms
+
+  // Kept optional on the wire so a new BE can reject an old FE with a clear
+  // status instead of silently relying on the enum's default value.
+  3: optional TExternalTableSinkWriterAssignment writer_assignment
 }
 
 // Specification of how a single logical data stream is partitioned.

@@ -22,7 +22,7 @@
 #include <string>
 
 #include "exec/partitioner/partitioner.h"
-#include "format/transformer/writer_assigner.h"
+#include "exec/partitioner/writer_assigner.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

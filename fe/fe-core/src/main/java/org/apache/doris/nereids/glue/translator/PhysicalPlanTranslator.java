@@ -246,6 +246,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
+import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -3366,8 +3367,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     throw new RuntimeException("Unsupported external table sink hash algorithm: "
                             + externalSpec.getHashAlgorithm());
             }
+            TExternalTableSinkWriterAssignment writerAssignment;
+            switch (externalSpec.getWriterAssignment()) {
+                case IDENTITY:
+                    writerAssignment = TExternalTableSinkWriterAssignment.IDENTITY;
+                    break;
+                case SKEWED:
+                    writerAssignment = TExternalTableSinkWriterAssignment.SKEWED;
+                    break;
+                default:
+                    throw new RuntimeException("Unsupported external table sink writer assignment: "
+                            + externalSpec.getWriterAssignment());
+            }
             return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED,
-                    partitionExprs, algorithm, externalSpec.getPartitionTransforms());
+                    partitionExprs, algorithm, writerAssignment,
+                    externalSpec.getPartitionTransforms());
         } else if (distributionSpec instanceof DistributionSpecExternalTableSinkUnPartitioned) {
             return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_UNPARTITIONED);
         } else if (distributionSpec instanceof DistributionSpecMerge) {

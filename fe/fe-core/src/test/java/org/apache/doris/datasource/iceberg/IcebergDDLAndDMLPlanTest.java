@@ -27,6 +27,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned.WriterAssignment;
 import org.apache.doris.nereids.properties.DistributionSpecIcebergTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -364,6 +365,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
                             .getRequirePhysicalProperties().getDistributionSpec();
             Assertions.assertEquals(ImmutableList.of("bucket[16]"),
                     distributionSpec.getPartitionTransforms());
+            Assertions.assertEquals(WriterAssignment.SKEWED, distributionSpec.getWriterAssignment());
 
             Set<PhysicalDistribute> distributes = physicalPlan.collect(PhysicalDistribute.class::isInstance);
             Assertions.assertTrue(distributes.stream().anyMatch(distribute -> distribute.getDistributionSpec()

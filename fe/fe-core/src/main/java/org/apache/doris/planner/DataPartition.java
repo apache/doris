@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
 import org.apache.doris.thrift.TExternalTableSinkHashPartitionInfo;
+import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TIcebergPartitionField;
 import org.apache.doris.thrift.TMergePartitionInfo;
 import org.apache.doris.thrift.TPartitionType;
@@ -55,6 +56,7 @@ public class DataPartition {
     private ImmutableList<Expr> partitionExprs;
     private MergePartitionInfo mergePartitionInfo;
     private TExternalTableSinkHashAlgorithm externalHashAlgorithm;
+    private TExternalTableSinkWriterAssignment externalWriterAssignment;
     private ImmutableList<String> externalPartitionTransforms = ImmutableList.of();
 
     public DataPartition(TPartitionType type, List<Expr> exprs) {
@@ -69,10 +71,13 @@ public class DataPartition {
     }
 
     public DataPartition(TPartitionType type, List<Expr> exprs,
-            TExternalTableSinkHashAlgorithm hashAlgorithm, List<String> partitionTransforms) {
+            TExternalTableSinkHashAlgorithm hashAlgorithm,
+            TExternalTableSinkWriterAssignment writerAssignment,
+            List<String> partitionTransforms) {
         this(type, exprs);
         Preconditions.checkState(type == TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED);
         this.externalHashAlgorithm = Preconditions.checkNotNull(hashAlgorithm);
+        this.externalWriterAssignment = Preconditions.checkNotNull(writerAssignment);
         Preconditions.checkNotNull(partitionTransforms);
         Preconditions.checkState(hashAlgorithm == TExternalTableSinkHashAlgorithm.DIRECT_HASH
                         ? partitionTransforms.isEmpty()
@@ -126,6 +131,7 @@ public class DataPartition {
         if (externalHashAlgorithm != null) {
             TExternalTableSinkHashPartitionInfo info = new TExternalTableSinkHashPartitionInfo();
             info.setAlgorithm(externalHashAlgorithm);
+            info.setWriterAssignment(externalWriterAssignment);
             if (!externalPartitionTransforms.isEmpty()) {
                 info.setPartitionTransforms(externalPartitionTransforms);
             }
