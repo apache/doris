@@ -3248,6 +3248,13 @@ void SegmentIterator::_output_index_result_column(const VExprContextSPtrs& expr_
     }
 }
 
+// Dictionary codes are initially assigned in dictionary insertion order, so their numeric order
+// does not necessarily match the order of the encoded values. For example, an initial dictionary
+// {0: "zebra", 1: "apple", 2: "mango"} is sorted into {0: "apple", 1: "mango", 2: "zebra"},
+// and row codes are remapped from {0, 2, 1} to {2, 1, 0}. Range predicates compare codes with <,
+// <=, >, or >= and therefore require this conversion. IN/NOT IN predicates do not: they build a
+// membership bitmap indexed by the existing dictionary codes. Bloom-filter predicates instead need
+// hash values initialized for dictionary entries.
 void SegmentIterator::_convert_dict_code_for_predicate_if_necessary() {
     for (auto predicate : _short_cir_eval_predicate) {
         _convert_dict_code_for_predicate_if_necessary_impl(predicate);
