@@ -101,6 +101,8 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 
+import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -268,6 +270,55 @@ public class PaimonScanNodeTest {
             different.setScanParams(new TableScanParams(
                     TableScanParams.INCREMENTAL_READ, secondRange, Collections.emptyList()));
             assertPlanCount(different, planCount, 2);
+        } finally {
+            statementContext.close();
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testStatementCacheStopsSerializingEntryOverByteBudget() throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext(context, null);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        try {
+            PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+            PaimonExternalTable relationTable = Mockito.mock(PaimonExternalTable.class);
+            PaimonExternalTable targetTable = Mockito.mock(PaimonExternalTable.class);
+            Mockito.when(catalog.getId()).thenReturn(43L);
+            Mockito.when(relationTable.getId()).thenReturn(47L);
+            Mockito.when(targetTable.getId()).thenReturn(53L);
+            RowType rowType = new RowType(Collections.singletonList(
+                    new DataField(0, "id", DataTypes.INT())));
+            AtomicInteger planCount = new AtomicInteger();
+            AtomicInteger serializationCount = new AtomicInteger();
+            List<org.apache.paimon.table.source.Split> plannedSplits = Arrays.asList(
+                    new CountingSplit(serializationCount),
+                    new CountingSplit(serializationCount),
+                    new CountingSplit(serializationCount));
+            Table table = mockPlanningTable(
+                    rowType, Collections.emptyMap(), planCount, plannedSplits);
+
+            PaimonScanNode first = newPlanningNode(
+                    12, relationTable, targetTable, catalog, table,
+                    101L, 3L, Collections.emptyMap(), Collections.emptyList(), "id");
+            first.setMaxRetainedSerializedTaskBytes(1);
+            Assert.assertSame(plannedSplits, first.getPaimonSplitFromAPI());
+            Assert.assertEquals(1, planCount.get());
+            Assert.assertEquals(1, serializationCount.get());
+
+            PaimonScanNode second = newPlanningNode(
+                    13, relationTable, targetTable, catalog, table,
+                    101L, 3L, Collections.emptyMap(), Collections.emptyList(), "id");
+            second.setMaxRetainedSerializedTaskBytes(1);
+            Assert.assertSame(plannedSplits, second.getPaimonSplitFromAPI());
+            Assert.assertEquals(2, planCount.get());
+            Assert.assertEquals(2, serializationCount.get());
         } finally {
             statementContext.close();
             ConnectContext.remove();
@@ -1646,6 +1697,12 @@ public class PaimonScanNodeTest {
 
     private Table mockPlanningTable(RowType rowType, Map<String, String> tableOptions,
             AtomicInteger planCount) {
+        return mockPlanningTable(rowType, tableOptions, planCount,
+                Collections.singletonList(createDataSplit("planned.parquet")));
+    }
+
+    private Table mockPlanningTable(RowType rowType, Map<String, String> tableOptions,
+            AtomicInteger planCount, List<org.apache.paimon.table.source.Split> plannedSplits) {
         Table table = Mockito.mock(Table.class);
         ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class);
         TableScan scan = Mockito.mock(TableScan.class);
@@ -1659,9 +1716,32 @@ public class PaimonScanNodeTest {
         Mockito.when(scan.plan()).thenReturn(plan);
         Mockito.when(plan.splits()).thenAnswer(invocation -> {
             planCount.incrementAndGet();
-            return Collections.singletonList(createDataSplit("planned.parquet"));
+            return plannedSplits;
         });
         return table;
+    }
+
+    private static final class CountingSplit implements org.apache.paimon.table.source.Split {
+        private transient AtomicInteger serializationCount;
+
+        private CountingSplit(AtomicInteger serializationCount) {
+            this.serializationCount = serializationCount;
+        }
+
+        @Override
+        public long rowCount() {
+            return 1;
+        }
+
+        @Override
+        public OptionalLong mergedRowCount() {
+            return OptionalLong.of(1);
+        }
+
+        private void writeObject(ObjectOutputStream output) throws IOException {
+            serializationCount.incrementAndGet();
+            output.defaultWriteObject();
+        }
     }
 
     private PaimonScanNode newPlanningNode(int id, PaimonExternalTable relationTable,

@@ -102,6 +102,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     private static final long MAX_RETAINED_SERIALIZED_TASK_BYTES = 16L * 1024 * 1024;
+    private long maxRetainedSerializedTaskBytes = MAX_RETAINED_SERIALIZED_TASK_BYTES;
     // The keys of incremental read params for Paimon SDK
     private static final String PAIMON_INCREMENTAL_BETWEEN = "incremental-between";
     private static final String PAIMON_INCREMENTAL_BETWEEN_SCAN_MODE = "incremental-between-scan-mode";
@@ -764,12 +765,19 @@ public class PaimonScanNode extends FileQueryScanNode {
                     scanParams != null && scanParams.incrementalRead()
                             ? getIncrReadParams() : Collections.emptyMap(),
                     projected);
-            List<PaimonSerializedScanTask> serializedSplits = getOrLoadExternalScanTasks(cacheKey,
-                    () -> planPaimonSplits(paimonTable, resolvedOptions, projected).stream()
-                            .map(PaimonSerializedScanTask::new)
-                            .collect(Collectors.toList()),
-                    PaimonScanNode::serializedTaskBytes,
-                    MAX_RETAINED_SERIALIZED_TASK_BYTES);
+            List<PaimonSerializedScanTask> serializedSplits;
+            try {
+                serializedSplits = getOrLoadExternalScanTasks(cacheKey,
+                        () -> serializePaimonSplitsWithinLimit(
+                                planPaimonSplits(paimonTable, resolvedOptions, projected)),
+                        PaimonScanNode::serializedTaskBytes,
+                        maxRetainedSerializedTaskBytes);
+            } catch (PaimonTaskCacheLimitException e) {
+                List<org.apache.paimon.table.source.Split> uncachedSplits = e.takePlannedSplits();
+                return uncachedSplits == null
+                        ? planPaimonSplits(paimonTable, resolvedOptions, projected)
+                        : uncachedSplits;
+            }
             return serializedSplits.stream()
                     .map(PaimonSerializedScanTask::deserialize)
                     .collect(Collectors.toList());
@@ -845,6 +853,26 @@ public class PaimonScanNode extends FileQueryScanNode {
                 paimonTable.options(),
                 projected,
                 PaimonUtil.encodeObjectToString(predicates));
+    }
+
+    @VisibleForTesting
+    void setMaxRetainedSerializedTaskBytes(long maxRetainedSerializedTaskBytes) {
+        this.maxRetainedSerializedTaskBytes = maxRetainedSerializedTaskBytes;
+    }
+
+    private List<PaimonSerializedScanTask> serializePaimonSplitsWithinLimit(
+            List<org.apache.paimon.table.source.Split> splits) {
+        List<PaimonSerializedScanTask> serializedTasks = new ArrayList<>(splits.size());
+        long serializedBytes = 0;
+        for (org.apache.paimon.table.source.Split split : splits) {
+            PaimonSerializedScanTask task = new PaimonSerializedScanTask(split);
+            serializedBytes += task.serializedSize();
+            if (serializedBytes > maxRetainedSerializedTaskBytes) {
+                throw new PaimonTaskCacheLimitException(splits);
+            }
+            serializedTasks.add(task);
+        }
+        return serializedTasks;
     }
 
     private static long serializedTaskBytes(List<PaimonSerializedScanTask> tasks) {
@@ -931,6 +959,20 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         private int serializedSize() {
             return serializedSplit.length;
+        }
+    }
+
+    private static final class PaimonTaskCacheLimitException extends RuntimeException {
+        private List<org.apache.paimon.table.source.Split> plannedSplits;
+
+        private PaimonTaskCacheLimitException(List<org.apache.paimon.table.source.Split> plannedSplits) {
+            this.plannedSplits = plannedSplits;
+        }
+
+        private synchronized List<org.apache.paimon.table.source.Split> takePlannedSplits() {
+            List<org.apache.paimon.table.source.Split> splits = plannedSplits;
+            plannedSplits = null;
+            return splits;
         }
     }
 
