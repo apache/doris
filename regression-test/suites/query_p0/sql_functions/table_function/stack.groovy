@@ -52,6 +52,19 @@ suite("stack") {
         order by c1, c2
     """
 
+    order_qt_multi_row_constants """
+        select id, c1, c2
+        from (select 1 as id union all select 2 as id) t
+        lateral view stack(2, 1, 'a', 2, 'b') s as c1, c2
+        order by id, c1, c2
+    """
+
+    order_qt_cardinality_num_rows """
+        select c1, c2
+        from (select 1) t lateral view stack(cardinality([1, 2]), 1, 2, 3) s as c1, c2
+        order by c1, c2
+    """
+
     sql "drop table if exists test_stack"
     sql """
         create table test_stack (
@@ -91,5 +104,20 @@ suite("stack") {
     test {
         sql "select c1 from (select 1) t lateral view stack(2, 1, 'a') s as c1"
         exception "must have compatible types"
+    }
+
+    test {
+        sql "select c1 from (select 1) t lateral view stack(connection_id(), 1) s as c1"
+        exception "The first argument of stack must be a positive constant integer"
+    }
+
+    test {
+        sql "select c1 from (select 1) t lateral view stack(2, 1, 2, 3, 4, 5) s as c1, c2"
+        exception "has 3 columns available but 2 columns specified"
+    }
+
+    test {
+        sql "select c1 from (select 1) t lateral view stack(2, 1, 2, 3, 4, 5) s as c1, c2, c3, c4"
+        exception "has 3 columns available but 4 columns specified"
     }
 }

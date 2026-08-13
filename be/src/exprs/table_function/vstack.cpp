@@ -49,8 +49,9 @@ Status VStackTableFunction::process_init(Block* block, RuntimeState* /*state*/) 
     _value_columns.reserve(children.size() - 1);
     for (size_t i = 1; i < children.size(); ++i) {
         RETURN_IF_ERROR(children[i]->execute(_expr_context.get(), block, &column_index));
-        _value_columns.emplace_back(
-                block->get_by_position(column_index).column->convert_to_full_column_if_const());
+        const auto& value_column = block->get_by_position(column_index).column;
+        const auto& [column, is_const] = unpack_if_const(value_column);
+        _value_columns.emplace_back(ValueColumn {.column = column, .is_const = is_const});
     }
     return Status::OK();
 }
@@ -89,7 +90,8 @@ void VStackTableFunction::_insert_output_row(MutableColumnPtr& column, size_t ou
     if (_num_fields == 1) {
         const size_t value_index = output_row;
         if (value_index < _value_columns.size()) {
-            _insert_value(*output, *_value_columns[value_index], _row_idx);
+            const auto& value_column = _value_columns[value_index];
+            _insert_value(*output, *value_column.column, value_column.is_const ? 0 : _row_idx);
         } else {
             output->insert_default();
         }
@@ -107,7 +109,8 @@ void VStackTableFunction::_insert_output_row(MutableColumnPtr& column, size_t ou
         const size_t value_index = output_row * _num_fields + field_index;
         auto& field = struct_output.get_column(field_index);
         if (value_index < _value_columns.size()) {
-            _insert_value(field, *_value_columns[value_index], _row_idx);
+            const auto& value_column = _value_columns[value_index];
+            _insert_value(field, *value_column.column, value_column.is_const ? 0 : _row_idx);
         } else {
             field.insert_default();
         }

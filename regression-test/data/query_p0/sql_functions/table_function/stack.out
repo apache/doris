@@ -26,8 +26,19 @@
 1	2
 3	\N
 
+-- !multi_row_constants --
+1	1	a
+1	2	b
+2	1	a
+2	2	b
+
+-- !cardinality_num_rows --
+1	2
+3	\N
+
 -- !column_arguments --
 1	10	x
 1	20	y
 2	\N	\N
 2	30	m
+

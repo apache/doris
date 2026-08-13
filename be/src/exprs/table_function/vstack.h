@@ -37,10 +37,15 @@ public:
     int get_value(MutableColumnPtr& column, int max_step) override;
 
 private:
+    struct ValueColumn {
+        ColumnPtr column;
+        bool is_const;
+    };
+
     void _insert_output_row(MutableColumnPtr& column, size_t output_row) const;
     static void _insert_value(IColumn& destination, const IColumn& source, size_t source_row);
 
-    std::vector<ColumnPtr> _value_columns;
+    std::vector<ValueColumn> _value_columns;
     size_t _row_idx = 0;
     size_t _num_rows = 0;
     size_t _num_fields = 0;

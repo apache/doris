@@ -22,6 +22,9 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -88,6 +91,16 @@ public class StackTest {
     }
 
     @Test
+    public void testCardinalityNumRowsExpression() {
+        Stack stack = new Stack(new Cardinality(new Array(new IntegerLiteral(1), new IntegerLiteral(2))),
+                new IntegerLiteral(1), new IntegerLiteral(2), new IntegerLiteral(3));
+
+        FunctionSignature signature = stack.getSignatures().get(0);
+        Assertions.assertTrue(signature.returnType.isStructType());
+        Assertions.assertEquals(2, ((StructType) signature.returnType).getFields().size());
+    }
+
+    @Test
     public void testAllNullOutputColumn() {
         Stack stack = new Stack(new IntegerLiteral(2), new NullLiteral(), new NullLiteral());
 
@@ -102,6 +115,8 @@ public class StackTest {
         Assertions.assertThrows(AnalysisException.class,
                 () -> new Stack(SlotReference.of("n", IntegerType.INSTANCE),
                         new IntegerLiteral(1)).getSignatures());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new Stack(new ConnectionId(), new IntegerLiteral(1)).getSignatures());
         Assertions.assertThrows(AnalysisException.class,
                 () -> new Stack(new IntegerLiteral(2), new IntegerLiteral(1),
                         new StringLiteral("a")).getSignatures());

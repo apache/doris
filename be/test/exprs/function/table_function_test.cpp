@@ -326,6 +326,24 @@ TEST_F(TableFunctionTest, vstack) {
     }
 
     {
+        InputTypeSet input_types = {
+                ConstedNotnull {PrimitiveType::TYPE_INT}, ConstedNotnull {PrimitiveType::TYPE_INT},
+                ConstedNotnull {PrimitiveType::TYPE_INT}, ConstedNotnull {PrimitiveType::TYPE_INT}};
+        InputDataSet input_set = {{Int32(2), Int32(1), Int32(2), Int32(3)},
+                                  {Int32(2), Int32(1), Int32(2), Int32(3)}};
+
+        InputTypeSet output_types = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_INT,
+                                     PrimitiveType::TYPE_INT};
+        InputDataSet output_set = {{{TestArray {Int32(1), Int32(2)}}},
+                                   {{TestArray {Int32(3), Null()}}},
+                                   {{TestArray {Int32(1), Int32(2)}}},
+                                   {{TestArray {Int32(3), Null()}}}};
+
+        check_vec_table_function(&stack, input_types, input_set, output_types, output_set, false);
+        check_vec_table_function(&stack, input_types, input_set, output_types, output_set, true);
+    }
+
+    {
         InputTypeSet input_types = {ConstedNotnull {PrimitiveType::TYPE_INT},
                                     PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT,
                                     PrimitiveType::TYPE_INT};

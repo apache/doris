@@ -97,6 +97,10 @@ public class Stack extends TableGeneratingFunction implements CustomSignature, C
 
     private int getNumRows() {
         Expression numRowsArgument = getArgument(0);
+        if (numRowsArgument.containsNondeterministic()) {
+            throw new AnalysisException("The first argument of stack must be a positive constant integer, but got: "
+                    + numRowsArgument.toSql());
+        }
         Expression evaluated = FoldConstantRuleOnFE.evaluate(numRowsArgument, null);
         if (!(evaluated instanceof IntegerLikeLiteral)) {
             throw new AnalysisException("The first argument of stack must be a positive constant integer, but got: "

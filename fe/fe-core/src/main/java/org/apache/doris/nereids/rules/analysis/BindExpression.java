@@ -445,6 +445,12 @@ public class BindExpression implements AnalysisRuleFactory {
                     // element_at(#expand_col#k, #k) as #k
                     // element_at(#expand_col#v, #v) as #v
                     List<StructField> fields = ((StructType) boundSlot.getDataType()).getFields();
+                    int aliasCount = generate.getExpandColumnAlias().get(i).size();
+                    if (aliasCount != fields.size()) {
+                        throw new AnalysisException(String.format(
+                                "table %s has %d columns available but %d columns specified",
+                                slot.getQualifier().get(0), fields.size(), aliasCount));
+                    }
                     for (int idx = 0; idx < fields.size(); ++idx) {
                         expandAlias.add(new Alias(new ElementAt(
                                 boundSlot, new StringLiteral(fields.get(idx).getName())),
