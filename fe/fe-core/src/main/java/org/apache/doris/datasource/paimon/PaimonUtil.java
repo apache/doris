@@ -633,9 +633,21 @@ public class PaimonUtil {
     }
 
     public static <T> String encodeObjectToString(T t) {
+        byte[] bytes = serializeObject(t);
+        return new String(BASE64_ENCODER.encode(bytes), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    public static <T> byte[] serializeObject(T object) {
         try {
-            byte[] bytes = InstantiationUtil.serializeObject(t);
-            return new String(BASE64_ENCODER.encode(bytes), java.nio.charset.StandardCharsets.UTF_8);
+            return InstantiationUtil.serializeObject(object);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static <T> T deserializeObject(byte[] bytes) {
+        try {
+            return InstantiationUtil.deserializeObject(bytes, PaimonUtil.class.getClassLoader());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
