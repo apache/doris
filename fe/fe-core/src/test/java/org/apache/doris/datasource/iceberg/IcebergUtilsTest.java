@@ -387,6 +387,27 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testRejectVariantWritesWhenParquetShreddingIsEnabled() {
+        String shredVariantsProperty = "write.parquet.shred-variants";
+        Type variant = IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false);
+        List<Column> variantColumns = ImmutableList.of(new Column("payload", variant));
+
+        IcebergUtils.validateVariantWriteProperties(variantColumns, Collections.emptyMap());
+        IcebergUtils.validateVariantWriteProperties(variantColumns,
+                ImmutableMap.of(shredVariantsProperty, "false"));
+
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> IcebergUtils.validateVariantWriteProperties(variantColumns,
+                        ImmutableMap.of(shredVariantsProperty, "true")));
+        Assert.assertTrue(exception.getMessage().contains("only unshredded Iceberg VARIANT writes"));
+        Assert.assertTrue(exception.getMessage().contains(shredVariantsProperty + "=false"));
+
+        IcebergUtils.validateVariantWriteProperties(
+                ImmutableList.of(new Column("id", Type.INT)),
+                ImmutableMap.of(shredVariantsProperty, "true"));
+    }
+
+    @Test
     public void testEffectiveFileFormatPrecedenceForVariantDdl() {
         Assert.assertEquals(FileFormat.PARQUET,
                 IcebergUtils.getEffectiveFileFormat(Collections.emptyMap(), Collections.emptyMap()));

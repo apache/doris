@@ -121,6 +121,7 @@ import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.types.Types.TimestampType;
 import org.apache.iceberg.util.LocationUtil;
+import org.apache.iceberg.util.PropertyUtil;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.StructProjection;
 import org.apache.iceberg.view.View;
@@ -170,6 +171,7 @@ public class IcebergUtils {
     private static final int ICEBERG_DATETIME_SCALE_MS = 6;
     private static final String PARQUET_NAME = "parquet";
     private static final String ORC_NAME = "orc";
+    private static final String PARQUET_SHRED_VARIANTS = "write.parquet.shred-variants";
 
     public static final String TOTAL_RECORDS = "total-records";
     public static final String TOTAL_POSITION_DELETES = "total-position-deletes";
@@ -731,12 +733,25 @@ public class IcebergUtils {
             return;
         }
         validateWriteSchema(columns, getFormatVersion(table), getFileFormat(table));
+        validateVariantWriteProperties(columns, table.properties());
         try {
             validateVariantWriteBackendCompatibility(
                     columns, Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values());
         } catch (AnalysisException e) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "Failed to check backend compatibility for Iceberg Variant writes", e);
+        }
+    }
+
+    @VisibleForTesting
+    static void validateVariantWriteProperties(List<Column> columns, Map<String, String> properties) {
+        if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
+            return;
+        }
+        if (PropertyUtil.propertyAsBoolean(properties, PARQUET_SHRED_VARIANTS, false)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Doris currently supports only unshredded Iceberg VARIANT writes; set "
+                            + PARQUET_SHRED_VARIANTS + "=false before writing");
         }
     }
 

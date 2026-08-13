@@ -531,6 +531,19 @@ public class AppendVariantEqualityDelete {
     setFeConfigTemporary([enable_variant_v2: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
 
+        // Doris currently writes only the unshredded metadata/value representation. Reject the
+        // table setting instead of silently ignoring the requested shredded encoding.
+        String shreddedWriteGuardSnapshot = latestSnapshotId("variant_page_pruning")
+        test {
+            sql """
+                INSERT INTO variant_page_pruning VALUES
+                    (6000, PARSE_TO_VARIANT('{"shredding":"unsupported"}'))
+            """
+            exception "write.parquet.shred-variants=false"
+        }
+        assertEquals(shreddedWriteGuardSnapshot, latestSnapshotId("variant_page_pruning"),
+                "A rejected shredded Variant write must not commit a new snapshot")
+
         sql """DROP TABLE IF EXISTS variant_doris_write_v2"""
         test {
             sql """
