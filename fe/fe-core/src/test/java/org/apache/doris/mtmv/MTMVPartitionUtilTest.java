@@ -33,11 +33,13 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
+import mockit.Injectable;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,7 +48,7 @@ import java.util.Set;
 public class MTMVPartitionUtilTest {
     @Mocked
     private MTMV mtmv;
-    @Mocked
+    @Injectable
     private Partition p1;
     @Mocked
     private MTMVRelation relation;
@@ -54,7 +56,7 @@ public class MTMVPartitionUtilTest {
     private BaseTableInfo baseTableInfo;
     @Mocked
     private MTMVPartitionInfo mtmvPartitionInfo;
-    @Mocked
+    @Injectable
     private OlapTable baseOlapTable;
     @Mocked
     private DatabaseIf databaseIf;
@@ -68,7 +70,7 @@ public class MTMVPartitionUtilTest {
     private MTMVUtil mtmvUtil;
     @Mocked
     private MTMVRefreshContext context;
-    @Mocked
+    @Injectable
     private MTMVBaseVersions versions;
 
     private Set<BaseTableInfo> baseTables = Sets.newHashSet();
@@ -334,6 +336,34 @@ public class MTMVPartitionUtilTest {
     }
 
     @Test
+    public void testGetBaseVersionsUsesMappedPartitions() throws AnalysisException {
+        Map<String, Set<String>> partitionMappings = Maps.newHashMap();
+        partitionMappings.put("mv1", Sets.newHashSet("p1"));
+
+        assertFetchedPartitionNames(partitionMappings, Sets.newHashSet("p1", "p2", "p3"),
+                Sets.newHashSet("p1"));
+    }
+
+    @Test
+    public void testGetBaseVersionsDeduplicatesMappedPartitions() throws AnalysisException {
+        Map<String, Set<String>> partitionMappings = Maps.newHashMap();
+        partitionMappings.put("mv1", Sets.newHashSet("p1", "p2"));
+        partitionMappings.put("mv2", Sets.newHashSet("p2", "p3"));
+
+        assertFetchedPartitionNames(partitionMappings, Sets.newHashSet("p1", "p2", "p3", "p4"),
+                Sets.newHashSet("p1", "p2", "p3"));
+    }
+
+    @Test
+    public void testGetBaseVersionsUsesAllFullyMappedPartitions() throws AnalysisException {
+        Map<String, Set<String>> partitionMappings = Maps.newHashMap();
+        partitionMappings.put("mv1", Sets.newHashSet("p1", "p2", "p3"));
+
+        assertFetchedPartitionNames(partitionMappings, Sets.newHashSet("p1", "p2", "p3"),
+                Sets.newHashSet("p1", "p2", "p3"));
+    }
+
+    @Test
     public void testGetTableSnapshotFromContext() throws AnalysisException {
         Map<BaseTableInfo, MTMVSnapshotIf> cache = Maps.newHashMap();
         new Expectations() {
@@ -347,5 +377,55 @@ public class MTMVPartitionUtilTest {
         MTMVPartitionUtil.getTableSnapshotFromContext(baseOlapTable, context);
         Assert.assertEquals(1, cache.size());
         Assert.assertEquals(baseSnapshotIf, cache.values().iterator().next());
+    }
+
+    private void assertFetchedPartitionNames(
+            Map<String, Set<String>> mappedPartitionNames,
+            Set<String> allPartitionNames, Set<String> expectedPartitionNames) throws AnalysisException {
+        Map<String, Partition> partitions = Maps.newHashMap();
+        long partitionId = 1;
+        for (String partitionName : allPartitionNames) {
+            partitions.put(partitionName, new Partition(partitionId++, partitionName, null, null));
+        }
+        List<String> fetchedPartitionNames = Lists.newArrayList();
+        OlapTable pctTable = new OlapTable() {
+            @Override
+            public Partition getPartitionOrAnalysisException(String partitionName) {
+                fetchedPartitionNames.add(partitionName);
+                return partitions.get(partitionName);
+            }
+
+            @Override
+            public Collection<Partition> getPartitions() {
+                Assert.fail("getPartitions should not be called");
+                return null;
+            }
+        };
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings = Maps.newHashMap();
+        for (Map.Entry<String, Set<String>> entry : mappedPartitionNames.entrySet()) {
+            partitionMappings.put(entry.getKey(), Maps.newHashMap());
+            partitionMappings.get(entry.getKey()).put(pctTable, entry.getValue());
+        }
+        new Expectations() {
+            {
+                mtmv.getRelation();
+                minTimes = 0;
+                result = null;
+
+                mtmvPartitionInfo.getPartitionType();
+                minTimes = 0;
+                result = MTMVPartitionType.FOLLOW_BASE_TABLE;
+
+                mtmvPartitionInfo.getPctTables();
+                minTimes = 0;
+                result = Sets.newHashSet(pctTable);
+            }
+        };
+
+        Assert.assertEquals(expectedPartitionNames,
+                MTMVPartitionUtil.getBaseVersions(mtmv, partitionMappings)
+                        .getPartitionVersions(pctTable).keySet());
+        Assert.assertEquals(expectedPartitionNames, Sets.newHashSet(fetchedPartitionNames));
+        Assert.assertEquals(expectedPartitionNames.size(), fetchedPartitionNames.size());
     }
 }

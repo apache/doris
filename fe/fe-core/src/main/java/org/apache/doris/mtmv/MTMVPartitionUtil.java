@@ -50,6 +50,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -126,7 +127,7 @@ public class MTMVPartitionUtil {
     public static Pair<List<String>, List<PartitionKeyDesc>> alignMvPartition(MTMV mtmv) throws AnalysisException {
         Map<String, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
         Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv.getMvPartitionInfo(),
-                mtmv.getMvProperties(), mtmv.getPartitionColumns()).keySet();
+                mtmv.getMvProperties(), mtmv.getPartitionColumns(), Maps.newHashMap()).keySet();
         List<String> partitionsToDrop = new ArrayList<>();
         List<PartitionKeyDesc> partitionsToAdd = new ArrayList<>();
         // drop partition of mtmv
@@ -161,7 +162,7 @@ public class MTMVPartitionUtil {
         List<AllPartitionDesc> res = Lists.newArrayList();
         HashMap<String, String> partitionProperties = Maps.newHashMap();
         Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mvPartitionInfo, mvProperties,
-                partitionColumns)
+                partitionColumns, Maps.newHashMap())
                 .keySet();
         for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
             SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
@@ -174,13 +175,24 @@ public class MTMVPartitionUtil {
         return res;
     }
 
+    /**
+     * generateRelatedPartitionDescs
+     *
+     * @param mvPartitionInfo materialized view mvPartitionInfo
+     * @param mvProperties materialized view mvProperties when created
+     * @param partitionColumns materialized view partition columns
+     * @param queryUsedPartitions partitions current query used
+     * @return map of mv related table partition descs
+     * @throws AnalysisException
+     */
     public static Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> generateRelatedPartitionDescs(
             MTMVPartitionInfo mvPartitionInfo,
-            Map<String, String> mvProperties, List<Column> partitionColumns) throws AnalysisException {
+            Map<String, String> mvProperties, List<Column> partitionColumns,
+            Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
         long start = System.currentTimeMillis();
         RelatedPartitionDescResult result = new RelatedPartitionDescResult();
         for (MTMVRelatedPartitionDescGeneratorService service : partitionDescGenerators) {
-            service.apply(mvPartitionInfo, mvProperties, result, partitionColumns);
+            service.apply(mvPartitionInfo, mvProperties, result, partitionColumns, queryUsedPartitions);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("generateRelatedPartitionDescs use [{}] mills, mvPartitionInfo is [{}]",
@@ -201,8 +213,8 @@ public class MTMVPartitionUtil {
             return false;
         }
         try {
-            return isMTMVSync(MTMVRefreshContext.buildContext(mtmv), mtmvRelation.getBaseTablesOneLevelAndFromView(),
-                    Sets.newHashSet());
+            return isMTMVSync(MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap()),
+                    mtmvRelation.getBaseTablesOneLevelAndFromView(), Sets.newHashSet());
         } catch (AnalysisException e) {
             LOG.warn("isMTMVSync failed: ", e);
             return false;
@@ -243,7 +255,7 @@ public class MTMVPartitionUtil {
             throws AnalysisException {
         List<Long> partitionIds = mtmv.getPartitionIds();
         Map<Long, List<String>> res = Maps.newHashMap();
-        MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv);
+        MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap());
         for (Long partitionId : partitionIds) {
             String partitionName = mtmv.getPartitionOrAnalysisException(partitionId).getName();
             res.put(partitionId, getPartitionUnSyncTables(context, partitionName));
@@ -598,14 +610,23 @@ public class MTMVPartitionUtil {
         throw new AnalysisException("can not getPartitionColumnType by:" + col);
     }
 
-    public static MTMVBaseVersions getBaseVersions(MTMV mtmv) throws AnalysisException {
-        return new MTMVBaseVersions(getTableVersions(mtmv), getPartitionVersions(mtmv));
+    public static MTMVBaseVersions getBaseVersions(MTMV mtmv,
+            Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings) throws AnalysisException {
+        return new MTMVBaseVersions(getTableVersions(mtmv), getPartitionVersions(mtmv, partitionMappings));
     }
 
-    private static Map<MTMVRelatedTableIf, Map<String, Long>> getPartitionVersions(MTMV mtmv) throws AnalysisException {
+    private static Map<MTMVRelatedTableIf, Map<String, Long>> getPartitionVersions(MTMV mtmv,
+            Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings) throws AnalysisException {
         Map<MTMVRelatedTableIf, Map<String, Long>> res = Maps.newHashMap();
         if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
             return res;
+        }
+        Map<MTMVRelatedTableIf, Set<String>> mappedPartitionNames = Maps.newHashMap();
+        for (Map<MTMVRelatedTableIf, Set<String>> mapping : partitionMappings.values()) {
+            for (Entry<MTMVRelatedTableIf, Set<String>> entry : mapping.entrySet()) {
+                mappedPartitionNames.computeIfAbsent(entry.getKey(), key -> Sets.newHashSet())
+                        .addAll(entry.getValue());
+            }
         }
         Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
         for (MTMVRelatedTableIf pctTable : pctTables) {
@@ -613,7 +634,10 @@ public class MTMVPartitionUtil {
                 continue;
             }
             Map<String, Long> onePctResult = Maps.newHashMap();
-            List<Partition> partitions = Lists.newArrayList(((OlapTable) pctTable).getPartitions());
+            List<Partition> partitions = Lists.newArrayList();
+            for (String partitionName : mappedPartitionNames.getOrDefault(pctTable, Collections.emptySet())) {
+                partitions.add(((OlapTable) pctTable).getPartitionOrAnalysisException(partitionName));
+            }
             List<Long> versions = null;
             try {
                 versions = Partition.getVisibleVersions(partitions);
