@@ -113,6 +113,7 @@ add_executable(doris_be_test ${UT_FILES})
 if (APPLE)
     target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
         -Wl,-force_load,$<TARGET_FILE:vector_search_test>)
+    add_dependencies(doris_be_test vector_search_test)
 else()
     target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
         -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)
