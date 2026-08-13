@@ -555,9 +555,13 @@ LoadStream::CloseLoadResult LoadStream::_close_load(StreamId stream, const PStre
     result.streams_to_report.reserve(_final_result_stream_by_source.size());
     result.streams_to_close.reserve(_closing_stream_ids.size() +
                                     _final_result_stream_by_source.size());
-    for (const auto& [_, final_result_stream] : _final_result_stream_by_source) {
-        result.streams_to_report.push_back(final_result_stream);
-        result.streams_to_close.push_back(final_result_stream);
+    if (_need_final_tablet_result) {
+        const StreamId owner_stream = _final_result_stream_by_source.at(src_id);
+        for (const auto& [_, final_result_stream] : _final_result_stream_by_source) {
+            result.streams_to_report.push_back(
+                    {final_result_stream, final_result_stream != owner_stream});
+            result.streams_to_close.push_back(final_result_stream);
+        }
     }
     _final_result_stream_by_source.clear();
 
@@ -569,12 +573,16 @@ LoadStream::CloseLoadResult LoadStream::_close_load(StreamId stream, const PStre
 
 void LoadStream::_report_result(StreamId stream, const Status& status,
                                 const std::vector<int64_t>& success_tablet_ids,
-                                const FailedTablets& failed_tablets, bool eos) {
+                                const FailedTablets& failed_tablets, bool eos,
+                                bool final_tablet_result_fanout) {
     LOG(INFO) << "report result " << *this << ", success tablet num " << success_tablet_ids.size()
               << ", failed tablet num " << failed_tablets.size();
     butil::IOBuf buf;
     PLoadStreamResponse response;
     response.set_eos(eos);
+    if (final_tablet_result_fanout) {
+        response.set_final_tablet_result_fanout(true);
+    }
     status.to_protobuf(response.mutable_status());
     for (auto& id : success_tablet_ids) {
         response.add_success_tablet_ids(id);
@@ -810,9 +818,9 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
                 _report_result(id, Status::OK(), {}, {}, true);
             }
         }
-        for (auto stream : result.streams_to_report) {
-            _report_result(stream, Status::OK(), result.success_tablet_ids, result.failed_tablets,
-                           true);
+        for (const auto& stream : result.streams_to_report) {
+            _report_result(stream.id, Status::OK(), result.success_tablet_ids,
+                           result.failed_tablets, true, stream.fanout);
         }
         if (result.close_current_stream) {
             brpc::StreamClose(id);

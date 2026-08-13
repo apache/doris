@@ -313,8 +313,58 @@ public class DatabaseTransactionMgrTest {
                         transactionId, commitInfos, null);
                 Assert.assertFalse(appender.contains(Level.WARN, "Invalid cross_az_succ_quorum item"));
             }
+
         } finally {
             Config.cross_az_succ_quorum = originalCrossAzSuccQuorum;
+            backend1.setTagMap(backend1TagMap);
+            backend2.setTagMap(backend2TagMap);
+            backend3.setTagMap(backend3TagMap);
+        }
+    }
+
+    @Test
+    public void testCrossAzSuccessQuorumIgnoresDeadAndBadReplicas() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        String[] originalCrossAzSuccQuorum = Config.cross_az_succ_quorum;
+        Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
+        Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
+        Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
+        Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
+        Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
+        Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az2"));
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        Replica backend2Replica = table.getPartition(CatalogTestUtil.testPartitionId1)
+                .getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1)
+                .getReplicaByBackendId(CatalogTestUtil.testBackendId2);
+
+        try {
+            Config.cross_az_succ_quorum = new String[] {"az1:2"};
+            List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId3));
+            backend2.setAlive(false);
+            long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_ignore_dead", transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    transactionId, commitInfos, null);
+            backend2.setAlive(true);
+
+            backend2Replica.setBad(true);
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_ignore_bad", transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    transactionId, commitInfos, null);
+        } finally {
+            Config.cross_az_succ_quorum = originalCrossAzSuccQuorum;
+            backend2.setAlive(true);
+            backend2Replica.setBad(false);
             backend1.setTagMap(backend1TagMap);
             backend2.setTagMap(backend2TagMap);
             backend3.setTagMap(backend3TagMap);

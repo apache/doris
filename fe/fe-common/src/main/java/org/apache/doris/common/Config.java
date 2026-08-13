@@ -551,7 +551,8 @@ public class Config extends ConfigBase {
     public static short min_load_replica_num = -1;
 
     @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas "
-            + "required in each availability zone for a load job.")
+            + "required in each availability zone for a load job. Enable only after all BEs are upgraded because "
+            + "older receivers do not fan out final tablet results.")
     public static volatile String[] cross_az_succ_quorum = {};
 
     public static Map<String, Integer> getCrossAzSuccQuorum() {

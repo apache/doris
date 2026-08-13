@@ -307,6 +307,7 @@ struct ResponseStat {
     struct TabletOutcome {
         std::vector<int64_t> success_tablet_ids;
         std::vector<int64_t> failed_tablet_ids;
+        bool final_tablet_result_fanout = false;
     };
 
     std::atomic<int32_t> num {0};
@@ -349,6 +350,7 @@ public:
                         stat.failed_tablet_ids.push_back(tablet.id());
                         outcome.failed_tablet_ids.push_back(tablet.id());
                     }
+                    outcome.final_tablet_result_fanout = response.final_tablet_result_fanout();
                     stat.tablet_outcomes.push_back(std::move(outcome));
                     stat.num++;
                 };
@@ -1367,6 +1369,20 @@ TEST_F(LoadStreamMgrTest,
 
     EXPECT_EQ(final_outcome_count(0), 1);
     EXPECT_EQ(final_outcome_count(1), 1);
+
+    int owner_count = 0;
+    int fanout_count = 0;
+    for (int source = 0; source < kSourceCount; ++source) {
+        for (int stream = 0; stream < kStreamsPerSource; ++stream) {
+            for (const auto& outcome : clients[source][stream].tablet_outcomes()) {
+                if (outcome.success_tablet_ids == std::vector<int64_t> {NORMAL_TABLET_ID}) {
+                    outcome.final_tablet_result_fanout ? ++fanout_count : ++owner_count;
+                }
+            }
+        }
+    }
+    EXPECT_EQ(owner_count, 1);
+    EXPECT_EQ(fanout_count, 1);
 }
 
 TEST_F(LoadStreamMgrTest, two_client_one_close_before_the_other_open) {

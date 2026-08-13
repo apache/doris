@@ -1111,11 +1111,15 @@ Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tabl
             failed_reason[tablet_id] = reason;
             num_failed_tablets++;
         }
+        const bool final_result_fanout = _t_sink.olap_table_sink.__isset.cross_az_succ_quorum &&
+                                         streams.final_tablet_result_fanout();
         for (auto tablet_id : streams.success_tablets()) {
-            TTabletCommitInfo commit_info;
-            commit_info.tabletId = tablet_id;
-            commit_info.backendId = dst_id;
-            tablet_commit_infos.emplace_back(std::move(commit_info));
+            if (!final_result_fanout) {
+                TTabletCommitInfo commit_info;
+                commit_info.tabletId = tablet_id;
+                commit_info.backendId = dst_id;
+                tablet_commit_infos.emplace_back(std::move(commit_info));
+            }
             // Only count non-gap backends toward success
             auto gap_it = _tablet_version_gap_backends.find(tablet_id);
             if (gap_it == _tablet_version_gap_backends.end() ||

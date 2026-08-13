@@ -63,6 +63,9 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
 
         if (response.eos()) {
             stub->_is_eos.store(true);
+            if (response.final_tablet_result_fanout()) {
+                stub->_final_tablet_result_fanout.store(true);
+            }
         }
 
         Status st = Status::create<false>(response.status());

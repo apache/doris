@@ -148,9 +148,14 @@ public:
 
 private:
     struct CloseLoadResult {
+        struct FinalResultStream {
+            StreamId id;
+            bool fanout;
+        };
+
         std::vector<int64_t> success_tablet_ids;
         FailedTablets failed_tablets;
-        std::vector<StreamId> streams_to_report;
+        std::vector<FinalResultStream> streams_to_report;
         std::vector<StreamId> streams_to_close;
         bool report_current_stream = true;
         bool report_final_result_on_current_stream = true;
@@ -164,7 +169,8 @@ private:
 
     void _report_result(StreamId stream, const Status& status,
                         const std::vector<int64_t>& success_tablet_ids,
-                        const FailedTablets& failed_tablets, bool eos);
+                        const FailedTablets& failed_tablets, bool eos,
+                        bool final_tablet_result_fanout = false);
     void _report_schema(StreamId stream, const PStreamHeader& hdr);
     void _report_tablet_load_info(StreamId stream, int64_t index_id);
     void _collect_tablet_load_info_from_tablets(

@@ -24,6 +24,7 @@
 #include "load/channel/load_channel_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -134,6 +135,53 @@ TEST_F(LoadChannelFinalTabletResultTest, CancelCompletesDeferredRpcOnce) {
     ASSERT_TRUE(channel.cancel(Status::Cancelled("second cancellation")).ok());
     EXPECT_EQ(closure.runs, 1);
     EXPECT_TRUE(Status::create(response.status()).is<ErrorCode::CANCELLED>());
+}
+
+TEST_F(LoadChannelFinalTabletResultTest, CancelBeforeReserveDoesNotParkRpc) {
+    LoadChannel channel(UniqueId(3, 5), 60, false, "test", -1, false, -1);
+    ASSERT_TRUE(channel.cancel(Status::Cancelled("early cancellation")).ok());
+
+    PTabletWriterAddBlockResult response;
+    Status::OK().to_protobuf(response.mutable_status());
+    CountingClosure closure;
+    google::protobuf::Closure* done = &closure;
+    channel._reserve_final_tablet_result(10);
+    channel._defer_or_copy_final_tablet_result(10, 1, &response, &done);
+
+    EXPECT_EQ(done, &closure);
+    EXPECT_TRUE(Status::create(response.status()).is<ErrorCode::CANCELLED>());
+}
+
+TEST_F(LoadChannelFinalTabletResultTest, FinishPublishesTombstoneBeforeCopy) {
+    LoadChannelMgr manager;
+    manager._load_state_channels = std::make_unique<LoadChannelMgr::LoadStateChannelCache>(1024);
+    manager._final_tablet_result_cache = std::make_unique<LoadChannelMgr::FinalTabletResultCache>();
+    UniqueId load_id(6, 7);
+    auto channel = std::make_shared<LoadChannel>(load_id, 60, false, "test", -1, false, -1);
+    PTabletWriterAddBlockResult final_response;
+    Status::OK().to_protobuf(final_response.mutable_status());
+    channel->_publish_final_tablet_result(10, 1, final_response);
+    manager._load_channels.emplace(load_id, channel);
+
+    bool cancelled_during_copy = false;
+    const bool old_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_callback(
+            "LoadChannelMgr.finish.before_copy", std::function<void()>([&] {
+                cancelled_during_copy = true;
+                PTabletWriterCancelRequest request;
+                request.mutable_id()->CopyFrom(load_id.to_proto());
+                ASSERT_TRUE(manager.cancel(request).ok());
+            }));
+    manager._finish_load_channel(load_id, channel);
+    DebugPoints::instance()->remove("LoadChannelMgr.finish.before_copy");
+    config::enable_debug_points = old_enable_debug_points;
+
+    EXPECT_TRUE(cancelled_during_copy);
+    auto* handle = manager._load_state_channels->lookup(load_id.to_string());
+    ASSERT_NE(handle, nullptr);
+    manager._load_state_channels->release(handle);
+    manager.stop();
 }
 
 TEST_F(LoadChannelFinalTabletResultTest, ManagerReservesResultBeforeReturningChannel) {

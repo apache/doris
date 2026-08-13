@@ -639,10 +639,12 @@ public class DatabaseTransactionMgr {
                                     Backend backend = env.getCurrentSystemInfo().getBackend(backendId);
                                     return backend == null ? "" : backend.getLocationTag().value;
                                 });
-                                boolean canLoad = replica.getState().canLoad()
+                                boolean canLoad = env.getCurrentSystemInfo().checkBackendAlive(tabletBackend)
+                                        && !replica.isBad()
+                                        && (replica.getState().canLoad()
                                         || (replica.getState() == Replica.ReplicaState.DECOMMISSION
                                         && replica.getPostWatermarkTxnId() < 0
-                                        && replica.getLastFailedVersion() < 0);
+                                        && replica.getLastFailedVersion() < 0));
                                 if (canLoad) {
                                     loadReplicaNumByAz.merge(backendLocationTags.get(tabletBackend), 1, Integer::sum);
                                 }

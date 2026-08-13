@@ -1047,6 +1047,7 @@ message PLoadStreamResponse {
     repeated PTabletSchemaWithIndex tablet_schemas = 5;
     optional bool eos = 6;
     repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 7;
+    optional bool final_tablet_result_fanout = 8 [default = false];
 }
 
 message PStreamHeader {

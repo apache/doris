@@ -316,6 +316,24 @@ TEST_F(TestVTabletWriterV2, one_replica) {
     ASSERT_EQ(tablet_commit_infos.size(), 2);
 }
 
+TEST_F(TestVTabletWriterV2, final_result_fanout_does_not_duplicate_commit_info) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    add_stream(load_stream_map, 1001, {1}, {{1, Status::InternalError("other replica failed")}});
+    auto stream = load_stream_map->at(1001)->streams().front();
+    stream->_final_tablet_result_fanout.store(true);
+
+    auto writer = create_vtablet_writer(1);
+    writer->_t_sink.olap_table_sink.__set_cross_az_succ_quorum({{"az1", 1}});
+    std::vector<TTabletCommitInfo> tablet_commit_infos;
+    ASSERT_TRUE(writer->_create_commit_info(tablet_commit_infos, load_stream_map).ok());
+    EXPECT_TRUE(tablet_commit_infos.empty());
+
+    stream->_final_tablet_result_fanout.store(false);
+    ASSERT_TRUE(writer->_create_commit_info(tablet_commit_infos, load_stream_map).ok());
+    ASSERT_EQ(tablet_commit_infos.size(), 1);
+}
+
 TEST_F(TestVTabletWriterV2, one_replica_fail) {
     UniqueId load_id;
     std::vector<TTabletCommitInfo> tablet_commit_infos;

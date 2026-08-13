@@ -256,6 +256,8 @@ public:
                                  _cancel_st.to_string_no_stack());
     }
 
+    bool final_tablet_result_fanout() const { return _final_tablet_result_fanout.load(); }
+
     int64_t get_and_reset_load_back_pressure_version_wait_time_ms() {
         return _load_back_pressure_version_wait_time_ms.exchange(0);
     }
@@ -303,6 +305,7 @@ protected:
     bthread::Mutex _failed_tablets_mutex;
     std::vector<int64_t> _success_tablets;
     std::unordered_map<int64_t, Status> _failed_tablets;
+    std::atomic<bool> _final_tablet_result_fanout = false;
 
     bool _is_incremental = false;
     std::shared_ptr<CloseWaitNotifier> _close_wait_notifier;
@@ -365,6 +368,15 @@ public:
             std::copy(v.begin(), v.end(), std::inserter(s, s.end()));
         }
         return s;
+    }
+
+    bool final_tablet_result_fanout() const {
+        for (auto& stream : _streams) {
+            if (stream->final_tablet_result_fanout()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     std::unordered_map<int64_t, Status> failed_tablets() {

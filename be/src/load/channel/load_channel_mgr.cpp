@@ -35,6 +35,7 @@
 #include "common/metrics/metrics.h"
 #include "load/channel/load_channel.h"
 #include "runtime/exec_env.h"
+#include "util/debug_points.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -141,7 +142,7 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
                                 _final_tablet_result_cache->lookup(load_id.to_string());
                         if (result_handle == nullptr) {
                             LOG(WARNING) << "Final tablet result is unavailable for retried load "
-                                         << load_id;
+                                         << load_id << ", sender_id=" << request.sender_id();
                             is_eof = true;
                             return Status::OK();
                         }
@@ -152,7 +153,8 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
                         if (result == result_cache_value->_results.end()) {
                             _final_tablet_result_cache->release(result_handle);
                             LOG(WARNING) << "Final tablet result is unavailable for retried load "
-                                         << load_id << ", index_id=" << request.index_id();
+                                         << load_id << ", index_id=" << request.index_id()
+                                         << ", sender_id=" << request.sender_id();
                             is_eof = true;
                             return Status::OK();
                         }
@@ -234,9 +236,11 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id,
         need_final_tablet_result = channel->need_final_tablet_result();
         if (!need_final_tablet_result) {
             _load_channels.erase(channel_it);
-            auto* handle = _load_state_channels->insert(cache_key, nullptr, 1, 1);
-            _load_state_channels->release(handle);
         }
+        // Cross-AZ retains the active channel for the lock-free copy, but publishes success now
+        // so cancel cannot remove the only retry tombstone during that window.
+        auto* handle = _load_state_channels->insert(cache_key, nullptr, 1, 1);
+        _load_state_channels->release(handle);
     }
     if (!need_final_tablet_result) {
         VLOG_CRITICAL << "removed load channel " << load_id;
@@ -244,6 +248,7 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id,
     }
 
     std::unique_ptr<FinalTabletResultCache::CacheValue> cache_value;
+    DBUG_EXECUTE_IF("LoadChannelMgr.finish.before_copy", DBUG_RUN_CALLBACK());
     size_t cache_size = 0;
     std::unordered_map<int64_t, LoadChannel::FinalTabletResult> final_tablet_results;
     bool oversized = false;

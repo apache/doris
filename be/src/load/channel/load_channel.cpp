@@ -291,6 +291,9 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
 void LoadChannel::_reserve_final_tablet_result(int64_t index_id) {
     std::lock_guard<std::mutex> lock(_final_tablet_result_lock);
     _need_final_tablet_result.store(true);
+    if (_cancelled.load() && _final_tablet_result_cancel_status.ok()) {
+        _final_tablet_result_cancel_status = Status::Cancelled("Load channel cancelled");
+    }
     _final_tablet_results.try_emplace(index_id);
 }
 
