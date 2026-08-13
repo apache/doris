@@ -128,6 +128,23 @@ public class StackTest {
     }
 
     @Test
+    public void testContextDependentNumRowsExpression() {
+        AnalysisException keyException = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(
+                        "select c1 from (select 1) t "
+                                + "lateral view stack(KEY test_db.test_key, 1) s as c1"));
+        Assertions.assertTrue(keyException.getMessage().contains(
+                "The first argument of stack must be a positive constant integer"), keyException.getMessage());
+
+        AnalysisException castKeyException = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(
+                        "select c1 from (select 1) t "
+                                + "lateral view stack(CAST(KEY test_db.test_key AS INT), 1) s as c1"));
+        Assertions.assertTrue(castKeyException.getMessage().contains(
+                "The first argument of stack must be a positive constant integer"), castKeyException.getMessage());
+    }
+
+    @Test
     public void testMultiColumnAliasCount() {
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(
