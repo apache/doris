@@ -54,6 +54,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -194,6 +195,29 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
         throw new AnalysisException("Title name[" + columnName + "] does not exist");
     }
 
+    /**
+     * Maps the parsed LIMIT/OFFSET pair onto how many rows have to be kept before the OFFSET is
+     * applied, that is the LIMIT rows plus the OFFSET rows that are skipped afterwards.
+     *
+     * <p>A negative {@code limit} means the statement carried no LIMIT clause at all
+     * (see {@link org.apache.doris.nereids.parser.LogicalPlanBuilder#visitShowTabletsFromTable}),
+     * so the result is unbounded; {@code limit == 0} is an explicit LIMIT 0 and bounds the result
+     * to nothing. Each operand is clamped to {@link Integer#MAX_VALUE} before they are added,
+     * because a huge LIMIT/OFFSET pair would otherwise overflow long and end up as a negative
+     * size.
+     *
+     * @return the number of rows to keep, or {@link Optional#empty()} for "no bound at all"
+     */
+    @VisibleForTesting
+    static Optional<Integer> computeSizeLimit(long limit, long offset) {
+        if (limit < 0) {
+            return Optional.empty();
+        }
+        long capped = Math.min(limit, Integer.MAX_VALUE)
+                + Math.min(Math.max(offset, 0), Integer.MAX_VALUE);
+        return Optional.of((int) Math.min(capped, Integer.MAX_VALUE));
+    }
+
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
@@ -201,18 +225,12 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
         Env env = Env.getCurrentEnv();
         Database db = env.getInternalCatalog().getDbOrAnalysisException(dbTableName.getDb());
         OlapTable olapTable = db.getOlapTableOrAnalysisException(dbTableName.getTbl());
+
+        Optional<Integer> sizeLimit = computeSizeLimit(limit, offset);
+
+        List<List<Comparable>> tabletInfos = new ArrayList<>();
         olapTable.readLock();
         try {
-            // The parser passes limit = 0 when the statement carries no LIMIT clause
-            // (see LogicalPlanBuilder#visitShowTabletsFromTable), so only a positive limit
-            // bounds the result. sizeLimit is how many sorted rows have to be kept: the LIMIT
-            // rows plus the OFFSET rows that are skipped afterwards.
-            Optional<Integer> sizeLimit = Optional.empty();
-            if (limit > 0) {
-                long capped = limit + Math.max(offset, 0);
-                sizeLimit = Optional.of((int) Math.min(capped, Integer.MAX_VALUE));
-            }
-
             Collection<Partition> partitions = new ArrayList<Partition>();
             if (partitionNames != null) {
                 List<String> paNames = partitionNames.getPartitionNames();
@@ -231,10 +249,10 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
             // With an explicit ORDER BY every tablet has to be collected before the result can be
             // truncated, otherwise the sort only sees an arbitrary prefix of the scan and returns
             // the wrong rows -- the bug reported in #65871. Without ORDER BY the scan still stops
-            // as soon as enough rows are gathered, as it did before: LIMIT then returns a prefix
-            // of the scan, ordered by (tabletId, replicaId) among itself.
-            boolean stop = false;
-            List<List<Comparable>> tabletInfos = new ArrayList<>();
+            // as soon as enough rows are gathered, as it did before.
+            // An explicit LIMIT 0 cannot return any row, so nothing has to be fetched at all,
+            // whether or not an OFFSET was given.
+            boolean stop = limit == 0;
             for (Partition partition : partitions) {
                 if (stop) {
                     break;
@@ -249,31 +267,39 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
                     }
                 }
             }
-
-            ListComparator<List<Comparable>> comparator;
-            if (orderByPairs != null) {
-                // order by the keys given by the user
-                OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-                comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
-            } else {
-                // order by tabletId, replicaId
-                comparator = new ListComparator<>(0, 1);
-            }
-            List<List<Comparable>> orderedTabletInfos = SortAndLimit.sortAndLimit(tabletInfos, comparator, sizeLimit);
-
-            // If offset is beyond the end of the result, subList yields an empty list and no row
-            // is returned.
-            int resultOffset = (int) Math.min(offset, orderedTabletInfos.size());
-            for (List<Comparable> tabletInfo
-                    : orderedTabletInfos.subList(resultOffset, orderedTabletInfos.size())) {
-                List<String> oneTablet = new ArrayList<String>(tabletInfo.size());
-                for (Comparable column : tabletInfo) {
-                    oneTablet.add(column.toString());
-                }
-                rows.add(oneTablet);
-            }
         } finally {
             olapTable.readUnlock();
+        }
+
+        // Every row holds values copied out of the catalog, so sorting and formatting them no
+        // longer needs the table lock.
+        List<List<Comparable>> resultInfos;
+        if (orderByPairs != null) {
+            // the ORDER BY given by the user applies to the whole tablet set of the table
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            resultInfos = SortAndLimit.sortAndLimit(tabletInfos,
+                    new ListComparator<>(orderByPairs.toArray(orderByPairArr)), sizeLimit);
+        } else if (sizeLimit.isPresent()) {
+            // No ORDER BY and a LIMIT: the scan stopped as soon as enough rows were gathered, so
+            // what was collected is an arbitrary subset of the table. Sorting it here would only
+            // make that subset look like the globally smallest rows, so the rows are left in scan
+            // order and only their number is bounded.
+            resultInfos = tabletInfos.subList(0, Math.min(sizeLimit.get(), tabletInfos.size()));
+        } else {
+            // No ORDER BY and no LIMIT: every row is collected anyway, so keep the
+            // (tabletId, replicaId) ordering this command has always returned in that case.
+            resultInfos = SortAndLimit.sortAndLimit(tabletInfos, new ListComparator<>(0, 1), Optional.empty());
+        }
+
+        // If offset is beyond the end of the result, subList yields an empty list and no row
+        // is returned.
+        int resultOffset = (int) Math.min(offset, resultInfos.size());
+        for (List<Comparable> tabletInfo : resultInfos.subList(resultOffset, resultInfos.size())) {
+            List<String> oneTablet = new ArrayList<String>(tabletInfo.size());
+            for (Comparable column : tabletInfo) {
+                oneTablet.add(column.toString());
+            }
+            rows.add(oneTablet);
         }
 
         return new ShowResultSet(getMetaData(), rows);
