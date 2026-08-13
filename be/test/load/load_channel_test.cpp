@@ -152,14 +152,16 @@ TEST_F(LoadChannelFinalTabletResultTest, CancelBeforeReserveDoesNotParkRpc) {
     EXPECT_TRUE(Status::create(response.status()).is<ErrorCode::CANCELLED>());
 }
 
-TEST_F(LoadChannelFinalTabletResultTest, FinishPublishesTombstoneBeforeCopy) {
+TEST_F(LoadChannelFinalTabletResultTest, FinishPreservesResultAcrossConcurrentCancel) {
     LoadChannelMgr manager;
     manager._load_state_channels = std::make_unique<LoadChannelMgr::LoadStateChannelCache>(1024);
     manager._final_tablet_result_cache = std::make_unique<LoadChannelMgr::FinalTabletResultCache>();
     UniqueId load_id(6, 7);
     auto channel = std::make_shared<LoadChannel>(load_id, 60, false, "test", -1, false, -1);
+    channel->_opened = true;
     PTabletWriterAddBlockResult final_response;
     Status::OK().to_protobuf(final_response.mutable_status());
+    final_response.add_tablet_vec()->set_tablet_id(100);
     channel->_publish_final_tablet_result(10, 1, final_response);
     manager._load_channels.emplace(load_id, channel);
 
@@ -178,9 +180,16 @@ TEST_F(LoadChannelFinalTabletResultTest, FinishPublishesTombstoneBeforeCopy) {
     config::enable_debug_points = old_enable_debug_points;
 
     EXPECT_TRUE(cancelled_during_copy);
-    auto* handle = manager._load_state_channels->lookup(load_id.to_string());
-    ASSERT_NE(handle, nullptr);
-    manager._load_state_channels->release(handle);
+    PTabletWriterAddBlockRequest retry;
+    retry.mutable_id()->CopyFrom(load_id.to_proto());
+    retry.set_index_id(10);
+    retry.set_eos(true);
+    retry.set_sender_id(1);
+    retry.set_need_final_tablet_result(true);
+    PTabletWriterAddBlockResult retry_response;
+    ASSERT_TRUE(manager.add_batch(retry, &retry_response).ok());
+    ASSERT_EQ(retry_response.tablet_vec_size(), 1);
+    EXPECT_EQ(retry_response.tablet_vec(0).tablet_id(), 100);
     manager.stop();
 }
 
@@ -268,7 +277,7 @@ TEST_F(LoadChannelFinalTabletResultTest, RetryReadsFinalResultFromSuccessCache) 
     Status legacy_retry_status = manager.add_batch(retry, &legacy_retry_response);
 
     ASSERT_TRUE(retry_status.ok());
-    EXPECT_TRUE(unavailable_status.ok());
+    EXPECT_FALSE(unavailable_status.ok());
     EXPECT_TRUE(legacy_retry_status.ok());
     EXPECT_TRUE(Status::create(retry_response.status()).ok());
     ASSERT_EQ(retry_response.tablet_vec_size(), 1);
@@ -286,8 +295,45 @@ TEST_F(LoadChannelFinalTabletResultTest, RetryReadsFinalResultFromSuccessCache) 
 
     manager._final_tablet_result_cache->erase(load_id.to_string());
     PTabletWriterAddBlockResult uncached_retry_response;
-    ASSERT_TRUE(manager.add_batch(retry, &uncached_retry_response).ok());
-    EXPECT_EQ(uncached_retry_response.tablet_vec_size(), 0);
+    EXPECT_FALSE(manager.add_batch(retry, &uncached_retry_response).ok());
+    manager.stop();
+}
+
+TEST_F(LoadChannelFinalTabletResultTest, RetryCopiesFinalResultWithoutManagerLock) {
+    LoadChannelMgr manager;
+    manager._load_state_channels = std::make_unique<LoadChannelMgr::LoadStateChannelCache>(1024);
+    manager._final_tablet_result_cache = std::make_unique<LoadChannelMgr::FinalTabletResultCache>();
+    UniqueId load_id(8, 9);
+    auto* success = manager._load_state_channels->insert(load_id.to_string(), nullptr, 1, 1);
+    manager._load_state_channels->release(success);
+    auto cache_value = std::make_unique<LoadChannelMgr::FinalTabletResultCache::CacheValue>();
+    Status::OK().to_protobuf(cache_value->_results[10].result.mutable_status());
+    auto* cached = manager._final_tablet_result_cache->insert(
+            load_id.to_string(), cache_value.get(), sizeof(*cache_value), sizeof(*cache_value));
+    cache_value.release();
+    manager._final_tablet_result_cache->release(cached);
+
+    bool manager_lock_available = false;
+    const bool old_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_callback(
+            "LoadChannelMgr.get.before_copy", std::function<void()>([&] {
+                manager_lock_available = manager._lock.try_lock();
+                if (manager_lock_available) {
+                    manager._lock.unlock();
+                }
+            }));
+    PTabletWriterAddBlockRequest retry;
+    retry.mutable_id()->CopyFrom(load_id.to_proto());
+    retry.set_index_id(10);
+    retry.set_eos(true);
+    retry.set_need_final_tablet_result(true);
+    PTabletWriterAddBlockResult response;
+    EXPECT_TRUE(manager.add_batch(retry, &response).ok());
+    DebugPoints::instance()->remove("LoadChannelMgr.get.before_copy");
+    config::enable_debug_points = old_enable_debug_points;
+
+    EXPECT_TRUE(manager_lock_available);
     manager.stop();
 }
 

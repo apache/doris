@@ -36,6 +36,7 @@
 #include "load/channel/load_channel.h"
 #include "runtime/exec_env.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -112,12 +113,36 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
+Status LoadChannelMgr::_copy_cached_final_tablet_result(const UniqueId& load_id,
+                                                        const PTabletWriterAddBlockRequest& request,
+                                                        Cache::Handle* result_handle,
+                                                        PTabletWriterAddBlockResult* response) {
+    DORIS_CHECK(result_handle != nullptr);
+    Defer release_result_handle(
+            [this, result_handle] { _final_tablet_result_cache->release(result_handle); });
+    const auto* result_cache_value = reinterpret_cast<FinalTabletResultCache::CacheValue*>(
+            _final_tablet_result_cache->value(result_handle));
+    const auto result = result_cache_value->_results.find(request.index_id());
+    if (result == result_cache_value->_results.end()) {
+        LOG(WARNING) << "Final tablet result is unavailable for retried load " << load_id
+                     << ", index_id=" << request.index_id()
+                     << ", sender_id=" << request.sender_id();
+        return Status::InternalError<false>(
+                "Final tablet result is unavailable for retried load {}, index_id={}, sender_id={}",
+                load_id.to_string(), request.index_id(), request.sender_id());
+    }
+    DBUG_EXECUTE_IF("LoadChannelMgr.get.before_copy", DBUG_RUN_CALLBACK());
+    response->CopyFrom(result->second.result);
+    response->set_final_tablet_result_fanout(request.sender_id() != result->second.owner_sender_id);
+    return Status::OK();
+}
+
 Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                                          const UniqueId& load_id,
                                          const PTabletWriterAddBlockRequest& request,
                                          PTabletWriterAddBlockResult* response) {
     is_eof = false;
-    std::lock_guard<std::mutex> l(_lock);
+    std::unique_lock<std::mutex> l(_lock);
     auto it = _load_channels.find(load_id);
     if (it == _load_channels.end()) {
         Cache::Handle* handle = _load_state_channels->lookup(load_id.to_string());
@@ -143,25 +168,14 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
                         if (result_handle == nullptr) {
                             LOG(WARNING) << "Final tablet result is unavailable for retried load "
                                          << load_id << ", sender_id=" << request.sender_id();
-                            is_eof = true;
-                            return Status::OK();
+                            return Status::InternalError<false>(
+                                    "Final tablet result is unavailable for retried load {}, "
+                                    "index_id={}, sender_id={}",
+                                    load_id.to_string(), request.index_id(), request.sender_id());
                         }
-                        const auto* result_cache_value =
-                                reinterpret_cast<FinalTabletResultCache::CacheValue*>(
-                                        _final_tablet_result_cache->value(result_handle));
-                        const auto result = result_cache_value->_results.find(request.index_id());
-                        if (result == result_cache_value->_results.end()) {
-                            _final_tablet_result_cache->release(result_handle);
-                            LOG(WARNING) << "Final tablet result is unavailable for retried load "
-                                         << load_id << ", index_id=" << request.index_id()
-                                         << ", sender_id=" << request.sender_id();
-                            is_eof = true;
-                            return Status::OK();
-                        }
-                        response->CopyFrom(result->second.result);
-                        response->set_final_tablet_result_fanout(request.sender_id() !=
-                                                                 result->second.owner_sender_id);
-                        _final_tablet_result_cache->release(result_handle);
+                        l.unlock();
+                        RETURN_IF_ERROR(_copy_cached_final_tablet_result(load_id, request,
+                                                                         result_handle, response));
                     }
                     is_eof = true;
                     return Status::OK();
@@ -236,16 +250,23 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id,
         need_final_tablet_result = channel->need_final_tablet_result();
         if (!need_final_tablet_result) {
             _load_channels.erase(channel_it);
+            auto* handle = _load_state_channels->insert(cache_key, nullptr, 1, 1);
+            _load_state_channels->release(handle);
+        } else if (!_finishing_load_channels.emplace(load_id).second) {
+            return;
         }
-        // Cross-AZ retains the active channel for the lock-free copy, but publishes success now
-        // so cancel cannot remove the only retry tombstone during that window.
-        auto* handle = _load_state_channels->insert(cache_key, nullptr, 1, 1);
-        _load_state_channels->release(handle);
     }
     if (!need_final_tablet_result) {
         VLOG_CRITICAL << "removed load channel " << load_id;
         return;
     }
+    bool finishing_registered = true;
+    Defer clear_finishing([this, load_id, &finishing_registered] {
+        if (finishing_registered) {
+            std::lock_guard<std::mutex> l(_lock);
+            _finishing_load_channels.erase(load_id);
+        }
+    });
 
     std::unique_ptr<FinalTabletResultCache::CacheValue> cache_value;
     DBUG_EXECUTE_IF("LoadChannelMgr.finish.before_copy", DBUG_RUN_CALLBACK());
@@ -267,22 +288,35 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id,
                      << ", ready=" << ready << ", oversized=" << oversized;
     }
 
+    Cache::Handle* result_handle = nullptr;
+    Defer release_result_handle([this, &result_handle] {
+        if (result_handle != nullptr) {
+            _final_tablet_result_cache->release(result_handle);
+        }
+    });
+    _final_tablet_result_cache->erase(cache_key);
+    if (cache_value != nullptr) {
+        result_handle = _final_tablet_result_cache->insert(cache_key, cache_value.get(), cache_size,
+                                                           cache_size);
+        cache_value.release();
+    }
+
+    bool published = false;
     {
         std::lock_guard<std::mutex> l(_lock);
         const auto channel_it = _load_channels.find(load_id);
-        if (channel_it == _load_channels.end() || channel_it->second != channel) {
-            return;
+        if (channel_it != _load_channels.end() && channel_it->second == channel) {
+            _load_channels.erase(channel_it);
+            auto* handle = _load_state_channels->insert(cache_key, nullptr, 1, 1);
+            _load_state_channels->release(handle);
+            published = true;
         }
-        _load_channels.erase(channel_it);
+        _finishing_load_channels.erase(load_id);
+        finishing_registered = false;
+    }
+    if (!published) {
         _final_tablet_result_cache->erase(cache_key);
-        if (cache_value != nullptr) {
-            auto* result_handle = _final_tablet_result_cache->insert(cache_key, cache_value.get(),
-                                                                     cache_size, cache_size);
-            cache_value.release();
-            _final_tablet_result_cache->release(result_handle);
-        }
-        auto* handle = _load_state_channels->insert(cache_key, nullptr, 1, 1);
-        _load_state_channels->release(handle);
+        return;
     }
     VLOG_CRITICAL << "removed load channel " << load_id;
 }
@@ -292,27 +326,34 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
     std::shared_ptr<LoadChannel> cancelled_channel;
     {
         std::lock_guard<std::mutex> l(_lock);
-        if (_load_channels.contains(load_id)) {
-            cancelled_channel = _load_channels[load_id];
-            _load_channels.erase(load_id);
+        const bool finish_in_progress =
+                !_finishing_load_channels.empty() && _finishing_load_channels.contains(load_id);
+        // Once final-result publication starts, finish wins so a success marker can never outlive
+        // its reproducible result because of a concurrent cancel.
+        if (const auto channel_it = _load_channels.find(load_id);
+            !finish_in_progress && channel_it != _load_channels.end()) {
+            cancelled_channel = channel_it->second;
+            _load_channels.erase(channel_it);
         }
-        // We just need to record the first cancel msg
-        auto* existing_handle = _load_state_channels->lookup(load_id.to_string());
-        if (existing_handle == nullptr) {
-            if (params.has_cancel_reason() && !params.cancel_reason().empty()) {
-                std::unique_ptr<CacheValue> cancel_reason_ptr = std::make_unique<CacheValue>();
-                cancel_reason_ptr->_cancel_reason = params.cancel_reason();
-                size_t cache_capacity =
-                        cancel_reason_ptr->_cancel_reason.capacity() + sizeof(CacheValue);
-                auto* handle = _load_state_channels->insert(
-                        load_id.to_string(), cancel_reason_ptr.get(), 1, cache_capacity);
-                cancel_reason_ptr.release();
-                _load_state_channels->release(handle);
-                LOG(INFO) << fmt::format("load_id = {}, record_error reason = {}",
-                                         print_id(load_id), params.cancel_reason());
+        if (!finish_in_progress) {
+            // We just need to record the first cancel msg
+            auto* existing_handle = _load_state_channels->lookup(load_id.to_string());
+            if (existing_handle == nullptr) {
+                if (params.has_cancel_reason() && !params.cancel_reason().empty()) {
+                    std::unique_ptr<CacheValue> cancel_reason_ptr = std::make_unique<CacheValue>();
+                    cancel_reason_ptr->_cancel_reason = params.cancel_reason();
+                    size_t cache_capacity =
+                            cancel_reason_ptr->_cancel_reason.capacity() + sizeof(CacheValue);
+                    auto* handle = _load_state_channels->insert(
+                            load_id.to_string(), cancel_reason_ptr.get(), 1, cache_capacity);
+                    cancel_reason_ptr.release();
+                    _load_state_channels->release(handle);
+                    LOG(INFO) << fmt::format("load_id = {}, record_error reason = {}",
+                                             print_id(load_id), params.cancel_reason());
+                }
+            } else {
+                _load_state_channels->release(existing_handle);
             }
-        } else {
-            _load_state_channels->release(existing_handle);
         }
     }
 
@@ -350,6 +391,9 @@ Status LoadChannelMgr::_start_load_channels_clean() {
         std::lock_guard<std::mutex> l(_lock);
         int i = 0;
         for (auto& kv : _load_channels) {
+            if (!_finishing_load_channels.empty() && _finishing_load_channels.contains(kv.first)) {
+                continue;
+            }
             VLOG_CRITICAL << "load channel[" << i++ << "]: " << *(kv.second);
             time_t last_updated_time = kv.second->last_updated_time();
             if (difftime(now, last_updated_time) >= kv.second->timeout()) {

@@ -18,14 +18,15 @@
 #pragma once
 
 #include <gen_cpp/internal_service.pb.h>
-#include <stdint.h>
 
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -80,6 +81,11 @@ public:
     }
 
 private:
+    Status _copy_cached_final_tablet_result(const UniqueId& load_id,
+                                            const PTabletWriterAddBlockRequest& request,
+                                            Cache::Handle* result_handle,
+                                            PTabletWriterAddBlockResult* response);
+
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                              const UniqueId& load_id, const PTabletWriterAddBlockRequest& request,
                              PTabletWriterAddBlockResult* response);
@@ -126,6 +132,8 @@ protected:
     std::mutex _lock;
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
+    // Cross-AZ loads publishing final results outside _lock.
+    std::unordered_set<UniqueId> _finishing_load_channels;
     // load id window, remember the recently initiated load id, regardless of whether they succeed or fail
     std::unique_ptr<LoadStateChannelCache> _load_state_channels;
     std::unique_ptr<FinalTabletResultCache> _final_tablet_result_cache;
