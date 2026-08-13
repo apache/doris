@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "core/column/column.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/runtime_filter/utils.h"
@@ -88,7 +89,7 @@ public:
 
     // The shared vector includes the NULL hash whenever the exact set contains NULL, regardless
     // of target nullability. A non-nullable target may therefore retain one conservative bucket.
-    std::shared_ptr<const std::vector<uint32_t>> get_or_compute_bucket_prune_hashes(
+    std::shared_ptr<const DorisVector<uint32_t>> get_or_compute_bucket_prune_hashes(
             const DataTypePtr& target_type) const;
 
     bool disable_always_true_logic() const { return _disable_always_true_logic; }
@@ -168,6 +169,6 @@ private:
     AtomicStatus _reason;
 
     mutable std::once_flag _bucket_prune_hashes_once;
-    mutable std::shared_ptr<const std::vector<uint32_t>> _bucket_prune_hashes;
+    mutable std::shared_ptr<const DorisVector<uint32_t>> _bucket_prune_hashes;
 };
 } // namespace doris

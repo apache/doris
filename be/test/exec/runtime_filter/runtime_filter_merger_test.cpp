@@ -20,8 +20,13 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <set>
+
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
+#include "util/raw_value.h"
 
 namespace doris {
 
@@ -188,6 +193,52 @@ TEST_F(RuntimeFilterMergerTest, serialize_max_only) {
     auto desc = TRuntimeFilterDescBuilder().set_type(TRuntimeFilterType::MIN_MAX).build();
     desc.__set_min_max_type(TMinMaxRuntimeFilterType::MAX);
     test_serialize(RuntimeFilterWrapper::State::READY, desc);
+}
+
+TEST_F(RuntimeFilterMergerTest, partial_merge_does_not_alias_producer_hash_cache) {
+    auto desc = TRuntimeFilterDescBuilder().set_type(TRuntimeFilterType::IN).build();
+    std::shared_ptr<RuntimeFilterMerger> merger;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
+    merger->increase_expected_producer_num(2);
+
+    std::shared_ptr<RuntimeFilterProducer> first_producer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[0]->register_producer_runtime_filter(desc, &first_producer));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(first_producer->init(1));
+    auto first_column = ColumnInt32::create();
+    first_column->insert_value(1);
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(first_producer->insert(std::move(first_column), 0));
+    first_producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+
+    bool ready = false;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(first_producer.get(), &ready));
+    ASSERT_FALSE(ready);
+    auto first_wrapper = first_producer->wrapper();
+    auto first_hashes =
+            first_wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>());
+    ASSERT_EQ(first_hashes->size(), 1);
+    ASSERT_NE(merger->_wrapper.get(), first_wrapper.get());
+
+    std::shared_ptr<RuntimeFilterProducer> second_producer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[1]->register_producer_runtime_filter(desc, &second_producer));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(second_producer->init(1));
+    auto second_column = ColumnInt32::create();
+    second_column->insert_value(2);
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(second_producer->insert(std::move(second_column), 0));
+    second_producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(second_producer.get(), &ready));
+    ASSERT_TRUE(ready);
+
+    auto merged_hashes =
+            merger->_wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>());
+    ASSERT_EQ(first_hashes->size(), 1);
+    ASSERT_EQ(merged_hashes->size(), 2);
+    std::set<uint32_t> expected_hashes;
+    for (int32_t value : {1, 2}) {
+        expected_hashes.insert(RawValue::zlib_crc32(&value, sizeof(value), TYPE_INT, 0));
+    }
+    EXPECT_EQ(std::set<uint32_t>(merged_hashes->begin(), merged_hashes->end()), expected_hashes);
 }
 
 } // namespace doris

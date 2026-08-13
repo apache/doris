@@ -23,6 +23,7 @@
 #include "exprs/create_predicate_function.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "util/hash_util.hpp"
+#include "util/raw_value.h"
 
 namespace doris {
 RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
@@ -166,7 +167,11 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
         break;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
-        RETURN_IF_ERROR(_bloom_filter_func->merge(other->_bloom_filter_func.get()));
+        if (_state == State::UNINITED) {
+            RETURN_IF_ERROR(_bloom_filter_func->deep_copy(other->_bloom_filter_func.get()));
+        } else {
+            RETURN_IF_ERROR(_bloom_filter_func->merge(other->_bloom_filter_func.get()));
+        }
         break;
     }
     case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
@@ -190,7 +195,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
                 }
             } else {
                 // case1&case2: use input bf directly and insert hybrid set data into bf
-                _bloom_filter_func = other->_bloom_filter_func;
+                RETURN_IF_ERROR(_bloom_filter_func->deep_copy(other->_bloom_filter_func.get()));
                 RETURN_IF_ERROR(_change_to_bloom_filter());
             }
         } else {
@@ -617,7 +622,7 @@ bool RuntimeFilterWrapper::contain_null() const {
     return false;
 }
 
-std::shared_ptr<const std::vector<uint32_t>>
+std::shared_ptr<const DorisVector<uint32_t>>
 RuntimeFilterWrapper::get_or_compute_bucket_prune_hashes(const DataTypePtr& target_type) const {
     DORIS_CHECK(_state.load() == State::READY);
     DORIS_CHECK(_hybrid_set != nullptr);
@@ -626,26 +631,22 @@ RuntimeFilterWrapper::get_or_compute_bucket_prune_hashes(const DataTypePtr& targ
     DORIS_CHECK_EQ(primitive_type, _column_return_type);
 
     std::call_once(_bucket_prune_hashes_once, [&] {
-        MutableColumnPtr column = target_type->create_column();
+        auto hashes = std::make_shared<DorisVector<uint32_t>>();
+        hashes->reserve(_hybrid_set->size() + (_hybrid_set->contain_null() ? 1 : 0));
         auto* iter = _hybrid_set->begin();
         while (iter->has_next()) {
             const void* value = iter->get_value();
             DORIS_CHECK(value != nullptr);
             if (is_string_type(primitive_type)) {
                 const auto* string_value = reinterpret_cast<const StringRef*>(value);
-                column->insert_data(string_value->data, string_value->size);
+                hashes->push_back(RawValue::zlib_crc32(string_value->data, string_value->size,
+                                                       primitive_type, 0));
             } else {
-                // ColumnVector::insert_data ignores length for fixed-length values.
-                column->insert_data(reinterpret_cast<const char*>(value), 0);
+                hashes->push_back(RawValue::zlib_crc32(value, 0, primitive_type, 0));
             }
             iter->next();
         }
 
-        auto hashes = std::make_shared<std::vector<uint32_t>>(column->size(), 0);
-        if (!hashes->empty()) {
-            column->update_crcs_with_value(hashes->data(), primitive_type,
-                                           static_cast<uint32_t>(column->size()));
-        }
         if (_hybrid_set->contain_null()) {
             // Keep one shared vector for nullable and non-nullable targets. A non-nullable
             // target may retain this extra bucket, but can never lose matching rows.

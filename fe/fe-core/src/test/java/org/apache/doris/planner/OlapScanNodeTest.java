@@ -38,7 +38,10 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.thrift.TOlapScanNode;
+import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPartitionBoundary;
+import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -275,6 +278,42 @@ public class OlapScanNodeTest {
         Assert.assertEquals(Lists.newArrayList(oldTargetPartitionId, afterPartitionId), serializedPartitionIds);
 
         Assert.assertEquals("p_target,p_after", scanNode.getSelectedPartitionNamesForExplain());
+    }
+
+    @Test
+    public void testRuntimeFilterBucketMetadataAttachedOnceAcrossWorkers() throws Exception {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getName()).thenReturn("rf_bucket_fact");
+        Mockito.when(table.getDistributionColumnNames()).thenReturn(Collections.emptySet());
+
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(1));
+        tupleDescriptor.setTable(table);
+        OlapScanNode scanNode = new OlapScanNode(
+                new PlanNodeId(1), tupleDescriptor, "rfBucketScanNode", ScanContext.EMPTY);
+
+        TPaloScanRange paloScanRange = new TPaloScanRange();
+        paloScanRange.setTabletId(10L);
+        TScanRange scanRange = new TScanRange();
+        scanRange.setPaloScanRange(paloScanRange);
+        TScanRangeLocations locations = new TScanRangeLocations();
+        locations.setScanRange(scanRange);
+        scanNode.scanRangeLocations.add(locations);
+
+        java.lang.reflect.Field bucketInfoField =
+                OlapScanNode.class.getDeclaredField("tabletId2BucketInfo");
+        bucketInfoField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<Long, Long> bucketInfo = (Map<Long, Long>) bucketInfoField.get(scanNode);
+        bucketInfo.put(10L, ((long) 4 << Integer.SIZE) | 2L);
+
+        // Nereids serializes the same plan once per worker. The second call must reuse the
+        // metadata attached by the first worker instead of walking the global ranges again.
+        scanNode.setRuntimeFilterBucketPruneParameters();
+        bucketInfo.clear();
+        scanNode.setRuntimeFilterBucketPruneParameters();
+
+        Assert.assertEquals(2, paloScanRange.getBucketSeq());
+        Assert.assertEquals(4, paloScanRange.getBucketNum());
     }
 
     private Partition mockPartition(String name) {
