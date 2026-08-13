@@ -1115,17 +1115,12 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
         }
     }
 
-    for (auto& scan_range : scan_ranges) {
+    for (const auto& scan_range : scan_ranges) {
         DCHECK(scan_range.scan_range.__isset.palo_scan_range);
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
         const auto& palo_scan_range = scan_range.scan_range.palo_scan_range;
-        if (palo_scan_range.__isset.bucket_seq || palo_scan_range.__isset.bucket_num) {
-            DORIS_CHECK(palo_scan_range.__isset.bucket_seq);
-            DORIS_CHECK(palo_scan_range.__isset.bucket_num);
-            _rf_bucket_prune_ranges.emplace_back(palo_scan_range.tablet_id,
-                                                 palo_scan_range.bucket_seq,
-                                                 palo_scan_range.bucket_num);
-        }
+        DCHECK_EQ(palo_scan_range.__isset.bucket_seq, palo_scan_range.__isset.bucket_num);
+        DCHECK_EQ(palo_scan_range.__isset.bucket_seq, _scan_ranges.front()->__isset.bucket_seq);
         COUNTER_UPDATE(_tablet_counter, 1);
     }
 }
@@ -1133,14 +1128,14 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
 Status OlapScanLocalState::_on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) {
     RETURN_IF_ERROR(Base::_on_runtime_filter_update(new_conjuncts));
     if (!state()->query_options().enable_runtime_filter_bucket_prune ||
-        _rf_bucket_prune_ranges.empty()) {
+        !_has_runtime_filter_bucket_prune_metadata()) {
         return Status::OK();
     }
 
     int64_t newly_pruned = 0;
     RETURN_IF_ERROR(_rf_bucket_pruner.prune_by_runtime_filters(
-            _rf_bucket_prune_ranges, new_conjuncts, _parent->runtime_filter_descs(),
-            _parent->node_id(), state()->runtime_filter_max_in_num(), &newly_pruned));
+            _scan_ranges, new_conjuncts, _parent->runtime_filter_descs(), _parent->node_id(),
+            state()->runtime_filter_max_in_num(), &newly_pruned));
     if (newly_pruned > 0) {
         COUNTER_SET(_buckets_pruned_by_rf_counter, _rf_bucket_pruner.pruned_tablet_count());
     }
@@ -1152,7 +1147,12 @@ bool OlapScanLocalState::_is_tablet_pruned_by_runtime_filter(int64_t partition_i
     if (_rf_partition_pruner.is_partition_pruned(partition_id)) {
         return true;
     }
-    return !_rf_bucket_prune_ranges.empty() && _rf_bucket_pruner.is_tablet_pruned(tablet_id);
+    return _has_runtime_filter_bucket_prune_metadata() &&
+           _rf_bucket_pruner.is_tablet_pruned(tablet_id);
+}
+
+bool OlapScanLocalState::_has_runtime_filter_bucket_prune_metadata() const {
+    return !_scan_ranges.empty() && _scan_ranges.front()->__isset.bucket_seq;
 }
 
 static std::string tablets_id_to_string(

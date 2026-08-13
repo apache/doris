@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <shared_mutex>
 #include <vector>
 
@@ -28,12 +29,7 @@
 namespace doris {
 
 struct TRuntimeFilterDesc;
-
-struct RuntimeFilterBucketPruneRange {
-    int64_t tablet_id = 0;
-    int32_t bucket_seq = 0;
-    int32_t bucket_num = 0;
-};
+class TPaloScanRange;
 
 // Per-scan-instance state for single-column HASH bucket pruning. Runtime filters
 // are conjunctive, so each exact IN filter can monotonically add tablet ids to
@@ -41,7 +37,7 @@ struct RuntimeFilterBucketPruneRange {
 // Both pruning updates and is_tablet_pruned() are safe to call concurrently.
 class RuntimeFilterBucketPruner {
 public:
-    Status prune_by_runtime_filters(const std::vector<RuntimeFilterBucketPruneRange>& ranges,
+    Status prune_by_runtime_filters(const std::vector<std::unique_ptr<TPaloScanRange>>& ranges,
                                     const VExprContextSPtrs& conjuncts,
                                     const std::vector<TRuntimeFilterDesc>& rf_descs,
                                     int scan_node_id, int max_in_num, int64_t* newly_pruned_count);
