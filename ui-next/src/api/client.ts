@@ -16,7 +16,7 @@
 // under the License.
 
 import { getCsrfToken, setCsrfToken } from './csrf';
-import type { UiErrorBody, UiSuccess } from './types';
+import type { UiErrorBody } from './types';
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -31,7 +31,7 @@ export class UiApiError extends Error {
     this.name = 'UiApiError';
     this.status = status;
     this.code = body.code;
-    this.requestId = body.requestId;
+    this.requestId = body.requestId ?? 'unknown';
     this.details = body.details;
   }
 }
@@ -41,8 +41,7 @@ function isUiErrorBody(value: unknown): value is UiErrorBody {
   const candidate = value as Partial<UiErrorBody>;
   return (
     typeof candidate.code === 'string' &&
-    typeof candidate.message === 'string' &&
-    typeof candidate.requestId === 'string'
+    typeof candidate.message === 'string'
   );
 }
 
@@ -68,7 +67,7 @@ function fallbackError(status: number, requestId: string): UiErrorBody {
   };
 }
 
-export async function uiRequest<T>(path: string, init: RequestInit = {}): Promise<UiSuccess<T>> {
+export async function uiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!path.startsWith('/rest/v1/ui/')) {
     throw new Error('uiRequest only accepts /rest/v1/ui/ paths.');
   }
@@ -116,7 +115,7 @@ export async function uiRequest<T>(path: string, init: RequestInit = {}): Promis
     throw new UiApiError(response.status, error);
   }
 
-  if (!payload || typeof payload !== 'object' || !('data' in payload)) {
+  if (!payload || typeof payload !== 'object') {
     throw new UiApiError(response.status, {
       code: 'UI_INVALID_RESPONSE',
       message: 'The server returned an invalid response.',
@@ -124,6 +123,10 @@ export async function uiRequest<T>(path: string, init: RequestInit = {}): Promis
     });
   }
 
-  const success = payload as UiSuccess<T>;
-  return { data: success.data, requestId: success.requestId || requestId };
+  // Accept the former {data, requestId} shape while an already-running FE is
+  // being replaced, but new UI endpoints return their business object directly.
+  if ('data' in payload && 'requestId' in payload) {
+    return (payload as { data: T }).data;
+  }
+  return payload as T;
 }

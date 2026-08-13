@@ -22,28 +22,15 @@ import org.springframework.http.HttpStatus;
 public class UiApiException extends RuntimeException {
     private final HttpStatus status;
     private final String code;
-    private final Object details;
 
     public UiApiException(HttpStatus status, String code, String message) {
-        this(status, code, message, null);
-    }
-
-    public UiApiException(HttpStatus status, String code, String message, Object details) {
         super(message);
         this.status = status;
         this.code = code;
-        this.details = details;
     }
 
     public static UiApiException unauthenticated() {
         return new UiApiException(HttpStatus.UNAUTHORIZED, "UI_UNAUTHENTICATED", "Authentication is required.");
-    }
-
-    public static UiApiException loginFailed() {
-        return new UiApiException(
-                HttpStatus.UNAUTHORIZED,
-                "UI_LOGIN_FAILED",
-                "Sign-in failed. Check the username and password.");
     }
 
     public static UiApiException adminRequired() {
@@ -53,24 +40,8 @@ public class UiApiException extends RuntimeException {
                 "This account is authenticated but is not authorized to use the Doris Web Console.");
     }
 
-    public static UiApiException rateLimited(long retryAfterSeconds) {
-        return new UiApiException(
-                HttpStatus.TOO_MANY_REQUESTS,
-                "UI_RATE_LIMITED",
-                "Too many sign-in attempts. Please try again later.",
-                new UiLoginRetry(retryAfterSeconds));
-    }
-
     public static UiApiException invalidCsrf() {
         return new UiApiException(HttpStatus.FORBIDDEN, "UI_CSRF_INVALID", "The CSRF token is missing or invalid.");
-    }
-
-    public static UiApiException forbidden(UiCapability capability) {
-        return new UiApiException(
-                HttpStatus.FORBIDDEN,
-                "UI_FORBIDDEN",
-                "You do not have permission to perform this operation.",
-                new UiCapabilityRequirement(capability));
     }
 
     public HttpStatus getStatus() {
@@ -81,7 +52,4 @@ public class UiApiException extends RuntimeException {
         return code;
     }
 
-    public Object getDetails() {
-        return details;
-    }
 }

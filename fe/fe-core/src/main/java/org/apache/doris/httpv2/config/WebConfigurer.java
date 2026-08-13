@@ -19,7 +19,6 @@ package org.apache.doris.httpv2.config;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.interceptor.AuthInterceptor;
-import org.apache.doris.httpv2.interceptor.UiAuthInterceptor;
 
 import org.springframework.boot.web.server.ErrorPage;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
@@ -42,11 +41,9 @@ public class WebConfigurer implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new AuthInterceptor())
                 .addPathPatterns("/rest/v1/**")
-                .excludePathPatterns("/rest/v1/ui/**")
-                .excludePathPatterns("/", "/api/**", "/rest/v1/login", "/rest/v1/logout", "/static/**", "/metrics")
+                .excludePathPatterns("/", "/api/**", "/rest/v1/login",
+                        "/rest/v1/logout", "/static/**", "/metrics")
                 .excludePathPatterns("/image", "/info", "/version", "/put", "/journal_id", "/role", "/check", "/dump");
-        registry.addInterceptor(new UiAuthInterceptor())
-                .addPathPatterns("/rest/v1/ui/**");
     }
 
     @Override

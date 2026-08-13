@@ -22,9 +22,9 @@ import { uiRequest } from './client';
 import type { UiMe } from './types';
 
 export async function fetchMe(): Promise<UiMe> {
-  const response = await uiRequest<UiMe>('/rest/v1/ui/me');
-  setCsrfToken(response.data.csrfToken);
-  return response.data;
+  const me = await uiRequest<UiMe>('/rest/v1/ui/me');
+  setCsrfToken(me.csrfToken);
+  return me;
 }
 
 export function useMe() {

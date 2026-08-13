@@ -16,7 +16,8 @@
 // under the License.
 
 import { setCsrfToken } from './csrf';
-import { UiApiError, uiRequest } from './client';
+import { UiApiError } from './client';
+import { fetchMe } from './me';
 import type { UiMe } from './types';
 
 function encodeBasic(username: string, password: string): string {
@@ -63,7 +64,7 @@ function loginError(status: number, body?: unknown): UiApiError {
 export async function login(username: string, password: string): Promise<UiMe> {
   let response: Response;
   try {
-    response = await fetch('/rest/v1/ui/login', {
+    response = await fetch('/rest/v1/login', {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -86,13 +87,27 @@ export async function login(username: string, password: string): Promise<UiMe> {
     if (!response.ok) throw loginError(response.status);
   }
   if (!response.ok) throw loginError(response.status, payload);
-  if (!payload || typeof payload !== 'object' || !('data' in payload)) throw loginError(response.status);
-  const me = (payload as { data: UiMe }).data;
-  setCsrfToken(me.csrfToken);
-  return me;
+  try {
+    return await fetchMe();
+  } catch (error) {
+    // The legacy login endpoint authenticates every valid Doris user. The UI
+    // bootstrap performs the ADMIN check; remove the just-created cookie when
+    // that second step rejects the account.
+    try {
+      await logout();
+    } catch {
+      setCsrfToken(null);
+    }
+    throw error;
+  }
 }
 
 export async function logout(): Promise<void> {
-  await uiRequest<{ loggedOut: boolean }>('/rest/v1/ui/logout', { method: 'POST' });
+  const response = await fetch('/rest/v1/logout', {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    credentials: 'same-origin',
+  });
+  if (!response.ok) throw loginError(response.status);
   setCsrfToken(null);
 }

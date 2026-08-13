@@ -17,30 +17,29 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { Button, Drawer, Layout, Menu, message } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import dorisLogoDark from '../assets/doris-logo-horizontal-dark.svg';
 import { logout } from '../api/auth';
 import { setCsrfToken } from '../api/csrf';
-import type { UiCapability, UiMe } from '../api/types';
+import type { UiMe } from '../api/types';
 import { queryClient } from './queryClient';
 
 interface NavigationItem {
   key: string;
   label: string;
   index: string;
-  capability?: UiCapability;
 }
 
 const navigation: NavigationItem[] = [
   { key: '/home', label: 'Home', index: '01' },
-  { key: '/playground', label: 'Playground', index: '02', capability: 'PLAYGROUND_USE' },
-  { key: '/system', label: 'System', index: '03', capability: 'OPERATIONS_VIEW' },
-  { key: '/log', label: 'Log', index: '04', capability: 'OPERATIONS_VIEW' },
-  { key: '/query-profiles', label: 'Query Profiles', index: '05', capability: 'QUERY_PROFILE_VIEW_OWN' },
-  { key: '/sessions', label: 'Sessions', index: '06', capability: 'OPERATIONS_VIEW' },
-  { key: '/configuration', label: 'Configuration', index: '07', capability: 'OPERATIONS_VIEW' },
+  { key: '/playground', label: 'Playground', index: '02' },
+  { key: '/system', label: 'System', index: '03' },
+  { key: '/log', label: 'Log', index: '04' },
+  { key: '/query-profiles', label: 'Query Profiles', index: '05' },
+  { key: '/sessions', label: 'Sessions', index: '06' },
+  { key: '/configuration', label: 'Configuration', index: '07' },
 ];
 
 function selectedPath(pathname: string): string {
@@ -52,10 +51,6 @@ export function AppShell({ me }: { me: UiMe }) {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [messageApi, messageContext] = message.useMessage();
-  const allowedNavigation = useMemo(
-    () => navigation.filter((item) => !item.capability || me.capabilities.includes(item.capability)),
-    [me.capabilities],
-  );
 
   const logoutMutation = useMutation({
     mutationFn: logout,
@@ -79,7 +74,7 @@ export function AppShell({ me }: { me: UiMe }) {
     return () => window.removeEventListener('doris-ui:unauthorized', handleUnauthorized);
   }, [navigate]);
 
-  const menuItems = allowedNavigation.map((item) => ({
+  const menuItems = navigation.map((item) => ({
     key: item.key,
     label: (
       <span className="nav-label">

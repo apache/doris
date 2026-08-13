@@ -30,8 +30,10 @@ describe('authentication API', () => {
 
   it('sends Basic credentials only to login and keeps them out of browser storage', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      json({ code: 200, msg: 'Login success!' }),
+    ).mockResolvedValueOnce(
       json({
-        data: { user: 'root', capabilities: [], csrfToken: 'csrf-login' },
+        data: { user: 'root', csrfToken: 'csrf-login' },
         requestId: 'req-auth',
       }),
     );
@@ -39,9 +41,10 @@ describe('authentication API', () => {
     await login('root', 'secret');
 
     const loginHeaders = new Headers(fetchSpy.mock.calls[0]?.[1]?.headers);
-    expect(fetchSpy.mock.calls[0]?.[0]).toBe('/rest/v1/ui/login');
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe('/rest/v1/login');
     expect(loginHeaders.get('Authorization')).toBe(`Basic ${btoa('root:secret')}`);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[1]?.[0]).toBe('/rest/v1/ui/me');
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
     expect(getCsrfToken()).toBe('csrf-login');
@@ -58,7 +61,9 @@ describe('authentication API', () => {
   });
 
   it('preserves the dedicated error for an authenticated non-admin user', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      json({ code: 200, msg: 'Login success!' }),
+    ).mockResolvedValueOnce(
       json(
         {
           code: 'UI_ADMIN_REQUIRED',
@@ -67,16 +72,17 @@ describe('authentication API', () => {
         },
         403,
       ),
-    );
+    ).mockResolvedValueOnce(json({ code: 0, data: {} }));
 
     await expect(login('analyst', 'secret')).rejects.toMatchObject({
       status: 403,
       code: 'UI_ADMIN_REQUIRED',
       message: 'This account is authenticated but is not authorized to use the Doris Web Console.',
     });
+    expect(fetchSpy.mock.calls[2]?.[0]).toBe('/rest/v1/logout');
   });
 
-  it('uses the session CSRF token for logout and clears it afterward', async () => {
+  it('uses the existing logout endpoint and clears the UI token afterward', async () => {
     setCsrfToken('csrf-logout');
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       json({ data: { loggedOut: true }, requestId: 'req-auth' }),
@@ -85,8 +91,8 @@ describe('authentication API', () => {
     await logout();
 
     const headers = new Headers(fetchSpy.mock.calls[0]?.[1]?.headers);
-    expect(fetchSpy.mock.calls[0]?.[0]).toBe('/rest/v1/ui/logout');
-    expect(headers.get('X-Doris-CSRF-Token')).toBe('csrf-logout');
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe('/rest/v1/logout');
+    expect(headers.get('X-Doris-CSRF-Token')).toBeNull();
     expect(getCsrfToken()).toBeNull();
   });
 });

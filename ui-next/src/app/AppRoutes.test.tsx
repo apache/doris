@@ -46,12 +46,9 @@ describe('AppRoutes authentication', () => {
     let meCalls = 0;
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (url === '/rest/v1/ui/login' && init?.method === 'POST') {
+      if (url === '/rest/v1/login' && init?.method === 'POST') {
         return Promise.resolve(
-          json({
-            data: { user: 'root', capabilities: ['PLAYGROUND_USE', 'QUERY_PROFILE_VIEW_OWN'], csrfToken: 'csrf' },
-            requestId: 'req-route',
-          }),
+          json({ code: 200, msg: 'Login success!' }),
         );
       }
       if (url === '/rest/v1/ui/me') {
@@ -61,7 +58,7 @@ describe('AppRoutes authentication', () => {
             json({ code: 'UI_UNAUTHENTICATED', message: 'Authentication is required.', requestId: 'req-route' }, 401),
           );
         }
-        return Promise.reject(new Error('The login response should avoid a second /me request'));
+        return Promise.resolve(json({ data: { user: 'root', csrfToken: 'csrf' }, requestId: 'req-route' }));
       }
       return Promise.reject(new Error(`Unexpected request: ${url}`));
     });
@@ -79,10 +76,10 @@ describe('AppRoutes authentication', () => {
     expect(sessionStorage.length).toBe(0);
   });
 
-  it('guards protected routes with /me and capability-filters the navigation', async () => {
+  it('guards protected routes with /me and shows the ADMIN console navigation', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       json({
-        data: { user: 'analyst', capabilities: ['PLAYGROUND_USE', 'QUERY_PROFILE_VIEW_OWN'], csrfToken: 'csrf' },
+        data: { user: 'admin', csrfToken: 'csrf' },
         requestId: 'req-route',
       }),
     );
@@ -90,9 +87,9 @@ describe('AppRoutes authentication', () => {
     renderRoutes('/home');
 
     await screen.findByRole('heading', { name: 'Home' });
-    expect(screen.getAllByText('analyst')).toHaveLength(2);
+    expect(screen.getAllByText('admin')).toHaveLength(2);
     expect(screen.getByText('Playground')).toBeInTheDocument();
-    expect(screen.queryByText('Configuration')).not.toBeInTheDocument();
+    expect(screen.getByText('Configuration')).toBeInTheDocument();
   });
 
   it('returns an expired protected session to Login', async () => {

@@ -19,7 +19,6 @@ package org.apache.doris.httpv2.ui.websql;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
-import org.apache.doris.httpv2.ui.UiApiResponse;
 import org.apache.doris.httpv2.ui.UiRequestContext;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,6 +29,7 @@ import org.mockito.Mockito;
 
 import java.sql.Connection;
 import java.util.Collections;
+import java.util.Map;
 
 public class WebSqlSessionControllerTest {
     private WebSqlSessionManager manager;
@@ -46,7 +46,6 @@ public class WebSqlSessionControllerTest {
         login.currentUser = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
         login.password = "secret";
         Mockito.when(request.getAttribute(UiRequestContext.SESSION_ATTRIBUTE)).thenReturn(login);
-        Mockito.when(request.getAttribute(UiRequestContext.REQUEST_ID_ATTRIBUTE)).thenReturn("request-1");
     }
 
     @Test
@@ -54,10 +53,9 @@ public class WebSqlSessionControllerTest {
         WebSqlSession session = session("session-1");
         Mockito.when(manager.createSession(login.currentUser.getQualifiedUser(), "secret")).thenReturn(session);
 
-        UiApiResponse<WebSqlSessionInfo> response = controller.create(request);
+        WebSqlSessionInfo response = controller.create(request);
 
-        Assertions.assertEquals("session-1", response.getData().getSessionId());
-        Assertions.assertEquals("request-1", response.getRequestId());
+        Assertions.assertEquals("session-1", response.getSessionId());
         Mockito.verify(manager).createSession(login.currentUser.getQualifiedUser(), "secret");
     }
 
@@ -71,13 +69,12 @@ public class WebSqlSessionControllerTest {
         Mockito.when(manager.cancel("session-1", owner)).thenReturn(true);
         Mockito.when(manager.reset("session-1", owner, "secret")).thenReturn(session("session-1"));
         Mockito.when(manager.closeSession("session-1", owner)).thenReturn(true);
-        WebSqlStatementRequest statement = new WebSqlStatementRequest();
-        statement.setSql("SELECT 1");
+        Map<String, String> statement = Collections.singletonMap("sql", "SELECT 1");
 
-        Assertions.assertSame(execution, controller.execute("session-1", statement, request).getData());
-        Assertions.assertTrue(controller.cancel("session-1", request).getData().isCancelRequested());
-        Assertions.assertEquals("session-1", controller.reset("session-1", request).getData().getSessionId());
-        Assertions.assertTrue(controller.close("session-1", request).getData().isClosed());
+        Assertions.assertSame(execution, controller.execute("session-1", statement, request));
+        Assertions.assertTrue(controller.cancel("session-1", request).get("cancelRequested"));
+        Assertions.assertEquals("session-1", controller.reset("session-1", request).getSessionId());
+        Assertions.assertTrue(controller.close("session-1", request).get("closed"));
 
         Mockito.verify(manager).execute("session-1", owner, "SELECT 1");
         Mockito.verify(manager).cancel("session-1", owner);

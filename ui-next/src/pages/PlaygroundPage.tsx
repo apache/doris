@@ -36,11 +36,10 @@ import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import type { Key } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
 import { format } from 'sql-formatter';
 
 import { UiApiError } from '../api/client';
-import type { UiMe, WebSqlExecutionResult } from '../api/types';
+import type { WebSqlExecutionResult } from '../api/types';
 import { adaptCatalogs, adaptSchema, adaptSingleNameColumn, type CatalogItem, type SchemaColumn } from './playground/metadataAdapter';
 import { executableSql, qualifiedName, quoteIdentifier, type SqlSelection } from './playground/sqlSelection';
 import { useWebSqlSession } from './playground/useWebSqlSession';
@@ -115,7 +114,6 @@ function resultRows(result: WebSqlExecutionResult): Record<string, unknown>[] {
 }
 
 export function PlaygroundPage() {
-  const me = useOutletContext<UiMe>();
   const session = useWebSqlSession();
   const executeSession = session.execute;
   const editorRef = useRef<EditorView | null>(null);
@@ -446,10 +444,6 @@ export function PlaygroundPage() {
       </div>
     ),
   })), [results]);
-
-  if (!me.capabilities.includes('PLAYGROUND_USE')) {
-    return <main className="module-page"><Alert type="error" showIcon title="Playground access is not available for this account." /></main>;
-  }
 
   return (
     <main className="module-page playground-page">

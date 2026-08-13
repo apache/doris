@@ -17,25 +17,17 @@
 
 package org.apache.doris.httpv2.ui;
 
-import java.util.List;
-
 public class UiMe {
     private final String user;
-    private final List<UiCapability> capabilities;
     private final String csrfToken;
 
-    public UiMe(String user, List<UiCapability> capabilities, String csrfToken) {
+    public UiMe(String user, String csrfToken) {
         this.user = user;
-        this.capabilities = capabilities;
         this.csrfToken = csrfToken;
     }
 
     public String getUser() {
         return user;
-    }
-
-    public List<UiCapability> getCapabilities() {
-        return capabilities;
     }
 
     public String getCsrfToken() {

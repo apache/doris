@@ -18,26 +18,26 @@
 import { fetchBackends, fetchFrontends, fetchVersion } from './home';
 
 function json(data: unknown) {
-  return new Response(JSON.stringify({ data, requestId: 'req-home' }), {
+  return new Response(JSON.stringify({ code: 0, data }), {
     headers: { 'Content-Type': 'application/json', 'X-Request-Id': 'req-home' },
   });
 }
 
 describe('Home API', () => {
-  it('uses the dedicated Version and node status facades', async () => {
+  it('adapts the existing hardware and System APIs', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(json({ version: '4.0', git: 'abc', buildInfo: 'builder', buildTime: 'today', features: 'x' }))
-      .mockResolvedValueOnce(json({ columnNames: ['Name', 'FutureField'], rows: [['fe-1', 'kept']] }))
-      .mockResolvedValueOnce(json({ columnNames: ['BackendId'], rows: [['10001']] }));
+      .mockResolvedValueOnce(json({ VersionInfo: { Version: '4.0', Git: 'abc', BuildInfo: 'builder', BuildTime: 'today', Features: 'x' } }))
+      .mockResolvedValueOnce(json({ column_names: ['Name', 'FutureField'], rows: [{ Name: 'fe-1', FutureField: 'kept' }] }))
+      .mockResolvedValueOnce(json({ column_names: ['BackendId'], rows: [{ BackendId: '10001' }] }));
 
     await expect(fetchVersion()).resolves.toMatchObject({ version: '4.0' });
     await expect(fetchFrontends()).resolves.toEqual({ columnNames: ['Name', 'FutureField'], rows: [['fe-1', 'kept']] });
     await expect(fetchBackends()).resolves.toEqual({ columnNames: ['BackendId'], rows: [['10001']] });
 
     expect(fetchSpy.mock.calls.map(([path]) => path)).toEqual([
-      '/rest/v1/ui/home/version',
-      '/rest/v1/ui/nodes/frontends',
-      '/rest/v1/ui/nodes/backends',
+      '/rest/v1/hardware_info/fe/version',
+      '/rest/v1/system?path=%2Ffrontends',
+      '/rest/v1/system?path=%2Fbackends',
     ]);
   });
 });

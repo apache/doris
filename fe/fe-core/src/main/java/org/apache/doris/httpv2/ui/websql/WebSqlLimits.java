@@ -20,6 +20,11 @@ package org.apache.doris.httpv2.ui.websql;
 import org.apache.doris.common.Config;
 
 public class WebSqlLimits {
+    private static final int NO_JDBC_TIMEOUT_OVERRIDE = 0;
+    private static final int FAIL_FAST_LOCK_WAIT_MILLIS = 0;
+    private static final int MAX_REQUESTS_IN_OR_WAITING_FOR_A_SESSION = 1;
+    private static final int MAX_SESSIONS_PER_USER = 5;
+    private static final int MAX_RESULT_ROWS = 10000;
     public final boolean enabled;
     public final long idleTimeoutMillis;
     public final int maxSessions;
@@ -47,11 +52,13 @@ public class WebSqlLimits {
     }
 
     public static WebSqlLimits fromConfig() {
+        int cleanupIntervalSeconds = Math.max(1,
+                Math.min(60, Config.web_sql_session_idle_timeout_seconds / 2));
         return new WebSqlLimits(Config.enable_web_sql_session,
                 Config.web_sql_session_idle_timeout_seconds * 1000L,
-                Config.web_sql_max_sessions, Config.web_sql_max_sessions_per_user,
-                Config.web_sql_max_result_rows, Config.web_sql_max_result_bytes,
-                Config.web_sql_statement_timeout_seconds, Config.web_sql_lock_wait_timeout_ms,
-                Config.web_sql_max_queued_statements_per_session, Config.web_sql_cleanup_interval_seconds);
+                Config.web_sql_max_sessions, Math.min(Config.web_sql_max_sessions, MAX_SESSIONS_PER_USER),
+                MAX_RESULT_ROWS, Config.web_sql_max_result_bytes,
+                NO_JDBC_TIMEOUT_OVERRIDE, FAIL_FAST_LOCK_WAIT_MILLIS,
+                MAX_REQUESTS_IN_OR_WAITING_FOR_A_SESSION, cleanupIntervalSeconds);
     }
 }

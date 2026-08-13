@@ -18,7 +18,6 @@
 package org.apache.doris.httpv2.ui.websql;
 
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
-import org.apache.doris.httpv2.ui.UiApiResponse;
 import org.apache.doris.httpv2.ui.UiRequestContext;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,6 +27,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Collections;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/rest/v1/ui/sql-sessions")
@@ -39,36 +41,36 @@ public class WebSqlSessionController {
     }
 
     @PostMapping
-    public UiApiResponse<WebSqlSessionInfo> create(HttpServletRequest request) {
+    public WebSqlSessionInfo create(HttpServletRequest request) {
         SessionValue login = UiRequestContext.session(request);
         WebSqlSession session = manager.createSession(owner(login), password(login));
-        return response(new WebSqlSessionInfo(session), request);
+        return new WebSqlSessionInfo(session);
     }
 
     @PostMapping("/{id}/statements")
-    public UiApiResponse<WebSqlExecutionResult> execute(@PathVariable("id") String id,
-            @RequestBody WebSqlStatementRequest statement, HttpServletRequest request) {
+    public WebSqlExecutionResult execute(@PathVariable("id") String id,
+            @RequestBody Map<String, String> statement, HttpServletRequest request) {
         SessionValue login = UiRequestContext.session(request);
-        return response(manager.execute(id, owner(login), statement == null ? null : statement.getSql()), request);
+        return manager.execute(id, owner(login), statement == null ? null : statement.get("sql"));
     }
 
     @PostMapping("/{id}/cancel")
-    public UiApiResponse<WebSqlCancelResult> cancel(@PathVariable("id") String id, HttpServletRequest request) {
+    public Map<String, Boolean> cancel(@PathVariable("id") String id, HttpServletRequest request) {
         SessionValue login = UiRequestContext.session(request);
-        return response(new WebSqlCancelResult(manager.cancel(id, owner(login))), request);
+        return Collections.singletonMap("cancelRequested", manager.cancel(id, owner(login)));
     }
 
     @PostMapping("/{id}/reset")
-    public UiApiResponse<WebSqlSessionInfo> reset(@PathVariable("id") String id, HttpServletRequest request) {
+    public WebSqlSessionInfo reset(@PathVariable("id") String id, HttpServletRequest request) {
         SessionValue login = UiRequestContext.session(request);
-        return response(new WebSqlSessionInfo(manager.reset(id, owner(login), password(login))), request);
+        return new WebSqlSessionInfo(manager.reset(id, owner(login), password(login)));
     }
 
     @DeleteMapping("/{id}")
-    public UiApiResponse<WebSqlCloseResult> close(@PathVariable("id") String id, HttpServletRequest request) {
+    public Map<String, Boolean> close(@PathVariable("id") String id, HttpServletRequest request) {
         SessionValue login = UiRequestContext.session(request);
         manager.closeSession(id, owner(login));
-        return response(new WebSqlCloseResult(true), request);
+        return Collections.singletonMap("closed", true);
     }
 
     private String owner(SessionValue session) {
@@ -79,7 +81,4 @@ public class WebSqlSessionController {
         return session.password == null ? "" : session.password;
     }
 
-    private <T> UiApiResponse<T> response(T data, HttpServletRequest request) {
-        return new UiApiResponse<>(data, UiRequestContext.requestId(request));
-    }
 }

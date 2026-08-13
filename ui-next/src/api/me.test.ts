@@ -27,7 +27,6 @@ describe('fetchMe', () => {
         JSON.stringify({
           data: {
             user: 'analyst',
-            capabilities: ['PLAYGROUND_USE', 'QUERY_PROFILE_VIEW_OWN'],
             csrfToken: 'csrf-session-token',
           },
           requestId: 'req-me',

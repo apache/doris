@@ -24,12 +24,11 @@ import { HomePage } from './HomePage';
 
 const admin: UiMe = {
   user: 'root',
-  capabilities: ['NODE_STATUS_VIEW'],
   csrfToken: 'csrf',
 };
 
 function json(data: unknown) {
-  return new Response(JSON.stringify({ data, requestId: 'req-home-page' }), {
+  return new Response(JSON.stringify({ code: 0, data }), {
     headers: { 'Content-Type': 'application/json', 'X-Request-Id': 'req-home-page' },
   });
 }
@@ -57,16 +56,16 @@ describe('HomePage', () => {
   it('shows real Version fields and every dynamic frontend field', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (path.endsWith('/home/version')) {
-        return Promise.resolve(json({ version: '4.0.6', git: 'abc123', buildInfo: 'build-host', buildTime: 'today', features: 'avx2' }));
+      if (path.endsWith('/hardware_info/fe/version')) {
+        return Promise.resolve(json({ VersionInfo: { Version: '4.0.6', Git: 'abc123', BuildInfo: 'build-host', BuildTime: 'today', Features: 'avx2' } }));
       }
-      if (path.endsWith('/nodes/frontends')) {
+      if (path.includes('path=%2Ffrontends')) {
         return Promise.resolve(json({
-          columnNames: ['Name', 'Alive', 'FutureMetric'],
-          rows: [['fe-1', 'true', 'future-value'], ['fe-2', 'false']],
+          column_names: ['Name', 'Alive', 'FutureMetric'],
+          rows: [{ Name: 'fe-1', Alive: 'true', FutureMetric: 'future-value' }, { Name: 'fe-2', Alive: 'false' }],
         }));
       }
-      if (path.endsWith('/nodes/backends')) return Promise.resolve(json({ columnNames: ['BackendId'], rows: [] }));
+      if (path.includes('path=%2Fbackends')) return Promise.resolve(json({ column_names: ['BackendId'], rows: [] }));
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
 
@@ -85,15 +84,4 @@ describe('HomePage', () => {
     expect(screen.getAllByText('FutureMetric').length).toBeGreaterThan(1);
   });
 
-  it('does not request node data without NODE_STATUS_VIEW', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      json({ version: '4.0.6', git: 'abc123', buildInfo: 'builder', buildTime: 'today', features: '' }),
-    );
-
-    renderHome({ user: 'analyst', capabilities: [], csrfToken: 'csrf' });
-
-    expect(await screen.findByText('Node status is restricted for this account.')).toBeInTheDocument();
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy).toHaveBeenCalledWith('/rest/v1/ui/home/version', expect.anything());
-  });
 });

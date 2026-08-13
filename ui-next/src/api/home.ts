@@ -17,19 +17,50 @@
 
 import { useQuery } from '@tanstack/react-query';
 
-import { uiRequest } from './client';
+import { legacyGet, type LegacyTablePayload } from './operations';
 import type { UiNodeTable, UiVersionInfo } from './types';
 
+interface LegacyHardwareInfo {
+  VersionInfo?: Record<string, unknown>;
+}
+
+function text(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value);
+}
+
+function nodeTable(payload: LegacyTablePayload): UiNodeTable {
+  const columnNames = Array.isArray(payload.column_names) ? payload.column_names.map(text) : [];
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  return {
+    columnNames,
+    rows: rows.map((row) => {
+      if (Array.isArray(row)) return columnNames.map((_name, index) => text(row[index]));
+      const record = row && typeof row === 'object' ? row as Record<string, unknown> : {};
+      return columnNames.map((name) => text(record[name]));
+    }),
+  };
+}
+
 export async function fetchVersion(): Promise<UiVersionInfo> {
-  return (await uiRequest<UiVersionInfo>('/rest/v1/ui/home/version')).data;
+  const payload = await legacyGet<LegacyHardwareInfo>('/rest/v1/hardware_info/fe/version');
+  const version = payload.VersionInfo ?? {};
+  return {
+    version: text(version.Version),
+    git: text(version.Git),
+    buildInfo: text(version.BuildInfo),
+    buildTime: text(version.BuildTime),
+    features: text(version.Features),
+  };
 }
 
 export async function fetchFrontends(): Promise<UiNodeTable> {
-  return (await uiRequest<UiNodeTable>('/rest/v1/ui/nodes/frontends')).data;
+  return nodeTable(await legacyGet<LegacyTablePayload>('/rest/v1/system?path=%2Ffrontends'));
 }
 
 export async function fetchBackends(): Promise<UiNodeTable> {
-  return (await uiRequest<UiNodeTable>('/rest/v1/ui/nodes/backends')).data;
+  return nodeTable(await legacyGet<LegacyTablePayload>('/rest/v1/system?path=%2Fbackends'));
 }
 
 export function useVersion() {

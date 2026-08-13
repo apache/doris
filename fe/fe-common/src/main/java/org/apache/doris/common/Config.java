@@ -2798,32 +2798,8 @@ public class Config extends ConfigBase {
     public static int web_sql_max_sessions = 100;
 
     @ConfField(mutable = false, masterOnly = false,
-            description = "Maximum number of Web SQL sessions per user on one FE.")
-    public static int web_sql_max_sessions_per_user = 5;
-
-    @ConfField(mutable = false, masterOnly = false,
-            description = "Maximum number of rows returned by one Web SQL statement.")
-    public static int web_sql_max_result_rows = 10000;
-
-    @ConfField(mutable = false, masterOnly = false,
             description = "Approximate maximum result bytes for one Web SQL statement.")
     public static long web_sql_max_result_bytes = 10 * 1024 * 1024;
-
-    @ConfField(mutable = false, masterOnly = false,
-            description = "JDBC statement timeout for Web SQL, in seconds.")
-    public static int web_sql_statement_timeout_seconds = 300;
-
-    @ConfField(mutable = false, masterOnly = false,
-            description = "Maximum time to wait for a Web SQL session execution lock, in milliseconds.")
-    public static int web_sql_lock_wait_timeout_ms = 5000;
-
-    @ConfField(mutable = false, masterOnly = false,
-            description = "Maximum number of requests queued for one Web SQL session.")
-    public static int web_sql_max_queued_statements_per_session = 1;
-
-    @ConfField(mutable = false, masterOnly = false,
-            description = "Cleanup interval for idle Web SQL sessions, in seconds.")
-    public static int web_sql_cleanup_interval_seconds = 60;
 
     @ConfField(mutable = true, masterOnly = true, description = "The threshold of load labels' number. After this "
             + "number is exceeded, the labels of the completed " + "import jobs or tasks will be deleted, and the "

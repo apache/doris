@@ -20,6 +20,9 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { LoginPage } from '../pages/LoginPage';
 import { HomePage } from '../pages/HomePage';
+import { LogPage } from '../pages/LogPage';
+import { SessionsPage } from '../pages/SessionsPage';
+import { SystemPage } from '../pages/SystemPage';
 import { AuthGate } from './AuthGate';
 import { ModulePlaceholder } from './ModulePlaceholder';
 
@@ -39,10 +42,10 @@ export function AppRoutes() {
           path="/playground/*"
           element={<Suspense fallback={<main className="full-page-state">Loading Playground…</main>}><PlaygroundPage /></Suspense>}
         />
-        <Route path="/system/*" element={<ModulePlaceholder name="System" milestone="M8" />} />
-        <Route path="/log" element={<ModulePlaceholder name="Log" milestone="M9" />} />
+        <Route path="/system/*" element={<SystemPage />} />
+        <Route path="/log" element={<LogPage />} />
         <Route path="/query-profiles/*" element={<ModulePlaceholder name="Query Profiles" milestone="M10" />} />
-        <Route path="/sessions" element={<ModulePlaceholder name="Sessions" milestone="M13" />} />
+        <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/configuration" element={<ModulePlaceholder name="Configuration" milestone="M14" />} />
         <Route path="*" element={<ModulePlaceholder name="Page not found" milestone="No module" />} />
       </Route>
