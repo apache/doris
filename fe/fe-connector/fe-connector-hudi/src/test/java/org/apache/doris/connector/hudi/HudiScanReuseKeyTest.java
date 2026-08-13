@@ -143,6 +143,21 @@ class HudiScanReuseKeyTest {
                 "the two semantic partition states must occupy separate statement-cache entries");
     }
 
+    @Test
+    void statementReusePlansAnIdenticalScanOnce() {
+        RecordingScanProvider provider = new RecordingScanProvider();
+        ConnectorSession session = new MemoSession(new MemoScope());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle().toBuilder().prunedPartitionPaths(null).build(),
+                Collections.<ConnectorColumnHandle>emptyList()).build();
+
+        List<ConnectorScanRange> first = provider.planScan(session, request);
+        List<ConnectorScanRange> second = provider.planScan(session, request);
+
+        Assertions.assertSame(first, second, "an identical scan must reuse the statement's planned range list");
+        Assertions.assertEquals(1, provider.planCalls, "the underlying Hudi planner must run once");
+    }
+
     private static final class RecordingScanProvider extends HudiScanPlanProvider {
         private static final ConnectorScanRange RANGE = Collections::emptyMap;
         private int planCalls;
