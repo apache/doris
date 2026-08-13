@@ -116,7 +116,6 @@ private:
         // JniContext's lifecycle should same with function context, not related with expr
 
         Jni::GlobalClass executor_cl;
-        Jni::MethodId executor_ctor_id;
         Jni::MethodId executor_evaluate_id;
         Jni::MethodId executor_close_id;
         Jni::GlobalObject executor;

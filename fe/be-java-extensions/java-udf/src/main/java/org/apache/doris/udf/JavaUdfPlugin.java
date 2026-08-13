@@ -17,16 +17,24 @@
 
 package org.apache.doris.udf;
 
-import org.apache.hadoop.hive.ql.exec.UDF;
+import org.apache.doris.jni.spi.DorisPlugin;
+import org.apache.doris.jni.spi.UdfExecutorFactory;
 
-import java.util.*;
+import java.util.Arrays;
 
-public class MapidTest extends UDF {
-    public HashMap<Integer, Double> evaluate(HashMap<Integer, Double> mid) {
-        HashMap<Integer, Double> ans = new HashMap<>();
-        for (Map.Entry<Integer, Double> it : mid.entrySet()) {
-            ans.put(it.getKey() * 10, it.getValue() * 10);
-        }
-        return ans;
+/**
+ * Entry point of the {@code java-udf} plugin, found through
+ * {@code META-INF/services/org.apache.doris.jni.spi.DorisPlugin}.
+ *
+ * <p>It provides two executor factories, not three: a table function runs the same per-row
+ * {@code evaluate} as a scalar function - the serialized parameters carry the flag that makes its
+ * return type an array - so both are built by {@code scalar}. Aggregate functions have a different
+ * method shape and get their own.
+ */
+public class JavaUdfPlugin implements DorisPlugin {
+
+    @Override
+    public Iterable<UdfExecutorFactory> getUdfExecutorFactories() {
+        return Arrays.asList(new ScalarUdfExecutorFactory(), new AggregateUdfExecutorFactory());
     }
 }

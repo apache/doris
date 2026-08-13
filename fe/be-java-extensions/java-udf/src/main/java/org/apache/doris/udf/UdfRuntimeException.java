@@ -17,16 +17,13 @@
 
 package org.apache.doris.udf;
 
-import org.apache.hadoop.hive.ql.exec.UDF;
+/** Raised when running a user function fails. BE renders it into the query's error message. */
+public class UdfRuntimeException extends Exception {
+    public UdfRuntimeException(String msg, Throwable cause) {
+        super(msg, cause);
+    }
 
-import java.util.*;
-
-public class MapidTest extends UDF {
-    public HashMap<Integer, Double> evaluate(HashMap<Integer, Double> mid) {
-        HashMap<Integer, Double> ans = new HashMap<>();
-        for (Map.Entry<Integer, Double> it : mid.entrySet()) {
-            ans.put(it.getKey() * 10, it.getValue() * 10);
-        }
-        return ans;
+    public UdfRuntimeException(String msg) {
+        super(msg);
     }
 }

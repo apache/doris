@@ -221,42 +221,24 @@ fi
 # never held the same thing, so which of them the JVM was built from decided what the JVM could
 # see. Both are exported from this single list below.
 
+# conf/ comes first so that hadoop libhdfs finds the .xml config files there. Seeding the list
+# with it is also what lets every block below append unconditionally: an empty element in a class
+# path means the current directory, not nothing, so a list that starts out empty puts the working
+# directory on the class path the first time something appends to it.
+DORIS_CLASSPATH="${DORIS_HOME}/conf/"
+
 # The shared layer: the plugin SPI and the loader that reads lib/java/plugins. These are the only
 # Doris classes a plugin is allowed to share with BE, which is why they are the only ones that
 # belong on the system classpath.
 if [[ -d "${DORIS_HOME}/lib/java/spi" ]]; then
     for f in "${DORIS_HOME}/lib/java/spi"/*.jar; do
-        if [[ -z "${DORIS_CLASSPATH}" ]]; then
-            DORIS_CLASSPATH="${f}"
-        else
-            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-        fi
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
 fi
 
-# add java libs
-# Must add hadoop libs, because we should load specified jars
-# instead of jars in hadoop libs, such as avro
-# ATTN: every module still listed here is one that has not been converted into a plugin yet.
-# They leave this list as they are converted, and the list - along with lib/java_extensions
-# itself - goes away with the last of them.
-preload_jars=("preload-extensions")
-preload_jars+=("java-udf")
-
-DORIS_PRELOAD_JAR=
-for preload_jar_dir in "${preload_jars[@]}"; do
-    for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
-        if [[ "${f}" == *"preload-extensions-project.jar" ]]; then
-            DORIS_PRELOAD_JAR="${f}"
-            continue
-        elif [[ -z "${DORIS_CLASSPATH}" ]]; then
-            DORIS_CLASSPATH="${f}"
-        else
-            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-        fi
-    done
-done
-
+# The hadoop drop C++ libhdfs reads. Every Java table format now carries its own copy of hadoop
+# inside its plugin directory, so this one is here for libhdfs alone - which is why it is the only
+# thing besides conf and the SPI still on this classpath.
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     # add hadoop libs
     for f in "${DORIS_HOME}/lib/hadoop_hdfs"/*.jar; do
@@ -283,35 +265,14 @@ if [[ -d "${DORIS_HOME}/lib/java_extensions/juicefs" ]]; then
     done
 fi
 
-# add custom_libs to CLASSPATH
-# ATTN, custom_libs is deprecated, use plugins/java_extensions
-if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
-    for f in "${DORIS_HOME}/custom_lib"/*.jar; do
-        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-    done
-fi
-
-# add plugins/java_extensions
-if [[ -d "${DORIS_HOME}/plugins/java_extensions" ]]; then
-    for f in "${DORIS_HOME}/plugins/java_extensions"/*.jar; do
-        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-    done
-fi
-
-# make sure the preload-extensions-project.jar is at first order, so that some classed
-# with same qualified name can be loaded priority from preload-extensions-project.jar.
-# Guarded because that jar stops being deployed once preload-extensions is gone, and an empty
-# leading element would silently put the current directory on the classpath.
-if [[ -n "${DORIS_PRELOAD_JAR}" ]]; then
-    DORIS_CLASSPATH="${DORIS_PRELOAD_JAR}:${DORIS_CLASSPATH}"
-fi
+# custom_lib and plugins/java_extensions hold user Java function jars, and they are deliberately
+# NOT put on this classpath any more: the java-udf plugin reads those two directories itself and
+# loads what is in them behind its own contract classloader, so a user function no longer sees
+# whatever BE happens to ship. Adding them back here would give user code the hadoop drop above.
 
 if [[ -n "${HADOOP_CONF_DIR}" ]]; then
     DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
-
-# conf/ comes first so that hadoop libhdfs finds the .xml config files there.
-DORIS_CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}"
 
 # Anything the operator already had on CLASSPATH keeps working, appended last. Only when it is
 # non-empty: an empty element in a classpath means the current directory, not nothing.

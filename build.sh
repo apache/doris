@@ -844,7 +844,8 @@ fi
 if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/iceberg-metadata-scanner")
     modules+=("be-java-extensions/hadoop-hudi-scanner")
-    modules+=("be-java-extensions/java-common")
+    # java-common went with preload-extensions: it was the shared JNI base every scanner
+    # compiled against, and nothing that is still built depends on it.
     modules+=("be-java-extensions/java-udf")
     modules+=("be-java-extensions/jdbc-scanner")
     modules+=("be-java-extensions/paimon-scanner")
@@ -852,7 +853,9 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/max-compute-connector")
     # lakesoul-scanner has been deprecated
     # modules+=("be-java-extensions/lakesoul-scanner")
-    modules+=("be-java-extensions/preload-extensions")
+    # preload-extensions is gone: it existed to put one shared classpath in front of every JNI
+    # scanner, and every scanner now carries its own closure in its own plugin directory. Nothing
+    # deploys it, so nothing builds it.
     modules+=("be-java-extensions/${HADOOP_DEPS_NAME}")
     modules+=("be-java-extensions/java-writer")
     # The shared layer. Nothing depends on these two, so -am does not reach them.
@@ -1350,11 +1353,10 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/task_executor_simulator" "${DORIS_OUTPUT}/be/lib/"/
     fi
 
-    extensions_modules=("java-udf")
-    # lakesoul-scanner has been deprecated
-    # extensions_modules+=("lakesoul-scanner")
-    extensions_modules+=("preload-extensions")
-    extensions_modules+=("${HADOOP_DEPS_NAME}")
+    # Everything that used to be here is a plugin now; what is left is the hadoop drop that C++
+    # libhdfs loads, which is not a plugin and never was. lib/java_extensions itself survives only
+    # because post-build.sh unpacks jindofs and juicefs into it.
+    extensions_modules=("${HADOOP_DEPS_NAME}")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
@@ -1409,6 +1411,7 @@ EOF
     plugin_modules+=("paimon-scanner:paimon")
     plugin_modules+=("hadoop-hudi-scanner:hudi")
     plugin_modules+=("trino-connector-scanner:trino-connector")
+    plugin_modules+=("java-udf:java-udf")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
