@@ -458,9 +458,7 @@ public interface IcebergCatalogOps {
 
         @Override
         public void dropColumn(String dbName, String tableName, String columnName) {
-            UpdateSchema updateSchema = loadTable(dbName, tableName).updateSchema();
-            updateSchema.deleteColumn(columnName);
-            updateSchema.commit();
+            IcebergNestedColumnEvolution.dropTopLevelColumn(loadTable(dbName, tableName), columnName);
         }
 
         @Override
