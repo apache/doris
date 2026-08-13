@@ -90,6 +90,8 @@ import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -645,12 +647,59 @@ public class PaimonUtil {
         }
     }
 
+    public static <T> Optional<byte[]> serializeObjectWithinLimit(T object, long maxBytes) {
+        LimitedByteArrayOutputStream output = new LimitedByteArrayOutputStream(maxBytes);
+        try (ObjectOutputStream objectOutput = new ObjectOutputStream(output)) {
+            objectOutput.writeObject(object);
+            objectOutput.flush();
+            return Optional.of(output.toByteArray());
+        } catch (SerializationSizeLimitException e) {
+            return Optional.empty();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public static <T> T deserializeObject(byte[] bytes) {
         try {
             return InstantiationUtil.deserializeObject(bytes, PaimonUtil.class.getClassLoader());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static final class LimitedByteArrayOutputStream extends OutputStream {
+        private final ByteArrayOutputStream delegate = new ByteArrayOutputStream();
+        private final long maxBytes;
+
+        private LimitedByteArrayOutputStream(long maxBytes) {
+            this.maxBytes = maxBytes;
+        }
+
+        @Override
+        public void write(int value) throws IOException {
+            ensureCapacity(1);
+            delegate.write(value);
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) throws IOException {
+            ensureCapacity(length);
+            delegate.write(bytes, offset, length);
+        }
+
+        private void ensureCapacity(int additionalBytes) throws SerializationSizeLimitException {
+            if (additionalBytes > maxBytes - delegate.size()) {
+                throw new SerializationSizeLimitException();
+            }
+        }
+
+        private byte[] toByteArray() {
+            return delegate.toByteArray();
+        }
+    }
+
+    private static final class SerializationSizeLimitException extends IOException {
     }
 
     /**

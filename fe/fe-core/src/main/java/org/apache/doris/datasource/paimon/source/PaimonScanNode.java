@@ -862,14 +862,16 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     private List<PaimonSerializedScanTask> serializePaimonSplitsWithinLimit(
             List<org.apache.paimon.table.source.Split> splits) {
-        List<PaimonSerializedScanTask> serializedTasks = new ArrayList<>(splits.size());
+        List<PaimonSerializedScanTask> serializedTasks = new ArrayList<>();
         long serializedBytes = 0;
         for (org.apache.paimon.table.source.Split split : splits) {
-            PaimonSerializedScanTask task = new PaimonSerializedScanTask(split);
-            serializedBytes += task.serializedSize();
-            if (serializedBytes > maxRetainedSerializedTaskBytes) {
+            Optional<byte[]> serializedSplit = PaimonUtil.serializeObjectWithinLimit(
+                    split, maxRetainedSerializedTaskBytes - serializedBytes);
+            if (!serializedSplit.isPresent()) {
                 throw new PaimonTaskCacheLimitException(splits);
             }
+            PaimonSerializedScanTask task = new PaimonSerializedScanTask(serializedSplit.get());
+            serializedBytes += task.serializedSize();
             serializedTasks.add(task);
         }
         return serializedTasks;
@@ -949,8 +951,8 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final class PaimonSerializedScanTask {
         private final byte[] serializedSplit;
 
-        private PaimonSerializedScanTask(org.apache.paimon.table.source.Split split) {
-            this.serializedSplit = PaimonUtil.serializeObject(split);
+        private PaimonSerializedScanTask(byte[] serializedSplit) {
+            this.serializedSplit = serializedSplit;
         }
 
         private org.apache.paimon.table.source.Split deserialize() {

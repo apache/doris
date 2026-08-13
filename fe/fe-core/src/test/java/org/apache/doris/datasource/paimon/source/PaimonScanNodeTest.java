@@ -296,29 +296,33 @@ public class PaimonScanNodeTest {
             RowType rowType = new RowType(Collections.singletonList(
                     new DataField(0, "id", DataTypes.INT())));
             AtomicInteger planCount = new AtomicInteger();
-            AtomicInteger serializationCount = new AtomicInteger();
+            AtomicInteger serializationWriteCount = new AtomicInteger();
             List<org.apache.paimon.table.source.Split> plannedSplits = Arrays.asList(
-                    new CountingSplit(serializationCount),
-                    new CountingSplit(serializationCount),
-                    new CountingSplit(serializationCount));
+                    new CountingSplit(serializationWriteCount),
+                    new CountingSplit(serializationWriteCount),
+                    new CountingSplit(serializationWriteCount));
             Table table = mockPlanningTable(
                     rowType, Collections.emptyMap(), planCount, plannedSplits);
 
             PaimonScanNode first = newPlanningNode(
                     12, relationTable, targetTable, catalog, table,
                     101L, 3L, Collections.emptyMap(), Collections.emptyList(), "id");
-            first.setMaxRetainedSerializedTaskBytes(1);
+            first.setMaxRetainedSerializedTaskBytes(256);
             Assert.assertSame(plannedSplits, first.getPaimonSplitFromAPI());
             Assert.assertEquals(1, planCount.get());
-            Assert.assertEquals(1, serializationCount.get());
+            int firstWriteCount = serializationWriteCount.get();
+            Assert.assertTrue(firstWriteCount > 0);
+            Assert.assertTrue(firstWriteCount < CountingSplit.PAYLOAD_SIZE);
 
             PaimonScanNode second = newPlanningNode(
                     13, relationTable, targetTable, catalog, table,
                     101L, 3L, Collections.emptyMap(), Collections.emptyList(), "id");
-            second.setMaxRetainedSerializedTaskBytes(1);
+            second.setMaxRetainedSerializedTaskBytes(256);
             Assert.assertSame(plannedSplits, second.getPaimonSplitFromAPI());
             Assert.assertEquals(2, planCount.get());
-            Assert.assertEquals(2, serializationCount.get());
+            int secondWriteCount = serializationWriteCount.get();
+            Assert.assertTrue(secondWriteCount > firstWriteCount);
+            Assert.assertTrue(secondWriteCount < firstWriteCount + CountingSplit.PAYLOAD_SIZE);
         } finally {
             statementContext.close();
             ConnectContext.remove();
@@ -1722,10 +1726,11 @@ public class PaimonScanNodeTest {
     }
 
     private static final class CountingSplit implements org.apache.paimon.table.source.Split {
-        private transient AtomicInteger serializationCount;
+        private static final int PAYLOAD_SIZE = 1024 * 1024;
+        private transient AtomicInteger serializationWriteCount;
 
-        private CountingSplit(AtomicInteger serializationCount) {
-            this.serializationCount = serializationCount;
+        private CountingSplit(AtomicInteger serializationWriteCount) {
+            this.serializationWriteCount = serializationWriteCount;
         }
 
         @Override
@@ -1739,8 +1744,11 @@ public class PaimonScanNodeTest {
         }
 
         private void writeObject(ObjectOutputStream output) throws IOException {
-            serializationCount.incrementAndGet();
             output.defaultWriteObject();
+            for (int i = 0; i < PAYLOAD_SIZE; i++) {
+                serializationWriteCount.incrementAndGet();
+                output.writeByte(i);
+            }
         }
     }
 
