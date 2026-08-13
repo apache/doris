@@ -66,6 +66,33 @@ public class ShowIndexCommand extends ShowCommand {
                     .addColumn(new Column("Comment", ScalarType.createVarchar(160)))
                     .addColumn(new Column("Properties", ScalarType.createVarchar(400)))
                     .build();
+
+    /**
+     * MySQL's own SHOW INDEX layout, which splits what Doris packs into one column: Comment
+     * carries status information about the index, Index_comment carries the description the
+     * user declared. A client that reads the declared description looks for Index_comment,
+     * so compatible mode has to name it that. Doris' own Properties is kept on the end,
+     * after everything MySQL documents, so nothing is lost by turning the switch on.
+     */
+    private static final ShowResultSetMetaData MYSQL_COMPATIBLE_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("Table", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Non_unique", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Key_name", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Seq_in_index", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Column_name", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Collation", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Cardinality", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Sub_part", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Packed", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Null", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Index_type", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Comment", ScalarType.createVarchar(160)))
+                    .addColumn(new Column("Index_comment", ScalarType.createVarchar(1024)))
+                    .addColumn(new Column("Visible", ScalarType.createVarchar(3)))
+                    .addColumn(new Column("Expression", ScalarType.createVarchar(1024)))
+                    .addColumn(new Column("Properties", ScalarType.createVarchar(400)))
+                    .build();
     private TableNameInfo tableNameInfo;
 
     /**
@@ -111,8 +138,8 @@ public class ShowIndexCommand extends ShowCommand {
         DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(tableNameInfo.getCtl())
                 .getDbOrAnalysisException(tableNameInfo.getDb());
-        List<List<String>> rows = ctx.getSessionVariable().enableMysqlCompatibleIndexMetadata()
-                ? mysqlCompatibleRows(db) : legacyRows(db);
+        boolean mysqlCompatible = ctx.getSessionVariable().enableMysqlCompatibleIndexMetadata();
+        List<List<String>> rows = mysqlCompatible ? mysqlCompatibleRows(db) : legacyRows(db);
         return new ShowResultSet(getMetaData(), rows);
     }
 
@@ -140,7 +167,12 @@ public class ShowIndexCommand extends ShowCommand {
                         null,
                         row.isNullable() ? "YES" : "",
                         row.getIndexType(),
+                        // MySQL keeps Comment for index status, of which Doris has none,
+                        // and reports the declared description as Index_comment.
+                        "",
                         row.getComment(),
+                        "YES",
+                        null,
                         row.getProperties()));
             }
         } finally {
@@ -183,7 +215,9 @@ public class ShowIndexCommand extends ShowCommand {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        return META_DATA;
+        ConnectContext ctx = ConnectContext.get();
+        return ctx != null && ctx.getSessionVariable().enableMysqlCompatibleIndexMetadata()
+                ? MYSQL_COMPATIBLE_META_DATA : META_DATA;
     }
 
     @Override

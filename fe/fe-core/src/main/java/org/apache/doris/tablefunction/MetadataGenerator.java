@@ -30,6 +30,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -1536,9 +1537,13 @@ public class MetadataGenerator {
         return result;
     }
 
-    /** Emits the rows one table contributes to a key metadata schema table. */
+    /**
+     * Emits the rows one table contributes to a key metadata schema table. {@code schemaName}
+     * is the name of the database as a MySQL client sees it, which is not always its full
+     * name, so every emitted schema column has to use it rather than reach for the database.
+     */
     private interface KeyMetadataRowEmitter {
-        void emit(CatalogIf catalog, DatabaseIf database, TableIf table, List<TRow> dataBatch);
+        void emit(CatalogIf catalog, String schemaName, TableIf table, List<TRow> dataBatch);
     }
 
     /**
@@ -1566,15 +1571,20 @@ public class MetadataGenerator {
         // or database that has since been dropped is an empty answer, not an error.
         DatabaseIf database = catalog == null ? null : catalog.getDbNullable(params.getDbId());
         if (database != null) {
-            List<TableIf> tables = database.getTables();
-            for (TableIf table : tables) {
+            String schemaName = InfoSchemaDb.getMysqlTableSchema(catalog.getName(), database.getFullName());
+            for (TableIf table : tablesToScan(database, params)) {
+                // A temporary table belongs to the session that created it and is invisible
+                // to every other one, its name included. It must not leak through here.
+                if (table.isTemporary()) {
+                    continue;
+                }
                 if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
                         database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
                 table.readLock();
                 try {
-                    emitter.emit(catalog, database, table, dataBatch);
+                    emitter.emit(catalog, schemaName, table, dataBatch);
                 } finally {
                     table.readUnlock();
                 }
@@ -1583,6 +1593,22 @@ public class MetadataGenerator {
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    /**
+     * The tables a key metadata scan has to build rows for. A query that pinned one table
+     * with {@code TABLE_NAME = '...'} sends that name down with the request, so answer from
+     * that table alone: a JDBC driver looks up the primary key of a single table on every
+     * connection, and walking every table of the database to then throw the rest away is
+     * the difference between a constant and a linear cost on that path.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static List<TableIf> tablesToScan(DatabaseIf database, TSchemaTableRequestParams params) {
+        if (params.isSetTableName()) {
+            TableIf table = (TableIf) database.getTableNullable(params.getTableName());
+            return table == null ? Collections.emptyList() : Lists.newArrayList(table);
+        }
+        return (List<TableIf>) database.getTables();
     }
 
     private static TCell nullCell() {
@@ -1598,14 +1624,14 @@ public class MetadataGenerator {
     }
 
     private static TFetchSchemaTableDataResult statisticsMetadataResult(TSchemaTableRequestParams params) {
-        return keyMetadataResult(params, (catalog, database, table, dataBatch) -> {
+        return keyMetadataResult(params, (catalog, schemaName, table, dataBatch) -> {
             for (TableKeyMeta.KeyRow row : TableKeyMeta.buildKeyRows(table)) {
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
-                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
-                trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(schemaName)); // TABLE_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(row.getTableName())); // TABLE_NAME
                 trow.addToColumnValue(new TCell().setLongVal(row.isNonUnique() ? 1 : 0)); // NON_UNIQUE
-                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // INDEX_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(schemaName)); // INDEX_SCHEMA
                 trow.addToColumnValue(new TCell().setStringVal(row.getIndexName())); // INDEX_NAME
                 trow.addToColumnValue(new TCell().setLongVal(row.getSeqInIndex())); // SEQ_IN_INDEX
                 trow.addToColumnValue(new TCell().setStringVal(row.getColumnName())); // COLUMN_NAME
@@ -1626,15 +1652,15 @@ public class MetadataGenerator {
     }
 
     private static TFetchSchemaTableDataResult keyColumnUsageMetadataResult(TSchemaTableRequestParams params) {
-        return keyMetadataResult(params, (catalog, database, table, dataBatch) -> {
+        return keyMetadataResult(params, (catalog, schemaName, table, dataBatch) -> {
             for (TableKeyMeta.KeyColumnUsageRow row : TableKeyMeta.buildKeyColumnUsageRows(table)) {
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // CONSTRAINT_CATALOG
-                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // CONSTRAINT_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(schemaName)); // CONSTRAINT_SCHEMA
                 trow.addToColumnValue(new TCell().setStringVal(row.getConstraintName())); // CONSTRAINT_NAME
                 trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
-                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
-                trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(schemaName)); // TABLE_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(table.getDisplayName())); // TABLE_NAME
                 trow.addToColumnValue(new TCell().setStringVal(row.getColumnName())); // COLUMN_NAME
                 trow.addToColumnValue(new TCell().setLongVal(row.getOrdinalPosition())); // ORDINAL_POSITION
                 trow.addToColumnValue(row.getPositionInUniqueConstraint() == null ? nullCell()
@@ -1648,14 +1674,14 @@ public class MetadataGenerator {
     }
 
     private static TFetchSchemaTableDataResult tableConstraintsMetadataResult(TSchemaTableRequestParams params) {
-        return keyMetadataResult(params, (catalog, database, table, dataBatch) -> {
+        return keyMetadataResult(params, (catalog, schemaName, table, dataBatch) -> {
             for (TableKeyMeta.ConstraintRow row : TableKeyMeta.buildConstraintRows(table)) {
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // CONSTRAINT_CATALOG
-                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // CONSTRAINT_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(schemaName)); // CONSTRAINT_SCHEMA
                 trow.addToColumnValue(new TCell().setStringVal(row.getConstraintName())); // CONSTRAINT_NAME
-                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
-                trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(schemaName)); // TABLE_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(table.getDisplayName())); // TABLE_NAME
                 trow.addToColumnValue(new TCell().setStringVal(row.getConstraintType())); // CONSTRAINT_TYPE
                 dataBatch.add(trow);
             }

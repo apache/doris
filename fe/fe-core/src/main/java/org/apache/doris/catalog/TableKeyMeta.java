@@ -164,7 +164,7 @@ public class TableKeyMeta {
             if (!(entry.getValue() instanceof UniqueConstraint)) {
                 continue;
             }
-            List<Column> columns = orderBySchema(table, ((UniqueConstraint) entry.getValue()).getUniqueColumnNames());
+            List<Column> columns = orderAsDeclared(table, ((UniqueConstraint) entry.getValue()).getUniqueColumnNames());
             if (!columns.isEmpty()) {
                 addRows(rows, table, entry.getKey(), columns, false, tableCardinality(table), BTREE, "", "");
             }
@@ -209,15 +209,29 @@ public class TableKeyMeta {
      */
     public static Map<String, String> buildColumnKeys(TableIf table) {
         Map<String, String> columnKeys = new HashMap<>();
-        for (KeyRow row : buildKeyRows(table)) {
+        List<KeyRow> rows = buildKeyRows(table);
+
+        // How many columns each index spans, so that the leading column of a composite
+        // unique index is not mistaken for a column that is unique on its own.
+        Map<String, Integer> indexWidths = new HashMap<>();
+        for (KeyRow row : rows) {
+            indexWidths.merge(row.getIndexName(), 1, Integer::sum);
+        }
+
+        for (KeyRow row : rows) {
             String value;
             if (PRIMARY_KEY_NAME.equals(row.getIndexName())) {
+                // Every column of the primary key is marked, composite or not.
                 value = "PRI";
             } else if (row.getSeqInIndex() != 1) {
                 // Only the leading column of an index gets a marker.
                 continue;
+            } else if (row.isNonUnique() || indexWidths.getOrDefault(row.getIndexName(), 1) > 1) {
+                // A composite unique index makes the combination unique, not its leading
+                // column: that column can still repeat. MySQL reports it as MUL.
+                value = "MUL";
             } else {
-                value = row.isNonUnique() ? "MUL" : "UNI";
+                value = "UNI";
             }
             String current = columnKeys.get(row.getColumnName());
             if (current == null || rank(value) > rank(current)) {
@@ -347,19 +361,23 @@ public class TableKeyMeta {
             Constraint constraint = entry.getValue();
             if (constraint instanceof UniqueConstraint) {
                 position = 1;
-                for (Column column : orderBySchema(table, ((UniqueConstraint) constraint).getUniqueColumnNames())) {
+                for (Column column : orderAsDeclared(table, ((UniqueConstraint) constraint).getUniqueColumnNames())) {
                     rows.add(new KeyColumnUsageRow(entry.getKey(), column.getName(), position++,
                             null, null, null, null));
                 }
             } else if (constraint instanceof ForeignKeyConstraint) {
                 ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
                 TableNameInfo referenced = foreignKey.getReferencedTableName();
+                List<String> parentKey = referencedKeyColumnNames(foreignKey);
                 position = 1;
-                // The map keeps the order the foreign key was declared in, so the nth local
-                // column pairs with the nth column of the key it references.
+                // The map keeps the order the foreign key was declared in, which is the
+                // ORDINAL_POSITION. POSITION_IN_UNIQUE_CONSTRAINT is a different number:
+                // where the referenced column sits in the key of the parent table.
                 for (Map.Entry<String, String> pair : foreignKey.getForeignToReference().entrySet()) {
+                    Integer inParentKey = positionIn(parentKey, pair.getValue());
                     rows.add(new KeyColumnUsageRow(entry.getKey(), pair.getKey(), position,
-                            position, referenced == null ? null : referenced.getDb(),
+                            inParentKey == null ? position : inParentKey,
+                            referenced == null ? null : referenced.getDb(),
                             referenced == null ? null : referenced.getTbl(), pair.getValue()));
                     position++;
                 }
@@ -368,12 +386,69 @@ public class TableKeyMeta {
         return rows;
     }
 
+    /**
+     * The key columns of the table a foreign key points at, in that table's own order.
+     * Empty when the parent table or the key it references cannot be resolved.
+     */
+    private static List<String> referencedKeyColumnNames(ForeignKeyConstraint foreignKey) {
+        TableIf parent = foreignKey.getReferencedTableOrNull().orElse(null);
+        if (parent == null) {
+            return Collections.emptyList();
+        }
+        Set<String> referencedColumns = foreignKey.getReferencedColumnNames();
+        Map<String, Constraint> parentConstraints = getConstraints(parent);
+
+        // A foreign key references one key of the parent, which is either its primary key
+        // or one of its unique constraints. Pick the one it lines up with.
+        List<List<Column>> candidates = Lists.newArrayList();
+        candidates.add(findPrimaryKeyColumns(parent, parentConstraints));
+        for (Constraint constraint : sortedByName(parentConstraints).values()) {
+            if (constraint instanceof UniqueConstraint) {
+                candidates.add(orderAsDeclared(parent, ((UniqueConstraint) constraint).getUniqueColumnNames()));
+            }
+        }
+        for (List<Column> candidate : candidates) {
+            if (candidate.size() != referencedColumns.size()) {
+                continue;
+            }
+            List<String> names = Lists.newArrayList();
+            for (Column column : candidate) {
+                names.add(column.getName());
+            }
+            if (containsAllIgnoreCase(names, referencedColumns)) {
+                return names;
+            }
+        }
+        return Collections.emptyList();
+    }
+
+    private static boolean containsAllIgnoreCase(List<String> names, Set<String> wanted) {
+        for (String name : wanted) {
+            if (positionIn(names, name) == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** One based position of a column in a key, or null when the key does not hold it. */
+    private static Integer positionIn(List<String> keyColumnNames, String columnName) {
+        for (int i = 0; i < keyColumnNames.size(); i++) {
+            if (keyColumnNames.get(i).equalsIgnoreCase(columnName)) {
+                return i + 1;
+            }
+        }
+        return null;
+    }
+
     private static void addRows(List<KeyRow> rows, TableIf table, String indexName, List<Column> columns,
             boolean nonUnique, Long cardinality, String indexType, String comment, String properties) {
         String collation = BTREE.equals(indexType) ? ASCENDING : null;
         int seq = 1;
         for (Column column : columns) {
-            rows.add(new KeyRow(table.getName(), nonUnique, indexName, seq++, column.getName(), collation,
+            // The name a client asked for and gets back has to be the SQL visible one; the
+            // stored name of a temporary table is qualified with the id of its session.
+            rows.add(new KeyRow(table.getDisplayName(), nonUnique, indexName, seq++, column.getName(), collation,
                     cardinality, column.isAllowNull(), indexType, comment, properties));
         }
     }
@@ -386,7 +461,7 @@ public class TableKeyMeta {
     private static List<Column> findPrimaryKeyColumns(TableIf table, Map<String, Constraint> constraints) {
         for (Constraint constraint : sortedByName(constraints).values()) {
             if (constraint instanceof PrimaryKeyConstraint) {
-                List<Column> columns = orderBySchema(table, ((PrimaryKeyConstraint) constraint).getPrimaryKeyNames());
+                List<Column> columns = orderAsDeclared(table, ((PrimaryKeyConstraint) constraint).getPrimaryKeyNames());
                 if (!columns.isEmpty()) {
                     return columns;
                 }
@@ -413,18 +488,22 @@ public class TableKeyMeta {
     }
 
     /**
-     * Constraints hold their columns in an unordered set, but the key sequence a client
-     * reads has to be stable and has to match the storage order, so resolve the order
-     * from the table schema.
+     * Resolves the columns of a declared constraint in the order the user declared them.
+     * A constraint keeps its columns in insertion order, and the key sequence a client
+     * reads is meant to be the declared one: {@code ADD CONSTRAINT pk PRIMARY KEY (b, a)}
+     * is a key of (b, a), not of (a, b). Schema order is only right for a key that comes
+     * from the storage model, where it is the storage order.
      */
-    private static List<Column> orderBySchema(TableIf table, Set<String> columnNames) {
-        List<Column> columns = Lists.newArrayList();
+    private static List<Column> orderAsDeclared(TableIf table, Set<String> columnNames) {
+        Map<String, Column> schema = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (Column column : table.getBaseSchema()) {
-            for (String columnName : columnNames) {
-                if (column.getName().equalsIgnoreCase(columnName)) {
-                    columns.add(column);
-                    break;
-                }
+            schema.put(column.getName(), column);
+        }
+        List<Column> columns = Lists.newArrayList();
+        for (String columnName : columnNames) {
+            Column column = schema.get(columnName);
+            if (column != null) {
+                columns.add(column);
             }
         }
         return columns;
@@ -448,10 +527,15 @@ public class TableKeyMeta {
      * A unique key is distinct on every row, so its cardinality is the row count. An
      * unreported row count is left unknown rather than reported as zero, which a client
      * would read as "this index selects nothing".
+     *
+     * <p>Uses the cached row count on purpose. This runs on the FE thread answering a BE
+     * metadata RPC, once per table of a database; {@code getRowCount()} would initialize
+     * an external table and wait on its row count loader, which may go out to the remote
+     * metastore or list files.
      */
     private static Long tableCardinality(TableIf table) {
         try {
-            long rowCount = table.getRowCount();
+            long rowCount = table.getCachedRowCount();
             return rowCount > 0 ? rowCount : null;
         } catch (Exception e) {
             return null;

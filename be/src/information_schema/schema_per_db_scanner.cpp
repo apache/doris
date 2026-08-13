@@ -44,6 +44,7 @@ Status SchemaPerDbScanner::start(RuntimeState* state) {
         return Status::InternalError("used before initialized.");
     }
 
+    _state = state;
     SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
     if (_param->common_param->catalog) {
@@ -51,6 +52,12 @@ Status SchemaPerDbScanner::start(RuntimeState* state) {
     }
     if (_param->common_param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
+    }
+    // The planner lifts an exact `TABLE_SCHEMA = '...'` out of the query for us. Without
+    // it every visible database is listed and asked for its rows, and everything but one
+    // database is then thrown away by the conjuncts back here.
+    if (_param->common_param->db) {
+        db_params.__set_pattern(*(_param->common_param->db));
     }
     add_extra_db_params(&db_params);
 
@@ -77,6 +84,11 @@ Status SchemaPerDbScanner::get_onedb_info_from_fe(int64_t db_id) {
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
     schema_table_request_params.__set_catalog(*_param->common_param->catalog);
     schema_table_request_params.__set_dbId(db_id);
+    // Same reason as the database pattern above: an exact `TABLE_NAME = '...'` lets the FE
+    // build metadata for one table instead of every table of the database.
+    if (_param->common_param->table) {
+        schema_table_request_params.__set_table_name(*(_param->common_param->table));
+    }
     add_extra_request_params(&schema_table_request_params);
 
     TFetchSchemaTableDataRequest request;
@@ -139,13 +151,24 @@ Status SchemaPerDbScanner::get_next_block_internal(Block* block, bool* eos) {
     }
     SCOPED_TIMER(_fill_block_timer);
 
-    if ((_fetched_block == nullptr) || (_row_idx == _total_rows)) {
-        if (_db_index < _db_result.db_ids.size()) {
-            RETURN_IF_ERROR(get_onedb_info_from_fe(_db_result.db_ids[_db_index]));
-            _row_idx = 0; // reset row index so that it starts filling the next block.
-            _total_rows = (int)_fetched_block->rows();
-            _db_index++;
+    // Keep asking for databases until one of them has rows, or there are none left.
+    //
+    // Handing back an empty block with eos still false would be the cheap thing to do here,
+    // but this runs on the async scanner thread while the pipeline thread has nothing to do
+    // but re-enter and spin on the data dependency until the next fetch lands. Databases
+    // that contribute no rows at all are ordinary -- a database with no table, or one whose
+    // tables have nothing the scanned table reports -- so that spin is not a rare case.
+    while ((_fetched_block == nullptr) || (_row_idx == _total_rows)) {
+        if (_db_index >= _db_result.db_ids.size()) {
+            break;
         }
+        if (_state != nullptr) {
+            RETURN_IF_CANCELLED(_state);
+        }
+        RETURN_IF_ERROR(get_onedb_info_from_fe(_db_result.db_ids[_db_index]));
+        _row_idx = 0; // reset row index so that it starts filling the next block.
+        _total_rows = (int)_fetched_block->rows();
+        _db_index++;
     }
 
     if (check_and_mark_eos(eos)) {

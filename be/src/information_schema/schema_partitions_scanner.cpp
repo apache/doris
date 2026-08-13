@@ -73,13 +73,6 @@ SchemaPartitionsScanner::SchemaPartitionsScanner()
         : SchemaPerDbScanner(_s_tbls_columns, TSchemaTableType::SCH_PARTITIONS,
                              TSchemaTableName::PARTITIONS, "partitions") {}
 
-void SchemaPartitionsScanner::add_extra_db_params(TGetDbsParams* db_params) {
-    // `SHOW PARTITIONS FROM <db>` reaches here as a db pattern, so only that db is listed.
-    if (_param->common_param->db) {
-        db_params->__set_pattern(*(_param->common_param->db));
-    }
-}
-
 void SchemaPartitionsScanner::add_extra_request_params(TSchemaTableRequestParams* params) {
     if (_param->common_param->thread_id > 0) {
         params->__set_thread_id(_param->common_param->thread_id);

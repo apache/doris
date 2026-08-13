@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -124,7 +125,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
-import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MasterOpExecutor;
@@ -579,24 +579,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private String getMysqlTableSchema(String ctl, String db) {
-        if (!GlobalVariable.showFullDbNameInInfoSchemaDb) {
-            return db;
-        }
-        if (ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            return db;
-        }
-        return ctl + "." + db;
+        return InfoSchemaDb.getMysqlTableSchema(ctl, db);
     }
 
     private String getDbNameFromMysqlTableSchema(String ctl, String db) {
-        if (ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            return db;
-        }
-        String[] parts = db.split("\\.");
-        if (parts.length == 2) {
-            return parts[1];
-        }
-        return db;
+        return InfoSchemaDb.getDbNameFromMysqlTableSchema(ctl, db);
     }
 
     @Override

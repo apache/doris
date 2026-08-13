@@ -33,7 +33,6 @@ public:
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
 protected:
-    void add_extra_db_params(TGetDbsParams* db_params) override;
     void add_extra_request_params(TSchemaTableRequestParams* params) override;
 };
 

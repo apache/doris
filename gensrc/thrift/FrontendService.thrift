@@ -959,6 +959,9 @@ struct TSchemaTableRequestParams {
     // Reserved for downstream field `current_roles` to keep thrift field ids
     // wire-compatible across maintained branches. Do not reuse this id.
     9: optional set<string> reserved_field_9
+    // The one table the query asked for, when it pinned one with `TABLE_NAME = '...'`.
+    // Lets the FE answer from that table instead of walking the whole database.
+    10: optional string table_name
 }
 
 struct TFetchSchemaTableDataRequest {

@@ -58,6 +58,8 @@ private:
     const TSchemaTableName::type _request_name;
     // Used in log messages so a failure names the table it came from.
     const std::string _display_name;
+    // Kept so that the loop over databases can give up when the query is cancelled.
+    RuntimeState* _state = nullptr;
     int _block_rows_limit = 4096;
     int _db_index = 0;
     TGetDbsResult _db_result;
