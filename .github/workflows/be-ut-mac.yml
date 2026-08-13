@@ -29,8 +29,7 @@ concurrency:
 jobs:
   run-ut:
     name: BE UT (macOS)
-    runs-on: macos-15-intel
-    timeout-minutes: 720
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,7 +68,7 @@ jobs:
         uses: ./.github/actions/ccache-action
         with:
           key: BE-UT-macOS
-          max-size: "5G"
+          max-size: "1G"
           restore-keys: BE-UT-macOS-
 
       - name: Run UT ${{ github.ref }}
@@ -134,6 +133,7 @@ jobs:
             fi
           fi
           tar -xvf "${asset}"
+          rm -f "${asset}"
 
           # Rebuild the Arrow/Paimon stack when its inputs change or the shared
           # prebuilt predates the selected Arrow version/component closure.
@@ -171,5 +171,11 @@ jobs:
           export CXXFLAGS="-I${LIBOMP_PREFIX}/include ${CXXFLAGS:-}"
           export LDFLAGS="-L${LIBOMP_PREFIX}/lib ${LDFLAGS:-}"
           export EXTRA_CXX_FLAGS="-I${LIBOMP_PREFIX}/include ${EXTRA_CXX_FLAGS:-}"
+
+          # The standard Intel runner cannot finish this branch's clean ASAN
+          # build within GitHub's six-hour job limit. The arm64 build has no
+          # reusable cache yet, so preserve workspace and I/O for compilation.
+          ccache -C
+          export CCACHE_DISABLE=1
 
           ./run-be-ut.sh --run -j "$(nproc)" --clean
