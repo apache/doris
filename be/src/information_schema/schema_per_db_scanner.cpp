@@ -26,8 +26,6 @@
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "util/client_cache.h"
-#include "util/thrift_rpc_helper.h"
 
 namespace doris {
 
@@ -38,6 +36,8 @@ SchemaPerDbScanner::SchemaPerDbScanner(const std::vector<SchemaScanner::ColumnDe
         : SchemaScanner(columns, type),
           _request_name(request_name),
           _display_name(std::move(display_name)) {}
+
+SchemaPerDbScanner::~SchemaPerDbScanner() = default;
 
 Status SchemaPerDbScanner::start(RuntimeState* state) {
     if (!_is_init) {
@@ -52,6 +52,7 @@ Status SchemaPerDbScanner::start(RuntimeState* state) {
     if (_param->common_param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
     }
+    add_extra_db_params(&db_params);
 
     if (_param->common_param->ip && 0 != _param->common_param->port) {
         RETURN_IF_ERROR(SchemaHelper::get_db_names(
@@ -76,6 +77,7 @@ Status SchemaPerDbScanner::get_onedb_info_from_fe(int64_t db_id) {
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
     schema_table_request_params.__set_catalog(*_param->common_param->catalog);
     schema_table_request_params.__set_dbId(db_id);
+    add_extra_request_params(&schema_table_request_params);
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(_request_name);
@@ -83,7 +85,7 @@ Status SchemaPerDbScanner::get_onedb_info_from_fe(int64_t db_id) {
 
     TFetchSchemaTableDataResult result;
     RETURN_IF_ERROR(SchemaHelper::fetch_schema_table_data(master_addr.hostname, master_addr.port,
-                                                          request, &result));
+                                                          request, &result, _rpc_timeout_ms));
     return fill_block_from_result(result);
 }
 
@@ -135,6 +137,7 @@ Status SchemaPerDbScanner::get_next_block_internal(Block* block, bool* eos) {
     if (nullptr == block || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
+    SCOPED_TIMER(_fill_block_timer);
 
     if ((_fetched_block == nullptr) || (_row_idx == _total_rows)) {
         if (_db_index < _db_result.db_ids.size()) {

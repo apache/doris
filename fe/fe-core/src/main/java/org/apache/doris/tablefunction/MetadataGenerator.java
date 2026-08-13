@@ -189,143 +189,46 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> TABLE_CONSTRAINTS_COLUMN_TO_INDEX;
 
     static {
+        ACTIVE_QUERIES_COLUMN_TO_INDEX = buildColumnToIndex("active_queries");
+        WORKLOAD_GROUPS_COLUMN_TO_INDEX = buildColumnToIndex(WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES);
+        WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX = buildColumnToIndex("workload_policy");
+        TABLE_OPTIONS_COLUMN_TO_INDEX = buildColumnToIndex("table_options");
+        WORKLOAD_GROUP_PRIVILEGES_COLUMN_TO_INDEX = buildColumnToIndex("workload_group_privileges");
+        TABLE_PROPERTIES_COLUMN_TO_INDEX = buildColumnToIndex("table_properties");
+        DATABASE_PROPERTIES_COLUMN_TO_INDEX = buildColumnToIndex("database_properties");
+        META_CACHE_STATS_COLUMN_TO_INDEX = buildColumnToIndex("catalog_meta_cache_statistics");
+        PARTITIONS_COLUMN_TO_INDEX = buildColumnToIndex("partitions");
+        VIEW_DEPENDENCY_COLUMN_TO_INDEX = buildColumnToIndex("view_dependency");
+        SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX = buildColumnToIndex("sql_block_rule_status");
+        AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX = buildColumnToIndex("authentication_integrations");
+        EXTENSIONS_COLUMN_TO_INDEX = buildColumnToIndex("extensions");
+        ROLE_MAPPINGS_COLUMN_TO_INDEX = buildColumnToIndex("role_mappings");
+        TABLE_STREAMS_COLUMN_TO_INDEX = buildColumnToIndex("table_streams");
+        TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX = buildColumnToIndex("table_stream_consumption");
+        TSO_STATUS_COLUMN_TO_INDEX = buildColumnToIndex("tso_status");
         STATISTICS_COLUMN_TO_INDEX = buildColumnToIndex("statistics");
         KEY_COLUMN_USAGE_COLUMN_TO_INDEX = buildColumnToIndex("key_column_usage");
         TABLE_CONSTRAINTS_COLUMN_TO_INDEX = buildColumnToIndex("table_constraints");
     }
 
+    // Maps each column of a schema table to its position in a row, so that filterColumns() can
+    // pick out the columns the BE asked for.
     private static ImmutableMap<String, Integer> buildColumnToIndex(String schemaTableName) {
-        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<>();
         List<Column> columns = SchemaTable.TABLE_MAP.get(schemaTableName).getFullSchema();
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<>();
         for (int i = 0; i < columns.size(); i++) {
             builder.put(columns.get(i).getName().toLowerCase(), i);
         }
         return builder.build();
     }
 
-    static {
-        ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
-        List<Column> activeQueriesColList = SchemaTable.TABLE_MAP.get("active_queries").getFullSchema();
-        for (int i = 0; i < activeQueriesColList.size(); i++) {
-            activeQueriesbuilder.put(activeQueriesColList.get(i).getName().toLowerCase(), i);
+    // For the tables whose columns are not declared in SchemaTable.TABLE_MAP.
+    private static ImmutableMap<String, Integer> buildColumnToIndex(List<String> columnNames) {
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<>();
+        for (int i = 0; i < columnNames.size(); i++) {
+            builder.put(columnNames.get(i).toLowerCase(), i);
         }
-        ACTIVE_QUERIES_COLUMN_TO_INDEX = activeQueriesbuilder.build();
-
-        ImmutableMap.Builder<String, Integer> workloadGroupBuilder = new ImmutableMap.Builder();
-        for (int i = 0; i < WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.size(); i++) {
-            workloadGroupBuilder.put(WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.get(i).toLowerCase(), i);
-        }
-        WORKLOAD_GROUPS_COLUMN_TO_INDEX = workloadGroupBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> policyBuilder = new ImmutableMap.Builder();
-        List<Column> policyColList = SchemaTable.TABLE_MAP.get("workload_policy").getFullSchema();
-        for (int i = 0; i < policyColList.size(); i++) {
-            policyBuilder.put(policyColList.get(i).getName().toLowerCase(), i);
-        }
-        WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX = policyBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> optionBuilder = new ImmutableMap.Builder();
-        List<Column> optionColList = SchemaTable.TABLE_MAP.get("table_options").getFullSchema();
-        for (int i = 0; i < optionColList.size(); i++) {
-            optionBuilder.put(optionColList.get(i).getName().toLowerCase(), i);
-        }
-        TABLE_OPTIONS_COLUMN_TO_INDEX = optionBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> wgPrivsBuilder = new ImmutableMap.Builder();
-        List<Column> wgPrivsColList = SchemaTable.TABLE_MAP.get("workload_group_privileges").getFullSchema();
-        for (int i = 0; i < wgPrivsColList.size(); i++) {
-            wgPrivsBuilder.put(wgPrivsColList.get(i).getName().toLowerCase(), i);
-        }
-        WORKLOAD_GROUP_PRIVILEGES_COLUMN_TO_INDEX = wgPrivsBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> propertiesBuilder = new ImmutableMap.Builder();
-        List<Column> propertiesColList = SchemaTable.TABLE_MAP.get("table_properties").getFullSchema();
-        for (int i = 0; i < propertiesColList.size(); i++) {
-            propertiesBuilder.put(propertiesColList.get(i).getName().toLowerCase(), i);
-        }
-        TABLE_PROPERTIES_COLUMN_TO_INDEX = propertiesBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> dbPropertiesBuilder = new ImmutableMap.Builder();
-        List<Column> dbPropertiesColList = SchemaTable.TABLE_MAP.get("database_properties").getFullSchema();
-        for (int i = 0; i < dbPropertiesColList.size(); i++) {
-            dbPropertiesBuilder.put(dbPropertiesColList.get(i).getName().toLowerCase(), i);
-        }
-        DATABASE_PROPERTIES_COLUMN_TO_INDEX = dbPropertiesBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> metaCacheBuilder = new ImmutableMap.Builder();
-        List<Column> metaCacheColList = SchemaTable.TABLE_MAP.get("catalog_meta_cache_statistics").getFullSchema();
-        for (int i = 0; i < metaCacheColList.size(); i++) {
-            metaCacheBuilder.put(metaCacheColList.get(i).getName().toLowerCase(), i);
-        }
-        META_CACHE_STATS_COLUMN_TO_INDEX = metaCacheBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> partitionsBuilder = new ImmutableMap.Builder();
-        List<Column> partitionsColList = SchemaTable.TABLE_MAP.get("partitions").getFullSchema();
-        for (int i = 0; i < partitionsColList.size(); i++) {
-            partitionsBuilder.put(partitionsColList.get(i).getName().toLowerCase(), i);
-        }
-        PARTITIONS_COLUMN_TO_INDEX = partitionsBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> viewDependencyBuilder = new ImmutableMap.Builder();
-        List<Column> viewDependencyBuilderColList = SchemaTable.TABLE_MAP.get("view_dependency").getFullSchema();
-        for (int i = 0; i < viewDependencyBuilderColList.size(); i++) {
-            viewDependencyBuilder.put(viewDependencyBuilderColList.get(i).getName().toLowerCase(), i);
-        }
-        VIEW_DEPENDENCY_COLUMN_TO_INDEX = viewDependencyBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> sqlBlockRuleStatusBuilder = new ImmutableMap.Builder();
-        List<Column> sqlBlockRuleStatusBuilderColList = SchemaTable.TABLE_MAP.get("sql_block_rule_status")
-                .getFullSchema();
-        for (int i = 0; i < sqlBlockRuleStatusBuilderColList.size(); i++) {
-            sqlBlockRuleStatusBuilder.put(sqlBlockRuleStatusBuilderColList.get(i).getName().toLowerCase(), i);
-        }
-        SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX = sqlBlockRuleStatusBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> authenticationIntegrationsBuilder = new ImmutableMap.Builder();
-        List<Column> authenticationIntegrationsColList = SchemaTable.TABLE_MAP.get("authentication_integrations")
-                .getFullSchema();
-        for (int i = 0; i < authenticationIntegrationsColList.size(); i++) {
-            authenticationIntegrationsBuilder.put(
-                    authenticationIntegrationsColList.get(i).getName().toLowerCase(), i);
-        }
-        AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX = authenticationIntegrationsBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> extensionsBuilder = new ImmutableMap.Builder();
-        List<Column> extensionsColList = SchemaTable.TABLE_MAP.get("extensions").getFullSchema();
-        for (int i = 0; i < extensionsColList.size(); i++) {
-            extensionsBuilder.put(extensionsColList.get(i).getName().toLowerCase(), i);
-        }
-        EXTENSIONS_COLUMN_TO_INDEX = extensionsBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> roleMappingsBuilder = new ImmutableMap.Builder();
-        List<Column> roleMappingsColList = SchemaTable.TABLE_MAP.get("role_mappings").getFullSchema();
-        for (int i = 0; i < roleMappingsColList.size(); i++) {
-            roleMappingsBuilder.put(roleMappingsColList.get(i).getName().toLowerCase(), i);
-        }
-        ROLE_MAPPINGS_COLUMN_TO_INDEX = roleMappingsBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> tableStreamsBuilder = new ImmutableMap.Builder();
-        List<Column> streamsBuilderColList = SchemaTable.TABLE_MAP.get("table_streams")
-                .getFullSchema();
-        for (int i = 0; i < streamsBuilderColList.size(); i++) {
-            tableStreamsBuilder.put(streamsBuilderColList.get(i).getName().toLowerCase(), i);
-        }
-        TABLE_STREAMS_COLUMN_TO_INDEX = tableStreamsBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> tableStreamConsumptionBuilder = new ImmutableMap.Builder();
-        List<Column> tableStreamConsumptionBuilderColList = SchemaTable.TABLE_MAP.get("table_stream_consumption")
-                .getFullSchema();
-        for (int i = 0; i < tableStreamConsumptionBuilderColList.size(); i++) {
-            tableStreamConsumptionBuilder.put(tableStreamConsumptionBuilderColList.get(i).getName().toLowerCase(), i);
-        }
-        TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX = tableStreamConsumptionBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> tsoStatusBuilder = new ImmutableMap.Builder();
-        List<Column> tsoStatusColList = SchemaTable.TABLE_MAP.get("tso_status").getFullSchema();
-        for (int i = 0; i < tsoStatusColList.size(); i++) {
-            tsoStatusBuilder.put(tsoStatusColList.get(i).getName().toLowerCase(), i);
-        }
-        TSO_STATUS_COLUMN_TO_INDEX = tsoStatusBuilder.build();
+        return builder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {

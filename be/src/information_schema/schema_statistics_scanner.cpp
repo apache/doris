@@ -17,7 +17,6 @@
 
 #include "information_schema/schema_statistics_scanner.h"
 
-#include "core/block/block.h"
 #include "core/string_ref.h"
 
 namespace doris {

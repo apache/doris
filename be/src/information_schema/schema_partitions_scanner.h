@@ -17,40 +17,24 @@
 
 #pragma once
 
-#include <gen_cpp/FrontendService_types.h>
-
 #include <vector>
 
-#include "common/status.h"
-#include "information_schema/schema_scanner.h"
+#include "information_schema/schema_per_db_scanner.h"
 
 namespace doris {
-class RuntimeState;
-class Block;
 
-class SchemaPartitionsScanner : public SchemaScanner {
+class SchemaPartitionsScanner : public SchemaPerDbScanner {
     ENABLE_FACTORY_CREATOR(SchemaPartitionsScanner);
 
 public:
     SchemaPartitionsScanner();
-    ~SchemaPartitionsScanner() override;
-
-    Status start(RuntimeState* state) override;
-    Status get_next_block_internal(Block* block, bool* eos) override;
+    ~SchemaPartitionsScanner() override = default;
 
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
-private:
-    Status get_onedb_info_from_fe(int64_t dbId);
-    Status fill_db_partitions(TFetchSchemaTableDataResult& result);
-    bool check_and_mark_eos(bool* eos) const;
-    int _block_rows_limit = 4096;
-    int _db_index = 0;
-    TGetDbsResult _db_result;
-    int _row_idx = 0;
-    int _total_rows = 0;
-    std::unique_ptr<Block> _partitions_block = nullptr;
-    int _rpc_timeout_ms = 3000;
+protected:
+    void add_extra_db_params(TGetDbsParams* db_params) override;
+    void add_extra_request_params(TSchemaTableRequestParams* params) override;
 };
 
 } // namespace doris

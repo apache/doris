@@ -30,16 +30,25 @@ class Block;
 
 // Scans a schema table that the FE builds one database at a time: list the databases of
 // the catalog up front, then ask the master FE for the rows of each in turn. Subclasses
-// only supply their column list and the two enum values that name the table.
+// supply their column list and the two enum values that name the table, and override the
+// hooks below if the FE needs more than that to answer.
 class SchemaPerDbScanner : public SchemaScanner {
 public:
     SchemaPerDbScanner(const std::vector<SchemaScanner::ColumnDesc>& columns,
                        TSchemaTableType::type type, TSchemaTableName::type request_name,
                        std::string display_name);
-    ~SchemaPerDbScanner() override = default;
+    // Defined out of line so that the `unique_ptr<Block>` member below does not force every
+    // subclass to see the definition of Block.
+    ~SchemaPerDbScanner() override;
 
     Status start(RuntimeState* state) override;
     Status get_next_block_internal(Block* block, bool* eos) override;
+
+protected:
+    // Hooks for the tables that need more than the catalog and the current user to say what
+    // they want. Most tables need neither, so both default to adding nothing.
+    virtual void add_extra_db_params(TGetDbsParams*) {}
+    virtual void add_extra_request_params(TSchemaTableRequestParams*) {}
 
 private:
     Status get_onedb_info_from_fe(int64_t db_id);

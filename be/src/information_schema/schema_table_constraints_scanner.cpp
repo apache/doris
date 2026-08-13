@@ -17,7 +17,6 @@
 
 #include "information_schema/schema_table_constraints_scanner.h"
 
-#include "core/block/block.h"
 #include "core/string_ref.h"
 
 namespace doris {
