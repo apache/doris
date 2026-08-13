@@ -108,7 +108,11 @@ TEST_F(CompactionMetricsTest, TestCompactionTaskNumWithDiffStatus) {
         bool* pred = try_any_cast<bool*>(values.back());
         *pred = true;
     });
-    Defer defer {[&]() { sp->clear_call_back("olap_server::execute_compaction"); }};
+    Defer defer {[&]() {
+        _storage_engine->_cumu_compaction_thread_pool->shutdown();
+        _storage_engine->_base_compaction_thread_pool->shutdown();
+        sp->clear_call_back("olap_server::execute_compaction");
+    }};
 
     for (int tablet_cnt = 0; tablet_cnt < 10; ++tablet_cnt) {
         TabletMetaSharedPtr tablet_meta;
