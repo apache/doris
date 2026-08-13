@@ -293,13 +293,19 @@ public class PaimonScanPlanProviderTest {
                     "db", "t", Collections.emptyList(), Collections.emptyList());
 
             ConnectorSession session = sessionWithProps(Collections.emptyMap(), new TestStatementScope());
-            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
-            List<ConnectorScanRange> ranges = provider.planScan(session, request);
-            List<ConnectorScanRange> reused = provider.planScan(session, request);
+            ConnectorScanRequest firstRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .filter(Optional.of(equalIdFilter(1)))
+                    .build();
+            ConnectorScanRequest secondRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .filter(Optional.of(equalIdFilter(1)))
+                    .build();
+            Assertions.assertNotSame(firstRequest.getFilter().get(), secondRequest.getFilter().get());
+            List<ConnectorScanRange> ranges = provider.planScan(session, firstRequest);
+            List<ConnectorScanRange> reused = provider.planScan(session, secondRequest);
 
             Assertions.assertFalse(ranges.isEmpty(), "one committed row must plan at least one split");
             Assertions.assertSame(ranges, reused,
-                    "an identical scan must reuse the statement's planned range list");
+                    "independently built but structurally equal filters must share one statement plan");
             Assertions.assertEquals(2, ctx.authCount,
                     "planScan must run BOTH the table load (resolveTable) AND the split enumeration "
                             + "(scan.plan(), the remote manifest read) inside executeAuthenticated");
@@ -336,7 +342,7 @@ public class PaimonScanPlanProviderTest {
                     PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "limited", Collections.emptyList(), Collections.emptyList());
-            ConnectorSession session = sessionWithProps(Collections.emptyMap());
+            ConnectorSession session = sessionWithProps(Collections.emptyMap(), new TestStatementScope());
 
             List<ConnectorScanRange> unlimited = provider.planScan(session,
                     ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
@@ -674,6 +680,12 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertEquals(unlimited.size(), limited.size(),
                     "the SnapshotReader path has no safe limit API and must retain its full plan");
         }
+    }
+
+    private static ConnectorExpression equalIdFilter(long value) {
+        return new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                new ConnectorLiteral(ConnectorType.of("INT"), value));
     }
 
     /** Builds a native-eligible RawFile (parquet suffix). The numeric fields are irrelevant to the
