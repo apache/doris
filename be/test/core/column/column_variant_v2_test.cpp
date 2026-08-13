@@ -99,6 +99,18 @@ std::string empty_metadata_bytes() {
     return metadata;
 }
 
+std::string single_key_metadata_bytes(std::string_view key) {
+    EXPECT_LE(key.size(), std::numeric_limits<uint8_t>::max());
+    std::string metadata;
+    metadata.push_back(
+            static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK));
+    metadata.push_back(1);
+    metadata.push_back(0);
+    metadata.push_back(static_cast<char>(key.size()));
+    metadata.append(key);
+    return metadata;
+}
+
 VariantField encoded_field(std::string metadata, std::string value) {
     std::string field;
     append_unsigned(field, metadata.size(), sizeof(uint32_t));
@@ -1010,6 +1022,61 @@ TEST(ColumnVariantV2Test, InvalidEncodedRowsDoNotChangeTypedState) {
     }
 }
 
+TEST(ColumnVariantV2Test, InvalidEncodedRowsAppenderDoesNotChangeTypedState) {
+    constexpr std::array<int32_t, 1> TYPED_VALUES {7};
+    constexpr std::array<uint8_t, 1> TYPED_NULLS {0};
+    const VariantField first = encode_json("1");
+    const VariantField second = encode_json("2");
+    std::string invalid_value(second.ref().value.data, second.ref().value.size);
+    invalid_value.push_back('\0');
+    const std::array<VariantRef, 2> invalid_rows {
+            first.ref(), VariantRef {.metadata = second.ref().metadata,
+                                     .value = {invalid_value.data(), invalid_value.size()}}};
+
+    auto typed = typed_int32(TYPED_VALUES, TYPED_NULLS);
+    const IColumn* typed_storage = subcolumns(*typed).front().get();
+    auto appender = typed->create_encoded_rows_appender();
+    EXPECT_THROW(appender.append(invalid_rows), Exception);
+    ASSERT_TRUE(typed->is_typed());
+    EXPECT_EQ(subcolumns(*typed).front().get(), typed_storage);
+    expect_int32_rows(*typed, TYPED_VALUES, TYPED_NULLS);
+    typed->sanity_check();
+}
+
+TEST(ColumnVariantV2Test, EncodedRowsAppenderInternsHighCardinalityMetadataAcrossChunks) {
+    constexpr size_t ROWS = 4097;
+    std::vector<std::string> metadata_storage;
+    metadata_storage.reserve(ROWS);
+    for (size_t row = 0; row < ROWS; ++row) {
+        metadata_storage.push_back(single_key_metadata_bytes("unused-" + std::to_string(row)));
+    }
+    const std::string value = integer_value_bytes(7, 1);
+    std::vector<VariantRef> encoded_rows;
+    encoded_rows.reserve(ROWS);
+    for (const std::string& metadata : metadata_storage) {
+        encoded_rows.push_back({.metadata = {.data = metadata.data(), .size = metadata.size()},
+                                .value = {value.data(), value.size()}});
+    }
+
+    auto column = ColumnVariantV2::create();
+    auto appender = column->create_encoded_rows_appender();
+    appender.append(std::span<const VariantRef>(encoded_rows.data(), 4096));
+    appender.append(std::span<const VariantRef>(encoded_rows.data() + 4096, 1));
+
+    ASSERT_EQ(column->size(), ROWS);
+    ASSERT_EQ(metadata_count(*column), ROWS);
+    // A hash collision may require a byte comparison, but lookups must not scan the growing
+    // destination dictionary as the old O(U^2) implementation did.
+    EXPECT_LT(appender.metadata_comparisons_for_test(), ROWS * 4);
+    for (const size_t row : {size_t {0}, size_t {4095}, size_t {4096}}) {
+        const VariantRef imported = column->get_value_ref(row);
+        EXPECT_EQ(as_view({imported.metadata.data, imported.metadata.size}), metadata_storage[row]);
+        EXPECT_EQ(imported.value, StringRef(value));
+        EXPECT_EQ(imported.get_int(), 7);
+    }
+    column->sanity_check();
+}
+
 TEST(ColumnVariantV2Test, InvalidEncodedRowsDoNotPartiallyAppendEncodedState) {
     const OwnedEncodedData invalid = late_invalid_encoded_rows();
     for (const bool omit_single_metadata_ids : {false, true}) {
@@ -1061,6 +1128,21 @@ TEST(ColumnVariantV2Test, EmptyEncodedAppendsPreserveTypedState) {
     ASSERT_TRUE(batch_destination->is_typed());
     EXPECT_EQ(subcolumns(*batch_destination).front().get(), batch_storage);
     expect_int32_rows(*batch_destination, VALUES, NULLS);
+
+    auto borrowed_destination = typed_int32(VALUES, NULLS);
+    const IColumn* borrowed_storage = subcolumns(*borrowed_destination).front().get();
+    auto borrowed_appender = borrowed_destination->create_encoded_rows_appender();
+    borrowed_appender.append(std::span<const VariantRef> {});
+    ASSERT_TRUE(borrowed_destination->is_typed());
+    EXPECT_EQ(subcolumns(*borrowed_destination).front().get(), borrowed_storage);
+    expect_int32_rows(*borrowed_destination, VALUES, NULLS);
+
+    auto size_calls = std::make_shared<size_t>(0);
+    auto shredded_destination = ColumnVariantV2::create_shredded(
+            std::make_shared<CountingShreddedState>(1, size_calls));
+    auto shredded_appender = shredded_destination->create_encoded_rows_appender();
+    shredded_appender.append(std::span<const VariantRef> {});
+    EXPECT_TRUE(shredded_destination->is_shredded());
 }
 
 TEST(ColumnVariantV2Test, ReadViewBorrowsValidatedEncodedState) {
