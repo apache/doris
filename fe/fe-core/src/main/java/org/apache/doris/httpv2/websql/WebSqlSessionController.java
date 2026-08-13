@@ -15,10 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.httpv2.ui.websql;
-
-import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
-import org.apache.doris.httpv2.ui.UiRequestContext;
+package org.apache.doris.httpv2.websql;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -31,8 +28,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Collections;
 import java.util.Map;
 
+/** Exposes authenticated, stateful SQL sessions to any HTTP client. */
 @RestController
-@RequestMapping("/rest/v1/ui/sql-sessions")
+@RequestMapping("/rest/v1/sql-sessions")
 public class WebSqlSessionController {
     private final WebSqlSessionManager manager;
 
@@ -42,43 +40,35 @@ public class WebSqlSessionController {
 
     @PostMapping
     public WebSqlSessionInfo create(HttpServletRequest request) {
-        SessionValue login = UiRequestContext.session(request);
-        WebSqlSession session = manager.createSession(owner(login), password(login));
+        WebSqlRequestContext.Authentication login = WebSqlRequestContext.authentication(request);
+        WebSqlSession session = manager.createSession(login.getOwner(), login.getPassword());
         return new WebSqlSessionInfo(session);
     }
 
     @PostMapping("/{id}/statements")
     public WebSqlExecutionResult execute(@PathVariable("id") String id,
             @RequestBody Map<String, String> statement, HttpServletRequest request) {
-        SessionValue login = UiRequestContext.session(request);
-        return manager.execute(id, owner(login), statement == null ? null : statement.get("sql"));
+        WebSqlRequestContext.Authentication login = WebSqlRequestContext.authentication(request);
+        return manager.execute(id, login.getOwner(), statement == null ? null : statement.get("sql"));
     }
 
     @PostMapping("/{id}/cancel")
     public Map<String, Boolean> cancel(@PathVariable("id") String id, HttpServletRequest request) {
-        SessionValue login = UiRequestContext.session(request);
-        return Collections.singletonMap("cancelRequested", manager.cancel(id, owner(login)));
+        WebSqlRequestContext.Authentication login = WebSqlRequestContext.authentication(request);
+        return Collections.singletonMap("cancelRequested", manager.cancel(id, login.getOwner()));
     }
 
     @PostMapping("/{id}/reset")
     public WebSqlSessionInfo reset(@PathVariable("id") String id, HttpServletRequest request) {
-        SessionValue login = UiRequestContext.session(request);
-        return new WebSqlSessionInfo(manager.reset(id, owner(login), password(login)));
+        WebSqlRequestContext.Authentication login = WebSqlRequestContext.authentication(request);
+        return new WebSqlSessionInfo(manager.reset(id, login.getOwner(), login.getPassword()));
     }
 
     @DeleteMapping("/{id}")
     public Map<String, Boolean> close(@PathVariable("id") String id, HttpServletRequest request) {
-        SessionValue login = UiRequestContext.session(request);
-        manager.closeSession(id, owner(login));
+        WebSqlRequestContext.Authentication login = WebSqlRequestContext.authentication(request);
+        manager.closeSession(id, login.getOwner());
         return Collections.singletonMap("closed", true);
-    }
-
-    private String owner(SessionValue session) {
-        return session.currentUser.getQualifiedUser();
-    }
-
-    private String password(SessionValue session) {
-        return session.password == null ? "" : session.password;
     }
 
 }

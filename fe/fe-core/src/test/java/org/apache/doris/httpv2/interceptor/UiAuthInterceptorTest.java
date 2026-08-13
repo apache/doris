@@ -62,7 +62,7 @@ class UiAuthInterceptorTest {
         HttpServletRequest request = request("GET", null);
         AuthInterceptor interceptor = new AuthInterceptor() {
             @Override
-            public SessionValue checkUiAuthWithCookie(
+            public SessionValue requireCookieSession(
                     HttpServletRequest ignoredRequest, HttpServletResponse ignoredResponse) {
                 return session;
             }
@@ -84,7 +84,7 @@ class UiAuthInterceptorTest {
         HttpServletRequest request = request("GET", null);
         AuthInterceptor interceptor = new AuthInterceptor() {
             @Override
-            public SessionValue checkUiAuthWithCookie(
+            public SessionValue requireCookieSession(
                     HttpServletRequest ignoredRequest, HttpServletResponse ignoredResponse) {
                 throw new UnauthorizedException("Cookie is invalid");
             }
@@ -189,7 +189,7 @@ class UiAuthInterceptorTest {
     private AuthInterceptor interceptorReturning(SessionValue value) {
         return new AuthInterceptor() {
             @Override
-            public SessionValue checkUiAuthWithCookie(
+            public SessionValue requireCookieSession(
                     HttpServletRequest ignoredRequest, HttpServletResponse ignoredResponse) {
                 return value;
             }

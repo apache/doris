@@ -18,12 +18,14 @@
 package org.apache.doris.httpv2.ui;
 
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
+import org.apache.doris.httpv2.security.CsrfTokenUtils;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+/** Provides UI controllers with the cookie session authenticated by {@code AuthInterceptor}. */
 public final class UiRequestContext {
     public static final String SESSION_ATTRIBUTE = UiRequestContext.class.getName() + ".session";
-    public static final String CSRF_HEADER = "X-Doris-CSRF-Token";
+    public static final String CSRF_HEADER = CsrfTokenUtils.HEADER_NAME;
 
     private UiRequestContext() {
     }

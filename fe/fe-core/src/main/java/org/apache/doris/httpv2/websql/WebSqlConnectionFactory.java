@@ -15,31 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.httpv2.ui.websql;
+package org.apache.doris.httpv2.websql;
 
-public class WebSqlException extends RuntimeException {
-    private final WebSqlError error;
-    private final Object details;
+import java.sql.Connection;
+import java.sql.SQLException;
 
-    public WebSqlException(WebSqlError error) {
-        this(error, null, null);
-    }
-
-    public WebSqlException(WebSqlError error, Throwable cause) {
-        this(error, null, cause);
-    }
-
-    public WebSqlException(WebSqlError error, Object details, Throwable cause) {
-        super(error.getMessage(), cause);
-        this.error = error;
-        this.details = details;
-    }
-
-    public WebSqlError getError() {
-        return error;
-    }
-
-    public Object getDetails() {
-        return details;
-    }
+public interface WebSqlConnectionFactory {
+    Connection open(String user, String password) throws SQLException;
 }

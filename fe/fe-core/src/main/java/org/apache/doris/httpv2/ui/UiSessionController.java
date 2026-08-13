@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/** Supplies the minimal authenticated-session bootstrap needed by the browser UI. */
 @RestController
 @RequestMapping("/rest/v1/ui")
 public class UiSessionController {

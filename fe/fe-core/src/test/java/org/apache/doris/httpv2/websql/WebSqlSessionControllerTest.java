@@ -15,11 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.httpv2.ui.websql;
-
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
-import org.apache.doris.httpv2.ui.UiRequestContext;
+package org.apache.doris.httpv2.websql;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Assertions;
@@ -35,33 +31,31 @@ public class WebSqlSessionControllerTest {
     private WebSqlSessionManager manager;
     private WebSqlSessionController controller;
     private HttpServletRequest request;
-    private SessionValue login;
+    private String owner;
 
     @BeforeEach
     void setUp() {
         manager = Mockito.mock(WebSqlSessionManager.class);
         controller = new WebSqlSessionController(manager);
         request = Mockito.mock(HttpServletRequest.class);
-        login = new SessionValue();
-        login.currentUser = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
-        login.password = "secret";
-        Mockito.when(request.getAttribute(UiRequestContext.SESSION_ATTRIBUTE)).thenReturn(login);
+        owner = "'alice'@'%'";
+        Mockito.when(request.getAttribute(WebSqlRequestContext.AUTH_ATTRIBUTE))
+                .thenReturn(new WebSqlRequestContext.Authentication(owner, "secret"));
     }
 
     @Test
     void createUsesAuthenticatedCookieIdentityAndPassword() {
         WebSqlSession session = session("session-1");
-        Mockito.when(manager.createSession(login.currentUser.getQualifiedUser(), "secret")).thenReturn(session);
+        Mockito.when(manager.createSession(owner, "secret")).thenReturn(session);
 
         WebSqlSessionInfo response = controller.create(request);
 
         Assertions.assertEquals("session-1", response.getSessionId());
-        Mockito.verify(manager).createSession(login.currentUser.getQualifiedUser(), "secret");
+        Mockito.verify(manager).createSession(owner, "secret");
     }
 
     @Test
     void executeCancelResetAndCloseRemainOwnerBound() {
-        String owner = login.currentUser.getQualifiedUser();
         WebSqlExecutionResult execution = new WebSqlExecutionResult(Collections.emptyList(),
                 Collections.emptyList(), 0, 2, "query-1", Collections.emptyList(),
                 "internal", "tpcds", false);
@@ -83,6 +77,6 @@ public class WebSqlSessionControllerTest {
     }
 
     private WebSqlSession session(String id) {
-        return new WebSqlSession(id, login.currentUser.getQualifiedUser(), Mockito.mock(Connection.class), 10);
+        return new WebSqlSession(id, owner, Mockito.mock(Connection.class), 10);
     }
 }

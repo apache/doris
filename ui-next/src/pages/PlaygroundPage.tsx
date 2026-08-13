@@ -69,6 +69,45 @@ interface ExplorerTreeNode extends DataNode {
   children?: ExplorerTreeNode[];
 }
 
+interface SchemaInsertion {
+  document: string;
+  position: number;
+  mode: 'empty' | 'before-existing';
+}
+
+function insertSchemaColumnIntoSql(
+  document: string,
+  column: string,
+  previous: SchemaInsertion | null,
+): { document: string; insertion: SchemaInsertion } | null {
+  let insertion = previous?.document === document ? previous : null;
+  const continued = insertion !== null;
+  if (!insertion) {
+    const select = /\bselect\b/i.exec(document);
+    if (!select) return null;
+    let position = select.index + select[0].length;
+    while (document[position] === ' ' || document[position] === '\t') position += 1;
+    insertion = {
+      document,
+      position,
+      mode: /^\r?\n\s*from\b/i.test(document.slice(position)) ? 'empty' : 'before-existing',
+    };
+  }
+
+  const text = insertion.mode === 'empty'
+    ? `${continued ? ', ' : ''}${column}`
+    : `${column}, `;
+  const nextDocument = `${document.slice(0, insertion.position)}${text}${document.slice(insertion.position)}`;
+  return {
+    document: nextDocument,
+    insertion: {
+      document: nextDocument,
+      position: insertion.position + text.length,
+      mode: insertion.mode,
+    },
+  };
+}
+
 function databaseNodeKey(database: string): string {
   return `database:${encodeURIComponent(database)}`;
 }
@@ -118,6 +157,7 @@ export function PlaygroundPage() {
   const executeSession = session.execute;
   const editorRef = useRef<EditorView | null>(null);
   const selectionRef = useRef<SqlSelection>({ from: 0, to: 0 });
+  const schemaInsertionRef = useRef<SchemaInsertion | null>(null);
   const messageIdRef = useRef(0);
   const resultIdRef = useRef(0);
   const [messageApi, messageContext] = message.useMessage();
@@ -362,11 +402,50 @@ export function PlaygroundPage() {
     view.focus();
   };
 
+  const insertSchemaColumn = (columnName: string) => {
+    const view = editorRef.current;
+    const column = quoteIdentifier(columnName);
+    if (!view) {
+      setEditorValue((document) => {
+        const result = insertSchemaColumnIntoSql(document, column, schemaInsertionRef.current);
+        if (!result) return `${document}${column}`;
+        schemaInsertionRef.current = result.insertion;
+        return result.document;
+      });
+      return;
+    }
+
+    const document = view.state.doc.toString();
+    const result = insertSchemaColumnIntoSql(document, column, schemaInsertionRef.current);
+    if (!result) {
+      insertText(column);
+      schemaInsertionRef.current = null;
+      return;
+    }
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: result.document },
+      selection: { anchor: result.insertion.position },
+    });
+    schemaInsertionRef.current = result.insertion;
+    view.focus();
+  };
+
   const insertTableQuery = () => {
     if (!catalog || !database || !table) return;
-    const template = `SELECT *\nFROM ${qualifiedName(catalog, database, table)}\nLIMIT 100;`;
-    setEditorValue(template);
-    editorRef.current?.focus();
+    const template = `SELECT \nFROM ${qualifiedName(catalog, database, table)}\nLIMIT 100;`;
+    const cursor = 'SELECT '.length;
+    schemaInsertionRef.current = null;
+    const view = editorRef.current;
+    if (!view) {
+      setEditorValue(template);
+      selectionRef.current = { from: cursor, to: cursor };
+      return;
+    }
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: template },
+      selection: { anchor: cursor },
+    });
+    view.focus();
   };
 
   const reset = async () => {
@@ -514,7 +593,7 @@ export function PlaygroundPage() {
           {schema.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={table ? 'No columns returned.' : 'Select a table.'} /> : (
             <div className="schema-list">
               {schema.map((column) => (
-                <button key={column.name} type="button" onClick={() => insertText(quoteIdentifier(column.name))} title={`Insert ${column.name} into the editor`}>
+                <button key={column.name} type="button" onClick={() => insertSchemaColumn(column.name)} title={`Insert ${column.name} into the editor`}>
                   <span>{column.name}</span><code>{column.type}</code>{column.key && <Tag>{column.key}</Tag>}
                 </button>
               ))}

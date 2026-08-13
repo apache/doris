@@ -76,7 +76,10 @@ Playwright requires its Chromium runtime. The browser path may be isolated with 
   reuses the existing hardware-version and `/rest/v1/system` APIs.
 - Playground SQL editing and formatting, a database/table/column object tree,
   and FE-managed JDBC sessions that preserve SQL session state across
-  statements.
+  statements. The Web SQL API is exposed at `/rest/v1/sql-sessions`; it accepts
+  either HTTP Basic authentication or the existing Doris login cookie. Both
+  modes require global `ADMIN` privilege, and cookie-authenticated mutations
+  additionally require the CSRF token returned by `/rest/v1/ui/me`.
 - System proc navigation and active Sessions views, both backed by existing
   Doris HTTP APIs.
 - Log configuration, content, and verbose logger management, reusing the
@@ -92,5 +95,7 @@ draft implementation.
 The FE addition is intentionally concentrated on the persistent Web SQL
 session lifecycle: session ownership, one JDBC connection per active session,
 statement execution and cancellation, idle cleanup, and bounded results.
+The endpoint lives under `httpv2.websql` because it is usable by any HTTP
+client and is not coupled to UI Next.
 Existing Doris HTTP controllers remain the preferred backend for the other UI
 pages.

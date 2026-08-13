@@ -15,28 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.httpv2.ui.websql;
+package org.apache.doris.httpv2.websql;
 
-public class WebSqlSessionInfo {
-    private final String sessionId;
-    private final long createdAtMillis;
-    private final long lastAccessMillis;
+public class WebSqlException extends RuntimeException {
+    private final WebSqlError error;
+    private final Object details;
 
-    public WebSqlSessionInfo(WebSqlSession session) {
-        this.sessionId = session.getId();
-        this.createdAtMillis = session.getCreatedAtMillis();
-        this.lastAccessMillis = session.getLastAccessMillis();
+    public WebSqlException(WebSqlError error) {
+        this(error, null, null);
     }
 
-    public String getSessionId() {
-        return sessionId;
+    public WebSqlException(WebSqlError error, Throwable cause) {
+        this(error, null, cause);
     }
 
-    public long getCreatedAtMillis() {
-        return createdAtMillis;
+    public WebSqlException(WebSqlError error, Object details, Throwable cause) {
+        super(error.getMessage(), cause);
+        this.error = error;
+        this.details = details;
     }
 
-    public long getLastAccessMillis() {
-        return lastAccessMillis;
+    public WebSqlError getError() {
+        return error;
+    }
+
+    public Object getDetails() {
+        return details;
     }
 }

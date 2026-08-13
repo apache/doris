@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.httpv2.ui;
+package org.apache.doris.httpv2.websql;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.apache.logging.log4j.LogManager;
@@ -29,30 +29,30 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
-/** Maps exceptions raised by UI-only bootstrap endpoints to their compact JSON error contract. */
+/** Maps failures from the general Web SQL HTTP API without depending on UI-specific response classes. */
 @Order(Ordered.HIGHEST_PRECEDENCE)
-@RestControllerAdvice(basePackages = "org.apache.doris.httpv2.ui")
-public class UiApiExceptionHandler {
-    private static final Logger LOG = LogManager.getLogger(UiApiExceptionHandler.class);
+@RestControllerAdvice(basePackages = "org.apache.doris.httpv2.websql")
+public class WebSqlExceptionHandler {
+    private static final Logger LOG = LogManager.getLogger(WebSqlExceptionHandler.class);
 
-    @ExceptionHandler(UiApiException.class)
-    public ResponseEntity<ApiError> handleUiApiException(UiApiException exception) {
-        ApiError error = new ApiError(exception.getCode(), exception.getMessage(), null);
-        return ResponseEntity.status(exception.getStatus()).body(error);
+    @ExceptionHandler(WebSqlException.class)
+    public ResponseEntity<ApiError> handleWebSqlException(WebSqlException exception) {
+        WebSqlError error = exception.getError();
+        return ResponseEntity.status(error.getStatus())
+                .body(new ApiError(error.getCode(), error.getMessage(), exception.getDetails()));
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ApiError> handleInvalidRequest(Exception exception) {
-        ApiError response = new ApiError(
-                "UI_INVALID_REQUEST", "The request body or parameters are invalid.", null);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError("WEB_SQL_INVALID_REQUEST", "The request body or parameters are invalid.", null));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpectedException(Exception exception) {
-        LOG.warn("Unexpected UI API exception", exception);
-        ApiError error = new ApiError("UI_INTERNAL_ERROR", "An internal error occurred.", null);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        LOG.warn("Unexpected Web SQL API exception", exception);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ApiError("WEB_SQL_INTERNAL_ERROR", "An internal error occurred.", null));
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

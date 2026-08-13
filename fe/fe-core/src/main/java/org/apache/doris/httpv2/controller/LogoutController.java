@@ -20,7 +20,7 @@ package org.apache.doris.httpv2.controller;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.httpv2.ui.websql.WebSqlSessionManager;
+import org.apache.doris.httpv2.websql.WebSqlSessionManager;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;

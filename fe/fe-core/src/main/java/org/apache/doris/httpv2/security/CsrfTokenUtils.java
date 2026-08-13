@@ -22,11 +22,20 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
 
-public final class UiSecurityTokens {
+/**
+ * Creates and verifies tokens that protect cookie-authenticated HTTP mutations from cross-site request forgery.
+ *
+ * <p>For example, after an administrator signs in to Doris, the browser automatically attaches the
+ * {@code PALO_SESSION_ID} cookie to Doris requests. A malicious page opened in another tab could try to submit a
+ * POST request to Doris with that cookie. The malicious page cannot read the CSRF token returned by Doris, so the
+ * request is rejected unless it also supplies the matching {@code X-Doris-CSRF-Token} header.</p>
+ */
+public final class CsrfTokenUtils {
+    public static final String HEADER_NAME = "X-Doris-CSRF-Token";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final int CSRF_TOKEN_BYTES = 32;
 
-    private UiSecurityTokens() {
+    private CsrfTokenUtils() {
     }
 
     /**

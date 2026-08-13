@@ -143,7 +143,7 @@ test('serializes Run, cancels, resets, rebuilds a missing session, and closes ex
       || typeof me.data.csrfToken !== 'string') {
       throw new Error('The UI session response did not contain a CSRF token.');
     }
-    return (await fetch(`/rest/v1/ui/sql-sessions/${encodeURIComponent(id)}`, {
+    return (await fetch(`/rest/v1/sql-sessions/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: { 'X-Doris-CSRF-Token': me.data.csrfToken },
     })).status;

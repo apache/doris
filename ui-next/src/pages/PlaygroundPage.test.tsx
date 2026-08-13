@@ -96,7 +96,10 @@ function schemaRows(): WebSqlExecutionResult {
       { name: 'Default', type: 'VARCHAR' },
       { name: 'Extra', type: 'VARCHAR' },
     ],
-    rows: [['ss_item_sk', 'BIGINT', 'YES', '', null, '']],
+    rows: [
+      ['ss_item_sk', 'BIGINT', 'YES', '', null, ''],
+      ['ss_store_sk', 'BIGINT', 'YES', '', null, ''],
+    ],
   });
 }
 
@@ -215,9 +218,17 @@ describe('PlaygroundPage', () => {
     expect(sessionMocks.execute).toHaveBeenCalledWith('DESC `internal`.`tpcds`.`store_sales`');
 
     fireEvent.click(screen.getByText('ss_item_sk'));
-    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT COUNT(*) AS row_count\nFROM tpcds.store_sales;`ss_item_sk`');
+    fireEvent.click(screen.getByText('ss_store_sk'));
+    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`, `ss_store_sk`, COUNT(*) AS row_count\nFROM tpcds.store_sales;');
+
     fireEvent.click(screen.getByRole('button', { name: 'Query table' }));
-    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT *\nFROM `internal`.`tpcds`.`store_sales`\nLIMIT 100;');
+    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT \nFROM `internal`.`tpcds`.`store_sales`\nLIMIT 100;');
+
+    fireEvent.click(screen.getByText('ss_item_sk'));
+    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`\nFROM `internal`.`tpcds`.`store_sales`\nLIMIT 100;');
+
+    fireEvent.click(screen.getByText('ss_store_sk'));
+    expect(screen.getByLabelText('SQL editor')).toHaveValue('SELECT `ss_item_sk`, `ss_store_sk`\nFROM `internal`.`tpcds`.`store_sales`\nLIMIT 100;');
   });
 
   it('filters only loaded metadata and refreshes databases without loading every table', async () => {

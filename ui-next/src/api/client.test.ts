@@ -123,7 +123,7 @@ describe('uiRequest', () => {
 
   it('rejects paths outside the UI API namespace', async () => {
     await expect(uiRequest('/rest/v1/session')).rejects.toThrow(
-      'uiRequest only accepts /rest/v1/ui/ paths.',
+      'uiRequest only accepts UI bootstrap and Web SQL paths.',
     );
   });
 

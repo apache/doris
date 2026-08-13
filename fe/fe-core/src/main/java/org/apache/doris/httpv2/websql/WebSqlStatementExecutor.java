@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.httpv2.ui.websql;
+package org.apache.doris.httpv2.websql;
 
 import com.google.common.collect.Lists;
 

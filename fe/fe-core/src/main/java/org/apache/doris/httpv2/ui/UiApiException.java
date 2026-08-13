@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.ui;
 
 import org.springframework.http.HttpStatus;
 
+/** Represents the small set of authentication and CSRF failures specific to UI bootstrap endpoints. */
 public class UiApiException extends RuntimeException {
     private final HttpStatus status;
     private final String code;

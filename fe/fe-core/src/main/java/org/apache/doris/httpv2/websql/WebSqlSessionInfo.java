@@ -15,11 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.httpv2.ui.websql;
+package org.apache.doris.httpv2.websql;
 
-import java.sql.Connection;
-import java.sql.SQLException;
+public class WebSqlSessionInfo {
+    private final String sessionId;
+    private final long createdAtMillis;
+    private final long lastAccessMillis;
 
-public interface WebSqlConnectionFactory {
-    Connection open(String user, String password) throws SQLException;
+    public WebSqlSessionInfo(WebSqlSession session) {
+        this.sessionId = session.getId();
+        this.createdAtMillis = session.getCreatedAtMillis();
+        this.lastAccessMillis = session.getLastAccessMillis();
+    }
+
+    public String getSessionId() {
+        return sessionId;
+    }
+
+    public long getCreatedAtMillis() {
+        return createdAtMillis;
+    }
+
+    public long getLastAccessMillis() {
+        return lastAccessMillis;
+    }
 }

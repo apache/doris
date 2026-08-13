@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.ui;
 
+/** Response returned during UI startup with the authenticated user and its session-bound CSRF token. */
 public class UiMe {
     private final String user;
     private final String csrfToken;
