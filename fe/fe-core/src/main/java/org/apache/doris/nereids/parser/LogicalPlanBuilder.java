@@ -7835,12 +7835,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.sortClause() != null) {
             orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
         }
-        long limit = 0;
+        // -1 means the statement carries no LIMIT clause at all, which is not the same as an
+        // explicit LIMIT 0: the former returns every row, the latter returns none.
+        long limit = -1;
         long offset = 0;
         if (ctx.limitClause() != null) {
-            limit = ctx.limitClause().limit != null
-                    ? Long.parseLong(ctx.limitClause().limit.getText())
-                    : 0;
+            // every alternative of the limitClause rule binds `limit`, so it is never null here
+            limit = Long.parseLong(ctx.limitClause().limit.getText());
             if (limit < 0) {
                 throw new ParseException("Limit requires non-negative number", ctx.limitClause());
             }

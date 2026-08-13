@@ -70,7 +70,8 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
     private PartitionNamesInfo partitionNames;
     private Expression whereClause;
     private List<OrderKey> orderKeys;
-    private long limit = 0;
+    // -1 means no LIMIT clause was given; 0 means an explicit LIMIT 0
+    private long limit = -1;
     private long offset = 0;
 
     private long version;
