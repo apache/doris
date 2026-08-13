@@ -39,7 +39,12 @@ public:
     static Status create(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
                          std::shared_ptr<RuntimeFilterMerger>* res) {
         *res = std::shared_ptr<RuntimeFilterMerger>(new RuntimeFilterMerger(query_ctx, desc));
-        return (*res)->_init_with_desc(desc, &query_ctx->query_options());
+        VExprContextSPtr build_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(desc->src_expr, build_ctx));
+        (*res)->_wrapper = std::make_shared<RuntimeFilterWrapper>(
+                build_ctx->root()->data_type()->get_primitive_type(), (*res)->_runtime_filter_type,
+                desc->filter_id, RuntimeFilterWrapper::State::UNINITED);
+        return Status::OK();
     }
 
     std::string debug_string() override {
@@ -64,7 +69,12 @@ public:
         if (_received_producer_num == _expected_producer_num) {
             _rf_state = State::READY;
         }
-        return _wrapper->merge(other->_wrapper.get());
+        if (_wrapper->get_state() == RuntimeFilterWrapper::State::UNINITED) {
+            _wrapper = other->_wrapper;
+            return Status::OK();
+        }
+        auto st = _wrapper->merge(other->_wrapper.get());
+        return st;
     }
 
     // Only raise the expected producer count. RuntimeFilterMgr may compute the

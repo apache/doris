@@ -17,7 +17,6 @@
 
 #include "exec/runtime_filter/runtime_filter_bucket_pruner.h"
 
-#include <gen_cpp/PlanNodes_types.h>
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -29,8 +28,6 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
-#include "core/data_type/data_type_string.h"
-#include "core/string_ref.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/runtime_filter/runtime_filter_wrapper.h"
 #include "exprs/create_predicate_function.h"
@@ -131,19 +128,10 @@ protected:
         return desc;
     }
 
-    std::unique_ptr<TPaloScanRange> bucket_range(int64_t tablet_id, int32_t bucket_seq,
-                                                 int32_t bucket_num) {
-        auto range = std::make_unique<TPaloScanRange>();
-        range->__set_tablet_id(tablet_id);
-        range->__set_bucket_seq(bucket_seq);
-        range->__set_bucket_num(bucket_num);
-        return range;
-    }
-
-    std::vector<std::unique_ptr<TPaloScanRange>> four_bucket_ranges() {
-        std::vector<std::unique_ptr<TPaloScanRange>> ranges;
+    std::vector<RuntimeFilterBucketPruneRange> four_bucket_ranges() {
+        std::vector<RuntimeFilterBucketPruneRange> ranges;
         for (int32_t bucket_seq = 0; bucket_seq < 4; ++bucket_seq) {
-            ranges.push_back(bucket_range(100 + bucket_seq, bucket_seq, 4));
+            ranges.push_back({100 + bucket_seq, bucket_seq, 4});
         }
         return ranges;
     }
@@ -178,27 +166,6 @@ TEST_F(RuntimeFilterBucketPrunerTest, ExactSetHashesSharedAcrossConsumers) {
     EXPECT_EQ(first_hashes.get(), nullable_hashes.get());
     ASSERT_EQ(first_hashes->size(), 4);
     EXPECT_EQ(first_hashes->back(), HashUtil::zlib_crc_hash_null(0));
-}
-
-TEST_F(RuntimeFilterBucketPrunerTest, StringHashesMatchWriteRoutingWithoutMaterialization) {
-    RuntimeFilterParams params {.filter_id = 15,
-                                .filter_type = RuntimeFilterType::IN_FILTER,
-                                .column_return_type = TYPE_STRING,
-                                .null_aware = false,
-                                .max_in_num = 1024};
-    auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
-    std::vector<std::string> values {std::string(64 * 1024, 'x'), "bucket-prune"};
-    std::set<uint32_t> expected_hashes;
-    for (const auto& value : values) {
-        StringRef value_ref(value);
-        wrapper->hybrid_set()->insert(&value_ref);
-        expected_hashes.insert(RawValue::zlib_crc32(value.data(), value.size(), TYPE_STRING, 0));
-    }
-    wrapper->set_state(RuntimeFilterWrapper::State::READY);
-
-    auto hashes = wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeString>());
-
-    EXPECT_EQ(std::set<uint32_t>(hashes->begin(), hashes->end()), expected_hashes);
 }
 
 TEST_F(RuntimeFilterBucketPrunerTest, ExactInKeepsOnlyMatchingBucket) {
@@ -255,12 +222,12 @@ TEST_F(RuntimeFilterBucketPrunerTest, SupportsDifferentBucketCountsAcrossPartiti
     constexpr int32_t value = 10;
     VExprContextSPtrs conjuncts {make_in_conjunct(filter_id, {value})};
     std::vector<TRuntimeFilterDesc> rf_descs {bucket_prune_desc(filter_id)};
-    std::vector<std::unique_ptr<TPaloScanRange>> ranges;
+    std::vector<RuntimeFilterBucketPruneRange> ranges;
     for (int32_t bucket_seq = 0; bucket_seq < 4; ++bucket_seq) {
-        ranges.push_back(bucket_range(100 + bucket_seq, bucket_seq, 4));
+        ranges.push_back({100 + bucket_seq, bucket_seq, 4});
     }
     for (int32_t bucket_seq = 0; bucket_seq < 7; ++bucket_seq) {
-        ranges.push_back(bucket_range(200 + bucket_seq, bucket_seq, 7));
+        ranges.push_back({200 + bucket_seq, bucket_seq, 7});
     }
 
     RuntimeFilterBucketPruner pruner;

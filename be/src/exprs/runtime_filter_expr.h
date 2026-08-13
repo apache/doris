@@ -28,7 +28,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "core/custom_allocator.h"
 #include "exec/runtime_filter/runtime_filter_selectivity.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr.h"
@@ -127,7 +126,7 @@ public:
 
     int filter_id() const { return _filter_id; }
 
-    std::shared_ptr<const DorisVector<uint32_t>> get_bucket_prune_hashes(
+    std::shared_ptr<const std::vector<uint32_t>> get_bucket_prune_hashes(
             const DataTypePtr& target_type) const;
 
     std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter() const {
