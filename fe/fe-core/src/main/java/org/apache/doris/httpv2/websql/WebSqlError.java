@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.httpv2.ui.websql;
+package org.apache.doris.httpv2.websql;
 
 import org.springframework.http.HttpStatus;
 
@@ -29,8 +29,12 @@ public enum WebSqlError {
     SESSION_BUSY(HttpStatus.CONFLICT, "WEB_SQL_SESSION_BUSY", "The Web SQL session is busy."),
     SESSION_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "WEB_SQL_SESSION_LIMIT_EXCEEDED",
             "The Web SQL session limit has been reached."),
+    AUTHENTICATION_REQUIRED(HttpStatus.UNAUTHORIZED, "WEB_SQL_AUTHENTICATION_REQUIRED",
+            "Cookie or Basic authentication is required."),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "WEB_SQL_ACCESS_DENIED",
             "You do not have access to this Web SQL session."),
+    CSRF_INVALID(HttpStatus.FORBIDDEN, "WEB_SQL_CSRF_INVALID",
+            "The CSRF token is missing or invalid."),
     QUERY_ERROR(HttpStatus.BAD_REQUEST, "WEB_SQL_QUERY_ERROR", "The SQL statement could not be executed."),
     QUERY_TIMEOUT(HttpStatus.REQUEST_TIMEOUT, "WEB_SQL_QUERY_TIMEOUT", "The SQL statement timed out."),
     CONNECTION_ERROR(HttpStatus.SERVICE_UNAVAILABLE, "WEB_SQL_CONNECTION_ERROR",

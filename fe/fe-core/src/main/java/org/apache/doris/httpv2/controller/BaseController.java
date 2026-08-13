@@ -71,7 +71,7 @@ public class BaseController {
      * Authenticate browser-facing UI APIs with the existing opaque session cookie.
      * Basic Authorization is deliberately not accepted on this boundary.
      */
-    public SessionValue checkUiAuthWithCookie(HttpServletRequest request, HttpServletResponse response) {
+    public SessionValue requireCookieSession(HttpServletRequest request, HttpServletResponse response) {
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             throw new UnauthorizedException("Cookie authentication is required");
         }

@@ -68,8 +68,8 @@ function fallbackError(status: number, requestId: string): UiErrorBody {
 }
 
 export async function uiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  if (!path.startsWith('/rest/v1/ui/')) {
-    throw new Error('uiRequest only accepts /rest/v1/ui/ paths.');
+  if (!path.startsWith('/rest/v1/ui/') && !path.startsWith('/rest/v1/sql-sessions')) {
+    throw new Error('uiRequest only accepts UI bootstrap and Web SQL paths.');
   }
 
   const method = (init.method ?? 'GET').toUpperCase();

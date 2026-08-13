@@ -23,7 +23,7 @@ import type {
   WebSqlSessionInfo,
 } from './types';
 
-const basePath = '/rest/v1/ui/sql-sessions';
+const basePath = '/rest/v1/sql-sessions';
 
 export async function createWebSqlSession(): Promise<WebSqlSessionInfo> {
   return uiRequest<WebSqlSessionInfo>(basePath, { method: 'POST' });

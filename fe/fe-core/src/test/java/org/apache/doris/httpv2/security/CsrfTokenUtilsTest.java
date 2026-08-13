@@ -20,17 +20,17 @@ package org.apache.doris.httpv2.security;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class UiSecurityTokensTest {
+public class CsrfTokenUtilsTest {
     @Test
     void createsUniqueTokensAndUsesExactMatching() {
-        String first = UiSecurityTokens.newCsrfToken();
-        String second = UiSecurityTokens.newCsrfToken();
+        String first = CsrfTokenUtils.newCsrfToken();
+        String second = CsrfTokenUtils.newCsrfToken();
 
         Assertions.assertNotEquals(first, second);
         Assertions.assertTrue(first.length() >= 40);
-        Assertions.assertTrue(UiSecurityTokens.csrfTokenMatches(first, first));
-        Assertions.assertFalse(UiSecurityTokens.csrfTokenMatches(first, second));
-        Assertions.assertFalse(UiSecurityTokens.csrfTokenMatches(first, null));
-        Assertions.assertFalse(UiSecurityTokens.csrfTokenMatches(null, first));
+        Assertions.assertTrue(CsrfTokenUtils.csrfTokenMatches(first, first));
+        Assertions.assertFalse(CsrfTokenUtils.csrfTokenMatches(first, second));
+        Assertions.assertFalse(CsrfTokenUtils.csrfTokenMatches(first, null));
+        Assertions.assertFalse(CsrfTokenUtils.csrfTokenMatches(null, first));
     }
 }

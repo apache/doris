@@ -17,13 +17,19 @@
 
 package org.apache.doris.httpv2.interceptor;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.controller.BaseController;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
-import org.apache.doris.httpv2.security.UiSecurityTokens;
+import org.apache.doris.httpv2.security.CsrfTokenUtils;
 import org.apache.doris.httpv2.ui.UiApiException;
 import org.apache.doris.httpv2.ui.UiRequestContext;
+import org.apache.doris.httpv2.websql.WebSqlError;
+import org.apache.doris.httpv2.websql.WebSqlException;
+import org.apache.doris.httpv2.websql.WebSqlRequestContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.ImmutableSet;
@@ -41,6 +47,7 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
 
     private static final Logger LOG = LogManager.getLogger(AuthInterceptor.class);
     private static final String UI_API_PREFIX = "/rest/v1/ui/";
+    private static final String WEB_SQL_API_PREFIX = "/rest/v1/sql-sessions";
     private static final Set<String> MUTATING_METHODS = ImmutableSet.of("POST", "PUT", "PATCH", "DELETE");
 
     @Override
@@ -57,16 +64,23 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
 
         if (request.getRequestURI().startsWith(UI_API_PREFIX)) {
             authenticateUiRequest(request, response);
+        } else if (isWebSqlApi(request.getRequestURI())) {
+            authenticateWebSqlRequest(request, response);
         } else {
             checkAuthWithCookie(request, response);
         }
         return true;
     }
 
+    private boolean isWebSqlApi(String requestUri) {
+        return WEB_SQL_API_PREFIX.equals(requestUri)
+                || requestUri.startsWith(WEB_SQL_API_PREFIX + "/");
+    }
+
     protected void authenticateUiRequest(HttpServletRequest request, HttpServletResponse response) {
         SessionValue session;
         try {
-            session = checkUiAuthWithCookie(request, response);
+            session = requireCookieSession(request, response);
         } catch (UnauthorizedException exception) {
             throw UiApiException.unauthenticated();
         }
@@ -75,13 +89,50 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
             throw UiApiException.adminRequired();
         }
         if (MUTATING_METHODS.contains(request.getMethod().toUpperCase())
-                && !UiSecurityTokens.csrfTokenMatches(
-                        session.csrfToken, request.getHeader(UiRequestContext.CSRF_HEADER))) {
+                && !CsrfTokenUtils.csrfTokenMatches(
+                        session.csrfToken, request.getHeader(CsrfTokenUtils.HEADER_NAME))) {
             throw UiApiException.invalidCsrf();
         }
     }
 
+    protected void authenticateWebSqlRequest(HttpServletRequest request, HttpServletResponse response) {
+        try {
+            if (request.getHeader("Authorization") != null) {
+                ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
+                UserIdentity user = checkPassword(authInfo);
+                if (Config.isCloudMode()) {
+                    checkInstanceOverdue(user);
+                }
+                requireAdmin(user);
+                WebSqlRequestContext.set(request, user.getQualifiedUser(), authInfo.password);
+                return;
+            }
+
+            SessionValue session = requireCookieSession(request, response);
+            requireAdmin(session.currentUser);
+            if (MUTATING_METHODS.contains(request.getMethod().toUpperCase())
+                    && !CsrfTokenUtils.csrfTokenMatches(
+                            session.csrfToken, request.getHeader(CsrfTokenUtils.HEADER_NAME))) {
+                throw new WebSqlException(WebSqlError.CSRF_INVALID);
+            }
+            WebSqlRequestContext.set(
+                    request, session.currentUser.getQualifiedUser(), session.password);
+        } catch (UnauthorizedException exception) {
+            throw new WebSqlException(WebSqlError.AUTHENTICATION_REQUIRED, exception);
+        }
+    }
+
     protected boolean hasAdminPrivilege(SessionValue session) {
-        return Env.getCurrentEnv().getAccessManager().checkGlobalPriv(session.currentUser, PrivPredicate.ADMIN);
+        return hasAdminPrivilege(session.currentUser);
+    }
+
+    protected boolean hasAdminPrivilege(UserIdentity user) {
+        return Env.getCurrentEnv().getAccessManager().checkGlobalPriv(user, PrivPredicate.ADMIN);
+    }
+
+    private void requireAdmin(UserIdentity user) {
+        if (!hasAdminPrivilege(user)) {
+            throw new WebSqlException(WebSqlError.ACCESS_DENIED);
+        }
     }
 }

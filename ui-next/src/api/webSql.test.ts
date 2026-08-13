@@ -47,11 +47,11 @@ describe('Web SQL API', () => {
     await closeWebSqlSession('fe.session/one');
 
     expect(fetchSpy.mock.calls.map(([path]) => path)).toEqual([
-      '/rest/v1/ui/sql-sessions',
-      '/rest/v1/ui/sql-sessions/fe.session%2Fone/statements',
-      '/rest/v1/ui/sql-sessions/fe.session%2Fone/cancel',
-      '/rest/v1/ui/sql-sessions/fe.session%2Fone/reset',
-      '/rest/v1/ui/sql-sessions/fe.session%2Fone',
+      '/rest/v1/sql-sessions',
+      '/rest/v1/sql-sessions/fe.session%2Fone/statements',
+      '/rest/v1/sql-sessions/fe.session%2Fone/cancel',
+      '/rest/v1/sql-sessions/fe.session%2Fone/reset',
+      '/rest/v1/sql-sessions/fe.session%2Fone',
     ]);
     const statementRequest = fetchSpy.mock.calls[1][1] as RequestInit;
     expect(statementRequest.body).toBe(JSON.stringify({ sql: 'SELECT 1' }));

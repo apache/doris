@@ -18,7 +18,7 @@
 package org.apache.doris.httpv2;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.httpv2.security.UiSecurityTokens;
+import org.apache.doris.httpv2.security.CsrfTokenUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
@@ -42,7 +42,7 @@ public final class HttpAuthManager {
     public static class SessionValue {
         public UserIdentity currentUser;
         public String password;
-        public final String csrfToken = UiSecurityTokens.newCsrfToken();
+        public final String csrfToken = CsrfTokenUtils.newCsrfToken();
     }
 
     // session_id => session value
