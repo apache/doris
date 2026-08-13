@@ -2580,6 +2580,100 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermRejectsMinimumShouldMatch) {
     EXPECT_EQ(0, index_file_reader->open_calls);
 }
 
+// A single-token TERM value has nothing for minimum_should_match to select "at least N of"
+// among -- there is only one term. The CLucene path (function_search.cpp, `term_infos.size() ==
+// 1` branch) never even looks at minimum_should_match in that case and answers a plain
+// TermQuery; SNII must do the same instead of hard-refusing every analysed TERM clause the
+// instant msm is set, regardless of how many tokens the value actually produces.
+TEST_F(FunctionSearchTest, TestSniiNativeTermSingleTokenAllowsMinimumShouldMatch) {
+    auto context = std::make_shared<IndexQueryContext>();
+    auto index_meta = make_test_inverted_index(
+            24, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}});
+    auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto reader =
+            std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
+    reader->set_query_result("alpha", make_bitmap({0, 2}));
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["body"] = &iterator;
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "body";
+    field_binding.index_properties = index_meta.properties();
+    field_binding.__isset.index_properties = true;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+
+    auto clause = make_leaf_clause("TERM", "alpha");
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
+                                                    "OR", 1, 4);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(nullptr, query);
+    EXPECT_EQ(1, reader->query_calls);
+    EXPECT_EQ(InvertedIndexQueryType::EQUAL_QUERY, reader->last_query_type);
+    EXPECT_EQ("alpha", reader->last_query_value);
+
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = 4;
+    auto scorer = weight->scorer(exec_ctx, binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {0, 2});
+}
+
+// A value that tokenizes to zero terms (here, an empty string on an analysed field) must be
+// handled the same way the CLucene path handles it -- an empty BitSetQuery -- instead of
+// reaching SniiIndexReader::_query at all: that reader only short-circuits empty term_infos to
+// an empty bitmap for proper MATCH_* query types (see is_match_query() in
+// inverted_index_query_type.h), and a TERM clause maps to EQUAL_QUERY/MATCH_ALL_QUERY, neither
+// of which qualifies, so it would otherwise surface INVERTED_INDEX_NO_TERMS instead of a match.
+TEST_F(FunctionSearchTest, TestSniiNativeTermZeroTokenMinimumShouldMatchReturnsEmptyBitmap) {
+    auto context = std::make_shared<IndexQueryContext>();
+    auto index_meta = make_test_inverted_index(
+            25, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}});
+    auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto reader =
+            std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["body"] = &iterator;
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "body";
+    field_binding.index_properties = index_meta.properties();
+    field_binding.__isset.index_properties = true;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+
+    auto clause = make_leaf_clause("TERM", "");
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
+                                                    "OR", 1, 4);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(nullptr, query);
+    EXPECT_EQ(0, reader->query_calls);
+
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = 4;
+    auto scorer = weight->scorer(exec_ctx, binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {});
+}
+
 // On a NON-analysed (keyword) field, PREFIX cannot map to MATCH_PHRASE_PREFIX_QUERY: FE keeps
 // the trailing '*' in the value (SearchDslParser.java), and on a keyword field the whole string
 // -- '*' included -- becomes one literal term (InvertedIndexAnalyzer::get_analyse_result), so

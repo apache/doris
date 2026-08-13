@@ -800,21 +800,46 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
         if (clause_type == "TERM") {
             // minimum_should_match ("at least N of M terms") has no SNII query type: the reader
             // only knows AND-all (MATCH_ALL_QUERY) or OR-all (EQUAL_QUERY/MATCH_ANY_QUERY) of the
-            // terms it tokenizes internally, never a partial threshold. The CLucene path builds
-            // an OccurBooleanQuery for this (function_search.cpp:913-926); SNII cannot, so refuse
-            // explicitly instead of silently answering a plain OR query.
-            //
-            // But the CLucene path only ever reaches that OccurBooleanQuery when the field is
-            // analysed (:925's `if (should_analyze)` short-circuits first): a keyword (non-
-            // analysed) TERM value tokenizes to at most one term, so msm is never consulted for
-            // it there either -- it is simply ignored. Refusing it here for a keyword field would
-            // hard-error a query V2/V3 answers fine, so gate the refusal the same way.
+            // terms it tokenizes internally, never a partial threshold. The CLucene TERM handling
+            // below builds an OccurBooleanQuery for this, but only when the value actually
+            // tokenizes to MORE THAN ONE term: its `term_infos.size() == 1` short-circuit returns
+            // a plain TermQuery first and never looks at msm, because msm is meaningless when
+            // there is only one term to select "at least N of" from. SNII must draw the line in
+            // the same place: tokenize the value up front and refuse only the genuinely
+            // unsupported multi-token case, instead of rejecting every analysed field the instant
+            // msm is set regardless of how many tokens the value produces.
             if (minimum_should_match > 0 &&
                 inverted_index::InvertedIndexAnalyzer::should_analyzer(binding.index_properties)) {
-                return Status::NotSupported(
-                        "SNII native SEARCH does not support minimum_should_match for TERM "
-                        "clauses (got {})",
-                        minimum_should_match);
+                auto term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                        value, binding.index_properties,
+                        inverted_index::AnalysisPurpose::kPlainQuery);
+                if (term_infos.size() > 1) {
+                    return Status::NotSupported(
+                            "SNII native SEARCH does not support minimum_should_match for TERM "
+                            "clauses (got {})",
+                            minimum_should_match);
+                }
+                if (term_infos.empty()) {
+                    // Zero tokens (e.g. an all-stopword or empty value): mirror the CLucene TERM
+                    // handling's own `term_infos.empty()` -> empty BitSetQuery short-circuit
+                    // below, instead of falling through to binding.inverted_reader->query()
+                    // below. That reader's own empty-term_infos short-circuit
+                    // (snii_index_reader.cpp:722-731) only returns an empty bitmap when
+                    // is_match_query() is true (inverted_index_query_type.h:99-106). TERM's
+                    // "or"/default-operator query type is EQUAL_QUERY, which is not in that list,
+                    // so it would instead return Status::Error<INVERTED_INDEX_NO_TERMS>. The
+                    // "and" operator's MATCH_ALL_QUERY (assigned below) IS in that list, but this
+                    // branch returns unconditionally before that assignment ever runs -- same as
+                    // the CLucene reference path, which is unconditional too -- so the outcome
+                    // here does not depend on default_operator. For SEARCH() specifically that
+                    // error would be a hard query failure, not a slower row-scan fallback:
+                    // VSearchExpr has no downgrade path of its own (vsearch.cpp:234/265), and
+                    // prevent_search_row_fallback (vsearch.cpp:169-183) does not admit
+                    // INVERTED_INDEX_NO_TERMS as a status that may fall back either.
+                    return finish_leaf_query(
+                            std::make_shared<query_v2::BitSetQuery>(roaring::Roaring()));
+                }
+                // size() == 1: msm is meaningless for a single token, matching V3 -- fall through.
             }
             // default_operator selects how a multi-token TERM value combines: "and" requires
             // every term (MATCH_ALL_QUERY), "or" -- the default -- requires any term, which is
