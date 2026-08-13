@@ -17,15 +17,8 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnType;
 
-import org.apache.logging.log4j.Level;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.core.LogEvent;
-import org.apache.logging.log4j.core.Logger;
-import org.apache.logging.log4j.core.appender.AbstractAppender;
-import org.apache.logging.log4j.core.config.Configurator;
-import org.apache.logging.log4j.core.config.Property;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.InternalRow;
@@ -497,27 +490,35 @@ public class PaimonJniScannerTest {
         new PaimonJniScanner(128, noFields);
     }
 
+    /**
+     * Captured where the messages really go: the scanner logs through slf4j, and a deployed plugin
+     * binds slf4j to java.util.logging because that is what BE's plugin runtime writes into
+     * log/jni.log. Debug level is a real risk here - the parameter map carries storage and JDBC
+     * credentials, and logging it would put them in a file operators hand around.
+     */
     @Test
     public void testDebugSummaryNeverIncludesRawScannerParams() {
         Map<String, String> params = createBaseParams();
         params.put("hadoop.fs.s3a.secret.key", "FAKE_SECRET_MARKER");
         params.put("paimon.jdbc.url", "jdbc:test?password=FAKE_PASSWORD_MARKER");
 
-        Logger logger = (Logger) LogManager.getLogger(PaimonJniScanner.class);
-        Level originalLevel = logger.getLevel();
-        CapturingAppender appender = new CapturingAppender();
-        appender.start();
-        logger.addAppender(appender);
-        Configurator.setLevel(PaimonJniScanner.class.getName(), Level.DEBUG);
+        java.util.logging.Logger logger =
+                java.util.logging.Logger.getLogger(PaimonJniScanner.class.getName());
+        java.util.logging.Level originalLevel = logger.getLevel();
+        CapturingHandler handler = new CapturingHandler();
+        logger.addHandler(handler);
+        // slf4j debug is JUL fine; without this the logger inherits a level that drops the record.
+        logger.setLevel(java.util.logging.Level.FINE);
         try {
             new PaimonJniScanner(128, params);
         } finally {
-            logger.removeAppender(appender);
-            appender.stop();
-            Configurator.setLevel(PaimonJniScanner.class.getName(), originalLevel);
+            logger.removeHandler(handler);
+            logger.setLevel(originalLevel);
         }
 
-        String captured = String.join("\n", appender.messages);
+        String captured = String.join("\n", handler.messages);
+        Assert.assertFalse("nothing was captured, so the assertions below prove nothing",
+                handler.messages.isEmpty());
         Assert.assertTrue(captured.contains("batchSize=128, requiredFieldCount=0"));
         Assert.assertFalse(captured.contains("FAKE_SECRET_MARKER"));
         Assert.assertFalse(captured.contains("FAKE_PASSWORD_MARKER"));
@@ -896,16 +897,20 @@ public class PaimonJniScannerTest {
         }
     }
 
-    private static class CapturingAppender extends AbstractAppender {
+    private static class CapturingHandler extends java.util.logging.Handler {
         private final CopyOnWriteArrayList<String> messages = new CopyOnWriteArrayList<>();
 
-        CapturingAppender() {
-            super("paimon-test-capture", null, null, false, Property.EMPTY_ARRAY);
+        @Override
+        public void publish(java.util.logging.LogRecord record) {
+            messages.add(record.getMessage());
         }
 
         @Override
-        public void append(LogEvent event) {
-            messages.add(event.getMessage().getFormattedMessage());
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
         }
     }
 
