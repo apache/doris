@@ -258,8 +258,14 @@ public class ShuffleKeyPruner extends PlanPostProcessor {
         @Override
         public Plan visitPhysicalIcebergTableSink(
                 PhysicalIcebergTableSink<? extends Plan> icebergTableSink, PruneCtx ctx) {
-            boolean childAllowShuffleKeyPrune =
-                    icebergTableSink.getRequirePhysicalProperties().equals(PhysicalProperties.ANY);
+            boolean childAllowShuffleKeyPrune;
+            if (ctx.cascadesContext.getConnectContext() != null
+                    && !ctx.cascadesContext.getConnectContext().getSessionVariable().enableStrictConsistencyDml) {
+                childAllowShuffleKeyPrune = true;
+            } else {
+                childAllowShuffleKeyPrune =
+                        icebergTableSink.getRequirePhysicalProperties().equals(PhysicalProperties.ANY);
+            }
             return rewriteUnary(icebergTableSink, ctx.withAllowShuffleKeyPrune(childAllowShuffleKeyPrune));
         }
 

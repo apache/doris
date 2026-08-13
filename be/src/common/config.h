@@ -1671,8 +1671,8 @@ DECLARE_mInt64(hive_sink_max_file_size);
 DECLARE_mInt64(iceberg_sink_max_file_size);
 
 /** Paimon sink configurations **/
-// Process-wide Paimon JNI memory limit: BE JVM -Xmx * ratio.
-DECLARE_Double(paimon_jni_memory_limit_ratio);
+// Hard upper bound for Doris-managed Paimon write-buffer memory per JNI writer.
+DECLARE_mInt64(paimon_jni_writer_memory_pool_limit_bytes);
 
 /** Paimon file system configurations **/
 DECLARE_Strings(paimon_file_system_scheme_mappings);

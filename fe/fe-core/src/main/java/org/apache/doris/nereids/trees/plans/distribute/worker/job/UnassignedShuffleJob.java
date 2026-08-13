@@ -87,12 +87,6 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         if (connectContext != null && connectContext.getSessionVariable() != null) {
             expectInstanceNum = connectContext.getSessionVariable().getExchangeInstanceParallel();
         }
-        int writerInstanceLimit = fragment.getSink() == null
-                ? Integer.MAX_VALUE : fragment.getSink().getWriterInstanceLimit();
-        if (writerInstanceLimit < Integer.MAX_VALUE) {
-            expectInstanceNum = expectInstanceNum <= 0
-                    ? writerInstanceLimit : Math.min(expectInstanceNum, writerInstanceLimit);
-        }
         return expectInstanceNum;
     }
 

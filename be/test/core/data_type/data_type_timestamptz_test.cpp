@@ -134,8 +134,7 @@ TEST_F(DataTypeTimeStampTzTest, test_sort) {
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeTimeStampTz>());
 
     sorter = FullSorter::create_unique(ordering_expr_ctxs, 3, 3, &pool, is_asc_order, nulls_first,
-                                       Block(VectorizedUtils::create_empty_block(*row_desc)),
-                                       &_state, nullptr);
+                                       *row_desc, &_state, nullptr);
     sorter->init_profile(&_profile);
     {
         Block block = ColumnHelper::create_block<DataTypeTimeStampTz>(

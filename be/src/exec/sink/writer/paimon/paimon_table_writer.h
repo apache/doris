@@ -39,11 +39,10 @@ class RuntimeState;
 /// each writer session delegates partition and bucket routing to the Paimon
 /// SDK (Java via JNI, or Rust via FFI in the future).
 ///
-/// Upstream native expressions and a standard hash exchange may use a
-/// Paimon-compatible fixed bucket to select this writer.
-/// This class still passes complete Blocks through the selected backend
-/// (JNI/FFI); the SDK computes partition and bucket values again to route rows
-/// to the correct file writers within the writer session.
+/// Doris does NOT compute partition values or bucket ids — it passes complete
+/// Blocks through the selected backend (JNI/FFI) to the Paimon SDK, which
+/// internally computes partition values, bucket ids, and routes rows to the
+/// correct file writers.
 ///
 /// Architecture:
 ///   PaimonTableSinkOperatorX

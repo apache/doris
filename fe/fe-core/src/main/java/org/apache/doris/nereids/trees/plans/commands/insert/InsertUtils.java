@@ -72,7 +72,6 @@ import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
@@ -501,13 +500,6 @@ public class InsertUtils {
     private static DataType targetTypeForInlineValue(
             Column column, NamedExpression value, boolean isPaimonSink) {
         DataType targetType = DataType.fromCatalogType(column.getType());
-        // Inline VALUES are type-coerced before BindSink invokes
-        // PaimonVariantWriteAnalyzer. Do the V2 gate here as well, otherwise the
-        // generic Variant cast fails first and hides the actionable Paimon error.
-        if (isPaimonSink && VariantType.containsVariant(targetType) && !Config.enable_variant_v2) {
-            throw new AnalysisException(
-                    "Paimon VARIANT write only supports Variant V2; set enable_variant_v2=true");
-        }
         return isPaimonSink
                 ? PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
                         targetType, value).orElse(null)

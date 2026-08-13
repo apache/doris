@@ -41,6 +41,13 @@ Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
     RETURN_IF_ERROR(VExpr::prepare(_ordering_expr_ctxs, state, *row_desc));
     RETURN_IF_ERROR(VExpr::open(_ordering_expr_ctxs, state));
 
+    // Create FullSorter for in-memory sorting with spill support enabled.
+    // Parameters: limit=-1 (no limit), offset=0 (no offset)
+    _sorter = FullSorter::create_unique(_ordering_expr_ctxs, -1, 0, &_pool, _sort_info.is_asc_order,
+                                        _sort_info.nulls_first, *row_desc, state, _profile);
+    _sorter->init_profile(_profile);
+    // Enable spill support so the sorter can be used with the spill framework
+    _sorter->set_enable_spill();
     _do_spill_count_counter = ADD_COUNTER(_profile, "IcebergDoSpillCount", TUnit::UNIT);
 
     // Open the underlying partition writer that handles actual file I/O
@@ -50,21 +57,6 @@ Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
 
 Status VIcebergSortWriter::write(Block& block) {
     std::lock_guard<std::mutex> lock(_sorter_mutex);
-
-    if (block.rows() == 0) {
-        return Status::OK();
-    }
-
-    // row_desc describes the sink operator input and may contain auxiliary columns used only by
-    // an upstream exchange. The table writer has already projected those columns out, so the
-    // sorter must own the schema of the canonical writer block rather than the input descriptor.
-    if (_sorter == nullptr) {
-        _sorter = FullSorter::create_unique(_ordering_expr_ctxs, -1, 0, &_pool,
-                                            _sort_info.is_asc_order, _sort_info.nulls_first, block,
-                                            _runtime_state, _profile);
-        _sorter->init_profile(_profile);
-        _sorter->set_enable_spill();
-    }
 
     // Append incoming block data to the sorter's internal buffer
     RETURN_IF_ERROR(_sorter->append_block(&block));

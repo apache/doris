@@ -18,12 +18,10 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.ExternalWriteDistributionPlan;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -51,7 +49,6 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
     private final IcebergExternalTable targetTable;
     private final Table targetIcebergTable;
     private final DMLCommandType dmlCommandType;
-    private final ExternalWriteDistributionPlan writeDistributionPlan;
 
     /**
      * constructor
@@ -65,30 +62,12 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
-        this(database, targetTable, targetIcebergTable, cols, outputExprs, dmlCommandType,
-                ExternalWriteDistributionPlan.singleWriter("Iceberg write distribution is not planned"),
-                groupExpression, logicalProperties, child);
-    }
-
-    /** Constructor with a planned external writer route. */
-    public LogicalIcebergTableSink(IcebergExternalDatabase database,
-                                   IcebergExternalTable targetTable,
-                                   Table targetIcebergTable,
-                                   List<Column> cols,
-                                   List<NamedExpression> outputExprs,
-                                   DMLCommandType dmlCommandType,
-                                   ExternalWriteDistributionPlan writeDistributionPlan,
-                                   Optional<GroupExpression> groupExpression,
-                                   Optional<LogicalProperties> logicalProperties,
-                                   CHILD_TYPE child) {
         super(PlanType.LOGICAL_ICEBERG_TABLE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalIcebergTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalIcebergTableSink");
         this.targetIcebergTable = Objects.requireNonNull(
                 targetIcebergTable, "targetIcebergTable != null in LogicalIcebergTableSink");
         this.dmlCommandType = dmlCommandType;
-        this.writeDistributionPlan = Objects.requireNonNull(
-                writeDistributionPlan, "writeDistributionPlan != null in LogicalIcebergTableSink");
     }
 
     public Plan withChildAndUpdateOutput(Plan child) {
@@ -96,26 +75,19 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
         return new LogicalIcebergTableSink<>(database, targetTable, targetIcebergTable, cols, output,
-                dmlCommandType, writeDistributionPlan, Optional.empty(), Optional.empty(), child);
-    }
-
-    /** Replace the child with a routing project while preserving the data outputs of this sink. */
-    public Plan withChildAndWriteDistribution(
-            Plan child, ExternalWriteDistributionPlan writeDistributionPlan) {
-        return new LogicalIcebergTableSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
-                dmlCommandType, writeDistributionPlan, Optional.empty(), Optional.empty(), child);
+                dmlCommandType, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalIcebergTableSink only accepts one child");
         return new LogicalIcebergTableSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
-                dmlCommandType, writeDistributionPlan, Optional.empty(), Optional.empty(), children.get(0));
+                dmlCommandType, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public LogicalIcebergTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return new LogicalIcebergTableSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
-                dmlCommandType, writeDistributionPlan, Optional.empty(), Optional.empty(), child());
+                dmlCommandType, Optional.empty(), Optional.empty(), child());
     }
 
     public IcebergExternalDatabase getDatabase() {
@@ -134,15 +106,6 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
         return dmlCommandType;
     }
 
-    public ExternalWriteDistributionPlan getWriteDistributionPlan() {
-        return writeDistributionPlan;
-    }
-
-    @Override
-    public List<ExprId> getRequiredChildOutputExprIds() {
-        return writeDistributionPlan.getRoutingExprIds();
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -159,14 +122,12 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
                 && Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
                 && Objects.equals(targetIcebergTable, that.targetIcebergTable)
-                && Objects.equals(cols, that.cols)
-                && Objects.equals(writeDistributionPlan, that.writeDistributionPlan);
+                && Objects.equals(cols, that.cols);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, targetIcebergTable,
-                cols, dmlCommandType, writeDistributionPlan);
+        return Objects.hash(super.hashCode(), database, targetTable, targetIcebergTable, cols, dmlCommandType);
     }
 
     @Override
@@ -176,8 +137,7 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),
                 "cols", cols,
-                "dmlCommandType", dmlCommandType,
-                "writeDistribution", writeDistributionPlan.getRouteKind()
+                "dmlCommandType", dmlCommandType
         );
     }
 
@@ -189,14 +149,13 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalIcebergTableSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
-                dmlCommandType, writeDistributionPlan,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+                dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalIcebergTableSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
-                dmlCommandType, writeDistributionPlan, groupExpression, logicalProperties, children.get(0));
+                dmlCommandType, groupExpression, logicalProperties, children.get(0));
     }
 }

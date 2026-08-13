@@ -28,34 +28,47 @@ namespace doris {
 
 class RuntimeState;
 
-/// Owns native pages used by one Java Paimon writer and accounts Java Arrow
-/// direct memory reported through JNI callbacks.
+/// Owns the Doris-side native memory used by one Java Paimon writer.
 ///
-/// All instances share one process-wide hard limit. The limit is deliberately
-/// simple: BE JVM -Xmx * configured ratio. Allocation
-/// beyond that limit fails the current Paimon write instead of attempting
-/// fairness, borrowing, revocation, or background recovery.
+/// Paimon's sort/merge buffers are Java objects, but their page storage is
+/// requested through a JNI callback.  This manager is the bridge for that
+/// callback: it allocates each page with Doris' allocator, exposes the page as
+/// a direct ByteBuffer, tracks it until the writer is closed, and releases all
+/// pages in its destructor.  The native writer/backend therefore keeps this
+/// manager alive for at least as long as the Java writer can access its
+/// callback handle.
+///
+/// The limit is a per-writer budget.  It is derived from the query memory
+/// limit and the number of local sink instances, then capped by the global
+/// Paimon JNI configuration.  The manager accounts only for pages allocated
+/// by this callback; Java heap and other Paimon-managed memory remain under
+/// their respective runtimes.
 class PaimonJniMemoryManager {
 public:
     ~PaimonJniMemoryManager();
 
+    /// Construct a manager whose budget is sized from the query context.
+    ///
+    /// The query must provide both a memory tracker and QueryContext.  The
+    /// latter supplies the ResourceContext used whenever allocation/freeing
+    /// crosses into a JNI-created or asynchronous thread.
     static Status create(RuntimeState* state, std::unique_ptr<PaimonJniMemoryManager>* manager);
+    /// Register the static JNI callback used by PaimonJniWriter.
     static Status register_natives(JNIEnv* env, jclass writer_class);
 
+    /// Allocate one native page and return it as a direct ByteBuffer.
+    ///
+    /// On failure this method leaves no accounting entry behind and reports
+    /// the error through the JNI environment.  The returned buffer remains
+    /// valid until the manager is destroyed (or allocation of that page is
+    /// rolled back because NewDirectByteBuffer failed).
     jobject allocate_page(JNIEnv* env, jint bytes);
 
-    bool try_reserve_java_arrow(jlong bytes);
-    void release_java_arrow(jlong bytes);
-
-    /// Process-wide effective limit used as the local Java allocator ceiling.
+    /// Return the immutable per-writer native page budget in bytes.
     int64_t memory_limit() const;
 
-    int64_t native_allocated_bytes() const;
+    /// Return the high-water mark of native pages allocated by this manager.
     int64_t native_peak_allocated_bytes() const;
-
-    int64_t global_current_bytes() const;
-    int64_t global_peak_bytes() const;
-    int64_t global_rejected_allocations() const;
 
 private:
     class Impl;

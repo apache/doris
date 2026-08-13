@@ -120,7 +120,6 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         if (icebergTable.sortOrder().isSorted()) {
             strBuilder.append(prefix).append(targetTable.getSortOrderSql(icebergTable)).append("\n");
         }
-        appendWriterParallelismExplain(strBuilder, prefix);
 
         // TODO: explain partitions
         return strBuilder.toString();

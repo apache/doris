@@ -166,10 +166,10 @@ Status Sorter::_prepare_sort_columns(Block& src_block, Block& dest_block, bool r
 
 FullSorter::FullSorter(const VExprContextSPtrs& ordering_expr_ctxs, int64_t limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
-                       std::vector<bool>& nulls_first, const Block& block_header,
+                       std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
         : Sorter(ordering_expr_ctxs, state, limit, offset, pool, is_asc_order, nulls_first),
-          _state(MergeSorterState::create_unique(block_header, offset)) {}
+          _state(MergeSorterState::create_unique(row_desc, offset)) {}
 
 // check whether the unsorted block can hold more data from input block and no need to alloc new memory
 bool FullSorter::has_enough_capacity(Block* input_block, Block* unsorted_block) const {
@@ -218,21 +218,6 @@ size_t FullSorter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
 Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
 
-    const auto& schema_data = _state->unsorted_block()->get_columns_with_type_and_name();
-    const auto& arrival_data = block->get_columns_with_type_and_name();
-    if (schema_data.size() != arrival_data.size()) {
-        return Status::InternalError(
-                "Sorter input column count {} does not match schema column count {}",
-                arrival_data.size(), schema_data.size());
-    }
-    for (size_t i = 0; i < schema_data.size(); ++i) {
-        if (!schema_data[i].type->equals(*arrival_data[i].type)) {
-            return Status::InternalError(
-                    "Sorter input column {} type {} does not match schema type {}", i,
-                    arrival_data[i].type->get_name(), schema_data[i].type->get_name());
-        }
-    }
-
     // iff have reach limit and the unsorted block capacity can't hold the block data size
     if (_reach_limit() && !has_enough_capacity(block, _state->unsorted_block().get())) {
         RETURN_IF_ERROR(do_sort());
@@ -243,8 +228,12 @@ Status FullSorter::append_block(Block* block) {
         auto columns_guard = _state->unsorted_block()->mutate_columns_scoped();
         auto& mutable_columns = columns_guard.mutable_columns();
         const auto& data = _state->unsorted_block()->get_columns_with_type_and_name();
+        const auto& arrival_data = block->get_columns_with_type_and_name();
         auto sz = block->rows();
         for (int i = 0; i < data.size(); ++i) {
+            DCHECK(data[i].type->equals(*(arrival_data[i].type)))
+                    << " type1: " << data[i].type->get_name()
+                    << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
             if (is_column_const(*arrival_data[i].column)) {
                 mutable_columns[i]->insert_many_from(
                         assert_cast<const ColumnConst*>(arrival_data[i].column.get())

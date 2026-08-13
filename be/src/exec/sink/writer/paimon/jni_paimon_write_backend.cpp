@@ -41,7 +41,6 @@
 #include "format/arrow/arrow_row_batch.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "util/defer_op.h"
 #include "util/jni-util.h"
 #include "util/pretty_printer.h"
 #include "util/string_util.h"
@@ -201,7 +200,7 @@ Status JniPaimonWriteBackend::close() {
 
     Status close_status = Status::OK();
     if (_jni_writer_obj != nullptr) {
-        _refresh_memory_profile(env);
+        _refresh_memory_profile();
         if (_close_id == nullptr) {
             close_status = Status::InternalError("PaimonJniWriter.close method is unavailable");
         } else {
@@ -304,22 +303,9 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     DORIS_CHECK(profile != nullptr);
 
     RETURN_IF_ERROR(PaimonJniMemoryManager::create(state, &_memory_manager));
-    _jni_profile = profile->create_child("JniPaimonWriteBackend", true, true);
-    _native_page_memory_current =
-            ADD_COUNTER(_jni_profile, "NativePageMemoryCurrent", TUnit::BYTES);
-    _native_page_memory_peak = ADD_COUNTER(_jni_profile, "NativePageMemoryPeak", TUnit::BYTES);
-    _java_arrow_memory_current = ADD_COUNTER(_jni_profile, "JavaArrowMemoryCurrent", TUnit::BYTES);
-    _java_arrow_memory_peak = ADD_COUNTER(_jni_profile, "JavaArrowMemoryPeak", TUnit::BYTES);
-    _paimon_buffer_used_bytes = ADD_COUNTER(_jni_profile, "PaimonBufferUsedBytes", TUnit::BYTES);
-    _peak_paimon_buffer_used_bytes =
-            ADD_COUNTER(_jni_profile, "PeakPaimonBufferUsedBytes", TUnit::BYTES);
-    _paimon_buffer_preempt_count =
-            ADD_COUNTER(_jni_profile, "PaimonBufferPreemptCount", TUnit::UNIT);
-    _process_memory_limit = ADD_COUNTER(_jni_profile, "PaimonJniMemoryLimit", TUnit::BYTES);
-    _process_memory_current = ADD_COUNTER(_jni_profile, "PaimonJniMemoryCurrent", TUnit::BYTES);
-    _process_memory_peak = ADD_COUNTER(_jni_profile, "PaimonJniMemoryPeak", TUnit::BYTES);
-    _process_memory_rejected_allocations =
-            ADD_COUNTER(_jni_profile, "PaimonJniMemoryRejectedAllocations", TUnit::UNIT);
+    RuntimeProfile* jni_profile = profile->create_child("JniPaimonWriteBackend", true, true);
+    _native_page_memory_limit = ADD_COUNTER(jni_profile, "NativePageMemoryLimit", TUnit::BYTES);
+    _native_page_memory_peak = ADD_COUNTER(jni_profile, "NativePageMemoryPeak", TUnit::BYTES);
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(_get_jni_env(&env));
@@ -341,16 +327,6 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(_jni_writer_cls, "abort", "()V");
     _close_id = env->GetMethodID(_jni_writer_cls, "close", "()V");
-    _get_arrow_allocated_memory_id =
-            env->GetMethodID(_jni_writer_cls, "getArrowAllocatedMemory", "()J");
-    _get_arrow_peak_memory_id =
-            env->GetMethodID(_jni_writer_cls, "getArrowPeakMemoryAllocation", "()J");
-    _get_paimon_buffer_used_bytes_id =
-            env->GetMethodID(_jni_writer_cls, "getPaimonBufferUsedBytes", "()J");
-    _get_peak_paimon_buffer_used_bytes_id =
-            env->GetMethodID(_jni_writer_cls, "getPeakPaimonBufferUsedBytes", "()J");
-    _get_paimon_buffer_preempt_count_id =
-            env->GetMethodID(_jni_writer_cls, "getPaimonBufferPreemptCount", "()J");
     RETURN_IF_ERROR(_check_jni_exception(env, "GetMethodID"));
 
     // Step 3: Create the Java PaimonJniWriter instance.
@@ -402,9 +378,10 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 
     if (st.ok()) {
         _opened = true;
-        _refresh_memory_profile(env);
-        LOG(INFO) << "Paimon JNI process memory limit: "
-                  << PrettyPrinter::print_bytes(_memory_manager->memory_limit());
+        _refresh_memory_profile();
+        LOG(INFO) << "Paimon JNI writer memory limit: "
+                  << PrettyPrinter::print_bytes(_memory_manager->memory_limit())
+                  << ", local_sink_count=" << std::max(1, state->num_local_sink());
     }
     return st;
 }
@@ -416,32 +393,25 @@ Status JniPaimonWriteBackend::create_writer( // NOLINT(readability-make-member-f
     DORIS_CHECK(_opened);
     *writer = std::make_unique<JniPaimonWriter>(_jni_writer_obj, _write_id, _prepare_commit_id,
                                                 _abort_id, std::make_unique<ArrowMemoryPool<>>(),
-                                                _sink, _jni_profile);
+                                                _sink);
     return Status::OK();
 }
 
 JniPaimonWriter::JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id,
                                  jmethodID prepare_commit_id, jmethodID abort_id,
                                  std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                                 TPaimonTableSink sink, RuntimeProfile* profile)
+                                 TPaimonTableSink sink)
         : _jni_writer_obj(jni_writer_obj),
           _write_id(write_id),
           _prepare_commit_id(prepare_commit_id),
           _abort_id(abort_id),
           _arrow_pool(std::move(arrow_pool)),
-          _sink(std::move(sink)) {
-    DORIS_CHECK(profile != nullptr);
-    _cpp_arrow_memory_current = ADD_COUNTER(profile, "CppArrowMemoryCurrent", TUnit::BYTES);
-    _cpp_arrow_memory_peak = ADD_COUNTER(profile, "CppArrowMemoryPeak", TUnit::BYTES);
-    _cpp_arrow_total_allocated = ADD_COUNTER(profile, "CppArrowTotalAllocated", TUnit::BYTES);
-    _cpp_arrow_allocation_count = ADD_COUNTER(profile, "CppArrowAllocationCount", TUnit::UNIT);
-}
+          _sink(std::move(sink)) {}
 
 Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
-    Defer refresh_arrow_profile {[this]() { _refresh_arrow_memory_profile(); }};
 
     // Use Thrift column_names as the authoritative schema source for both
     // Arrow schema construction and Java-side write type derivation.
@@ -515,13 +485,6 @@ Status JniPaimonWriter::write(RuntimeState* state, Block& block) {
     return _write_projected_block(state, block);
 }
 
-void JniPaimonWriter::_refresh_arrow_memory_profile() {
-    COUNTER_SET(_cpp_arrow_memory_current, _arrow_pool->bytes_allocated());
-    COUNTER_SET(_cpp_arrow_memory_peak, _arrow_pool->max_memory());
-    COUNTER_SET(_cpp_arrow_total_allocated, _arrow_pool->total_bytes_allocated());
-    COUNTER_SET(_cpp_arrow_allocation_count, _arrow_pool->num_allocations());
-}
-
 Status JniPaimonWriter::prepare_commit(std::vector<TPaimonCommitMessage>& messages) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(_get_jni_env(&env));
@@ -581,36 +544,12 @@ Status JniPaimonWriter::abort() {
     return Jni::Env::GetJniExceptionMsg(env, true, "JNI exception in abort: ");
 }
 
-void JniPaimonWriteBackend::_refresh_memory_profile(JNIEnv* env) {
+void JniPaimonWriteBackend::_refresh_memory_profile() {
     if (_memory_manager == nullptr) {
         return;
     }
-    COUNTER_SET(_native_page_memory_current, _memory_manager->native_allocated_bytes());
+    COUNTER_SET(_native_page_memory_limit, _memory_manager->memory_limit());
     COUNTER_SET(_native_page_memory_peak, _memory_manager->native_peak_allocated_bytes());
-    COUNTER_SET(_process_memory_limit, _memory_manager->memory_limit());
-    COUNTER_SET(_process_memory_current, _memory_manager->global_current_bytes());
-    COUNTER_SET(_process_memory_peak, _memory_manager->global_peak_bytes());
-    COUNTER_SET(_process_memory_rejected_allocations,
-                _memory_manager->global_rejected_allocations());
-    if (env == nullptr || _jni_writer_obj == nullptr) {
-        return;
-    }
-
-    COUNTER_SET(_java_arrow_memory_current,
-                env->CallLongMethod(_jni_writer_obj, _get_arrow_allocated_memory_id));
-    COUNTER_SET(_java_arrow_memory_peak,
-                env->CallLongMethod(_jni_writer_obj, _get_arrow_peak_memory_id));
-    COUNTER_SET(_paimon_buffer_used_bytes,
-                env->CallLongMethod(_jni_writer_obj, _get_paimon_buffer_used_bytes_id));
-    COUNTER_SET(_peak_paimon_buffer_used_bytes,
-                env->CallLongMethod(_jni_writer_obj, _get_peak_paimon_buffer_used_bytes_id));
-    COUNTER_SET(_paimon_buffer_preempt_count,
-                env->CallLongMethod(_jni_writer_obj, _get_paimon_buffer_preempt_count_id));
-
-    Status metric_status = _check_jni_exception(env, "read Paimon writer memory metrics");
-    if (!metric_status.ok()) {
-        LOG(WARNING) << metric_status.to_string();
-    }
 }
 
 } // namespace doris

@@ -40,7 +40,6 @@ public class LogicalPaimonTableSinkToPhysicalPaimonTableSink extends OneImplemen
                     sink.getOutputExprs(),
                     Optional.empty(),
                     sink.getLogicalProperties(),
-                    sink.getWriteDistributionPlan(),
                     null,
                     null,
                     sink.child());

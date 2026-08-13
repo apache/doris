@@ -43,15 +43,6 @@ import java.util.UUID;
 
 public class CoordinatorTest extends TestWithFeService {
 
-    @Test
-    public void testExternalWriterLimitCapsExchangeInstances() {
-        Assertions.assertEquals(4, Coordinator.limitExchangeInstances(-1, 4));
-        Assertions.assertEquals(4, Coordinator.limitExchangeInstances(64, 4));
-        Assertions.assertEquals(2, Coordinator.limitExchangeInstances(2, 4));
-        Assertions.assertEquals(-1,
-                Coordinator.limitExchangeInstances(-1, Integer.MAX_VALUE));
-    }
-
     @BeforeAll
     public void init() throws Exception {
         FeConstants.runningUnitTest = true;

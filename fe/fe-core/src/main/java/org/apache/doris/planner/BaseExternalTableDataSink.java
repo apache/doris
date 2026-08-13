@@ -23,7 +23,6 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.ExternalWriterParallelism;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TFileCompressType;
@@ -39,42 +38,10 @@ import java.util.stream.Collectors;
 public abstract class BaseExternalTableDataSink extends DataSink {
 
     protected TDataSink tDataSink;
-    private ExternalWriterParallelism writerParallelism;
 
     @Override
     protected TDataSink toThrift() {
         return tDataSink;
-    }
-
-    public void setWriterParallelism(ExternalWriterParallelism writerParallelism) {
-        this.writerParallelism = writerParallelism;
-    }
-
-    public Optional<ExternalWriterParallelism> getWriterParallelism() {
-        return Optional.ofNullable(writerParallelism);
-    }
-
-    @Override
-    public int getWriterInstanceLimit() {
-        return writerParallelism == null
-                ? Integer.MAX_VALUE : writerParallelism.getPlannedWriterCount();
-    }
-
-    protected void appendWriterParallelismExplain(StringBuilder builder, String prefix) {
-        if (writerParallelism == null) {
-            return;
-        }
-        builder.append(prefix).append("  planned writers: ")
-                .append(writerParallelism.getPlannedWriterCount()).append("\n");
-        builder.append(prefix).append("  estimated ownership units: ");
-        if (writerParallelism.getEstimatedOwnershipCount().isPresent()) {
-            builder.append(writerParallelism.getEstimatedOwnershipCount().getAsLong());
-        } else {
-            builder.append("unknown");
-        }
-        builder.append("\n");
-        writerParallelism.getFallbackReason().ifPresent(reason -> builder.append(prefix)
-                .append("  single writer fallback: ").append(reason).append("\n"));
     }
 
     @Override
