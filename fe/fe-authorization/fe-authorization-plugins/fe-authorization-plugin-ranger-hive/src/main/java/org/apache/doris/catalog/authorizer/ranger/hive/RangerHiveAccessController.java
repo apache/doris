@@ -27,9 +27,9 @@ import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
-import org.apache.doris.common.ThreadPoolManager;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
@@ -60,8 +60,22 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class RangerHiveAccessController extends RangerAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerHiveAccessController.class);
-    private static final ScheduledThreadPoolExecutor LOG_FLUSH_TIMER = ThreadPoolManager.newDaemonScheduledThreadPool(1,
-            "ranger-hive-audit-log-flusher-timer", true);
+
+    /**
+     * Drains the audit buffers. One thread for the process: every catalog bound to a Hive Ranger service
+     * schedules its own task on this timer.
+     *
+     * <p>Built here rather than through the engine's thread pool manager, which a plugin outside fe-core
+     * cannot reach. What that costs is the pool's entry in the FE thread-pool metrics
+     * ({@code doris_fe_thread_pool} with name {@code ranger-hive-audit-log-flusher-timer}), which no plugin
+     * loaded from its own directory can register into; for a fixed single-thread timer those gauges never
+     * moved.
+     */
+    private static final ScheduledThreadPoolExecutor LOG_FLUSH_TIMER = new ScheduledThreadPoolExecutor(1,
+            new ThreadFactoryBuilder()
+                    .setDaemon(true)
+                    .setNameFormat("ranger-hive-audit-log-flusher-timer-%d")
+                    .build());
 
     /** The name this source is selected by in catalog properties. */
     public static final String NAME = "ranger-hive";
@@ -212,6 +226,16 @@ public class RangerHiveAccessController extends RangerAccessController {
             request.setAccessType(accessType.name().toLowerCase());
         }
         return request;
+    }
+
+    /**
+     * Upper case, unlike the privilege checks above, which lower case the access type they ask with. That
+     * asymmetry is what a Hive service has always been asked, so it stays: which policies match is decided by
+     * the deployed Ranger service definition, and this is not the place to find out the hard way.
+     */
+    @Override
+    protected String readAccessTypeName() {
+        return HiveAccessType.SELECT.name();
     }
 
     @Override

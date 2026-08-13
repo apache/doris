@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql.privilege;
+package org.apache.doris.catalog.authorizer.ranger.doris;
 
 import org.apache.doris.authorization.AccessAction;
 import org.apache.doris.authorization.AccessContext;
@@ -27,9 +27,6 @@ import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.ResourceKind;
 import org.apache.doris.authorization.spi.AuthorizationContext;
-import org.apache.doris.catalog.authorizer.ranger.doris.DorisAccessType;
-import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
-import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisResource;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -52,6 +49,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class RangerTest {
 
     public static class DorisTestPlugin extends RangerBasePlugin {
+        /** The access type the last masking lookup asked with; see testDataMaskLookupAsksWithTheReadAccessType. */
+        private String lastDataMaskAccessType;
+
         public DorisTestPlugin(String serviceName) {
             super(serviceName, null, null);
             // super.init();
@@ -87,6 +87,7 @@ public class RangerTest {
         @Override
         public RangerAccessResult evalDataMaskPolicies(RangerAccessRequest request,
                 RangerAccessResultProcessor resultProcessor) {
+            lastDataMaskAccessType = request.getAccessType();
             RangerAccessResource resource = request.getResource();
             String ctl = (String) resource.getValue(RangerDorisResource.KEY_CATALOG);
             String db = (String) resource.getValue(RangerDorisResource.KEY_DATABASE);
@@ -295,6 +296,20 @@ public class RangerTest {
         Assertions.assertEquals("hex(col3)", masks.get("col3").getMaskSql());
         // Others
         Assertions.assertFalse(masks.containsKey("col4"));
+    }
+
+    /**
+     * Which masking policies a Doris service returns depends on the access type the lookup asks with, and
+     * that string reaches a Ranger server nobody rebuilds when Doris changes. The masking stub above answers
+     * by resource alone, so without this nothing here would notice the access type changing at all.
+     */
+    @Test
+    public void testDataMaskLookupAsksWithTheReadAccessType() {
+        DorisTestPlugin plugin = new DorisTestPlugin("test");
+        new RangerDorisAccessController(plugin, NOTHING_GRANTED_ELSEWHERE).getDataMasks(USER,
+                AuthorizedResource.table("ctl1", "db1", "tbl1"), Sets.newHashSet("col1"), AccessContext.NONE);
+
+        Assertions.assertEquals(DorisAccessType.SELECT.name(), plugin.lastDataMaskAccessType);
     }
 
     @Test

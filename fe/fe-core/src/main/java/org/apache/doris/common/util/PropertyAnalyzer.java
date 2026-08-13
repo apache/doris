@@ -1959,7 +1959,8 @@ public class PropertyAnalyzer {
         // validate access controller properties
         // eg:
         // (
-        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerHiveAccessControllerFactory",
+        // "access_controller.class" =
+        //     "org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveAccessControllerFactory",
         // "access_controller.properties.prop1" = "xxx",
         // "access_controller.properties.prop2" = "yyy",
         // )

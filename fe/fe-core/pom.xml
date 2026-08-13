@@ -779,9 +779,20 @@ under the License.
             <artifactId>okhttp-jvm</artifactId>
         </dependency>
 
+        <!--
+            The Ranger authorization sources are plugins now, installed from plugins/authorization/ and
+            reached only through the AuthorizationPlugin contract, so nothing here compiles against Ranger.
+            Test scope, because the access-control behaviour baseline records what a Ranger-governed
+            instance decides for every user and every privilege, and the only way to record that is to run
+            the production controller. Same shape as the connector and filesystem plugin modules below.
+            Only the doris-service source is needed: what the hive-service source decides is covered by that
+            module's own tests.
+        -->
         <dependency>
-            <groupId>org.apache.ranger</groupId>
-            <artifactId>ranger-plugins-common</artifactId>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authorization-plugin-ranger-doris</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
 
         <!-- Provides com.esotericsoftware.minlog.Log used by WorkloadSchedPolicy (not a datasource dep) -->

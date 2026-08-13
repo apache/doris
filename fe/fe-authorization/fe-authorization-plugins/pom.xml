@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+        <artifactId>fe-authorization</artifactId>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>fe-authorization-plugins</artifactId>
+    <packaging>pom</packaging>
+    <name>Doris FE Authorization Plugins</name>
+    <description>Authorization sources shipped with Doris, each installed from its own plugin directory.</description>
+
+    <!--
+      One Ranger service type is one authorization source, and DirectoryPluginRuntimeManager admits exactly
+      one factory per plugin directory - two service descriptors under one directory is a load failure, not a
+      pair of sources. Hence a module per source plus a common module for what they share: the common module
+      deliberately declares NO service descriptor, so it can sit in both plugins' lib/ without either
+      directory appearing to publish two sources.
+    -->
+    <modules>
+        <module>fe-authorization-plugin-ranger-common</module>
+        <module>fe-authorization-plugin-ranger-doris</module>
+        <module>fe-authorization-plugin-ranger-hive</module>
+    </modules>
+</project>
