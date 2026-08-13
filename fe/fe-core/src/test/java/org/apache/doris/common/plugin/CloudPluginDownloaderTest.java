@@ -18,156 +18,258 @@
 package org.apache.doris.common.plugin;
 
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.plugin.CloudPluginDownloader.PluginType;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
+import org.junit.jupiter.api.io.TempDir;
 
-import java.util.Collections;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Unit tests for CloudPluginDownloader using package-private methods for direct white-box testing.
- */
 public class CloudPluginDownloaderTest {
 
-    private Cloud.GetObjStoreInfoResponse mockResponse;
-    private Cloud.ObjectStoreInfoPB mockObjInfo;
-    private MetaServiceProxy mockMetaServiceProxy;
-
-    @BeforeEach
-    void setUp() {
-        mockResponse = Mockito.mock(Cloud.GetObjStoreInfoResponse.class);
-        mockObjInfo = Mockito.mock(Cloud.ObjectStoreInfoPB.class);
-        mockMetaServiceProxy = Mockito.mock(MetaServiceProxy.class);
-    }
-
-    // ============== validateInput Tests ==============
+    @TempDir
+    Path tempDir;
 
     @Test
     void testValidateInput() {
-        // Positive cases
         Assertions.assertDoesNotThrow(() -> {
             CloudPluginDownloader.validateInput(PluginType.JDBC_DRIVERS, "mysql.jar");
-            CloudPluginDownloader.validateInput(PluginType.JAVA_UDF, "my_udf.jar");
+            CloudPluginDownloader.validateInput(PluginType.JAVA_UDF, "nested/my_udf-1.0@prod.jar");
         });
 
-        // Empty/null name
-        IllegalArgumentException ex1 = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> CloudPluginDownloader.validateInput(PluginType.JDBC_DRIVERS, ""));
-        Assertions.assertEquals("Plugin name cannot be empty", ex1.getMessage());
-
-        IllegalArgumentException ex2 = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> CloudPluginDownloader.validateInput(PluginType.JDBC_DRIVERS, null));
-        Assertions.assertEquals("Plugin name cannot be empty", ex2.getMessage());
-
-        // Unsupported types
-        UnsupportedOperationException ex3 = Assertions.assertThrows(UnsupportedOperationException.class,
+        Assertions.assertEquals("Plugin name cannot be empty",
+                Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> CloudPluginDownloader.validateInput(PluginType.JDBC_DRIVERS, ""))
+                        .getMessage());
+        Assertions.assertEquals("Plugin name cannot be empty",
+                Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> CloudPluginDownloader.validateInput(PluginType.JDBC_DRIVERS, null))
+                        .getMessage());
+        Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> CloudPluginDownloader.validateInput(PluginType.CONNECTORS, "test.jar"));
-        Assertions.assertTrue(ex3.getMessage().contains("is not supported yet"));
-    }
 
-    // ============== getCloudStorageInfo Tests ==============
-
-    @Test
-    void testGetCloudStorageInfo() throws Exception {
-        try (MockedStatic<MetaServiceProxy> mockedStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
-            mockedStatic.when(MetaServiceProxy::getInstance).thenReturn(mockMetaServiceProxy);
-
-            // Success case
-            Cloud.MetaServiceResponseStatus okStatus = Cloud.MetaServiceResponseStatus.newBuilder()
-                    .setCode(Cloud.MetaServiceCode.OK).build();
-            Mockito.when(mockResponse.getStatus()).thenReturn(okStatus);
-            Mockito.when(mockResponse.getObjInfoList()).thenReturn(Collections.singletonList(mockObjInfo));
-            Mockito.when(mockResponse.getObjInfo(0)).thenReturn(mockObjInfo);
-            Mockito.when(mockMetaServiceProxy.getObjStoreInfo(Mockito.any())).thenReturn(mockResponse);
-
-            Cloud.ObjectStoreInfoPB result = CloudPluginDownloader.getCloudStorageInfo();
-            Assertions.assertEquals(mockObjInfo, result);
-
-            // Error response
-            Cloud.MetaServiceResponseStatus failedStatus = Cloud.MetaServiceResponseStatus.newBuilder()
-                    .setCode(Cloud.MetaServiceCode.INVALID_ARGUMENT).setMsg("Test error").build();
-            Mockito.when(mockResponse.getStatus()).thenReturn(failedStatus);
-
-            RuntimeException ex1 = Assertions.assertThrows(RuntimeException.class,
-                    CloudPluginDownloader::getCloudStorageInfo);
-            Assertions.assertTrue(ex1.getMessage().contains("Failed to get storage info"));
-
-            // Empty storage list
-            Mockito.when(mockResponse.getStatus()).thenReturn(okStatus);
-            Mockito.when(mockResponse.getObjInfoList()).thenReturn(Collections.emptyList());
-
-            RuntimeException ex2 = Assertions.assertThrows(RuntimeException.class,
-                    CloudPluginDownloader::getCloudStorageInfo);
-            Assertions.assertTrue(ex2.getMessage().contains("Only SaaS cloud storage is supported"));
+        for (String invalidName : new String[] {
+                "../driver.jar", "nested/../../driver.jar", "nested/../driver.jar",
+                "./driver.jar", "/driver.jar", "driver?.jar", "driver#v1.jar",
+                "driver%20v1.jar", "nested\\driver.jar", "driver.txt"
+        }) {
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> CloudPluginDownloader.validateInput(PluginType.JDBC_DRIVERS, invalidName),
+                    invalidName);
         }
     }
 
-    // ============== buildS3Path Tests ==============
+    @Test
+    void testDownloadRejectsTargetOutsidePluginDirectoryBeforeCloudAccess() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CloudPluginDownloader.downloadFromCloud(
+                        PluginType.JDBC_DRIVERS, "driver.jar", tempDir.resolve("driver.jar").toString()));
+    }
+
+    @Test
+    void testSelectLatestCloudStorageInfo() {
+        Cloud.ObjectStoreInfoPB oldInfo = objectStoreInfo("old-bucket", "old-prefix");
+        Cloud.ObjectStoreInfoPB latestInfo = objectStoreInfo("latest-bucket", "latest-prefix");
+        Cloud.GetObjStoreInfoResponse response = responseBuilder()
+                .addObjInfo(oldInfo)
+                .addObjInfo(latestInfo)
+                .build();
+
+        Assertions.assertEquals(latestInfo, CloudPluginDownloader.selectCloudStorageInfo(response));
+    }
+
+    @Test
+    void testRejectInvalidCloudStorageResponses() {
+        Cloud.GetObjStoreInfoResponse failed = Cloud.GetObjStoreInfoResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.INVALID_ARGUMENT)
+                        .setMsg("test error"))
+                .build();
+        Assertions.assertTrue(Assertions.assertThrows(RuntimeException.class,
+                () -> CloudPluginDownloader.selectCloudStorageInfo(failed)).getMessage()
+                .contains("Failed to get storage info"));
+
+        Assertions.assertTrue(Assertions.assertThrows(RuntimeException.class,
+                () -> CloudPluginDownloader.selectCloudStorageInfo(responseBuilder().build())).getMessage()
+                .contains("Only SaaS cloud storage is supported"));
+
+        Cloud.GetObjStoreInfoResponse storageVault = responseBuilder()
+                .setEnableStorageVault(true)
+                .addObjInfo(objectStoreInfo("vault-bucket", "vault-prefix"))
+                .build();
+        Assertions.assertTrue(Assertions.assertThrows(RuntimeException.class,
+                () -> CloudPluginDownloader.selectCloudStorageInfo(storageVault)).getMessage()
+                .contains("legacy SaaS mode"));
+    }
 
     @Test
     void testBuildS3Path() {
-        Mockito.when(mockObjInfo.getBucket()).thenReturn("test-bucket");
-
-        // With prefix
-        Mockito.when(mockObjInfo.hasPrefix()).thenReturn(true);
-        Mockito.when(mockObjInfo.getPrefix()).thenReturn("test-prefix");
+        Cloud.ObjectStoreInfoPB withPrefix = objectStoreInfo("test-bucket", "test-prefix");
         Assertions.assertEquals("s3://test-bucket/test-prefix/plugins/jdbc_drivers/mysql.jar",
-                CloudPluginDownloader.buildS3Path(mockObjInfo, PluginType.JDBC_DRIVERS, "mysql.jar"));
+                CloudPluginDownloader.buildS3Path(withPrefix, PluginType.JDBC_DRIVERS, "mysql.jar"));
+        Assertions.assertEquals("s3://test-bucket/test-prefix/plugins/java_udf/nested/my_udf.jar",
+                CloudPluginDownloader.buildS3Path(withPrefix, PluginType.JAVA_UDF, "nested/my_udf.jar"));
 
-        // Without prefix
-        Mockito.when(mockObjInfo.hasPrefix()).thenReturn(false);
-        Assertions.assertEquals("s3://test-bucket/plugins/java_udf/my_udf.jar",
-                CloudPluginDownloader.buildS3Path(mockObjInfo, PluginType.JAVA_UDF, "my_udf.jar"));
-
-        // All plugin types
-        Assertions.assertEquals("s3://test-bucket/plugins/connectors/test.jar",
-                CloudPluginDownloader.buildS3Path(mockObjInfo, PluginType.CONNECTORS, "test.jar"));
-        Assertions.assertEquals("s3://test-bucket/plugins/hadoop_conf/test.xml",
-                CloudPluginDownloader.buildS3Path(mockObjInfo, PluginType.HADOOP_CONF, "test.xml"));
-    }
-
-    // ============== Integration Test ==============
-
-    @Test
-    void testDownloadFromCloudIntegration() {
-        // Basic integration test - should fail early due to validation
-        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> CloudPluginDownloader.downloadFromCloud(PluginType.JDBC_DRIVERS, "", "/tmp/test.jar"));
-        Assertions.assertEquals("Plugin name cannot be empty", ex.getMessage());
-
-        // Should fail at MetaService level (no real cloud environment)
-        RuntimeException ex2 = Assertions.assertThrows(RuntimeException.class,
-                () -> CloudPluginDownloader.downloadFromCloud(PluginType.JDBC_DRIVERS, "mysql.jar", "/tmp/test.jar"));
-        Assertions.assertTrue(ex2.getMessage().contains("Failed to download plugin"));
+        Cloud.ObjectStoreInfoPB withoutPrefix = objectStoreInfo("test-bucket", null);
+        Assertions.assertEquals("s3://test-bucket/plugins/java_udf/test-udf@v1.0.jar",
+                CloudPluginDownloader.buildS3Path(withoutPrefix, PluginType.JAVA_UDF,
+                        "test-udf@v1.0.jar"));
     }
 
     @Test
-    void testBuildS3PathEdgeCases() {
-        // Test empty bucket (edge case)
-        Mockito.when(mockObjInfo.getBucket()).thenReturn("");
-        Mockito.when(mockObjInfo.hasPrefix()).thenReturn(false);
-        String result = CloudPluginDownloader.buildS3Path(mockObjInfo, PluginType.JDBC_DRIVERS, "test.jar");
-        Assertions.assertEquals("s3:///plugins/jdbc_drivers/test.jar", result);
+    void testDownloadPublishesCompleteFileAtomically() throws Exception {
+        Path target = tempDir.resolve("driver.jar");
+        Files.write(target, "old".getBytes(StandardCharsets.UTF_8));
 
-        // Test special characters in name
-        Mockito.when(mockObjInfo.getBucket()).thenReturn("test-bucket");
-        String specialResult = CloudPluginDownloader.buildS3Path(mockObjInfo, PluginType.JAVA_UDF, "test-udf@v1.0.jar");
-        Assertions.assertEquals("s3://test-bucket/plugins/java_udf/test-udf@v1.0.jar", specialResult);
+        String result = CloudPluginDownloader.downloadToLocal(target,
+                () -> new ByteArrayInputStream("new-driver".getBytes(StandardCharsets.UTF_8)));
+
+        Assertions.assertEquals(target.toAbsolutePath().toString(), result);
+        Assertions.assertEquals("new-driver", new String(Files.readAllBytes(target), StandardCharsets.UTF_8));
+        assertOnlyTargetRemains(target);
     }
 
-    // ============== Enum Tests ==============
+    @Test
+    void testDownloadFailurePreservesExistingFileAndClosesStream() throws Exception {
+        Path target = tempDir.resolve("driver.jar");
+        Files.write(target, "old-driver".getBytes(StandardCharsets.UTF_8));
+        AtomicBoolean closed = new AtomicBoolean();
+
+        Assertions.assertThrows(IOException.class, () -> CloudPluginDownloader.downloadToLocal(target,
+                () -> failingStream(closed)));
+
+        Assertions.assertTrue(closed.get());
+        Assertions.assertEquals("old-driver", new String(Files.readAllBytes(target), StandardCharsets.UTF_8));
+        assertOnlyTargetRemains(target);
+    }
 
     @Test
-    void testPluginTypeEnum() {
-        Assertions.assertEquals("JDBC_DRIVERS", PluginType.JDBC_DRIVERS.name());
-        Assertions.assertEquals("JAVA_UDF", PluginType.JAVA_UDF.name());
-        Assertions.assertEquals("CONNECTORS", PluginType.CONNECTORS.name());
-        Assertions.assertEquals("HADOOP_CONF", PluginType.HADOOP_CONF.name());
-        Assertions.assertEquals(4, PluginType.values().length);
+    void testConcurrentDownloadsOfSameTargetAreSerialized() throws Exception {
+        Path target = tempDir.resolve("driver.jar");
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<String> first = executor.submit(() -> CloudPluginDownloader.downloadToLocal(target, () -> {
+                firstStarted.countDown();
+                releaseFirst.await();
+                return new ByteArrayInputStream("first".getBytes(StandardCharsets.UTF_8));
+            }));
+            Assertions.assertTrue(firstStarted.await(5, TimeUnit.SECONDS));
+
+            Future<String> second = executor.submit(() -> CloudPluginDownloader.downloadToLocal(target, () -> {
+                secondStarted.countDown();
+                return new ByteArrayInputStream("second".getBytes(StandardCharsets.UTF_8));
+            }));
+            Assertions.assertFalse(secondStarted.await(200, TimeUnit.MILLISECONDS));
+
+            releaseFirst.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            second.get(5, TimeUnit.SECONDS);
+            Assertions.assertTrue(secondStarted.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals("second", new String(Files.readAllBytes(target), StandardCharsets.UTF_8));
+            assertOnlyTargetRemains(target);
+        } finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void testDownloadsOfDifferentTargetsCanRunConcurrently() throws Exception {
+        Path firstTarget = tempDir.resolve("first.jar");
+        Path secondTarget = tempDir.resolve("second.jar");
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<String> first = executor.submit(() -> CloudPluginDownloader.downloadToLocal(
+                    firstTarget, () -> {
+                        firstStarted.countDown();
+                        releaseFirst.await();
+                        return new ByteArrayInputStream("first".getBytes(StandardCharsets.UTF_8));
+                    }));
+            Assertions.assertTrue(firstStarted.await(5, TimeUnit.SECONDS));
+
+            Future<String> second = executor.submit(() -> CloudPluginDownloader.downloadToLocal(
+                    secondTarget, () -> {
+                        secondStarted.countDown();
+                        return new ByteArrayInputStream("second".getBytes(StandardCharsets.UTF_8));
+                    }));
+            Assertions.assertTrue(secondStarted.await(5, TimeUnit.SECONDS));
+            second.get(5, TimeUnit.SECONDS);
+
+            releaseFirst.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            Assertions.assertEquals("first",
+                    new String(Files.readAllBytes(firstTarget), StandardCharsets.UTF_8));
+            Assertions.assertEquals("second",
+                    new String(Files.readAllBytes(secondTarget), StandardCharsets.UTF_8));
+        } finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    private static Cloud.GetObjStoreInfoResponse.Builder responseBuilder() {
+        return Cloud.GetObjStoreInfoResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.OK));
+    }
+
+    private static Cloud.ObjectStoreInfoPB objectStoreInfo(String bucket, String prefix) {
+        Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder()
+                .setProvider(Cloud.ObjectStoreInfoPB.Provider.S3)
+                .setBucket(bucket);
+        if (prefix != null) {
+            builder.setPrefix(prefix);
+        }
+        return builder.build();
+    }
+
+    private static InputStream failingStream(AtomicBoolean closed) {
+        return new InputStream() {
+            private boolean firstRead = true;
+
+            @Override
+            public int read(byte[] bytes, int offset, int length) throws IOException {
+                if (firstRead) {
+                    firstRead = false;
+                    bytes[offset] = 'x';
+                    return 1;
+                }
+                throw new IOException("injected download failure");
+            }
+
+            @Override
+            public int read() throws IOException {
+                throw new IOException("injected download failure");
+            }
+
+            @Override
+            public void close() {
+                closed.set(true);
+            }
+        };
+    }
+
+    private static void assertOnlyTargetRemains(Path target) throws IOException {
+        try (java.util.stream.Stream<Path> files = Files.list(target.getParent())) {
+            Assertions.assertArrayEquals(new Path[] {target}, files.toArray(Path[]::new));
+        }
     }
 }

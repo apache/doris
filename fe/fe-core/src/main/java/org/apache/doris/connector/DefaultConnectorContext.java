@@ -19,6 +19,7 @@ package org.apache.doris.connector;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -179,6 +180,11 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     @Override
     public Map<String, String> getEnvironment() {
         return environment;
+    }
+
+    @Override
+    public String resolveJdbcDriverUrl(String driverUrl, String checksum) {
+        return JdbcResource.resolveDriverUrlForClassLoader(driverUrl, checksum);
     }
 
     @Override

@@ -542,23 +542,27 @@ Status UserFunctionCache::_check_and_return_default_java_udf_url(const std::stri
     const char* doris_home = std::getenv("DORIS_HOME");
     std::string default_url = std::string(doris_home) + "/plugins/java_udf";
 
-    std::filesystem::path file = default_url + "/" + url;
-
-    // In cloud mode, always try cloud download first (prioritize cloud mode)
+    // Only legacy SaaS has the instance object store that owns plugins/java_udf. Storage Vault
+    // deployments retain the original local-file behavior.
     if (config::is_cloud_mode()) {
-        std::string target_path = default_url + "/" + url;
-        std::string downloaded_path;
-        Status status = CloudPluginDownloader::download_from_cloud(
-                CloudPluginDownloader::PluginType::JAVA_UDF, url, target_path, &downloaded_path);
-        if (status.ok() && !downloaded_path.empty()) {
+        bool legacy_saas_mode = false;
+        RETURN_IF_ERROR(CloudPluginDownloader::get_legacy_saas_mode(&legacy_saas_mode));
+        if (legacy_saas_mode) {
+            std::string target_path = default_url + "/" + url;
+            std::string downloaded_path;
+            Status status = CloudPluginDownloader::download_from_cloud(
+                    CloudPluginDownloader::PluginType::JAVA_UDF, url, target_path,
+                    &downloaded_path);
+            if (!status.ok()) {
+                LOG(WARNING) << "Failed to download Java UDF from cloud: " << status.to_string();
+                return Status::RuntimeError(
+                        "Cannot download Java UDF from cloud: {}. "
+                        "Please retry later or check your UDF has been uploaded to cloud. Error: "
+                        "{}",
+                        url, status.to_string());
+            }
             *result_url = "file://" + downloaded_path;
             return Status::OK();
-        } else {
-            LOG(WARNING) << "Failed to download Java UDF from cloud: " << status.to_string();
-            return Status::RuntimeError(
-                    "Cannot download Java UDF from cloud: {}. "
-                    "Please retry later or check your UDF has been uploaded to cloud.",
-                    url);
         }
     }
 

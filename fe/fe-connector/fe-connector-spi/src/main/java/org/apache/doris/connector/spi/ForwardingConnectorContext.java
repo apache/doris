@@ -81,6 +81,11 @@ public abstract class ForwardingConnectorContext implements ConnectorContext {
     }
 
     @Override
+    public String resolveJdbcDriverUrl(String driverUrl, String checksum) {
+        return delegate.resolveJdbcDriverUrl(driverUrl, checksum);
+    }
+
+    @Override
     public Map<String, String> getConnectorConfig() {
         return delegate.getConnectorConfig();
     }

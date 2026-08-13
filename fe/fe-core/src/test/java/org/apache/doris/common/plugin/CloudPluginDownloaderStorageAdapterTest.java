@@ -18,8 +18,10 @@
 package org.apache.doris.common.plugin;
 
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -42,6 +44,25 @@ public class CloudPluginDownloaderStorageAdapterTest {
                 "bj", StorageTypeId.S3, "S3");
         assertProvider(Cloud.ObjectStoreInfoPB.Provider.TOS, "tos-cn-beijing.volces.com",
                 "cn-beijing", StorageTypeId.S3, "S3");
+        assertProvider(Cloud.ObjectStoreInfoPB.Provider.AZURE, "account.blob.core.windows.net",
+                "", StorageTypeId.AZURE, "AZURE");
+    }
+
+    @Test
+    void testCreateStorageAdapterPreservesClientOptions() {
+        Cloud.ObjectStoreInfoPB objectStoreInfo = objectStoreInfo(
+                Cloud.ObjectStoreInfoPB.Provider.S3, "s3.us-east-1.amazonaws.com", "us-east-1")
+                .toBuilder()
+                .setUsePathStyle(true)
+                .setCredProviderType(Cloud.CredProviderTypePB.ENV)
+                .build();
+
+        StorageAdapter adapter = CloudPluginDownloader.createStorageAdapter(objectStoreInfo);
+        S3CompatibleFileSystemProperties properties =
+                (S3CompatibleFileSystemProperties) adapter.getSpiProperties();
+
+        Assertions.assertEquals("true", properties.getUsePathStyle());
+        Assertions.assertEquals(AwsCredentialsProviderMode.ENV, adapter.getAwsCredentialsProviderMode());
     }
 
     private static void assertProvider(Cloud.ObjectStoreInfoPB.Provider provider, String endpoint,

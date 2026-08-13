@@ -18,7 +18,6 @@
 #pragma once
 
 #include <memory>
-#include <mutex>
 #include <string>
 
 #include "common/status.h"
@@ -44,24 +43,30 @@ public:
     static Status download_from_cloud(PluginType type, const std::string& name,
                                       const std::string& local_path, std::string* result_path);
 
+    // Return whether the active CloudStorageEngine uses the legacy instance object store.
+    static Status get_legacy_saas_mode(bool* legacy_saas_mode);
+
 private:
     friend class CloudPluginDownloaderTest;
 
     // Build remote plugin path: plugins/{type}/{name}
     Status _build_plugin_path(PluginType type, const std::string& name, std::string* path);
 
+    // Validate the portable artifact-name grammar shared with FE.
+    Status _validate_plugin_name(const std::string& name);
+
+    // Validate that the caller's destination is the local mirror of the remote plugin key.
+    Status _validate_local_path(const std::string& remote_path, const std::string& local_path);
+
     // Get cloud filesystem
     Status _get_cloud_filesystem(io::RemoteFileSystemSPtr* filesystem);
 
-    // Prepare local environment (remove existing file, create directory)
+    // Prepare local environment without replacing an existing plugin.
     Status _prepare_local_path(const std::string& local_path);
 
     // High-performance file download using 10MB buffer
     Status _download_remote_file(io::RemoteFileSystemSPtr remote_fs, const std::string& remote_path,
                                  const std::string& local_path);
-
-    // Static mutex for synchronizing concurrent downloads
-    static std::mutex _download_mutex;
 };
 
 } // namespace doris

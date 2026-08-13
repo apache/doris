@@ -79,7 +79,11 @@ JdbcJniReader::JdbcJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
                       // Resolve jdbc_driver_url to absolute file:// URL
                       if (params.count("jdbc_driver_url")) {
                           std::string resolved;
-                          if (JdbcUtils::resolve_driver_url(params["jdbc_driver_url"], &resolved)
+                          const std::string checksum = params.count("jdbc_driver_checksum")
+                                                               ? params["jdbc_driver_checksum"]
+                                                               : "";
+                          if (JdbcUtils::resolve_driver_url(params["jdbc_driver_url"], checksum,
+                                                            &resolved)
                                       .ok()) {
                               params["jdbc_driver_url"] = resolved;
                           }

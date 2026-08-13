@@ -20,6 +20,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 
@@ -46,6 +47,12 @@ protected:
     void SetupCloudStorageEngine() {
         ExecEnv::GetInstance()->set_storage_engine(
                 std::make_unique<CloudStorageEngine>(EngineOptions()));
+    }
+
+    std::string JdbcDriverPath(const std::string& name) {
+        return (std::filesystem::path(std::getenv("DORIS_HOME")) / "plugins" / "jdbc_drivers" /
+                name)
+                .string();
     }
 
     std::unique_ptr<CloudPluginDownloader> downloader;
@@ -87,6 +94,18 @@ TEST_F(CloudPluginDownloaderTest, TestBuildPluginPathEdgeCases) {
     EXPECT_EQ(expected, path);
 }
 
+TEST_F(CloudPluginDownloaderTest, TestBuildPluginPathRejectsNonPortableNames) {
+    for (const std::string& name :
+         {"../driver.jar", "nested/../driver.jar", "./driver.jar", "/driver.jar", "driver?.jar",
+          "driver#v1.jar", "driver%20v1.jar", "nested\\driver.jar", "driver.txt"}) {
+        std::string path;
+        Status status = downloader->_build_plugin_path(
+                CloudPluginDownloader::PluginType::JDBC_DRIVERS, name, &path);
+        EXPECT_FALSE(status.ok()) << name;
+        EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT) << name;
+    }
+}
+
 TEST_F(CloudPluginDownloaderTest, TestBuildPluginPathUnsupportedTypes) {
     std::string path;
     Status status = downloader->_build_plugin_path(CloudPluginDownloader::PluginType::CONNECTORS,
@@ -124,13 +143,24 @@ TEST_F(CloudPluginDownloaderTest, TestDownloadFromCloudEmptyName) {
     EXPECT_EQ("Plugin name cannot be empty", status.msg());
 }
 
+TEST_F(CloudPluginDownloaderTest, TestDownloadFromCloudRejectsTargetOutsidePluginDirectory) {
+    std::string result_path;
+    Status status = CloudPluginDownloader::download_from_cloud(
+            CloudPluginDownloader::PluginType::JDBC_DRIVERS, "mysql.jar", "/tmp/test.jar",
+            &result_path);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+    EXPECT_THAT(status.msg(), testing::HasSubstr("Plugin target must be"));
+}
+
 TEST_F(CloudPluginDownloaderTest, TestDownloadFromCloudRegularStorageEngine) {
     SetupRegularStorageEngine();
 
     std::string result_path;
     Status status = CloudPluginDownloader::download_from_cloud(
-            CloudPluginDownloader::PluginType::JDBC_DRIVERS, "mysql.jar", "/tmp/test.jar",
-            &result_path);
+            CloudPluginDownloader::PluginType::JDBC_DRIVERS, "mysql.jar",
+            JdbcDriverPath("mysql.jar"), &result_path);
 
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(status.code(), ErrorCode::NOT_FOUND);
@@ -168,12 +198,27 @@ TEST_F(CloudPluginDownloaderTest, TestGetCloudFilesystemCloudEnvironment) {
     }
 }
 
+TEST_F(CloudPluginDownloaderTest, TestLegacySaaSModeTracksStorageVaultMode) {
+    SetupCloudStorageEngine();
+    auto* cloud_engine =
+            dynamic_cast<CloudStorageEngine*>(&ExecEnv::GetInstance()->storage_engine());
+
+    bool legacy_saas_mode = false;
+    cloud_engine->set_enable_storage_vault(false);
+    EXPECT_TRUE(CloudPluginDownloader::get_legacy_saas_mode(&legacy_saas_mode).ok());
+    EXPECT_TRUE(legacy_saas_mode);
+
+    cloud_engine->set_enable_storage_vault(true);
+    EXPECT_TRUE(CloudPluginDownloader::get_legacy_saas_mode(&legacy_saas_mode).ok());
+    EXPECT_FALSE(legacy_saas_mode);
+}
+
 TEST_F(CloudPluginDownloaderTest, TestDownloadFromCloudCloudStorageEngine) {
     SetupCloudStorageEngine();
     std::string result_path;
     Status status = CloudPluginDownloader::download_from_cloud(
-            CloudPluginDownloader::PluginType::JDBC_DRIVERS, "mysql.jar", "/tmp/test.jar",
-            &result_path);
+            CloudPluginDownloader::PluginType::JDBC_DRIVERS, "mysql.jar",
+            JdbcDriverPath("mysql.jar"), &result_path);
     EXPECT_FALSE(status.ok());
 }
 
@@ -194,7 +239,8 @@ TEST_F(CloudPluginDownloaderTest, TestPrepareLocalPathWithExistingFile) {
 
     Status status = downloader->_prepare_local_path(existing_file);
     EXPECT_TRUE(status.ok());
-    EXPECT_FALSE(std::filesystem::exists(existing_file));
+    EXPECT_TRUE(std::filesystem::exists(existing_file));
+    std::filesystem::remove(existing_file);
 }
 
 TEST_F(CloudPluginDownloaderTest, TestPrepareLocalPathWithNestedDirectory) {

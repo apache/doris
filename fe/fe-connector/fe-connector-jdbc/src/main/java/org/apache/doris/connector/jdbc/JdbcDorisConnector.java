@@ -199,6 +199,10 @@ public class JdbcDorisConnector implements Connector {
             } else {
                 context.storeProperty(JdbcCatalogProperties.DRIVER_CHECKSUM, computedChecksum);
             }
+            // This connector instance is used immediately for the CREATE-time FE connectivity test.
+            // Keep its bound properties aligned with the checksum just stored in the catalog; replayed
+            // instances receive the same value from persisted properties during construction.
+            props.setDriverChecksum(computedChecksum);
         }
 
         // 3. Test BE→JDBC connectivity via BRPC (only when test_connection is enabled).
@@ -294,6 +298,10 @@ public class JdbcDorisConnector implements Connector {
     private String resolveDriverUrl(String driverUrl) {
         if (driverUrl == null || driverUrl.isEmpty()) {
             return driverUrl;
+        }
+        String materializedUrl = context.resolveJdbcDriverUrl(driverUrl, props.getDriverChecksum());
+        if (materializedUrl != null && !materializedUrl.isEmpty()) {
+            return materializedUrl;
         }
         if (driverUrl.startsWith("file://") || driverUrl.startsWith("http://")
                 || driverUrl.startsWith("https://") || driverUrl.startsWith("/")) {

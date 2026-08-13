@@ -21,11 +21,13 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "util/jdbc_utils.h"
+#include "util/md5.h"
 
 namespace doris {
 
@@ -276,6 +278,48 @@ TEST_F(JdbcUtilsTest, TestMultipleCallsConsistency) {
     // Cleanup
     std::filesystem::remove(file_path);
     std::filesystem::remove_all(dir);
+}
+
+TEST_F(JdbcUtilsTest, TestChecksumCreatesImmutableDriverUrls) {
+    config::jdbc_drivers_dir = default_driver_dir();
+    std::filesystem::create_directories(default_driver_dir());
+    std::string source_path = default_driver_dir() + "/driver.jar";
+
+    auto write_and_checksum = [&](const std::string& contents) {
+        std::ofstream output(source_path, std::ios::binary | std::ios::trunc);
+        output << contents;
+        output.close();
+        Md5Digest digest;
+        digest.update(contents.data(), contents.size());
+        digest.digest();
+        return digest.hex();
+    };
+
+    std::string first_contents = "first-version";
+    std::string first_checksum = write_and_checksum(first_contents);
+    std::string first_url;
+    ASSERT_TRUE(JdbcUtils::resolve_driver_url("driver.jar", first_checksum, &first_url).ok());
+
+    std::string second_contents = "second-version";
+    std::string second_checksum = write_and_checksum(second_contents);
+    std::string second_url;
+    ASSERT_TRUE(JdbcUtils::resolve_driver_url("driver.jar", second_checksum, &second_url).ok());
+
+    EXPECT_NE(first_url, second_url);
+    std::string first_path = first_url.substr(std::string("file://").size());
+    std::string second_path = second_url.substr(std::string("file://").size());
+    std::ifstream first_input(first_path, std::ios::binary);
+    std::ifstream second_input(second_path, std::ios::binary);
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(first_input),
+                          std::istreambuf_iterator<char>()),
+              first_contents);
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(second_input),
+                          std::istreambuf_iterator<char>()),
+              second_contents);
+
+    std::string replay_url;
+    ASSERT_TRUE(JdbcUtils::resolve_driver_url("driver.jar", first_checksum, &replay_url).ok());
+    EXPECT_EQ(replay_url, first_url);
 }
 
 TEST_F(JdbcUtilsTest, TestUrlDetectionLogic) {

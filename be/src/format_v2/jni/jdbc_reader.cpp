@@ -76,7 +76,9 @@ Status JdbcJniReader::build_scanner_params(std::map<std::string, std::string>* p
     *params = _jdbc_params;
     if (params->contains("jdbc_driver_url")) {
         std::string resolved;
-        if (JdbcUtils::resolve_driver_url((*params)["jdbc_driver_url"], &resolved).ok()) {
+        const std::string checksum =
+                params->contains("jdbc_driver_checksum") ? (*params)["jdbc_driver_checksum"] : "";
+        if (JdbcUtils::resolve_driver_url((*params)["jdbc_driver_url"], checksum, &resolved).ok()) {
             (*params)["jdbc_driver_url"] = resolved;
         }
     }

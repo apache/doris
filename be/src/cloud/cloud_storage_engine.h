@@ -133,6 +133,8 @@ public:
         _latest_fs = fs;
     }
 
+    bool enable_storage_vault() const { return _enable_storage_vault.load(); }
+
     void get_cumu_compaction(int64_t tablet_id,
                              std::vector<std::shared_ptr<CloudCumulativeCompaction>>& res);
 
@@ -193,6 +195,8 @@ public:
     }
 
 #ifdef BE_TEST
+    void set_enable_storage_vault(bool enabled) { _enable_storage_vault.store(enabled); }
+
     void set_startup_timepoint(const std::chrono::time_point<std::chrono::system_clock>& tp) {
         _startup_timepoint = tp;
     }
@@ -249,6 +253,7 @@ private:
     // FileSystem with latest shared storage info, new data will be written to this fs.
     mutable std::mutex _latest_fs_mtx;
     io::RemoteFileSystemSPtr _latest_fs;
+    std::atomic_bool _enable_storage_vault {false};
 
     std::vector<std::shared_ptr<Thread>> _bg_threads;
 

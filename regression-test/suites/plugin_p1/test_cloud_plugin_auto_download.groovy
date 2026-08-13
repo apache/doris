@@ -17,7 +17,7 @@
 
 suite("test_cloud_plugin_auto_download", "p1,external") {
 
-    //sass cloud-mode only
+    // Legacy SaaS cloud mode only.
     if (!isCloudMode() || enableStoragevault()) {
         logger.info("Skip test_plugin_auto_download because not in sass cloud mode")
         return
@@ -27,6 +27,8 @@ suite("test_cloud_plugin_auto_download", "p1,external") {
     String jdbcUser = context.config.jdbcUser
     String jdbcPassword = context.config.jdbcPassword
 
+    sql """drop catalog if exists test_auto_download_catalog """
+    sql """drop catalog if exists test_non_existent_driver_catalog """
     sql """drop database if exists internal.test_auto_download_db; """
     sql """create database if not exists internal.test_auto_download_db;"""
     sql """create table if not exists internal.test_auto_download_db.test_tbl
@@ -36,7 +38,6 @@ suite("test_cloud_plugin_auto_download", "p1,external") {
          """
     sql """insert into internal.test_auto_download_db.test_tbl values(1, 'auto_download_test')"""
 
-    sql """drop catalog if exists test_auto_download_catalog """
     sql """ CREATE CATALOG `test_auto_download_catalog` PROPERTIES (
             "user" = "${jdbcUser}",
             "type" = "jdbc",
@@ -46,15 +47,13 @@ suite("test_cloud_plugin_auto_download", "p1,external") {
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         )"""
 
-    def result = sql """
-        select * from test_auto_download_catalog.test_auto_download_db.test_tbl
-    """
-    logger.info("result: ${result}")
-    assertTrue(result.size() > 0)
-    assertEquals(result[0][0], 1)
-    assertEquals(result[0][1], "auto_download_test")
-
-    sql """drop catalog if exists test_auto_download_catalog """
+    test {
+        sql """
+            select * from test_auto_download_catalog.test_auto_download_db.test_tbl
+            order by id
+        """
+        result([[1, "auto_download_test"]])
+    }
 
     sql """ use internal.test_auto_download_db; """
 
@@ -66,17 +65,15 @@ suite("test_cloud_plugin_auto_download", "p1,external") {
         "type"="JAVA_UDF"
     ); """
 
-    def result2 = sql """
-        select java_udf_add_one(100) as result
-    """
-    assertTrue(result2.size() > 0)
-    assertEquals(result2[0][0], 101)
-
-    sql """DROP FUNCTION IF EXISTS java_udf_add_one(int)"""
+    test {
+        sql """
+            select java_udf_add_one(100) as result
+        """
+        result([[101]])
+    }
 
     // negative test case 1: non-existent JDBC driver jar
-    sql """drop catalog if exists test_non_existent_driver_catalog """
-    try {
+    test {
         sql """ CREATE CATALOG `test_non_existent_driver_catalog` PROPERTIES (
             "user" = "${jdbcUser}",
             "type" = "jdbc",
@@ -85,37 +82,17 @@ suite("test_cloud_plugin_auto_download", "p1,external") {
             "driver_url" = "non-existent-mysql-driver.jar",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         )"""
-
-        sql """
-            select * from test_non_existent_driver_catalog.test_auto_download_db.test_tbl
-        """
-        assertTrue(false, "Should have thrown exception for non-existent driver jar")
-    } catch (Exception e) {
-        logger.info("Expected exception for non-existent driver jar: " + e.getMessage())
-        assertTrue(e.getMessage().contains("has been uploaded to cloud"))
-    } finally {
-        sql """drop catalog if exists test_non_existent_driver_catalog """
+        exception "has been uploaded to cloud"
     }
 
     // negative test case 2: non-existent UDF jar
     sql """DROP FUNCTION IF EXISTS java_udf_non_existent(int)"""
-    try {
+    test {
         sql """ CREATE FUNCTION java_udf_non_existent(int) RETURNS int PROPERTIES (
             "file"="non-existent-udf.jar",
             "symbol"="org.apache.doris.udf.NonExistent",
             "type"="JAVA_UDF"
         ); """
-
-        sql """
-            select java_udf_non_existent(100) as result
-        """
-        assertTrue(false, "Should have thrown exception for non-existent UDF jar")
-    } catch (Exception e) {
-        logger.info("Expected exception for non-existent UDF jar: " + e.getMessage())
-        assertTrue(e.getMessage().contains("has been uploaded to cloud"))
-    } finally {
-        sql """DROP FUNCTION IF EXISTS java_udf_non_existent(int)"""
+        exception "has been uploaded to cloud"
     }
-
-    sql """ drop database if exists internal.test_auto_download_db; """
 }

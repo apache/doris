@@ -459,6 +459,7 @@ void CloudStorageEngine::sync_storage_vault() {
         LOG(WARNING) << "failed to get storage vault info. err=" << st;
         return;
     }
+    _enable_storage_vault.store(enable_storage_vault);
 
     if (vault_infos.empty()) {
         LOG(WARNING) << "empty storage vault info";

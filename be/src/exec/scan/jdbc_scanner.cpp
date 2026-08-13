@@ -59,7 +59,8 @@ std::map<std::string, std::string> JdbcScanner::_build_jdbc_params(
     // Resolve jdbc_driver_url to absolute file:// URL
     // FE sends just the JAR filename; we need to resolve it to a full path.
     std::string driver_url;
-    auto resolve_st = JdbcUtils::resolve_driver_url(jdbc_table->jdbc_driver_url(), &driver_url);
+    auto resolve_st = JdbcUtils::resolve_driver_url(
+            jdbc_table->jdbc_driver_url(), jdbc_table->jdbc_driver_checksum(), &driver_url);
     if (!resolve_st.ok()) {
         LOG(WARNING) << "Failed to resolve JDBC driver URL: " << resolve_st.to_string();
         driver_url = jdbc_table->jdbc_driver_url();

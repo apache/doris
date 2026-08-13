@@ -17,10 +17,14 @@
 
 package org.apache.doris.common.plugin;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.storage.ObjectInfo;
 import org.apache.doris.cloud.storage.ObjectInfoAdapter;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.EnvUtils;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
@@ -29,34 +33,51 @@ import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
 
-import java.io.File;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Pattern;
 
 /**
  * Simple cloud plugin downloader for UDF and JDBC drivers.
  */
 public class CloudPluginDownloader {
 
+    private static final Pattern SAFE_PLUGIN_NAME =
+            Pattern.compile("^[A-Za-z0-9._@-]+(?:/[A-Za-z0-9._@-]+)*\\.jar$");
+    private static final ConcurrentHashMap<Path, TargetLock> DOWNLOAD_LOCKS = new ConcurrentHashMap<>();
+
     public enum PluginType {
-        JDBC_DRIVERS,
-        JAVA_UDF,
-        CONNECTORS,     // Reserved, not supported yet
-        HADOOP_CONF     // Reserved, not supported yet
+        JDBC_DRIVERS("jdbc_drivers"),
+        JAVA_UDF("java_udf"),
+        CONNECTORS("connectors"),     // Reserved, not supported yet
+        HADOOP_CONF("hadoop_conf");   // Reserved, not supported yet
+
+        private final String directory;
+
+        PluginType(String directory) {
+            this.directory = directory;
+        }
+
+        String directory() {
+            return directory;
+        }
     }
 
     /**
      * Download plugin from cloud storage to local path
      */
-    public static synchronized String downloadFromCloud(PluginType type, String name, String localPath) {
+    public static String downloadFromCloud(PluginType type, String name, String localPath) {
         validateInput(type, name);
+        Path targetPath = validateLocalPath(type, name, localPath);
         try {
             Cloud.ObjectStoreInfoPB objInfo = getCloudStorageInfo();
             String remotePath = buildS3Path(objInfo, type, name);
-            return doDownload(objInfo, remotePath, localPath);
+            return doDownload(objInfo, remotePath, targetPath);
         } catch (Exception e) {
             throw new RuntimeException("Failed to download plugin: " + e.getMessage(), e);
         }
@@ -73,6 +94,21 @@ public class CloudPluginDownloader {
         if (type != PluginType.JDBC_DRIVERS && type != PluginType.JAVA_UDF) {
             throw new UnsupportedOperationException("Plugin type " + type + " is not supported yet");
         }
+
+        if (!SAFE_PLUGIN_NAME.matcher(name).matches()) {
+            throw new IllegalArgumentException("Plugin name must be a safe relative jar path: " + name);
+        }
+
+        Path normalizedName = Paths.get(name).normalize();
+        if (normalizedName.isAbsolute() || normalizedName.startsWith("..")
+                || !normalizedName.toString().equals(name)) {
+            throw new IllegalArgumentException("Plugin name must stay inside its plugin directory: " + name);
+        }
+    }
+
+    /** Returns whether the FE is running with the legacy instance object store. */
+    public static boolean isLegacySaaSMode() {
+        return Config.isCloudMode() && !((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault();
     }
 
     /**
@@ -85,15 +121,23 @@ public class CloudPluginDownloader {
                         .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                         .build());
 
+        return selectCloudStorageInfo(response);
+    }
+
+    static Cloud.ObjectStoreInfoPB selectCloudStorageInfo(Cloud.GetObjStoreInfoResponse response) {
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             throw new RuntimeException("Failed to get storage info: " + response.getStatus().getMsg());
+        }
+
+        if (response.getEnableStorageVault()) {
+            throw new RuntimeException("Cloud plugin auto-download is only supported in legacy SaaS mode");
         }
 
         if (response.getObjInfoList().isEmpty()) {
             throw new RuntimeException("Only SaaS cloud storage is supported currently");
         }
 
-        return response.getObjInfo(0);
+        return response.getObjInfo(response.getObjInfoCount() - 1);
     }
 
     /**
@@ -101,9 +145,10 @@ public class CloudPluginDownloader {
      * Package-private for testing
      */
     static String buildS3Path(Cloud.ObjectStoreInfoPB objInfo, PluginType type, String name) {
+        validateInput(type, name);
         String bucket = objInfo.getBucket();
         String prefix = objInfo.hasPrefix() ? objInfo.getPrefix() : "";
-        String relativePath = String.format("plugins/%s/%s", type.name().toLowerCase(), name);
+        String relativePath = String.format("plugins/%s/%s", type.directory(), name);
 
         String fullPath;
         if (Strings.isNullOrEmpty(prefix)) {
@@ -118,28 +163,71 @@ public class CloudPluginDownloader {
     /**
      * Execute download using SPI FileSystem
      */
-    private static String doDownload(Cloud.ObjectStoreInfoPB objInfo, String remotePath, String localPath)
+    private static String doDownload(Cloud.ObjectStoreInfoPB objInfo, String remotePath, Path localPath)
             throws Exception {
-        // Create parent directory
-        Path parentDir = Paths.get(localPath).getParent();
-        if (parentDir != null && !Files.exists(parentDir)) {
-            Files.createDirectories(parentDir);
-        }
-
-        // Delete existing file if present
-        File localFile = new File(localPath);
-        if (localFile.exists() && !localFile.delete()) {
-            throw new RuntimeException("Failed to delete existing file: " + localPath);
-        }
-
         // Bind the provider reported by MetaService explicitly. Raw property auto-detection is
         // order-dependent when more than one storage provider recognizes the same map.
         StorageAdapter storageAdapter = createStorageAdapter(objInfo);
-        try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageAdapter);
-                InputStream in = fileSystem.newInputFile(Location.of(remotePath)).newStream()) {
-            Files.copy(in, localFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageAdapter)) {
+            return downloadToLocal(localPath,
+                    () -> fileSystem.newInputFile(Location.of(remotePath)).newStream());
         }
-        return localPath;
+    }
+
+    static String downloadToLocal(Path localPath, RemoteStreamSupplier streamSupplier) throws Exception {
+        Path normalizedPath = localPath.toAbsolutePath().normalize();
+        TargetLock targetLock = acquireTargetLock(normalizedPath);
+        try {
+            return publishDownloadedFile(normalizedPath, streamSupplier);
+        } finally {
+            releaseTargetLock(normalizedPath, targetLock);
+        }
+    }
+
+    private static String publishDownloadedFile(Path localPath, RemoteStreamSupplier streamSupplier)
+            throws Exception {
+        Path parentDir = localPath.getParent();
+        Files.createDirectories(parentDir);
+        Path tempFile = Files.createTempFile(parentDir, "." + localPath.getFileName() + ".", ".tmp");
+        try {
+            try (InputStream in = streamSupplier.open()) {
+                Files.copy(in, tempFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+            Files.move(tempFile, localPath, StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING);
+            return localPath.toString();
+        } finally {
+            Files.deleteIfExists(tempFile);
+        }
+    }
+
+    private static Path validateLocalPath(PluginType type, String name, String localPath) {
+        Path pluginDirectory = Paths.get(EnvUtils.getDorisHome(), "plugins", type.directory())
+                .toAbsolutePath().normalize();
+        Path expectedPath = pluginDirectory.resolve(name).normalize();
+        Path actualPath = Paths.get(localPath).toAbsolutePath().normalize();
+        if (!expectedPath.startsWith(pluginDirectory) || !actualPath.equals(expectedPath)) {
+            throw new IllegalArgumentException("Plugin target must stay inside " + pluginDirectory);
+        }
+        return actualPath;
+    }
+
+    private static TargetLock acquireTargetLock(Path localPath) {
+        TargetLock targetLock = DOWNLOAD_LOCKS.compute(localPath, (path, current) -> {
+            TargetLock result = current == null ? new TargetLock() : current;
+            result.users++;
+            return result;
+        });
+        targetLock.lock.lock();
+        return targetLock;
+    }
+
+    private static void releaseTargetLock(Path localPath, TargetLock targetLock) {
+        targetLock.lock.unlock();
+        DOWNLOAD_LOCKS.compute(localPath, (path, current) -> {
+            current.users--;
+            return current.users == 0 ? null : current;
+        });
     }
 
     /**
@@ -148,5 +236,15 @@ public class CloudPluginDownloader {
      */
     static StorageAdapter createStorageAdapter(Cloud.ObjectStoreInfoPB objInfo) {
         return ObjectInfoAdapter.toStorageAdapter(new ObjectInfo(objInfo));
+    }
+
+    @FunctionalInterface
+    interface RemoteStreamSupplier {
+        InputStream open() throws Exception;
+    }
+
+    private static class TargetLock {
+        private final ReentrantLock lock = new ReentrantLock();
+        private int users;
     }
 }
