@@ -128,8 +128,12 @@ public class ExpressionUtils {
     private static final int MAX_INFER_NOT_NULL_EXPR_WIDTH = 256;
     private static final int MAX_INFER_NOT_NULL_EXPR_DEPTH = 64;
     private static final int MAX_INFER_NOT_NULL_INPUT_SLOTS = 32;
-    // The inferMarkSlotNotNullMap function needs at most 3^MAX_MARK_SLOT_COUNT loops to compute results.
-    // We restrict MAX_MARK_SLOT_COUNT to 4 to avoid long computation time.
+    // inferMarkSlotNotNullMap enumerates the other mark slots in base-3: per target mark slot
+    // it runs 3^(N-1) tuples (N = number of mark slots in the conjunct), each doing 4 folds
+    // (original/simplified x false/null), and repeats this for every one of the N target slots,
+    // i.e. N * 3^(N-1) tuples and 4 * N * 3^(N-1) fold passes over the whole conjunct in total
+    // (worst case 4 * 4 * 3^3 = 432 for N = MAX_MARK_SLOT_COUNT = 4, each pass rebuilding and
+    // folding the conjunct). We restrict MAX_MARK_SLOT_COUNT to 4 to bound this cost.
     private static final int MAX_MARK_SLOT_COUNT = 4;
 
     public static List<Expression> extractConjunction(Expression expr) {
@@ -724,11 +728,16 @@ public class ExpressionUtils {
         int markSlotSize = markJoinSlotReferenceList.size();
         // if the conjunct has mark slot, and maximum 4 mark slots(for performance)
         if (markSlotSize > 0 && markSlotSize <= MAX_MARK_SLOT_COUNT) {
+            // both sensitivity checks are per-conjunct, not per-target-slot: hoist them out of
+            // the per-slot loop so containsNoneMovableOrVolatile runs once per conjunct instead
+            // of once per target mark slot (up to MAX_MARK_SLOT_COUNT times)
+            boolean predicateSensitive = containsNoneMovableOrVolatile(ImmutableList.of(predicate));
+            boolean evaluationDomainSensitive = containsNoneMovableOrVolatile(evaluationDomain);
             for (int targetIdx = 0; targetIdx < markSlotSize; ++targetIdx) {
                 result.put(markJoinSlotReferenceList.get(targetIdx),
                         inferMarkSlotNotNullForTargetMarkSlot(
                                 predicate, simplifiedPredicate, markJoinSlotReferenceList, targetIdx, ctx,
-                                evaluationDomain));
+                                predicateSensitive, evaluationDomainSensitive));
             }
         }
         return result;
@@ -748,7 +757,7 @@ public class ExpressionUtils {
     private static Pair<Boolean, Boolean> inferMarkSlotNotNullForTargetMarkSlot(Expression predicate,
             Expression simplifiedPredicate,
             List<MarkJoinSlotReference> markJoinSlotReferenceList, int targetIdx, ExpressionRewriteContext ctx,
-            Collection<Expression> evaluationDomain) {
+            boolean predicateSensitive, boolean evaluationDomainSensitive) {
         int markSlotSize = markJoinSlotReferenceList.size();
         /*
          * target slot enumerates false and null, other mark slots enumerate true, false and null
@@ -764,10 +773,79 @@ public class ExpressionUtils {
         }
         ImmutableList<Literal> otherLiterals = ImmutableList.of(
                 BooleanLiteral.TRUE, BooleanLiteral.FALSE, NullLiteral.BOOLEAN_INSTANCE);
+        /*
+         * pair.second is a row-truth proof: it only proves that the filter treats the target
+         * mark slot taking false or null identically. dropping the mark join (turning the
+         * Apply into a plain semi join) also changes which rows reach the other expressions
+         * in the filter. for a NoneMovableFunction (e.g. assert_true) or a volatile
+         * expression in the evaluation domain, the semi join prunes the unmatched rows before
+         * the filter, so these expressions may no longer be evaluated on the same rows, which
+         * changes error behavior or results. fence pair.second to false so that the mark join
+         * is never eliminated across such expressions.
+         *
+         * pair.first is only fenced by the CURRENT predicate's sensitive expressions. treating
+         * the mark slot as non-nullable (isMarkJoinSlotNotNull) turns a null mark value into
+         * false, and a sensitive expression inside the current predicate can observe that
+         * null-vs-false distinction: the vectorized AND must evaluate its right operand for a
+         * nullable null input (NULL AND x depends on x), but can return early when the left
+         * operand is an all-false non-null column, so converting the mark's null to false may
+         * skip evaluating e.g. assert_true and suppress its error. a sensitive expression in a
+         * sibling conjunct or a later subquery plan cannot observe this distinction: pair.first
+         * keeps the apply (all rows are preserved) and those expressions do not reference the
+         * generated marker, so the complete evaluation domain fences pair.second only.
+         *
+         * this split also fixes an over-conservative fence: before it, any sensitive expression
+         * in the complete evaluation domain fenced BOTH fields, so a join ON condition such as
+         * `t1.k in (select c from t3) and assert_true(t1.k > 0, 'bad')` (clean current
+         * predicate, sensitive sibling) lost isMarkJoinSlotNotNull: the nullable IN equality
+         * stayed in the markConjuncts of a standalone mark join and, with no hash conjunct,
+         * JoinUtils.couldShuffle returned false, forcing the join to broadcast. keeping
+         * pair.first (isMarkJoinSlotNotNull=true) moves the equality into the hash conjuncts,
+         * which preserves the shuffle alternative.
+         *
+         * the sensitive expression is not necessarily inside the current conjunct. it may be a
+         * sibling conjunct of the same filter/join, or live in a later subquery plan whose
+         * input rows are also pruned when the mark join is eliminated. those expressions are
+         * invisible to the single-conjunct inference, so pair.second is validated against the
+         * complete evaluation domain (the containing conjunct set and all affected subquery
+         * plans) instead of the current conjunct alone.
+         *
+         * the current conjunct's OWN subquery plans are deliberately not part of the
+         * evaluation domain: the apply and the resulting semi/anti join both evaluate the
+         * inner plan (per outer row for correlated, once for uncorrelated), only the output
+         * row set differs, so a sensitive expression inside them cannot be affected by the
+         * elimination. the caller (collectEvaluationDomain) excludes them when building the
+         * domain.
+         *
+         * scope caveat: the fence covers exactly the classes detected by
+         * containsNoneMovableOrVolatile, i.e. NoneMovableFunction (assert_true is the only
+         * implementation in Doris today) and volatile expressions. other error-raising
+         * expressions in the evaluation domain are deliberately NOT fenced: e.g. with
+         * enable_strict_division_by_zero or on cast errors, a sibling conjunct such as
+         * `ifnull(k in (...), false) and 1/(x) > 0` raises in the retained plan (the division
+         * is evaluated on the rows the filter later discards) but is silently skipped after
+         * the elimination prunes those rows inside the semi join, so the query returns a
+         * result instead of failing. the same holds for the current conjunct when pair.first
+         * turns a null mark into false. only NoneMovableFunction/volatile error semantics are
+         * guaranteed to survive an elimination; other error behaviors are best-effort.
+         */
+        if (predicateSensitive) {
+            // a sensitive expression inside the current predicate can observe the marker's
+            // null-vs-false distinction, so both fields are fenced and the base-3 enumeration
+            // below would be discarded entirely; skip it to avoid the exponential
+            // N * 3^(N-1) * 4 fold cost for every such conjunct
+            return Pair.of(false, false);
+        }
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
         boolean sameResultForFalseAndNull = true;
         boolean simplifiedForFalseAndNull = true;
         for (int i = 0; i < loopCount; ++i) {
+            if (!sameResultForFalseAndNull && !simplifiedForFalseAndNull) {
+                // both fields are monotonic: they start true and only become false, never
+                // back to true, so once both are false no remaining tuple can change the
+                // result and the rest of the enumeration can be skipped
+                break;
+            }
             replaceMap.clear();
             /*
              * replace other mark slots with true, false or null
@@ -783,74 +861,63 @@ public class ExpressionUtils {
                 replaceMap.put(markJoinSlotReferenceList.get(j), otherLiterals.get(code % 3));
                 code /= 3;
             }
-            // evaluate the original predicate with target slot taking false
-            replaceMap.put(markJoinSlotReferenceList.get(targetIdx), BooleanLiteral.FALSE);
-            Expression evalResultWithFalse = FoldConstantRule.evaluate(
-                    ExpressionUtils.replace(predicate, replaceMap), ctx);
-            // evaluate the simplified predicate with target slot taking false
-            Expression simplifiedEvalResultWithFalse = FoldConstantRule.evaluate(
-                    ExpressionUtils.replace(simplifiedPredicate, replaceMap), ctx);
-            // evaluate the original predicate with target slot taking null
-            replaceMap.put(markJoinSlotReferenceList.get(targetIdx), NullLiteral.BOOLEAN_INSTANCE);
-            Expression evalResultWithNull = FoldConstantRule.evaluate(
-                    ExpressionUtils.replace(predicate, replaceMap), ctx);
-            // evaluate the simplified predicate with target slot taking null
-            Expression simplifiedEvalResultWithNull = FoldConstantRule.evaluate(
-                    ExpressionUtils.replace(simplifiedPredicate, replaceMap), ctx);
-            /*
-             * if the original predicate taking false or null evaluates to a value other than
-             * false or null, the false and null values of the target mark slot are
-             * distinguishable in the original predicate
-             */
-            if (!isFalseOrNull(evalResultWithFalse) || !isFalseOrNull(evalResultWithNull)) {
-                sameResultForFalseAndNull = false;
+            // a field is monotonic, so once it is false its folds are only used to flip it
+            // from true to false and can be skipped for the rest of the enumeration
+            if (sameResultForFalseAndNull) {
+                // evaluate the original predicate with target slot taking false
+                replaceMap.put(markJoinSlotReferenceList.get(targetIdx), BooleanLiteral.FALSE);
+                Expression evalResultWithFalse = FoldConstantRule.evaluate(
+                        ExpressionUtils.replace(predicate, replaceMap), ctx);
+                // evaluate the original predicate with target slot taking null
+                replaceMap.put(markJoinSlotReferenceList.get(targetIdx), NullLiteral.BOOLEAN_INSTANCE);
+                Expression evalResultWithNull = FoldConstantRule.evaluate(
+                        ExpressionUtils.replace(predicate, replaceMap), ctx);
+                /*
+                 * if the original predicate taking false or null evaluates to a value other than
+                 * false or null, the false and null values of the target mark slot are
+                 * distinguishable in the original predicate
+                 */
+                if (!isFalseOrNull(evalResultWithFalse) || !isFalseOrNull(evalResultWithNull)) {
+                    sameResultForFalseAndNull = false;
+                }
             }
-
-            /*
-             * if the simplified predicate taking false or null evaluates to a value other than
-             * false or null, the target slot's null value cannot be replaced by false
-             */
-            if (!isFalseOrNull(simplifiedEvalResultWithFalse) || !isFalseOrNull(simplifiedEvalResultWithNull)) {
-                simplifiedForFalseAndNull = false;
-            }
-
-            if (!sameResultForFalseAndNull && !simplifiedForFalseAndNull) {
-                break;
+            if (simplifiedForFalseAndNull) {
+                // evaluate the simplified predicate with target slot taking false
+                replaceMap.put(markJoinSlotReferenceList.get(targetIdx), BooleanLiteral.FALSE);
+                Expression simplifiedEvalResultWithFalse = FoldConstantRule.evaluate(
+                        ExpressionUtils.replace(simplifiedPredicate, replaceMap), ctx);
+                // evaluate the simplified predicate with target slot taking null
+                replaceMap.put(markJoinSlotReferenceList.get(targetIdx), NullLiteral.BOOLEAN_INSTANCE);
+                Expression simplifiedEvalResultWithNull = FoldConstantRule.evaluate(
+                        ExpressionUtils.replace(simplifiedPredicate, replaceMap), ctx);
+                /*
+                 * if the simplified predicate taking false or null evaluates to a value other than
+                 * false or null, the target slot's null value cannot be replaced by false
+                 */
+                if (!isFalseOrNull(simplifiedEvalResultWithFalse)
+                        || !isFalseOrNull(simplifiedEvalResultWithNull)) {
+                    simplifiedForFalseAndNull = false;
+                }
             }
         }
-        /*
-         * pair.second is a row-truth proof: it only proves that the filter treats the target
-         * mark slot taking false or null identically. dropping the mark join (turning the
-         * Apply into a plain semi join) also changes which rows reach the other expressions
-         * in the filter. for a NoneMovableFunction (e.g. assert_true) or a volatile
-         * expression, the evaluation domain matters: the semi join prunes the unmatched rows
-         * before the filter, so these expressions may no longer be evaluated on the same
-         * rows, which changes error behavior or results. fence pair.second to false in this
-         * case so that the mark join is never eliminated across such expressions.
-         *
-         * pair.first is not safe either, even when the mark join is kept. treating the mark
-         * slot as non-nullable (isMarkJoinSlotNotNull) turns a null mark value into false,
-         * and for a sensitive expression in the evaluation domain null and false are
-         * observably different: the vectorized AND must evaluate its right operand for a
-         * nullable null input (NULL AND x depends on x), but can return early when the left
-         * operand is an all-false non-null column, so converting the mark's null to false
-         * may skip evaluating e.g. assert_true and suppress its error. fence pair.first to
-         * false as well in this case.
-         *
-         * the sensitive expression is not necessarily inside the current conjunct. it may be a
-         * sibling conjunct of the same filter/join, or live in a later subquery plan whose
-         * input rows are also pruned when the mark join is eliminated. those expressions are
-         * invisible to the single-conjunct inference, so both fields are validated against the
-         * complete evaluation domain (the containing conjunct set and all affected subquery
-         * plans) instead of the current conjunct alone.
-         */
-        if (containsNoneMovableOrVolatile(evaluationDomain)) {
+        // complete evaluation-domain fence: a sensitive expression anywhere in the evaluation
+        // domain must fence pair.second (the elimination prunes the unmatched rows before the
+        // sibling conjuncts and later subquery expressions), while pair.first is left as
+        // inferred (the apply is kept and sibling/later expressions cannot observe the marker's
+        // null-vs-false mapping)
+        if (evaluationDomainSensitive) {
             sameResultForFalseAndNull = false;
-            simplifiedForFalseAndNull = false;
         }
         return Pair.of(simplifiedForFalseAndNull, sameResultForFalseAndNull);
     }
 
+    /*
+     * whether any expression in the evaluation domain is sensitive for mark join elimination:
+     * a NoneMovableFunction (assert_true is the only implementation today) or a volatile
+     * expression. other error-raising expressions (strict division-by-zero, cast errors) are
+     * deliberately not covered here, so only the NoneMovableFunction/volatile error semantics
+     * are guaranteed to survive a mark join elimination.
+     */
     private static boolean containsNoneMovableOrVolatile(Collection<Expression> expressions) {
         for (Expression expression : expressions) {
             if (expression.containsVolatileExpression() || expression.containsType(NoneMovableFunction.class)) {

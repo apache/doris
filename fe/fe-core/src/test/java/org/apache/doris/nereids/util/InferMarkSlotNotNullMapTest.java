@@ -314,20 +314,23 @@ public class InferMarkSlotNotNullMapTest extends ExpressionRewriteTestHelper {
 
         // when the complete evaluation domain (all conjuncts of the containing filter/join)
         // is passed in, pair.second must be fenced to false so the mark join is not
-        // eliminated across the sibling's assert_true; pair.first is fenced as well so M
-        // stays nullable
+        // eliminated across the sibling's assert_true. pair.first is left as inferred (true):
+        // the current conjunct is clean and the sibling's assert_true does not reference M1,
+        // so it cannot observe M1's null-vs-false mapping (pair.first keeps the apply and
+        // only maps this generated marker's null to false)
         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> result = ExpressionUtils
                 .inferMarkSlotNotNullMap(markConjunct, context,
                         ImmutableList.of(markConjunct, siblingConjunct));
-        Assertions.assertEquals(Pair.of(Boolean.FALSE, Boolean.FALSE), result.get(markSlot1));
+        Assertions.assertEquals(Pair.of(Boolean.TRUE, Boolean.FALSE), result.get(markSlot1));
 
         // the sensitive expression may also live inside a later subquery plan: the flattened
-        // subquery plan expressions belong to the evaluation domain as well, and fence both
-        // fields to false even though the current conjunct is clean
+        // subquery plan expressions belong to the evaluation domain as well, and fence
+        // pair.second to false even though the current conjunct is clean and pair.first stays
+        // true
         Expression subqueryPlanExpression = new AssertTrue(guard, new VarcharLiteral("bad"));
         result = ExpressionUtils.inferMarkSlotNotNullMap(markConjunct, context,
                 ImmutableList.of(markConjunct, subqueryPlanExpression));
-        Assertions.assertEquals(Pair.of(Boolean.FALSE, Boolean.FALSE), result.get(markSlot1));
+        Assertions.assertEquals(Pair.of(Boolean.TRUE, Boolean.FALSE), result.get(markSlot1));
     }
 
     @Test

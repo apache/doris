@@ -316,4 +316,124 @@ suite ("subquery_unnesting") {
                    or guard_t.guard = 2;"""
         exception "assert failed"
     }
+
+    // =====================================================================
+    // split-fence regression: for an uncorrelated NULLABLE positive IN in a join ON
+    // condition with a sensitive SIBLING expression, pair.first (isMarkJoinSlotNotNull)
+    // must be kept while pair.second (isMarkJoin=true) is fenced.
+    //
+    // the mark predicate `uncor_in_t1.k in (select c from uncor_in_t3)` is itself CLEAN
+    // (no assert_true inside it), so the current-predicate fence does not apply to it.
+    // the sibling assert_true only lives in the evaluation domain, so it fences pair.second
+    // only: the mark join is kept (isMarkJoin=true) because eliminating it would prune the
+    // unmatched rows before assert_true, but pair.first stays true because the sibling
+    // cannot observe this generated marker's null-vs-false mapping (pair.first keeps the
+    // apply and only maps the marker's null to false).
+    //
+    // this matters beyond the analyzed plan: with isMarkJoinSlotNotNull=true, InApplyToJoin
+    // moves the (nullable) IN equality into the hash conjuncts, so JoinUtils.couldShuffle
+    // stays true and the physical planner keeps the shuffle alternative. if pair.first were
+    // wrongly fenced (isMarkJoinSlotNotNull=false), the equality would stay in the
+    // markConjuncts only, producing a standalone mark join with no hash conjuncts, which
+    // couldShuffle forces to broadcast. the uncorrelated IN (no correlation hash conjunct)
+    // makes this mark join the only join deciding the distribution, so the regression pins
+    // the isMarkJoinSlotNotNull signal directly.
+    sql "drop table if exists uncor_in_t1"
+    sql "drop table if exists uncor_in_t2"
+    sql "drop table if exists uncor_in_t3"
+    sql """create table uncor_in_t1 (k bigint, a bigint) DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table uncor_in_t2 (b bigint) DUPLICATE KEY(b)
+            DISTRIBUTED BY HASH(b) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table uncor_in_t3 (c bigint null) DUPLICATE KEY(c)
+            DISTRIBUTED BY HASH(c) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into uncor_in_t1 values (1,1),(2,2),(3,3);"""
+    sql """insert into uncor_in_t2 values (1),(2);"""
+    sql """insert into uncor_in_t3 values (1),(null);"""
+    explain {
+        sql("""analyzed plan select uncor_in_t1.* from uncor_in_t1
+                join uncor_in_t2 on uncor_in_t1.a = uncor_in_t2.b
+                    and uncor_in_t1.k in (select c from uncor_in_t3)
+                    and assert_true(uncor_in_t1.k > 0, 'assert failed')
+                order by uncor_in_t1.k;""")
+        contains("isMarkJoin=true")
+        contains("isMarkJoinSlotNotNull=true")
+    }
+
+    // =====================================================================
+    // current-conjunct-own-subquery exclusion regression: a NoneMovableFunction inside
+    // the CURRENT conjunct's OWN subquery plan must NOT fence the mark join elimination.
+    //
+    // the mark predicate `ifnull(k1 in (select ...), false)` is clean, and the assert_true
+    // lives inside the subquery's own plan (its filter). the inner plan is evaluated
+    // identically whether the mark join is kept or eliminated: both the apply and the
+    // resulting semi join evaluate the subquery (per outer row for a correlated subquery),
+    // only the output row set differs, so assert_true inside it cannot be affected by the
+    // elimination. the evaluation domain must therefore exclude the current conjunct's own
+    // subquery plans; otherwise the mark join is kept (isMarkJoin=true) purely because of a
+    // sensitive expression the elimination cannot reach. with the exclusion the mark join is
+    // eliminated (isMarkJoin=false) and the subquery is still evaluated, so assert_true
+    // still raises its error on the inner row with k2 = 0.
+    sql "drop table if exists inner_assert_t"
+    sql "drop table if exists inner_assert_s"
+    sql """create table inner_assert_t (k1 bigint, k2 bigint) DUPLICATE KEY(k1)
+            DISTRIBUTED BY HASH(k2) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table inner_assert_s (k1 bigint, k2 bigint) DUPLICATE KEY(k1)
+            DISTRIBUTED BY HASH(k2) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into inner_assert_t values (1,1),(2,2),(3,3),(4,4);"""
+    sql """insert into inner_assert_s values (2,2),(4,0);"""
+    explain {
+        sql("""analyzed plan select inner_assert_t.k1 from inner_assert_t
+                where ifnull(inner_assert_t.k1 in (select inner_assert_s.k1 from inner_assert_s
+                        where inner_assert_s.k1 = inner_assert_t.k1
+                          and assert_true(inner_assert_s.k2 > 0, 'assert failed')), false)
+                order by inner_assert_t.k1;""")
+        contains("isMarkJoin=false")
+    }
+    test {
+        sql """select inner_assert_t.k1 from inner_assert_t
+                where ifnull(inner_assert_t.k1 in (select inner_assert_s.k1 from inner_assert_s
+                        where inner_assert_s.k1 = inner_assert_t.k1
+                          and assert_true(inner_assert_s.k2 > 0, 'assert failed')), false)
+                order by inner_assert_t.k1;"""
+        exception "assert failed"
+    }
+
+    // =====================================================================
+    // opposite-side exclusion regression: in the JOIN path, a later correlated scalar on
+    // the OPPOSITE side of the join must NOT fence the current mark join elimination.
+    //
+    // the join has two subquery conjuncts on opposite sides: a mark IN correlated to the
+    // left (side_join_t.k in (select ... where side_join_s.g = side_join_t.g)) and a later
+    // correlated scalar correlated to the right (side_join_u.b = (select side_join_v.c ...
+    // where side_join_v.h = side_join_u.h)), which generates the runtime
+    // assert_true(count(*) <= 1) in the right subtree. the right subtree is an independent
+    // branch: eliminating the left mark join (semi join pruning the left rows) does not
+    // change which right rows reach the generated assertion, so the fence on it is
+    // unnecessary and the left mark join can be eliminated (isMarkJoin=false).
+    sql "drop table if exists side_join_t"
+    sql "drop table if exists side_join_s"
+    sql "drop table if exists side_join_u"
+    sql "drop table if exists side_join_v"
+    sql """create table side_join_t (k bigint, g bigint) DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table side_join_s (k bigint, g bigint) DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table side_join_u (b bigint, h bigint) DUPLICATE KEY(b)
+            DISTRIBUTED BY HASH(b) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table side_join_v (c bigint, h bigint) DUPLICATE KEY(c)
+            DISTRIBUTED BY HASH(c) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into side_join_t values (1,1),(2,2);"""
+    sql """insert into side_join_s values (1,1),(2,2),(3,3);"""
+    sql """insert into side_join_u values (10,10),(20,20);"""
+    sql """insert into side_join_v values (100,10),(200,20);"""
+    explain {
+        sql("""analyzed plan select side_join_t.k, side_join_u.b from side_join_t
+                join side_join_u on side_join_t.k in (select side_join_s.k from side_join_s
+                        where side_join_s.g = side_join_t.g)
+                    and side_join_u.b = (select side_join_v.c from side_join_v
+                        where side_join_v.h = side_join_u.h)
+                order by side_join_t.k;""")
+        contains("isMarkJoin=false")
+    }
 }
