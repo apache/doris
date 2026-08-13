@@ -238,7 +238,6 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
 
 void LoadChannelMgr::_finish_load_channel(const UniqueId load_id,
                                           const std::shared_ptr<LoadChannel>& channel) {
-    VLOG_NOTICE << "removing load channel " << load_id << " because it's finished";
     const std::string cache_key = load_id.to_string();
     bool need_final_tablet_result = false;
     {
@@ -267,7 +266,6 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id,
             _finishing_load_channels.erase(load_id);
         }
     });
-
     std::unique_ptr<FinalTabletResultCache::CacheValue> cache_value;
     DBUG_EXECUTE_IF("LoadChannelMgr.finish.before_copy", DBUG_RUN_CALLBACK());
     size_t cache_size = 0;
@@ -276,18 +274,17 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id,
     size_t result_bytes = 0;
     const size_t cache_overhead =
             sizeof(FinalTabletResultCache::CacheValue) + sizeof(LRUHandle) - 1 + cache_key.size();
-    const bool ready = channel->copy_final_tablet_results(
+    DORIS_CHECK(channel->copy_final_tablet_results(
             &final_tablet_results, FinalTabletResultCache::MAX_BYTES - cache_overhead, &oversized,
-            &result_bytes);
-    if (ready && !oversized && !final_tablet_results.empty()) {
+            &result_bytes));
+    if (!oversized && !final_tablet_results.empty()) {
         cache_value = std::make_unique<FinalTabletResultCache::CacheValue>();
         cache_value->_results = std::move(final_tablet_results);
         cache_size = sizeof(FinalTabletResultCache::CacheValue) + result_bytes;
-    } else if (!ready || oversized) {
+    } else if (oversized) {
         LOG(WARNING) << "Skip caching final tablet result for load " << load_id
-                     << ", ready=" << ready << ", oversized=" << oversized;
+                     << ", oversized=" << oversized;
     }
-
     Cache::Handle* result_handle = nullptr;
     Defer release_result_handle([this, &result_handle] {
         if (result_handle != nullptr) {
@@ -300,7 +297,6 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id,
                                                            cache_size);
         cache_value.release();
     }
-
     bool published = false;
     {
         std::lock_guard<std::mutex> l(_lock);

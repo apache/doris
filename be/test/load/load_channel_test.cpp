@@ -193,6 +193,40 @@ TEST_F(LoadChannelFinalTabletResultTest, FinishPreservesResultAcrossConcurrentCa
     manager.stop();
 }
 
+TEST_F(LoadChannelFinalTabletResultTest, FinishedWaitsForPendingFinalTabletResult) {
+    LoadChannelMgr manager;
+    manager._load_state_channels = std::make_unique<LoadChannelMgr::LoadStateChannelCache>(1024);
+    manager._final_tablet_result_cache = std::make_unique<LoadChannelMgr::FinalTabletResultCache>();
+    UniqueId load_id(7, 8);
+    auto channel = std::make_shared<LoadChannel>(load_id, 60, false, "test", -1, false, -1);
+    channel->_opened = true;
+    channel->_reserve_final_tablet_result(10);
+    manager._load_channels.emplace(load_id, channel);
+
+    EXPECT_FALSE(channel->is_finished());
+    EXPECT_TRUE(manager._load_channels.contains(load_id));
+    EXPECT_EQ(manager._load_state_channels->lookup(load_id.to_string()), nullptr);
+
+    PTabletWriterAddBlockResult final_response;
+    Status::OK().to_protobuf(final_response.mutable_status());
+    final_response.add_tablet_vec()->set_tablet_id(100);
+    channel->_publish_final_tablet_result(10, 1, final_response);
+    EXPECT_TRUE(channel->is_finished());
+    manager._finish_load_channel(load_id, channel);
+
+    PTabletWriterAddBlockRequest retry;
+    retry.mutable_id()->CopyFrom(load_id.to_proto());
+    retry.set_index_id(10);
+    retry.set_eos(true);
+    retry.set_sender_id(1);
+    retry.set_need_final_tablet_result(true);
+    PTabletWriterAddBlockResult retry_response;
+    ASSERT_TRUE(manager.add_batch(retry, &retry_response).ok());
+    ASSERT_EQ(retry_response.tablet_vec_size(), 1);
+    EXPECT_EQ(retry_response.tablet_vec(0).tablet_id(), 100);
+    manager.stop();
+}
+
 TEST_F(LoadChannelFinalTabletResultTest, ManagerReservesResultBeforeReturningChannel) {
     LoadChannelMgr manager;
     UniqueId load_id(5, 6);

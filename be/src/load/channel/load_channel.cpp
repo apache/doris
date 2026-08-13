@@ -21,6 +21,8 @@
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
 
+#include <algorithm>
+
 #include "cloud/cloud_tablets_channel.h"
 #include "cloud/config.h"
 #include "common/logging.h"
@@ -432,7 +434,13 @@ bool LoadChannel::is_finished() {
         return false;
     }
     std::lock_guard<std::mutex> l(_lock);
-    return _tablets_channels.empty();
+    if (!_tablets_channels.empty() || !need_final_tablet_result()) {
+        return _tablets_channels.empty();
+    }
+    std::lock_guard<std::mutex> result_lock(_final_tablet_result_lock);
+    return std::ranges::all_of(_final_tablet_results, [](const auto& result) {
+        return result.second.tablet_result != nullptr;
+    });
 }
 
 bool LoadChannel::copy_final_tablet_results(std::unordered_map<int64_t, FinalTabletResult>* results,
