@@ -18,14 +18,17 @@
 package org.apache.doris.cloud.datasource;
 
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.TableStreamBaseTableInfo;
+import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.rpc.RpcException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -114,6 +117,93 @@ public class CloudInternalCatalogTableStreamTest {
             }
         } finally {
             Config.cloud_table_stream_create_partition_batch_size = previousBatchSize;
+            Config.cloud_unique_id = previousCloudUniqueId;
+            Config.meta_service_endpoint = previousMetaServiceEndpoint;
+        }
+    }
+
+    @Test
+    public void testCreateRetriesEachStageWithoutChangingRequestsOrOrder() throws Exception {
+        int previousBatchSize = Config.cloud_table_stream_create_partition_batch_size;
+        int previousRetryTimes = Config.meta_service_rpc_retry_times;
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        String previousMetaServiceEndpoint = Config.meta_service_endpoint;
+        Config.cloud_table_stream_create_partition_batch_size = 2;
+        Config.meta_service_rpc_retry_times = 3;
+        Config.cloud_unique_id = "cloud_table_stream_ut";
+        Config.meta_service_endpoint = "127.0.0.1:20121";
+        try {
+            List<Cloud.TableStreamOffsetPB> offsets = LongStream.rangeClosed(1, 3)
+                    .mapToObj(partitionId -> Cloud.TableStreamOffsetPB.newBuilder()
+                            .setPartitionId(partitionId)
+                            .setState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                            .setOffsetTso(100 + partitionId)
+                            .build())
+                    .collect(Collectors.toList());
+            TestCloudInternalCatalog catalog = new TestCloudInternalCatalog(offsets);
+            Database streamDb = Mockito.mock(Database.class);
+            Mockito.when(streamDb.getId()).thenReturn(30L);
+            OlapTable baseTable = Mockito.mock(OlapTable.class);
+            Mockito.when(baseTable.getId()).thenReturn(20L);
+            Mockito.when(baseTable.getPartitionIds()).thenReturn(List.of(1L, 2L, 3L));
+            OlapTableStream stream = mockStream(10, 20, 40);
+
+            MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+            Cloud.IndexResponse indexOk = Cloud.IndexResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK))
+                    .build();
+            Cloud.PartitionResponse partitionOk = Cloud.PartitionResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK))
+                    .build();
+            Cloud.PartitionResponse partitionConflict = Cloud.PartitionResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(Cloud.MetaServiceCode.KV_TXN_CONFLICT))
+                    .build();
+            try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+                mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+                Mockito.when(proxy.prepareIndex(Mockito.any()))
+                        .thenThrow(new RpcException("", "injected prepare failure"))
+                        .thenReturn(indexOk);
+                Mockito.when(proxy.commitPartition(Mockito.any()))
+                        .thenReturn(partitionConflict, partitionOk, partitionOk);
+                Mockito.when(proxy.commitIndex(Mockito.any()))
+                        .thenThrow(new RpcException("", "injected commit failure"))
+                        .thenReturn(indexOk);
+
+                catalog.runBeforeCreate(streamDb, stream, baseTable, List.of(1L, 2L, 3L));
+                catalog.runAfterCreate(streamDb, stream, baseTable);
+
+                InOrder order = Mockito.inOrder(proxy);
+                order.verify(proxy, Mockito.times(2)).prepareIndex(Mockito.any());
+                order.verify(proxy, Mockito.times(3)).commitPartition(Mockito.any());
+                order.verify(proxy, Mockito.times(2)).commitIndex(Mockito.any());
+
+                ArgumentCaptor<Cloud.IndexRequest> prepareCaptor = ArgumentCaptor.forClass(Cloud.IndexRequest.class);
+                Mockito.verify(proxy, Mockito.times(2)).prepareIndex(prepareCaptor.capture());
+                Assertions.assertEquals(prepareCaptor.getAllValues().get(0), prepareCaptor.getAllValues().get(1));
+                Assertions.assertEquals(Cloud.IndexObjectTypePB.TABLE_STREAM,
+                        prepareCaptor.getAllValues().get(0).getObjectType());
+                Assertions.assertEquals(List.of(40L), prepareCaptor.getAllValues().get(0).getIndexIdsList());
+
+                ArgumentCaptor<Cloud.PartitionRequest> partitionCaptor =
+                        ArgumentCaptor.forClass(Cloud.PartitionRequest.class);
+                Mockito.verify(proxy, Mockito.times(3)).commitPartition(partitionCaptor.capture());
+                Assertions.assertEquals(partitionCaptor.getAllValues().get(0), partitionCaptor.getAllValues().get(1));
+                Assertions.assertEquals(List.of(1L, 2L),
+                        partitionCaptor.getAllValues().get(0).getPartitionIdsList());
+                Assertions.assertEquals(List.of(3L),
+                        partitionCaptor.getAllValues().get(2).getPartitionIdsList());
+
+                ArgumentCaptor<Cloud.IndexRequest> commitCaptor = ArgumentCaptor.forClass(Cloud.IndexRequest.class);
+                Mockito.verify(proxy, Mockito.times(2)).commitIndex(commitCaptor.capture());
+                Assertions.assertEquals(commitCaptor.getAllValues().get(0), commitCaptor.getAllValues().get(1));
+                Assertions.assertEquals(Cloud.IndexObjectTypePB.TABLE_STREAM,
+                        commitCaptor.getAllValues().get(0).getObjectType());
+                Assertions.assertEquals(List.of(40L), commitCaptor.getAllValues().get(0).getIndexIdsList());
+            }
+        } finally {
+            Config.cloud_table_stream_create_partition_batch_size = previousBatchSize;
+            Config.meta_service_rpc_retry_times = previousRetryTimes;
             Config.cloud_unique_id = previousCloudUniqueId;
             Config.meta_service_endpoint = previousMetaServiceEndpoint;
         }
@@ -244,6 +334,109 @@ public class CloudInternalCatalogTableStreamTest {
         Assertions.assertTrue(tableException.getMessage().contains("Base table changed"));
     }
 
+    @Test
+    public void testDropCloudPartitionCarriesAllDependentTableStreams() throws Exception {
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        String previousMetaServiceEndpoint = Config.meta_service_endpoint;
+        boolean previousCompatibilityMode = Config.enable_check_compatibility_mode;
+        Config.cloud_unique_id = "cloud_table_stream_ut";
+        Config.meta_service_endpoint = "127.0.0.1:20121";
+        Config.enable_check_compatibility_mode = false;
+        try {
+            long baseDbId = 10L;
+            long baseTableId = 20L;
+            Cloud.TableStreamIdentityPB sameDbStream = tableStreamIdentity(baseDbId, baseTableId, baseDbId, 40L);
+            Cloud.TableStreamIdentityPB crossDbStream = tableStreamIdentity(baseDbId, baseTableId, 30L, 50L);
+            TableStreamManager tableStreamManager = Mockito.mock(TableStreamManager.class);
+            Mockito.when(tableStreamManager.getCloudTableStreamsForBaseTable(baseDbId, baseTableId))
+                    .thenReturn(List.of(sameDbStream, crossDbStream));
+            Env env = Mockito.mock(Env.class);
+            Mockito.when(env.getTableStreamManager()).thenReturn(tableStreamManager);
+
+            MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+            Cloud.PartitionResponse response = Cloud.PartitionResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK))
+                    .build();
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                    MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+                Mockito.when(proxy.dropPartition(Mockito.any())).thenReturn(response);
+
+                new CloudInternalCatalog().dropCloudPartition(
+                        baseDbId, baseTableId, List.of(101L, 102L), List.of(201L, 202L), false);
+
+                ArgumentCaptor<Cloud.PartitionRequest> requestCaptor =
+                        ArgumentCaptor.forClass(Cloud.PartitionRequest.class);
+                Mockito.verify(proxy).dropPartition(requestCaptor.capture());
+                Cloud.PartitionRequest request = requestCaptor.getValue();
+                Assertions.assertEquals(baseDbId, request.getDbId());
+                Assertions.assertEquals(baseTableId, request.getTableId());
+                Assertions.assertEquals(List.of(101L, 102L), request.getPartitionIdsList());
+                Assertions.assertEquals(List.of(201L, 202L), request.getIndexIdsList());
+                Assertions.assertEquals(List.of(sameDbStream, crossDbStream), request.getTableStreamsList());
+                Assertions.assertFalse(request.getNeedUpdateTableVersion());
+                Mockito.verify(tableStreamManager).getCloudTableStreamsForBaseTable(baseDbId, baseTableId);
+            }
+        } finally {
+            Config.cloud_unique_id = previousCloudUniqueId;
+            Config.meta_service_endpoint = previousMetaServiceEndpoint;
+            Config.enable_check_compatibility_mode = previousCompatibilityMode;
+        }
+    }
+
+    @Test
+    public void testBeforeEraseTableRetriesStableTypedRequestAndPropagatesFailure() throws Exception {
+        int previousRetryTimes = Config.meta_service_rpc_retry_times;
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        String previousMetaServiceEndpoint = Config.meta_service_endpoint;
+        Config.meta_service_rpc_retry_times = 2;
+        Config.cloud_unique_id = "cloud_table_stream_ut";
+        Config.meta_service_endpoint = "127.0.0.1:20121";
+        try {
+            CloudInternalCatalog catalog = new CloudInternalCatalog();
+            OlapTableStream stream = mockStream(10L, 20L, 40L);
+            MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+            Cloud.IndexResponse response = Cloud.IndexResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK))
+                    .build();
+            try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+                mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+                Mockito.when(proxy.dropIndex(Mockito.any()))
+                        .thenThrow(new RpcException("", "injected transient drop failure"))
+                        .thenReturn(response);
+
+                catalog.beforeEraseTable(30L, stream, false);
+
+                ArgumentCaptor<Cloud.IndexRequest> retryCaptor = ArgumentCaptor.forClass(Cloud.IndexRequest.class);
+                Mockito.verify(proxy, Mockito.times(2)).dropIndex(retryCaptor.capture());
+                Assertions.assertEquals(retryCaptor.getAllValues().get(0), retryCaptor.getAllValues().get(1));
+                Cloud.IndexRequest request = retryCaptor.getAllValues().get(0);
+                Assertions.assertEquals(10L, request.getDbId());
+                Assertions.assertEquals(20L, request.getTableId());
+                Assertions.assertEquals(30L, request.getStreamDbId());
+                Assertions.assertEquals(List.of(40L), request.getIndexIdsList());
+                Assertions.assertEquals(Cloud.IndexObjectTypePB.TABLE_STREAM, request.getObjectType());
+
+                Mockito.reset(proxy);
+                Mockito.when(proxy.dropIndex(Mockito.any()))
+                        .thenThrow(new RpcException("", "injected persistent drop failure"));
+                DdlException exception = Assertions.assertThrows(DdlException.class,
+                        () -> catalog.beforeEraseTable(30L, stream, false));
+                Assertions.assertTrue(exception.getMessage().contains("injected persistent drop failure"));
+
+                ArgumentCaptor<Cloud.IndexRequest> failureCaptor = ArgumentCaptor.forClass(Cloud.IndexRequest.class);
+                Mockito.verify(proxy, Mockito.times(2)).dropIndex(failureCaptor.capture());
+                Assertions.assertEquals(failureCaptor.getAllValues().get(0), failureCaptor.getAllValues().get(1));
+                Assertions.assertEquals(request, failureCaptor.getAllValues().get(0));
+            }
+        } finally {
+            Config.meta_service_rpc_retry_times = previousRetryTimes;
+            Config.cloud_unique_id = previousCloudUniqueId;
+            Config.meta_service_endpoint = previousMetaServiceEndpoint;
+        }
+    }
+
     private static OlapTableStream mockStream(long baseDbId, long baseTableId, long streamId) {
         return mockStream(baseDbId, baseTableId, streamId, false);
     }
@@ -265,6 +458,16 @@ public class CloudInternalCatalogTableStreamTest {
                 .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK))
                 .addAllVersions(versions)
                 .addAllCommitTsos(commitTsos)
+                .build();
+    }
+
+    private static Cloud.TableStreamIdentityPB tableStreamIdentity(
+            long baseDbId, long baseTableId, long streamDbId, long streamId) {
+        return Cloud.TableStreamIdentityPB.newBuilder()
+                .setBaseDbId(baseDbId)
+                .setBaseTableId(baseTableId)
+                .setStreamDbId(streamDbId)
+                .setStreamId(streamId)
                 .build();
     }
 

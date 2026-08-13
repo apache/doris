@@ -80,6 +80,16 @@ suite("test_cloud_table_stream_e2e") {
         FROM cloud_stream@reset()
         ORDER BY id
     """
+    order_qt_consumption_visible_before_first_insert """
+        SELECT STREAM_NAME,
+               UNIT,
+               CONSUMPTION_STATUS <> 'N/A',
+               LAST_CONSUMPTION_TIME = -1
+        FROM information_schema.table_stream_consumption
+        WHERE DB_NAME = 'test_cloud_table_stream_e2e_db'
+          AND STREAM_NAME = 'cloud_stream'
+        ORDER BY UNIT
+    """
 
     sql "INSERT INTO stream_sink SELECT id, value FROM cloud_stream"
     order_qt_first_consumption_target "SELECT id, value FROM stream_sink ORDER BY id"
@@ -92,6 +102,17 @@ suite("test_cloud_table_stream_e2e") {
     sql "INSERT INTO stream_sink SELECT id, value FROM cloud_stream"
     order_qt_second_consumption_target "SELECT id, value FROM stream_sink ORDER BY id"
     qt_stream_empty_after_second_consumption "SELECT count(*) FROM cloud_stream"
+    order_qt_consumption_visible_after_insert """
+        SELECT STREAM_NAME,
+               UNIT,
+               CONSUMPTION_STATUS <> 'N/A',
+               LAG = '0',
+               LAST_CONSUMPTION_TIME > 0
+        FROM information_schema.table_stream_consumption
+        WHERE DB_NAME = 'test_cloud_table_stream_e2e_db'
+          AND STREAM_NAME = 'cloud_stream'
+        ORDER BY UNIT
+    """
 
     sql "DROP STREAM cloud_stream FORCE"
     qt_stream_removed_from_catalog """

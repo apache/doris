@@ -17,6 +17,9 @@
 3	30
 4	40
 
+-- !consumption_visible_before_first_insert --
+cloud_stream	stream_source	true	true
+
 -- !first_consumption_target --
 3	30
 4	40
@@ -34,6 +37,9 @@
 
 -- !stream_empty_after_second_consumption --
 0
+
+-- !consumption_visible_after_insert --
+cloud_stream	stream_source	true	true	true
 
 -- !stream_removed_from_catalog --
 0
