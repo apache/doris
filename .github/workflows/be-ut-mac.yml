@@ -88,6 +88,20 @@ jobs:
           brew install "${cellars[@]}" || true
           brew cleanup --prune=all
 
+          # Keep the selected Xcode 16.4 toolchain, but reclaim the space used
+          # by newer preinstalled SDKs before the large ASAN test link.
+          unused_xcodes=(
+            '/Applications/Xcode_26.3.app'
+            '/Applications/Xcode_26.2.app'
+            '/Applications/Xcode_26.1.1.app'
+            '/Applications/Xcode_26.0.1.app'
+          )
+          for unused_xcode in "${unused_xcodes[@]}"; do
+            if [[ -d "${unused_xcode}" ]]; then
+              sudo rm -rf "${unused_xcode}"
+            fi
+          done
+
           pushd thirdparty
           branch="${{ github.base_ref }}"
           if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
