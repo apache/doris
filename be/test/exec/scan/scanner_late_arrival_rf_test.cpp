@@ -18,23 +18,31 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <latch>
 #include <list>
+#include <thread>
 
 #include "common/object_pool.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "exec/operator/mock_scan_operator.h"
+#include "exec/operator/olap_scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
 #include "exec/scan/scanner.h"
+#include "exec/scan/scanner_context.h"
+#include "exec/scan/scanner_scheduler.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "testutil/column_helper.h"
+#include "testutil/desc_tbl_builder.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/raw_value.h"
 
 namespace doris {
 
@@ -68,6 +76,57 @@ protected:
 private:
     bool _allow_padding = true;
     std::list<Block> _blocks;
+};
+
+class LateBucketScanner final : public Scanner {
+public:
+    LateBucketScanner(RuntimeState* state, OlapScanLocalState* local_state, int64_t tablet_id,
+                      bool has_matching_row, RuntimeProfile* profile, std::latch* prepare_started,
+                      std::latch* filter_published)
+            : Scanner(state, local_state, -1, profile),
+              _olap_local_state(local_state),
+              _tablet_id(tablet_id),
+              _has_matching_row(has_matching_row),
+              _prepare_started(prepare_started),
+              _filter_published(filter_published) {}
+
+    bool is_pruned_by_runtime_filter() const override {
+        return _olap_local_state->_is_tablet_pruned_by_runtime_filter(1, _tablet_id);
+    }
+
+    int read_calls() const { return _read_calls.load(); }
+
+protected:
+    Status _prepare_impl() override {
+        _prepare_started->count_down();
+        _filter_published->wait();
+        return Scanner::_prepare_impl();
+    }
+
+    Status _get_block_impl(RuntimeState* /*state*/, Block* block, bool* eof) override {
+        ++_read_calls;
+        if (_returned) {
+            *eof = true;
+            return Status::OK();
+        }
+        _returned = true;
+        *eof = false;
+        if (_has_matching_row) {
+            *block = ColumnHelper::create_block<DataTypeInt32>({7});
+        } else {
+            *block = ColumnHelper::create_block<DataTypeInt32>(std::vector<int32_t> {});
+        }
+        return Status::OK();
+    }
+
+private:
+    OlapScanLocalState* _olap_local_state;
+    int64_t _tablet_id;
+    bool _has_matching_row;
+    std::latch* _prepare_started;
+    std::latch* _filter_published;
+    std::atomic<int> _read_calls {0};
+    bool _returned = false;
 };
 
 class ScannerLateArrivalRfTest : public RuntimeFilterTest {
@@ -138,6 +197,145 @@ TEST_F(ScannerLateArrivalRfTest, applied_rf_num_advances_after_late_arrival) {
     ASSERT_TRUE(scanner->try_append_late_arrival_runtime_filter().ok());
     ASSERT_EQ(scanner->_applied_rf_num, 2);
     ASSERT_TRUE(scanner->_conjuncts.empty());
+}
+
+TEST_F(ScannerLateArrivalRfTest, bucket_pruning_after_probe_tasks_start) {
+    constexpr int scan_node_id = 0;
+    constexpr int bucket_num = 4;
+    constexpr int filter_value = 7;
+
+    auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(scan_node_id).build();
+    desc.__set_bucket_pruning_target_ids({scan_node_id});
+
+    ObjectPool pool;
+    DescriptorTblBuilder desc_builder(&pool);
+    desc_builder.declare_tuple() << TupleDescBuilder::SlotType {std::make_shared<DataTypeInt32>(),
+                                                                "dist_col"};
+    DescriptorTbl* desc_tbl = desc_builder.build();
+    ASSERT_NE(desc_tbl, nullptr);
+
+    TOlapScanNode olap_scan_node;
+    olap_scan_node.__set_tuple_id(0);
+    olap_scan_node.__set_keyType(TKeysType::DUP_KEYS);
+    olap_scan_node.__set_key_column_name({"dist_col"});
+    olap_scan_node.__set_key_column_type({TPrimitiveType::INT});
+
+    TPlanNode plan_node;
+    plan_node.__set_node_id(scan_node_id);
+    plan_node.__set_node_type(TPlanNodeType::OLAP_SCAN_NODE);
+    plan_node.__set_num_children(0);
+    plan_node.__set_limit(-1);
+    plan_node.__set_row_tuples({0});
+    plan_node.__set_runtime_filters({desc});
+    plan_node.__set_olap_scan_node(olap_scan_node);
+
+    auto op = std::make_shared<OlapScanOperatorX>(&pool, plan_node, 0, *desc_tbl, bucket_num,
+                                                  TQueryCacheParam {});
+    auto* state = _runtime_states[0].get();
+    state->set_desc_tbl(desc_tbl);
+    TQueryOptions query_options =
+            TQueryOptionsBuilder().set_runtime_filter_max_in_num(1024).build();
+    query_options.__set_enable_runtime_filter_bucket_prune(true);
+    state->set_query_options(query_options);
+
+    auto local_state = OlapScanLocalState::create_shared(state, op.get());
+    std::vector<std::shared_ptr<Dependency>> rf_dependencies;
+    ASSERT_TRUE(local_state->_helper.init(state, true, 0, 0, rf_dependencies, "").ok());
+    ASSERT_TRUE(
+            local_state->_helper
+                    .acquire_runtime_filter(state, local_state->_conjuncts, op->row_descriptor())
+                    .ok());
+    ASSERT_TRUE(local_state->_conjuncts.empty());
+    auto task_exec_ctx = std::make_shared<TaskExecutionContext>();
+    state->set_task_execution_context(task_exec_ctx);
+    for (int bucket_seq = 0; bucket_seq < bucket_num; ++bucket_seq) {
+        local_state->_rf_bucket_prune_ranges.push_back({100 + bucket_seq, bucket_seq, bucket_num});
+    }
+    RuntimeProfile scan_profile("late bucket scan");
+    local_state->_buckets_pruned_by_rf_counter =
+            ADD_COUNTER(&scan_profile, "BucketsPrunedByRuntimeFilter", TUnit::UNIT);
+    local_state->_scan_timer = ADD_TIMER(&scan_profile, "ScannerGetBlockTime");
+    local_state->_scan_cpu_timer = ADD_TIMER(&scan_profile, "ScannerCpuTime");
+    local_state->_filter_timer = ADD_TIMER(&scan_profile, "ScannerFilterTime");
+    local_state->_rows_read_counter = ADD_COUNTER(&scan_profile, "RowsRead", TUnit::UNIT);
+
+    uint32_t hash = RawValue::zlib_crc32(&filter_value, sizeof(filter_value), TYPE_INT, 0);
+    int selected_bucket = static_cast<int>(hash % bucket_num);
+    std::latch prepare_started(bucket_num);
+    std::latch filter_published(1);
+    std::list<std::shared_ptr<ScannerDelegate>> scanner_delegates;
+    std::vector<std::shared_ptr<LateBucketScanner>> scanners;
+    for (int bucket_seq = 0; bucket_seq < bucket_num; ++bucket_seq) {
+        auto scanner = std::make_shared<LateBucketScanner>(
+                state, local_state.get(), 100 + bucket_seq, bucket_seq == selected_bucket,
+                &scan_profile, &prepare_started, &filter_published);
+        ASSERT_TRUE(scanner->init(state, {}).ok());
+        scanners.push_back(scanner);
+        ScannerSPtr scanner_base = scanner;
+        scanner_delegates.push_back(std::make_shared<ScannerDelegate>(scanner_base));
+    }
+
+    auto dependency = Dependency::create_shared(0, 0, "late bucket scan dependency");
+    std::atomic<int64_t> shared_limit {-1};
+    auto scanner_context = ScannerContext::create_shared(
+            state, local_state.get(), desc_tbl->get_tuple_descriptor(0), nullptr, scanner_delegates,
+            -1, dependency, &shared_limit, nullptr, nullptr, 0, false, bucket_num);
+    scanner_context->_newly_create_free_blocks_num =
+            ADD_COUNTER(&scan_profile, "NewlyCreatedFreeBlocks", TUnit::UNIT);
+    scanner_context->_scanner_memory_used_counter =
+            ADD_COUNTER(&scan_profile, "ScannerMemoryUsed", TUnit::BYTES);
+    scanner_context->_max_bytes_in_queue = 10 * 1024 * 1024;
+    std::vector<std::shared_ptr<ScanTask>> tasks;
+    for (const auto& scanner_delegate : scanner_delegates) {
+        auto task = std::make_shared<ScanTask>(scanner_delegate);
+        task->set_state(ScanTask::State::IN_FLIGHT);
+        tasks.push_back(std::move(task));
+    }
+    scanner_context->_in_flight_tasks_num = bucket_num;
+
+    std::vector<std::thread> probe_threads;
+    for (const auto& task : tasks) {
+        probe_threads.emplace_back([scanner_context, task] {
+            ScannerScheduler::_scanner_scan(scanner_context, task);
+        });
+    }
+
+    // Every task has passed the scheduler's pre-prepare pruning check while the RF is not ready.
+    prepare_started.wait();
+    ASSERT_EQ(local_state->_rf_bucket_pruner.pruned_tablet_count(), 0);
+
+    std::shared_ptr<RuntimeFilterProducer> producer;
+    ASSERT_TRUE(RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer).ok());
+    ASSERT_TRUE(producer->init(1).ok());
+    auto filter_column = ColumnInt32::create();
+    filter_column->insert_value(filter_value);
+    ASSERT_TRUE(producer->insert(std::move(filter_column), 0).ok());
+    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    local_state->_helper._consumers[0]->signal(producer.get());
+    filter_published.count_down();
+
+    for (auto& thread : probe_threads) {
+        thread.join();
+    }
+
+    for (int bucket_seq = 0; bucket_seq < bucket_num; ++bucket_seq) {
+        if (bucket_seq == selected_bucket) {
+            EXPECT_GT(scanners[bucket_seq]->read_calls(), 0);
+            EXPECT_NE(tasks[bucket_seq]->cached_block, nullptr);
+        } else {
+            EXPECT_EQ(scanners[bucket_seq]->read_calls(), 0);
+        }
+    }
+    int64_t result_rows = 0;
+    for (const auto& task : tasks) {
+        if (task->cached_block != nullptr) {
+            result_rows += task->cached_block->rows();
+        }
+    }
+    ASSERT_EQ(result_rows, 1);
+    ASSERT_GT(local_state->_buckets_pruned_by_rf_counter->value(), 0);
+    ASSERT_GT(local_state->_rf_bucket_pruner.pruned_tablet_count(), 0);
+    ASSERT_LT(local_state->_rf_bucket_pruner.pruned_tablet_count(), bucket_num);
 }
 
 TEST(ScannerProjectionTest, merges_padding_block_when_limit_eos_without_extra_flag) {
