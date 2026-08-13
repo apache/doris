@@ -102,25 +102,7 @@ suite("rf_bucket_pruning", "nonConcurrent") {
 
     def profileAction = new ProfileAction(context)
     def getProfileByToken = { String token ->
-        String profileContent = ""
-        for (int attempt = 0; attempt < 60; attempt++) {
-            List profileData = profileAction.getProfileList()
-            for (final def profileItem in profileData) {
-                if (profileItem["Sql Statement"].toString().contains(token)) {
-                    def currentProfile = profileAction.getProfile(profileItem["Profile ID"].toString())
-                    if (currentProfile != "") {
-                        profileContent = currentProfile
-                    }
-                    if (profileItem["Profile Completion State"]?.toString() == "COMPLETE"
-                            && profileContent.contains("BucketsPrunedByRuntimeFilter")) {
-                        return profileContent
-                    }
-                    break
-                }
-            }
-            Thread.sleep(500)
-        }
-        return profileContent
+        return profileAction.getProfileBySql(token, ["BucketsPrunedByRuntimeFilter"])
     }
     def extractPrunedBuckets = { String profile ->
         def values = (profile =~ /-\s*BucketsPrunedByRuntimeFilter:\s*(\d+)/)
