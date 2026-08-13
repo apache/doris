@@ -248,13 +248,10 @@ static int create_delete_bitmaps_v2(TxnKv* txn_kv, StorageVaultAccessor* accesso
         return -1;
     }
 
-    DeleteBitmapPB delete_bitmap;
     DeleteBitmapStoragePB delete_bitmap_storage;
     delete_bitmap_storage.set_store_in_fdb(false);
     auto key = versioned::meta_delete_bitmap_key({instance_id, tablet_id, rowset_id});
-    std::string val;
-    delete_bitmap_storage.SerializeToString(&val);
-    txn->put(key, val);
+    cloud::blob_put(txn.get(), key, delete_bitmap_storage, 0);
     if (txn->commit() != TxnErrorCode::TXN_OK) {
         return -1;
     }

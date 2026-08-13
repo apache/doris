@@ -3833,8 +3833,8 @@ int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
         return -1;
     }
 
-    std::string dbm_val;
-    err = txn->get(dbm_key, &dbm_val);
+    ValueBuf dbm_val;
+    err = cloud::blob_get(txn.get(), dbm_key, &dbm_val);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         // No delete bitmap for this rowset, nothing to do
         LOG_INFO("delete bitmap not found, skip packed file ref count decrement")
@@ -3853,7 +3853,7 @@ int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
     }
 
     DeleteBitmapStoragePB storage;
-    if (!storage.ParseFromString(dbm_val)) {
+    if (!dbm_val.to_pb(&storage)) {
         LOG_WARNING("failed to parse delete bitmap storage")
                 .tag("instance_id", instance_id_)
                 .tag("tablet_id", tablet_id)
