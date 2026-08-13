@@ -125,6 +125,62 @@ under the License.
             </exclusions>
         </dependency>
 
+        <!--
+          The filesystem implementations themselves. hadoop-common registers only file, har, http
+          and viewfs; every other scheme's FileSystem lives in its own artifact, and until this
+          module became a plugin those artifacts arrived from BE's system classpath - lib/hadoop_hdfs
+          (hdfs, obs, azure) and the shared preload jar (s3a). A plugin sees no system classpath at
+          all, so without them a scan of a table on HDFS fails with "No FileSystem for scheme: hdfs".
+          Which class serves which scheme is FE's decision and is asserted in IcebergPluginTest.
+
+          Two absences are deliberate. hadoop-cos is on that shared classpath today but nothing
+          reaches it: FE points fs.cosn.impl at S3AFileSystem, and no code in the tree names
+          org.apache.hadoop.fs.CosFileSystem. And oss:// is served by JindoFS, which is not a maven
+          artifact - build.sh copies it into this directory when it was packaged.
+        -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs-client</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>runtime</scope>
+            <!-- Keep the plugin's single hadoop-common (declared above): two copies would put
+                 FileSystem in one and DistributedFileSystem's superclass in the other. -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aws</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!--
+          For hadoop-aws, not for iceberg: S3AFileSystem's own methods reference
+          software.amazon.awssdk.transfer.s3, so loading the class fails without this even though
+          nothing here uses the transfer manager. It is the only piece of the AWS SDK named for a
+          reason other than iceberg's FileIO - which is why it sits here rather than up there with
+          s3/sts/kms.
+        -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-azure</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- A fat jar: it self-contains the esdk-obs SDK, so OBS needs nothing else. -->
+        <dependency>
+            <groupId>com.huaweicloud</groupId>
+            <artifactId>hadoop-huaweicloud</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
@@ -180,6 +236,18 @@ under the License.
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <!--
+      com.huaweicloud:hadoop-huaweicloud is not published to Maven Central, and a module does not
+      inherit repositories from its parent here. hadoop-deps and the two FE modules that use the
+      same artifact each declare this the same way.
+    -->
+    <repositories>
+        <repository>
+            <id>huawei-obs-sdk</id>
+            <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+        </repository>
+    </repositories>
 
     <build>
         <finalName>iceberg-metadata-scanner</finalName>
