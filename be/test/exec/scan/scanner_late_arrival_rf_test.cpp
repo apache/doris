@@ -39,6 +39,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "storage/iterator/block_reader.h"
+#include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/tablet/tablet_meta.h"
 #include "testutil/column_helper.h"
@@ -151,15 +152,17 @@ public:
 
     int read_calls() const { return _read_calls.load(); }
     int open_calls() const { return _open_calls.load(); }
+    int prepare_calls() const { return _prepare_calls.load(); }
     int release_calls() const { return _release_calls.load(); }
 
-    void release_prepared_resources() override {
+    void release_unopened_resources() override {
         ++_release_calls;
-        Scanner::release_prepared_resources();
+        Scanner::release_unopened_resources();
     }
 
 protected:
     Status _prepare_impl() override {
+        ++_prepare_calls;
         _prepare_started->count_down();
         _filter_published->wait();
         return Scanner::_prepare_impl();
@@ -195,6 +198,7 @@ private:
     std::latch* _filter_published;
     std::atomic<int> _read_calls {0};
     std::atomic<int> _open_calls {0};
+    std::atomic<int> _prepare_calls {0};
     std::atomic<int> _release_calls {0};
     bool _returned = false;
 };
@@ -432,6 +436,105 @@ TEST_F(ScannerLateArrivalRfTest, bucket_pruning_after_probe_tasks_start) {
     ASSERT_LT(local_state->_rf_bucket_pruner.pruned_tablet_count(), bucket_num);
 }
 
+TEST_F(ScannerLateArrivalRfTest, bounded_concurrency_prunes_scanner_before_first_schedule) {
+    constexpr int scan_node_id = 0;
+    constexpr int32_t bucket_num = 2;
+    constexpr int32_t active_bucket = 0;
+    constexpr int32_t pending_bucket = 1;
+
+    ObjectPool pool;
+    DescriptorTblBuilder desc_builder(&pool);
+    desc_builder.declare_tuple() << TupleDescBuilder::SlotType {std::make_shared<DataTypeInt32>(),
+                                                                "dist_col"};
+    DescriptorTbl* desc_tbl = desc_builder.build();
+    ASSERT_NE(desc_tbl, nullptr);
+
+    TOlapScanNode olap_scan_node;
+    olap_scan_node.__set_tuple_id(0);
+    olap_scan_node.__set_keyType(TKeysType::DUP_KEYS);
+    TPlanNode plan_node;
+    plan_node.__set_node_id(scan_node_id);
+    plan_node.__set_node_type(TPlanNodeType::OLAP_SCAN_NODE);
+    plan_node.__set_num_children(0);
+    plan_node.__set_limit(-1);
+    plan_node.__set_row_tuples({0});
+    plan_node.__set_olap_scan_node(olap_scan_node);
+
+    auto op = std::make_shared<OlapScanOperatorX>(&pool, plan_node, 0, *desc_tbl, bucket_num,
+                                                  TQueryCacheParam {});
+    auto* state = _runtime_states[0].get();
+    state->set_desc_tbl(desc_tbl);
+    auto task_exec_ctx = std::make_shared<TaskExecutionContext>();
+    state->set_task_execution_context(task_exec_ctx);
+    auto local_state = OlapScanLocalState::create_shared(state, op.get());
+    local_state->_has_rf_bucket_prune_metadata = true;
+
+    RuntimeProfile scan_profile("bounded late bucket scan");
+    local_state->_scan_timer = ADD_TIMER(&scan_profile, "ScannerGetBlockTime");
+    local_state->_scan_cpu_timer = ADD_TIMER(&scan_profile, "ScannerCpuTime");
+    local_state->_filter_timer = ADD_TIMER(&scan_profile, "ScannerFilterTime");
+    local_state->_rows_read_counter = ADD_COUNTER(&scan_profile, "RowsRead", TUnit::UNIT);
+
+    std::latch prepare_started(2);
+    std::latch filter_published(0);
+    auto active_scanner = std::make_shared<LateBucketScanner>(
+            state, local_state.get(), active_bucket, bucket_num, true, &scan_profile,
+            &prepare_started, &filter_published);
+    auto pending_scanner = std::make_shared<LateBucketScanner>(
+            state, local_state.get(), pending_bucket, bucket_num, false, &scan_profile,
+            &prepare_started, &filter_published);
+    ASSERT_TRUE(active_scanner->init(state, {}).ok());
+    ASSERT_TRUE(pending_scanner->init(state, {}).ok());
+
+    ScannerSPtr pending_scanner_base = pending_scanner;
+    ScannerSPtr active_scanner_base = active_scanner;
+    std::list<std::shared_ptr<ScannerDelegate>> scanner_delegates;
+    scanner_delegates.push_back(std::make_shared<ScannerDelegate>(pending_scanner_base));
+    scanner_delegates.push_back(std::make_shared<ScannerDelegate>(active_scanner_base));
+
+    auto dependency = Dependency::create_shared(0, 0, "bounded late bucket scan dependency");
+    std::atomic<int64_t> shared_limit {-1};
+    auto scanner_context = ScannerContext::create_shared(
+            state, local_state.get(), desc_tbl->get_tuple_descriptor(0), nullptr, scanner_delegates,
+            -1, dependency, &shared_limit, nullptr, nullptr, 0, false, 1);
+    scanner_context->_newly_create_free_blocks_num =
+            ADD_COUNTER(&scan_profile, "NewlyCreatedFreeBlocks", TUnit::UNIT);
+    scanner_context->_scanner_memory_used_counter =
+            ADD_COUNTER(&scan_profile, "ScannerMemoryUsed", TUnit::BYTES);
+    scanner_context->_max_bytes_in_queue = 10 * 1024 * 1024;
+
+    auto active_task = scanner_context->_pull_next_scan_task(nullptr, 0);
+    ASSERT_NE(active_task, nullptr);
+    ASSERT_EQ(active_task->scanner.lock()->_scanner, active_scanner);
+    EXPECT_EQ(scanner_context->_pull_next_scan_task(nullptr, 1), nullptr);
+
+    active_task->set_state(ScanTask::State::IN_FLIGHT);
+    scanner_context->_in_flight_tasks_num = 1;
+    ScannerScheduler::_scanner_scan(scanner_context, active_task);
+    ASSERT_EQ(active_scanner->prepare_calls(), 1);
+    ASSERT_EQ(active_scanner->open_calls(), 1);
+    ASSERT_EQ(scanner_context->_in_flight_tasks_num, 0);
+    ASSERT_EQ(scanner_context->_completed_tasks.size(), 1);
+    scanner_context->_completed_tasks.clear();
+
+    // Model the active scanner applying a newly published filter before the pending scanner gets
+    // its sole concurrency slot, so the shared pruner already excludes the pending bucket.
+    local_state->_rf_bucket_pruner._selected_buckets_by_num[bucket_num] = {active_bucket};
+
+    auto pending_task = scanner_context->_pull_next_scan_task(nullptr, 0);
+    ASSERT_NE(pending_task, nullptr);
+    ASSERT_EQ(pending_task->scanner.lock()->_scanner, pending_scanner);
+    pending_task->set_state(ScanTask::State::IN_FLIGHT);
+    scanner_context->_in_flight_tasks_num = 1;
+    ScannerScheduler::_scanner_scan(scanner_context, pending_task);
+
+    EXPECT_EQ(pending_scanner->prepare_calls(), 0);
+    EXPECT_EQ(pending_scanner->open_calls(), 0);
+    EXPECT_EQ(pending_scanner->read_calls(), 0);
+    EXPECT_EQ(pending_scanner->release_calls(), 1);
+    EXPECT_TRUE(pending_task->is_eos());
+}
+
 TEST_F(ScannerLateArrivalRfTest, parallel_scanner_factory_preserves_bucket_identity) {
     constexpr int scan_node_id = 0;
     constexpr int32_t bucket_seq = 3;
@@ -478,14 +581,42 @@ TEST_F(ScannerLateArrivalRfTest, parallel_scanner_factory_preserves_bucket_ident
     ParallelScannerBuilder builder(local_state.get(), tablets, read_sources, scan_ranges, profile,
                                    {}, state, -1, true, true);
 
-    auto scanner =
-            builder._build_scanner(tablet, 1, {}, TabletReadSource {}, io::FileCacheStatistics {});
+    auto scanner = builder._build_scanner(tablet, 1, {}, *scan_ranges.front(), TabletReadSource {},
+                                          io::FileCacheStatistics {});
     EXPECT_EQ(scanner->_bucket_seq, bucket_seq);
     EXPECT_EQ(scanner->_bucket_num, bucket_num);
     EXPECT_TRUE(scanner->is_pruned_by_runtime_filter());
 }
 
-TEST_F(ScannerLateArrivalRfTest, olap_scanner_releases_prepared_resources_before_open) {
+TEST_F(ScannerLateArrivalRfTest, high_cardinality_ineligible_parallel_builder_reuses_scan_ranges) {
+    constexpr size_t scan_range_count = 20'000;
+    constexpr int64_t first_tablet_id = 100;
+
+    std::vector<TabletWithVersion> tablets;
+    std::vector<TabletReadSource> read_sources(scan_range_count);
+    std::vector<std::unique_ptr<TPaloScanRange>> scan_ranges;
+    tablets.reserve(scan_range_count);
+    scan_ranges.reserve(scan_range_count);
+    for (size_t i = 0; i < scan_range_count; ++i) {
+        int64_t tablet_id = first_tablet_id + static_cast<int64_t>(i);
+        tablets.push_back({std::make_shared<FakeTablet>(1, tablet_id), 1});
+        auto scan_range = std::make_unique<TPaloScanRange>();
+        scan_range->__set_tablet_id(tablet_id);
+        scan_ranges.push_back(std::move(scan_range));
+    }
+    std::vector<OlapScanRange*> key_ranges;
+    std::shared_ptr<RuntimeProfile> profile;
+
+    ParallelScannerBuilder builder(nullptr, tablets, read_sources, scan_ranges, profile, key_ranges,
+                                   nullptr, -1, true, true);
+
+    EXPECT_EQ(&builder._scan_ranges, &scan_ranges);
+    EXPECT_EQ(builder._scan_ranges.size(), scan_range_count);
+    EXPECT_FALSE(builder._scan_ranges.front()->__isset.bucket_seq);
+    EXPECT_FALSE(builder._scan_ranges.front()->__isset.bucket_num);
+}
+
+TEST_F(ScannerLateArrivalRfTest, olap_scanner_releases_resources_before_open) {
     constexpr int scan_node_id = 0;
     constexpr int64_t partition_id = 10;
     constexpr int64_t tablet_id = 20;
@@ -513,33 +644,68 @@ TEST_F(ScannerLateArrivalRfTest, olap_scanner_releases_prepared_resources_before
     auto* state = _runtime_states[0].get();
     state->set_desc_tbl(desc_tbl);
     auto local_state = OlapScanLocalState::create_shared(state, op.get());
-    auto tablet = std::make_shared<FakeTablet>(partition_id, tablet_id);
-    RuntimeProfile profile("prepared scanner cleanup");
+    auto unprepared_tablet = std::make_shared<FakeTablet>(partition_id, tablet_id);
+    auto delete_predicate = std::make_shared<RowsetMeta>();
+    std::weak_ptr<BaseTablet> unprepared_tablet_ref = unprepared_tablet;
+    std::weak_ptr<RowsetMeta> delete_predicate_ref = delete_predicate;
+    RuntimeProfile profile("unopened scanner cleanup");
     OlapScanner::Params params;
     params.state = state;
     params.profile = &profile;
-    params.tablet = tablet;
+    params.tablet = unprepared_tablet;
     params.version = 1;
+    params.read_source.rs_splits.emplace_back();
+    params.read_source.delete_predicates.push_back(delete_predicate);
     params.limit = -1;
     params.aggregation = true;
-    auto scanner = OlapScanner::create_shared(local_state.get(), std::move(params));
-    ASSERT_TRUE(scanner->Scanner::_prepare_impl().ok());
-    scanner->_tablet_reader = std::make_unique<BlockReader>();
-    scanner->_tablet_reader_params.rs_splits.emplace_back();
+    auto unprepared_scanner = OlapScanner::create_shared(local_state.get(), std::move(params));
+    unprepared_tablet.reset();
+    delete_predicate.reset();
 
-    ASSERT_TRUE(scanner->has_prepared());
-    ASSERT_FALSE(scanner->is_open());
-    ASSERT_NE(scanner->_tablet_reader, nullptr);
-    ASSERT_FALSE(scanner->_tablet_reader_params.rs_splits.empty());
+    ASSERT_FALSE(unprepared_scanner->has_prepared());
+    ASSERT_FALSE(unprepared_scanner->is_open());
+    ASSERT_FALSE(unprepared_tablet_ref.expired());
+    ASSERT_FALSE(delete_predicate_ref.expired());
+    ASSERT_FALSE(unprepared_scanner->_tablet_reader_params.rs_splits.empty());
+    ASSERT_FALSE(unprepared_scanner->_tablet_reader_params.delete_predicates.empty());
 
-    scanner->release_prepared_resources();
+    unprepared_scanner->release_unopened_resources();
 
-    EXPECT_FALSE(scanner->has_prepared());
-    EXPECT_FALSE(scanner->is_open());
-    EXPECT_EQ(scanner->_tablet_reader, nullptr);
-    EXPECT_TRUE(scanner->_tablet_reader_params.rs_splits.empty());
-    EXPECT_EQ(scanner->_tablet_reader_params.tablet, tablet);
-    scanner->update_realtime_counters();
+    EXPECT_FALSE(unprepared_scanner->has_prepared());
+    EXPECT_FALSE(unprepared_scanner->is_open());
+    EXPECT_TRUE(unprepared_tablet_ref.expired());
+    EXPECT_TRUE(delete_predicate_ref.expired());
+    EXPECT_EQ(unprepared_scanner->_tablet_reader_params.tablet, nullptr);
+    EXPECT_TRUE(unprepared_scanner->_tablet_reader_params.rs_splits.empty());
+    EXPECT_TRUE(unprepared_scanner->_tablet_reader_params.delete_predicates.empty());
+
+    auto prepared_tablet = std::make_shared<FakeTablet>(partition_id, tablet_id + 1);
+    OlapScanner::Params prepared_params;
+    prepared_params.state = state;
+    prepared_params.profile = &profile;
+    prepared_params.tablet = prepared_tablet;
+    prepared_params.version = 1;
+    prepared_params.limit = -1;
+    prepared_params.aggregation = true;
+    auto prepared_scanner =
+            OlapScanner::create_shared(local_state.get(), std::move(prepared_params));
+    ASSERT_TRUE(prepared_scanner->Scanner::_prepare_impl().ok());
+    prepared_scanner->_tablet_reader = std::make_unique<BlockReader>();
+    prepared_scanner->_tablet_reader_params.rs_splits.emplace_back();
+
+    ASSERT_TRUE(prepared_scanner->has_prepared());
+    ASSERT_FALSE(prepared_scanner->is_open());
+    ASSERT_NE(prepared_scanner->_tablet_reader, nullptr);
+    ASSERT_FALSE(prepared_scanner->_tablet_reader_params.rs_splits.empty());
+
+    prepared_scanner->release_unopened_resources();
+
+    EXPECT_FALSE(prepared_scanner->has_prepared());
+    EXPECT_FALSE(prepared_scanner->is_open());
+    EXPECT_EQ(prepared_scanner->_tablet_reader, nullptr);
+    EXPECT_TRUE(prepared_scanner->_tablet_reader_params.rs_splits.empty());
+    EXPECT_EQ(prepared_scanner->_tablet_reader_params.tablet, nullptr);
+    prepared_scanner->update_realtime_counters();
 }
 
 TEST(ScannerProjectionTest, merges_padding_block_when_limit_eos_without_extra_flag) {

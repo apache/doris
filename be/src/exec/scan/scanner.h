@@ -208,10 +208,9 @@ public:
     // Returns true if this scanner's scan range has been pruned by a runtime filter.
     virtual bool is_pruned_by_runtime_filter() const { return false; }
 
-    // Releases resources acquired by prepare() when runtime-filter pruning makes open()
-    // unnecessary. The scanner will not be scheduled again after this call.
-    virtual void release_prepared_resources() {
-        DORIS_CHECK(_has_prepared);
+    // Releases resources owned by a scanner that runtime-filter pruning makes unnecessary before
+    // open(). The scanner will not be scheduled again after this call.
+    virtual void release_unopened_resources() {
         DORIS_CHECK(!_is_open);
         _has_prepared = false;
     }

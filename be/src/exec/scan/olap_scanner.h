@@ -99,7 +99,7 @@ public:
 
     bool is_pruned_by_runtime_filter() const override;
 
-    void release_prepared_resources() override;
+    void release_unopened_resources() override;
 
     void update_realtime_counters() override;
 

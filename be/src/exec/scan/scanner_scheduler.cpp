@@ -190,7 +190,12 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             // so better to also check low memory and clear free blocks here.
             if (ctx->low_memory_mode()) { ctx->clear_free_blocks(); }
 
-            if (scanner->is_pruned_by_runtime_filter()) { eos = true; }
+            if (scanner->is_pruned_by_runtime_filter()) {
+                if (!scanner->is_open()) {
+                    scanner->release_unopened_resources();
+                }
+                eos = true;
+            }
 
             if (!eos && !scanner->has_prepared()) {
                 status = scanner->prepare();
@@ -204,7 +209,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             if (!eos && !scanner->is_open()) {
                 append_late_arrival_runtime_filter();
                 if (scanner->is_pruned_by_runtime_filter()) {
-                    scanner->release_prepared_resources();
+                    scanner->release_unopened_resources();
                     eos = true;
                 }
             }

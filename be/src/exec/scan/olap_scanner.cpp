@@ -817,21 +817,18 @@ bool OlapScanner::is_pruned_by_runtime_filter() const {
             _tablet_reader_params.tablet->partition_id(), _bucket_seq, _bucket_num);
 }
 
-void OlapScanner::release_prepared_resources() {
-    DORIS_CHECK(_has_prepared);
+void OlapScanner::release_unopened_resources() {
     DORIS_CHECK(!_is_open);
 
     _tablet_reader.reset();
-    auto tablet = std::move(_tablet_reader_params.tablet);
     _tablet_reader_params = TabletReader::ReaderParams {};
-    _tablet_reader_params.tablet = std::move(tablet);
     _common_expr_ctxs_push_down.clear();
     _slot_id_to_virtual_column_expr.clear();
     _virtual_column_exprs.clear();
     _score_runtime.reset();
     _ann_topn_runtime.reset();
 
-    Scanner::release_prepared_resources();
+    Scanner::release_unopened_resources();
 }
 
 doris::TabletStorageType OlapScanner::get_storage_type() {
