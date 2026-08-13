@@ -626,4 +626,40 @@ TEST_F(FixLengthDictDecoderTest, test_skip_value) {
     }
 }
 
+// A data page whose leading bit-width byte is wider than a uint32_t index must be
+// rejected before the RLE decoder is built, otherwise the batch reader memcpys more
+// bytes than fit in the repeated value.
+TEST_F(FixLengthDictDecoderTest, test_set_data_rejects_oversized_bit_width) {
+    std::vector<uint8_t> rle_data = {33, 0x00, 0x00};
+    Slice data_slice(reinterpret_cast<char*>(rle_data.data()), rle_data.size());
+    ASSERT_FALSE(_decoder.set_data(&data_slice).ok());
+}
+
+// An empty page has no bit-width byte to read.
+TEST_F(FixLengthDictDecoderTest, test_set_data_rejects_empty_page) {
+    Slice data_slice(static_cast<char*>(nullptr), 0);
+    ASSERT_FALSE(_decoder.set_data(&data_slice).ok());
+}
+
+// A decoded index past the end of the dictionary must be rejected rather than used to
+// look up _dict_items. bit width 3, one repeated run of value 5 against a 3 entry dict.
+TEST_F(FixLengthDictDecoderTest, test_decode_rejects_out_of_range_index) {
+    MutableColumnPtr column = ColumnUInt8::create();
+    DataTypePtr data_type = std::make_shared<DataTypeUInt8>();
+
+    std::vector<uint8_t> rle_data = {3, 0x08, 0x05};
+    Slice data_slice(reinterpret_cast<char*>(rle_data.data()), rle_data.size());
+    ASSERT_TRUE(_decoder.set_data(&data_slice).ok());
+
+    size_t num_values = 4;
+    std::vector<uint16_t> run_length_null_map(1, num_values); // All non-null
+    std::vector<uint8_t> filter_data(num_values, 1);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(run_length_null_map, num_values, nullptr, &filter_map, 0).ok());
+
+    ASSERT_FALSE(_decoder.decode_values(column, data_type, select_vector, false).ok());
+}
+
 } // namespace doris
