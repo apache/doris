@@ -230,6 +230,16 @@ public class MetaServiceProxyTest {
     }
 
     @Test
+    public void testGetInstanceUsesKnownActualCodeWithoutFallback() throws RpcException {
+        Cloud.MetaServiceResponseStatus status = callGetInstanceWithStatus(
+                Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setActualCode(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber())
+                        .build());
+
+        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY, status.getCode());
+    }
+
+    @Test
     public void testGetInstanceKeepsLegacyCodeForUnknownActualCode() throws RpcException {
         Cloud.MetaServiceResponseStatus status = callGetInstanceWithStatus(
                 Cloud.MetaServiceResponseStatus.newBuilder()
@@ -239,6 +249,44 @@ public class MetaServiceProxyTest {
 
         Assert.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT, status.getCode());
         Assert.assertEquals(Integer.MAX_VALUE, status.getActualCode());
+    }
+
+    @Test
+    public void testGetInstanceFailsClosedForUnknownActualCodeWithoutErrorFallback() throws RpcException {
+        Cloud.MetaServiceResponseStatus status = callGetInstanceWithStatus(
+                Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.OK)
+                        .setActualCode(Integer.MAX_VALUE)
+                        .build());
+
+        Assert.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, status.getCode());
+        Assert.assertEquals(Integer.MAX_VALUE, status.getActualCode());
+
+        status = callGetInstanceWithStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                .setActualCode(Integer.MAX_VALUE)
+                .build());
+
+        Assert.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, status.getCode());
+        Assert.assertEquals(Integer.MAX_VALUE, status.getActualCode());
+    }
+
+    @Test
+    public void testGetInstanceFailsClosedWithoutAnyCode() throws RpcException {
+        Cloud.MetaServiceResponseStatus status = callGetInstanceWithStatus(
+                Cloud.MetaServiceResponseStatus.getDefaultInstance());
+
+        Assert.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, status.getCode());
+    }
+
+    @Test
+    public void testResponseFailsClosedWithoutStatus() {
+        Cloud.GetInstanceResponse response = Deencapsulation.invoke(
+                MetaServiceClient.class,
+                "restoreActualCode",
+                Cloud.GetInstanceResponse.getDefaultInstance());
+
+        Assert.assertTrue(response.hasStatus());
+        Assert.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, response.getStatus().getCode());
     }
 
     @Test

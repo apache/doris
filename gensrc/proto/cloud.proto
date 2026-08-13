@@ -1478,8 +1478,9 @@ message MetaServiceResponseStatus {
     optional string msg = 2;
     // Exact client-visible status code encoded as int32, so proto2 clients do not drop unknown
     // enum values. Internal retry signals must be converted before the response is sent.
-    // New clients should use this field when the local enum descriptor recognizes the value,
-    // otherwise fall back to `code`.
+    // New clients should use this field when the local enum descriptor recognizes the value.
+    // Otherwise, use `code` only when it is explicitly present and non-OK, and fail closed with
+    // UNDEFINED_ERR when no recognizable error code is available.
     optional int32 actual_code = 3;
 }
 
@@ -1823,7 +1824,7 @@ enum MetaServiceCode {
     // MetaService must write the exact client-visible code to
     // `MetaServiceResponseStatus.actual_code` and write only a legacy fallback code to
     // `MetaServiceResponseStatus.code`. Any newly added error code that may be returned to
-    // clients must be mapped in get_legacy_code().
+    // clients must be mapped in resolve_response_code_and_msg().
     OK = 0;
 
     //Meta service internal error
