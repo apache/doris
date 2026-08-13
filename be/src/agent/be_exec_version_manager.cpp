@@ -126,8 +126,10 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 //   a. use new fixed object serialization way.
 // 11: start from master
 //   a. enforce Iceberg SQL MERGE cardinality only when every executing BE supports it.
+// 12: start from Doris 4.1
+//   a. support strict ownership hash routing for external table sink writers.
 
-const int BeExecVersionManager::max_be_exec_version = 11;
+const int BeExecVersionManager::max_be_exec_version = 12;
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
 std::set<std::string> BeExecVersionManager::_function_restrict_map;

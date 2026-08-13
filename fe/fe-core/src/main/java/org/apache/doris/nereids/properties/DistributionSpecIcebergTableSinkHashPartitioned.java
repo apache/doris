@@ -19,19 +19,36 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.ExprId;
 
-import java.util.List;
+import com.google.common.collect.ImmutableList;
 
-/** Hash Hive partition values to a unique external table sink writer. */
-public final class DistributionSpecHiveTableSinkHashPartitioned
+import java.util.List;
+import java.util.Objects;
+
+/** Hash final Iceberg partition values to a unique external table sink writer. */
+public final class DistributionSpecIcebergTableSinkHashPartitioned
         extends DistributionSpecExternalTableSinkHashPartitioned {
 
-    /** Create a Hive ownership distribution from partition columns. */
-    public DistributionSpecHiveTableSinkHashPartitioned(List<ExprId> outputColumnExprIds) {
+    private final ImmutableList<String> partitionTransforms;
+
+    /** Create an Iceberg ownership distribution from source columns and positional transforms. */
+    public DistributionSpecIcebergTableSinkHashPartitioned(
+            List<ExprId> outputColumnExprIds, List<String> partitionTransforms) {
         super(outputColumnExprIds);
+        this.partitionTransforms = ImmutableList.copyOf(
+                Objects.requireNonNull(partitionTransforms, "partitionTransforms should not be null"));
+        if (this.partitionTransforms.size() != outputColumnExprIds.size()) {
+            throw new IllegalArgumentException(
+                    "partitionTransforms must match outputColumnExprIds");
+        }
     }
 
     @Override
     public HashAlgorithm getHashAlgorithm() {
-        return HashAlgorithm.DIRECT_HASH;
+        return HashAlgorithm.ICEBERG_TRANSFORM;
+    }
+
+    @Override
+    public List<String> getPartitionTransforms() {
+        return partitionTransforms;
     }
 }

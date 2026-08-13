@@ -17,20 +17,21 @@
 
 package org.apache.doris.nereids.properties;
 
-/**
- * use for Round Robin by data sink.
- */
-public class DistributionSpecHiveTableSinkUnPartitioned extends DistributionSpec {
+import org.apache.doris.nereids.trees.expressions.ExprId;
 
-    public static final DistributionSpecHiveTableSinkUnPartitioned INSTANCE =
-            new DistributionSpecHiveTableSinkUnPartitioned();
+import java.util.List;
 
-    private DistributionSpecHiveTableSinkUnPartitioned() {
-        super();
+/** Hash MaxCompute partition values to a unique external table sink writer. */
+public final class DistributionSpecMaxComputeTableSinkHashPartitioned
+        extends DistributionSpecExternalTableSinkHashPartitioned {
+
+    /** Create a MaxCompute ownership distribution from dynamic partition columns. */
+    public DistributionSpecMaxComputeTableSinkHashPartitioned(List<ExprId> outputColumnExprIds) {
+        super(outputColumnExprIds);
     }
 
     @Override
-    public boolean satisfy(DistributionSpec other) {
-        return other instanceof DistributionSpecHiveTableSinkUnPartitioned;
+    public HashAlgorithm getHashAlgorithm() {
+        return HashAlgorithm.DIRECT_HASH;
     }
 }

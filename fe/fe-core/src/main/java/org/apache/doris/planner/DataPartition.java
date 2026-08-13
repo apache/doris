@@ -23,6 +23,8 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
+import org.apache.doris.thrift.TExternalTableSinkHashPartitionInfo;
 import org.apache.doris.thrift.TIcebergPartitionField;
 import org.apache.doris.thrift.TMergePartitionInfo;
 import org.apache.doris.thrift.TPartitionType;
@@ -52,22 +54,36 @@ public class DataPartition {
     // for hash partition: exprs used to compute hash value
     private ImmutableList<Expr> partitionExprs;
     private MergePartitionInfo mergePartitionInfo;
+    private TExternalTableSinkHashAlgorithm externalHashAlgorithm;
+    private ImmutableList<String> externalPartitionTransforms = ImmutableList.of();
 
     public DataPartition(TPartitionType type, List<Expr> exprs) {
         Preconditions.checkNotNull(exprs);
         Preconditions.checkState(!exprs.isEmpty());
         Preconditions.checkState(type == TPartitionType.HASH_PARTITIONED
                 || type == TPartitionType.RANGE_PARTITIONED
-                || type == TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED
+                || type == TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED
                 || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.copyOf(exprs);
     }
 
+    public DataPartition(TPartitionType type, List<Expr> exprs,
+            TExternalTableSinkHashAlgorithm hashAlgorithm, List<String> partitionTransforms) {
+        this(type, exprs);
+        Preconditions.checkState(type == TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED);
+        this.externalHashAlgorithm = Preconditions.checkNotNull(hashAlgorithm);
+        Preconditions.checkNotNull(partitionTransforms);
+        Preconditions.checkState(hashAlgorithm == TExternalTableSinkHashAlgorithm.DIRECT_HASH
+                        ? partitionTransforms.isEmpty()
+                        : partitionTransforms.size() == exprs.size());
+        this.externalPartitionTransforms = ImmutableList.copyOf(partitionTransforms);
+    }
+
     public DataPartition(TPartitionType type) {
         Preconditions.checkState(type == TPartitionType.UNPARTITIONED
                 || type == TPartitionType.RANDOM
-                || type == TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED
+                || type == TPartitionType.EXTERNAL_TABLE_SINK_UNPARTITIONED
                 || type == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.of();
@@ -107,6 +123,14 @@ public class DataPartition {
         if (mergePartitionInfo != null) {
             result.setMergePartitionInfo(mergePartitionInfo.toThrift());
         }
+        if (externalHashAlgorithm != null) {
+            TExternalTableSinkHashPartitionInfo info = new TExternalTableSinkHashPartitionInfo();
+            info.setAlgorithm(externalHashAlgorithm);
+            if (!externalPartitionTransforms.isEmpty()) {
+                info.setPartitionTransforms(externalPartitionTransforms);
+            }
+            result.setExternalTableSinkHashPartitionInfo(info);
+        }
         return result;
     }
 
@@ -143,8 +167,11 @@ public class DataPartition {
             }
         } else if (!partitionExprs.isEmpty()) {
             List<String> strings = Lists.newArrayList();
-            for (Expr expr : partitionExprs) {
-                strings.add(expr.toSql());
+            for (int i = 0; i < partitionExprs.size(); i++) {
+                Expr expr = partitionExprs.get(i);
+                strings.add(externalPartitionTransforms.isEmpty()
+                        ? expr.toSql()
+                        : externalPartitionTransforms.get(i) + "(" + expr.toSql() + ")");
             }
             str.append(": ").append(Joiner.on(", ").join(strings));
         }

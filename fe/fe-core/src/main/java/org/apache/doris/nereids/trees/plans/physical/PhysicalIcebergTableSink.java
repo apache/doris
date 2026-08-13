@@ -18,10 +18,13 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecIcebergTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -38,10 +41,10 @@ import org.apache.iceberg.types.Types;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.TreeMap;
 
 /** physical iceberg sink */
 public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
@@ -135,31 +138,104 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
             return PhysicalProperties.GATHER;
         }
 
-        Set<String> partitionNames = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        if (targetIcebergTable.spec().isPartitioned()) {
+            if (Config.be_exec_version
+                    < DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION) {
+                return PhysicalProperties.GATHER;
+            }
+            DistributionSpecIcebergTableSinkHashPartitioned distributionSpec
+                    = buildPartitionDistributionSpec();
+            // An unsupported transform must not silently route one Iceberg partition to
+            // multiple writers. GATHER is the safe fallback until the transform is supported.
+            return distributionSpec == null
+                    ? PhysicalProperties.GATHER
+                    : new PhysicalProperties(distributionSpec);
+        }
+        return PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;
+    }
+
+    private DistributionSpecIcebergTableSinkHashPartitioned buildPartitionDistributionSpec() {
+        List<org.apache.doris.nereids.trees.expressions.Slot> outputSlots = child().getOutput();
+        if (cols.size() != outputSlots.size()) {
+            return null;
+        }
+
+        Map<String, ExprId> columnExprIds = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Map<String, Column> columnsByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (int i = 0; i < cols.size(); i++) {
+            columnExprIds.put(cols.get(i).getName(), outputSlots.get(i).getExprId());
+            columnsByName.put(cols.get(i).getName(), cols.get(i));
+        }
+
+        List<ExprId> sourceExprIds = new ArrayList<>();
+        List<String> transforms = new ArrayList<>();
         for (PartitionField field : targetIcebergTable.spec().fields()) {
             Types.NestedField sourceField = targetIcebergTable.schema().findField(field.sourceId());
-            if (sourceField != null) {
-                partitionNames.add(sourceField.name());
+            if (sourceField == null) {
+                return null;
+            }
+            ExprId sourceExprId = columnExprIds.get(sourceField.name());
+            Column sourceColumn = columnsByName.get(sourceField.name());
+            String transform = field.transform().toString();
+            if (sourceExprId == null || sourceColumn == null
+                    || !supportsPartitionTransform(transform, sourceColumn.getPrimitiveType())) {
+                return null;
+            }
+            sourceExprIds.add(sourceExprId);
+            transforms.add(transform);
+        }
+        if (sourceExprIds.isEmpty()) {
+            return null;
+        }
+        return new DistributionSpecIcebergTableSinkHashPartitioned(sourceExprIds, transforms);
+    }
+
+    private boolean supportsPartitionTransform(String transform, PrimitiveType sourceType) {
+        if ("identity".equals(transform) || "void".equals(transform)) {
+            return true;
+        }
+        if ("year".equals(transform) || "month".equals(transform) || "day".equals(transform)) {
+            return sourceType == PrimitiveType.DATEV2 || sourceType == PrimitiveType.DATETIMEV2;
+        }
+        if ("hour".equals(transform)) {
+            return sourceType == PrimitiveType.DATETIMEV2;
+        }
+        if (transform.startsWith("bucket[") && transform.endsWith("]")) {
+            switch (sourceType) {
+                case INT:
+                case BIGINT:
+                case VARCHAR:
+                case CHAR:
+                case STRING:
+                case DATEV2:
+                case DATETIMEV2:
+                case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                case DECIMAL256:
+                    return true;
+                default:
+                    return false;
             }
         }
-        if (!partitionNames.isEmpty()) {
-            List<Integer> columnIdx = new ArrayList<>();
-            // Sink columns are bound from targetIcebergTable; using refreshable table metadata
-            // here could shuffle rows with a different partition spec than the writer serializes.
-            for (int i = 0; i < child().getOutput().size(); i++) {
-                if (partitionNames.contains(child().getOutput().get(i).getName())) {
-                    columnIdx.add(i);
-                }
+        if (transform.startsWith("truncate[") && transform.endsWith("]")) {
+            switch (sourceType) {
+                case INT:
+                case BIGINT:
+                case VARCHAR:
+                case CHAR:
+                case STRING:
+                case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                case DECIMAL256:
+                    return true;
+                default:
+                    return false;
             }
-            // mapping partition id
-            List<ExprId> exprIds = columnIdx.stream()
-                    .map(idx -> child().getOutput().get(idx).getExprId())
-                    .collect(Collectors.toList());
-            DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
-                    = new DistributionSpecHiveTableSinkHashPartitioned();
-            shuffleInfo.setOutputColExprIds(exprIds);
-            return new PhysicalProperties(shuffleInfo);
         }
-        return PhysicalProperties.SINK_RANDOM_PARTITIONED;
+        return false;
     }
 }

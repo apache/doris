@@ -32,9 +32,10 @@ import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
@@ -54,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -528,12 +530,13 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         mockTargetTable(schema, new HashSet<>());
         String unPartTargetTable = "unpart_" + insertTable;
         String insertSql = "INSERT INTO " + unPartTargetTable + " values(1, 'v1', 32.1, 'aabb')";
-        PhysicalPlan physicalSink = getPhysicalPlan(insertSql, PhysicalProperties.SINK_RANDOM_PARTITIONED,
-                false);
+        PhysicalPlan physicalSink = getPhysicalPlan(insertSql,
+                PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED, false);
         checkUnpartTableSinkPlan(schema, unPartTargetTable, physicalSink);
 
         String insertOverwriteSql = "INSERT OVERWRITE TABLE " + unPartTargetTable + " values(1, 'v1', 32.1, 'aabb')";
-        PhysicalPlan physicalOverwriteSink = getPhysicalPlan(insertOverwriteSql, PhysicalProperties.SINK_RANDOM_PARTITIONED,
+        PhysicalPlan physicalOverwriteSink = getPhysicalPlan(insertOverwriteSql,
+                PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED,
                 true);
         checkUnpartTableSinkPlan(schema, unPartTargetTable, physicalOverwriteSink);
 
@@ -558,12 +561,12 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
 
         String insertSql2 = "INSERT INTO " + partTargetTable + " values(1, 'v1', 'v2', '2020-03-13')";
         PhysicalPlan physicalSink2 = getPhysicalPlan(insertSql2,
-                new PhysicalProperties(new DistributionSpecHiveTableSinkHashPartitioned()), false);
+                externalHashProperties(), false);
         checkPartTableSinkPlan(schema, partTargetTable, physicalSink2);
 
         String insertOverwrite2 = "INSERT OVERWRITE TABLE " + partTargetTable + " values(1, 'v1', 'v2', '2020-03-13')";
         PhysicalPlan physicalOverwriteSink2 = getPhysicalPlan(insertOverwrite2,
-                new PhysicalProperties(new DistributionSpecHiveTableSinkHashPartitioned()), true);
+                externalHashProperties(), true);
         checkPartTableSinkPlan(schema, partTargetTable, physicalOverwriteSink2);
     }
 
@@ -571,7 +574,8 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         Assertions.assertSame(physicalSink.getType(), PlanType.PHYSICAL_DISTRIBUTE);
         // check exchange
         PhysicalDistribute<?> distribute = (PhysicalDistribute<?>) physicalSink;
-        Assertions.assertTrue(distribute.getDistributionSpec() instanceof DistributionSpecHiveTableSinkUnPartitioned);
+        Assertions.assertTrue(distribute.getDistributionSpec()
+                instanceof DistributionSpecExternalTableSinkUnPartitioned);
         Assertions.assertSame(distribute.child(0).getType(), PlanType.PHYSICAL_HIVE_TABLE_SINK);
         // check sink
         PhysicalHiveTableSink<?> physicalHiveSink = (PhysicalHiveTableSink<?>) physicalSink.child(0);
@@ -583,12 +587,18 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         Assertions.assertSame(physicalSink.getType(), PlanType.PHYSICAL_DISTRIBUTE);
         // check exchange
         PhysicalDistribute<?> distribute2 = (PhysicalDistribute<?>) physicalSink;
-        Assertions.assertTrue(distribute2.getDistributionSpec() instanceof DistributionSpecHiveTableSinkHashPartitioned);
+        Assertions.assertTrue(distribute2.getDistributionSpec()
+                instanceof DistributionSpecHiveTableSinkHashPartitioned);
         Assertions.assertSame(distribute2.child(0).getType(), PlanType.PHYSICAL_HIVE_TABLE_SINK);
         // check sink
         PhysicalHiveTableSink<?> physicalHiveSink2 = (PhysicalHiveTableSink<?>) physicalSink.child(0);
         Assertions.assertEquals(unPartTargetTable, physicalHiveSink2.getTargetTable().getName());
         Assertions.assertEquals(schema.size(), physicalHiveSink2.getOutput().size());
+    }
+
+    private static PhysicalProperties externalHashProperties() {
+        return new PhysicalProperties(new DistributionSpecHiveTableSinkHashPartitioned(
+                ImmutableList.of(new ExprId(1))));
     }
 
     private void createTargetTable(String tableName) throws Exception {

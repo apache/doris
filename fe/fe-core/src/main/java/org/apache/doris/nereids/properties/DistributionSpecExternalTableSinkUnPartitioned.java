@@ -17,21 +17,22 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.trees.expressions.ExprId;
+/** Adaptive writer distribution for external sinks without an ownership key. */
+public final class DistributionSpecExternalTableSinkUnPartitioned extends DistributionSpec {
 
-import java.util.List;
+    public static final DistributionSpecExternalTableSinkUnPartitioned INSTANCE =
+            new DistributionSpecExternalTableSinkUnPartitioned();
 
-/** Hash Hive partition values to a unique external table sink writer. */
-public final class DistributionSpecHiveTableSinkHashPartitioned
-        extends DistributionSpecExternalTableSinkHashPartitioned {
-
-    /** Create a Hive ownership distribution from partition columns. */
-    public DistributionSpecHiveTableSinkHashPartitioned(List<ExprId> outputColumnExprIds) {
-        super(outputColumnExprIds);
+    private DistributionSpecExternalTableSinkUnPartitioned() {
     }
 
     @Override
-    public HashAlgorithm getHashAlgorithm() {
-        return HashAlgorithm.DIRECT_HASH;
+    public boolean satisfy(DistributionSpec required) {
+        return required instanceof DistributionSpecExternalTableSinkUnPartitioned;
+    }
+
+    @Override
+    public String shapeInfo() {
+        return "DistributionSpecExternalTableSinkUnPartitioned";
     }
 }

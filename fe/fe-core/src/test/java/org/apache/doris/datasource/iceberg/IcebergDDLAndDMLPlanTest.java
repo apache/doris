@@ -27,6 +27,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.properties.DistributionSpecIcebergTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
@@ -49,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -336,6 +339,37 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
                     () -> ((CreateTableCommand) formatV2Plan).getCreateTableInfo().validate(connectContext));
         } finally {
             catalog.getCatalogProperty().deleteProperty("table-default.format-version");
+        }
+    }
+
+    @Test
+    public void testIcebergInsertUsesTransformOwnershipExchange() throws Exception {
+        useIceberg();
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(baseIcebergSchema).bucket("id", 16).build();
+        Mockito.doReturn(partitionSpec).when(mockedIcebergTable).spec();
+        try {
+            String sql = "insert into " + tableName + " values (1, 'name', 2, 3, 4.00)";
+            LogicalPlan command = parseStmt(sql);
+            Assertions.assertTrue(command instanceof InsertIntoTableCommand);
+            Plan explainPlan = ((InsertIntoTableCommand) command).getExplainPlan(connectContext);
+            PhysicalPlan physicalPlan = planPhysicalPlan(
+                    (LogicalPlan) explainPlan, PhysicalProperties.ANY, sql);
+
+            PhysicalIcebergTableSink<?> sink =
+                    getSinglePhysicalSink(physicalPlan, PhysicalIcebergTableSink.class);
+            Assertions.assertTrue(sink.getRequirePhysicalProperties().getDistributionSpec()
+                    instanceof DistributionSpecIcebergTableSinkHashPartitioned);
+            DistributionSpecIcebergTableSinkHashPartitioned distributionSpec =
+                    (DistributionSpecIcebergTableSinkHashPartitioned) sink
+                            .getRequirePhysicalProperties().getDistributionSpec();
+            Assertions.assertEquals(ImmutableList.of("bucket[16]"),
+                    distributionSpec.getPartitionTransforms());
+
+            Set<PhysicalDistribute> distributes = physicalPlan.collect(PhysicalDistribute.class::isInstance);
+            Assertions.assertTrue(distributes.stream().anyMatch(distribute -> distribute.getDistributionSpec()
+                    instanceof DistributionSpecIcebergTableSinkHashPartitioned));
+        } finally {
+            Mockito.doReturn(basePartitionSpec).when(mockedIcebergTable).spec();
         }
     }
 

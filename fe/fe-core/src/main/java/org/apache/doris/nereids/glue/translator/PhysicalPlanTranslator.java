@@ -86,10 +86,10 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecExecutionAny;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.DistributionSpecOlapTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
@@ -245,6 +245,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
+import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -3342,19 +3343,33 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return new DataPartition(partitionType, partitionExprs);
         } else if (distributionSpec instanceof DistributionSpecOlapTableSinkHashPartitioned) {
             return DataPartition.TABLET_ID;
-        } else if (distributionSpec instanceof DistributionSpecHiveTableSinkHashPartitioned) {
-            DistributionSpecHiveTableSinkHashPartitioned partitionSpecHash =
-                    (DistributionSpecHiveTableSinkHashPartitioned) distributionSpec;
+        } else if (distributionSpec instanceof DistributionSpecExternalTableSinkHashPartitioned) {
+            DistributionSpecExternalTableSinkHashPartitioned externalSpec =
+                    (DistributionSpecExternalTableSinkHashPartitioned) distributionSpec;
             List<Expr> partitionExprs = Lists.newArrayList();
-            List<ExprId> partitionExprIds = partitionSpecHash.getOutputColExprIds();
-            for (ExprId partitionExprId : partitionExprIds) {
-                if (childOutputIds.contains(partitionExprId)) {
-                    partitionExprs.add(context.findSlotRef(partitionExprId));
+            for (ExprId partitionExprId : externalSpec.getOutputColumnExprIds()) {
+                if (!childOutputIds.contains(partitionExprId)) {
+                    throw new RuntimeException("External table sink partition expression "
+                            + partitionExprId + " is missing from child output");
                 }
+                partitionExprs.add(context.findSlotRef(partitionExprId));
             }
-            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, partitionExprs);
-        } else if (distributionSpec instanceof DistributionSpecHiveTableSinkUnPartitioned) {
-            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED);
+            TExternalTableSinkHashAlgorithm algorithm;
+            switch (externalSpec.getHashAlgorithm()) {
+                case DIRECT_HASH:
+                    algorithm = TExternalTableSinkHashAlgorithm.DIRECT_HASH;
+                    break;
+                case ICEBERG_TRANSFORM:
+                    algorithm = TExternalTableSinkHashAlgorithm.ICEBERG_TRANSFORM;
+                    break;
+                default:
+                    throw new RuntimeException("Unsupported external table sink hash algorithm: "
+                            + externalSpec.getHashAlgorithm());
+            }
+            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED,
+                    partitionExprs, algorithm, externalSpec.getPartitionTransforms());
+        } else if (distributionSpec instanceof DistributionSpecExternalTableSinkUnPartitioned) {
+            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_UNPARTITIONED);
         } else if (distributionSpec instanceof DistributionSpecMerge) {
             DistributionSpecMerge mergeSpec = (DistributionSpecMerge) distributionSpec;
             Expr operationExpr = context.findSlotRef(mergeSpec.getOperationExprId());

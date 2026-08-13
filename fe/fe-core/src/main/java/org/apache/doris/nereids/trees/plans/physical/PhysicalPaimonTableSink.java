@@ -58,7 +58,7 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
         this(database, writeTarget, cols, outputExprs, groupExpression, logicalProperties,
-                PhysicalProperties.SINK_RANDOM_PARTITIONED, null, child);
+                PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED, null, child);
     }
 
     public PhysicalPaimonTableSink(PaimonExternalDatabase database,
@@ -114,7 +114,7 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
 
         List<String> primaryKeys = paimonTable.primaryKeys();
         if (primaryKeys.isEmpty()) {
-            return PhysicalProperties.SINK_RANDOM_PARTITIONED;
+            return PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;
         }
 
         List<Slot> outputSlots = child().getOutput();
