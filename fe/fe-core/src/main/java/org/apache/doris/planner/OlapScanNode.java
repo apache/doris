@@ -210,7 +210,6 @@ public class OlapScanNode extends ScanNode {
 
     // Pack bucket number and sequence into one value to avoid retaining two all-tablet maps.
     private Map<Long, Long> tabletId2BucketInfo = Maps.newHashMap();
-    private boolean runtimeFilterBucketPruneParametersSet = false;
     // a bucket seq may map to many tablets, and each tablet has a
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
@@ -1440,11 +1439,7 @@ public class OlapScanNode extends ScanNode {
         return false;
     }
 
-    @VisibleForTesting
-    synchronized void setRuntimeFilterBucketPruneParameters() {
-        if (runtimeFilterBucketPruneParametersSet) {
-            return;
-        }
+    private void setRuntimeFilterBucketPruneParameters() {
         for (TScanRangeLocations locations : scanRangeLocations) {
             TPaloScanRange scanRange = locations.getScanRange().getPaloScanRange();
             Long bucketInfo = tabletId2BucketInfo.get(scanRange.getTabletId());
@@ -1454,7 +1449,6 @@ public class OlapScanNode extends ScanNode {
             scanRange.setBucketSeq(decodeBucketSeq(bucketInfo));
             scanRange.setBucketNum(decodeBucketNum(bucketInfo));
         }
-        runtimeFilterBucketPruneParametersSet = true;
     }
 
     private static long encodeBucketInfo(int bucketSeq, int bucketNum) {

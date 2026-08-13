@@ -101,18 +101,6 @@ public:
         return _bloom_filter->merge(other->_bloom_filter.get());
     }
 
-    Status deep_copy(BloomFilterFuncBase* other) {
-        DORIS_CHECK(other != nullptr);
-        DORIS_CHECK(other->_bloom_filter != nullptr);
-        DORIS_CHECK_GT(other->_bloom_filter_alloced, 0);
-
-        _bloom_filter_alloced = other->_bloom_filter_alloced;
-        _bloom_filter_length = other->_bloom_filter_length;
-        _bloom_filter.reset(BloomFilterAdaptor::create(_null_aware));
-        RETURN_IF_ERROR(_bloom_filter->init(_bloom_filter_alloced));
-        return merge(other);
-    }
-
     Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size,
                   bool contain_null) {
         if (_bloom_filter == nullptr) {

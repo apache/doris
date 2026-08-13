@@ -42,7 +42,6 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-#include "util/defer_op.h"
 #include "util/raw_value.h"
 
 namespace doris {
@@ -245,11 +244,7 @@ TEST_F(ScannerLateArrivalRfTest, bucket_pruning_after_probe_tasks_start) {
     auto task_exec_ctx = std::make_shared<TaskExecutionContext>();
     state->set_task_execution_context(task_exec_ctx);
     for (int bucket_seq = 0; bucket_seq < bucket_num; ++bucket_seq) {
-        auto scan_range = std::make_unique<TPaloScanRange>();
-        scan_range->__set_tablet_id(100 + bucket_seq);
-        scan_range->__set_bucket_seq(bucket_seq);
-        scan_range->__set_bucket_num(bucket_num);
-        local_state->_scan_ranges.push_back(std::move(scan_range));
+        local_state->_rf_bucket_prune_ranges.push_back({100 + bucket_seq, bucket_seq, bucket_num});
     }
     RuntimeProfile scan_profile("late bucket scan");
     local_state->_buckets_pruned_by_rf_counter =
@@ -293,26 +288,7 @@ TEST_F(ScannerLateArrivalRfTest, bucket_pruning_after_probe_tasks_start) {
     }
     scanner_context->_in_flight_tasks_num = bucket_num;
 
-    std::shared_ptr<RuntimeFilterProducer> producer;
-    ASSERT_TRUE(RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer).ok());
-    ASSERT_TRUE(producer->init(1).ok());
-    auto filter_column = ColumnInt32::create();
-    filter_column->insert_value(filter_value);
-    ASSERT_TRUE(producer->insert(std::move(filter_column), 0).ok());
-    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
-
     std::vector<std::thread> probe_threads;
-    bool filter_released = false;
-    Defer probe_thread_guard {[&] {
-        if (!filter_released) {
-            filter_published.count_down();
-        }
-        for (auto& thread : probe_threads) {
-            if (thread.joinable()) {
-                thread.join();
-            }
-        }
-    }};
     for (const auto& task : tasks) {
         probe_threads.emplace_back([scanner_context, task] {
             ScannerScheduler::_scanner_scan(scanner_context, task);
@@ -321,16 +297,20 @@ TEST_F(ScannerLateArrivalRfTest, bucket_pruning_after_probe_tasks_start) {
 
     // Every task has passed the scheduler's pre-prepare pruning check while the RF is not ready.
     prepare_started.wait();
-    EXPECT_EQ(local_state->_rf_bucket_pruner.pruned_tablet_count(), 0);
+    ASSERT_EQ(local_state->_rf_bucket_pruner.pruned_tablet_count(), 0);
 
+    std::shared_ptr<RuntimeFilterProducer> producer;
+    ASSERT_TRUE(RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer).ok());
+    ASSERT_TRUE(producer->init(1).ok());
+    auto filter_column = ColumnInt32::create();
+    filter_column->insert_value(filter_value);
+    ASSERT_TRUE(producer->insert(std::move(filter_column), 0).ok());
+    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
     local_state->_helper._consumers[0]->signal(producer.get());
     filter_published.count_down();
-    filter_released = true;
 
     for (auto& thread : probe_threads) {
-        if (thread.joinable()) {
-            thread.join();
-        }
+        thread.join();
     }
 
     for (int bucket_seq = 0; bucket_seq < bucket_num; ++bucket_seq) {

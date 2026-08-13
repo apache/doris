@@ -85,7 +85,7 @@ Status RuntimeFilterExpr::clone_node(VExprSPtr* cloned_expr) const {
     return Status::OK();
 }
 
-std::shared_ptr<const DorisVector<uint32_t>> RuntimeFilterExpr::get_bucket_prune_hashes(
+std::shared_ptr<const std::vector<uint32_t>> RuntimeFilterExpr::get_bucket_prune_hashes(
         const DataTypePtr& target_type) const {
     DORIS_CHECK(_runtime_filter_wrapper != nullptr);
     return _runtime_filter_wrapper->get_or_compute_bucket_prune_hashes(target_type);

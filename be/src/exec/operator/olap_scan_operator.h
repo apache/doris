@@ -137,9 +137,9 @@ private:
     Status _build_key_ranges_and_filters();
 
     bool _is_tablet_pruned_by_runtime_filter(int64_t partition_id, int64_t tablet_id) const;
-    bool _has_runtime_filter_bucket_prune_metadata() const;
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    std::vector<RuntimeFilterBucketPruneRange> _rf_bucket_prune_ranges;
     RuntimeFilterBucketPruner _rf_bucket_pruner;
     std::vector<SyncRowsetStats> _sync_statistics;
     MonotonicStopWatch _sync_cloud_tablets_watcher;
