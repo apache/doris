@@ -30,6 +30,7 @@ jobs:
   run-ut:
     name: BE UT (macOS)
     runs-on: macos-15-intel
+    timeout-minutes: 720
     steps:
       - name: Checkout
         uses: actions/checkout@v4
