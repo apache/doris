@@ -37,6 +37,7 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <ranges>
 #include <shared_mutex>
 #include <string>
 #include <type_traits>

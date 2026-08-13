@@ -25,3 +25,10 @@ file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 add_library(Core STATIC ${SRC_FILES})
 
 pch_reuse(Core)
+# wide_integer_from_double.cpp defines DORIS_WIDE_INTEGER_FROM_DOUBLE_IMPL_TU
+# before including wide_integer_impl.h to compile the from-double bodies exactly
+# once. The PCH already contains that header (via storage/olap_common.h) in
+# declaration-only mode, and its pre-spent include guard would leave the explicit
+# instantiations below without definitions. Opt this single TU out of the PCH.
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/wide_integer_from_double.cpp
+                            PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

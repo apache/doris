@@ -22,6 +22,7 @@
 
 #include "common/exception.h"
 #include "core/column/column_fixed_length_object.h"
+#include "exec/common/agg_utils.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vexpr_fwd.h"
