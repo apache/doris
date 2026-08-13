@@ -28,8 +28,8 @@ import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
 import java.util.Map;
 
 /**
- * An authorization source that claims a name the FE already ships ({@code ranger-doris}), so that a test can
- * check what happens when somebody drops such a jar into the plugin directory.
+ * An authorization source that claims a name another source on the FE's class path already answers to, so
+ * that a test can check what happens when somebody drops such a jar into the plugin directory.
  *
  * <p>Not hypothetical: an allow-everything plugin under the name of a real source would be the cheapest way
  * to turn a filesystem write into read access to everything that source governs.
@@ -37,7 +37,14 @@ import java.util.Map;
 public class ShadowingAuthorizationPluginFactory
         implements AuthorizationPluginFactory, AuthorizationPlugin {
 
-    /** Deliberately the name of a source registered on the FE's own class path. */
+    /**
+     * Deliberately the name of a source registered through the class-path channel.
+     *
+     * <p>Doris no longer ships one: the Ranger sources are installed from {@code plugins/authorization/}
+     * like any third-party plugin, and here {@code ranger-doris} is on the class path only because the
+     * ranger plugin module is a test dependency of fe-core. That still exercises the guard for what does
+     * reach the class-path channel in production - a jar an operator put in {@code fe/lib}.
+     */
     public static final String SHADOWED_NAME = "ranger-doris";
 
     @Override

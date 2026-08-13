@@ -26,7 +26,6 @@ import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
-import org.apache.doris.catalog.authorizer.ranger.doris.DorisAccessType;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -171,10 +170,7 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
         RangerAccessResourceImpl resource = createResource(table.getCatalog(), table.getDatabase(),
                 table.getTable());
         RangerAccessRequestImpl request = createRequest(subject);
-        // If the access type is not set here, it defaults to ANY1 ACCESS.
-        // The internal logic of the ranger is to traverse all permission items.
-        // Keep the access type consistent with the service definition to avoid traversing all policy items.
-        request.setAccessType(getSelectAccessType());
+        request.setAccessType(readAccessTypeName());
         request.setResource(resource);
 
         if (LOG.isDebugEnabled()) {
@@ -214,7 +210,7 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
         RangerAccessResourceImpl resource = createResource(table.getCatalog(), table.getDatabase(),
                 table.getTable(), col);
         RangerAccessRequestImpl request = createRequest(subject);
-        request.setAccessType(getSelectAccessType());
+        request.setAccessType(readAccessTypeName());
         request.setResource(resource);
 
         if (LOG.isDebugEnabled()) {
@@ -251,11 +247,20 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
         }
     }
 
-    protected abstract RangerAccessRequestImpl createRequest(AuthorizedSubject subject);
+    /**
+     * How this Ranger service type spells the access type a read is asked with.
+     *
+     * <p>Row-filter and data-mask lookups are made with it rather than left unset: unset means "any access",
+     * which makes Ranger walk every permission item, and the Ranger UI writes these policies against the read
+     * access type anyway, so asking with anything else costs time without changing the answer.
+     *
+     * <p>Every service type Doris talks to happens to spell it {@code SELECT}, which is why this used to be
+     * one hard-coded value for both. It is asked of the subclass because the spelling belongs to the Ranger
+     * service definition, not to Doris.
+     */
+    protected abstract String readAccessTypeName();
 
-    protected String getSelectAccessType() {
-        return DorisAccessType.SELECT.name();
-    }
+    protected abstract RangerAccessRequestImpl createRequest(AuthorizedSubject subject);
 
     protected abstract RangerAccessResourceImpl createResource(String ctl, String db, String tbl);
 

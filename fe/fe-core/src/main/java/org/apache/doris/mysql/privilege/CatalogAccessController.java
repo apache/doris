@@ -32,9 +32,10 @@ import java.util.Set;
  *
  * <p>A controller is asked only about the resources it governs, and its answer is final: nothing outside it
  * grants first. In particular the engine no longer establishes a global privilege before routing, so an
- * implementation that wants "holding the privilege globally is enough" has to say so itself - see
- * {@link org.apache.doris.catalog.authorizer.ranger.RangerAccessController}, which defers to whichever
- * source owns global scope.
+ * implementation that wants "holding the privilege globally is enough" has to say so itself - as the Ranger
+ * sources do, deferring to whichever source owns global scope
+ * ({@code org.apache.doris.catalog.authorizer.ranger.RangerAccessController}, in the ranger plugin and so
+ * not on this module's class path).
  *
  * <p>This is the older shape of that contract, kept because a catalog's {@code access_controller.class}
  * names an implementation of it and such implementations exist outside this repository. The engine reaches
