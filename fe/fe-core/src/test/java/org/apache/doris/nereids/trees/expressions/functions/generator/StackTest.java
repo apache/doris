@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -32,6 +33,8 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -118,7 +121,23 @@ public class StackTest {
         Assertions.assertThrows(AnalysisException.class,
                 () -> new Stack(new ConnectionId(), new IntegerLiteral(1)).getSignatures());
         Assertions.assertThrows(AnalysisException.class,
+                () -> new Stack(new CurrentCatalog(), new IntegerLiteral(1)).getSignatures());
+        Assertions.assertThrows(AnalysisException.class,
                 () -> new Stack(new IntegerLiteral(2), new IntegerLiteral(1),
                         new StringLiteral("a")).getSignatures());
+    }
+
+    @Test
+    public void testMultiColumnAliasCount() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(
+                        "select c1 from (select 1) t "
+                                + "lateral view stack(2, 1, 2, 3, 4, 5) s as c1"));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "table s has 3 columns available but 1 columns specified"));
+
+        PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(
+                "select c1, c2, c3 from (select 1) t "
+                        + "lateral view stack(2, 1, 2, 3, 4, 5) s as c1, c2, c3");
     }
 }

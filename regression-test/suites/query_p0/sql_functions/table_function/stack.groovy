@@ -112,6 +112,16 @@ suite("stack") {
     }
 
     test {
+        sql "select c1 from (select 1) t lateral view stack(current_catalog(), 1) s as c1"
+        exception "The first argument of stack must be a positive constant integer"
+    }
+
+    test {
+        sql "select c1 from (select 1) t lateral view stack(2, 1, 2, 3, 4, 5) s as c1"
+        exception "has 3 columns available but 1 columns specified"
+    }
+
+    test {
         sql "select c1 from (select 1) t lateral view stack(2, 1, 2, 3, 4, 5) s as c1, c2"
         exception "has 3 columns available but 2 columns specified"
     }
