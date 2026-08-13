@@ -126,6 +126,7 @@ bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
 }
 
 Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
+    DORIS_CHECK(!_bucket_prune_hashes_started.load());
     if (_state == State::DISABLED) {
         return Status::OK();
     }
@@ -626,6 +627,12 @@ RuntimeFilterWrapper::get_or_compute_bucket_prune_hashes(const DataTypePtr& targ
     DORIS_CHECK_EQ(primitive_type, _column_return_type);
 
     std::call_once(_bucket_prune_hashes_once, [&] {
+        _bucket_prune_hashes_started.store(true);
+        // Materialize the exact-set values into a column so bucket pruning uses the
+        // column's type-specific CRC implementation. This intentionally makes a
+        // temporary copy of variable-length values. runtime_filter_max_in_num bounds
+        // the number of copied values, but not their total byte size; we accept this
+        // transient memory cost to avoid maintaining a separate per-type hash path.
         MutableColumnPtr column = target_type->create_column();
         auto* iter = _hybrid_set->begin();
         while (iter->has_next()) {

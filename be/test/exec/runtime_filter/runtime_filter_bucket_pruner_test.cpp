@@ -17,6 +17,7 @@
 
 #include "exec/runtime_filter/runtime_filter_bucket_pruner.h"
 
+#include <gen_cpp/PlanNodes_types.h>
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -43,6 +44,7 @@ namespace doris {
 class RuntimeFilterBucketPrunerTest : public testing::Test {
 protected:
     static constexpr int SCAN_NODE_ID = 10;
+    using BucketPruneRanges = std::vector<std::unique_ptr<TPaloScanRange>>;
 
     std::shared_ptr<RuntimeFilterWrapper> make_in_wrapper(int filter_id,
                                                           const std::vector<int32_t>& values,
@@ -128,10 +130,19 @@ protected:
         return desc;
     }
 
-    std::vector<RuntimeFilterBucketPruneRange> four_bucket_ranges() {
-        std::vector<RuntimeFilterBucketPruneRange> ranges;
+    void add_range(BucketPruneRanges* ranges, int64_t tablet_id, int32_t bucket_seq,
+                   int32_t bucket_num) {
+        auto range = std::make_unique<TPaloScanRange>();
+        range->__set_tablet_id(tablet_id);
+        range->__set_bucket_seq(bucket_seq);
+        range->__set_bucket_num(bucket_num);
+        ranges->push_back(std::move(range));
+    }
+
+    BucketPruneRanges four_bucket_ranges() {
+        BucketPruneRanges ranges;
         for (int32_t bucket_seq = 0; bucket_seq < 4; ++bucket_seq) {
-            ranges.push_back({100 + bucket_seq, bucket_seq, 4});
+            add_range(&ranges, 100 + bucket_seq, bucket_seq, 4);
         }
         return ranges;
     }
@@ -168,6 +179,17 @@ TEST_F(RuntimeFilterBucketPrunerTest, ExactSetHashesSharedAcrossConsumers) {
     EXPECT_EQ(first_hashes->back(), HashUtil::zlib_crc_hash_null(0));
 }
 
+TEST_F(RuntimeFilterBucketPrunerTest, RejectsMergeAfterBucketHashesStart) {
+    constexpr int filter_id = 15;
+    auto wrapper = make_in_wrapper(filter_id, {1});
+    auto other = make_in_wrapper(filter_id, {2});
+
+    static_cast<void>(
+            wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>()));
+
+    EXPECT_DEATH({ static_cast<void>(wrapper->merge(other.get())); }, "Check failed");
+}
+
 TEST_F(RuntimeFilterBucketPrunerTest, ExactInKeepsOnlyMatchingBucket) {
     constexpr int filter_id = 7;
     constexpr int32_t value = 10;
@@ -184,7 +206,7 @@ TEST_F(RuntimeFilterBucketPrunerTest, ExactInKeepsOnlyMatchingBucket) {
     EXPECT_EQ(pruner.pruned_tablet_count(), 3);
     int32_t selected_bucket = bucket_for_value(value, 4);
     for (int32_t bucket_seq = 0; bucket_seq < 4; ++bucket_seq) {
-        EXPECT_EQ(pruner.is_tablet_pruned(100 + bucket_seq), bucket_seq != selected_bucket);
+        EXPECT_EQ(pruner.is_bucket_pruned(bucket_seq, 4), bucket_seq != selected_bucket);
     }
 
     ASSERT_TRUE(pruner.prune_by_runtime_filters(four_bucket_ranges(), conjuncts, rf_descs,
@@ -212,8 +234,7 @@ TEST_F(RuntimeFilterBucketPrunerTest, NonNullableTargetConservativelyKeepsNullBu
 
     EXPECT_EQ(newly_pruned, 2);
     for (int32_t bucket_seq = 0; bucket_seq < 4; ++bucket_seq) {
-        EXPECT_EQ(pruner.is_tablet_pruned(100 + bucket_seq),
-                  !selected_buckets.contains(bucket_seq));
+        EXPECT_EQ(pruner.is_bucket_pruned(bucket_seq, 4), !selected_buckets.contains(bucket_seq));
     }
 }
 
@@ -222,12 +243,12 @@ TEST_F(RuntimeFilterBucketPrunerTest, SupportsDifferentBucketCountsAcrossPartiti
     constexpr int32_t value = 10;
     VExprContextSPtrs conjuncts {make_in_conjunct(filter_id, {value})};
     std::vector<TRuntimeFilterDesc> rf_descs {bucket_prune_desc(filter_id)};
-    std::vector<RuntimeFilterBucketPruneRange> ranges;
+    BucketPruneRanges ranges;
     for (int32_t bucket_seq = 0; bucket_seq < 4; ++bucket_seq) {
-        ranges.push_back({100 + bucket_seq, bucket_seq, 4});
+        add_range(&ranges, 100 + bucket_seq, bucket_seq, 4);
     }
     for (int32_t bucket_seq = 0; bucket_seq < 7; ++bucket_seq) {
-        ranges.push_back({200 + bucket_seq, bucket_seq, 7});
+        add_range(&ranges, 200 + bucket_seq, bucket_seq, 7);
     }
 
     RuntimeFilterBucketPruner pruner;
@@ -237,8 +258,8 @@ TEST_F(RuntimeFilterBucketPrunerTest, SupportsDifferentBucketCountsAcrossPartiti
                         .ok());
 
     EXPECT_EQ(newly_pruned, 9);
-    EXPECT_FALSE(pruner.is_tablet_pruned(100 + bucket_for_value(value, 4)));
-    EXPECT_FALSE(pruner.is_tablet_pruned(200 + bucket_for_value(value, 7)));
+    EXPECT_FALSE(pruner.is_bucket_pruned(bucket_for_value(value, 4), 4));
+    EXPECT_FALSE(pruner.is_bucket_pruned(bucket_for_value(value, 7), 7));
 }
 
 TEST_F(RuntimeFilterBucketPrunerTest, EmptyExactInPrunesAllBuckets) {
@@ -270,8 +291,35 @@ TEST_F(RuntimeFilterBucketPrunerTest, NullAwareInKeepsNullBucket) {
     EXPECT_EQ(pruner.pruned_tablet_count(), 3);
     int32_t null_bucket = bucket_for_null(4);
     for (int32_t bucket_seq = 0; bucket_seq < 4; ++bucket_seq) {
-        EXPECT_EQ(pruner.is_tablet_pruned(100 + bucket_seq), bucket_seq != null_bucket);
+        EXPECT_EQ(pruner.is_bucket_pruned(bucket_seq, 4), bucket_seq != null_bucket);
     }
+}
+
+TEST_F(RuntimeFilterBucketPrunerTest, HighRangeCountRetainsBucketState) {
+    constexpr int filter_id = 16;
+    constexpr int32_t value = 10;
+    constexpr int32_t partition_count = 128;
+    constexpr int32_t bucket_num = 256;
+    BucketPruneRanges ranges;
+    ranges.reserve(partition_count * bucket_num);
+    for (int32_t partition = 0; partition < partition_count; ++partition) {
+        for (int32_t bucket_seq = 0; bucket_seq < bucket_num; ++bucket_seq) {
+            add_range(&ranges, static_cast<int64_t>(partition) * bucket_num + bucket_seq,
+                      bucket_seq, bucket_num);
+        }
+    }
+    VExprContextSPtrs conjuncts {make_in_conjunct(filter_id, {value})};
+    std::vector<TRuntimeFilterDesc> rf_descs {bucket_prune_desc(filter_id)};
+
+    RuntimeFilterBucketPruner pruner;
+    int64_t newly_pruned = 0;
+    ASSERT_TRUE(pruner.prune_by_runtime_filters(ranges, conjuncts, rf_descs, SCAN_NODE_ID,
+                                                /*max_in_num=*/1024, &newly_pruned)
+                        .ok());
+
+    EXPECT_EQ(newly_pruned, static_cast<int64_t>(partition_count) * (bucket_num - 1));
+    EXPECT_EQ(pruner.pruned_tablet_count(), newly_pruned);
+    EXPECT_FALSE(pruner.is_bucket_pruned(bucket_for_value(value, bucket_num), bucket_num));
 }
 
 TEST_F(RuntimeFilterBucketPrunerTest, NonExactRuntimeRepresentationIsIgnored) {

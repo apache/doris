@@ -24,10 +24,13 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RecursiveCteScanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRecCTETarget;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -49,6 +52,21 @@ public class ThriftPlansBuilderTest {
         ThriftPlansBuilder.setRuntimePredicateIfNeed(Collections.singletonList(scanNode));
 
         Mockito.verify(sortNode).setHasRuntimePredicate();
+    }
+
+    @Test
+    public void testSetRuntimeFilterBucketPruneParametersOnceBeforeWorkerSerialization() {
+        OlapScanNode olapScanNode = Mockito.mock(OlapScanNode.class);
+        ScanNode otherScanNode = Mockito.mock(ScanNode.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.isEnableRuntimeFilterBucketPrune()).thenReturn(true);
+
+        ThriftPlansBuilder.setRuntimeFilterBucketPruneParametersIfNeeded(
+                Arrays.asList(olapScanNode, otherScanNode), connectContext);
+
+        Mockito.verify(olapScanNode).setRuntimeFilterBucketPruneParameters();
     }
 
     @Test

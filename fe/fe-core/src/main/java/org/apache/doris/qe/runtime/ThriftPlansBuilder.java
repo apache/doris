@@ -41,6 +41,7 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.MultiCastDataSink;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -117,6 +118,8 @@ public class ThriftPlansBuilder {
 
         // we should set runtime predicate first, then we can use heap sort and to thrift
         setRuntimePredicateIfNeed(coordinatorContext.scanNodes);
+        setRuntimeFilterBucketPruneParametersIfNeeded(
+                coordinatorContext.scanNodes, coordinatorContext.connectContext);
 
         int broadcastRuntimeFilterProducerNum = coordinatorContext.connectContext == null
                 ? 0
@@ -201,6 +204,19 @@ public class ThriftPlansBuilder {
         for (ScanNode scanNode : scanNodes) {
             for (SortNode topnFilterSortNode : scanNode.getTopnFilterSortNodes()) {
                 topnFilterSortNode.setHasRuntimePredicate();
+            }
+        }
+    }
+
+    static void setRuntimeFilterBucketPruneParametersIfNeeded(
+            Collection<ScanNode> scanNodes, ConnectContext connectContext) {
+        if (connectContext == null
+                || !connectContext.getSessionVariable().isEnableRuntimeFilterBucketPrune()) {
+            return;
+        }
+        for (ScanNode scanNode : scanNodes) {
+            if (scanNode instanceof OlapScanNode) {
+                ((OlapScanNode) scanNode).setRuntimeFilterBucketPruneParameters();
             }
         }
     }

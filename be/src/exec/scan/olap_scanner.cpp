@@ -108,6 +108,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .end_tso = std::nullopt}),
           _start_tso(params.start_tso),
           _end_tso(params.end_tso),
+          _bucket_seq(params.bucket_seq),
+          _bucket_num(params.bucket_num),
           _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
@@ -812,8 +814,7 @@ bool OlapScanner::is_pruned_by_runtime_filter() const {
     DCHECK(_local_state != nullptr);
     auto* olap_local_state = assert_cast<OlapScanLocalState*>(_local_state);
     return olap_local_state->_is_tablet_pruned_by_runtime_filter(
-            _tablet_reader_params.tablet->partition_id(),
-            _tablet_reader_params.tablet->tablet_id());
+            _tablet_reader_params.tablet->partition_id(), _bucket_seq, _bucket_num);
 }
 
 doris::TabletStorageType OlapScanner::get_storage_type() {

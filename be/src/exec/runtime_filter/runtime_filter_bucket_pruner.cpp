@@ -32,7 +32,7 @@
 namespace doris {
 
 Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
-        const std::vector<RuntimeFilterBucketPruneRange>& ranges,
+        const std::vector<std::unique_ptr<TPaloScanRange>>& ranges,
         const VExprContextSPtrs& conjuncts, const std::vector<TRuntimeFilterDesc>& rf_descs,
         int scan_node_id, int max_in_num, int64_t* newly_pruned_count) {
     *newly_pruned_count = 0;
@@ -51,7 +51,6 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
         return Status::OK();
     }
 
-    phmap::flat_hash_set<int64_t> newly_pruned;
     for (const auto& conjunct_ctx : conjuncts) {
         VExprSPtr root = conjunct_ctx->root();
         if (!root->is_rf_wrapper()) {
@@ -80,16 +79,18 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
 
         std::shared_ptr<const std::vector<uint32_t>> hashes =
                 rf_expr->get_bucket_prune_hashes(target_expr->data_type());
-        phmap::flat_hash_map<int32_t, phmap::flat_hash_set<int32_t>> selected_buckets_by_num;
-        for (const auto& range : ranges) {
-            if (newly_pruned.contains(range.tablet_id)) {
-                continue;
-            }
+        phmap::flat_hash_map<int32_t, phmap::flat_hash_set<int32_t>> new_selected_buckets_by_num;
+        for (const auto& range_ptr : ranges) {
+            DORIS_CHECK(range_ptr != nullptr);
+            const auto& range = *range_ptr;
+            DORIS_CHECK(range.__isset.bucket_seq);
+            DORIS_CHECK(range.__isset.bucket_num);
             DORIS_CHECK_GT(range.bucket_num, 0);
             DORIS_CHECK_GE(range.bucket_seq, 0);
             DORIS_CHECK_LT(range.bucket_seq, range.bucket_num);
 
-            auto [selected_it, inserted] = selected_buckets_by_num.try_emplace(range.bucket_num);
+            auto [selected_it, inserted] =
+                    new_selected_buckets_by_num.try_emplace(range.bucket_num);
             if (inserted) {
                 auto& selected_buckets = selected_it->second;
                 selected_buckets.reserve(
@@ -99,31 +100,49 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
                             static_cast<int32_t>(hash % static_cast<uint32_t>(range.bucket_num)));
                 }
             }
-            if (!selected_it->second.contains(range.bucket_seq)) {
-                newly_pruned.insert(range.tablet_id);
-            }
         }
-    }
 
-    if (!newly_pruned.empty()) {
         std::unique_lock lock(_prune_mutex);
-        for (int64_t tablet_id : newly_pruned) {
-            if (_pruned_tablet_ids.insert(tablet_id).second) {
+        for (const auto& range_ptr : ranges) {
+            const auto& range = *range_ptr;
+            auto current_it = _selected_buckets_by_num.find(range.bucket_num);
+            bool was_selected = current_it == _selected_buckets_by_num.end() ||
+                                current_it->second.contains(range.bucket_seq);
+            if (was_selected &&
+                !new_selected_buckets_by_num.at(range.bucket_num).contains(range.bucket_seq)) {
                 ++*newly_pruned_count;
             }
         }
+        for (auto& [bucket_num, new_selected_buckets] : new_selected_buckets_by_num) {
+            auto current_it = _selected_buckets_by_num.find(bucket_num);
+            if (current_it == _selected_buckets_by_num.end()) {
+                _selected_buckets_by_num.emplace(bucket_num, std::move(new_selected_buckets));
+            } else {
+                for (auto bucket_it = current_it->second.begin();
+                     bucket_it != current_it->second.end();) {
+                    if (!new_selected_buckets.contains(*bucket_it)) {
+                        bucket_it = current_it->second.erase(bucket_it);
+                    } else {
+                        ++bucket_it;
+                    }
+                }
+            }
+        }
+        _pruned_tablet_count += *newly_pruned_count;
     }
     return Status::OK();
 }
 
-bool RuntimeFilterBucketPruner::is_tablet_pruned(int64_t tablet_id) const {
+bool RuntimeFilterBucketPruner::is_bucket_pruned(int32_t bucket_seq, int32_t bucket_num) const {
     std::shared_lock lock(_prune_mutex);
-    return _pruned_tablet_ids.contains(tablet_id);
+    auto selected_it = _selected_buckets_by_num.find(bucket_num);
+    return selected_it != _selected_buckets_by_num.end() &&
+           !selected_it->second.contains(bucket_seq);
 }
 
 int64_t RuntimeFilterBucketPruner::pruned_tablet_count() const {
     std::shared_lock lock(_prune_mutex);
-    return static_cast<int64_t>(_pruned_tablet_ids.size());
+    return _pruned_tablet_count;
 }
 
 } // namespace doris
