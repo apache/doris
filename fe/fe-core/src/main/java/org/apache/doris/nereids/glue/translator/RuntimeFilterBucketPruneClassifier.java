@@ -85,12 +85,28 @@ final class RuntimeFilterBucketPruneClassifier {
     }
 
     private static boolean sameColumn(Column targetColumn, Column distributionColumn) {
-        if (targetColumn == distributionColumn) {
-            return true;
+        Column targetBaseColumn = directBaseColumn(targetColumn);
+        Column distributionBaseColumn = directBaseColumn(distributionColumn);
+        if (targetBaseColumn == null || distributionBaseColumn == null) {
+            return false;
         }
-        return targetColumn.tryGetBaseColumnName()
-                .equalsIgnoreCase(distributionColumn.tryGetBaseColumnName())
+        return targetBaseColumn.getName().equalsIgnoreCase(distributionBaseColumn.getName())
                 && targetColumn.getType().equals(distributionColumn.getType());
+    }
+
+    private static Column directBaseColumn(Column column) {
+        Expr defineExpr = column.getDefineExpr();
+        if (defineExpr == null) {
+            return column;
+        }
+        if (!(defineExpr instanceof SlotRef)) {
+            return null;
+        }
+        Column baseColumn = ((SlotRef) defineExpr).getColumn();
+        if (baseColumn == null || baseColumn.isMaterializedViewColumn()) {
+            return null;
+        }
+        return baseColumn;
     }
 
     static final class Classification {

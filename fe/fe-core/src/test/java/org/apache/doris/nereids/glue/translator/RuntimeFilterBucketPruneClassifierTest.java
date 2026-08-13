@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -117,6 +118,24 @@ class RuntimeFilterBucketPruneClassifierTest {
                 new HashDistributionInfo(8, ImmutableList.of(distributionColumn)));
 
         Assertions.assertTrue(classification.canPruneBuckets());
+    }
+
+    @Test
+    void testComputedMvAliasCollisionRejected() {
+        Column baseDistributionColumn = new Column("dist_col", PrimitiveType.INT);
+        SlotDescriptor baseSlotDescriptor = new SlotDescriptor(new SlotId(2), new TupleId(2));
+        baseSlotDescriptor.setColumn(baseDistributionColumn);
+        baseSlotDescriptor.setType(baseDistributionColumn.getType());
+
+        Column computedMvColumn = new Column("dist_col", PrimitiveType.INT);
+        computedMvColumn.setDefineExpr(new FunctionCallExpr("abs",
+                ImmutableList.of(new SlotRef(baseSlotDescriptor)), true));
+        RuntimeFilterBucketPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.IN, computedMvColumn,
+                new HashDistributionInfo(8, ImmutableList.of(baseDistributionColumn)));
+
+        Assertions.assertFalse(classification.canPruneBuckets());
+        Assertions.assertTrue(classification.getUnsupportedReason().contains("distribution column"));
     }
 
     @Test
