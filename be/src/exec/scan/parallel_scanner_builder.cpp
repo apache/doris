@@ -296,6 +296,8 @@ Status ParallelScannerBuilder::_load() {
 std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
         TabletReadSource&& read_source, io::FileCacheStatistics&& initial_file_cache_stats) {
+    auto bucket_identity = _bucket_identities.find(tablet->tablet_id());
+    DORIS_CHECK(bucket_identity != _bucket_identities.end());
     OlapScanner::Params params {
             .state = _state,
             .profile = _scanner_profile.get(),
@@ -308,6 +310,8 @@ std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
             .aggregation = _is_preaggregation,
             .read_row_binlog = false,
             .binlog_scan_type = TBinlogScanType::NONE,
+            .bucket_seq = bucket_identity->second.first,
+            .bucket_num = bucket_identity->second.second,
             .start_tso = std::nullopt,
             .end_tso = std::nullopt,
     };

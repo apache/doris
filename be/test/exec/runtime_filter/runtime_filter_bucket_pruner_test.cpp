@@ -215,6 +215,29 @@ TEST_F(RuntimeFilterBucketPrunerTest, ExactInKeepsOnlyMatchingBucket) {
     EXPECT_EQ(newly_pruned, 0);
 }
 
+TEST_F(RuntimeFilterBucketPrunerTest, MultipleFiltersCountEachPrunedBucketOnce) {
+    constexpr int first_filter_id = 17;
+    constexpr int second_filter_id = 18;
+    constexpr int32_t first_value = 10;
+    int32_t second_value = first_value + 1;
+    while (bucket_for_value(second_value, 4) == bucket_for_value(first_value, 4)) {
+        ++second_value;
+    }
+    VExprContextSPtrs conjuncts {make_in_conjunct(first_filter_id, {first_value}),
+                                 make_in_conjunct(second_filter_id, {second_value})};
+    std::vector<TRuntimeFilterDesc> rf_descs {bucket_prune_desc(first_filter_id),
+                                              bucket_prune_desc(second_filter_id)};
+
+    RuntimeFilterBucketPruner pruner;
+    int64_t newly_pruned = 0;
+    ASSERT_TRUE(pruner.prune_by_runtime_filters(four_bucket_ranges(), conjuncts, rf_descs,
+                                                SCAN_NODE_ID, /*max_in_num=*/1024, &newly_pruned)
+                        .ok());
+
+    EXPECT_EQ(newly_pruned, 4);
+    EXPECT_EQ(pruner.pruned_tablet_count(), 4);
+}
+
 TEST_F(RuntimeFilterBucketPrunerTest, NonNullableTargetConservativelyKeepsNullBucket) {
     constexpr int filter_id = 14;
     constexpr int32_t value = 1;
