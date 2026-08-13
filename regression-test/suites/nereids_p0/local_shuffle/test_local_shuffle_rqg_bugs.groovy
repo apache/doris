@@ -1614,5 +1614,54 @@ suite("test_local_shuffle_rqg_bugs") {
         assertTrue(false, "Bug 25: COLOCATE+NLJ CROSS probe: ${t.message}")
     }
 
+
+    // ============================================================
+    //  Bug 26: scalar count(distinct) over shuffle+broadcast joins returns
+    //  correct-value × task-count when agg_phase=1 + broadcast-join
+    //  force-passthrough with the FE local-shuffle planner.
+    //  Root cause (FE-planned): AggregationNode handed NoRequire to a finalize
+    //  merge agg with no group keys but DISTINCT aggregates; the PASSTHROUGH
+    //  local exchange below the broadcast-join probe scattered same-key rows,
+    //  and sum0(multi_distinct_count(...)) summed the overlapping per-instance
+    //  values. Fixed by keying the hash requirement on the effective partition
+    //  exprs (mirrors BE `_partition_exprs`).
+    // ============================================================
+    try {
+        logger.info("Bug 26: count(distinct) under agg_phase=1 + broadcast force-passthrough")
+        sql "DROP TABLE IF EXISTS rqg_27841_t1"
+        sql "DROP TABLE IF EXISTS rqg_27841_t2"
+        sql """CREATE TABLE rqg_27841_t1 (pk INT NOT NULL, k2 INT NOT NULL)
+               ENGINE=OLAP DUPLICATE KEY(pk) DISTRIBUTED BY HASH(pk) BUCKETS 5
+               PROPERTIES ("replication_num"="1")"""
+        sql """CREATE TABLE rqg_27841_t2 (pk INT NOT NULL, k2 INT NOT NULL, other INT NOT NULL)
+               ENGINE=OLAP DUPLICATE KEY(pk) DISTRIBUTED BY HASH(pk) BUCKETS 5
+               PROPERTIES ("replication_num"="1")"""
+        // Two rows sharing the same distinct key. batch_size=1 with 4 local tasks
+        // forces the PASSTHROUGH exchange to send separate blocks to different
+        // channels, so the pre-fix plan counts the shared key once per task.
+        sql "INSERT INTO rqg_27841_t1 VALUES (1, 5), (2, 5)"
+        sql "INSERT INTO rqg_27841_t2 VALUES (1, 5, 10), (2, 5, 20)"
+
+        def q27841 = { vars -> """
+            SELECT /*+SET_VAR(${vars})*/
+                count(distinct t1.k2) AS cnt_distinct
+            FROM rqg_27841_t1 t1
+            LEFT JOIN [shuffle] rqg_27841_t2 t2 ON t1.k2 = t2.k2
+            LEFT JOIN [broadcast] rqg_27841_t2 t3 ON t2.pk = t3.pk
+        """ }
+        def base27841 = "enable_sql_cache=false, agg_phase=1, " +
+                "enable_broadcast_join_force_passthrough=true, parallel_pipeline_task_num=4, batch_size=1"
+        // baseline: BE-native planner (safe path) with the same trigger shape
+        def expected27841 = sql q27841("${base27841}, enable_local_shuffle_planner=false")
+        // the wrong-result path: FE planner inserts the local exchanges
+        def actual27841 = sql q27841("${base27841}, enable_local_shuffle_planner=true")
+        assertEquals(expected27841[0][0], actual27841[0][0],
+                "Bug 26: distinct count must not be multiplied by task count under FE-planned local shuffle")
+        logger.info("Bug 26: PASSED")
+    } catch (Throwable t) {
+        logger.error("Bug 26 FAILED: ${t.message}")
+        assertTrue(false, "Bug 26: ${t.message}")
+    }
+
     logger.info("=== All RQG bug reproduction tests completed ===")
 }
