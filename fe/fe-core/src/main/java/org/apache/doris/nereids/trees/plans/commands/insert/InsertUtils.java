@@ -28,6 +28,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.paimon.PaimonVariantWriteAnalyzer;
@@ -409,6 +410,7 @@ public class InsertUtils {
 
         ConnectContext context = ConnectContext.get();
         boolean isPaimonSink = unboundLogicalSink instanceof UnboundPaimonTableSink;
+        boolean isIcebergSink = unboundLogicalSink instanceof UnboundIcebergTableSink;
         ExpressionRewriteContext rewriteContext = null;
         if (context != null && context.getStatementContext() != null) {
             rewriteContext = new ExpressionRewriteContext(
@@ -463,7 +465,7 @@ public class InsertUtils {
                                     null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = targetTypeForInlineValue(
-                                    sameNameColumn, values.get(i), isPaimonSink);
+                                    sameNameColumn, values.get(i), isPaimonSink, isIcebergSink);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
                                     targetType, rewriteContext, strictCast);
                         }
@@ -485,7 +487,7 @@ public class InsertUtils {
                                     null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = targetTypeForInlineValue(
-                                    columns.get(i), values.get(i), isPaimonSink);
+                                    columns.get(i), values.get(i), isPaimonSink, isIcebergSink);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType,
                                     rewriteContext, strictCast);
                         }
@@ -498,12 +500,17 @@ public class InsertUtils {
     }
 
     private static DataType targetTypeForInlineValue(
-            Column column, NamedExpression value, boolean isPaimonSink) {
+            Column column, NamedExpression value, boolean isPaimonSink, boolean isIcebergSink) {
         DataType targetType = DataType.fromCatalogType(column.getType());
-        return isPaimonSink
-                ? PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
-                        targetType, value).orElse(null)
-                : targetType;
+        if (isPaimonSink) {
+            return PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
+                    targetType, value).orElse(null);
+        }
+        if (isIcebergSink) {
+            return IcebergVariantWriteAnalyzer.resolveInlineCoercionTarget(
+                    targetType, value).orElse(null);
+        }
+        return targetType;
     }
 
     /** buildAnalyzer */

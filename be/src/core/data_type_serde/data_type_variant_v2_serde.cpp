@@ -310,6 +310,60 @@ Status write_binary_variant_arrow(const IColumn& column, const NullMap* null_map
     return Status::OK();
 }
 
+Status write_arrow_variant_storage(const IColumn& column, const NullMap* null_map,
+                                   arrow::StructBuilder& builder, size_t start, size_t end) {
+    const auto builder_type = builder.type();
+    const auto& struct_type = assert_cast<const arrow::StructType&>(*builder_type);
+    if (struct_type.num_fields() != 2 || struct_type.field(0)->name() != "metadata" ||
+        struct_type.field(1)->name() != "value" ||
+        struct_type.field(0)->type()->id() != arrow::Type::BINARY ||
+        struct_type.field(1)->type()->id() != arrow::Type::BINARY) {
+        return Status::InvalidArgument(
+                "Iceberg Variant Arrow storage must be "
+                "struct<metadata: binary, value: binary>, got {}",
+                struct_type.ToString());
+    }
+    auto* metadata_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(0));
+    auto* value_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(1));
+    if (metadata_builder == nullptr || value_builder == nullptr) {
+        return Status::InvalidArgument("Iceberg Variant Arrow storage fields must both be binary");
+    }
+
+    Status status = Status::OK();
+    visit_variant_v2_values(
+            column, start, end, forced_nulls(null_map),
+            [&](size_t) {
+                if (status.ok()) {
+                    status = checkArrowStatus(builder.AppendNull(), column, builder);
+                }
+            },
+            [&](size_t, VariantRef value) {
+                if (!status.ok()) {
+                    return;
+                }
+                if (value.metadata.size > std::numeric_limits<int32_t>::max() ||
+                    value.value.size > std::numeric_limits<int32_t>::max()) {
+                    status = Status::InvalidArgument(
+                            "Iceberg Variant metadata/value exceeds Arrow binary size limit");
+                    return;
+                }
+                status = checkArrowStatus(builder.Append(), column, builder);
+                if (status.ok()) {
+                    status = checkArrowStatus(
+                            metadata_builder->Append(value.metadata.data,
+                                                     static_cast<int32_t>(value.metadata.size)),
+                            column, *metadata_builder);
+                }
+                if (status.ok()) {
+                    status = checkArrowStatus(
+                            value_builder->Append(value.value.data,
+                                                  static_cast<int32_t>(value.value.size)),
+                            column, *value_builder);
+                }
+            });
+    return status;
+}
+
 } // namespace
 
 DataTypeVariantV2SerDe::DataTypeVariantV2SerDe(int nesting_level) : DataTypeSerDe(nesting_level) {}
@@ -679,9 +733,14 @@ Status DataTypeVariantV2SerDe::write_column_to_arrow(const IColumn& column, cons
                                options);
         }
         if (array_builder->type()->id() == arrow::Type::STRUCT) {
-            return write_binary_variant_arrow(column, null_map,
-                                              assert_cast<arrow::StructBuilder&>(*array_builder),
-                                              first, last);
+            auto& struct_builder = assert_cast<arrow::StructBuilder&>(*array_builder);
+            const auto builder_type = struct_builder.type();
+            const auto& struct_type = assert_cast<const arrow::StructType&>(*builder_type);
+            if (struct_type.num_fields() == 2 && struct_type.field(0)->name() == "metadata" &&
+                struct_type.field(1)->name() == "value") {
+                return write_arrow_variant_storage(column, null_map, struct_builder, first, last);
+            }
+            return write_binary_variant_arrow(column, null_map, struct_builder, first, last);
         }
         return Status::InvalidArgument("Unsupported arrow type for variant column: {}",
                                        array_builder->type()->name());
