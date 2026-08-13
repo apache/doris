@@ -64,15 +64,20 @@ struct VariantShredder::Impl {
     using PathIndex = uint32_t;
     using ParentFieldKey = uint64_t;
     using ChildPathCache = doris::flat_hash_map<ParentFieldKey, PathIndex>;
+    static constexpr PathIndex UNRESOLVED_PATH = std::numeric_limits<PathIndex>::max();
+    static constexpr size_t MAX_BINARY_CELLS_PER_CHUNK = 1U << 20;
 
-    // Metadata bytes belong to the input ReadView. This cache never escapes one append call, so
-    // it can borrow the dictionary and retain only parent+field transitions observed in that
-    // batch. Canonical paths themselves remain owned by PathState across appends.
+    // Metadata bytes belong to the input ReadView, and this cache never escapes
+    // one append call. The first observed root field lazily allocates a
+    // dictionary-sized direct lookup table; nested parent+field transitions are
+    // retained only when observed in the batch. Canonical paths themselves remain
+    // owned by PathState across appends.
     struct MetadataPathCache {
         explicit MetadataPathCache(VariantMetadataRef metadata_) : metadata(metadata_) {}
 
         VariantMetadataRef metadata;
-        ChildPathCache child_paths;
+        DorisVector<PathIndex> root_child_paths;
+        ChildPathCache nested_child_paths;
     };
 
     // Keep all state for one canonical dotted path together. This replaces three parallel
@@ -179,10 +184,32 @@ struct VariantShredder::Impl {
 
     PathIndex resolve_child_path(MetadataPathCache& metadata_cache, PathIndex parent,
                                  uint32_t field) {
-        const ParentFieldKey cache_key = parent_field_key(parent, field);
-        if (const auto found = metadata_cache.child_paths.find(cache_key);
-            found != metadata_cache.child_paths.end()) {
-            return found->second;
+        ParentFieldKey cache_key = 0;
+        if (parent == 0) {
+            if (metadata_cache.root_child_paths.empty()) {
+                const uint32_t dictionary_size = metadata_cache.metadata.dict_size();
+                if (field >= dictionary_size) {
+                    throw Exception(ErrorCode::CORRUPTION,
+                                    "Variant object field id {} is outside metadata "
+                                    "dictionary of size {}",
+                                    field, dictionary_size);
+                }
+                metadata_cache.root_child_paths.assign(dictionary_size, UNRESOLVED_PATH);
+            } else if (field >= metadata_cache.root_child_paths.size()) {
+                throw Exception(ErrorCode::CORRUPTION,
+                                "Variant object field id {} is outside metadata "
+                                "dictionary of size {}",
+                                field, metadata_cache.root_child_paths.size());
+            }
+            if (metadata_cache.root_child_paths[field] != UNRESOLVED_PATH) {
+                return metadata_cache.root_child_paths[field];
+            }
+        } else {
+            cache_key = parent_field_key(parent, field);
+            if (const auto found = metadata_cache.nested_child_paths.find(cache_key);
+                found != metadata_cache.nested_child_paths.end()) {
+                return found->second;
+            }
         }
 
         PathInDataBuilder builder;
@@ -197,7 +224,7 @@ struct VariantShredder::Impl {
         if (const auto found = path_indices.find(child); found != path_indices.end()) {
             child_index = found->second;
         } else {
-            if (paths.size() > std::numeric_limits<PathIndex>::max()) {
+            if (paths.size() >= UNRESOLVED_PATH) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "Variant path count exceeds uint32 limit");
             }
@@ -205,7 +232,11 @@ struct VariantShredder::Impl {
             path_indices.emplace(child, child_index);
             paths.emplace_back(child);
         }
-        metadata_cache.child_paths.emplace(cache_key, child_index);
+        if (parent == 0) {
+            metadata_cache.root_child_paths[field] = child_index;
+        } else {
+            metadata_cache.nested_child_paths.emplace(cache_key, child_index);
+        }
         return child_index;
     }
 
@@ -218,10 +249,10 @@ struct VariantShredder::Impl {
         if (value.basic_type() != VariantBasicType::OBJECT) {
             return append_leaf(value, path_index, row);
         }
-        const uint32_t children = value.num_elements();
-        for (uint32_t index = 0; index < children; ++index) {
+        const VariantRef::ObjectView object = value.object_view();
+        for (uint32_t index = 0; index < object.size(); ++index) {
             uint32_t field = 0;
-            VariantRef child = value.object_value_at(index, &field);
+            VariantRef child = object.value_at(index, &field);
             const PathIndex child_path = resolve_child_path(metadata_cache, path_index, field);
             RETURN_IF_ERROR(validate_doc_path(child_path));
             RETURN_IF_ERROR(visit(child, metadata_cache, child_path, row));
@@ -384,16 +415,22 @@ struct VariantShredder::Impl {
     template <typename BinaryPlan>
     Status append_binary_rows(const DorisVector<BinaryPlan>& binary_plan,
                               const DorisVector<ColumnMap*>& maps) const {
-        struct BinaryCell {
-            size_t plan_index = 0;
-            size_t value_index = 0;
-        };
-
-        // Build a compact row index in two passes. Each path contributes only its present values,
-        // and paths are visited in publication order so cells within one row preserve path order.
+        DorisVector<size_t> bucket_cells(maps.size(), 0);
+        DorisVector<size_t> bucket_key_bytes(maps.size(), 0);
+        DorisVector<size_t> bucket_value_bytes(maps.size(), 0);
+        // Build a compact row index in two passes. Each path contributes only its
+        // present values, and paths are visited in publication order so cells
+        // within one row preserve path order.
         DorisVector<size_t> row_offsets(rows + 1, 0);
         for (const BinaryPlan& plan : binary_plan) {
-            for (uint32_t row : plan.builder->rowids()) {
+            DORIS_CHECK_LT(plan.bucket, maps.size());
+            const std::span<const uint32_t> rowids = plan.builder->rowids();
+            bucket_cells[plan.bucket] += rowids.size();
+            bucket_key_bytes[plan.bucket] += rowids.size() * plan.path->size();
+            const ColumnPtr column = plan.builder->column();
+            DORIS_CHECK(column);
+            bucket_value_bytes[plan.bucket] += column->byte_size();
+            for (uint32_t row : rowids) {
                 if (row >= rows) {
                     return Status::InternalError("Variant path {} row {} exceeds {} rows",
                                                  *plan.path, row, rows);
@@ -401,32 +438,88 @@ struct VariantShredder::Impl {
                 ++row_offsets[row + 1];
             }
         }
-        std::partial_sum(row_offsets.begin(), row_offsets.end(), row_offsets.begin());
-        DorisVector<BinaryCell> cells(row_offsets.back());
-        DorisVector<size_t> next_cell = row_offsets;
-        for (size_t plan_index = 0; plan_index < binary_plan.size(); ++plan_index) {
-            const auto rowids = binary_plan[plan_index].builder->rowids();
-            for (size_t value_index = 0; value_index < rowids.size(); ++value_index) {
-                cells[next_cell[rowids[value_index]]++] = {.plan_index = plan_index,
-                                                           .value_index = value_index};
-            }
+        for (size_t bucket = 0; bucket < maps.size(); ++bucket) {
+            auto& keys = assert_cast<ColumnString&>(maps[bucket]->get_keys());
+            auto& values = assert_cast<ColumnString&>(maps[bucket]->get_values());
+            maps[bucket]->get_offsets().reserve(rows);
+            keys.reserve(bucket_cells[bucket]);
+            keys.get_chars().reserve(bucket_key_bytes[bucket]);
+            values.reserve(bucket_cells[bucket]);
+            values.get_chars().reserve(bucket_value_bytes[bucket]);
         }
+        if (binary_plan.size() > std::numeric_limits<uint32_t>::max()) {
+            return Status::InternalError("Variant binary path count {} exceeds uint32 limit",
+                                         binary_plan.size());
+        }
+        std::partial_sum(row_offsets.begin(), row_offsets.end(), row_offsets.begin());
 
-        for (size_t row = 0; row < rows; ++row) {
-            for (size_t cell_index = row_offsets[row]; cell_index < row_offsets[row + 1];
-                 ++cell_index) {
-                const BinaryCell& cell = cells[cell_index];
-                const BinaryPlan& plan = binary_plan[cell.plan_index];
-                auto& keys = assert_cast<ColumnString&>(maps[plan.bucket]->get_keys());
-                auto& values = assert_cast<ColumnString&>(maps[plan.bucket]->get_values());
-                keys.insert_data(plan.path->data(), plan.path->size());
-                RETURN_IF_ERROR(
-                        plan.builder->write_sparse_cell(cell.value_index, &values.get_chars()));
-                values.get_offsets().push_back(values.get_chars().size());
+        // Transpose path-major builders into row-major maps in bounded chunks. A
+        // chunk always ends at a row boundary, so the path-sorted plan order
+        // remains the canonical key order within each row and bucket. The per-plan
+        // cursor also recovers value_index without storing it in every cell.
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
+        const size_t max_binary_cells_per_chunk = binary_cells_per_chunk;
+#else
+        constexpr size_t max_binary_cells_per_chunk = MAX_BINARY_CELLS_PER_CHUNK;
+#endif
+        DorisVector<size_t> value_indices(binary_plan.size(), 0);
+        DorisVector<uint32_t> cells;
+        DorisVector<size_t> next_cell;
+        size_t row_begin = 0;
+        while (row_begin < rows) {
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
+            ++binary_chunk_count;
+#endif
+            const size_t first_cell = row_offsets[row_begin];
+            size_t row_end = rows;
+            if (row_offsets.back() - first_cell > max_binary_cells_per_chunk) {
+                const auto first_too_large =
+                        std::upper_bound(row_offsets.begin() + row_begin + 1, row_offsets.end(),
+                                         first_cell + max_binary_cells_per_chunk);
+                row_end = static_cast<size_t>(first_too_large - row_offsets.begin() - 1);
+                // One exceptionally wide row may exceed the bound, but must stay
+                // intact.
+                row_end = std::max(row_end, row_begin + 1);
             }
-            for (ColumnMap* map : maps) {
-                map->get_offsets().push_back(map->get_keys().size());
+
+            cells.resize(row_offsets[row_end] - first_cell);
+            next_cell.resize(row_end - row_begin);
+            for (size_t row = row_begin; row < row_end; ++row) {
+                next_cell[row - row_begin] = row_offsets[row] - first_cell;
             }
+            for (size_t plan_index = 0; plan_index < binary_plan.size(); ++plan_index) {
+                const std::span<const uint32_t> rowids = binary_plan[plan_index].builder->rowids();
+                size_t value_index = value_indices[plan_index];
+                DORIS_CHECK(value_index == rowids.size() || rowids[value_index] >= row_begin);
+                while (value_index < rowids.size() && rowids[value_index] < row_end) {
+                    const uint32_t row = rowids[value_index++];
+                    cells[next_cell[row - row_begin]++] = static_cast<uint32_t>(plan_index);
+                }
+            }
+
+            for (size_t row = row_begin; row < row_end; ++row) {
+                DORIS_CHECK_EQ(next_cell[row - row_begin], row_offsets[row + 1] - first_cell);
+                for (size_t cell_index = row_offsets[row] - first_cell;
+                     cell_index < row_offsets[row + 1] - first_cell; ++cell_index) {
+                    const uint32_t plan_index = cells[cell_index];
+                    const BinaryPlan& plan = binary_plan[plan_index];
+                    const size_t value_index = value_indices[plan_index]++;
+                    auto& keys = assert_cast<ColumnString&>(maps[plan.bucket]->get_keys());
+                    auto& values = assert_cast<ColumnString&>(maps[plan.bucket]->get_values());
+                    keys.insert_data(plan.path->data(), plan.path->size());
+                    RETURN_IF_ERROR(
+                            plan.builder->write_sparse_cell(value_index, &values.get_chars()));
+                    values.get_offsets().push_back(values.get_chars().size());
+                }
+                for (ColumnMap* map : maps) {
+                    map->get_offsets().push_back(map->get_keys().size());
+                }
+            }
+            row_begin = row_end;
+        }
+        for (size_t plan_index = 0; plan_index < binary_plan.size(); ++plan_index) {
+            DORIS_CHECK_EQ(value_indices[plan_index],
+                           binary_plan[plan_index].builder->rowids().size());
         }
         return Status::OK();
     }
@@ -587,6 +680,10 @@ struct VariantShredder::Impl {
     DorisVector<PathState> paths;
     ColumnString::MutablePtr root_values = ColumnString::create();
     JsonbWriter root_writer;
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
+    size_t binary_cells_per_chunk = MAX_BINARY_CELLS_PER_CHUNK;
+    mutable size_t binary_chunk_count = 0;
+#endif
 };
 
 VariantShredder::VariantShredder(VariantShredderOptions options)
@@ -700,4 +797,15 @@ size_t VariantShredder::byte_size() const {
     return size;
 }
 
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
+size_t VariantShredder::TestAccess::binary_chunk_count(const VariantShredder& shredder) {
+    return shredder._impl->binary_chunk_count;
+}
+
+void VariantShredder::TestAccess::set_binary_cells_per_chunk(VariantShredder& shredder,
+                                                             size_t cells) {
+    DORIS_CHECK(cells > 0);
+    shredder._impl->binary_cells_per_chunk = cells;
+}
+#endif
 } // namespace doris::segment_v2
