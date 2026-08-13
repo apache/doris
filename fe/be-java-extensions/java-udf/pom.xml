@@ -28,40 +28,156 @@ under the License.
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>java-udf</artifactId>
+    <name>Doris BE java-udf Plugin</name>
+    <description>
+        Runs user-written Java functions: scalar UDFs, table-valued UDTFs and aggregate UDAFs.
+
+        It is the only plugin whose classloader has a third level below it. A user function is
+        loaded from the user's own jar by a loader of its own, and that loader's parent exposes
+        just two things out of this plugin: the Hive UDF base class a user function may extend,
+        and joda's date classes, which the type matcher compares by Class identity. Everything
+        else a user function uses, it ships. See UdfContractClassLoader.
+    </description>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
     </properties>
 
-
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>java-common</artifactId>
+            <artifactId>jni-spi</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!--
+          The catalog type model. Not a convenience: Type.DATE_SUPPORTED_JAVA_TYPE and friends are
+          Sets of Class objects that decide whether a user function's declared parameter type
+          matches the column type, so this module and the type model have to agree on the very
+          same classes. It carries fe-common and fe-thrift in with it.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-type</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!--
+          Declared even though fe-type already brings it: Pair is used directly here, and a
+          dependency that is only reached transitively is one refactor away from disappearing.
+
+          The exclusions are what fe-common carries for the FE that no Java function executor can
+          reach: netty, the S3 filesystem, protobuf, jackson, RoaringBitmap. They were found by
+          walking jdeps' class-level edges out of this module and taking the jars with nothing
+          reachable in them, then dropping the ones that are reached by ServiceLoader instead
+          (the logging providers) or that exist to be extended rather than called
+          (hive-udf-shade). Verified the only way it can be verified, by loading the plugin out
+          of a real deployment directory with them gone.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
             <exclusions>
                 <exclusion>
-                    <groupId>io.trino</groupId>
-                    <artifactId>trino-main</artifactId>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-all</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-aws</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.google.protobuf</groupId>
+                    <artifactId>protobuf-java</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.roaringbitmap</groupId>
+                    <artifactId>RoaringBitmap</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>commons-io</groupId>
+                    <artifactId>commons-io</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.logging.log4j</groupId>
+                    <artifactId>log4j-iostreams</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
+        <!--
+          The Hive UDF contract - org.apache.hadoop.hive.ql.exec.UDF and the handful of classes
+          that load with it. No code here refers to it; it exists so that a user function which
+          extends Hive's UDF links. It is one of the two things UdfContractClassLoader lets
+          through to user code.
+        -->
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>hive-udf-shade</artifactId>
             <version>${project.version}</version>
             <scope>compile</scope>
         </dependency>
-
-        <!-- fastutil-core: this jar transitively bundles fe-foundation's ConcurrentLong2LongHashMap /
-             ConcurrentLong2ObjectHashMap, which extend fastutil abstract maps. fe-foundation marks
-             fastutil-core optional (to stay out of the FE SPI plugin zips), so it is not propagated
-             here. BE's ScannerLoader eagerly loads every org.apache.doris.* class at startup, so the
-             fastutil superclasses must be bundled or the BE fails JNI init and cannot start. -->
+        <!-- Invokes the user's evaluate()/add() without reflection's per-call cost. -->
         <dependency>
-            <groupId>it.unimi.dsi</groupId>
-            <artifactId>fastutil-core</artifactId>
+            <groupId>com.esotericsoftware</groupId>
+            <artifactId>reflectasm</artifactId>
+            <version>1.11.9</version>
+        </dependency>
+
+        <!--
+          Logging: this plugin's own code writes to slf4j, and slf4j-jdk14 routes it into
+          java.util.logging, which is where JniLogging has already pointed the jni log file. The
+          four artifacts the fe parent pom forces on every module are narrowed to test below, or
+          copy-dependencies would drop log4j-core into this plugin's directory - a second logging
+          backend inside the plugin, configured by nobody.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!--
+          fe-common logs through log4j-api; without this bridge those records go nowhere. Same
+          conclusion the iceberg plugin reached, and for the same reason.
+        -->
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-to-slf4j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j2-impl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -71,26 +187,35 @@ under the License.
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <configuration>
-                    <descriptors>
-                        <descriptor>src/main/resources/package.xml</descriptor>
-                    </descriptors>
-                    <archive>
-                        <manifest>
-                            <mainClass></mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
+                <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
+                        <id>copy-plugin-dependencies</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>copy-dependencies</goal>
                         </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                      Keep the test JVM's logging chain identical to the deployed one. surefire
+                      puts `test` scoped artifacts on the classpath, so without this log4j-core
+                      would answer log4j-to-slf4j's lookups here and nowhere else.
+                    -->
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>org.apache.logging.log4j:log4j-core</classpathDependencyExclude>
+                        <classpathDependencyExclude>org.apache.logging.log4j:log4j-slf4j2-impl</classpathDependencyExclude>
+                    </classpathDependencyExcludes>
+                </configuration>
             </plugin>
         </plugins>
     </build>

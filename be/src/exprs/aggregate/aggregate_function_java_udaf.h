@@ -39,11 +39,10 @@
 #include "format/jni/jni_data_bridge.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
+#include "util/jni_plugin_registry.h"
 
 namespace doris {
 
-const char* UDAF_EXECUTOR_CLASS = "org/apache/doris/udf/UdafExecutor";
-const char* UDAF_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* UDAF_EXECUTOR_CLOSE_SIGNATURE = "()V";
 const char* UDAF_EXECUTOR_DESTROY_SIGNATURE = "()V";
 const char* UDAF_EXECUTOR_ADD_SIGNATURE = "(ZIIJILjava/util/Map;)V";
@@ -78,9 +77,6 @@ public:
     Status init_udaf(const TFunction& fn, const std::string& local_location) {
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf init_udaf function");
-        RETURN_IF_ERROR(Jni::Util::find_class(env, UDAF_EXECUTOR_CLASS, &executor_cl));
-        RETURN_NOT_OK_STATUS_WITH_WARN(register_func_id(env),
-                                       "Java-Udaf register_func_id function");
 
         TJavaUdfExecutorCtorParams ctor_params;
         ctor_params.__set_fn(fn);
@@ -90,9 +86,11 @@ public:
 
         Jni::LocalArray ctor_params_bytes;
         RETURN_IF_ERROR(Jni::Util::SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
-        RETURN_IF_ERROR(executor_cl.new_object(env, executor_ctor_id)
-                                .with_arg(ctor_params_bytes)
-                                .call(&executor_obj));
+        RETURN_IF_ERROR(Jni::PluginRegistry::create_udf_executor(
+                env, Jni::plugin::JAVA_UDF_AGGREGATE, ctor_params_bytes, &executor_obj,
+                &executor_cl));
+        RETURN_NOT_OK_STATUS_WITH_WARN(register_func_id(env),
+                                       "Java-Udaf register_func_id function");
         return Status::OK();
     }
 
@@ -213,8 +211,6 @@ public:
 
 private:
     Status register_func_id(JNIEnv* env) {
-        RETURN_IF_ERROR(executor_cl.get_method(env, "<init>", UDAF_EXECUTOR_CTOR_SIGNATURE,
-                                               &executor_ctor_id));
         RETURN_IF_ERROR(executor_cl.get_method(env, "reset", UDAF_EXECUTOR_RESET_SIGNATURE,
                                                &executor_reset_id));
         RETURN_IF_ERROR(executor_cl.get_method(env, "close", UDAF_EXECUTOR_CLOSE_SIGNATURE,
@@ -239,7 +235,6 @@ private:
     Jni::GlobalClass executor_cl;
     Jni::GlobalObject executor_obj;
 
-    Jni::MethodId executor_ctor_id;
     Jni::MethodId executor_add_batch_id;
     Jni::MethodId executor_merge_id;
     Jni::MethodId executor_serialize_id;

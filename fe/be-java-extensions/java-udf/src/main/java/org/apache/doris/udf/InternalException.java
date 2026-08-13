@@ -17,16 +17,13 @@
 
 package org.apache.doris.udf;
 
-import org.apache.hadoop.hive.ql.exec.UDF;
+/** Raised when a user function cannot be matched to the type signature it was declared with. */
+public class InternalException extends Exception {
+    public InternalException(String msg, Throwable cause) {
+        super(msg, cause);
+    }
 
-import java.util.*;
-
-public class MapidTest extends UDF {
-    public HashMap<Integer, Double> evaluate(HashMap<Integer, Double> mid) {
-        HashMap<Integer, Double> ans = new HashMap<>();
-        for (Map.Entry<Integer, Double> it : mid.entrySet()) {
-            ans.put(it.getKey() * 10, it.getValue() * 10);
-        }
-        return ans;
+    public InternalException(String msg) {
+        super(msg);
     }
 }

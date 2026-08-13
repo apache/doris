@@ -879,6 +879,31 @@ public:
         }
     }
 
+    /**
+     * The class of an object that is already in hand.
+     *
+     * Needed where a class cannot be named: an object produced by a plugin is an instance of a
+     * class inside that plugin's classloader, which FindClass - searching BE's own loader -
+     * cannot see. Asking the object is the only way to reach it.
+     */
+    template <RefType R>
+    static Status get_object_class(JNIEnv* env, const Object<R>& object, Class<Ref>* result) {
+        DCHECK(!object.uninitialized());
+        DCHECK(result->uninitialized());
+        if constexpr (Ref == Local) {
+            result->_obj = env->GetObjectClass(object._obj);
+            RETURN_ERROR_IF_EXC(env);
+            return Status::OK();
+        } else if constexpr (Ref == Global) {
+            Class<Local> local_class;
+            local_class._obj = env->GetObjectClass(object._obj);
+            RETURN_ERROR_IF_EXC(env);
+            return local_to_global_ref(env, local_class, result);
+        } else {
+            static_assert(false);
+        }
+    }
+
     Status get_static_method(JNIEnv* env, const char* method_str, const char* method_signature,
                              MethodId* method_id) const {
         DCHECK(!this->uninitialized());
@@ -1059,6 +1084,11 @@ public:
     template <RefType Ref>
     static Status find_class(JNIEnv* env, const char* class_str, Class<Ref>* result) {
         return Class<Ref>::find_class(env, class_str, result);
+    }
+
+    template <RefType Ref, RefType R>
+    static Status get_object_class(JNIEnv* env, const Object<R>& object, Class<Ref>* result) {
+        return Class<Ref>::get_object_class(env, object, result);
     }
 
     template <RefType Ref>

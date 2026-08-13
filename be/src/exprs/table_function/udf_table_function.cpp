@@ -31,11 +31,10 @@
 #include "exprs/vexpr_context.h"
 #include "format/jni/jni_data_bridge.h"
 #include "runtime/user_function_cache.h"
+#include "util/jni_plugin_registry.h"
 
 namespace doris {
 
-const char* EXECUTOR_CLASS = "org/apache/doris/udf/UdfExecutor";
-const char* EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* EXECUTOR_EVALUATE_SIGNATURE = "(Ljava/util/Map;Ljava/util/Map;)J";
 const char* EXECUTOR_CLOSE_SIGNATURE = "()V";
 UDFTableFunction::UDFTableFunction(const TFunction& t_fn) : TableFunction(), _t_fn(t_fn) {
@@ -60,23 +59,20 @@ Status UDFTableFunction::open() {
                                                     &local_location));
         ctor_params.__set_location(local_location);
     }
-    RETURN_IF_ERROR(Jni::Util::find_class(env, EXECUTOR_CLASS, &_jni_ctx->executor_cl));
-
     Jni::LocalArray ctor_params_bytes;
     RETURN_IF_ERROR(Jni::Util::SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
 
-    RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "<init>", EXECUTOR_CTOR_SIGNATURE,
-                                                     &_jni_ctx->executor_ctor_id));
+    // A table function runs the scalar executor: the parameters serialized above carry the flag
+    // that turns its return type into an array, so there is no table-function factory of its own.
+    RETURN_IF_ERROR(Jni::PluginRegistry::create_udf_executor(env, Jni::plugin::JAVA_UDF_SCALAR,
+                                                             ctor_params_bytes, &_jni_ctx->executor,
+                                                             &_jni_ctx->executor_cl));
 
     RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "evaluate", EXECUTOR_EVALUATE_SIGNATURE,
                                                      &_jni_ctx->executor_evaluate_id));
 
     RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "close", EXECUTOR_CLOSE_SIGNATURE,
                                                      &_jni_ctx->executor_close_id));
-
-    RETURN_IF_ERROR(_jni_ctx->executor_cl.new_object(env, _jni_ctx->executor_ctor_id)
-                            .with_arg(ctor_params_bytes)
-                            .call(&_jni_ctx->executor));
 
     _jni_ctx->open_successes = true;
     return Status::OK();
