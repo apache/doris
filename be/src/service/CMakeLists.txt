@@ -47,9 +47,8 @@ list(APPEND SERVICE_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/http/http_parser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/http/action/be_thread_stack_action.cpp)
 set_source_files_properties(${SERVICE_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
-if (ENABLE_UNITY_BUILD)
-    set_target_properties(Service PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 0)
-endif()
+set_target_properties(Service PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
+                                         UNITY_BUILD_BATCH_SIZE 0)
 
 if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     add_executable(doris_be

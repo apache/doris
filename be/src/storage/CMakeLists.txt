@@ -60,6 +60,5 @@ list(APPEND STORAGE_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/tokenizer/basic/basic_tokenizer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/index/zone_map/zone_map_index.cpp)
 set_source_files_properties(${STORAGE_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
-if (ENABLE_UNITY_BUILD)
-    set_target_properties(Storage PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 32)
-endif()
+set_target_properties(Storage PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
+                                         UNITY_BUILD_BATCH_SIZE 32)

@@ -84,6 +84,16 @@ option(USE_JEMALLOC "Use jemalloc" ON)
 # builds. Turn OFF for precise per-file diagnostics, per-file tooling
 # (clang-tidy/coverage), or the finest-grained incremental rebuilds.
 option(ENABLE_UNITY_BUILD "Enable CMake unity builds for BE targets" ON)
+# Normalize to a strict ON/OFF. Every pilot target sets its UNITY_BUILD property
+# unconditionally from this value: OFF must be an explicit OFF, otherwise a
+# cache that also carries CMake's own CMAKE_UNITY_BUILD=ON leaves the property
+# ON (it initializes UNITY_BUILD at add_library time) and the escape hatch does
+# nothing.
+if (ENABLE_UNITY_BUILD)
+    set(DORIS_UNITY_BUILD ON)
+else()
+    set(DORIS_UNITY_BUILD OFF)
+endif()
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
