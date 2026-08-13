@@ -54,6 +54,7 @@ import org.apache.doris.datasource.iceberg.source.IcebergDeleteFileFilter.Equali
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNodeId;
@@ -133,6 +134,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -905,7 +907,11 @@ public class IcebergScanNode extends FileQueryScanNode {
     @VisibleForTesting
     List<FileScanTask> getOrPlanFileScanTasks(TableScan scan, Supplier<List<FileScanTask>> planner) {
         try {
-            return getOrLoadExternalScanTasks(createFileScanTaskCacheKey(scan), planner::get);
+            return getOrLoadExternalScanTasks(
+                    createFileScanTaskCacheKey(scan), ignored -> planner.get(),
+                    FileQueryScanNode::externalScanTaskCount,
+                    StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
+                    maxRetainedExternalScanTasks, maxRetainedExternalScanTasks, false);
         } catch (Exception e) {
             throw new RuntimeException("Failed to plan Iceberg file scan tasks", e);
         }
@@ -921,6 +927,24 @@ public class IcebergScanNode extends FileQueryScanNode {
                 scan.filter(),
                 scan.isCaseSensitive(),
                 FileScanTask.class.getName());
+    }
+
+    @VisibleForTesting
+    List<PositionDeletesScanTask> getOrPlanPositionDeleteTasks(
+            BatchScan scan, Callable<List<PositionDeletesScanTask>> planner) throws Exception {
+        Snapshot snapshot = scan.snapshot();
+        IcebergScanTaskCacheKey<PositionDeletesScanTask> cacheKey = new IcebergScanTaskCacheKey<>(
+                source.getCatalog().getId(),
+                source.getTargetTable().getId(),
+                snapshot == null ? null : snapshot.snapshotId(),
+                scan.schema().schemaId(),
+                scan.filter(),
+                scan.isCaseSensitive(),
+                PositionDeletesScanTask.class.getName());
+        return getOrLoadExternalScanTasks(
+                cacheKey, ignored -> planner.call(), FileQueryScanNode::externalScanTaskCount,
+                StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
+                maxRetainedExternalScanTasks, maxRetainedExternalScanTasks, false);
     }
 
     private long determineTargetFileSplitSize(Iterable<? extends ContentScanTask<?>> tasks) {
@@ -1011,7 +1035,10 @@ public class IcebergScanNode extends FileQueryScanNode {
         try {
             tasks = getOrLoadExternalScanTasks(
                     createFileScanTaskCacheKey(scan),
-                    () -> loadFileScanTasksWithManifestCache(scan, snapshot));
+                    ignored -> loadFileScanTasksWithManifestCache(scan, snapshot),
+                    FileQueryScanNode::externalScanTaskCount,
+                    StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
+                    maxRetainedExternalScanTasks, maxRetainedExternalScanTasks, false);
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {
@@ -1523,17 +1550,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         long startTime = System.currentTimeMillis();
         scan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
         BatchScan plannedScan = scan;
-        Snapshot snapshot = plannedScan.snapshot();
-        IcebergScanTaskCacheKey<PositionDeletesScanTask> cacheKey = new IcebergScanTaskCacheKey<>(
-                source.getCatalog().getId(),
-                source.getTargetTable().getId(),
-                snapshot == null ? null : snapshot.snapshotId(),
-                plannedScan.schema().schemaId(),
-                plannedScan.filter(),
-                plannedScan.isCaseSensitive(),
-                PositionDeletesScanTask.class.getName());
         try {
-            positionDeleteTasks = getOrLoadExternalScanTasks(cacheKey, () -> {
+            positionDeleteTasks = getOrPlanPositionDeleteTasks(plannedScan, () -> {
                 List<PositionDeletesScanTask> tasks = new ArrayList<>();
                 try (CloseableIterable<ScanTask> scanTasks = plannedScan.planFiles()) {
                     for (ScanTask task : scanTasks) {

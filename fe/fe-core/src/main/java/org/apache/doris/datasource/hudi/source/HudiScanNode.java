@@ -33,6 +33,7 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
+import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HivePartition;
@@ -42,6 +43,7 @@ import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -424,7 +426,10 @@ public class HudiScanNode extends HiveScanNode {
                     hmsTable.getCatalog().getId(), hmsTable.getId(), queryInstant,
                     canUseNativeReader(), sessionVariable.isEnableRuntimeFilterPartitionPrune(), partition);
             plannedSplits = getOrLoadExternalScanTasks(
-                    cacheKey, () -> planPartitionSplits(partition));
+                    cacheKey, ignored -> planPartitionSplits(partition),
+                    FileQueryScanNode::externalScanTaskCount,
+                    StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
+                    maxRetainedExternalScanTasks, maxRetainedExternalScanTasks, false);
         } else {
             // Batch mode bounds FE memory by retaining only the partitions currently in flight.
             // Do not keep completed partition task graphs until statement close.

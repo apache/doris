@@ -333,6 +333,57 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testStatementCacheUsesRemainingSerializationBudget() throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext(context, null);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        try {
+            PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+            PaimonExternalTable relationTable = Mockito.mock(PaimonExternalTable.class);
+            PaimonExternalTable targetTable = Mockito.mock(PaimonExternalTable.class);
+            Mockito.when(catalog.getId()).thenReturn(43L);
+            Mockito.when(relationTable.getId()).thenReturn(47L);
+            Mockito.when(targetTable.getId()).thenReturn(53L);
+            RowType rowType = new RowType(Collections.singletonList(
+                    new DataField(0, "id", DataTypes.INT())));
+            AtomicInteger planCount = new AtomicInteger();
+            AtomicInteger serializationWriteCount = new AtomicInteger();
+            List<org.apache.paimon.table.source.Split> plannedSplits = Collections.singletonList(
+                    new CountingSplit(serializationWriteCount));
+            int serializedBytes = PaimonUtil.serializeObject(plannedSplits.get(0)).length;
+            serializationWriteCount.set(0);
+            long totalBudget = serializedBytes + 10L;
+            Table table = mockPlanningTable(
+                    rowType, Collections.emptyMap(), planCount, plannedSplits);
+
+            PaimonScanNode first = newPlanningNode(
+                    14, relationTable, targetTable, catalog, table,
+                    101L, 3L, Collections.emptyMap(), Collections.emptyList(), "id");
+            first.setMaxRetainedSerializedTaskBytes(totalBudget);
+            Assert.assertNotSame(plannedSplits, first.getPaimonSplitFromAPI());
+            int firstWriteCount = serializationWriteCount.get();
+            Assert.assertEquals(CountingSplit.PAYLOAD_SIZE, firstWriteCount);
+
+            PaimonScanNode second = newPlanningNode(
+                    15, relationTable, targetTable, catalog, table,
+                    102L, 3L, Collections.emptyMap(), Collections.emptyList(), "id");
+            second.setMaxRetainedSerializedTaskBytes(totalBudget);
+            Assert.assertSame(plannedSplits, second.getPaimonSplitFromAPI());
+
+            Assert.assertEquals(2, planCount.get());
+            Assert.assertEquals(firstWriteCount, serializationWriteCount.get());
+        } finally {
+            statementContext.close();
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     public void testPinnedFileCreationCacheIgnoresUnusedProjection() throws Exception {
         ConnectContext previousContext = ConnectContext.get();
         ConnectContext context = new ConnectContext();

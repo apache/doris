@@ -42,15 +42,20 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 
+import java.util.AbstractList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class StatementContextTest {
 
@@ -828,6 +833,127 @@ public class StatementContextTest {
     }
 
     @Test
+    public void testExternalScanTaskCacheReservesRemainingWeightBeforeLoading() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        StatementContext.ExternalScanTaskCache cache = statementContext.getExternalScanTaskCache();
+        ExternalScanTaskCacheKey<String> firstKey = new TestScanTaskCacheKey("first");
+        ExternalScanTaskCacheKey<String> secondKey = new TestScanTaskCacheKey("second");
+        AtomicLong firstAllowance = new AtomicLong();
+        AtomicLong secondAllowance = new AtomicLong();
+        AtomicInteger secondLoads = new AtomicInteger();
+        try {
+            cache.getOrLoad(firstKey, allowance -> {
+                firstAllowance.set(allowance);
+                return Collections.singletonList("abc");
+            }, tasks -> tasks.get(0).length(),
+                    StatementContext.ExternalScanTaskCache.WeightBudget.PAIMON_SERIALIZED_BYTES,
+                    4, 4, true);
+            cache.getOrLoad(secondKey, allowance -> {
+                secondAllowance.set(allowance);
+                secondLoads.incrementAndGet();
+                return Collections.singletonList("d");
+            }, tasks -> tasks.get(0).length(),
+                    StatementContext.ExternalScanTaskCache.WeightBudget.PAIMON_SERIALIZED_BYTES,
+                    4, 4, true);
+            cache.getOrLoad(secondKey, allowance -> {
+                secondLoads.incrementAndGet();
+                return Collections.singletonList("e");
+            }, tasks -> tasks.get(0).length(),
+                    StatementContext.ExternalScanTaskCache.WeightBudget.PAIMON_SERIALIZED_BYTES,
+                    4, 4, true);
+
+            org.junit.jupiter.api.Assertions.assertEquals(4, firstAllowance.get());
+            org.junit.jupiter.api.Assertions.assertEquals(1, secondAllowance.get());
+            org.junit.jupiter.api.Assertions.assertEquals(1, secondLoads.get());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testExternalScanTaskCacheAdmitsConcurrentTaskLoadsByActualWeight() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        StatementContext.ExternalScanTaskCache cache = statementContext.getExternalScanTaskCache();
+        ExternalScanTaskCacheKey<String> firstKey = new TestScanTaskCacheKey("first-task");
+        ExternalScanTaskCacheKey<String> secondKey = new TestScanTaskCacheKey("second-task");
+        CountDownLatch loadersStarted = new CountDownLatch(2);
+        CountDownLatch releaseLoaders = new CountDownLatch(1);
+        AtomicInteger loads = new AtomicInteger();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<List<String>> loader = () -> {
+                loadersStarted.countDown();
+                releaseLoaders.await();
+                loads.incrementAndGet();
+                return Arrays.asList("a", "b");
+            };
+            Future<List<String>> first = executor.submit(() -> cache.getOrLoad(
+                    firstKey, ignored -> loader.call(), List::size,
+                    StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
+                    4, 4, false));
+            Future<List<String>> second = executor.submit(() -> cache.getOrLoad(
+                    secondKey, ignored -> loader.call(), List::size,
+                    StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
+                    4, 4, false));
+            org.junit.jupiter.api.Assertions.assertTrue(loadersStarted.await(10, TimeUnit.SECONDS));
+            releaseLoaders.countDown();
+            org.junit.jupiter.api.Assertions.assertEquals(Arrays.asList("a", "b"), first.get());
+            org.junit.jupiter.api.Assertions.assertEquals(Arrays.asList("a", "b"), second.get());
+
+            cache.getOrLoad(firstKey, () -> {
+                loads.incrementAndGet();
+                return Collections.singletonList("unexpected");
+            });
+            cache.getOrLoad(secondKey, () -> {
+                loads.incrementAndGet();
+                return Collections.singletonList("unexpected");
+            });
+            org.junit.jupiter.api.Assertions.assertEquals(2, loads.get());
+        } finally {
+            releaseLoaders.countDown();
+            executor.shutdownNow();
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testExternalScanTaskCopyFailureUnblocksWaiterAndCanRetry() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        StatementContext.ExternalScanTaskCache cache = statementContext.getExternalScanTaskCache();
+        CountDownLatch waiterLookedUpKey = new CountDownLatch(1);
+        ExternalScanTaskCacheKey<String> key = new ObservableScanTaskCacheKey(
+                "copy-failure", new AtomicInteger(), waiterLookedUpKey);
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<String>> owner = executor.submit(() -> cache.getOrLoad(key, () -> {
+                loaderStarted.countDown();
+                releaseLoader.await();
+                return new FailingCopyList();
+            }));
+            org.junit.jupiter.api.Assertions.assertTrue(loaderStarted.await(10, TimeUnit.SECONDS));
+            Future<List<String>> waiter = executor.submit(() -> cache.getOrLoad(
+                    key, () -> Collections.singletonList("unexpected")));
+            org.junit.jupiter.api.Assertions.assertTrue(
+                    waiterLookedUpKey.await(10, TimeUnit.SECONDS));
+            releaseLoader.countDown();
+
+            org.junit.jupiter.api.Assertions.assertThrows(
+                    ExecutionException.class, () -> owner.get(10, TimeUnit.SECONDS));
+            org.junit.jupiter.api.Assertions.assertThrows(
+                    ExecutionException.class, () -> waiter.get(10, TimeUnit.SECONDS));
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("retry"),
+                    cache.getOrLoad(key, () -> Collections.singletonList("retry")));
+        } finally {
+            releaseLoader.countDown();
+            executor.shutdownNow();
+            statementContext.close();
+        }
+    }
+
+    @Test
     public void testExternalScanTaskGenerationIsIsolatedByResetAndExecutionEnd() throws Exception {
         StatementContext statementContext = new StatementContext();
         CountDownLatch loaderStarted = new CountDownLatch(1);
@@ -916,6 +1042,23 @@ public class StatementContextTest {
         @Override
         public int hashCode() {
             return value.hashCode();
+        }
+    }
+
+    private static final class FailingCopyList extends AbstractList<String> {
+        @Override
+        public String get(int index) {
+            return "task";
+        }
+
+        @Override
+        public int size() {
+            return 1;
+        }
+
+        @Override
+        public Object[] toArray() {
+            throw new AssertionError("injected immutable copy failure");
         }
     }
 

@@ -1398,9 +1398,26 @@ public class StatementContext implements Closeable {
      * the previous execution cannot insert tasks into the next execution's cache.
      */
     public static final class ExternalScanTaskCache {
+        /** Maximum number of connector tasks retained by one statement cache generation. */
+        public static final long MAX_RETAINED_TASK_COUNT = 10_000;
+
+        /** Loads a value using the weight atomically reserved for this cache entry. */
+        @FunctionalInterface
+        public interface WeightedLoader<T> {
+            List<T> load(long reservedWeight) throws Exception;
+        }
+
+        /** Independent cumulative budgets used by task-count and serialized-byte retention. */
+        public enum WeightBudget {
+            TASK_COUNT,
+            PAIMON_SERIALIZED_BYTES
+        }
+
         private final Map<ExternalScanTaskCacheKey<?>, CompletableFuture<List<?>>> tasks =
                 new ConcurrentHashMap<>();
-        private long retainedWeight;
+        private long retainedTaskCount;
+        private long retainedPaimonBytes;
+        private long reservedPaimonBytes;
         private boolean invalidated;
 
         /**
@@ -1410,7 +1427,9 @@ public class StatementContext implements Closeable {
         @SuppressWarnings("unchecked")
         public <T> List<T> getOrLoad(
                 ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader) throws Exception {
-            return getOrLoad(key, loader, ignored -> 0, Long.MAX_VALUE);
+            return getOrLoad(key, ignored -> loader.call(), tasks -> Math.max(1, tasks.size()),
+                    WeightBudget.TASK_COUNT, MAX_RETAINED_TASK_COUNT,
+                    MAX_RETAINED_TASK_COUNT, false);
         }
 
         /**
@@ -1421,36 +1440,102 @@ public class StatementContext implements Closeable {
         public <T> List<T> getOrLoad(
                 ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader,
                 ToLongFunction<List<T>> weigher, long maxRetainedWeight) throws Exception {
+            return getOrLoad(key, ignored -> loader.call(), weigher,
+                    WeightBudget.TASK_COUNT, maxRetainedWeight, maxRetainedWeight, false);
+        }
+
+        /**
+         * Return the tasks for {@code key}, optionally reserving an entry allowance before running
+         * the loader. A reserving loader receives the remaining allowance so it can stop producing
+         * a cache value early; other loaders are admitted atomically by their actual weight.
+         */
+        @SuppressWarnings("unchecked")
+        public <T> List<T> getOrLoad(
+                ExternalScanTaskCacheKey<T> key, WeightedLoader<T> loader,
+                ToLongFunction<List<T>> weigher, WeightBudget weightBudget,
+                long maxEntryWeight, long maxRetainedWeight,
+                boolean reserveBeforeLoad) throws Exception {
             CompletableFuture<List<?>> newLoad = new CompletableFuture<>();
             CompletableFuture<List<?>> load;
             boolean cacheable;
+            long reservedWeight = 0;
             synchronized (this) {
                 cacheable = !invalidated;
                 if (cacheable) {
                     load = tasks.putIfAbsent(key, newLoad);
+                    if (load == null && reserveBeforeLoad) {
+                        long retainedWeight = retainedWeight(weightBudget);
+                        long alreadyReservedWeight = reservedWeight(weightBudget);
+                        long availableWeight = Math.max(
+                                0, maxRetainedWeight - retainedWeight - alreadyReservedWeight);
+                        reservedWeight = Math.min(maxEntryWeight, availableWeight);
+                        addReservedWeight(weightBudget, reservedWeight);
+                    }
                 } else {
                     load = null;
                 }
             }
             if (!cacheable) {
-                return immutableCopy(loader.call());
+                return immutableCopy(loader.load(0));
             }
             if (load == null) {
+                List<T> loadedTasks;
+                long weight;
                 try {
-                    List<T> loadedTasks = immutableCopy(loader.call());
-                    long weight = weigher.applyAsLong(loadedTasks);
+                    loadedTasks = loader.load(reserveBeforeLoad ? reservedWeight : maxEntryWeight);
+                    weight = weigher.applyAsLong(loadedTasks);
+                } catch (Exception | Error throwable) {
                     synchronized (this) {
-                        if (invalidated || weight > maxRetainedWeight - retainedWeight) {
-                            tasks.remove(key, newLoad);
+                        if (reserveBeforeLoad) {
+                            releaseReservation(weightBudget, reservedWeight);
+                        }
+                        tasks.remove(key, newLoad);
+                    }
+                    newLoad.completeExceptionally(throwable);
+                    throw throwable;
+                }
+                boolean mayRetain;
+                synchronized (this) {
+                    long availableWeight = Math.max(
+                            0, maxRetainedWeight - retainedWeight(weightBudget));
+                    mayRetain = !invalidated && weight <= availableWeight
+                            && (!reserveBeforeLoad || weight <= reservedWeight);
+                }
+                List<T> retainedCopy = null;
+                boolean reservationReleased = false;
+                boolean retainedCommitted = false;
+                try {
+                    if (mayRetain) {
+                        retainedCopy = immutableCopy(loadedTasks);
+                    }
+                    synchronized (this) {
+                        if (reserveBeforeLoad) {
+                            releaseReservation(weightBudget, reservedWeight);
+                            reservationReleased = true;
+                        }
+                        long availableWeight = Math.max(
+                                0, maxRetainedWeight - retainedWeight(weightBudget));
+                        retainedCommitted = mayRetain && !invalidated && weight <= availableWeight;
+                        if (retainedCommitted) {
+                            addRetainedWeight(weightBudget, weight);
                         } else {
-                            retainedWeight += weight;
+                            tasks.remove(key, newLoad);
                         }
                     }
-                    newLoad.complete(loadedTasks);
-                    return loadedTasks;
+                    List<T> result = retainedCommitted ? retainedCopy : loadedTasks;
+                    newLoad.complete(result);
+                    return result;
                 } catch (Exception | Error throwable) {
+                    synchronized (this) {
+                        if (retainedCommitted) {
+                            addRetainedWeight(weightBudget, -weight);
+                        }
+                        if (reserveBeforeLoad && !reservationReleased) {
+                            releaseReservation(weightBudget, reservedWeight);
+                        }
+                        tasks.remove(key, newLoad);
+                    }
                     newLoad.completeExceptionally(throwable);
-                    tasks.remove(key, newLoad);
                     throw throwable;
                 }
             }
@@ -1471,7 +1556,37 @@ public class StatementContext implements Closeable {
         private synchronized void invalidate() {
             invalidated = true;
             tasks.clear();
-            retainedWeight = 0;
+            retainedTaskCount = 0;
+            retainedPaimonBytes = 0;
+            reservedPaimonBytes = 0;
+        }
+
+        private void releaseReservation(WeightBudget weightBudget, long reservedWeight) {
+            addReservedWeight(weightBudget, -reservedWeight);
+        }
+
+        private long retainedWeight(WeightBudget weightBudget) {
+            return weightBudget == WeightBudget.TASK_COUNT
+                    ? retainedTaskCount : retainedPaimonBytes;
+        }
+
+        private long reservedWeight(WeightBudget weightBudget) {
+            return weightBudget == WeightBudget.PAIMON_SERIALIZED_BYTES
+                    ? reservedPaimonBytes : 0;
+        }
+
+        private void addRetainedWeight(WeightBudget weightBudget, long weight) {
+            if (weightBudget == WeightBudget.TASK_COUNT) {
+                retainedTaskCount += weight;
+            } else {
+                retainedPaimonBytes += weight;
+            }
+        }
+
+        private void addReservedWeight(WeightBudget weightBudget, long weight) {
+            if (weightBudget == WeightBudget.PAIMON_SERIALIZED_BYTES) {
+                reservedPaimonBytes += weight;
+            }
         }
 
         private static <T> List<T> immutableCopy(List<T> loadedTasks) {

@@ -153,6 +153,24 @@ public class HudiScanNodeTest {
     }
 
     @Test
+    public void testOversizedSnapshotPlanIsNotRetained() throws Exception {
+        StatementContext.ExternalScanTaskCache cache = new StatementContext.ExternalScanTaskCache();
+        HivePartition partition = partition("file:///table/p=1", Collections.singletonList("1"));
+        HoodieTableFileSystemView firstView = fileSystemView("file:///table/p=1/first.parquet");
+        HoodieTableFileSystemView secondView = fileSystemView("file:///table/p=1/second.parquet");
+        HudiScanNode firstNode = partitionScanNode(cache, firstView, "100", true, false);
+        HudiScanNode secondNode = partitionScanNode(cache, secondView, "100", true, false);
+        setField(firstNode, FileQueryScanNode.class, "maxRetainedExternalScanTasks", 0L);
+        setField(secondNode, FileQueryScanNode.class, "maxRetainedExternalScanTasks", 0L);
+
+        invokeGetPartitionSplits(firstNode, partition);
+        invokeGetPartitionSplits(secondNode, partition);
+
+        Mockito.verify(firstView).getLatestBaseFilesBeforeOrOn("p=1", "100");
+        Mockito.verify(secondView).getLatestBaseFilesBeforeOrOn("p=1", "100");
+    }
+
+    @Test
     public void testPartitionCacheKeySeparatesReaderAndRuntimePruneModes() throws Exception {
         HivePartition partition = partition("file:///table/p=1", Collections.singletonList("1"));
         Object nativeKey = newPartitionCacheKey("100", true, false, partition);
@@ -222,6 +240,8 @@ public class HudiScanNodeTest {
         Mockito.when(metaClient.getBasePath()).thenReturn(new StoragePath("file:///table"));
 
         setField(node, FileQueryScanNode.class, "externalScanTaskCache", cache);
+        setField(node, FileQueryScanNode.class, "maxRetainedExternalScanTasks",
+                StatementContext.ExternalScanTaskCache.MAX_RETAINED_TASK_COUNT);
         setField(node, HiveScanNode.class, "hmsTable", table);
         setField(node, FileQueryScanNode.class, "sessionVariable", sessionVariable);
         setField(node, HudiScanNode.class, "isCowTable", true);

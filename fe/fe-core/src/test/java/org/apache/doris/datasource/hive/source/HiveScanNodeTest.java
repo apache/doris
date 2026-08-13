@@ -20,6 +20,8 @@ package org.apache.doris.datasource.hive.source;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Config;
+import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -137,6 +139,67 @@ public class HiveScanNodeTest {
                 previousContext.setThreadLocalInfo();
             }
         }
+    }
+
+    @Test
+    public void testDisabledGlobalFileCacheBypassesStatementCache() throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext(context, null);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        long previousMaxFileCacheNum = Config.max_external_file_cache_num;
+        try {
+            Config.max_external_file_cache_num = 0;
+            HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+            HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+            Mockito.when(table.getCatalog()).thenReturn(catalog);
+            Mockito.when(table.getId()).thenReturn(2L);
+            Mockito.when(catalog.getId()).thenReturn(1L);
+            Mockito.when(catalog.bindBrokerName()).thenReturn("");
+            HiveScanNode firstNode = createHiveScanNode(0, table);
+            HiveScanNode secondNode = createHiveScanNode(1, table);
+            HiveExternalMetaCache cache = Mockito.mock(HiveExternalMetaCache.class);
+            Mockito.when(cache.getFilesByPartitions(
+                    Mockito.anyList(), Mockito.eq(false), Mockito.anyBoolean(),
+                    Mockito.isNull(), Mockito.eq(table))).thenReturn(Collections.emptyList());
+            List<HivePartition> partitions = Collections.singletonList(new HivePartition(
+                    null, false, "parquet", "hdfs://warehouse/t",
+                    Collections.emptyList(), Collections.emptyMap()));
+
+            invokeGetFileSplitByPartitions(firstNode, cache, partitions);
+            invokeGetFileSplitByPartitions(secondNode, cache, partitions);
+
+            Mockito.verify(cache, Mockito.times(2)).getFilesByPartitions(
+                    Mockito.same(partitions), Mockito.eq(false), Mockito.eq(false),
+                    Mockito.isNull(), Mockito.eq(table));
+        } finally {
+            Config.max_external_file_cache_num = previousMaxFileCacheNum;
+            statementContext.close();
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testHiveRetentionWeightIncludesEmptyPartitions() throws Exception {
+        HiveScanNode node = createHiveScanNode();
+        Field maxTasks = FileQueryScanNode.class.getDeclaredField("maxRetainedExternalScanTasks");
+        maxTasks.setAccessible(true);
+        maxTasks.set(node, 10L);
+        List<HiveExternalMetaCache.FileCacheValue> fileCaches = Arrays.asList(
+                new HiveExternalMetaCache.FileCacheValue(),
+                new HiveExternalMetaCache.FileCacheValue());
+        Method method = HiveScanNode.class.getDeclaredMethod("retainedHiveFileCount", List.class);
+        method.setAccessible(true);
+
+        Assert.assertEquals(2L, method.invoke(node, fileCaches));
+
+        HiveExternalMetaCache.HiveFileStatus status = new HiveExternalMetaCache.HiveFileStatus();
+        fileCaches.get(0).getFiles().add(status);
+        Assert.assertEquals(3L, method.invoke(node, fileCaches));
     }
 
     @Test

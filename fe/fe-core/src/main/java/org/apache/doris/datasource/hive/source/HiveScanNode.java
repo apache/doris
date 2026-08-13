@@ -48,6 +48,7 @@ import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -323,10 +324,11 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         } else {
             boolean withCache = Config.max_external_file_cache_num > 0;
-            if (isBatchMode) {
+            if (isBatchMode || !withCache) {
                 // Batch mode bounds FE memory by retaining only the partitions currently in flight.
                 // Keeping every completed partition in the statement cache would materialize the
-                // full scan again and defeat that bound.
+                // full scan again and defeat that bound. When the global file cache is disabled,
+                // statement retention must not become an uncapped replacement for that memory fence.
                 fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
                         directoryLister, hmsTable);
             } else {
@@ -334,8 +336,11 @@ public class HiveScanNode extends FileQueryScanNode {
                         hmsTable.getCatalog().getId(), hmsTable.getId(), partitions);
                 try {
                     fileCaches = getOrLoadExternalScanTasks(cacheKey,
-                            () -> cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
-                                    directoryLister, hmsTable));
+                            ignored -> cache.getFilesByPartitions(partitions, true, partitions.size() > 1,
+                                    directoryLister, hmsTable),
+                            this::retainedHiveFileCount,
+                            StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
+                            maxRetainedExternalScanTasks, maxRetainedExternalScanTasks, false);
                 } catch (IOException | UserException e) {
                     throw e;
                 } catch (Exception e) {
@@ -393,6 +398,19 @@ public class HiveScanNode extends FileQueryScanNode {
                         new HiveSplitCreator(fileCacheValue.getAcidInfo())));
             }
         }
+    }
+
+    private long retainedHiveFileCount(List<FileCacheValue> fileCaches) {
+        long fileCount = fileCaches.size();
+        for (FileCacheValue fileCache : fileCaches) {
+            if (fileCache.getFiles() != null) {
+                fileCount += fileCache.getFiles().size();
+                if (fileCount > maxRetainedExternalScanTasks) {
+                    return maxRetainedExternalScanTasks + 1;
+                }
+            }
+        }
+        return Math.max(1, fileCount);
     }
 
     private long determineTargetFileSplitSize(List<FileCacheValue> fileCaches,

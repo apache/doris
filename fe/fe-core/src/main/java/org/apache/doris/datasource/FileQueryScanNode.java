@@ -101,6 +101,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected Map<String, SlotDescriptor> destSlotDescByName;
     protected TFileScanRangeParams params;
     private final StatementContext.ExternalScanTaskCache externalScanTaskCache;
+    protected long maxRetainedExternalScanTasks =
+            StatementContext.ExternalScanTaskCache.MAX_RETAINED_TASK_COUNT;
 
     @Getter
     protected TableSample tableSample;
@@ -161,6 +163,25 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return loader.call();
         }
         return externalScanTaskCache.getOrLoad(key, loader, weigher, maxRetainedWeight);
+    }
+
+    protected <T> List<T> getOrLoadExternalScanTasks(
+            ExternalScanTaskCacheKey<T> key,
+            StatementContext.ExternalScanTaskCache.WeightedLoader<T> loader,
+            ToLongFunction<List<T>> weigher,
+            StatementContext.ExternalScanTaskCache.WeightBudget weightBudget,
+            long maxEntryWeight, long maxRetainedWeight,
+            boolean reserveBeforeLoad) throws Exception {
+        if (externalScanTaskCache == null) {
+            return loader.load(maxEntryWeight);
+        }
+        return externalScanTaskCache.getOrLoad(
+                key, loader, weigher, weightBudget, maxEntryWeight, maxRetainedWeight,
+                reserveBeforeLoad);
+    }
+
+    protected static long externalScanTaskCount(List<?> tasks) {
+        return Math.max(1, tasks.size());
     }
 
     /**

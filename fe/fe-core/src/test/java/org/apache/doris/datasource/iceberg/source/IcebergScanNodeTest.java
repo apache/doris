@@ -65,6 +65,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.BaseMetadataTable;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.BatchScan;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
@@ -174,6 +175,10 @@ public class IcebergScanNodeTest {
 
         void setTableScan(TableScan tableScan) {
             this.tableScan = tableScan;
+        }
+
+        void setMaxRetainedExternalScanTasks(long maxRetainedExternalScanTasks) {
+            this.maxRetainedExternalScanTasks = maxRetainedExternalScanTasks;
         }
 
         @Override
@@ -717,6 +722,82 @@ public class IcebergScanNodeTest {
             Assert.assertEquals(1, planCalls.get());
             Assert.assertSame(firstTasks, secondTasks);
             Assert.assertEquals(Collections.singletonList(task), secondTasks);
+        } finally {
+            statementContext.close();
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testOversizedIcebergPlanIsNotRetained() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        try {
+            TestIcebergScanNode firstNode = new TestIcebergScanNode(new SessionVariable());
+            TestIcebergScanNode secondNode = new TestIcebergScanNode(new SessionVariable());
+            firstNode.setMaxRetainedExternalScanTasks(1);
+            secondNode.setMaxRetainedExternalScanTasks(1);
+            setIcebergSource(firstNode, mockIcebergSource(10L, 20L));
+            setIcebergSource(secondNode, mockIcebergSource(10L, 20L));
+            TableScan scan = mockTableScan(30L, 40, Expressions.equal("id", 1));
+            AtomicInteger planCalls = new AtomicInteger();
+            List<FileScanTask> tasks = Arrays.asList(
+                    Mockito.mock(FileScanTask.class), Mockito.mock(FileScanTask.class));
+
+            Assert.assertEquals(tasks, firstNode.getOrPlanFileScanTasks(scan, () -> {
+                planCalls.incrementAndGet();
+                return tasks;
+            }));
+            Assert.assertEquals(tasks, secondNode.getOrPlanFileScanTasks(scan, () -> {
+                planCalls.incrementAndGet();
+                return tasks;
+            }));
+
+            Assert.assertEquals(2, planCalls.get());
+        } finally {
+            statementContext.close();
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testOversizedPositionDeletePlanIsNotRetained() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        try {
+            TestIcebergScanNode firstNode = new TestIcebergScanNode(new SessionVariable());
+            TestIcebergScanNode secondNode = new TestIcebergScanNode(new SessionVariable());
+            firstNode.setMaxRetainedExternalScanTasks(1);
+            secondNode.setMaxRetainedExternalScanTasks(1);
+            setIcebergSource(firstNode, mockIcebergSource(10L, 20L));
+            setIcebergSource(secondNode, mockIcebergSource(10L, 20L));
+            BatchScan scan = Mockito.mock(BatchScan.class);
+            Snapshot snapshot = Mockito.mock(Snapshot.class);
+            Mockito.when(snapshot.snapshotId()).thenReturn(30L);
+            Mockito.when(scan.snapshot()).thenReturn(snapshot);
+            Mockito.when(scan.schema()).thenReturn(new Schema(
+                    Types.NestedField.optional(1, "id", Types.IntegerType.get())));
+            Mockito.when(scan.filter()).thenReturn(Expressions.alwaysTrue());
+            Mockito.when(scan.isCaseSensitive()).thenReturn(true);
+            AtomicInteger planCalls = new AtomicInteger();
+            List<PositionDeletesScanTask> tasks = Arrays.asList(
+                    Mockito.mock(PositionDeletesScanTask.class),
+                    Mockito.mock(PositionDeletesScanTask.class));
+
+            firstNode.getOrPlanPositionDeleteTasks(scan, () -> {
+                planCalls.incrementAndGet();
+                return tasks;
+            });
+            secondNode.getOrPlanPositionDeleteTasks(scan, () -> {
+                planCalls.incrementAndGet();
+                return tasks;
+            });
+
+            Assert.assertEquals(2, planCalls.get());
         } finally {
             statementContext.close();
             ConnectContext.remove();
