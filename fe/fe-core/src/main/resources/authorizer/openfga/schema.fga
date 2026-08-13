@@ -1,0 +1,167 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+model
+  schema 1.1
+
+# OpenFGA authorization model for Apache Doris.
+#
+# Object hierarchy: global -> catalog -> database -> table -> column, plus the
+# standalone objects resource, workload_group, storage_vault and compute_group
+# (each parented to global so a global grant reaches them).
+#
+# Relations are derived one to one from DorisAccessType:
+#   can_node, can_admin, can_grant, can_select, can_load, can_alter,
+#   can_create, can_drop, can_usage, can_show_view
+#
+# Two rules are baked into the model so a single Check answers a Doris privilege
+# question without the controller walking the tree itself:
+#   1. can_admin implies every other relation on the same object (Doris ADMIN_PRIV
+#      can do anything on that object).
+#   2. every relation is inherited "from parent", so a grant at catalog level
+#      cascades to its databases, tables and columns (top down inheritance).
+#
+# The controller still checks the global object explicitly (it is a distinct
+# object type, not the parent of a catalog by tuple), matching the Ranger
+# controller which also checks the global level explicitly.
+
+type user
+
+type global
+  relations
+    define can_admin: [user]
+    define can_node: [user] or can_admin
+    define can_grant: [user] or can_admin
+    define can_select: [user] or can_admin
+    define can_load: [user] or can_admin
+    define can_alter: [user] or can_admin
+    define can_create: [user] or can_admin
+    define can_drop: [user] or can_admin
+    define can_usage: [user] or can_admin
+    define can_show_view: [user] or can_admin
+
+type catalog
+  relations
+    define parent: [global]
+    define can_admin: [user] or can_admin from parent
+    define can_node: [user] or can_admin or can_node from parent
+    define can_grant: [user] or can_admin or can_grant from parent
+    define can_select: [user] or can_admin or can_select from parent
+    define can_load: [user] or can_admin or can_load from parent
+    define can_alter: [user] or can_admin or can_alter from parent
+    define can_create: [user] or can_admin or can_create from parent
+    define can_drop: [user] or can_admin or can_drop from parent
+    define can_usage: [user] or can_admin or can_usage from parent
+    define can_show_view: [user] or can_admin or can_show_view from parent
+
+type database
+  relations
+    define parent: [catalog]
+    define can_admin: [user] or can_admin from parent
+    define can_node: [user] or can_admin or can_node from parent
+    define can_grant: [user] or can_admin or can_grant from parent
+    define can_select: [user] or can_admin or can_select from parent
+    define can_load: [user] or can_admin or can_load from parent
+    define can_alter: [user] or can_admin or can_alter from parent
+    define can_create: [user] or can_admin or can_create from parent
+    define can_drop: [user] or can_admin or can_drop from parent
+    define can_usage: [user] or can_admin or can_usage from parent
+    define can_show_view: [user] or can_admin or can_show_view from parent
+
+type table
+  relations
+    define parent: [database]
+    define can_admin: [user] or can_admin from parent
+    define can_node: [user] or can_admin or can_node from parent
+    define can_grant: [user] or can_admin or can_grant from parent
+    define can_select: [user] or can_admin or can_select from parent
+    define can_load: [user] or can_admin or can_load from parent
+    define can_alter: [user] or can_admin or can_alter from parent
+    define can_create: [user] or can_admin or can_create from parent
+    define can_drop: [user] or can_admin or can_drop from parent
+    define can_usage: [user] or can_admin or can_usage from parent
+    define can_show_view: [user] or can_admin or can_show_view from parent
+
+type column
+  relations
+    define parent: [table]
+    define can_admin: [user] or can_admin from parent
+    define can_node: [user] or can_admin or can_node from parent
+    define can_grant: [user] or can_admin or can_grant from parent
+    define can_select: [user] or can_admin or can_select from parent
+    define can_load: [user] or can_admin or can_load from parent
+    define can_alter: [user] or can_admin or can_alter from parent
+    define can_create: [user] or can_admin or can_create from parent
+    define can_drop: [user] or can_admin or can_drop from parent
+    define can_usage: [user] or can_admin or can_usage from parent
+    define can_show_view: [user] or can_admin or can_show_view from parent
+
+type resource
+  relations
+    define parent: [global]
+    define can_admin: [user] or can_admin from parent
+    define can_node: [user] or can_admin or can_node from parent
+    define can_grant: [user] or can_admin or can_grant from parent
+    define can_select: [user] or can_admin or can_select from parent
+    define can_load: [user] or can_admin or can_load from parent
+    define can_alter: [user] or can_admin or can_alter from parent
+    define can_create: [user] or can_admin or can_create from parent
+    define can_drop: [user] or can_admin or can_drop from parent
+    define can_usage: [user] or can_admin or can_usage from parent
+    define can_show_view: [user] or can_admin or can_show_view from parent
+
+type workload_group
+  relations
+    define parent: [global]
+    define can_admin: [user] or can_admin from parent
+    define can_node: [user] or can_admin or can_node from parent
+    define can_grant: [user] or can_admin or can_grant from parent
+    define can_select: [user] or can_admin or can_select from parent
+    define can_load: [user] or can_admin or can_load from parent
+    define can_alter: [user] or can_admin or can_alter from parent
+    define can_create: [user] or can_admin or can_create from parent
+    define can_drop: [user] or can_admin or can_drop from parent
+    define can_usage: [user] or can_admin or can_usage from parent
+    define can_show_view: [user] or can_admin or can_show_view from parent
+
+type storage_vault
+  relations
+    define parent: [global]
+    define can_admin: [user] or can_admin from parent
+    define can_node: [user] or can_admin or can_node from parent
+    define can_grant: [user] or can_admin or can_grant from parent
+    define can_select: [user] or can_admin or can_select from parent
+    define can_load: [user] or can_admin or can_load from parent
+    define can_alter: [user] or can_admin or can_alter from parent
+    define can_create: [user] or can_admin or can_create from parent
+    define can_drop: [user] or can_admin or can_drop from parent
+    define can_usage: [user] or can_admin or can_usage from parent
+    define can_show_view: [user] or can_admin or can_show_view from parent
+
+type compute_group
+  relations
+    define parent: [global]
+    define can_admin: [user] or can_admin from parent
+    define can_node: [user] or can_admin or can_node from parent
+    define can_grant: [user] or can_admin or can_grant from parent
+    define can_select: [user] or can_admin or can_select from parent
+    define can_load: [user] or can_admin or can_load from parent
+    define can_alter: [user] or can_admin or can_alter from parent
+    define can_create: [user] or can_admin or can_create from parent
+    define can_drop: [user] or can_admin or can_drop from parent
+    define can_usage: [user] or can_admin or can_usage from parent
+    define can_show_view: [user] or can_admin or can_show_view from parent
