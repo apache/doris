@@ -16,12 +16,14 @@
 // under the License.
 
 #ifdef USE_AZURE
-#include "cpp/client/azure_obj_storage_backend.h"
+#include "cpp/obj-client/azure_obj_storage_client.h"
+
+#include "cpp/obj-client/auth/azure_auth_factory.h"
 #endif
 
 #include <gtest/gtest.h>
 
-#include "cpp/client/obj_storage_client.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "io/fs/file_system.h"
 #include "util/s3_util.h"
 
@@ -37,6 +39,13 @@ namespace doris {
 #ifdef USE_AZURE
 
 using namespace Azure::Storage::Blobs;
+
+TEST(AzureAuthFactoryTest, AllowsEmptySharedKeyCredentials) {
+    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                           {.account_name = "", .account_key = ""}, {});
+
+    EXPECT_TRUE(result);
+}
 
 TEST(AzureObjStorageClientTlsHelperTest, detects_tls_ca_error) {
     EXPECT_TRUE(io::is_azure_tls_ca_error_message(
@@ -83,7 +92,7 @@ protected:
                  .sk = accountKey,
                  .token = "",
                  .bucket = containerName,
-                 .provider = ObjStorageType::AZURE,
+                 .provider = ObjStorageProvider::AZURE,
                  .role_arn = "",
                  .external_id = ""});
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
@@ -106,37 +115,23 @@ TEST_F(AzureObjStorageClientTest, put_list_delete_object) {
             {.key = "AzureObjStorageClientTest/put_list_delete_object"}, std::string("aaaa"));
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
-    std::vector<io::FileInfo> files;
-    // clang-format off
-    ObjectListIterator iter(AzureObjStorageClientTest::obj_storage_client, {.bucket = "dummy",
-            .prefix = "AzureObjStorageClientTest/put_list_delete_object"});
-    // clang-format on
-    for (auto obj = iter.next(); obj.results_.has_value(); obj = iter.next()) {
-        EXPECT_TRUE(obj.resp.ok());
-        files.push_back({.file_name = obj.results_->file_path,
-                         .file_size = obj.results_->size,
-                         .is_file = true});
-    }
-    EXPECT_TRUE(iter.is_valid());
-    EXPECT_EQ(files.size(), 1);
-    files.clear();
+    std::vector<ObjectMeta> objects;
+    response = AzureObjStorageClientTest::obj_storage_client->list_objects(
+            {.bucket = "dummy", .prefix = "AzureObjStorageClientTest/put_list_delete_object"},
+            &objects);
+    EXPECT_TRUE(response.ok());
+    EXPECT_EQ(objects.size(), 1);
+    objects.clear();
 
     response = AzureObjStorageClientTest::obj_storage_client->delete_object(
             {.key = "AzureObjStorageClientTest/put_list_delete_object"});
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
-    // clang-format off
-    iter = ObjectListIterator(AzureObjStorageClientTest::obj_storage_client, {.bucket = "dummy",
-            .prefix = "AzureObjStorageClientTest/put_list_delete_object"});
-    // clang-format on
-    for (auto obj = iter.next(); obj.results_.has_value(); obj = iter.next()) {
-        EXPECT_TRUE(obj.resp.ok());
-        files.push_back({.file_name = obj.results_->file_path,
-                         .file_size = obj.results_->size,
-                         .is_file = true});
-    }
-    EXPECT_TRUE(iter.is_valid());
-    EXPECT_EQ(files.size(), 0);
+    response = AzureObjStorageClientTest::obj_storage_client->list_objects(
+            {.bucket = "dummy", .prefix = "AzureObjStorageClientTest/put_list_delete_object"},
+            &objects);
+    EXPECT_TRUE(response.ok());
+    EXPECT_TRUE(objects.empty());
 }
 
 TEST_F(AzureObjStorageClientTest, delete_objects_recursively) {
@@ -152,37 +147,23 @@ TEST_F(AzureObjStorageClientTest, delete_objects_recursively) {
         LOG(INFO) << "put " << key << " OK";
     }
 
-    std::vector<io::FileInfo> files;
-    // clang-format off
-    ObjectListIterator iter(AzureObjStorageClientTest::obj_storage_client, {.bucket = "dummy",
-            .prefix = "AzureObjStorageClientTest/delete_objects_recursively"});
-    // clang-format on
-    for (auto obj = iter.next(); obj.results_.has_value(); obj = iter.next()) {
-        EXPECT_TRUE(obj.resp.ok());
-        files.push_back({.file_name = obj.results_->file_path,
-                         .file_size = obj.results_->size,
-                         .is_file = true});
-    }
-    EXPECT_TRUE(iter.is_valid());
-    EXPECT_EQ(files.size(), 22);
-    files.clear();
+    std::vector<ObjectMeta> objects;
+    auto response = AzureObjStorageClientTest::obj_storage_client->list_objects(
+            {.bucket = "dummy", .prefix = "AzureObjStorageClientTest/delete_objects_recursively"},
+            &objects);
+    EXPECT_TRUE(response.ok());
+    EXPECT_EQ(objects.size(), 22);
+    objects.clear();
 
-    auto response = AzureObjStorageClientTest::obj_storage_client->delete_objects_recursively(
+    response = AzureObjStorageClientTest::obj_storage_client->delete_objects_recursively(
             {.prefix = "AzureObjStorageClientTest/delete_objects_recursively"});
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
-    // clang-format off
-    iter = ObjectListIterator(AzureObjStorageClientTest::obj_storage_client, {.bucket = "dummy",
-            .prefix = "AzureObjStorageClientTest/delete_objects_recursively"});
-    // clang-format on
-    for (auto obj = iter.next(); obj.results_.has_value(); obj = iter.next()) {
-        EXPECT_TRUE(obj.resp.ok());
-        files.push_back({.file_name = obj.results_->file_path,
-                         .file_size = obj.results_->size,
-                         .is_file = true});
-    }
-    EXPECT_TRUE(iter.is_valid());
-    EXPECT_EQ(files.size(), 0);
+    response = AzureObjStorageClientTest::obj_storage_client->list_objects(
+            {.bucket = "dummy", .prefix = "AzureObjStorageClientTest/delete_objects_recursively"},
+            &objects);
+    EXPECT_TRUE(response.ok());
+    EXPECT_TRUE(objects.empty());
 }
 #else
 

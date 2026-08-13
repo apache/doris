@@ -35,8 +35,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "cpp/client/obj_storage_client.h"
-#include "cpp/client/s3_common.h"
+#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-client/s3_common.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
@@ -302,24 +302,18 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
         prefix.push_back('/');
     }
 
-    ObjectListIterator list_iter(client, {
-                                                 .bucket = _bucket,
-                                                 .prefix = prefix,
-                                         });
-
-    for (;;) {
-        auto resp = list_iter.next();
-        if (!resp.results_.has_value()) {
-            if (!resp.resp.ok()) {
-                return {resp.resp.status.code, std::move(resp.resp.status.msg)};
-            }
-            break;
-        }
-        auto obj = std::move(*resp.results_);
-        obj.file_path.erase(0, prefix.size());
-        bool is_dir = obj.file_path.empty() || obj.file_path.back() == '/';
+    std::vector<ObjectMeta> objects;
+    auto resp = client->list_objects({.bucket = _bucket, .prefix = prefix}, &objects);
+    if (!resp.ok()) {
+        files->clear();
+        return {resp.status.code, std::move(resp.status.msg)};
+    }
+    files->reserve(files->size() + objects.size());
+    for (auto& obj : objects) {
+        obj.key.erase(0, prefix.size());
+        bool is_dir = obj.key.empty() || obj.key.back() == '/';
         files->emplace_back(FileInfo {
-                .file_name = std::move(obj.file_path), .file_size = obj.size, .is_file = !is_dir});
+                .file_name = std::move(obj.key), .file_size = obj.size, .is_file = !is_dir});
     }
 
     return Status::OK();

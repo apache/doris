@@ -35,8 +35,8 @@
 #include "common/status.h"
 #include "core/string_ref.h"
 #include "cpp/aws_common.h"
-#include "cpp/client/auth/aws_credential_factory.h"
-#include "cpp/client/obj_storage_client.h"
+#include "cpp/obj-client/auth/aws_credential_factory.h"
+#include "cpp/obj-client/obj_storage_client.h"
 
 namespace Aws::S3 {
 class S3Client;
@@ -60,7 +60,7 @@ struct S3ClientConf {
     std::string token;
     // For azure we'd better support the bucket at the first time init azure blob container client
     std::string bucket;
-    io::ObjStorageType provider = io::ObjStorageType::AWS;
+    io::ObjStorageProvider provider = io::ObjStorageProvider::AWS;
     int max_connections = -1;
     int request_timeout_ms = -1;
     int connect_timeout_ms = -1;
@@ -167,9 +167,8 @@ public:
 #endif
 
 private:
-    Result<std::shared_ptr<io::ObjStorageBackend>> _create_s3_backend(const S3ClientConf& s3_conf);
-    Result<std::shared_ptr<io::ObjStorageBackend>> _create_azure_backend(
-            const S3ClientConf& s3_conf);
+    Result<std::shared_ptr<io::ObjStorageClient>> _create_s3_client(const S3ClientConf& s3_conf);
+    Result<std::shared_ptr<io::ObjStorageClient>> _create_azure_client(const S3ClientConf& s3_conf);
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;

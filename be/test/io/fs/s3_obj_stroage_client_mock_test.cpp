@@ -21,8 +21,9 @@
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
 
-#include "cpp/client/obj_storage_client.h"
-#include "cpp/client/s3_obj_storage_backend.h"
+#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-client/rate_limited_obj_storage_client.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "gmock/gmock.h"
 #include "io/fs/file_system.h"
 #include "util/s3_util.h"
@@ -37,14 +38,18 @@ public:
 
     MOCK_METHOD(Aws::S3::Model::ListObjectsV2Outcome, ListObjectsV2,
                 (const Aws::S3::Model::ListObjectsV2Request& request), (const, override));
+    MOCK_METHOD(Aws::S3::Model::DeleteObjectOutcome, DeleteObject,
+                (const Aws::S3::Model::DeleteObjectRequest& request), (const, override));
+    MOCK_METHOD(Aws::S3::Model::DeleteObjectsOutcome, DeleteObjects,
+                (const Aws::S3::Model::DeleteObjectsRequest& request), (const, override));
 };
 
 class CountingGetRateLimitPolicy final : public ObjStorageRateLimitPolicy {
 public:
     explicit CountingGetRateLimitPolicy(size_t* request_count) : request_count_(request_count) {}
 
-    ObjStorageRateLimitToken acquire(ObjStorageRequestType type, size_t) const override {
-        EXPECT_EQ(type, ObjStorageRequestType::GET);
+    ObjStorageAdmission acquire(S3RateLimitType type, size_t) const override {
+        EXPECT_EQ(type, S3RateLimitType::GET);
         ++*request_count_;
         return {};
     }
@@ -64,24 +69,23 @@ private:
 Aws::SDKOptions S3ObjStorageClientMockTest::options {};
 
 TEST_F(S3ObjStorageClientMockTest, list_objects_compatibility) {
-    // If storage only supports ListObjectsV1, s3_obj_storage_backend.list_objects
+    // If storage only supports ListObjectsV1, s3_obj_storage_client.list_objects
     // should return an error.
     auto mock_s3_client = std::make_shared<MockS3Client>();
-    S3ObjStorageBackend s3_obj_storage_backend(mock_s3_client);
-
-    std::vector<io::FileInfo> files;
+    auto s3_obj_storage_client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
 
     ListObjectsV2Result result;
     result.SetIsTruncated(true);
     EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
             .WillOnce(testing::Return(ListObjectsV2Outcome(result)));
 
-    auto page = s3_obj_storage_backend.list_objects(
-            {.bucket = "dummy-bucket", .key = "S3ObjStorageClientMockTest/list_objects_test"}, {});
+    std::vector<ObjectMeta> objects;
+    auto response = s3_obj_storage_client->list_objects(
+            {.bucket = "dummy-bucket", .key = "S3ObjStorageClientMockTest/list_objects_test"},
+            &objects);
 
-    EXPECT_TRUE(page.objects.empty());
-    EXPECT_EQ(page.resp.status.code, ErrorCode::INTERNAL_ERROR);
-    files.clear();
+    EXPECT_TRUE(objects.empty());
+    EXPECT_EQ(response.status.code, ErrorCode::INTERNAL_ERROR);
 }
 
 ListObjectsV2Result CreatePageResult(const std::string& nextToken,
@@ -100,9 +104,10 @@ ListObjectsV2Result CreatePageResult(const std::string& nextToken,
 TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
     auto mock_s3_client = std::make_shared<MockS3Client>();
     size_t get_request_count = 0;
-    auto backend = std::make_shared<S3ObjStorageBackend>(mock_s3_client);
-    ObjStorageClient obj_storage_client(
-            std::move(backend), std::make_shared<CountingGetRateLimitPolicy>(&get_request_count));
+    auto inner_client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    auto obj_storage_client = std::make_shared<RateLimitedObjStorageClient>(
+            std::move(inner_client),
+            std::make_shared<CountingGetRateLimitPolicy>(&get_request_count));
     std::string prefix = "S3ObjStorageClientMockTest/list_objects_with_pagination/";
 
     std::vector<std::vector<std::string>> pages = {
@@ -135,26 +140,46 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
                 return ListObjectsV2Outcome(CreatePageResult("", pages[2], false));
             });
 
-    std::vector<io::FileInfo> files;
-    std::string continuation_token;
-    bool has_more = true;
-    while (has_more) {
-        auto page = obj_storage_client.list_objects(
-                {.bucket = "dummy-bucket",
-                 .key = "S3ObjStorageClientMockTest/list_objects_with_pagination"},
-                continuation_token);
-        EXPECT_EQ(page.resp.status.code, ErrorCode::OK);
-        for (const auto& object : page.objects) {
-            files.push_back(
-                    {.file_name = object.file_path, .file_size = object.size, .is_file = true});
-        }
-        continuation_token = std::move(page.continuation_token);
-        has_more = page.has_more;
-    }
+    std::vector<ObjectMeta> objects;
+    auto response = obj_storage_client->list_objects(
+            {.bucket = "dummy-bucket",
+             .key = "S3ObjStorageClientMockTest/list_objects_with_pagination"},
+            &objects);
 
-    EXPECT_EQ(files.size(), 5);
+    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    EXPECT_EQ(objects.size(), 5);
     EXPECT_EQ(get_request_count, pages.size());
-    files.clear();
+}
+
+TEST_F(S3ObjStorageClientMockTest,
+       delete_object_preserves_not_found_and_batch_uses_delete_objects) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto s3_obj_storage_client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    auto not_found = [](const DeleteObjectRequest&) {
+        Aws::S3::S3Error error;
+        error.SetResponseCode(Aws::Http::HttpResponseCode::NOT_FOUND);
+        error.SetMessage("object not found");
+        error.SetRequestId("request-id");
+        return DeleteObjectOutcome(std::move(error));
+    };
+    EXPECT_CALL(*mock_s3_client, DeleteObject(testing::_)).WillOnce(not_found);
+    EXPECT_CALL(*mock_s3_client, DeleteObjects(testing::_))
+            .WillOnce([](const DeleteObjectsRequest& request) {
+                const auto& objects = request.GetDelete().GetObjects();
+                EXPECT_EQ(objects.size(), 1);
+                EXPECT_EQ(objects.front().GetKey(), "missing-object");
+                return DeleteObjectsOutcome(DeleteObjectsResult {});
+            });
+
+    auto response = s3_obj_storage_client->delete_object(
+            {.bucket = "dummy-bucket", .key = "missing-object"});
+    EXPECT_EQ(response.status.code, ObjStorageStatus::NOT_FOUND);
+    EXPECT_EQ(response.http_code, static_cast<int>(Aws::Http::HttpResponseCode::NOT_FOUND));
+    EXPECT_EQ(response.request_id, "request-id");
+
+    response =
+            s3_obj_storage_client->delete_objects({.bucket = "dummy-bucket"}, {"missing-object"});
+    EXPECT_TRUE(response.ok());
 }
 
 TEST_F(S3ObjStorageClientMockTest, test_ca_cert) {

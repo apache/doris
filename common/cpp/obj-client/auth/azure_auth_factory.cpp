@@ -27,9 +27,6 @@ AzureClientBuildResult AzureAuthFactory::create(
     if (credential.type != AzureCredentialType::SHARED_KEY) {
         return {.error = "unsupported Azure credential type"};
     }
-    if (credential.account_name.empty() || credential.account_key.empty()) {
-        return {.error = "Azure shared-key credentials require account name and account key"};
-    }
 
     auto shared_key = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(
             credential.account_name, credential.account_key);

@@ -48,7 +48,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "cpp/client/s3_obj_storage_backend.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
@@ -60,6 +60,7 @@
 #include "runtime/exec_env.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
+#include "testutil/mock/obj_storage_client_test_stub.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 #include "util/uuid_generator.h"
@@ -269,7 +270,7 @@ static auto test_mock_callbacks = std::array {
                           pair->first = mock_client->head_object(req);
                       }},
         MockCallback {"s3_client_factory::create", [](auto&& outcome) {
-                          auto pair = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageBackend>>(
+                          auto pair = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageClient>>(
                                   outcome);
                           pair->second = true;
                       }}};
@@ -952,7 +953,7 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_2) {
     sp->set_call_back("S3FileWriter::_complete:2", [](auto&& outcome) {
         // Deliberately make one upload one part task fail to test if s3 file writer could
         // handle io error
-        auto* parts = try_any_cast<std::vector<io::ObjectCompleteMultiPart>*>(outcome.back());
+        auto* parts = try_any_cast<std::vector<io::ObjStorageCompletedPart>*>(outcome.back());
         size_t size = parts->size();
         parts->back().part_num = (size + 2);
     });
@@ -1000,7 +1001,7 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_1) {
         // Deliberately make one upload one part task fail to test if s3 file writer could
         // handle io error
         const auto& points = try_any_cast<
-                const std::pair<std::atomic_bool*, std::vector<io::ObjectCompleteMultiPart>*>&>(
+                const std::pair<std::atomic_bool*, std::vector<io::ObjStorageCompletedPart>*>&>(
                 outcome.back());
         (*points.first) = false;
         points.second->pop_back();
@@ -1046,10 +1047,10 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_3) {
 
     auto sp = SyncPoint::get_instance();
     sp->set_call_back("S3FileWriter::_complete:3", [](auto&& outcome) {
-        auto pair = try_any_cast_ret<io::ObjectStorageResponse>(outcome);
+        auto pair = try_any_cast_ret<io::ObjStorageResponse>(outcome);
         pair->second = true;
         pair->first =
-                io::ObjectStorageResponse {.status = {TStatusCode::INTERNAL_ERROR, "inject error"}};
+                io::ObjStorageResponse {.status = {TStatusCode::INTERNAL_ERROR, "inject error"}};
     });
     Defer defer {[&]() { sp->clear_call_back("S3FileWriter::_complete:3"); }};
     auto client = s3_fs->client_holder();
@@ -1089,21 +1090,19 @@ namespace io {
 /**
  * This class is for boundary test
  */
-class SimpleMockObjStorageBackend : public io::ObjStorageBackend {
+class SimpleMockObjStorageClient : public io::ObjStorageClientTestStub {
 public:
-    SimpleMockObjStorageBackend() = default;
-    ~SimpleMockObjStorageBackend() override = default;
+    SimpleMockObjStorageClient() = default;
+    ~SimpleMockObjStorageClient() override = default;
 
-    ObjectStorageResponse default_response {ObjectStorageResponse::OK()};
-    ObjectStorageUploadResponse default_upload_response {.resp = ObjectStorageResponse::OK(),
-                                                         .upload_id = "mock-upload-id",
-                                                         .etag = "mock-etag"};
-    ObjectStorageHeadResponse default_head_response {.resp = ObjectStorageResponse::OK(),
-                                                     .file_size = 1024};
+    ObjStorageResponse default_response {ObjStorageResponse::OK()};
+    ObjStorageUploadResult default_upload_response {
+            .resp = ObjStorageResponse::OK(), .upload_id = "mock-upload-id", .etag = "mock-etag"};
+    ObjStorageHeadResult default_head_response {.resp = ObjStorageResponse::OK(),
+                                                .file_size = 1024};
     std::string default_presigned_url = "https://mock-presigned-url.com";
 
-    ObjectStorageUploadResponse create_multipart_upload(
-            const ObjectStoragePathOptions& opts) override {
+    ObjStorageUploadResult create_multipart_upload(const ObjStoragePath& opts) override {
         std::lock_guard lock(_mutex);
         create_multipart_count++;
         create_multipart_params.push_back(opts);
@@ -1111,8 +1110,7 @@ public:
         return default_upload_response;
     }
 
-    ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
-                                     std::string_view stream) override {
+    ObjStorageResponse put_object(const ObjStoragePath& opts, std::string_view stream) override {
         std::lock_guard lock(_mutex);
         put_object_count++;
         put_object_params.emplace_back(opts, std::string(stream));
@@ -1123,12 +1121,13 @@ public:
         return default_response;
     }
 
-    ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts,
-                                            std::string_view stream, int part_num) override {
+    ObjStorageUploadResult upload_part(const ObjStoragePath& opts, const std::string& upload_id,
+                                       std::string_view stream, int part_num) override {
         std::lock_guard lock(_mutex);
         upload_part_count++;
         // upload_part_params.push_back({opts, std::string(stream), part_num});
         last_opts = opts;
+        last_upload_id = upload_id;
         last_stream = std::string(stream);
         last_part_num = part_num;
         parts[_part_key(opts.path.native(), part_num)] = std::string(stream);
@@ -1136,13 +1135,14 @@ public:
         return default_upload_response;
     }
 
-    ObjectStorageResponse complete_multipart_upload(
-            const ObjectStoragePathOptions& opts,
-            const std::vector<ObjectCompleteMultiPart>& completed_parts) override {
+    ObjStorageResponse complete_multipart_upload(
+            const ObjStoragePath& opts, const std::string& upload_id,
+            const std::vector<ObjStorageCompletedPart>& completed_parts) override {
         std::lock_guard lock(_mutex);
         complete_multipart_count++;
         complete_multipart_params.push_back({opts, completed_parts});
         last_opts = opts;
+        last_upload_id = upload_id;
         last_completed_parts = completed_parts;
         std::string final_obj;
         final_obj.reserve(uploaded_bytes);
@@ -1154,15 +1154,14 @@ public:
         return default_response;
     }
 
-    ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override {
+    ObjStorageHeadResult head_object(const ObjStoragePath& opts) override {
         std::lock_guard lock(_mutex);
-        return {.resp = ObjectStorageResponse::OK(),
+        return {.resp = ObjStorageResponse::OK(),
                 .file_size = static_cast<int64_t>(objects[opts.path.native()].size())};
     }
 
-    ObjectStorageResponse get_object(const ObjectStoragePathOptions& opts, void* buffer,
-                                     size_t offset, size_t bytes_read,
-                                     size_t* size_return) override {
+    ObjStorageResponse get_object(const ObjStoragePath& opts, void* buffer, size_t offset,
+                                  size_t bytes_read, size_t* size_return) override {
         std::lock_guard lock(_mutex);
         last_opts = opts;
         last_offset = offset;
@@ -1173,28 +1172,28 @@ public:
         return default_response;
     }
 
-    ObjectStorageListPage list_objects(const ObjectStoragePathOptions& opts,
-                                       std::string_view /*continuation_token*/) override {
+    ObjStorageListPageResult list_objects_page(const ObjStoragePath& opts,
+                                               std::string_view /*continuation_token*/) override {
         std::lock_guard lock(_mutex);
         last_opts = opts;
         return {.resp = default_response};
     }
 
-    ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
-                                         std::vector<std::string> objs) override {
+    ObjStorageResponse delete_objects(const ObjStoragePath& opts,
+                                      std::vector<std::string> objs) override {
         std::lock_guard lock(_mutex);
         last_opts = opts;
         last_deleted_objects = std::move(objs);
         return default_response;
     }
 
-    ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override {
+    ObjStorageResponse delete_object(const ObjStoragePath& opts) override {
         std::lock_guard lock(_mutex);
         last_opts = opts;
         return default_response;
     }
 
-    std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
+    std::string generate_presigned_url(const ObjStoragePath& opts,
                                        int64_t expiration_secs) override {
         std::lock_guard lock(_mutex);
         last_opts = opts;
@@ -1203,10 +1202,11 @@ public:
     }
 
     // Variables to store the last call
-    ObjectStoragePathOptions last_opts;
+    ObjStoragePath last_opts;
+    std::string last_upload_id;
     std::string last_stream;
     int last_part_num = 0;
-    std::vector<ObjectCompleteMultiPart> last_completed_parts;
+    std::vector<ObjStorageCompletedPart> last_completed_parts;
     size_t last_offset = 0;
     size_t last_bytes_read = 0;
     std::vector<std::string> last_deleted_objects;
@@ -1221,19 +1221,19 @@ public:
 
     // Structures to store input parameters for each call
     struct UploadPartParams {
-        ObjectStoragePathOptions opts;
+        ObjStoragePath opts;
         std::string stream;
         int part_num;
     };
 
     struct CompleteMultipartParams {
-        ObjectStoragePathOptions opts;
-        std::vector<ObjectCompleteMultiPart> parts;
+        ObjStoragePath opts;
+        std::vector<ObjStorageCompletedPart> parts;
     };
 
     // Vectors to store parameters from each call
-    std::vector<ObjectStoragePathOptions> create_multipart_params;
-    std::vector<std::pair<ObjectStoragePathOptions, std::string>> put_object_params;
+    std::vector<ObjStoragePath> create_multipart_params;
+    std::vector<std::pair<ObjStoragePath, std::string>> put_object_params;
     // std::vector<UploadPartParams> upload_part_params;
     std::vector<CompleteMultipartParams> complete_multipart_params;
     std::map<std::string, std::string> objects;
@@ -1243,7 +1243,8 @@ public:
 
     void reset() {
         std::lock_guard lock(_mutex);
-        last_opts = ObjectStoragePathOptions {};
+        last_opts = ObjStoragePath {};
+        last_upload_id.clear();
         last_stream.clear();
         last_part_num = 0;
         last_completed_parts.clear();
@@ -1283,7 +1284,7 @@ private:
  * Create a mock S3 client and a S3FileWriter.
  * @return A tuple containing the mock S3 client and the S3FileWriter.
  */
-std::tuple<std::shared_ptr<SimpleMockObjStorageBackend>, std::shared_ptr<S3FileWriter>>
+std::tuple<std::shared_ptr<SimpleMockObjStorageClient>, std::shared_ptr<S3FileWriter>>
 create_s3_client(const std::string& path) {
     doris::io::FileWriterOptions opts;
     io::FileWriterPtr file_writer;
@@ -1291,8 +1292,8 @@ create_s3_client(const std::string& path) {
     EXPECT_TRUE(st.ok()) << st;
     std::shared_ptr<S3FileWriter> s3_file_writer(static_cast<S3FileWriter*>(file_writer.release()));
     auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
-    auto mock_client = std::make_shared<SimpleMockObjStorageBackend>();
-    holder->_client = std::make_shared<ObjStorageClient>(mock_client);
+    auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
+    holder->_client = mock_client;
     s3_file_writer->_obj_client = holder;
     return {mock_client, s3_file_writer};
 }
@@ -1389,7 +1390,7 @@ TEST_F(S3FileWriterTest, write_buffer_boundary) {
     sp->clear_all_call_backs();
 
     // s3_file_writer is the interface to write to s3
-    // mock_client is a SimpleMockObjStorageBackend for testing, it holds the data in memory
+    // mock_client is a SimpleMockObjStorageClient for testing, it holds the data in memory
     // we check the data in mock_client to make sure s3_file_writer is working as expected
     auto test = [](char magic_char, size_t data_size, const std::string& filename) {
         std::string content = generate_test_string(magic_char, data_size);
@@ -1494,8 +1495,8 @@ TEST_F(S3FileWriterTest, test_empty_file) {
     auto st = s3_fs->create_file("test_empty_file.idx", &file_writer, &opts);
     EXPECT_TRUE(st.ok()) << st;
     auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
-    auto mock_client = std::make_shared<SimpleMockObjStorageBackend>();
-    holder->_client = std::make_shared<ObjStorageClient>(mock_client);
+    auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
+    holder->_client = mock_client;
     dynamic_cast<io::S3FileWriter*>(file_writer.get())->_obj_client = holder;
     auto fs = io::global_local_filesystem();
     std::string index_path = "/tmp/empty_index_file_test";

@@ -24,8 +24,8 @@
 #include <memory>
 
 #include "cpp/aws_common.h"
-#include "cpp/client/auth/aws_credential_factory.h"
-#include "cpp/client/obj_storage_client.h"
+#include "cpp/obj-client/auth/aws_credential_factory.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "recycler/storage_vault_accessor.h"
 
 namespace Aws::S3 {
@@ -133,14 +133,14 @@ public:
 
     // Get the objects' expiration time on the conf.bucket
     // returns 0 for success otherwise error
-    int get_life_cycle(int64_t* expiration_days);
+    int get_lifecycle(int64_t* expiration_days);
 
     // Check if the objects' versioning is on or off
     // returns 0 when versioning is on, otherwise versioning is off or check failed
     int check_versioning();
 
 protected:
-    static RecursiveDeleteOptions make_recursive_delete_options(
+    static ObjStorageRecursiveDeleteOptions make_recursive_delete_options(
             int64_t expiration_time, std::shared_ptr<SimpleThreadPool> pool);
 
     int list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res);

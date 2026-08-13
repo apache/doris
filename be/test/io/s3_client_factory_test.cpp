@@ -30,8 +30,8 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "cpp/aws_common.h"
-#include "cpp/client/s3_obj_storage_backend.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/fs/s3_file_system.h"
 #include "util/s3_rate_limiter_manager.h"
@@ -165,12 +165,10 @@ TEST_F(S3ClientFactoryTest, ObjClientHolderResetDistinguishesHashCollisions) {
             make_hash_collision_conf("s3-client-holder-hash-collision.example.com", true);
     ASSERT_EQ(external_conf.get_hash(), internal_conf.get_hash());
 
-    auto external_backend =
-            std::make_shared<io::S3ObjStorageBackend>(std::shared_ptr<Aws::S3::S3Client> {});
-    auto internal_backend =
-            std::make_shared<io::S3ObjStorageBackend>(std::shared_ptr<Aws::S3::S3Client> {});
-    auto external_client = std::make_shared<io::ObjStorageClient>(external_backend);
-    auto internal_client = std::make_shared<io::ObjStorageClient>(internal_backend);
+    auto external_client =
+            std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    auto internal_client =
+            std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
     int create_count = 0;
     S3ClientFactory::instance().set_client_creator_for_test(
             [&](const S3ClientConf& conf) -> std::shared_ptr<io::ObjStorageClient> {
@@ -193,14 +191,14 @@ TEST_F(S3ClientFactoryTest, SelectsRateLimiterByDeploymentAndBucketType) {
     RateLimiterConfigGuard rate_limiter_guard;
     SyncPointProcessingGuard sync_point_guard;
     auto* sync_point = SyncPoint::get_instance();
-    SyncPoint::CallbackGuard create_backend_callback;
+    SyncPoint::CallbackGuard create_client_callback;
     sync_point->set_call_back(
             "s3_client_factory::create",
             [](auto&& args) {
-                auto result = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageBackend>>(args);
+                auto result = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageClient>>(args);
                 result->second = true;
             },
-            &create_backend_callback);
+            &create_client_callback);
     SyncPoint::CallbackGuard head_object_callback;
     sync_point->set_call_back(
             "s3_file_system::head_object",

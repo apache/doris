@@ -18,7 +18,6 @@
 #include "io/fs/err_utils.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
-#include <aws/s3/S3Errors.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <string.h>
@@ -112,24 +111,6 @@ Status localfs_error(int posix_errno, std::string_view msg) {
         return Status::Error<PERMISSION_DENIED, false>(message);
     default:
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>(message);
-    }
-}
-
-Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
-    using namespace Aws::Http;
-    switch (err.GetResponseCode()) {
-    case HttpResponseCode::NOT_FOUND:
-        return Status::Error<NOT_FOUND, false>("{}: {} {} code=NOT_FOUND, type={}, request_id={}",
-                                               msg, err.GetExceptionName(), err.GetMessage(),
-                                               err.GetErrorType(), err.GetRequestId());
-    case HttpResponseCode::FORBIDDEN:
-        return Status::Error<PERMISSION_DENIED, false>(
-                "{}: {} {} code=FORBIDDEN, type={}, request_id={}", msg, err.GetExceptionName(),
-                err.GetMessage(), err.GetErrorType(), err.GetRequestId());
-    default:
-        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
-                "{}: {} {} code={} type={}, request_id={}", msg, err.GetExceptionName(),
-                err.GetMessage(), err.GetResponseCode(), err.GetErrorType(), err.GetRequestId());
     }
 }
 

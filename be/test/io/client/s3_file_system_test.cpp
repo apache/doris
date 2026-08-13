@@ -29,7 +29,7 @@
 #include <string>
 
 #include "common/config.h"
-#include "cpp/client/obj_storage_client.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
@@ -177,11 +177,11 @@ protected:
         EXPECT_TRUE(status.ok()) << "Failed to delete test file: " << status.to_string();
     }
 
-    io::ObjStorageType convert_provider(const std::string& provider_str) {
+    io::ObjStorageProvider convert_provider(const std::string& provider_str) {
         if (provider_str == "AZURE") {
-            return io::ObjStorageType::AZURE;
+            return io::ObjStorageProvider::AZURE;
         } else {
-            return io::ObjStorageType::AWS; // Default to AWS S3
+            return io::ObjStorageProvider::AWS; // Default to AWS S3
         }
     }
 

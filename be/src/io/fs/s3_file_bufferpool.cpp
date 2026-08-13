@@ -28,7 +28,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/arena.h"
-#include "cpp/client/s3_common.h"
+#include "cpp/obj-client/s3_common.h"
 #include "cpp/sync_point.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"

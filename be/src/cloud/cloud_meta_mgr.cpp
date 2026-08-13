@@ -54,7 +54,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "cpp/client/obj_storage_client.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/cluster_info.h"

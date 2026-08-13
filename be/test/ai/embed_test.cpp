@@ -30,11 +30,12 @@
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_number.h"
 #include "core/value/jsonb_value.h"
-#include "cpp/client/obj_storage_client.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "exprs/function/ai/ai_adapter.h"
 #include "exprs/function/simple_function_factory.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/mock/obj_storage_client_test_stub.h"
 
 namespace doris {
 
@@ -47,63 +48,60 @@ private:
     std::string _content_type;
 };
 
-class MockEmbedObjStorageBackend : public io::ObjStorageBackend {
+class MockEmbedObjStorageClient : public io::ObjStorageClientTestStub {
 public:
-    io::ObjectStorageUploadResponse create_multipart_upload(
-            const io::ObjectStoragePathOptions& /*opts*/) override {
+    io::ObjStorageUploadResult create_multipart_upload(
+            const io::ObjStoragePath& /*opts*/) override {
         return {};
     }
 
-    io::ObjectStorageResponse put_object(const io::ObjectStoragePathOptions& /*opts*/,
-                                         std::string_view /*stream*/) override {
-        return io::ObjectStorageResponse::OK();
+    io::ObjStorageResponse put_object(const io::ObjStoragePath& /*opts*/,
+                                      std::string_view /*stream*/) override {
+        return io::ObjStorageResponse::OK();
     }
 
-    io::ObjectStorageUploadResponse upload_part(const io::ObjectStoragePathOptions& /*opts*/,
-                                                std::string_view /*stream*/,
-                                                int /*part_num*/) override {
+    io::ObjStorageUploadResult upload_part(const io::ObjStoragePath& /*opts*/,
+                                           const std::string& /*upload_id*/,
+                                           std::string_view /*stream*/, int /*part_num*/) override {
         return {};
     }
 
-    io::ObjectStorageResponse complete_multipart_upload(
-            const io::ObjectStoragePathOptions& /*opts*/,
-            const std::vector<io::ObjectCompleteMultiPart>& /*completed_parts*/) override {
-        return io::ObjectStorageResponse::OK();
+    io::ObjStorageResponse complete_multipart_upload(
+            const io::ObjStoragePath& /*opts*/, const std::string& /*upload_id*/,
+            const std::vector<io::ObjStorageCompletedPart>& /*completed_parts*/) override {
+        return io::ObjStorageResponse::OK();
     }
 
-    io::ObjectStorageHeadResponse head_object(
-            const io::ObjectStoragePathOptions& /*opts*/) override {
-        return {};
+    io::ObjStorageHeadResult head_object(const io::ObjStoragePath& /*opts*/) override { return {}; }
+
+    io::ObjStorageResponse get_object(const io::ObjStoragePath& /*opts*/, void* /*buffer*/,
+                                      size_t /*offset*/, size_t /*bytes_read*/,
+                                      size_t* /*size_return*/) override {
+        return io::ObjStorageResponse::OK();
     }
 
-    io::ObjectStorageResponse get_object(const io::ObjectStoragePathOptions& /*opts*/,
-                                         void* /*buffer*/, size_t /*offset*/, size_t /*bytes_read*/,
-                                         size_t* /*size_return*/) override {
-        return io::ObjectStorageResponse::OK();
+    io::ObjStorageListPageResult list_objects_page(
+            const io::ObjStoragePath& /*opts*/, std::string_view /*continuation_token*/) override {
+        return {.resp = io::ObjStorageResponse::OK()};
     }
 
-    io::ObjectStorageListPage list_objects(const io::ObjectStoragePathOptions& /*opts*/,
-                                           std::string_view /*continuation_token*/) override {
-        return {.resp = io::ObjectStorageResponse::OK()};
+    io::ObjStorageResponse delete_objects(const io::ObjStoragePath& /*opts*/,
+                                          std::vector<std::string> /*objs*/) override {
+        return io::ObjStorageResponse::OK();
     }
 
-    io::ObjectStorageResponse delete_objects(const io::ObjectStoragePathOptions& /*opts*/,
-                                             std::vector<std::string> /*objs*/) override {
-        return io::ObjectStorageResponse::OK();
+    io::ObjStorageResponse delete_object(const io::ObjStoragePath& /*opts*/) override {
+        return io::ObjStorageResponse::OK();
     }
 
-    io::ObjectStorageResponse delete_object(const io::ObjectStoragePathOptions& /*opts*/) override {
-        return io::ObjectStorageResponse::OK();
-    }
-
-    std::string generate_presigned_url(const io::ObjectStoragePathOptions& opts,
+    std::string generate_presigned_url(const io::ObjStoragePath& opts,
                                        int64_t expiration_secs) override {
         last_opts = opts;
         last_expiration_secs = expiration_secs;
         return fmt::format("mock-s3://{}/{}?ttl={}", opts.bucket, opts.key, expiration_secs);
     }
 
-    io::ObjectStoragePathOptions last_opts;
+    io::ObjStoragePath last_opts;
     int64_t last_expiration_secs = 0;
     S3ClientConf last_conf;
 };
@@ -612,11 +610,11 @@ TEST(EMBED_TEST, embed_function_multimodal_s3_presigned_url) {
                                query_ctx.get());
     auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
 
-    auto mock_client = std::make_shared<MockEmbedObjStorageBackend>();
+    auto mock_client = std::make_shared<MockEmbedObjStorageClient>();
     S3ClientFactory::instance().set_client_creator_for_test(
             [mock_client](const S3ClientConf& conf) {
                 mock_client->last_conf = conf;
-                return std::make_shared<io::ObjStorageClient>(mock_client);
+                return mock_client;
             });
 
     std::vector<std::string> resources = {"mock_resource"};

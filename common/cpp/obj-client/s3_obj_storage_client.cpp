@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "s3_obj_storage_backend.h"
+#include "s3_obj_storage_client.h"
 
-#include <cpp/client/obj_storage_client.h>
+#include <cpp/obj-client/obj_storage_client.h>
 #include <gen_cpp/Status_types.h>
 
 #include <algorithm>
@@ -53,7 +53,7 @@ void record_s3_request_failed(const Aws::S3::S3Error& error) {
     record_object_request_failed(static_cast<int>(error.GetResponseCode()));
 }
 
-std::string object_identity(const ObjectStoragePathOptions& opts) {
+std::string object_identity(const ObjStoragePath& opts) {
     return opts.path.empty() ? opts.key : opts.path.native();
 }
 
@@ -66,14 +66,14 @@ std::string s3_error_message(const Aws::S3::S3Error& error, std::string_view mes
 
 } // namespace
 
-ObjectStorageStatus s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
+ObjStorageStatus s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
     using namespace Aws::Http;
     switch (err.GetResponseCode()) {
     case HttpResponseCode::NOT_FOUND:
         return {TStatusCode::NOT_FOUND, s3_error_message(err, msg)};
     case HttpResponseCode::FORBIDDEN:
         // TODO: no permission and other 4xx errors should be handled separately
-        return {TStatusCode::NOT_AUTHORIZED, s3_error_message(err, msg)};
+        return {ObjStorageStatus::PERMISSION_DENIED, s3_error_message(err, msg)};
     case HttpResponseCode::REQUEST_NOT_MADE:
         return {-1, s3_error_message(err, msg)};
     default:
@@ -81,8 +81,7 @@ ObjectStorageStatus s3fs_error(const Aws::S3::S3Error& err, std::string_view msg
     }
 }
 
-ObjectStorageUploadResponse S3ObjStorageBackend::create_multipart_upload(
-        const ObjectStoragePathOptions& opts) {
+ObjStorageUploadResult S3ObjStorageClient::create_multipart_upload(const ObjStoragePath& opts) {
     CreateMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     request.SetContentType("application/octet-stream");
@@ -110,19 +109,19 @@ ObjectStorageUploadResponse S3ObjStorageBackend::create_multipart_upload(
         auto st = s3fs_error(outcome.GetError(), fmt::format("failed to CreateMultipartUpload: {} ",
                                                              opts.path.native()));
         LOG(WARNING) << st.code << " request_id=" << request_id;
-        return ObjectStorageUploadResponse {
+        return ObjStorageUploadResult {
                 .resp = {.status = st,
                          .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
                          .request_id = outcome.GetError().GetRequestId()},
         };
     }
 
-    return ObjectStorageUploadResponse {.resp = ObjectStorageResponse::OK(),
-                                        .upload_id {outcome.GetResult().GetUploadId()}};
+    return ObjStorageUploadResult {.resp = ObjStorageResponse::OK(),
+                                   .upload_id {outcome.GetResult().GetUploadId()}};
 }
 
-ObjectStorageResponse S3ObjStorageBackend::put_object(const ObjectStoragePathOptions& opts,
-                                                      std::string_view stream) {
+ObjStorageResponse S3ObjStorageClient::put_object(const ObjStoragePath& opts,
+                                                  std::string_view stream) {
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
@@ -149,7 +148,7 @@ ObjectStorageResponse S3ObjStorageBackend::put_object(const ObjectStoragePathOpt
         auto st = s3fs_error(outcome.GetError(),
                              fmt::format("failed to put object: {}", opts.path.native()));
         LOG(WARNING) << st.code << ", request_id=" << request_id;
-        return ObjectStorageResponse {
+        return ObjStorageResponse {
                 .status = st,
                 .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
                 .request_id = outcome.GetError().GetRequestId()};
@@ -158,17 +157,17 @@ ObjectStorageResponse S3ObjStorageBackend::put_object(const ObjectStoragePathOpt
     LOG_IF(INFO, elapsed_ms > S3_REQUEST_THRESHOLD_MS)
             << "PutObject cost=" << elapsed_ms << "ms"
             << ", request_id=" << request_id << ", bucket=" << opts.bucket << ", key=" << opts.key;
-    return ObjectStorageResponse::OK();
+    return ObjStorageResponse::OK();
 }
 
-ObjectStorageUploadResponse S3ObjStorageBackend::upload_part(const ObjectStoragePathOptions& opts,
-                                                             std::string_view stream,
-                                                             int part_num) {
+ObjStorageUploadResult S3ObjStorageClient::upload_part(const ObjStoragePath& opts,
+                                                       const std::string& upload_id,
+                                                       std::string_view stream, int part_num) {
     UploadPartRequest request;
     request.WithBucket(opts.bucket)
             .WithKey(opts.key)
             .WithPartNumber(part_num)
-            .WithUploadId(*opts.upload_id);
+            .WithUploadId(upload_id);
     auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
 
     request.SetBody(string_view_stream);
@@ -198,10 +197,10 @@ ObjectStorageUploadResponse S3ObjStorageBackend::upload_part(const ObjectStorage
         record_s3_request_failed(outcome.GetError());
         auto st = s3fs_error(outcome.GetError(),
                              fmt::format("failed to UploadPart: {}, part_num {}, upload_id={}",
-                                         opts.path.native(), part_num, *opts.upload_id));
+                                         opts.path.native(), part_num, upload_id));
 
         LOG(WARNING) << st.code << ", request_id=" << request_id;
-        return ObjectStorageUploadResponse {
+        return ObjStorageUploadResult {
                 .resp = {.status = st,
                          .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
                          .request_id = outcome.GetError().GetRequestId()}};
@@ -209,21 +208,21 @@ ObjectStorageUploadResponse S3ObjStorageBackend::upload_part(const ObjectStorage
     LOG_IF(INFO, elapsed_ms > S3_REQUEST_THRESHOLD_MS)
             << "UploadPart cost=" << elapsed_ms << "ms"
             << ", request_id=" << request_id << ", bucket=" << opts.bucket << ", key=" << opts.key
-            << ", part_num=" << part_num << ", upload_id=" << *opts.upload_id;
-    return ObjectStorageUploadResponse {.resp = ObjectStorageResponse::OK(),
-                                        .etag = outcome.GetResult().GetETag()};
+            << ", part_num=" << part_num << ", upload_id=" << upload_id;
+    return ObjStorageUploadResult {.resp = ObjStorageResponse::OK(),
+                                   .etag = outcome.GetResult().GetETag()};
 }
 
-ObjectStorageResponse S3ObjStorageBackend::complete_multipart_upload(
-        const ObjectStoragePathOptions& opts,
-        const std::vector<ObjectCompleteMultiPart>& completed_parts) {
+ObjStorageResponse S3ObjStorageClient::complete_multipart_upload(
+        const ObjStoragePath& opts, const std::string& upload_id,
+        const std::vector<ObjStorageCompletedPart>& completed_parts) {
     CompleteMultipartUploadRequest request;
-    request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(*opts.upload_id);
+    request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(upload_id);
 
     CompletedMultipartUpload completed_upload;
     std::vector<CompletedPart> complete_parts;
     std::ranges::transform(completed_parts, std::back_inserter(complete_parts),
-                           [](const ObjectCompleteMultiPart& part_ptr) {
+                           [](const ObjStorageCompletedPart& part_ptr) {
                                CompletedPart part;
                                part.SetPartNumber(part_ptr.part_num);
                                part.SetETag(part_ptr.etag);
@@ -232,7 +231,7 @@ ObjectStorageResponse S3ObjStorageBackend::complete_multipart_upload(
     completed_upload.SetParts(std::move(complete_parts));
     request.WithMultipartUpload(completed_upload);
 
-    TEST_SYNC_POINT_RETURN_WITH_VALUE("S3FileWriter::_complete:3", ObjectStorageResponse(), this);
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("S3FileWriter::_complete:3", ObjStorageResponse(), this);
 
     const auto start = std::chrono::steady_clock::now();
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
@@ -251,7 +250,7 @@ ObjectStorageResponse S3ObjStorageBackend::complete_multipart_upload(
         record_s3_request_failed(outcome.GetError());
         auto st = s3fs_error(outcome.GetError(),
                              fmt::format("failed to CompleteMultipartUpload: {}, upload_id={}",
-                                         opts.path.native(), *opts.upload_id));
+                                         opts.path.native(), upload_id));
         LOG(WARNING) << st.code << ", request_id=" << request_id;
         return {.status = st,
                 .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
@@ -261,11 +260,11 @@ ObjectStorageResponse S3ObjStorageBackend::complete_multipart_upload(
     LOG_IF(INFO, elapsed_ms > S3_REQUEST_THRESHOLD_MS)
             << "CompleteMultipartUpload cost=" << elapsed_ms << "ms"
             << ", request_id=" << request_id << ", bucket=" << opts.bucket << ", key=" << opts.key
-            << ", upload_id=" << *opts.upload_id;
-    return ObjectStorageResponse::OK();
+            << ", upload_id=" << upload_id;
+    return ObjStorageResponse::OK();
 }
 
-ObjectStorageHeadResponse S3ObjStorageBackend::head_object(const ObjectStoragePathOptions& opts) {
+ObjStorageHeadResult S3ObjStorageClient::head_object(const ObjStoragePath& opts) {
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
 
@@ -277,7 +276,7 @@ ObjectStorageHeadResponse S3ObjStorageBackend::head_object(const ObjectStoragePa
             "s3_file_system::head_object", std::ref(request).get());
 
     if (outcome.IsSuccess()) {
-        return {.resp = ObjectStorageResponse::OK(),
+        return {.resp = ObjStorageResponse::OK(),
                 .file_size = outcome.GetResult().GetContentLength()};
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return {.resp = {.status = TStatusCode::NOT_FOUND}, .file_size = 0};
@@ -296,9 +295,9 @@ ObjectStorageHeadResponse S3ObjStorageBackend::head_object(const ObjectStoragePa
     }
 }
 
-ObjectStorageResponse S3ObjStorageBackend::get_object(const ObjectStoragePathOptions& opts,
-                                                      void* buffer, size_t offset,
-                                                      size_t bytes_read, size_t* size_return) {
+ObjStorageResponse S3ObjStorageClient::get_object(const ObjStoragePath& opts, void* buffer,
+                                                  size_t offset, size_t bytes_read,
+                                                  size_t* size_return) {
     Aws::S3::Model::GetObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     request.SetRange(fmt::format("bytes={}-{}", offset, offset + bytes_read - 1));
@@ -310,7 +309,7 @@ ObjectStorageResponse S3ObjStorageBackend::get_object(const ObjectStoragePathOpt
     }();
     if (!outcome.IsSuccess()) {
         record_s3_request_failed(outcome.GetError());
-        return ObjectStorageResponse {
+        return ObjStorageResponse {
                 .status = s3fs_error(outcome.GetError(), fmt::format("failed to get object: {}",
                                                                      object_identity(opts))),
                 .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
@@ -321,25 +320,27 @@ ObjectStorageResponse S3ObjStorageBackend::get_object(const ObjectStoragePathOpt
     SYNC_POINT_CALLBACK("s3_obj_storage_client::get_object", size_return);
     if (*size_return != bytes_read) {
         const auto& request_id = outcome.GetResult().GetRequestId();
-        return ObjectStorageResponse {
+        return ObjStorageResponse {
                 .status = {TStatusCode::INTERNAL_ERROR,
                            fmt::format("incomplete read from {}, expect {}, got {}, request_id={}",
                                        object_identity(opts), bytes_read, *size_return,
                                        request_id)},
                 .request_id = request_id};
     }
-    return ObjectStorageResponse::OK();
+    return ObjStorageResponse::OK();
 }
 
-ObjectStorageListPage S3ObjStorageBackend::list_objects(const ObjectStoragePathOptions& opts,
-                                                        std::string_view continuation_token) {
+ObjStorageListPageResult S3ObjStorageClient::list_objects_page(
+        const ObjStoragePath& opts, std::string_view continuation_token) {
     const auto& prefix = opts.prefix.empty() ? opts.key : opts.prefix;
     Aws::S3::Model::ListObjectsV2Request request;
-    request.WithBucket(opts.bucket).WithPrefix(prefix).WithMaxKeys(OBJECT_LIST_PAGE_SIZE);
+    request.WithBucket(opts.bucket)
+            .WithPrefix(prefix)
+            .WithMaxKeys(static_cast<int>(capabilities().max_list_page));
     if (!continuation_token.empty()) {
         request.SetContinuationToken(std::string(continuation_token));
     }
-    TEST_SYNC_POINT_CALLBACK("S3ObjStorageBackend::list_objects", &request);
+    TEST_SYNC_POINT_CALLBACK("S3ObjStorageClient::list_objects", &request);
 
     auto outcome = [&]() {
         client_bvar::ScopedLatency scoped_latency(client_bvar::s3_list_latency);
@@ -356,7 +357,7 @@ ObjectStorageListPage S3ObjStorageBackend::list_objects(const ObjectStoragePathO
                     "NoSuchKey when listing objects, treat as empty response, endpoint: {}, "
                     "bucket: {}, prefix: {}, request_id: {}",
                     _config.endpoint, request.GetBucket(), request.GetPrefix(), request_id);
-            return {.resp = ObjectStorageResponse::OK()};
+            return {.resp = ObjStorageResponse::OK()};
         }
         record_object_request_failed(static_cast<int>(outcome.GetError().GetResponseCode()));
         const auto status = s3fs_error(outcome.GetError(),
@@ -390,8 +391,8 @@ ObjectStorageListPage S3ObjStorageBackend::list_objects(const ObjectStoragePathO
         };
     }
 
-    ObjectStorageListPage page {
-            .resp = ObjectStorageResponse::OK(),
+    ObjStorageListPageResult page {
+            .resp = ObjStorageResponse::OK(),
             .continuation_token = result.GetNextContinuationToken(),
             .has_more = result.GetIsTruncated(),
     };
@@ -400,31 +401,21 @@ ObjectStorageListPage S3ObjStorageBackend::list_objects(const ObjectStoragePathO
     for (const auto& obj : content) {
         DCHECK(obj.GetKey().starts_with(request.GetPrefix()))
                 << obj.GetKey() << ' ' << request.GetPrefix();
-        page.objects.emplace_back(ObjectMeta {.file_path = obj.GetKey(),
+        page.objects.emplace_back(ObjectMeta {.key = obj.GetKey(),
                                               .size = obj.GetSize(),
                                               .mtime_s = obj.GetLastModified().Seconds()});
     }
     return page;
 }
 
-ObjectStorageResponse S3ObjStorageBackend::delete_objects(const ObjectStoragePathOptions& opts,
-                                                          std::vector<std::string> objs) {
+ObjStorageResponse S3ObjStorageClient::delete_objects(const ObjStoragePath& opts,
+                                                      std::vector<std::string> objs) {
     size_t max_delete_batch = 1000;
     TEST_SYNC_POINT_CALLBACK("S3ObjClient::delete_objects", &max_delete_batch);
     TEST_SYNC_POINT_CALLBACK("S3ObjStorageClient::delete_objects", &max_delete_batch);
     max_delete_batch = std::max<size_t>(1, max_delete_batch);
     for (size_t begin = 0; begin < objs.size(); begin += max_delete_batch) {
         const size_t end = std::min(begin + max_delete_batch, objs.size());
-        if (end - begin == 1) {
-            auto single_opts = opts;
-            single_opts.key = std::move(objs[begin]);
-            auto resp = delete_object(single_opts);
-            if (!resp.ok()) {
-                return resp;
-            }
-            continue;
-        }
-
         Aws::S3::Model::DeleteObjectsRequest delete_request;
         delete_request.SetBucket(opts.bucket);
         Aws::S3::Model::Delete del;
@@ -454,7 +445,7 @@ ObjectStorageResponse S3ObjStorageBackend::delete_objects(const ObjectStoragePat
                     static_cast<int>(delete_outcome.GetError().GetResponseCode()),
                     delete_outcome.GetError().GetMessage(),
                     delete_outcome.GetError().GetRequestId());
-            return ObjectStorageResponse {
+            return ObjStorageResponse {
                     .status = s3fs_error(delete_outcome.GetError(),
                                          fmt::format("failed to delete dir {}", opts.key)),
                     .http_code = static_cast<int>(delete_outcome.GetError().GetResponseCode()),
@@ -467,7 +458,7 @@ ObjectStorageResponse S3ObjStorageBackend::delete_objects(const ObjectStoragePat
                     "code: {}, error: {}, request_id: {}",
                     _config.endpoint, opts.bucket, error.GetKey(), error.GetCode(),
                     error.GetMessage(), delete_outcome.GetResult().GetRequestId());
-            return ObjectStorageResponse {
+            return ObjStorageResponse {
                     .status = {TStatusCode::INTERNAL_ERROR,
                                fmt::format("failed to delete object {}: {}, request_id={}",
                                            error.GetKey(), error.GetMessage(),
@@ -475,10 +466,10 @@ ObjectStorageResponse S3ObjStorageBackend::delete_objects(const ObjectStoragePat
                     .request_id = delete_outcome.GetResult().GetRequestId()};
         }
     }
-    return ObjectStorageResponse::OK();
+    return ObjStorageResponse::OK();
 }
 
-ObjectStorageResponse S3ObjStorageBackend::delete_object(const ObjectStoragePathOptions& opts) {
+ObjStorageResponse S3ObjStorageClient::delete_object(const ObjStoragePath& opts) {
     Aws::S3::Model::DeleteObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
 
@@ -489,9 +480,16 @@ ObjectStorageResponse S3ObjStorageBackend::delete_object(const ObjectStoragePath
     }();
     TEST_SYNC_POINT_CALLBACK("S3ObjClient::delete_object", &outcome);
     TEST_SYNC_POINT_CALLBACK("S3ObjStorageClient::delete_object", &outcome);
-    if (outcome.IsSuccess() ||
-        outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-        return ObjectStorageResponse::OK();
+    if (outcome.IsSuccess()) {
+        return ObjStorageResponse::OK();
+    }
+    ObjStorageResponse response {
+            .status = s3fs_error(outcome.GetError(),
+                                 fmt::format("failed to delete object {}", opts.key)),
+            .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
+            .request_id = outcome.GetError().GetRequestId()};
+    if (response.status.code == ObjStorageStatus::NOT_FOUND) {
+        return response;
     }
     record_s3_request_failed(outcome.GetError());
     LOG(WARNING) << fmt::format(
@@ -500,20 +498,16 @@ ObjectStorageResponse S3ObjStorageBackend::delete_object(const ObjectStoragePath
             _config.endpoint, opts.bucket, opts.key,
             static_cast<int>(outcome.GetError().GetResponseCode()), outcome.GetError().GetMessage(),
             outcome.GetError().GetRequestId());
-    return ObjectStorageResponse {
-            .status = s3fs_error(outcome.GetError(),
-                                 fmt::format("failed to delete object {}", opts.key)),
-            .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
-            .request_id = outcome.GetError().GetRequestId()};
+    return response;
 }
 
-std::string S3ObjStorageBackend::generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                                        int64_t expiration_secs) {
+std::string S3ObjStorageClient::generate_presigned_url(const ObjStoragePath& opts,
+                                                       int64_t expiration_secs) {
     return _client->GeneratePresignedUrl(opts.bucket, opts.key, Aws::Http::HttpMethod::HTTP_GET,
                                          expiration_secs);
 }
 
-ObjectStorageResponse S3ObjStorageBackend::check_versioning(const std::string& bucket) {
+ObjStorageResponse S3ObjStorageClient::check_versioning(const std::string& bucket) {
     Aws::S3::Model::GetBucketVersioningRequest request;
     request.SetBucket(bucket);
 
@@ -524,7 +518,7 @@ ObjectStorageResponse S3ObjStorageBackend::check_versioning(const std::string& b
         if (versioning_configuration != Aws::S3::Model::BucketVersioningStatus::Enabled) {
             LOG(WARNING) << "Err for check interval: bucket doesn't enable bucket versioning"
                          << " endpoint=" << _config.endpoint << " bucket=" << bucket;
-            return ObjectStorageResponse {
+            return ObjStorageResponse {
                     .status = {TStatusCode::INTERNAL_ERROR,
                                fmt::format("bucket versioning is not enabled: {}", bucket)}};
         }
@@ -535,16 +529,16 @@ ObjectStorageResponse S3ObjStorageBackend::check_versioning(const std::string& b
                      << " responseCode=" << static_cast<int>(outcome.GetError().GetResponseCode())
                      << " error=" << outcome.GetError().GetMessage()
                      << " request_id=" << outcome.GetError().GetRequestId();
-        return ObjectStorageResponse {
+        return ObjStorageResponse {
                 .status = {-1},
                 .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
                 .request_id = outcome.GetError().GetRequestId()};
     }
-    return ObjectStorageResponse::OK();
+    return ObjStorageResponse::OK();
 }
 
-ObjectStorageResponse S3ObjStorageBackend::abort_multipart_upload(
-        const ObjectStoragePathOptions& opts, const std::string& upload_id) {
+ObjStorageResponse S3ObjStorageClient::abort_multipart_upload(const ObjStoragePath& opts,
+                                                              const std::string& upload_id) {
     Aws::S3::Model::AbortMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(upload_id);
 
@@ -557,10 +551,10 @@ ObjectStorageResponse S3ObjStorageBackend::abort_multipart_upload(
                      << " error=" << outcome.GetError().GetMessage()
                      << " request_id=" << outcome.GetError().GetRequestId();
         if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-            return ObjectStorageResponse::OK();
+            return ObjStorageResponse::OK();
         }
         record_s3_request_failed(outcome.GetError());
-        return ObjectStorageResponse {
+        return ObjStorageResponse {
                 .status = {TStatusCode::INTERNAL_ERROR,
                            fmt::format("failed to abort multipart upload: {}, upload_id={}",
                                        opts.path.native(), upload_id)},
@@ -568,11 +562,11 @@ ObjectStorageResponse S3ObjStorageBackend::abort_multipart_upload(
                 .request_id = outcome.GetError().GetRequestId(),
         };
     }
-    return ObjectStorageResponse::OK();
+    return ObjStorageResponse::OK();
 }
 
-ObjectStorageResponse S3ObjStorageBackend::get_life_cycle(const std::string& bucket,
-                                                          int64_t* expiration_days) {
+ObjStorageResponse S3ObjStorageClient::get_lifecycle(const std::string& bucket,
+                                                     int64_t* expiration_days) {
     Aws::S3::Model::GetBucketLifecycleConfigurationRequest request;
     request.SetBucket(bucket);
 
@@ -593,7 +587,7 @@ ObjectStorageResponse S3ObjStorageBackend::get_life_cycle(const std::string& buc
                      << " responseCode=" << static_cast<int>(outcome.GetError().GetResponseCode())
                      << " error=" << outcome.GetError().GetMessage()
                      << " request_id=" << outcome.GetError().GetRequestId();
-        return ObjectStorageResponse {
+        return ObjStorageResponse {
                 .status = s3fs_error(outcome.GetError(),
                                      fmt::format("failed to get lift cycle: {}", bucket)),
                 .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
@@ -603,9 +597,9 @@ ObjectStorageResponse S3ObjStorageBackend::get_life_cycle(const std::string& buc
     if (!has_lifecycle) {
         LOG(WARNING) << "Err for check interval: bucket doesn't have lifecycle configuration"
                      << " endpoint=" << _config.endpoint << " bucket=" << bucket;
-        return ObjectStorageResponse {.status = {-1}};
+        return ObjStorageResponse {.status = {-1}};
     }
-    return ObjectStorageResponse::OK();
+    return ObjStorageResponse::OK();
 }
 
 } // namespace doris

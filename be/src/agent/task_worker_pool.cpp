@@ -58,7 +58,7 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
-#include "cpp/client/obj_storage_client.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"

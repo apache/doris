@@ -15,9 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "cpp/obj-client/s3_obj_storage_client.h"
+
 #include <gtest/gtest.h>
 
-#include "cpp/client/obj_storage_client.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "io/fs/file_system.h"
 #include "util/s3_util.h"
 
@@ -47,7 +49,7 @@ protected:
                 .sk = secret_key,
                 .token = "",
                 .bucket = bucket,
-                .provider = ObjStorageType::AWS,
+                .provider = ObjStorageProvider::AWS,
                 .use_virtual_addressing = false,
                 .role_arn = "",
                 .external_id = "",
@@ -66,6 +68,14 @@ protected:
 std::shared_ptr<ObjStorageClient> S3ObjStorageClientTest::obj_storage_client = nullptr;
 std::string S3ObjStorageClientTest::bucket;
 
+TEST(S3ObjStorageClientErrorTest, ForbiddenPreservesPermissionDenied) {
+    Aws::S3::S3Error error;
+    error.SetResponseCode(Aws::Http::HttpResponseCode::FORBIDDEN);
+
+    EXPECT_EQ(s3fs_error(error, "access denied").code, ErrorCode::PERMISSION_DENIED);
+    static_assert(ObjStorageStatus::PERMISSION_DENIED == ErrorCode::PERMISSION_DENIED);
+}
+
 TEST_F(S3ObjStorageClientTest, put_list_delete_object) {
     LOG(INFO) << "S3ObjStorageClientTest::put_list_delete_object";
 
@@ -74,37 +84,21 @@ TEST_F(S3ObjStorageClientTest, put_list_delete_object) {
             std::string("aaaa"));
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
-    std::vector<io::FileInfo> files;
-    // clang-format off
-    ObjectListIterator iter(S3ObjStorageClientTest::obj_storage_client, {.bucket = bucket,
-            .key = "S3ObjStorageClientTest/put_list_delete_object"});
-    // clang-format on
-    for (auto obj = iter.next(); obj.results_.has_value(); obj = iter.next()) {
-        EXPECT_EQ(obj.resp.status.code, ErrorCode::OK);
-        files.push_back({.file_name = obj.results_->file_path,
-                         .file_size = obj.results_->size,
-                         .is_file = true});
-    }
-    EXPECT_TRUE(iter.is_valid());
-    EXPECT_EQ(files.size(), 1);
-    files.clear();
+    std::vector<ObjectMeta> objects;
+    response = S3ObjStorageClientTest::obj_storage_client->list_objects(
+            {.bucket = bucket, .key = "S3ObjStorageClientTest/put_list_delete_object"}, &objects);
+    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    EXPECT_EQ(objects.size(), 1);
+    objects.clear();
 
     response = S3ObjStorageClientTest::obj_storage_client->delete_object(
             {.bucket = bucket, .key = "S3ObjStorageClientTest/put_list_delete_object"});
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
-    // clang-format off
-    iter = ObjectListIterator(S3ObjStorageClientTest::obj_storage_client, {.bucket = bucket,
-            .key = "S3ObjStorageClientTest/put_list_delete_object"});
-    // clang-format on
-    for (auto obj = iter.next(); obj.results_.has_value(); obj = iter.next()) {
-        EXPECT_EQ(obj.resp.status.code, ErrorCode::OK);
-        files.push_back({.file_name = obj.results_->file_path,
-                         .file_size = obj.results_->size,
-                         .is_file = true});
-    }
-    EXPECT_TRUE(iter.is_valid());
-    EXPECT_EQ(files.size(), 0);
+    response = S3ObjStorageClientTest::obj_storage_client->list_objects(
+            {.bucket = bucket, .key = "S3ObjStorageClientTest/put_list_delete_object"}, &objects);
+    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    EXPECT_TRUE(objects.empty());
 }
 
 TEST_F(S3ObjStorageClientTest, delete_objects_recursively) {
@@ -119,37 +113,23 @@ TEST_F(S3ObjStorageClientTest, delete_objects_recursively) {
         LOG(INFO) << "put " << key << " OK";
     }
 
-    std::vector<io::FileInfo> files;
-    // clang-format off
-    ObjectListIterator iter(S3ObjStorageClientTest::obj_storage_client, {.bucket = bucket,
-            .key = "S3ObjStorageClientTest/delete_objects_recursively",});
-    // clang-format on
-    for (auto obj = iter.next(); obj.results_.has_value(); obj = iter.next()) {
-        EXPECT_EQ(obj.resp.status.code, ErrorCode::OK);
-        files.push_back({.file_name = obj.results_->file_path,
-                         .file_size = obj.results_->size,
-                         .is_file = true});
-    }
-    EXPECT_TRUE(iter.is_valid());
-    EXPECT_EQ(files.size(), 22);
-    files.clear();
+    std::vector<ObjectMeta> objects;
+    auto response = S3ObjStorageClientTest::obj_storage_client->list_objects(
+            {.bucket = bucket, .key = "S3ObjStorageClientTest/delete_objects_recursively"},
+            &objects);
+    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    EXPECT_EQ(objects.size(), 22);
+    objects.clear();
 
-    auto response = S3ObjStorageClientTest::obj_storage_client->delete_objects_recursively(
+    response = S3ObjStorageClientTest::obj_storage_client->delete_objects_recursively(
             {.bucket = bucket, .prefix = "S3ObjStorageClientTest/delete_objects_recursively"});
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
-    // clang-format off
-    iter = ObjectListIterator(S3ObjStorageClientTest::obj_storage_client, {.bucket = bucket,
-            .key = "S3ObjStorageClientTest/delete_objects_recursively"});
-    // clang-format on
-    for (auto obj = iter.next(); obj.results_.has_value(); obj = iter.next()) {
-        EXPECT_EQ(obj.resp.status.code, ErrorCode::OK);
-        files.push_back({.file_name = obj.results_->file_path,
-                         .file_size = obj.results_->size,
-                         .is_file = true});
-    }
-    EXPECT_TRUE(iter.is_valid());
-    EXPECT_EQ(files.size(), 0);
+    response = S3ObjStorageClientTest::obj_storage_client->list_objects(
+            {.bucket = bucket, .key = "S3ObjStorageClientTest/delete_objects_recursively"},
+            &objects);
+    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    EXPECT_TRUE(objects.empty());
 }
 
 TEST_F(S3ObjStorageClientTest, multipart_upload) {
@@ -158,42 +138,37 @@ TEST_F(S3ObjStorageClientTest, multipart_upload) {
     auto response = S3ObjStorageClientTest::obj_storage_client->create_multipart_upload(
             {.bucket = bucket, .key = "S3ObjStorageClientTest/multipart_upload"});
     EXPECT_EQ(response.resp.status.code, ErrorCode::OK);
-    auto upload_id = response.upload_id;
+    ASSERT_TRUE(response.upload_id.has_value());
+    const auto& upload_id = *response.upload_id;
 
     std::string body = "S3ObjStorageClientTest::multipart_upload";
     body.resize(5 * 1024 * 1024);
 
-    std::vector<ObjectCompleteMultiPart> completed_parts;
+    std::vector<ObjStorageCompletedPart> completed_parts;
 
     response = S3ObjStorageClientTest::obj_storage_client->upload_part(
-            {.bucket = bucket,
-             .key = "S3ObjStorageClientTest/multipart_upload",
-             .upload_id = upload_id},
-            body, 1);
+            {.bucket = bucket, .key = "S3ObjStorageClientTest/multipart_upload"}, upload_id, body,
+            1);
 
     EXPECT_EQ(response.resp.status.code, ErrorCode::OK);
-    ObjectCompleteMultiPart completed_part {
+    ObjStorageCompletedPart completed_part {
             .part_num = 1,
             .etag = response.etag.has_value() ? std::move(response.etag.value()) : ""};
 
     completed_parts.emplace_back(std::move(completed_part));
 
     response = S3ObjStorageClientTest::obj_storage_client->upload_part(
-            {.bucket = bucket,
-             .key = "S3ObjStorageClientTest/multipart_upload",
-             .upload_id = upload_id},
-            body, 2);
+            {.bucket = bucket, .key = "S3ObjStorageClientTest/multipart_upload"}, upload_id, body,
+            2);
 
     EXPECT_EQ(response.resp.status.code, ErrorCode::OK);
-    ObjectCompleteMultiPart completed_part2 {
+    ObjStorageCompletedPart completed_part2 {
             .part_num = 2,
             .etag = response.etag.has_value() ? std::move(response.etag.value()) : ""};
     completed_parts.emplace_back(std::move(completed_part2));
 
     auto response2 = S3ObjStorageClientTest::obj_storage_client->complete_multipart_upload(
-            {.bucket = bucket,
-             .key = "S3ObjStorageClientTest/multipart_upload",
-             .upload_id = upload_id},
+            {.bucket = bucket, .key = "S3ObjStorageClientTest/multipart_upload"}, upload_id,
             completed_parts);
 
     EXPECT_EQ(response2.status.code, ErrorCode::OK);

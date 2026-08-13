@@ -33,8 +33,8 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/metrics/doris_metrics.h"
-#include "cpp/client/obj_storage_client.h"
-#include "cpp/client/s3_common.h"
+#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-client/s3_common.h"
 #include "io/cache/block_file_cache.h"
 #include "io/fs/err_utils.h"
 #include "runtime/file_scan_profile.h"

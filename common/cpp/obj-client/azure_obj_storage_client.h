@@ -67,47 +67,47 @@ std::string build_azure_tls_debug_suffix(std::string_view error_message,
 
 class ObjClientHolder;
 
-class AzureObjStorageBackend final : public ObjStorageBackend {
+class AzureObjStorageClient final : public ObjStorageClient {
 public:
-    AzureObjStorageBackend(
+    AzureObjStorageClient(
             std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client,
-            ObjectClientConfig config,
+            ObjStorageEndpointInfo config,
             std::shared_ptr<Azure::Storage::StorageSharedKeyCredential> credential = nullptr)
             : _config(std::move(config)),
               _client(std::move(client)),
               _credential(std::move(credential)) {}
-    ~AzureObjStorageBackend() override = default;
-    ObjectStorageUploadResponse create_multipart_upload(
-            const ObjectStoragePathOptions& opts) override;
-    ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
-                                     std::string_view stream) override;
-    ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts, std::string_view,
-                                            int partNum) override;
-    ObjectStorageResponse complete_multipart_upload(
-            const ObjectStoragePathOptions& opts,
-            const std::vector<ObjectCompleteMultiPart>& completed_parts) override;
-    ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override;
-    ObjectStorageResponse get_object(const ObjectStoragePathOptions& opts, void* buffer,
-                                     size_t offset, size_t bytes_read,
-                                     size_t* size_return) override;
-    ObjectStorageListPage list_objects(const ObjectStoragePathOptions& path,
-                                       std::string_view continuation_token) override;
-    ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
-                                         std::vector<std::string> objs) override;
-    ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override;
-    std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
+    ~AzureObjStorageClient() override = default;
+    ObjStorageUploadResult create_multipart_upload(const ObjStoragePath& opts) override;
+    ObjStorageResponse put_object(const ObjStoragePath& opts, std::string_view stream) override;
+    ObjStorageUploadResult upload_part(const ObjStoragePath& opts, const std::string& upload_id,
+                                       std::string_view, int partNum) override;
+    ObjStorageResponse complete_multipart_upload(
+            const ObjStoragePath& opts, const std::string& upload_id,
+            const std::vector<ObjStorageCompletedPart>& completed_parts) override;
+    ObjStorageHeadResult head_object(const ObjStoragePath& opts) override;
+    ObjStorageResponse get_object(const ObjStoragePath& opts, void* buffer, size_t offset,
+                                  size_t bytes_read, size_t* size_return) override;
+    ObjStorageResponse delete_objects(const ObjStoragePath& opts,
+                                      std::vector<std::string> objs) override;
+    ObjStorageResponse delete_object(const ObjStoragePath& opts) override;
+    std::string generate_presigned_url(const ObjStoragePath& opts,
                                        int64_t expiration_secs) override;
-    ObjectStorageResponse get_life_cycle(const std::string& bucket,
-                                         int64_t* expiration_days) override;
+    ObjStorageResponse get_lifecycle(const std::string& bucket, int64_t* expiration_days) override;
 
-    ObjectStorageResponse check_versioning(const std::string& bucket) override;
+    ObjStorageResponse check_versioning(const std::string& bucket) override;
 
-    ObjectStorageResponse abort_multipart_upload(const ObjectStoragePathOptions& opts,
-                                                 const std::string& upload_id) override;
-    ObjStorageCapabilities capabilities() const override { return {.max_delete_batch = 256}; }
+    ObjStorageResponse abort_multipart_upload(const ObjStoragePath& opts,
+                                              const std::string& upload_id) override;
+    ObjStorageCapabilities capabilities() const override {
+        return {.max_delete_batch = 256, .max_list_page = 5000};
+    }
+
+protected:
+    ObjStorageListPageResult list_objects_page(const ObjStoragePath& path,
+                                               std::string_view continuation_token) override;
 
 private:
-    ObjectClientConfig _config;
+    ObjStorageEndpointInfo _config;
     std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> _client;
     std::shared_ptr<Azure::Storage::StorageSharedKeyCredential> _credential;
 };
@@ -115,7 +115,7 @@ private:
 } // namespace doris
 
 namespace doris::io {
-using ::doris::AzureObjStorageBackend;
+using ::doris::AzureObjStorageClient;
 using ::doris::build_azure_tls_debug_suffix;
 using ::doris::is_azure_tls_ca_error_message;
 } // namespace doris::io

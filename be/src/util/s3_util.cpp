@@ -44,14 +44,15 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "cpp/client/auth/aws_credential_factory.h"
+#include "cpp/obj-client/auth/aws_credential_factory.h"
 #ifdef USE_AZURE
-#include "cpp/client/auth/azure_auth_factory.h"
-#include "cpp/client/azure_obj_storage_backend.h"
+#include "cpp/obj-client/auth/azure_auth_factory.h"
+#include "cpp/obj-client/azure_obj_storage_client.h"
 #endif
 #include "cloud/config.h"
 #include "cpp/aws_logger.h"
-#include "cpp/client/s3_obj_storage_backend.h"
+#include "cpp/obj-client/rate_limited_obj_storage_client.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "cpp/util.h"
@@ -87,35 +88,27 @@ doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
     return Status::OK();
 }
 
-ObjectStorageResponse make_be_rate_limit_response(S3RateLimitType type,
-                                                  S3RateLimitRejectReason reason) {
+ObjStorageResponse make_be_rate_limit_response(S3RateLimitType type,
+                                               S3RateLimitRejectReason reason) {
     const auto* limit_type = reason == S3RateLimitRejectReason::QPS ? "QPS" : "bytes";
-    return {
-            .status =
-                    ObjectStorageStatus {
-                            ErrorCode::EXCEEDED_LIMIT,
-                            fmt::format(
-                                    "s3 {} request exceeds {} limit, rejected by BE rate limiter",
-                                    to_string(type), limit_type)},
-            // A local admission rejection is not an S3 HTTP 429. Keep the merged #65420 behavior
-            // so S3 readers do not retry it as provider throttling.
-            .http_code = 0,
-    };
+    // A local admission rejection is not an S3 HTTP 429. Keep the merged #65420 behavior so S3
+    // readers do not retry it as provider throttling.
+    return ObjStorageResponse::rate_limit(
+            ErrorCode::EXCEEDED_LIMIT, 0,
+            fmt::format("s3 {} request exceeds {} limit, rejected by BE rate limiter",
+                        to_string(type), limit_type));
 }
 
 class BeObjStorageRateLimitPolicy final : public ObjStorageRateLimitPolicy {
 public:
-    ObjStorageRateLimitToken acquire(ObjStorageRequestType type,
-                                     size_t estimated_bytes) const override {
-        const auto limiter_type =
-                type == ObjStorageRequestType::GET ? S3RateLimitType::GET : S3RateLimitType::PUT;
-        auto guard = std::make_shared<S3RateLimitGuard>(limiter_type, estimated_bytes);
+    ObjStorageAdmission acquire(S3RateLimitType type, size_t estimated_bytes) const override {
+        auto guard = std::make_shared<S3RateLimitGuard>(type, estimated_bytes);
         if (!guard->ok()) {
-            return ObjStorageRateLimitToken {
-                    .resp = make_be_rate_limit_response(limiter_type, guard->reject_reason()),
+            return ObjStorageAdmission {
+                    .resp = make_be_rate_limit_response(type, guard->reject_reason()),
             };
         }
-        return ObjStorageRateLimitToken {
+        return ObjStorageAdmission {
                 .settle = [guard = std::move(guard)](
                                   size_t actual_bytes) { guard->settle(actual_bytes); },
         };
@@ -241,19 +234,17 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3Cl
         }
     }
 
-    auto backend_result = (s3_conf.provider == io::ObjStorageType::AZURE)
-                                  ? _create_azure_backend(s3_conf)
-                                  : _create_s3_backend(s3_conf);
-    if (!backend_result.has_value()) {
-        return ResultError(std::move(backend_result).error());
+    auto client_result = (s3_conf.provider == io::ObjStorageProvider::AZURE)
+                                 ? _create_azure_client(s3_conf)
+                                 : _create_s3_client(s3_conf);
+    if (!client_result.has_value()) {
+        return ResultError(std::move(client_result).error());
     }
-    auto backend = std::move(backend_result).value();
-    std::shared_ptr<const ObjStorageRateLimitPolicy> rate_limit_policy;
+    auto obj_client = std::move(client_result).value();
     if (!config::is_cloud_mode() || s3_conf.is_internal_bucket) {
-        rate_limit_policy = std::make_shared<BeObjStorageRateLimitPolicy>();
+        obj_client = std::make_shared<io::RateLimitedObjStorageClient>(
+                std::move(obj_client), std::make_shared<BeObjStorageRateLimitPolicy>());
     }
-    auto obj_client = std::make_shared<io::ObjStorageClient>(std::move(backend),
-                                                             std::move(rate_limit_policy));
 
     {
         std::lock_guard l(_lock);
@@ -275,7 +266,7 @@ void S3ClientFactory::clear_client_creator_for_test() {
 }
 #endif
 
-Result<std::shared_ptr<io::ObjStorageBackend>> S3ClientFactory::_create_azure_backend(
+Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_azure_client(
         const S3ClientConf& s3_conf) {
 #ifdef USE_AZURE
     const std::string container_name = s3_conf.bucket;
@@ -314,9 +305,9 @@ Result<std::shared_ptr<io::ObjStorageBackend>> S3ClientFactory::_create_azure_ba
                 Status::InvalidArgument("failed to create Azure client: {}", built.error));
     }
     LOG_INFO("create one azure client with {}", s3_conf.to_string());
-    return std::make_shared<io::AzureObjStorageBackend>(
+    return std::make_shared<io::AzureObjStorageClient>(
             std::move(built.container_client),
-            ObjectClientConfig {
+            ObjStorageEndpointInfo {
                     .endpoint = s3_conf.endpoint,
                     .ak = s3_conf.ak,
                     .sk = s3_conf.sk,
@@ -349,12 +340,12 @@ AwsCredentialResult S3ClientFactory::create_aws_credentials_provider(const S3Cli
     });
 }
 
-Result<std::shared_ptr<io::ObjStorageBackend>> S3ClientFactory::_create_s3_backend(
+Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client(
         const S3ClientConf& s3_conf) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE(
             "s3_client_factory::create",
-            std::make_shared<io::S3ObjStorageBackend>(std::make_shared<Aws::S3::S3Client>(),
-                                                      ObjectClientConfig {}));
+            std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>(),
+                                                     ObjStorageEndpointInfo {}));
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
     if (s3_conf.need_override_endpoint) {
         aws_config.endpointOverride = s3_conf.endpoint;
@@ -399,14 +390,14 @@ Result<std::shared_ptr<io::ObjStorageBackend>> S3ClientFactory::_create_s3_backe
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
             s3_conf.use_virtual_addressing);
 
-    auto backend = std::make_shared<io::S3ObjStorageBackend>(std::move(new_client),
-                                                             ObjectClientConfig {
-                                                                     .endpoint = s3_conf.endpoint,
-                                                                     .ak = s3_conf.ak,
-                                                                     .sk = s3_conf.sk,
-                                                             });
+    auto provider_client = std::make_shared<io::S3ObjStorageClient>(
+            std::move(new_client), ObjStorageEndpointInfo {
+                                           .endpoint = s3_conf.endpoint,
+                                           .ak = s3_conf.ak,
+                                           .sk = s3_conf.sk,
+                                   });
     LOG_INFO("create one s3 client with {}", s3_conf.to_string());
-    return backend;
+    return provider_client;
 }
 
 Status S3ClientFactory::convert_properties_to_s3_conf(
@@ -450,7 +441,7 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     if (auto it = properties.find(S3_PROVIDER); it != properties.end()) {
         // S3 Provider properties should be case insensitive.
         if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
-            s3_conf->client_conf.provider = io::ObjStorageType::AZURE;
+            s3_conf->client_conf.provider = io::ObjStorageProvider::AZURE;
         }
     }
 
@@ -526,7 +517,7 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
                     .sk = info.sk(),
                     .token = {},
                     .bucket = info.bucket(),
-                    .provider = io::ObjStorageType::AWS,
+                    .provider = io::ObjStorageProvider::AWS,
                     .use_virtual_addressing =
                             info.has_use_path_style() ? !info.use_path_style() : true,
 
@@ -543,31 +534,31 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
         ret.client_conf.cred_provider_type = cred_provider_type_from_pb(info.cred_provider_type());
     }
 
-    io::ObjStorageType type = io::ObjStorageType::AWS;
+    io::ObjStorageProvider type = io::ObjStorageProvider::AWS;
     switch (info.provider()) {
     case cloud::ObjectStoreInfoPB_Provider_OSS:
-        type = io::ObjStorageType::OSS;
+        type = io::ObjStorageProvider::OSS;
         break;
     case cloud::ObjectStoreInfoPB_Provider_S3:
-        type = io::ObjStorageType::AWS;
+        type = io::ObjStorageProvider::AWS;
         break;
     case cloud::ObjectStoreInfoPB_Provider_COS:
-        type = io::ObjStorageType::COS;
+        type = io::ObjStorageProvider::COS;
         break;
     case cloud::ObjectStoreInfoPB_Provider_OBS:
-        type = io::ObjStorageType::OBS;
+        type = io::ObjStorageProvider::OBS;
         break;
     case cloud::ObjectStoreInfoPB_Provider_BOS:
-        type = io::ObjStorageType::BOS;
+        type = io::ObjStorageProvider::BOS;
         break;
     case cloud::ObjectStoreInfoPB_Provider_GCP:
-        type = io::ObjStorageType::GCP;
+        type = io::ObjStorageProvider::GCP;
         break;
     case cloud::ObjectStoreInfoPB_Provider_AZURE:
-        type = io::ObjStorageType::AZURE;
+        type = io::ObjStorageProvider::AZURE;
         break;
     case cloud::ObjectStoreInfoPB_Provider_TOS:
-        type = io::ObjStorageType::TOS;
+        type = io::ObjStorageProvider::TOS;
         break;
     default:
         __builtin_unreachable();
@@ -588,7 +579,7 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
                     .sk = param.sk,
                     .token = param.token,
                     .bucket = param.bucket,
-                    .provider = io::ObjStorageType::AWS,
+                    .provider = io::ObjStorageProvider::AWS,
                     .max_connections = param.max_conn,
                     .request_timeout_ms = param.request_timeout_ms,
                     .connect_timeout_ms = param.conn_timeout_ms,
@@ -604,36 +595,36 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
                 cred_provider_type_from_thrift(param.cred_provider_type);
     }
 
-    io::ObjStorageType type = io::ObjStorageType::AWS;
+    io::ObjStorageProvider type = io::ObjStorageProvider::AWS;
     switch (param.provider) {
     case TObjStorageType::UNKNOWN:
         LOG_INFO("Receive one legal storage resource, set provider type to aws, param detail {}",
                  ret.to_string());
-        type = io::ObjStorageType::AWS;
+        type = io::ObjStorageProvider::AWS;
         break;
     case TObjStorageType::AWS:
-        type = io::ObjStorageType::AWS;
+        type = io::ObjStorageProvider::AWS;
         break;
     case TObjStorageType::AZURE:
-        type = io::ObjStorageType::AZURE;
+        type = io::ObjStorageProvider::AZURE;
         break;
     case TObjStorageType::BOS:
-        type = io::ObjStorageType::BOS;
+        type = io::ObjStorageProvider::BOS;
         break;
     case TObjStorageType::COS:
-        type = io::ObjStorageType::COS;
+        type = io::ObjStorageProvider::COS;
         break;
     case TObjStorageType::OBS:
-        type = io::ObjStorageType::OBS;
+        type = io::ObjStorageProvider::OBS;
         break;
     case TObjStorageType::OSS:
-        type = io::ObjStorageType::OSS;
+        type = io::ObjStorageProvider::OSS;
         break;
     case TObjStorageType::GCP:
-        type = io::ObjStorageType::GCP;
+        type = io::ObjStorageProvider::GCP;
         break;
     case TObjStorageType::TOS:
-        type = io::ObjStorageType::TOS;
+        type = io::ObjStorageProvider::TOS;
         break;
     default:
         LOG_FATAL("unknown provider type {}, info {}", param.provider, ret.to_string());

@@ -51,7 +51,7 @@ std::shared_ptr<Provider> create_v2_base_provider(CredProviderType type) {
     case CredProviderType::InstanceProfile:
         return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
     }
-    return nullptr;
+    __builtin_unreachable();
 }
 
 AwsCredentialResult assume_role(const AwsCredentialOptions& options,
@@ -100,9 +100,6 @@ AwsCredentialResult AwsCredentialFactory::create(const AwsCredentialOptions& opt
     }
 
     auto base = create_v2_base_provider(options.provider_type);
-    if (base == nullptr) {
-        return {.error = "simple credential provider requires access key and secret key"};
-    }
     return options.role_arn.empty() ? AwsCredentialResult {.provider = std::move(base)}
                                     : assume_role(options, std::move(base));
 }
