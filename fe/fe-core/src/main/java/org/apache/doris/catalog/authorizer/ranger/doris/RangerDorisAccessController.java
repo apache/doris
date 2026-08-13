@@ -329,17 +329,4 @@ public class RangerDorisAccessController extends RangerAccessController {
     protected RangerAccessResultProcessor getAccessResultProcessor() {
         return null;
     }
-
-    // For test only
-    public static void main(String[] args) {
-        RangerDorisAccessController ac = new RangerDorisAccessController("doris");
-        UserIdentity user = new UserIdentity("user1", "127.0.0.1");
-        user.setIsAnalyzed();
-        boolean res = ac.checkDbPriv(user, "internal", "db1", PrivPredicate.SHOW);
-        System.out.println("res: " + res);
-        user = new UserIdentity("user2", "127.0.0.1");
-        user.setIsAnalyzed();
-        res = ac.checkTblPriv(user, "internal", "db1", "tbl1", PrivPredicate.SELECT);
-        System.out.println("res: " + res);
-    }
 }

@@ -49,7 +49,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * AccessControllerManager is the entry point of privilege authentication.
+ * AccessControllerManager is the entry point of privilege authorization.
  * There are 2 kinds of access controller:
  * SystemAccessController: for global level priv, resource priv and other Doris internal priv checking
  * CatalogAccessController: for specified catalog's priv checking, can be customized.
@@ -116,7 +116,7 @@ public class AccessControllerManager {
     private void loadAccessControllerPlugins() {
         ServiceLoader<AccessControllerFactory> loaderFromClasspath = ServiceLoader.load(AccessControllerFactory.class);
         for (AccessControllerFactory factory : loaderFromClasspath) {
-            LOG.info("Found Authentication Plugin Factories: {} from class path.", factory.factoryIdentifier());
+            LOG.info("Found Access Controller Plugin Factory: {} from class path.", factory.factoryIdentifier());
             accessControllerFactoriesCache.put(factory.factoryIdentifier(), factory);
             accessControllerClassNameMapping.put(factory.getClass().getName(), factory.factoryIdentifier());
         }
@@ -124,7 +124,7 @@ public class AccessControllerManager {
         try {
             loader = ClassLoaderUtils.loadServicesFromDirectory(AccessControllerFactory.class);
         } catch (IOException e) {
-            throw new RuntimeException("Failed to load Authentication Plugin Factories", e);
+            throw new RuntimeException("Failed to load Access Controller Plugin Factories", e);
         }
         for (AccessControllerFactory factory : loader) {
             LOG.info("Found Access Controller Plugin Factory: {} from directory.", factory.factoryIdentifier());
