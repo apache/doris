@@ -200,8 +200,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     ASSERT_EQ(offsets[3], 400000);
     ASSERT_EQ(offsets[4], 200000);
 
-    std::this_thread::sleep_for(
-            std::chrono::milliseconds(2 * config::file_cache_background_lru_dump_interval_ms));
+    cache.dump_lru_queues(true);
 
 #if 0
     // Verify all 4 dump files
