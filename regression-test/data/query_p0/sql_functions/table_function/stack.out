@@ -36,6 +36,14 @@
 1	2
 3	\N
 
+-- !single_field_struct_value --
+{"a":1}
+{"a":2}
+
+-- !multi_field_struct_value --
+{"a":1, "b":2}
+{"a":3, "b":4}
+
 -- !column_arguments --
 1	10	x
 1	20	y

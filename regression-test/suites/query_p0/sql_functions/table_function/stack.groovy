@@ -65,6 +65,20 @@ suite("stack") {
         order by c1, c2
     """
 
+    order_qt_single_field_struct_value """
+        select c
+        from (select 1) t lateral view stack(2,
+            named_struct('a', 1), named_struct('a', 2)) s as c
+        order by c.a
+    """
+
+    order_qt_multi_field_struct_value """
+        select c
+        from (select 1) t lateral view stack(2,
+            named_struct('a', 1, 'b', 2), named_struct('a', 3, 'b', 4)) s as c
+        order by c.a, c.b
+    """
+
     sql "drop table if exists test_stack"
     sql """
         create table test_stack (

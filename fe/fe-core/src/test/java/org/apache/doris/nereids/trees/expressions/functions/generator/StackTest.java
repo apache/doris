@@ -140,4 +140,14 @@ public class StackTest {
                 "select c1, c2, c3 from (select 1) t "
                         + "lateral view stack(2, 1, 2, 3, 4, 5) s as c1, c2, c3");
     }
+
+    @Test
+    public void testSingleStructOutputColumn() {
+        PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(
+                "select c.a from (select 1) t "
+                        + "lateral view stack(2, named_struct('a', 1), named_struct('a', 2)) s as c");
+        PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(
+                "select c.a, c.b from (select 1) t lateral view stack(2, "
+                        + "named_struct('a', 1, 'b', 2), named_struct('a', 3, 'b', 4)) s as c");
+    }
 }

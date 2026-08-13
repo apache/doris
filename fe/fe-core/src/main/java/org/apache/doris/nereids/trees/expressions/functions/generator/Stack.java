@@ -114,9 +114,14 @@ public class Stack extends TableGeneratingFunction implements CustomSignature, C
         return (int) numRows;
     }
 
-    private List<DataType> getColumnTypes() {
+    /** Return the number of logical output columns derived from the row count and value arguments. */
+    public int getOutputColumnCount() {
         int numRows = getNumRows();
-        int numFields = (arity() - 2) / numRows + 1;
+        return (arity() - 2) / numRows + 1;
+    }
+
+    private List<DataType> getColumnTypes() {
+        int numFields = getOutputColumnCount();
         List<DataType> columnTypes = new ArrayList<>(numFields);
         for (int columnIndex = 0; columnIndex < numFields; columnIndex++) {
             DataType referenceType = NullType.INSTANCE;
