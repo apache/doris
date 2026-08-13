@@ -44,6 +44,7 @@
 #include "runtime/runtime_profile.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_query_context.h"
+#include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
@@ -60,6 +61,7 @@
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
 #include "storage/index/inverted/query_v2/regexp_query/regexp_query.h"
+#include "storage/index/inverted/query_v2/scored_bit_set_query/scored_bit_set_query.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
 #include "storage/index/inverted/query_v2/wildcard_query/wildcard_query.h"
 #include "storage/index/inverted/util/string_helper.h"
@@ -863,6 +865,34 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
             snii_query_type = InvertedIndexQueryType::WILDCARD_QUERY;
         }
 
+        // The SNII reader has no way to hand a clause's BM25 values back through query(): it
+        // publishes them into whatever CollectionSimilarity the context carries. If that were the
+        // query's own similarity, the reader and the collector -- which also calls collect() with
+        // the scorer's score, and whose collect() accumulates rather than overwrites -- would both
+        // write, so every document would end up with its BM25 plus the scorer's constant, and the
+        // early top-k path would rank by that constant instead of by relevance. Redirect the
+        // reader into a private sink and let the score reach the collector the normal way, through
+        // the scorer built below.
+        //
+        // The sink is created exactly when the reader is going to score, which is the same pair
+        // of conditions the reader itself uses (its actual_similarity): the caller supplied a
+        // similarity at all, and this query type scores on this index. Deciding it up front beats
+        // inferring it afterwards from "the sink came back non-empty", and it keeps every clause
+        // that cannot be scored -- wildcard, regexp, EQUAL_QUERY, and the WILDCARD "*" shortcut
+        // that never calls the reader -- from allocating a CollectionSimilarity that reserves
+        // 1024 entries in its constructor.
+        const bool reader_will_score =
+                context->collection_similarity != nullptr &&
+                IndexReaderHelper::is_need_similarity_score(
+                        snii_query_type, &binding.inverted_reader->get_index_meta());
+        std::shared_ptr<segment_v2::IndexQueryContext> reader_context = context;
+        std::shared_ptr<CollectionSimilarity> score_sink;
+        if (reader_will_score) {
+            score_sink = std::make_shared<CollectionSimilarity>();
+            reader_context = std::make_shared<segment_v2::IndexQueryContext>(*context);
+            reader_context->collection_similarity = score_sink;
+        }
+
         auto data_bitmap = std::make_shared<roaring::Roaring>();
         if (clause_type == "WILDCARD" && value == "*") {
             data_bitmap->addRange(0, num_rows);
@@ -874,9 +904,18 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                             ? normalize_wildcard_pattern(value, binding.index_properties)
                             : value;
             Field query_value = Field::create_field<TYPE_STRING>(pattern);
-            RETURN_IF_ERROR(binding.inverted_reader->query(context, binding.stored_field_name,
-                                                           query_value, snii_query_type,
-                                                           data_bitmap, nullptr));
+            RETURN_IF_ERROR(binding.inverted_reader->query(reader_context,
+                                                           binding.stored_field_name, query_value,
+                                                           snii_query_type, data_bitmap, nullptr));
+            // Reply-direction fields land on the copy the reader was given, so they have to be
+            // folded back. Today this is unreachable rather than load-bearing: the count-only
+            // fast path requires the scan to have no score runtime, while the similarity that
+            // creates the copy exists only when there IS one, so the two never coexist. It stays
+            // because the copy must remain honest if that ever changes -- a dropped reply would
+            // be silent.
+            if (reader_context != context) {
+                context->merge_reader_outputs(*reader_context);
+            }
             // Restore the pre-normalization value for WILDCARD so the trace still shows what the
             // caller actually asked for, not just what was sent to the reader.
             std::string log_suffix =
@@ -895,6 +934,19 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
             null_bitmap = std::move(cached_null_bitmap);
         }
         *data_bitmap -= *null_bitmap;
+        // Only clauses the reader actually scored get a scored query. The rest -- wildcard,
+        // regexp, and any query type is_need_similarity_score rejects -- have no per-document
+        // value to expose, and keep the constant-score BitSetQuery that the CLucene path also
+        // gives its unscored leaves, so their contribution to a compound query is unchanged.
+        // The emptiness check is not redundant with reader_will_score above: that gate cannot see
+        // the analysed term count, and the reader publishes nothing for shapes such as a
+        // MATCH_PHRASE_PREFIX_QUERY that tokenizes to a single term.
+        auto sink_scores = score_sink != nullptr ? score_sink->release_scores() : ScoreMap {};
+        if (!sink_scores.empty()) {
+            return finish_leaf_query(std::make_shared<query_v2::ScoredBitSetQuery>(
+                    std::move(data_bitmap), std::move(null_bitmap),
+                    std::make_shared<const ScoreMap>(std::move(sink_scores))));
+        }
         return finish_leaf_query(std::make_shared<query_v2::BitSetQuery>(std::move(data_bitmap),
                                                                          std::move(null_bitmap)));
     }

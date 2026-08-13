@@ -43,6 +43,17 @@ struct IndexQueryContext {
     // skipping the posting decode). Readers must never cache such a bitmap
     // under a key a row-accurate query could hit.
     bool count_on_index_fastpath = false;
+
+    // ---- Reply direction: fields a READER writes and the CALLER reads back ----
+    //
+    // A caller that hands a reader a COPY of this context rather than the context itself must
+    // fold the copy back with merge_reader_outputs(), or the reader's reply is dropped in
+    // silence: nothing fails to compile, no test goes red, the query simply takes the wrong plan.
+    // FunctionSearch's SNII leaf builder is such a caller -- it copies the context so the reader
+    // publishes its BM25 into a throwaway CollectionSimilarity instead of the query's own.
+    //
+    // Every field added below this line must also be merged in merge_reader_outputs().
+
     // G03 reply direction of the same handshake. Set by a reader iff it DID
     // answer with such a fabricated count bitmap (never on a query-cache hit,
     // a single-flight shared result, or any row-accurate decode). Read and
@@ -50,6 +61,12 @@ struct IndexQueryContext {
     // the precondition for the count-emission shortcut that materializes the
     // remaining count as default rows without iterating the row bitmap.
     bool count_on_index_fastpath_hit = false;
+
+    // Folds the reply-direction fields a reader wrote on a copy of this context back into it.
+    // Latching (never clearing) is what makes this safe to call for each of several readers.
+    void merge_reader_outputs(const IndexQueryContext& reader_context) {
+        count_on_index_fastpath_hit |= reader_context.count_on_index_fastpath_hit;
+    }
 };
 using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
 

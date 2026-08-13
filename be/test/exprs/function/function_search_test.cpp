@@ -30,7 +30,10 @@
 #include <utility>
 #include <vector>
 
+#include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
@@ -41,6 +44,8 @@
 #include "storage/index/index_iterator.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
+#include "storage/index/inverted/query_v2/collect/top_k_collector.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_weight.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
@@ -221,9 +226,8 @@ public:
         return Status::OK();
     }
 
-    Status query(const segment_v2::IndexQueryContextPtr& /*context*/,
-                 const std::string& column_name, const Field& query_value,
-                 segment_v2::InvertedIndexQueryType query_type,
+    Status query(const segment_v2::IndexQueryContextPtr& context, const std::string& column_name,
+                 const Field& query_value, segment_v2::InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override {
         ++query_calls;
@@ -239,6 +243,18 @@ public:
         auto result_it = query_results.find(last_query_value);
         if (result_it != query_results.end()) {
             *bit_map = result_it->second;
+        }
+        // SniiIndexReader publishes its per-document BM25 values through the collection
+        // similarity carried by the query context (score_plain_term_candidates /
+        // score_phrase_matches), never through a return value. Reproducing that handshake here
+        // is what lets the SEARCH scoring path be exercised without a physical SNII segment.
+        auto scores_it = query_scores.find(last_query_value);
+        if (scores_it != query_scores.end() && context != nullptr &&
+            context->collection_similarity != nullptr) {
+            observed_similarity = context->collection_similarity.get();
+            for (const auto& [doc, score] : scores_it->second) {
+                context->collection_similarity->collect(doc, score);
+            }
         }
         return Status::OK();
     }
@@ -265,6 +281,11 @@ public:
         query_results[pattern] = std::move(result);
     }
 
+    void set_query_scores(const std::string& pattern,
+                          std::vector<std::pair<uint32_t, float>> scores) {
+        query_scores[pattern] = std::move(scores);
+    }
+
     void set_null_bitmap(roaring::Roaring null_bitmap) {
         _null_bitmap = std::move(null_bitmap);
         set_has_null(!_null_bitmap.isEmpty());
@@ -279,6 +300,10 @@ public:
             segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY;
     const InvertedIndexAnalyzerCtx* last_analyzer_ctx = nullptr;
     std::unordered_map<std::string, roaring::Roaring> query_results;
+    std::unordered_map<std::string, std::vector<std::pair<uint32_t, float>>> query_scores;
+    // Identity of the similarity the reader was handed, so a test can prove the query's own
+    // collection similarity is not the one the reader writes into.
+    const CollectionSimilarity* observed_similarity = nullptr;
 
 private:
     segment_v2::InvertedIndexReaderType _reader_type;
@@ -2728,6 +2753,204 @@ TEST_F(FunctionSearchTest, TestSniiNativeKeywordPrefixRoutesToWildcardQuery) {
     auto scorer = weight->scorer(exec_ctx, binding_key);
     ASSERT_NE(nullptr, scorer);
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
+}
+
+// Shared wiring for the SNII native SEARCH scoring tests: one fake SNII reader bound to field
+// "body" behind a standard analyzer, plus the resolver build_leaf_query needs. The resolver keeps
+// references to the maps, so they must be owned by something that outlives it.
+class SniiScoringFixture {
+public:
+    SniiScoringFixture(int64_t index_id, uint32_t rows) : num_rows(rows) {
+        // support_phrase is what makes is_need_similarity_score accept a MATCH query type, which
+        // is the production gate the leaf builder consults before wiring up a score sink.
+        _properties = {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD},
+                       {INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                        INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES}};
+        _index_meta = make_test_inverted_index(index_id, _properties);
+        _index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+        reader = std::make_shared<RecordingNativeInvertedIndexReader>(&_index_meta,
+                                                                      _index_file_reader);
+        context = std::make_shared<IndexQueryContext>();
+        context->stats = &_stats;
+        context->collection_similarity = std::make_shared<CollectionSimilarity>();
+        _iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+        _data_type_with_names.emplace(
+                "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+        _iterators["body"] = &_iterator;
+
+        TSearchFieldBinding field_binding;
+        field_binding.field_name = "body";
+        field_binding.index_properties = _properties;
+        field_binding.__isset.index_properties = true;
+        resolver = std::make_unique<FieldReaderResolver>(
+                _data_type_with_names, _iterators, context,
+                std::vector<TSearchFieldBinding> {field_binding});
+    }
+
+    SniiScoringFixture(const SniiScoringFixture&) = delete;
+    SniiScoringFixture& operator=(const SniiScoringFixture&) = delete;
+
+    inverted_index::query_v2::QueryExecutionContext exec_context() const {
+        return build_variant_search_query_execution_context(num_rows, *resolver, nullptr);
+    }
+
+    uint32_t num_rows;
+    std::shared_ptr<RecordingNativeInvertedIndexReader> reader;
+    std::shared_ptr<IndexQueryContext> context;
+    std::unique_ptr<FieldReaderResolver> resolver;
+
+private:
+    OlapReaderStatistics _stats;
+    std::map<std::string, std::string> _properties;
+    TabletIndex _index_meta;
+    std::shared_ptr<RejectingCluceneIndexFileReader> _index_file_reader;
+    segment_v2::InvertedIndexIterator _iterator;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> _data_type_with_names;
+    std::unordered_map<std::string, IndexIterator*> _iterators;
+};
+
+// Reads back what a CollectionSimilarity actually holds for the given documents, so a test can
+// assert on the score values themselves rather than only on which rows survived.
+static std::map<uint32_t, float> read_collected_scores(const CollectionSimilarity& similarity,
+                                                       const roaring::Roaring& docs) {
+    roaring::Roaring row_bitmap = docs;
+    IColumn::MutablePtr score_column;
+    auto row_ids = std::make_unique<std::vector<uint64_t>>();
+    similarity.get_bm25_scores(&row_bitmap, score_column, row_ids);
+    const auto& nullable = assert_cast<const ColumnNullable&>(*score_column);
+    const auto& values = assert_cast<const ColumnFloat32&>(nullable.get_nested_column()).get_data();
+    std::map<uint32_t, float> collected;
+    for (size_t i = 0; i < row_ids->size(); ++i) {
+        collected[static_cast<uint32_t>((*row_ids)[i])] = values[i];
+    }
+    return collected;
+}
+
+// A SEARCH answered by the SNII native reader must rank by the reader's own BM25 values. The
+// leaf used to be wrapped in a plain BitSetQuery, whose scorer returns a constant 1.0 for every
+// document, so the early top-k collector saw an all-tie ranking and "ORDER BY score() DESC LIMIT
+// k" returned an arbitrary k rows instead of the k best-scoring ones.
+TEST_F(FunctionSearchTest, TestSniiNativeTopKRanksByReaderBm25Scores) {
+    // enable_inverted_index_wand_query defaults to true and function_search passes it straight
+    // through, so the wand variant is the one that actually ships; the non-wand variant is what
+    // an explicitly disabled session gets. Both must rank the same.
+    for (bool use_wand : {false, true}) {
+        SCOPED_TRACE(use_wand ? "use_wand=true" : "use_wand=false");
+        SniiScoringFixture fixture(41, 5);
+        fixture.reader->set_query_result("alpha", make_bitmap({0, 1, 2, 3, 4}));
+        // Deliberately not monotonic in doc id: the two best documents are 1 and 3, which are not
+        // the two a doc-id-ordered tie-break would pick.
+        fixture.reader->set_query_scores("alpha",
+                                         {{0, 1.0F}, {1, 9.0F}, {2, 3.0F}, {3, 7.0F}, {4, 5.0F}});
+
+        inverted_index::query_v2::QueryPtr query;
+        std::string binding_key;
+        auto status = function_search->build_leaf_query(make_leaf_clause("MATCH", "alpha"),
+                                                        fixture.context, *fixture.resolver, &query,
+                                                        &binding_key, "OR", 0, fixture.num_rows);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_NE(nullptr, query);
+
+        auto weight = query->weight(true);
+        ASSERT_NE(nullptr, weight);
+        auto exec_ctx = fixture.exec_context();
+        auto roaring = std::make_shared<roaring::Roaring>();
+        inverted_index::query_v2::collect_multi_segment_top_k(
+                weight, exec_ctx, binding_key, 2, roaring, fixture.context->collection_similarity,
+                use_wand);
+
+        expect_bitmap_eq(*roaring, {1, 3});
+        auto collected = read_collected_scores(*fixture.context->collection_similarity, *roaring);
+        ASSERT_EQ(2U, collected.size());
+        EXPECT_FLOAT_EQ(9.0F, collected[1]);
+        EXPECT_FLOAT_EQ(7.0F, collected[3]);
+    }
+}
+
+// The reader used to publish its BM25 values straight into the query's collection similarity
+// while the collector added the scorer's constant on top of them, so every document ended up
+// with "BM25 + 1.0". Exactly one of the two channels may write.
+TEST_F(FunctionSearchTest, TestSniiNativeDocSetCollectionScoresEachDocumentOnce) {
+    SniiScoringFixture fixture(42, 3);
+    fixture.reader->set_query_result("alpha", make_bitmap({0, 1, 2}));
+    fixture.reader->set_query_scores("alpha", {{0, 2.5F}, {1, 4.25F}, {2, 0.75F}});
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_leaf_query(make_leaf_clause("MATCH", "alpha"),
+                                                    fixture.context, *fixture.resolver, &query,
+                                                    &binding_key, "OR", 0, fixture.num_rows);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(nullptr, query);
+    // The reader must have been handed a private sink, never the similarity the collector fills.
+    EXPECT_NE(fixture.context->collection_similarity.get(), fixture.reader->observed_similarity);
+
+    auto weight = query->weight(true);
+    ASSERT_NE(nullptr, weight);
+    auto exec_ctx = fixture.exec_context();
+    auto roaring = std::make_shared<roaring::Roaring>();
+    inverted_index::query_v2::collect_multi_segment_doc_set(weight, exec_ctx, binding_key, roaring,
+                                                            fixture.context->collection_similarity,
+                                                            /*enable_scoring=*/true);
+
+    expect_bitmap_eq(*roaring, {0, 1, 2});
+    auto collected = read_collected_scores(*fixture.context->collection_similarity, *roaring);
+    ASSERT_EQ(3U, collected.size());
+    EXPECT_FLOAT_EQ(2.5F, collected[0]);
+    EXPECT_FLOAT_EQ(4.25F, collected[1]);
+    EXPECT_FLOAT_EQ(0.75F, collected[2]);
+}
+
+// A leaf for which the reader publishes no per-document score must keep the constant that the
+// CLucene path also gives its own constant-score leaves, so that routing scored clauses through a
+// new scorer does not quietly re-rank the unscored ones. The fake reader is what withholds the
+// scores here, so this pins the "nothing published -> BitSetQuery -> 1.0" behaviour; it does not
+// pin which query types the production is_need_similarity_score gate rejects.
+TEST_F(FunctionSearchTest, TestSniiNativeLeafWithoutPublishedScoresKeepsConstantScore) {
+    SniiScoringFixture fixture(43, 4);
+    fixture.reader->set_query_result("alpha*", make_bitmap({0, 2}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_leaf_query(make_leaf_clause("WILDCARD", "alpha*"),
+                                                    fixture.context, *fixture.resolver, &query,
+                                                    &binding_key, "OR", 0, fixture.num_rows);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(nullptr, query);
+
+    auto weight = query->weight(true);
+    ASSERT_NE(nullptr, weight);
+    auto exec_ctx = fixture.exec_context();
+    auto scorer = weight->scorer(exec_ctx, binding_key);
+    ASSERT_NE(nullptr, scorer);
+    EXPECT_EQ(0U, scorer->doc());
+    EXPECT_FLOAT_EQ(1.0F, scorer->score());
+    expect_bitmap_eq(collect_docs(scorer), {0, 2});
+}
+
+// A non-scoring execution must not pay for the score plumbing: weight(false) has to hand back the
+// same constant-score scorer the unscored path always used.
+TEST_F(FunctionSearchTest, TestSniiNativeScoredQueryFallsBackToConstantScorerWithoutScoring) {
+    SniiScoringFixture fixture(44, 3);
+    fixture.reader->set_query_result("alpha", make_bitmap({0, 1, 2}));
+    fixture.reader->set_query_scores("alpha", {{0, 2.5F}, {1, 4.25F}, {2, 0.75F}});
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_leaf_query(make_leaf_clause("MATCH", "alpha"),
+                                                    fixture.context, *fixture.resolver, &query,
+                                                    &binding_key, "OR", 0, fixture.num_rows);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(nullptr, query);
+
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto exec_ctx = fixture.exec_context();
+    auto scorer = weight->scorer(exec_ctx, binding_key);
+    ASSERT_NE(nullptr, scorer);
+    EXPECT_EQ(0U, scorer->doc());
+    EXPECT_FLOAT_EQ(1.0F, scorer->score());
+    expect_bitmap_eq(collect_docs(scorer), {0, 1, 2});
 }
 
 TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledForSniiNativeExecution) {
