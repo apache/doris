@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -98,6 +99,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * Tests for {@link PaimonScanPlanProvider#resolveTable}, pinning the transient-Table reload
@@ -288,11 +291,14 @@ public class PaimonScanPlanProviderTest {
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
 
-            List<ConnectorScanRange> ranges = provider.planScan(sessionWithProps(Collections.emptyMap()),
-                    ConnectorScanRequest.builder(handle, Collections.emptyList())
-                    .build());
+            ConnectorSession session = sessionWithProps(Collections.emptyMap(), new TestStatementScope());
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
+            List<ConnectorScanRange> ranges = provider.planScan(session, request);
+            List<ConnectorScanRange> reused = provider.planScan(session, request);
 
             Assertions.assertFalse(ranges.isEmpty(), "one committed row must plan at least one split");
+            Assertions.assertSame(ranges, reused,
+                    "an identical scan must reuse the statement's planned range list");
             Assertions.assertEquals(2, ctx.authCount,
                     "planScan must run BOTH the table load (resolveTable) AND the split enumeration "
                             + "(scan.plan(), the remote manifest read) inside executeAuthenticated");
@@ -2472,7 +2478,17 @@ public class PaimonScanPlanProviderTest {
     }
 
     private static ConnectorSession sessionWithProps(Map<String, String> sessionProps) {
+        return sessionWithProps(sessionProps, ConnectorStatementScope.NONE);
+    }
+
+    private static ConnectorSession sessionWithProps(
+            Map<String, String> sessionProps, ConnectorStatementScope statementScope) {
         return new ConnectorSession() {
+            @Override
+            public ConnectorStatementScope getStatementScope() {
+                return statementScope;
+            }
+
             @Override
             public String getQueryId() {
                 return "q";
@@ -2518,6 +2534,16 @@ public class PaimonScanPlanProviderTest {
                 return sessionProps;
             }
         };
+    }
+
+    private static final class TestStatementScope implements ConnectorStatementScope {
+        private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+            return (T) cache.computeIfAbsent(key, ignored -> loader.get());
+        }
     }
 
     @Test
