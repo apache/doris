@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 
 import org.apache.paimon.partition.Partition;
 
@@ -49,18 +50,26 @@ public class PaimonPartitionInfo {
     private final PruningStatus pruningStatus;
     private final Map<String, PartitionItem> nameToPartitionItem;
     private final Map<String, Partition> nameToPartition;
+    private final long retainedPayloadBytes;
 
     private PaimonPartitionInfo(PruningStatus pruningStatus) {
         this.pruningStatus = pruningStatus;
         this.nameToPartitionItem = Collections.emptyMap();
         this.nameToPartition = Collections.emptyMap();
+        this.retainedPayloadBytes = 0L;
     }
 
     public PaimonPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
             Map<String, Partition> nameToPartition) {
+        this(nameToPartitionItem, nameToPartition, retainedPayloadBytes(nameToPartition));
+    }
+
+    public PaimonPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
+            Map<String, Partition> nameToPartition, long retainedPayloadBytes) {
         this.pruningStatus = PruningStatus.PRUNABLE;
         this.nameToPartitionItem = nameToPartitionItem;
         this.nameToPartition = nameToPartition;
+        this.retainedPayloadBytes = retainedPayloadBytes;
     }
 
     public Map<String, PartitionItem> getNameToPartitionItem() {
@@ -73,5 +82,48 @@ public class PaimonPartitionInfo {
 
     public PruningStatus getPruningStatus() {
         return pruningStatus;
+    }
+
+    public long getRetainedPayloadBytes() {
+        return retainedPayloadBytes;
+    }
+
+    static long addRetainedStringPayload(long bytes, String value) {
+        return addString(bytes, value);
+    }
+
+    private static long retainedPayloadBytes(Map<String, Partition> partitions) {
+        if (partitions == null) {
+            return 0L;
+        }
+        long bytes = 0L;
+        for (Map.Entry<String, Partition> entry : partitions.entrySet()) {
+            bytes = addString(bytes, entry.getKey());
+            Partition partition = entry.getValue();
+            if (partition == null) {
+                continue;
+            }
+            bytes = addStrings(bytes, partition.spec());
+            bytes = addString(bytes, partition.createdBy());
+            bytes = addString(bytes, partition.updatedBy());
+            bytes = addStrings(bytes, partition.options());
+        }
+        return bytes;
+    }
+
+    private static long addStrings(long bytes, Map<String, String> values) {
+        if (values == null) {
+            return bytes;
+        }
+        for (Map.Entry<String, String> entry : values.entrySet()) {
+            bytes = addString(bytes, entry.getKey());
+            bytes = addString(bytes, entry.getValue());
+        }
+        return bytes;
+    }
+
+    private static long addString(long bytes, String value) {
+        return MetaCacheWeightUtils.saturatedAdd(
+                bytes, MetaCacheWeightUtils.estimatedStringBytes(value));
     }
 }

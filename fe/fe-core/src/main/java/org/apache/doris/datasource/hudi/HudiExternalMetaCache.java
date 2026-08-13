@@ -28,6 +28,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
+import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 
@@ -83,7 +84,11 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
     private final EntryHandle<HudiSchemaCacheKey, SchemaCacheValue> schemaEntry;
 
     public HudiExternalMetaCache(ExecutorService refreshExecutor) {
-        super(ENGINE, refreshExecutor);
+        this(refreshExecutor, new ExternalMetaCacheBudgetManager(java.util.OptionalLong.empty()));
+    }
+
+    public HudiExternalMetaCache(ExecutorService refreshExecutor, ExternalMetaCacheBudgetManager budgetManager) {
+        super(ENGINE, refreshExecutor, budgetManager);
         partitionEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_PARTITION, HudiPartitionCacheKey.class,
                 TablePartitionValues.class, this::loadPartitionValuesCacheValue, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(HudiPartitionCacheKey::getNameMapping)));

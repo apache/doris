@@ -781,8 +781,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (snapshot.filter(IcebergMvccSnapshot.class::isInstance).isPresent()) {
             IcebergSnapshotCacheValue cacheValue =
                     ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
-            if (cacheValue.getIcebergTable().isPresent()) {
-                Table frozenBaseTable = cacheValue.getIcebergTable().get();
+            Optional<Table> frozenTable = cacheValue.getIcebergTable();
+            if (frozenTable.isPresent()) {
+                Table frozenBaseTable = frozenTable.get();
                 if (isSystemTable && source.getTargetTable() instanceof IcebergSysExternalTable) {
                     IcebergSysExternalTable systemTable = (IcebergSysExternalTable) source.getTargetTable();
                     if (systemTable.supportsSnapshotSelection()) {

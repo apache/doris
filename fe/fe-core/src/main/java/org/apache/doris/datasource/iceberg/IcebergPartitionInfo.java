@@ -18,9 +18,9 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 
-import com.google.common.collect.Maps;
-
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
@@ -28,21 +28,32 @@ public class IcebergPartitionInfo {
     private final Map<String, PartitionItem> nameToPartitionItem;
     private final Map<String, IcebergPartition> nameToIcebergPartition;
     private final Map<String, Set<String>> nameToIcebergPartitionNames;
+    private final long retainedPayloadBytes;
 
     private static final IcebergPartitionInfo EMPTY = new IcebergPartitionInfo();
 
     private IcebergPartitionInfo() {
-        this.nameToPartitionItem = Maps.newHashMap();
-        this.nameToIcebergPartition = Maps.newHashMap();
-        this.nameToIcebergPartitionNames = Maps.newHashMap();
+        this.nameToPartitionItem = Collections.emptyMap();
+        this.nameToIcebergPartition = Collections.emptyMap();
+        this.nameToIcebergPartitionNames = Collections.emptyMap();
+        this.retainedPayloadBytes = 0L;
     }
 
     public IcebergPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
                                 Map<String, IcebergPartition> nameToIcebergPartition,
                                 Map<String, Set<String>> nameToIcebergPartitionNames) {
+        this(nameToPartitionItem, nameToIcebergPartition, nameToIcebergPartitionNames,
+                retainedPayloadBytes(nameToIcebergPartition));
+    }
+
+    public IcebergPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
+                                Map<String, IcebergPartition> nameToIcebergPartition,
+                                Map<String, Set<String>> nameToIcebergPartitionNames,
+                                long retainedPayloadBytes) {
         this.nameToPartitionItem = nameToPartitionItem;
         this.nameToIcebergPartition = nameToIcebergPartition;
         this.nameToIcebergPartitionNames = nameToIcebergPartitionNames;
+        this.retainedPayloadBytes = retainedPayloadBytes;
     }
 
     static IcebergPartitionInfo empty() {
@@ -55,6 +66,28 @@ public class IcebergPartitionInfo {
 
     public Map<String, IcebergPartition> getNameToIcebergPartition() {
         return nameToIcebergPartition;
+    }
+
+    Map<String, Set<String>> getNameToIcebergPartitionNames() {
+        return nameToIcebergPartitionNames;
+    }
+
+    public long getRetainedPayloadBytes() {
+        return retainedPayloadBytes;
+    }
+
+    private static long retainedPayloadBytes(Map<String, IcebergPartition> partitions) {
+        if (partitions == null) {
+            return 0L;
+        }
+        long bytes = 0L;
+        for (IcebergPartition partition : partitions.values()) {
+            if (partition != null) {
+                bytes = MetaCacheWeightUtils.saturatedAdd(
+                        bytes, partition.getRetainedPayloadBytes());
+            }
+        }
+        return bytes;
     }
 
     public long getLatestSnapshotId(String partitionName) {

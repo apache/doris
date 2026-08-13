@@ -41,6 +41,10 @@ public interface ExternalMetaCache {
      */
     Collection<String> aliases();
 
+    /** Validate cache properties in this engine's canonical namespace. */
+    default void validateCatalogProperties(Map<String, String> catalogProperties) {
+    }
+
     /**
      * Initialize all registered entries for one catalog under current engine.
      * Entry instances are created eagerly at this stage.

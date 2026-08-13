@@ -24,6 +24,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.Ticker;
+import com.github.benmanes.caffeine.cache.Weigher;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Duration;
@@ -49,7 +50,10 @@ public class CacheFactory {
     private OptionalLong expireAfterAccessSec;
     private OptionalLong refreshAfterWriteSec;
     private long maxSize;
+    private OptionalLong maxWeight;
+    private Weigher<Object, Object> weigher;
     private boolean enableStats;
+    private boolean softValues;
     // Ticker is used to provide a time source for the cache.
     // Only used for test, to provide a fake time source.
     // If not provided, the system time is used.
@@ -61,11 +65,34 @@ public class CacheFactory {
             long maxSize,
             boolean enableStats,
             Ticker ticker) {
+        this(expireAfterAccessSec, refreshAfterWriteSec, maxSize, OptionalLong.empty(), null, enableStats, ticker);
+    }
+
+    @SuppressWarnings("unchecked")
+    public CacheFactory(
+            OptionalLong expireAfterAccessSec,
+            OptionalLong refreshAfterWriteSec,
+            long maxSize,
+            OptionalLong maxWeight,
+            Weigher<?, ?> weigher,
+            boolean enableStats,
+            Ticker ticker) {
         this.expireAfterAccessSec = expireAfterAccessSec;
         this.refreshAfterWriteSec = refreshAfterWriteSec;
         this.maxSize = maxSize;
+        this.maxWeight = maxWeight;
+        this.weigher = (Weigher<Object, Object>) weigher;
         this.enableStats = enableStats;
         this.ticker = ticker;
+        if (maxWeight.isPresent() && this.weigher == null) {
+            throw new IllegalArgumentException("maximumWeight requires a weigher");
+        }
+    }
+
+    /** Configure values as soft references so unused cache entries may be reclaimed under heap pressure. */
+    public CacheFactory withSoftValues() {
+        softValues = true;
+        return this;
     }
 
     // Build a loading cache, without executor, it will use fork-join pool for refresh
@@ -116,7 +143,11 @@ public class CacheFactory {
     @NotNull
     private Caffeine<Object, Object> buildWithParams() {
         Caffeine<Object, Object> builder = Caffeine.newBuilder();
-        builder.maximumSize(maxSize);
+        if (maxWeight.isPresent()) {
+            builder.maximumWeight(maxWeight.getAsLong()).weigher(weigher);
+        } else {
+            builder.maximumSize(maxSize);
+        }
 
         if (expireAfterAccessSec.isPresent()) {
             builder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSec.getAsLong()));
@@ -127,6 +158,10 @@ public class CacheFactory {
 
         if (enableStats) {
             builder.recordStats();
+        }
+
+        if (softValues) {
+            builder.softValues();
         }
 
         if (ticker != null) {

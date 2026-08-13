@@ -17,25 +17,90 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import com.google.common.base.Suppliers;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
+import org.apache.doris.datasource.metacache.MetaCacheSizeEstimator;
+
 import org.apache.iceberg.Table;
 
-import java.util.function.Supplier;
-
 public class IcebergTableCacheValue {
-    private final Table icebergTable;
-    private final Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue;
+    private Table icebergTable;
+    private String retainedCurrentSnapshotJson;
+    private volatile boolean queryIsolationPrepared;
+    private long retainedTablePayloadBytes;
+    private MetaCacheSizeEstimate sizeEstimate;
 
-    public IcebergTableCacheValue(Table icebergTable, Supplier<IcebergSnapshotCacheValue> latestSnapshotCacheValue) {
-        this.icebergTable = icebergTable;
-        this.latestSnapshotCacheValue = Suppliers.memoize(latestSnapshotCacheValue::get);
+    public IcebergTableCacheValue(Table icebergTable) {
+        this.icebergTable = IcebergSnapshotCacheValue.retainTableGeneration(icebergTable);
+    }
+
+    IcebergTableCacheValue(Table icebergTable, ExecutionAuthenticator authenticator) {
+        this.icebergTable = IcebergSnapshotCacheValue.retainTableGeneration(
+                icebergTable, authenticator);
     }
 
     public Table getIcebergTable() {
+        return queryIsolationPrepared
+                ? IcebergSnapshotCacheValue.createQueryScopedTable(
+                        icebergTable, retainedCurrentSnapshotJson)
+                : icebergTable;
+    }
+
+    public Table getWritableIcebergTable(Table liveTable) {
+        return IcebergSnapshotCacheValue.createWritableTable(
+                icebergTable, liveTable, queryIsolationPrepared);
+    }
+
+    MetaCacheSizeEstimate prepareForCachePublication(NameMapping key) {
+        if (sizeEstimate == null) {
+            retainedCurrentSnapshotJson =
+                    IcebergSnapshotCacheValue.retainCurrentSnapshotJson(icebergTable);
+            retainedTablePayloadBytes = IcebergCacheSizeEstimator.retainedTablePayloadBytes(icebergTable);
+            sizeEstimate = MetaCacheSizeEstimator.estimateSafely("iceberg_table_preparation_failed",
+                    () -> IcebergCacheSizeEstimator.estimateTableEntry(key, this));
+            if (sizeEstimate.isComplete()) {
+                icebergTable = IcebergSnapshotCacheValue.retainNonGrowingGeneration(icebergTable);
+                queryIsolationPrepared = true;
+            }
+        }
+        return sizeEstimate;
+    }
+
+    public MetaCacheSizeEstimate getSizeEstimate() {
+        return sizeEstimate == null
+                ? MetaCacheSizeEstimate.incomplete("not_prepared") : sizeEstimate;
+    }
+
+    Table getRetainedIcebergTable() {
         return icebergTable;
     }
 
-    public IcebergSnapshotCacheValue getLatestSnapshotCacheValue() {
-        return latestSnapshotCacheValue.get();
+    synchronized Table newQueryScopedTable() {
+        if (!queryIsolationPrepared) {
+            retainedCurrentSnapshotJson =
+                    IcebergSnapshotCacheValue.retainCurrentSnapshotJson(icebergTable);
+            icebergTable = IcebergSnapshotCacheValue.retainNonGrowingGeneration(icebergTable);
+            queryIsolationPrepared = true;
+        }
+        return IcebergSnapshotCacheValue.createQueryScopedTable(
+                icebergTable, retainedCurrentSnapshotJson);
+    }
+
+    String getRetainedCurrentSnapshotJson() {
+        return retainedCurrentSnapshotJson;
+    }
+
+    boolean isQueryIsolationPrepared() {
+        return queryIsolationPrepared;
+    }
+
+    long getRetainedTablePayloadBytes() {
+        return retainedTablePayloadBytes;
+    }
+
+    long getRetainedCurrentSnapshotPayloadBytes() {
+        return IcebergSnapshotCacheValue.retainedSnapshotJsonBytes(
+                retainedCurrentSnapshotJson);
     }
 }

@@ -28,10 +28,8 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractHiveProperties;
 import org.apache.doris.fs.FileSystemProvider;
@@ -217,10 +215,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         String partitionCacheTtl = updatedProps.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(fileMetaCacheTtl) || Objects.nonNull(partitionCacheTtl)) {
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HiveExternalMetaCache.ENGINE);
-        }
-        if (updatedProps.keySet().stream()
-                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, HudiExternalMetaCache.ENGINE))) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HudiExternalMetaCache.ENGINE);
         }
     }
 

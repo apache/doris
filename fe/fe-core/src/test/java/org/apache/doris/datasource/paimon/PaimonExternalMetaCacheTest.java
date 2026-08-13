@@ -24,9 +24,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
+import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 import org.apache.doris.datasource.metacache.paimon.PaimonLatestSnapshotProjectionLoader;
 import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
 
@@ -38,6 +40,8 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.privilege.PrivilegeChecker;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
@@ -50,6 +54,7 @@ import org.apache.paimon.table.sink.StreamTableWrite;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.RowType;
 import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.Rule;
@@ -58,6 +63,7 @@ import org.junit.rules.TemporaryFolder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -68,6 +74,240 @@ import java.util.concurrent.Executors;
 public class PaimonExternalMetaCacheTest {
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
+
+    @Test
+    public void testSnapshotWeightScalesLinearlyToOneHundredThousandPartitions() throws Exception {
+        FileStoreTable table = newPartitionedTable("linear_snapshot_estimate", Collections.emptyMap());
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        PaimonSnapshotEntryKey key = new PaimonSnapshotEntryKey(
+                mapping, 1L, table.schema().id(), 1L);
+        long base = snapshotWeight(key, table, 0);
+        long oneThousand = snapshotWeight(key, table, 1_000);
+        long tenThousand = snapshotWeight(key, table, 10_000);
+        long oneHundredThousand = snapshotWeight(key, table, 100_000);
+
+        long oneThousandPayload = oneThousand - base;
+        Assert.assertTrue(oneThousandPayload > 0L);
+        Assert.assertEquals(oneThousandPayload * 10L, tenThousand - base);
+        Assert.assertEquals(oneThousandPayload * 100L, oneHundredThousand - base);
+    }
+
+    @Test
+    public void testSnapshotWeightAccountsForSkewedTableOptions() throws Exception {
+        FileStoreTable smallTable = newPartitionedTable(
+                "option_small", Collections.singletonMap("payload", "x"));
+        String largePayload = repeatedCharacter('x', 64 * 1024);
+        FileStoreTable largeTable = newPartitionedTable(
+                "option_large", Collections.singletonMap("payload", largePayload));
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        PaimonSnapshotEntryKey smallKey = new PaimonSnapshotEntryKey(
+                mapping, 1L, smallTable.schema().id(), 1L);
+        PaimonSnapshotEntryKey largeKey = new PaimonSnapshotEntryKey(
+                mapping, 1L, largeTable.schema().id(), 1L);
+
+        long smallBytes = snapshotWeight(smallKey, smallTable, 0);
+        long largeBytes = snapshotWeight(largeKey, largeTable, 0);
+
+        Assert.assertTrue(largeBytes - smallBytes >= (largePayload.length() - 1L) * 2L);
+    }
+
+    @Test
+    public void testSnapshotWeightAccountsForNestedSchemaPayload() throws Exception {
+        String largeFieldName = repeatedCharacter('x', 64 * 1024);
+        FileStoreTable smallTable = newPartitionedTableWithNestedField("nested_small", "x");
+        FileStoreTable largeTable = newPartitionedTableWithNestedField(
+                "nested_large", largeFieldName);
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        PaimonSnapshotEntryKey smallKey = new PaimonSnapshotEntryKey(
+                mapping, 1L, smallTable.schema().id(), 1L);
+        PaimonSnapshotEntryKey largeKey = new PaimonSnapshotEntryKey(
+                mapping, 1L, largeTable.schema().id(), 1L);
+
+        long smallBytes = snapshotWeight(smallKey, smallTable, 0);
+        long largeBytes = snapshotWeight(largeKey, largeTable, 0);
+
+        Assert.assertTrue(largeBytes - smallBytes >= (largeFieldName.length() - 1L) * 2L);
+    }
+
+    @Test
+    public void testSnapshotWeightAccountsForTableComment() throws Exception {
+        String largeComment = repeatedCharacter('x', 64 * 1024);
+        FileStoreTable smallTable = newPartitionedTable(
+                "comment_small", Collections.emptyMap(), "x");
+        FileStoreTable largeTable = newPartitionedTable(
+                "comment_large", Collections.emptyMap(), largeComment);
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+
+        long smallBytes = snapshotWeight(new PaimonSnapshotEntryKey(
+                mapping, 1L, smallTable.schema().id(), 1L), smallTable, 0);
+        long largeBytes = snapshotWeight(new PaimonSnapshotEntryKey(
+                mapping, 1L, largeTable.schema().id(), 1L), largeTable, 0);
+
+        Assert.assertTrue(largeBytes - smallBytes >= (largeComment.length() - 1L) * 2L);
+    }
+
+    @Test
+    public void testSnapshotWeightEntryAndPrecomputedEstimate() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+            cache.initCatalog(1L, Collections.singletonMap(
+                    "meta.cache.paimon.snapshot.max-weight", "8MB"));
+            Assert.assertTrue(cache.stats(1L).get(PaimonExternalMetaCache.ENTRY_SNAPSHOT).isWeightBounded());
+
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+            FileStoreTable table = newPartitionedTable("snapshot_estimate", Collections.emptyMap());
+            Object lazyStoreBefore = readField(table, table.getClass(), "lazyStore");
+            PaimonSnapshotEntryKey key = new PaimonSnapshotEntryKey(mapping, 1L, table.schema().id(), 1L);
+            PaimonSnapshotCacheValue value = new PaimonSnapshotCacheValue(
+                    PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, table.schema().id(), table));
+            value.prepareForCachePublication(key);
+
+            Assert.assertTrue(value.getSizeEstimate().getIncompleteReason(),
+                    value.getSizeEstimate().isComplete());
+            Assert.assertTrue(value.getSizeEstimate().getBytes() > 0L);
+            Assert.assertSame("cache admission must not materialize FileStoreTable.store()",
+                    lazyStoreBefore, readField(table, table.getClass(), "lazyStore"));
+
+            PaimonSnapshotCacheValue unsupportedValue = new PaimonSnapshotCacheValue(
+                    PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, 1L, Mockito.mock(Table.class)));
+            unsupportedValue.prepareForCachePublication(new PaimonSnapshotEntryKey(mapping, 1L, 1L, 1L));
+            Assert.assertFalse(unsupportedValue.getSizeEstimate().isComplete());
+            Assert.assertTrue(unsupportedValue.getSizeEstimate().getIncompleteReason()
+                    .startsWith("unsupported_paimon_table:"));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testSnapshotKeySeparatesReloadedTableGenerations() {
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        PaimonSnapshot fence = new PaimonSnapshot(7L, 3L, null);
+        PaimonSnapshotCacheValue fenceValue = new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY, fence);
+        PaimonTableCacheValue first = new PaimonTableCacheValue(null, fenceValue);
+        PaimonTableCacheValue reloaded = new PaimonTableCacheValue(null, fenceValue);
+
+        PaimonSnapshotEntryKey firstKey = PaimonSnapshotEntryKey.of(
+                mapping, fence, first.getGeneration());
+        PaimonSnapshotEntryKey reloadedKey = PaimonSnapshotEntryKey.of(
+                mapping, fence, reloaded.getGeneration());
+
+        Assert.assertNotEquals(firstKey, reloadedKey);
+        Assert.assertNotEquals(firstKey.getTableGeneration(), reloadedKey.getTableGeneration());
+    }
+
+    @Test
+    public void testSnapshotHitReusesFenceCapturedByTableGeneration() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try {
+            long catalogId = 1L;
+            cache.initCatalog(catalogId, Collections.emptyMap());
+            NameMapping mapping = new NameMapping(catalogId, "db", "tbl", "remote_db", "remote_tbl");
+            FileStoreTable table = Mockito.mock(FileStoreTable.class);
+            PaimonSnapshot fence = new PaimonSnapshot(7L, 3L, table);
+            PaimonSnapshotCacheValue snapshotValue = new PaimonSnapshotCacheValue(
+                    PaimonPartitionInfo.EMPTY, fence);
+            PaimonTableCacheValue tableValue = new PaimonTableCacheValue(table, snapshotValue);
+            PaimonSnapshotEntryKey key = PaimonSnapshotEntryKey.of(
+                    mapping, fence, tableValue.getGeneration());
+            cache.entry(catalogId, PaimonExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, PaimonTableCacheValue.class).put(mapping, tableValue);
+            cache.entry(catalogId, PaimonExternalMetaCache.ENTRY_SNAPSHOT,
+                    PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class).put(key, snapshotValue);
+            ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+
+            Assert.assertSame(snapshotValue, cache.getSnapshotCache(dorisTable));
+            Assert.assertSame(snapshotValue, cache.getSnapshotCache(dorisTable));
+            Assert.assertSame(snapshotValue, cache.loadLatestSnapshotFence(dorisTable));
+            Assert.assertSame(snapshotValue, cache.loadLatestSnapshotFence(dorisTable));
+
+            Mockito.verifyNoInteractions(table);
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testSnapshotEstimateSupportsPrivilegedTableWrapper() throws Exception {
+        FileStoreTable table = newPartitionedTable("privileged_estimate", Collections.emptyMap());
+        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
+                table, Mockito.mock(PrivilegeChecker.class), Identifier.create("db", "tbl"));
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        PaimonSnapshotEntryKey key = new PaimonSnapshotEntryKey(
+                mapping, 1L, table.schema().id(), 1L);
+        PaimonSnapshotCacheValue value = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY,
+                new PaimonSnapshot(1L, table.schema().id(), privileged));
+
+        value.prepareForCachePublication(key);
+
+        Assert.assertTrue(value.getSizeEstimate().getIncompleteReason(),
+                value.getSizeEstimate().isComplete());
+    }
+
+    @Test
+    public void testSnapshotEstimateDoesNotMaterializeNestedRowTypeIndexes() throws Exception {
+        RowType nested = DataTypes.ROW(
+                DataTypes.FIELD(10, "nested_id", DataTypes.INT()),
+                DataTypes.FIELD(11, "nested_name", DataTypes.STRING()));
+        TableSchema schema = new TableSchema(
+                0,
+                java.util.Arrays.asList(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "payload", nested)),
+                11,
+                Collections.emptyList(),
+                Collections.emptyList(),
+                Collections.emptyMap(),
+                null);
+        FileStoreTable table = new AppendOnlyFileStoreTable(
+                LocalFileIO.create(),
+                new Path(temporaryFolder.newFolder("nested_row_estimate").toURI()),
+                schema,
+                CatalogEnvironment.empty());
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        PaimonSnapshotEntryKey key = new PaimonSnapshotEntryKey(mapping, 1L, schema.id(), 1L);
+        PaimonSnapshotCacheValue value = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, schema.id(), table));
+
+        Map<String, Object> stateBefore = new HashMap<>();
+        for (String fieldName : java.util.Arrays.asList(
+                "laziedNameToField", "laziedNameToIndex", "laziedFieldIdToField", "laziedFieldIdToIndex")) {
+            stateBefore.put(fieldName, readField(nested, fieldName));
+        }
+        value.prepareForCachePublication(key);
+
+        Assert.assertTrue(value.getSizeEstimate().getIncompleteReason(), value.getSizeEstimate().isComplete());
+        for (Map.Entry<String, Object> entry : stateBefore.entrySet()) {
+            Assert.assertSame(entry.getKey() + " must not be changed by cache admission",
+                    entry.getValue(), readField(nested, entry.getKey()));
+        }
+    }
+
+    @Test
+    public void testSnapshotInheritsLegacyTableCountSettingsButNotWeight() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+            Map<String, String> properties = new HashMap<>();
+            properties.put("meta.cache.paimon.table.enable", "false");
+            properties.put("meta.cache.paimon.table.ttl-second", "17");
+            properties.put("meta.cache.paimon.table.capacity", "23");
+            cache.initCatalog(1L, properties);
+
+            MetaCacheEntryStats snapshot = cache.stats(1L).get(PaimonExternalMetaCache.ENTRY_SNAPSHOT);
+            Assert.assertFalse(snapshot.isConfigEnabled());
+            Assert.assertEquals(17L, snapshot.getTtlSecond());
+            Assert.assertEquals(23L, snapshot.getCapacity());
+            Assert.assertFalse(snapshot.isWeightBounded());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
 
     @Test
     public void testLatestSnapshotUsesLatestSchemaForPinnedRead() {
@@ -320,6 +560,11 @@ public class PaimonExternalMetaCacheTest {
     }
 
     private FileStoreTable newPartitionedTable(String name, Map<String, String> options) throws Exception {
+        return newPartitionedTable(name, options, null);
+    }
+
+    private FileStoreTable newPartitionedTable(
+            String name, Map<String, String> options, String comment) throws Exception {
         TableSchema schema = new TableSchema(
                 0,
                 java.util.Arrays.asList(
@@ -329,12 +574,69 @@ public class PaimonExternalMetaCacheTest {
                 Collections.singletonList("part"),
                 Collections.emptyList(),
                 options,
+                comment);
+        return new AppendOnlyFileStoreTable(
+                LocalFileIO.create(),
+                new Path(temporaryFolder.newFolder(name).toURI()),
+                schema,
+                CatalogEnvironment.empty());
+    }
+
+    private FileStoreTable newPartitionedTableWithNestedField(
+            String name, String nestedFieldName) throws Exception {
+        RowType nestedType = new RowType(Collections.singletonList(
+                new DataField(2, nestedFieldName, DataTypes.STRING())));
+        TableSchema schema = new TableSchema(
+                0,
+                java.util.Arrays.asList(
+                        new DataField(0, "payload", nestedType),
+                        new DataField(1, "part", new IntType())),
+                1,
+                Collections.singletonList("part"),
+                Collections.emptyList(),
+                Collections.emptyMap(),
                 null);
         return new AppendOnlyFileStoreTable(
                 LocalFileIO.create(),
                 new Path(temporaryFolder.newFolder(name).toURI()),
                 schema,
                 CatalogEnvironment.empty());
+    }
+
+    private long snapshotWeight(PaimonSnapshotEntryKey key, FileStoreTable table, int partitionCount) {
+        PaimonPartitionInfo partitionInfo = Mockito.mock(PaimonPartitionInfo.class);
+        Map<String, org.apache.doris.catalog.PartitionItem> partitionItems = sizeOnlyMap(partitionCount);
+        Map<String, org.apache.paimon.partition.Partition> partitions = sizeOnlyMap(partitionCount);
+        Mockito.when(partitionInfo.getNameToPartitionItem()).thenReturn(partitionItems);
+        Mockito.when(partitionInfo.getNameToPartition()).thenReturn(partitions);
+        PaimonSnapshotCacheValue value = new PaimonSnapshotCacheValue(
+                partitionInfo, new PaimonSnapshot(1L, table.schema().id(), table));
+        MetaCacheSizeEstimate estimate = value.prepareForCachePublication(key);
+        Assert.assertTrue(estimate.getIncompleteReason(), estimate.isComplete());
+        return estimate.getBytes();
+    }
+
+    @SuppressWarnings("unchecked")
+    private <K, V> Map<K, V> sizeOnlyMap(int size) {
+        Map<K, V> map = Mockito.mock(Map.class);
+        Mockito.when(map.size()).thenReturn(size);
+        return map;
+    }
+
+    private Object readField(RowType rowType, String fieldName) throws Exception {
+        return readField(rowType, RowType.class, fieldName);
+    }
+
+    private static String repeatedCharacter(char character, int count) {
+        char[] characters = new char[count];
+        java.util.Arrays.fill(characters, character);
+        return new String(characters);
+    }
+
+    private Object readField(Object target, Class<?> owner, String fieldName) throws Exception {
+        Field field = owner.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.get(target);
     }
 
     @Test
@@ -350,15 +652,24 @@ public class PaimonExternalMetaCacheTest {
             org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tableEntry =
                     cache.entry(catalogId, PaimonExternalMetaCache.ENTRY_TABLE,
                             NameMapping.class, PaimonTableCacheValue.class);
-            tableEntry.put(t1, new PaimonTableCacheValue(null,
-                    () -> new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, 1L, null))));
-            tableEntry.put(t2, new PaimonTableCacheValue(null,
-                    () -> new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY, new PaimonSnapshot(2L, 2L, null))));
+            PaimonSnapshotCacheValue fence = new PaimonSnapshotCacheValue(
+                    PaimonPartitionInfo.EMPTY, new PaimonSnapshot(-1L, 0L, null));
+            tableEntry.put(t1, new PaimonTableCacheValue(null, fence));
+            tableEntry.put(t2, new PaimonTableCacheValue(null, fence));
+
+            PaimonSnapshotEntryKey snapshotKey = new PaimonSnapshotEntryKey(t1, 1L, 2L, 1L);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<
+                    PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> snapshotEntry = cache.entry(catalogId,
+                    PaimonExternalMetaCache.ENTRY_SNAPSHOT,
+                    PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class);
+            snapshotEntry.put(snapshotKey, new PaimonSnapshotCacheValue(
+                    PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, 2L, null)));
 
             cache.invalidateTable(catalogId, "db1", "tbl1");
 
             Assert.assertNull(tableEntry.getIfPresent(t1));
             Assert.assertNotNull(tableEntry.getIfPresent(t2));
+            Assert.assertNull(snapshotEntry.getIfPresent(snapshotKey));
         } finally {
             executor.shutdownNow();
         }
@@ -377,10 +688,10 @@ public class PaimonExternalMetaCacheTest {
             org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tableEntry =
                     cache.entry(catalogId, PaimonExternalMetaCache.ENTRY_TABLE,
                             NameMapping.class, PaimonTableCacheValue.class);
-            tableEntry.put(db1Table, new PaimonTableCacheValue(null,
-                    () -> new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, 1L, null))));
-            tableEntry.put(db2Table, new PaimonTableCacheValue(null,
-                    () -> new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY, new PaimonSnapshot(2L, 2L, null))));
+            PaimonSnapshotCacheValue fence = new PaimonSnapshotCacheValue(
+                    PaimonPartitionInfo.EMPTY, new PaimonSnapshot(-1L, 0L, null));
+            tableEntry.put(db1Table, new PaimonTableCacheValue(null, fence));
+            tableEntry.put(db2Table, new PaimonTableCacheValue(null, fence));
 
             org.apache.doris.datasource.metacache.MetaCacheEntry<PaimonSchemaCacheKey, SchemaCacheValue> schemaEntry =
                     cache.entry(catalogId, PaimonExternalMetaCache.ENTRY_SCHEMA,

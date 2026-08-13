@@ -299,7 +299,7 @@ public class IcebergTransaction implements Transaction {
         // Reads stay on the retained generation; commit refreshes may follow data-only snapshots,
         // while writer-contract changes still invalidate files produced for the retained metadata.
         return IcebergSnapshotCacheValue.createWritableTable(
-                retainedTable, IcebergUtils.getIcebergTable(dorisTable));
+                retainedTable, IcebergUtils.getWritableIcebergTable(dorisTable));
     }
 
     /** Begin UPDATE/MERGE against the metadata generation retained by the merge sink. */

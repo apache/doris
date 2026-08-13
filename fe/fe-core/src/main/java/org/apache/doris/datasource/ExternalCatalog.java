@@ -49,6 +49,7 @@ import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.lance.LanceExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
+import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
@@ -444,6 +445,19 @@ public abstract class ExternalCatalog
             } catch (NumberFormatException e) {
                 throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
             }
+        }
+
+        try {
+            Env currentEnv = Env.getCurrentEnv();
+            ExternalMetaCacheMgr extMetaCacheMgr = currentEnv == null ? null : currentEnv.getExtMetaCacheMgr();
+            if (extMetaCacheMgr == null) {
+                // This fallback is only for isolated construction tests before Env is initialized.
+                ExternalMetaCacheBudgetManager.fromConfig().validateCatalogMaxWeight(properties);
+            } else {
+                extMetaCacheMgr.validateCatalogCacheProperties(this, properties);
+            }
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
         }
 
         // check schema.cache.ttl-second parameter
@@ -1367,9 +1381,21 @@ public abstract class ExternalCatalog
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         CatalogIf.super.notifyPropertiesUpdated(updatedProps);
         String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
-        if (java.util.Objects.nonNull(schemaCacheTtl)) {
-            ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        if (java.util.Objects.nonNull(schemaCacheTtl)
+                || updatedProps.containsKey(ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY)) {
             extMetaCacheMgr.removeCatalog(id);
+            return;
+        }
+        for (String key : updatedProps.keySet()) {
+            if (key == null || !key.startsWith("meta.cache.")) {
+                continue;
+            }
+            String remainder = key.substring("meta.cache.".length());
+            int separator = remainder.indexOf('.');
+            if (separator > 0) {
+                extMetaCacheMgr.removeCatalogByEngine(id, remainder.substring(0, separator));
+            }
         }
     }
 

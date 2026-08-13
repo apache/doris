@@ -17,22 +17,47 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
+import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 
+import com.google.common.collect.HashBiMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class HiveMetaStoreCacheTest {
+
+    @Test
+    public void testPartitionValueWeightScalesLinearlyToOneHundredThousandPartitions() {
+        HiveExternalMetaCache.PartitionValueCacheKey key = new HiveExternalMetaCache.PartitionValueCacheKey(
+                NameMapping.createForTest("db", "tbl"), Collections.singletonList(Type.STRING));
+        long base = partitionValueWeight(key, 0);
+        long oneThousand = partitionValueWeight(key, 1_000);
+        long tenThousand = partitionValueWeight(key, 10_000);
+        long oneHundredThousand = partitionValueWeight(key, 100_000);
+
+        long oneThousandPayload = oneThousand - base;
+        Assertions.assertTrue(oneThousandPayload > 0L);
+        Assertions.assertEquals(oneThousandPayload * 10L, tenThousand - base);
+        Assertions.assertEquals(oneThousandPayload * 100L, oneHundredThousand - base);
+    }
 
     @Test
     public void testInvalidateTableCache() {
@@ -144,6 +169,82 @@ public class HiveMetaStoreCacheTest {
         }
     }
 
+    @Test
+    public void testPartitionValuesEstimateIsPreparedAgainAfterCopy() {
+        HiveExternalMetaCache.PartitionValueCacheKey key = new HiveExternalMetaCache.PartitionValueCacheKey(
+                NameMapping.createForTest("db", "tbl"), Collections.emptyList());
+        PartitionKey partitionKey = new PartitionKey();
+        ListPartitionItem partitionItem = new ListPartitionItem(Collections.singletonList(partitionKey));
+        partitionItem.setDefaultPartition(true);
+        HashMap<Long, PartitionItem> items = new HashMap<>();
+        items.put(1L, partitionItem);
+        HashBiMap<String, Long> names = HashBiMap.create();
+        names.put("p", 1L);
+        HashMap<Long, List<String>> partitionValues = new HashMap<>();
+        partitionValues.put(1L, Collections.emptyList());
+        HiveExternalMetaCache.HivePartitionValues values = new HiveExternalMetaCache.HivePartitionValues(
+                items, names, partitionValues);
+
+        values.sealForPublication();
+        values.prepareSizeEstimate(key);
+        Assertions.assertTrue(values.getSizeEstimate().isComplete());
+        Assertions.assertTrue(values.getSizeEstimate().getBytes() > 0L);
+
+        HiveExternalMetaCache.HivePartitionValues copy = values.mutableCopy();
+        Assertions.assertFalse(copy.getSizeEstimate().isComplete());
+        copy.sealForPublication();
+        copy.prepareSizeEstimate(new HiveExternalMetaCache.PartitionValueCacheKey(
+                key.getNameMapping(), null));
+        Assertions.assertTrue(copy.getSizeEstimate().isComplete());
+        Assertions.assertTrue(copy.getSizeEstimate().getBytes() > 0L);
+        ListPartitionItem publishedItem = (ListPartitionItem) values.getIdToPartitionItem().get(1L);
+        Assertions.assertSame(partitionItem, publishedItem,
+                "cache publication must not rewrite common catalog partition objects");
+        Assertions.assertSame(partitionKey, publishedItem.getItems().get(0));
+    }
+
+    @Test
+    public void testPartitionValuesEstimateSupportsRealLiteralGraph() throws Exception {
+        List<Type> types = java.util.Arrays.asList(Type.STRING, Type.INT, Type.DATEV2, Type.DECIMALV2);
+        HiveExternalMetaCache.PartitionValueCacheKey key = new HiveExternalMetaCache.PartitionValueCacheKey(
+                NameMapping.createForTest("db", "tbl"), types);
+        PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(
+                java.util.Arrays.asList(
+                        new PartitionValue("tail-value"),
+                        new PartitionValue("42"),
+                        new PartitionValue("2026-08-12"),
+                        new PartitionValue("123456789.0123")),
+                types, true);
+        ListPartitionItem partitionItem = new ListPartitionItem(Collections.singletonList(partitionKey));
+        HashMap<Long, PartitionItem> items = new HashMap<>();
+        items.put(1L, partitionItem);
+        HashBiMap<String, Long> names = HashBiMap.create();
+        names.put("s=tail-value/i=42/d=2026-08-12/n=123456789.0123", 1L);
+        HashMap<Long, List<String>> partitionValues = new HashMap<>();
+        partitionValues.put(1L, java.util.Arrays.asList(
+                "tail-value", "42", "2026-08-12", "123456789.0123"));
+        HiveExternalMetaCache.HivePartitionValues values = new HiveExternalMetaCache.HivePartitionValues(
+                items, names, partitionValues);
+
+        values.sealForPublication();
+        values.prepareSizeEstimate(key);
+
+        Assertions.assertTrue(values.getSizeEstimate().isComplete(),
+                values.getSizeEstimate().getIncompleteReason());
+        long estimatedBytes = values.getSizeEstimate().getBytes();
+        PartitionKey publishedKey = ((ListPartitionItem) values.getIdToPartitionItem().get(1L)).getItems().get(0);
+        StringLiteral publishedString = (StringLiteral) publishedKey.getKeys().get(0);
+        // Exercise normal read-only lazy paths after publication. Their bounded memoized state is
+        // covered by estimator headroom without changing or cloning common expression classes.
+        publishedString.getExprName();
+        values.getSortedPartitionRanges().orElseThrow(AssertionError::new).sortedPartitions
+                .forEach(partition -> partition.range.toString());
+        values.prepareSizeEstimate(key);
+        Assertions.assertEquals(estimatedBytes, values.getSizeEstimate().getBytes());
+        Assertions.assertSame(partitionKey, publishedKey,
+                "cache publication must not rewrite common catalog partition objects");
+    }
+
     private void putCache(
             MetaCacheEntry<HiveExternalMetaCache.FileCacheKey, HiveExternalMetaCache.FileCacheValue> fileCache,
             MetaCacheEntry<HiveExternalMetaCache.PartitionCacheKey, HivePartition> partitionCache,
@@ -177,5 +278,23 @@ public class HiveMetaStoreCacheTest {
         AtomicLong count = new AtomicLong();
         entry.forEach((k, v) -> count.incrementAndGet());
         return count.get();
+    }
+
+    private long partitionValueWeight(
+            HiveExternalMetaCache.PartitionValueCacheKey key, int partitionCount) {
+        Map<Long, PartitionItem> items = sizeOnlyMap(partitionCount);
+        HiveExternalMetaCache.HivePartitionValues values =
+                new HiveExternalMetaCache.HivePartitionValues(
+                        items, null, null, partitionCount * 16L, 1);
+        MetaCacheSizeEstimate estimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(key, values);
+        Assertions.assertTrue(estimate.isComplete(), estimate.getIncompleteReason());
+        return estimate.getBytes();
+    }
+
+    @SuppressWarnings("unchecked")
+    private <K, V> Map<K, V> sizeOnlyMap(int size) {
+        Map<K, V> map = Mockito.mock(Map.class);
+        Mockito.when(map.size()).thenReturn(size);
+        return map;
     }
 }

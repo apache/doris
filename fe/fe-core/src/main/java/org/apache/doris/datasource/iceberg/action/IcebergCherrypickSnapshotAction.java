@@ -70,7 +70,7 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
+        Table icebergTable = ((IcebergExternalTable) table).getWritableIcebergTable();
         Long sourceSnapshotId = namedArguments.getLong(SNAPSHOT_ID);
 
         try {

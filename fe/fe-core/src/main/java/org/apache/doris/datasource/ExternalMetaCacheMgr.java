@@ -27,6 +27,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalMetaCache;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
+import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheRegistry;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheRouteResolver;
 import org.apache.doris.datasource.metacache.LegacyMetaCacheFactory;
@@ -38,6 +39,7 @@ import org.apache.doris.fs.FileSystemCache;
 
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.Striped;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -47,8 +49,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -95,6 +100,10 @@ public class ExternalMetaCacheMgr {
     private final ExternalMetaCacheRegistry cacheRegistry;
     private final ExternalMetaCacheRouteResolver routeResolver;
     private final LegacyMetaCacheFactory legacyMetaCacheFactory;
+    private final ExternalMetaCacheBudgetManager budgetManager;
+    // Catalog property publication and cache-group replacement share this striped lifecycle fence.
+    // Initialized lookups retain the lock-free fast path above it.
+    private final Striped<Lock> catalogLifecycleLocks = Striped.lock(64);
 
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
@@ -102,6 +111,7 @@ public class ExternalMetaCacheMgr {
     private ExternalRowCountCache rowCountCache;
 
     public ExternalMetaCacheMgr(boolean isCheckpointCatalog) {
+        budgetManager = ExternalMetaCacheBudgetManager.fromConfig();
         rowCountRefreshExecutor = newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
@@ -191,28 +201,114 @@ public class ExternalMetaCacheMgr {
     }
 
     public void prepareCatalog(long catalogId) {
-        Map<String, String> catalogProperties = findCatalogProperties(catalogId);
-        if (catalogProperties == null) {
-            logMissingCatalogSkip(catalogId, "prepareCatalog");
-            return;
+        Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
+        lifecycleLock.lock();
+        try {
+            Map<String, String> catalogProperties = findCatalogProperties(catalogId);
+            if (catalogProperties == null) {
+                logMissingCatalogSkip(catalogId, "prepareCatalog");
+                return;
+            }
+            validateCatalogCachePropertiesForRuntime(catalogProperties);
+            routeCatalogEngines(catalogId, cache -> cache.initCatalog(catalogId, catalogProperties));
+        } finally {
+            lifecycleLock.unlock();
         }
-        routeCatalogEngines(catalogId, cache -> cache.initCatalog(catalogId, catalogProperties));
     }
 
     public void prepareCatalogByEngine(long catalogId, String engine) {
-        Map<String, String> catalogProperties = findCatalogProperties(catalogId);
-        if (catalogProperties == null) {
-            logMissingCatalogSkip(catalogId, "prepareCatalogByEngine");
+        ExternalMetaCache targetCache = this.engine(engine);
+        if (targetCache.isCatalogInitialized(catalogId)) {
             return;
         }
-        prepareCatalogByEngine(catalogId, engine, catalogProperties);
+        Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
+        lifecycleLock.lock();
+        try {
+            if (targetCache.isCatalogInitialized(catalogId)) {
+                return;
+            }
+            Map<String, String> catalogProperties = findCatalogProperties(catalogId);
+            if (catalogProperties == null) {
+                logMissingCatalogSkip(catalogId, "prepareCatalogByEngine");
+                return;
+            }
+            prepareCatalogByEngineLocked(catalogId, targetCache, catalogProperties);
+        } finally {
+            lifecycleLock.unlock();
+        }
     }
 
     public void prepareCatalogByEngine(long catalogId, String engine, Map<String, String> catalogProperties) {
+        ExternalMetaCache targetCache = this.engine(engine);
+        Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
+        lifecycleLock.lock();
+        try {
+            prepareCatalogByEngineLocked(catalogId, targetCache, catalogProperties);
+        } finally {
+            lifecycleLock.unlock();
+        }
+    }
+
+    private void prepareCatalogByEngineLocked(
+            long catalogId, ExternalMetaCache targetCache, Map<String, String> catalogProperties) {
         Map<String, String> safeCatalogProperties = catalogProperties == null
                 ? Maps.newHashMap()
                 : Maps.newHashMap(catalogProperties);
-        routeSpecifiedEngine(engine, cache -> cache.initCatalog(catalogId, safeCatalogProperties));
+        validateCatalogCachePropertiesForRuntime(safeCatalogProperties);
+        targetCache.initCatalog(catalogId, safeCatalogProperties);
+    }
+
+    public void validateCatalogCacheProperties(Map<String, String> catalogProperties) {
+        budgetManager.validateCatalogMaxWeight(catalogProperties);
+        validateCatalogCachePropertyNamespaces(catalogProperties);
+        cacheRegistry.allCaches().forEach(cache -> cache.validateCatalogProperties(catalogProperties));
+    }
+
+    private void validateCatalogCachePropertiesForRuntime(Map<String, String> catalogProperties) {
+        budgetManager.parseCatalogMaxWeight(catalogProperties);
+        validateCatalogCachePropertyNamespaces(catalogProperties);
+    }
+
+    private void validateCatalogCachePropertyNamespaces(Map<String, String> catalogProperties) {
+        String globalKey = ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY;
+        String prefix = "meta.cache.";
+        for (String key : catalogProperties.keySet()) {
+            if (key == null || globalKey.equals(key) || !key.startsWith(prefix)) {
+                continue;
+            }
+            String remainder = key.substring(prefix.length());
+            int separator = remainder.indexOf('.');
+            if (separator <= 0) {
+                throw new IllegalArgumentException("Unknown external meta cache property: " + key);
+            }
+            String configuredEngine = remainder.substring(0, separator);
+            ExternalMetaCache resolved = cacheRegistry.resolve(configuredEngine);
+            if (!resolved.engine().equals(configuredEngine)) {
+                throw new IllegalArgumentException("External meta cache properties must use canonical engine '"
+                        + resolved.engine() + "' instead of alias '" + configuredEngine + "': " + key);
+            }
+        }
+    }
+
+    /** Strict DDL validation also rejects a valid engine namespace not routed by the catalog type. */
+    public void validateCatalogCacheProperties(CatalogIf<?> catalog, Map<String, String> catalogProperties) {
+        validateCatalogCacheProperties(catalogProperties);
+        Set<String> routedEngines = routeResolver.resolveCatalogCaches(catalog.getId(), catalog).stream()
+                .map(ExternalMetaCache::engine)
+                .collect(Collectors.toSet());
+        for (String key : catalogProperties.keySet()) {
+            if (key == null || ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY.equals(key)
+                    || !key.startsWith("meta.cache.")) {
+                continue;
+            }
+            String remainder = key.substring("meta.cache.".length());
+            int separator = remainder.indexOf('.');
+            String configuredEngine = separator < 0 ? remainder : remainder.substring(0, separator);
+            if (!routedEngines.contains(configuredEngine)) {
+                throw new IllegalArgumentException("External meta cache engine '" + configuredEngine
+                        + "' is not supported by catalog type " + catalog.getClass().getSimpleName() + ": " + key);
+            }
+        }
     }
 
     public void invalidateCatalog(long catalogId) {
@@ -228,15 +324,27 @@ public class ExternalMetaCacheMgr {
     }
 
     public void removeCatalog(long catalogId) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "removeCatalog",
-                () -> cache.invalidateCatalog(catalogId)));
+        Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
+        lifecycleLock.lock();
+        try {
+            routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                    cache, catalogId, "removeCatalog",
+                    () -> cache.invalidateCatalog(catalogId)));
+        } finally {
+            lifecycleLock.unlock();
+        }
     }
 
     public void removeCatalogByEngine(long catalogId, String engine) {
-        routeSpecifiedEngine(engine, cache -> safeInvalidate(
-                cache, catalogId, "removeCatalogByEngine",
-                () -> cache.invalidateCatalog(catalogId)));
+        Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
+        lifecycleLock.lock();
+        try {
+            routeSpecifiedEngine(engine, cache -> safeInvalidate(
+                    cache, catalogId, "removeCatalogByEngine",
+                    () -> cache.invalidateCatalog(catalogId)));
+        } finally {
+            lifecycleLock.unlock();
+        }
     }
 
     public void invalidateDb(long catalogId, String dbName) {
@@ -302,13 +410,13 @@ public class ExternalMetaCacheMgr {
     }
 
     private void registerBuiltinEngineCaches() {
-        cacheRegistry.register(new DefaultExternalMetaCache(ENGINE_DEFAULT, commonRefreshExecutor));
-        cacheRegistry.register(new HiveExternalMetaCache(commonRefreshExecutor, fileListingExecutor));
-        cacheRegistry.register(new HudiExternalMetaCache(commonRefreshExecutor));
-        cacheRegistry.register(new IcebergExternalMetaCache(commonRefreshExecutor));
-        cacheRegistry.register(new PaimonExternalMetaCache(commonRefreshExecutor));
-        cacheRegistry.register(new MaxComputeExternalMetaCache(commonRefreshExecutor));
-        cacheRegistry.register(new DorisExternalMetaCache(commonRefreshExecutor));
+        cacheRegistry.register(new DefaultExternalMetaCache(ENGINE_DEFAULT, commonRefreshExecutor, budgetManager));
+        cacheRegistry.register(new HiveExternalMetaCache(commonRefreshExecutor, fileListingExecutor, budgetManager));
+        cacheRegistry.register(new HudiExternalMetaCache(commonRefreshExecutor, budgetManager));
+        cacheRegistry.register(new IcebergExternalMetaCache(commonRefreshExecutor, budgetManager));
+        cacheRegistry.register(new PaimonExternalMetaCache(commonRefreshExecutor, budgetManager));
+        cacheRegistry.register(new MaxComputeExternalMetaCache(commonRefreshExecutor, budgetManager));
+        cacheRegistry.register(new DorisExternalMetaCache(commonRefreshExecutor, budgetManager));
     }
 
     private void routeCatalogEngines(long catalogId, Consumer<ExternalMetaCache> action) {
@@ -428,8 +536,9 @@ public class ExternalMetaCacheMgr {
      * loading/invalidation. No engine-specific metadata (partitions/files/snapshots) is cached.
      */
     private static class DefaultExternalMetaCache extends AbstractExternalMetaCache {
-        DefaultExternalMetaCache(String engine, ExecutorService refreshExecutor) {
-            super(engine, refreshExecutor);
+        DefaultExternalMetaCache(String engine, ExecutorService refreshExecutor,
+                ExternalMetaCacheBudgetManager budgetManager) {
+            super(engine, refreshExecutor, budgetManager);
             registerEntry(MetaCacheEntryDef.of(
                     ENTRY_SCHEMA,
                     SchemaCacheKey.class,

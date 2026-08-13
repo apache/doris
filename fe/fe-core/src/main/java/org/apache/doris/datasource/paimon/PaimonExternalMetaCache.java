@@ -23,6 +23,8 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
+import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
+import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 import org.apache.doris.datasource.metacache.paimon.PaimonLatestSnapshotProjectionLoader;
@@ -40,36 +42,48 @@ import java.util.concurrent.ExecutorService;
  * <p>Registered entries:
  * <ul>
  *   <li>{@code table}: loaded Paimon table handle per table mapping</li>
+ *   <li>{@code snapshot}: immutable partition projection keyed by a captured snapshot/schema fence</li>
  *   <li>{@code schema}: schema cache keyed by table identity + schema id</li>
  * </ul>
  *
- * <p>Latest snapshot metadata is modeled as a runtime projection memoized inside the table cache
- * value instead of as an independent cache entry.
+ * <p>The latest main-branch snapshot is captured once as a fence and loaded through an independent
+ * contextual entry. Branch/tag/options projections remain statement-local and are not aliased to
+ * this main-snapshot key.
  *
  * <p>Invalidation behavior:
  * <ul>
- *   <li>db/table invalidation clears table and schema entries by matching local names</li>
+ *   <li>db/table invalidation clears table, snapshot and schema entries by matching local names</li>
  *   <li>partition-level invalidation falls back to table-level invalidation</li>
  * </ul>
  */
 public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     public static final String ENGINE = "paimon";
     public static final String ENTRY_TABLE = "table";
+    public static final String ENTRY_SNAPSHOT = "snapshot";
     public static final String ENTRY_SCHEMA = "schema";
 
     private final EntryHandle<NameMapping, PaimonTableCacheValue> tableEntry;
+    private final EntryHandle<PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> snapshotEntry;
     private final EntryHandle<PaimonSchemaCacheKey, SchemaCacheValue> schemaEntry;
     private final PaimonTableLoader tableLoader;
     private final PaimonLatestSnapshotProjectionLoader latestSnapshotProjectionLoader;
 
     public PaimonExternalMetaCache(ExecutorService refreshExecutor) {
-        super(ENGINE, refreshExecutor);
+        this(refreshExecutor, new ExternalMetaCacheBudgetManager(java.util.OptionalLong.empty()));
+    }
+
+    public PaimonExternalMetaCache(ExecutorService refreshExecutor, ExternalMetaCacheBudgetManager budgetManager) {
+        super(ENGINE, refreshExecutor, budgetManager);
         tableLoader = new PaimonTableLoader();
         latestSnapshotProjectionLoader = new PaimonLatestSnapshotProjectionLoader(
                 new PaimonPartitionInfoLoader(), this::getPaimonSchemaCacheValue);
         tableEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_TABLE, NameMapping.class, PaimonTableCacheValue.class,
                 this::loadTableCacheValue, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping)));
+        snapshotEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_SNAPSHOT,
+                PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class, defaultEntryCacheSpec(),
+                MetaCacheEntryInvalidation.forNameMapping(PaimonSnapshotEntryKey::getNameMapping))
+                .withSizeEstimator((key, value) -> value.prepareForCachePublication(key)));
         schemaEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_SCHEMA, PaimonSchemaCacheKey.class,
                 SchemaCacheValue.class, this::loadSchemaCacheValue, defaultSchemaCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(PaimonSchemaCacheKey::getNameMapping)));
@@ -86,7 +100,13 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
 
     public PaimonSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        return tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getLatestSnapshotCacheValue();
+        PaimonTableCacheValue tableValue = tableEntry.get(nameMapping.getCtlId()).get(nameMapping);
+        PaimonSnapshot fence = tableValue.getLatestSnapshotFence().getSnapshot();
+        PaimonSnapshotEntryKey key = PaimonSnapshotEntryKey.of(
+                nameMapping, fence, tableValue.getGeneration());
+        MetaCacheEntry<PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> entry =
+                snapshotEntry.get(nameMapping.getCtlId());
+        return entry.get(key, ignored -> latestSnapshotProjectionLoader.loadAtFence(nameMapping, fence));
     }
 
     public PaimonSnapshotCacheValue loadSnapshotProjection(ExternalTable dorisTable, Table effectiveTable) {
@@ -95,8 +115,7 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
 
     public PaimonSnapshotCacheValue loadLatestSnapshotFence(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        Table table = tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getPaimonTable();
-        return latestSnapshotProjectionLoader.loadFence(nameMapping, table);
+        return tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getLatestSnapshotFence();
     }
 
     public PaimonSnapshotCacheValue loadSnapshotAtFence(
@@ -119,8 +138,8 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
 
     private PaimonTableCacheValue loadTableCacheValue(NameMapping nameMapping) {
         Table paimonTable = tableLoader.load(nameMapping);
-        return new PaimonTableCacheValue(paimonTable,
-                () -> latestSnapshotProjectionLoader.load(nameMapping, paimonTable));
+        PaimonSnapshotCacheValue fence = latestSnapshotProjectionLoader.loadFence(nameMapping, paimonTable);
+        return new PaimonTableCacheValue(paimonTable, fence);
     }
 
     private SchemaCacheValue loadSchemaCacheValue(PaimonSchemaCacheKey key) {
@@ -133,6 +152,11 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
 
     @Override
     protected Map<String, String> catalogPropertyCompatibilityMap() {
-        return singleCompatibilityMap(ExternalCatalog.SCHEMA_CACHE_TTL_SECOND, ENTRY_SCHEMA);
+        Map<String, String> compatibility = new java.util.HashMap<>(
+                singleCompatibilityMap(ExternalCatalog.SCHEMA_CACHE_TTL_SECOND, ENTRY_SCHEMA));
+        compatibility.put("meta.cache.paimon.table.enable", "meta.cache.paimon.snapshot.enable");
+        compatibility.put("meta.cache.paimon.table.ttl-second", "meta.cache.paimon.snapshot.ttl-second");
+        compatibility.put("meta.cache.paimon.table.capacity", "meta.cache.paimon.snapshot.capacity");
+        return compatibility;
     }
 }

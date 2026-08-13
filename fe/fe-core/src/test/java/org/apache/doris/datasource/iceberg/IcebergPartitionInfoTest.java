@@ -22,10 +22,27 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
 public class IcebergPartitionInfoTest {
+
+    @Test
+    public void testRetainedPayloadCounterTracksSkewedPartitionValues() {
+        String largeValue = repeatedCharacter('x', 64 * 1024);
+        IcebergPartition small = new IcebergPartition("p=x", 0, 0, 0, 0, 1, 101,
+                Collections.singletonList("x"), Collections.singletonList("identity"));
+        IcebergPartition large = new IcebergPartition("p=" + largeValue, 0, 0, 0, 0, 1, 101,
+                Collections.singletonList(largeValue), Collections.singletonList("identity"));
+
+        Assertions.assertTrue(large.getRetainedPayloadBytes() - small.getRetainedPayloadBytes()
+                >= (largeValue.length() - 1L) * 4L);
+        IcebergPartitionInfo info = new IcebergPartitionInfo(
+                Collections.emptyMap(), Collections.singletonMap(large.getPartitionName(), large),
+                Collections.emptyMap());
+        Assertions.assertEquals(large.getRetainedPayloadBytes(), info.getRetainedPayloadBytes());
+    }
 
     @Test
     public void testGetLatestSnapshotId() {
@@ -49,5 +66,11 @@ public class IcebergPartitionInfoTest {
         Assertions.assertEquals(102, snapshot1);
         Assertions.assertEquals(102, snapshot2);
         Assertions.assertEquals(103, snapshot3);
+    }
+
+    private static String repeatedCharacter(char character, int count) {
+        char[] characters = new char[count];
+        java.util.Arrays.fill(characters, character);
+        return new String(characters);
     }
 }

@@ -17,28 +17,38 @@
 
 package org.apache.doris.datasource.paimon;
 
-import com.google.common.base.Suppliers;
 import org.apache.paimon.table.Table;
 
-import java.util.function.Supplier;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Cache value for Paimon table metadata and its latest runtime snapshot projection.
+ * Cache value for a Paimon table handle. Snapshot projections use a separate cache entry so this
+ * value cannot grow after admission through a memoized supplier.
  */
 public class PaimonTableCacheValue {
-    private final Table paimonTable;
-    private final Supplier<PaimonSnapshotCacheValue> latestSnapshotCacheValue;
+    private static final AtomicLong NEXT_GENERATION = new AtomicLong();
 
-    public PaimonTableCacheValue(Table paimonTable, Supplier<PaimonSnapshotCacheValue> latestSnapshotCacheValue) {
+    private final Table paimonTable;
+    private final PaimonSnapshotCacheValue latestSnapshotFence;
+    private final long generation;
+
+    public PaimonTableCacheValue(Table paimonTable, PaimonSnapshotCacheValue latestSnapshotFence) {
         this.paimonTable = paimonTable;
-        this.latestSnapshotCacheValue = Suppliers.memoize(latestSnapshotCacheValue::get);
+        this.latestSnapshotFence = Objects.requireNonNull(
+                latestSnapshotFence, "latestSnapshotFence can not be null");
+        this.generation = NEXT_GENERATION.incrementAndGet();
     }
 
     public Table getPaimonTable() {
         return paimonTable;
     }
 
-    public PaimonSnapshotCacheValue getLatestSnapshotCacheValue() {
-        return latestSnapshotCacheValue.get();
+    public long getGeneration() {
+        return generation;
+    }
+
+    public PaimonSnapshotCacheValue getLatestSnapshotFence() {
+        return latestSnapshotFence;
     }
 }

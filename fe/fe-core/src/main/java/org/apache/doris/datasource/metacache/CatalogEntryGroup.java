@@ -46,4 +46,12 @@ public class CatalogEntryGroup {
     public void invalidateAll() {
         entries.values().forEach(MetaCacheEntry::invalidateAll);
     }
+
+    public void close() {
+        entries.values().forEach(MetaCacheEntry::close);
+        // Keep the closed entries reachable from this retired group. A query may have captured the
+        // group immediately before its catalog is removed; returning a closed entry lets that query
+        // serve an uncached load instead of spuriously observing an uninitialized entry. The group
+        // is already absent from the owner map and is reclaimed with the last concurrent reader.
+    }
 }

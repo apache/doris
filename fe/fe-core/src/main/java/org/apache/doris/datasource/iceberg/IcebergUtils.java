@@ -56,6 +56,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
@@ -1057,6 +1058,10 @@ public class IcebergUtils {
         return icebergExternalMetaCache(dorisTable).getIcebergTable(dorisTable);
     }
 
+    public static Table getWritableIcebergTable(ExternalTable dorisTable) {
+        return icebergExternalMetaCache(dorisTable).getWritableIcebergTable(dorisTable);
+    }
+
     private static IcebergExternalMetaCache icebergExternalMetaCache(ExternalCatalog catalog) {
         Preconditions.checkNotNull(catalog, "catalog can not be null");
         return Env.getCurrentEnv().getExtMetaCacheMgr().iceberg(catalog.getId());
@@ -1751,10 +1756,13 @@ public class IcebergUtils {
         }
         Map<String, IcebergPartition> nameToPartition = Maps.newHashMap();
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
+        long retainedPayloadBytes = 0L;
 
         List<Column> partitionColumns = IcebergUtils.getSchemaCacheValue(dorisTable, schemaId).getPartitionColumns();
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);
+            retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(
+                    retainedPayloadBytes, partition.getRetainedPayloadBytes());
             String transform = table.specs().get(partition.getSpecId()).fields().get(0).transform().toString();
             Range<PartitionKey> partitionRange = getPartitionRange(
                     partition.getPartitionValues().get(0), transform, partitionColumns);
@@ -1762,7 +1770,8 @@ public class IcebergUtils {
             nameToPartitionItem.put(partition.getPartitionName(), item);
         }
         Map<String, Set<String>> partitionNameMap = mergeOverlapPartitions(nameToPartitionItem);
-        return new IcebergPartitionInfo(nameToPartitionItem, nameToPartition, partitionNameMap);
+        return new IcebergPartitionInfo(
+                nameToPartitionItem, nameToPartition, partitionNameMap, retainedPayloadBytes);
     }
 
     private static List<IcebergPartition> loadIcebergPartition(Table table, long snapshotId) {
@@ -1802,6 +1811,7 @@ public class IcebergUtils {
         StringBuilder sb = new StringBuilder();
         List<String> partitionValues = Lists.newArrayList();
         List<String> transforms = Lists.newArrayList();
+        long retainedPayloadBytes = 0L;
         for (int i = 0; i < partitionSpec.fields().size(); ++i) {
             PartitionField partitionField = partitionSpec.fields().get(i);
             Class<?> fieldClass = partitionSpec.javaClasses()[i];
@@ -1817,12 +1827,19 @@ public class IcebergUtils {
             sb.append(fieldValue);
             sb.append("/");
             partitionValues.add(fieldValue);
-            transforms.add(partitionField.transform().toString());
+            String transform = partitionField.transform().toString();
+            transforms.add(transform);
+            retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(retainedPayloadBytes,
+                    MetaCacheWeightUtils.estimatedStringBytes(fieldValue));
+            retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(retainedPayloadBytes,
+                    MetaCacheWeightUtils.estimatedStringBytes(transform));
         }
         if (sb.length() > 0) {
             sb.delete(sb.length() - 1, sb.length());
         }
         String partitionName = sb.toString();
+        retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(retainedPayloadBytes,
+                MetaCacheWeightUtils.estimatedStringBytes(partitionName));
         long recordCount = row.get(2, Long.class);
         long fileCount = row.get(3, Integer.class);
         long fileSizeInBytes = row.get(4, Long.class);
@@ -1841,7 +1858,7 @@ public class IcebergUtils {
             lastUpdateSnapShotId = UNKNOWN_SNAPSHOT_ID;
         }
         return new IcebergPartition(partitionName, specId, recordCount, fileSizeInBytes, fileCount,
-            lastUpdateTime, lastUpdateSnapShotId, partitionValues, transforms);
+            lastUpdateTime, lastUpdateSnapShotId, partitionValues, transforms, retainedPayloadBytes);
     }
 
     @VisibleForTesting
@@ -2000,7 +2017,8 @@ public class IcebergUtils {
             Optional<TableScanParams> scanParams) {
         if (tableSnapshot.isPresent() || IcebergUtils.isIcebergBranchOrTag(scanParams)) {
             // If a snapshot is specified, use the specified snapshot and the corresponding schema (not latest).
-            Table icebergTable = IcebergSnapshotCacheValue.retainTableGeneration(getIcebergTable(dorisTable));
+            IcebergExternalMetaCache metaCache = icebergExternalMetaCache(dorisTable);
+            Table icebergTable = metaCache.getQueryScopedIcebergTable(dorisTable);
             IcebergTableQueryInfo info;
             try {
                 info = getQuerySpecSnapshot(icebergTable, tableSnapshot, scanParams);
@@ -2010,8 +2028,7 @@ public class IcebergUtils {
             return new IcebergSnapshotCacheValue(
                     IcebergPartitionInfo.empty(),
                     new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()),
-                    getNameMapping(icebergTable),
-                    icebergTable);
+                    getNameMapping(icebergTable), icebergTable);
         }
         return getLatestSnapshotCacheValue(dorisTable);
     }
@@ -2027,11 +2044,12 @@ public class IcebergUtils {
 
     public static List<Column> getIcebergPartitionColumns(Optional<MvccSnapshot> snapshot, ExternalTable dorisTable) {
         IcebergSnapshotCacheValue snapshotValue = getSnapshotCacheValue(snapshot, dorisTable);
-        if (snapshotValue.getIcebergTable().isPresent()) {
+        Optional<Table> snapshotTable = snapshotValue.getIcebergTable();
+        if (snapshotTable.isPresent()) {
             // Schema ID alone cannot identify the partition spec; metadata-only evolution may keep
             // the same schema and snapshot IDs while changing spec(), so derive both from T0.
             return buildTableSchemaCacheValue(dorisTable, snapshotValue.getSnapshot().getSchemaId(),
-                    snapshotValue.getIcebergTable().get()).getPartitionColumns();
+                    snapshotTable.get()).getPartitionColumns();
         }
         return getSchemaCacheValue(dorisTable, snapshotValue).getPartitionColumns();
     }

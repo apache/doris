@@ -176,6 +176,7 @@ public class PaimonUtil {
                 .collect(Collectors.toList());
         List<PaimonPartitionCandidate> candidates = Lists.newArrayListWithExpectedSize(partitionEntries.size());
         Map<String, Map<String, String>> displayNameToTypedSpec = Maps.newHashMap();
+        long retainedPayloadBytes = 0L;
 
         for (PartitionEntry partitionEntry : partitionEntries) {
             Map<String, String> typedSpec = getPartitionInfoMap(
@@ -193,6 +194,10 @@ public class PaimonUtil {
                 String partitionValue = typedSpec.get(partitionColumnName);
                 partitionValues.add(partitionValue);
                 orderedTypedSpec.put(partitionColumnName, partitionValue);
+                retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                        retainedPayloadBytes, partitionColumnName);
+                retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                        retainedPayloadBytes, partitionValue);
             }
 
             PartitionItem partitionItem;
@@ -217,6 +222,8 @@ public class PaimonUtil {
             }
             String partitionPath = PartitionPathUtils.generatePartitionPath(displaySpec);
             String displayName = partitionPath.substring(0, partitionPath.length() - 1);
+            retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                    retainedPayloadBytes, displayName);
             Map<String, String> previousTypedSpec = displayNameToTypedSpec.putIfAbsent(
                     displayName, orderedTypedSpec);
             if (previousTypedSpec != null) {
@@ -247,7 +254,7 @@ public class PaimonUtil {
             nameToPartitionItem.put(candidate.displayName, candidate.partitionItem);
             nameToPartition.put(candidate.displayName, partition);
         }
-        return new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
+        return new PaimonPartitionInfo(nameToPartitionItem, nameToPartition, retainedPayloadBytes);
     }
 
     private static final class PaimonPartitionCandidate {

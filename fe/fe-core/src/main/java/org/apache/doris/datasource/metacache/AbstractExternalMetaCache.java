@@ -33,6 +33,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -62,12 +63,19 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
 
     private final String engine;
     private final ExecutorService refreshExecutor;
+    private final ExternalMetaCacheBudgetManager budgetManager;
     private final Map<Long, CatalogEntryGroup> catalogEntries = Maps.newConcurrentMap();
     private final Map<String, MetaCacheEntryDef<?, ?>> metaCacheEntryDefs = Maps.newConcurrentMap();
 
     protected AbstractExternalMetaCache(String engine, ExecutorService refreshExecutor) {
+        this(engine, refreshExecutor, new ExternalMetaCacheBudgetManager(OptionalLong.empty()));
+    }
+
+    protected AbstractExternalMetaCache(String engine, ExecutorService refreshExecutor,
+            ExternalMetaCacheBudgetManager budgetManager) {
         this.engine = engine;
         this.refreshExecutor = Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
+        this.budgetManager = Objects.requireNonNull(budgetManager, "budgetManager can not be null");
     }
 
     @Override
@@ -81,10 +89,43 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
     }
 
     @Override
-    public void initCatalog(long catalogId, Map<String, String> catalogProperties) {
+    public void validateCatalogProperties(Map<String, String> catalogProperties) {
         Map<String, String> safeCatalogProperties = CacheSpec.applyCompatibilityMap(
                 catalogProperties, catalogPropertyCompatibilityMap());
-        catalogEntries.computeIfAbsent(catalogId, id -> buildCatalogEntryGroup(safeCatalogProperties));
+        validateMappedCatalogProperties(safeCatalogProperties, true);
+    }
+
+    @Override
+    public void initCatalog(long catalogId, Map<String, String> catalogProperties) {
+        if (catalogEntries.containsKey(catalogId)) {
+            return;
+        }
+        synchronized (this) {
+            if (catalogEntries.containsKey(catalogId)) {
+                return;
+            }
+            Map<String, String> safeCatalogProperties = CacheSpec.applyCompatibilityMap(
+                    catalogProperties, catalogPropertyCompatibilityMap());
+            validateMappedCatalogProperties(safeCatalogProperties, false);
+            catalogEntries.put(catalogId, buildCatalogEntryGroup(catalogId, safeCatalogProperties));
+        }
+    }
+
+    private void validateMappedCatalogProperties(
+            Map<String, String> catalogProperties, boolean validateAgainstLocalGlobalLimit) {
+        CacheSpec.validateEngineProperties(catalogProperties, engine, metaCacheEntryDefs);
+        OptionalLong catalogMaxWeight = budgetManager.parseCatalogMaxWeight(catalogProperties);
+        metaCacheEntryDefs.values().stream()
+                .filter(entryDef -> entryDef.getSizeEstimator() != null)
+                .map(entryDef -> CacheSpec.fromProperties(
+                        catalogProperties, engine, entryDef.getName(), entryDef.getDefaultCacheSpec()))
+                .forEach(cacheSpec -> {
+                    if (validateAgainstLocalGlobalLimit) {
+                        budgetManager.validateHierarchy(catalogMaxWeight, cacheSpec.getMaxWeight());
+                    } else {
+                        budgetManager.validateCatalogEntryHierarchy(catalogMaxWeight, cacheSpec.getMaxWeight());
+                    }
+                });
     }
 
     @Override
@@ -114,6 +155,7 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
         MetaCacheEntryDef<?, ?> def = requireMetaCacheEntryDef(entryName);
         ensureTypeCompatible(def, keyType, valueType);
 
+        beforeCatalogEntryLookupForTest(catalogId, entryName);
         MetaCacheEntry<?, ?> cacheEntry = group.get(entryName);
         if (cacheEntry == null) {
             throw new IllegalStateException(String.format(
@@ -124,10 +166,10 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
     }
 
     @Override
-    public void invalidateCatalog(long catalogId) {
+    public synchronized void invalidateCatalog(long catalogId) {
         CatalogEntryGroup removed = catalogEntries.remove(catalogId);
         if (removed != null) {
-            removed.invalidateAll();
+            removed.close();
         }
     }
 
@@ -162,8 +204,8 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
     }
 
     @Override
-    public void close() {
-        catalogEntries.values().forEach(CatalogEntryGroup::invalidateAll);
+    public synchronized void close() {
+        catalogEntries.values().forEach(CatalogEntryGroup::close);
         catalogEntries.clear();
     }
 
@@ -189,6 +231,10 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
     protected final <K, V> MetaCacheEntry<K, V> entry(long catalogId, MetaCacheEntryDef<K, V> entryDef) {
         validateRegisteredMetaCacheEntryDef(entryDef);
         return entry(catalogId, entryDef.getName(), entryDef.getKeyType(), entryDef.getValueType());
+    }
+
+    // Let tests pause after capturing a group and before looking up its entry.
+    void beforeCatalogEntryLookupForTest(long catalogId, String entryName) {
     }
 
     protected final String metaCacheTtlKey(String entryName) {
@@ -283,23 +329,52 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
         }
     }
 
-    private CatalogEntryGroup buildCatalogEntryGroup(Map<String, String> catalogProperties) {
+    private CatalogEntryGroup buildCatalogEntryGroup(long catalogId, Map<String, String> catalogProperties) {
         CatalogEntryGroup group = new CatalogEntryGroup();
-        metaCacheEntryDefs.values()
-                .forEach(entryDef -> group.put(entryDef.getName(), newMetaCacheEntry(entryDef, catalogProperties)));
-        return group;
+        try {
+            metaCacheEntryDefs.values().forEach(entryDef -> group.put(
+                    entryDef.getName(), newMetaCacheEntry(catalogId, entryDef, catalogProperties)));
+            return group;
+        } catch (RuntimeException | Error e) {
+            group.close();
+            throw e;
+        }
     }
 
     @SuppressWarnings("unchecked")
     private <K, V> MetaCacheEntry<K, V> newMetaCacheEntry(
-            MetaCacheEntryDef<?, ?> rawEntryDef, Map<String, String> catalogProperties) {
+            long catalogId, MetaCacheEntryDef<?, ?> rawEntryDef, Map<String, String> catalogProperties) {
         MetaCacheEntryDef<K, V> entryDef = (MetaCacheEntryDef<K, V>) rawEntryDef;
         CacheSpec cacheSpec = CacheSpec.fromProperties(
                 catalogProperties, engine, entryDef.getName(), entryDef.getDefaultCacheSpec());
-        return new MetaCacheEntry<>(entryDef.getName(),
-                wrapSchemaValidator(entryDef.getLoader(), entryDef.getValueType()),
-                cacheSpec,
-                refreshExecutor, entryDef.isAutoRefresh(), entryDef.isContextualOnly());
+        OptionalLong catalogMaxWeight = budgetManager.parseCatalogMaxWeight(catalogProperties);
+        if (cacheSpec.isWeightBounded() && entryDef.getSizeEstimator() == null) {
+            throw new IllegalArgumentException(String.format(
+                    "Entry '%s' for engine '%s' configures max-weight but has no estimator.",
+                    entryDef.getName(), engine));
+        }
+        boolean enableWeight = entryDef.getSizeEstimator() != null
+                && (cacheSpec.isWeightBounded()
+                        || catalogMaxWeight.isPresent()
+                        || budgetManager.getGlobalMaxWeight().isPresent());
+        ExternalMetaCacheBudgetManager.EntryBudget entryBudget = null;
+        if (enableWeight) {
+            entryBudget = budgetManager.createEntryBudget(
+                    catalogId, engine, entryDef.getName(), catalogMaxWeight, cacheSpec.getMaxWeight());
+            cacheSpec = cacheSpec.withMaxWeight(entryBudget.getEffectiveMaxWeight());
+        }
+        try {
+            return new MetaCacheEntry<>(entryDef.getName(),
+                    wrapSchemaValidator(entryDef.getLoader(), entryDef.getValueType()),
+                    cacheSpec,
+                    refreshExecutor, entryDef.isAutoRefresh(), entryDef.isContextualOnly(),
+                    entryDef.getSizeEstimator(), entryBudget);
+        } catch (RuntimeException | Error e) {
+            if (entryBudget != null) {
+                entryBudget.close();
+            }
+            throw e;
+        }
     }
 
     private <K, V> Function<K, V> wrapSchemaValidator(Function<K, V> loader, Class<V> valueType) {
@@ -327,8 +402,12 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
             return entry(catalogId, entryDef);
         }
 
+        @SuppressWarnings("unchecked")
         public MetaCacheEntry<K, V> getIfInitialized(long catalogId) {
-            return isCatalogInitialized(catalogId) ? get(catalogId) : null;
+            // Read the group once. A concurrent invalidation may close that captured entry, which
+            // is safe; looking the group up a second time could instead throw after the first check.
+            CatalogEntryGroup group = catalogEntries.get(catalogId);
+            return group == null ? null : (MetaCacheEntry<K, V>) group.get(entryDef.getName());
         }
     }
 }

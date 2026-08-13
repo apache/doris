@@ -27,6 +27,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 
@@ -52,7 +53,12 @@ public class MaxComputeExternalMetaCache extends AbstractExternalMetaCache {
     private final EntryHandle<SchemaCacheKey, SchemaCacheValue> schemaEntry;
 
     public MaxComputeExternalMetaCache(ExecutorService refreshExecutor) {
-        super(ENGINE, refreshExecutor);
+        this(refreshExecutor, new ExternalMetaCacheBudgetManager(java.util.OptionalLong.empty()));
+    }
+
+    public MaxComputeExternalMetaCache(ExecutorService refreshExecutor,
+            ExternalMetaCacheBudgetManager budgetManager) {
+        super(ENGINE, refreshExecutor, budgetManager);
         partitionValuesEntry = registerEntry(MetaCacheEntryDef.contextualOnly(
                 ENTRY_PARTITION_VALUES,
                 NameMapping.class,

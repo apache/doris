@@ -17,11 +17,16 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
+import org.apache.doris.datasource.metacache.MetaCacheSizeEstimator;
+
 public class PaimonSnapshotCacheValue {
 
     private final PaimonPartitionInfo partitionInfo;
     private final PaimonSnapshot snapshot;
     private final boolean schemaFromSnapshotTable;
+    private long retainedTablePayloadBytes;
+    private MetaCacheSizeEstimate sizeEstimate;
 
     public PaimonSnapshotCacheValue(PaimonPartitionInfo partitionInfo, PaimonSnapshot snapshot) {
         this(partitionInfo, snapshot, false);
@@ -44,5 +49,23 @@ public class PaimonSnapshotCacheValue {
 
     public boolean isSchemaFromSnapshotTable() {
         return schemaFromSnapshotTable;
+    }
+
+    long getRetainedTablePayloadBytes() {
+        return retainedTablePayloadBytes;
+    }
+
+    MetaCacheSizeEstimate prepareForCachePublication(PaimonSnapshotEntryKey key) {
+        if (sizeEstimate == null) {
+            retainedTablePayloadBytes = PaimonCacheSizeEstimator.retainedTablePayloadBytes(snapshot.getTable());
+            sizeEstimate = MetaCacheSizeEstimator.estimateSafely("paimon_snapshot_preparation_failed",
+                    () -> PaimonCacheSizeEstimator.estimateSnapshotEntry(key, this));
+        }
+        return sizeEstimate;
+    }
+
+    public MetaCacheSizeEstimate getSizeEstimate() {
+        return sizeEstimate == null
+                ? MetaCacheSizeEstimate.incomplete("not_prepared") : sizeEstimate;
     }
 }
