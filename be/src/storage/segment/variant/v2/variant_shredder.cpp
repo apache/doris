@@ -67,17 +67,14 @@ struct VariantShredder::Impl {
     static constexpr PathIndex UNRESOLVED_PATH = std::numeric_limits<PathIndex>::max();
     static constexpr size_t MAX_BINARY_CELLS_PER_CHUNK = 1U << 20;
 
-    // Metadata bytes belong to the input ReadView, and this cache never escapes
-    // one append call. The first observed root field lazily allocates a
-    // dictionary-sized direct lookup table; nested parent+field transitions are
-    // retained only when observed in the batch. Canonical paths themselves remain
-    // owned by PathState across appends.
+    // Metadata bytes belong to the input ReadView. This cache never escapes one append call, so
+    // it can borrow the dictionary and retain only parent+field transitions observed in that
+    // batch. Canonical paths themselves remain owned by PathState across appends.
     struct MetadataPathCache {
         explicit MetadataPathCache(VariantMetadataRef metadata_) : metadata(metadata_) {}
 
         VariantMetadataRef metadata;
-        DorisVector<PathIndex> root_child_paths;
-        ChildPathCache nested_child_paths;
+        ChildPathCache child_paths;
     };
 
     // Keep all state for one canonical dotted path together. This replaces three parallel
@@ -184,32 +181,10 @@ struct VariantShredder::Impl {
 
     PathIndex resolve_child_path(MetadataPathCache& metadata_cache, PathIndex parent,
                                  uint32_t field) {
-        ParentFieldKey cache_key = 0;
-        if (parent == 0) {
-            if (metadata_cache.root_child_paths.empty()) {
-                const uint32_t dictionary_size = metadata_cache.metadata.dict_size();
-                if (field >= dictionary_size) {
-                    throw Exception(ErrorCode::CORRUPTION,
-                                    "Variant object field id {} is outside metadata "
-                                    "dictionary of size {}",
-                                    field, dictionary_size);
-                }
-                metadata_cache.root_child_paths.assign(dictionary_size, UNRESOLVED_PATH);
-            } else if (field >= metadata_cache.root_child_paths.size()) {
-                throw Exception(ErrorCode::CORRUPTION,
-                                "Variant object field id {} is outside metadata "
-                                "dictionary of size {}",
-                                field, metadata_cache.root_child_paths.size());
-            }
-            if (metadata_cache.root_child_paths[field] != UNRESOLVED_PATH) {
-                return metadata_cache.root_child_paths[field];
-            }
-        } else {
-            cache_key = parent_field_key(parent, field);
-            if (const auto found = metadata_cache.nested_child_paths.find(cache_key);
-                found != metadata_cache.nested_child_paths.end()) {
-                return found->second;
-            }
+        const ParentFieldKey cache_key = parent_field_key(parent, field);
+        if (const auto found = metadata_cache.child_paths.find(cache_key);
+            found != metadata_cache.child_paths.end()) {
+            return found->second;
         }
 
         PathInDataBuilder builder;
@@ -232,11 +207,7 @@ struct VariantShredder::Impl {
             path_indices.emplace(child, child_index);
             paths.emplace_back(child);
         }
-        if (parent == 0) {
-            metadata_cache.root_child_paths[field] = child_index;
-        } else {
-            metadata_cache.nested_child_paths.emplace(cache_key, child_index);
-        }
+        metadata_cache.child_paths.emplace(cache_key, child_index);
         return child_index;
     }
 
