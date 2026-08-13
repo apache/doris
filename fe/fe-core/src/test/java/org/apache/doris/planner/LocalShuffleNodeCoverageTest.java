@@ -973,13 +973,18 @@ public class LocalShuffleNodeCoverageTest {
 
     @Test
     public void testAggregationNodeDistinctFirstMergeRequiresHash() {
-        // FIRST_MERGE (correctness-required) keeps the hash demand regardless of the
-        // enableLocalExchangeBeforeAgg flag.
+        // FIRST_MERGE (correctness-required) keeps the hash demand even when the
+        // user opts out of pre-agg local exchanges (enable_local_exchange_before_agg
+        // = false): removing the !isMerge() exemption must not weaken it.
         AggContext agg = buildAggContext(Collections.singletonList(multiDistinctFunction("multi_distinct_count")), /* groupByExprs */ true,
                 /* merge */ true, /* needsFinalize */ false, LocalExchangeType.NOOP, KEYED_DISTRIBUTE_EXPRS);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableLocalExchangeBeforeAgg = false;
+        Mockito.when(agg.connectContext.getSessionVariable()).thenReturn(sessionVariable);
         Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
                 agg.ctx, null, LocalExchangeTypeRequire.noRequire());
-        Assertions.assertEquals(LocalExchangeNode.RequireHash.class, agg.child.lastRequire.getClass());
+        Assertions.assertEquals(LocalExchangeNode.RequireHash.class, agg.child.lastRequire.getClass(),
+                "FIRST_MERGE must keep the hash demand with enable_local_exchange_before_agg=false");
         Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second);
         assertChildLocalExchangeType(agg.node, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
     }
