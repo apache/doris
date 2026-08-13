@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalWriteDistributionPlan;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
@@ -39,6 +40,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergWriteDistributionProvider;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
@@ -47,6 +49,7 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonVariantWriteAnalyzer;
+import org.apache.doris.datasource.paimon.PaimonWriteDistributionProvider;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
@@ -844,7 +847,12 @@ public class BindSink implements AnalysisRuleFactory {
                     .collect(Collectors.toList());
         }
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(insertSchema, child, columnToOutput);
-        return boundSink.withChildAndUpdateOutput(fullOutputProject);
+        LogicalIcebergTableSink<?> dataSink = (LogicalIcebergTableSink<?>)
+                boundSink.withChildAndUpdateOutput(fullOutputProject);
+        ExternalWriteDistributionPlan writeDistribution =
+                new IcebergWriteDistributionProvider().plan(targetIcebergTable, dataSink.getOutput());
+        Plan distributionChild = addExternalWriteRoutingProject(dataSink.child(), writeDistribution);
+        return dataSink.withChildAndWriteDistribution(distributionChild, writeDistribution);
     }
 
     private static Column findColumn(List<Column> schema, String columnName) {
@@ -974,7 +982,10 @@ public class BindSink implements AnalysisRuleFactory {
         if (bindColumns.size() != child.getOutput().size()) {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
-        Map<String, NamedExpression> columnToOutput = getPaimonColumnToOutput(bindColumns, child);
+        // Keep the original input expressions for Paimon Variant validation. The normal sink
+        // mapping below adds casts eagerly, which would otherwise hide a Variant V1 source.
+        List<NamedExpression> sourceOutputs = new ArrayList<>(child.getOutput());
+        Map<String, NamedExpression> columnToOutput = getJdbcColumnToOutput(bindColumns, child);
         List<Column> writeColumns = new ArrayList<>(bindColumns);
         if (!staticPartitionColNames.isEmpty()) {
             for (Column column : writeTarget.getSchema()) {
@@ -983,6 +994,7 @@ public class BindSink implements AnalysisRuleFactory {
                     Expression castExpr = TypeCoercionUtils.castIfNotSameType(
                             staticValue, DataType.fromCatalogType(column.getType()));
                     columnToOutput.put(column.getName(), new Alias(castExpr, column.getName()));
+                    sourceOutputs.add(new Alias(staticValue, column.getName()));
                     writeColumns.add(column);
                 }
             }
@@ -995,10 +1007,29 @@ public class BindSink implements AnalysisRuleFactory {
                         .collect(ImmutableList.toImmutableList()),
                 sink.getDMLCommandType(), Optional.empty(), Optional.empty(), child);
         PaimonVariantWriteAnalyzer.validate(
-                writeTarget, writeColumns, columnToOutput);
+                writeTarget, writeColumns, sourceOutputs);
         LogicalProject<?> outputProject = getOutputProjectByCoercion(
                 writeColumns, child, columnToOutput, writeTarget.getColumnTypes());
-        return boundSink.withChildAndUpdateOutput(outputProject);
+        LogicalPaimonTableSink<?> dataSink = (LogicalPaimonTableSink<?>)
+                boundSink.withChildAndUpdateOutput(outputProject);
+        ExternalWriteDistributionPlan writeDistribution =
+                new PaimonWriteDistributionProvider().plan(
+                        writeTarget.getTable(), dataSink.getOutput());
+        Plan distributionChild = addExternalWriteRoutingProject(dataSink.child(), writeDistribution);
+        return dataSink.withChildAndWriteDistribution(distributionChild, writeDistribution);
+    }
+
+    private Plan addExternalWriteRoutingProject(
+            Plan dataChild, ExternalWriteDistributionPlan writeDistribution) {
+        if (!writeDistribution.hasRoutingExpressions()) {
+            return dataChild;
+        }
+        ImmutableList.Builder<NamedExpression> projectExpressions = ImmutableList.builder();
+        dataChild.getOutput().stream()
+                .map(NamedExpression.class::cast)
+                .forEach(projectExpressions::add);
+        projectExpressions.addAll(writeDistribution.getRoutingExpressions());
+        return new LogicalProject<>(projectExpressions.build(), dataChild);
     }
 
     private Plan bindMaxComputeTableSink(MatchingContext<UnboundMaxComputeTableSink<Plan>> ctx) {
@@ -1103,18 +1134,6 @@ public class BindSink implements AnalysisRuleFactory {
             columnToOutput.put(column.getName(), output);
         }
 
-        return columnToOutput;
-    }
-
-    private static Map<String, NamedExpression> getPaimonColumnToOutput(
-            List<Column> bindColumns, LogicalPlan child) {
-        Map<String, NamedExpression> columnToOutput =
-                Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (int i = 0; i < bindColumns.size(); i++) {
-            Column column = bindColumns.get(i);
-            columnToOutput.put(column.getName(),
-                    new Alias(child.getOutput().get(i), column.getName()));
-        }
         return columnToOutput;
     }
 

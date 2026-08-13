@@ -31,7 +31,6 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VariantType;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /** Analysis checks for the V2-only Paimon Variant write protocol. */
@@ -45,8 +44,12 @@ public final class PaimonVariantWriteAnalyzer {
     public static void validate(
             PaimonWriteTarget writeTarget,
             List<Column> writeColumns,
-            Map<String, NamedExpression> columnToOutput) throws AnalysisException {
-        for (Column column : writeColumns) {
+            List<NamedExpression> sourceOutputs) throws AnalysisException {
+        if (writeColumns.size() != sourceOutputs.size()) {
+            throw new IllegalArgumentException("Paimon write columns and source outputs must align");
+        }
+        for (int i = 0; i < writeColumns.size(); i++) {
+            Column column = writeColumns.get(i);
             Type targetCatalogType = writeTarget.getColumnTypes().get(column.getName());
             if (targetCatalogType == null) {
                 continue;
@@ -60,10 +63,8 @@ public final class PaimonVariantWriteAnalyzer {
                         "Paimon VARIANT write only supports Variant V2; "
                                 + "set FE config enable_variant_v2=true");
             }
-            NamedExpression output = columnToOutput.get(column.getName());
-            if (output != null) {
-                validateVariantConversion(output.getDataType(), targetType, column.getName());
-            }
+            validateVariantConversion(
+                    sourceOutputs.get(i).getDataType(), targetType, column.getName());
         }
     }
 

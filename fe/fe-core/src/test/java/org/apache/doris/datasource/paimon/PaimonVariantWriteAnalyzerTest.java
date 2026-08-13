@@ -43,8 +43,7 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 import java.util.Collections;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.List;
 
 public class PaimonVariantWriteAnalyzerTest {
     private boolean originalEnableVariantV2;
@@ -89,7 +88,7 @@ public class PaimonVariantWriteAnalyzerTest {
         PaimonVariantWriteAnalyzer.validate(
                 target,
                 Collections.singletonList(target.getColumn("payload")),
-                outputs("payload", VariantType.COMPUTE_V2_INSTANCE));
+                outputs(VariantType.COMPUTE_V2_INSTANCE));
     }
 
     @Test
@@ -145,7 +144,7 @@ public class PaimonVariantWriteAnalyzerTest {
         PaimonVariantWriteAnalyzer.validate(
                 target,
                 Collections.singletonList(id),
-                outputs("id", IntegerType.INSTANCE));
+                outputs(IntegerType.INSTANCE));
     }
 
     @Test
@@ -184,15 +183,13 @@ public class PaimonVariantWriteAnalyzerTest {
         PaimonVariantWriteAnalyzer.validate(
                 target,
                 Collections.singletonList(column),
-                outputs(column.getName(), sourceType));
+                outputs(sourceType));
     }
 
-    private static Map<String, NamedExpression> outputs(String name, DataType dataType) {
+    private static List<NamedExpression> outputs(DataType dataType) {
         NamedExpression expression = Mockito.mock(NamedExpression.class);
         Mockito.when(expression.getDataType()).thenReturn(dataType);
-        Map<String, NamedExpression> outputs = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        outputs.put(name, expression);
-        return outputs;
+        return Collections.singletonList(expression);
     }
 
     private static PaimonWriteTarget createTarget(DataField... fields) throws Exception {

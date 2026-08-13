@@ -77,6 +77,8 @@ void register_function_to_json(SimpleFunctionFactory& factory);
 void register_function_json_transform(SimpleFunctionFactory& factory);
 void register_function_json_hash(SimpleFunctionFactory& factory);
 void register_function_hash(SimpleFunctionFactory& factory);
+void register_function_iceberg_partition_transform(SimpleFunctionFactory& factory);
+void register_function_paimon_routing(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
@@ -312,6 +314,8 @@ public:
             register_function_variant_parse(instance);
             register_function_to_json(instance);
             register_function_hash(instance);
+            register_function_iceberg_partition_transform(instance);
+            register_function_paimon_routing(instance);
             register_function_comparison_eq_for_null(instance);
             register_function_like(instance);
             register_function_regexp(instance);

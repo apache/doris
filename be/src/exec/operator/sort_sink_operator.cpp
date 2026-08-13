@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "exec/common/util.hpp"
 #include "exec/operator/operator.h"
 #include "exec/sort/heap_sorter.h"
 #include "exec/sort/topn_sorter.h"
@@ -65,9 +66,10 @@ Status SortSinkLocalState::open(RuntimeState* state) {
         break;
     }
     case TSortAlgorithm::FULL_SORT: {
+        Block block_header(VectorizedUtils::create_empty_block(p._child->row_desc()));
         auto sorter = FullSorter::create_shared(_ordering_expr_ctxs, p._limit, p._offset, p._pool,
-                                                p._is_asc_order, p._nulls_first,
-                                                p._child->row_desc(), state, custom_profile());
+                                                p._is_asc_order, p._nulls_first, block_header,
+                                                state, custom_profile());
         if (p._max_buffered_bytes > 0) {
             sorter->set_max_buffered_block_bytes(p._max_buffered_bytes);
         }

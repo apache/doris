@@ -249,49 +249,56 @@ GlobalClass Util::iteratorClass;
 MethodId Util::iteratorHasNextMethod;
 MethodId Util::iteratorNextMethod;
 
-void Util::_parse_max_heap_memory_size_from_jvm() {
-    // The start_be.sh would set JAVA_OPTS inside LIBHDFS_OPTS
-    std::string java_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
-    std::istringstream iss(java_opts);
-    std::string opt;
-    while (iss >> opt) {
-        if (opt.find("-Xmx") == 0) {
-            std::string xmxValue = opt.substr(4);
-            LOG(INFO) << "The max heap vaule is " << xmxValue;
-            char unit = xmxValue.back();
-            xmxValue.pop_back();
-            long long value = std::stoll(xmxValue);
-            switch (unit) {
-            case 'g':
-            case 'G':
-                max_jvm_heap_memory_size_ = value * 1024 * 1024 * 1024;
-                break;
-            case 'm':
-            case 'M':
-                max_jvm_heap_memory_size_ = value * 1024 * 1024;
-                break;
-            case 'k':
-            case 'K':
-                max_jvm_heap_memory_size_ = value * 1024;
-                break;
-            default:
-                max_jvm_heap_memory_size_ = value;
-                break;
-            }
-        }
+void Util::_query_max_heap_memory_size_from_jvm() {
+    JNIEnv* env = nullptr;
+    Status status = Env::Get(&env);
+    if (!status.ok()) {
+        LOG(FATAL) << "Failed to get JNI environment for JVM heap limit: " << status.to_string();
     }
-    if (0 == max_jvm_heap_memory_size_) {
-        LOG(FATAL) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;
+
+    jclass runtime_class = env->FindClass("java/lang/Runtime");
+    if (runtime_class == nullptr || env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        LOG(FATAL) << "Failed to find java.lang.Runtime for JVM heap limit";
     }
-    LOG(INFO) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;
+    Defer delete_runtime_class {[&]() { env->DeleteLocalRef(runtime_class); }};
+
+    jmethodID get_runtime =
+            env->GetStaticMethodID(runtime_class, "getRuntime", "()Ljava/lang/Runtime;");
+    jmethodID max_memory = env->GetMethodID(runtime_class, "maxMemory", "()J");
+    if (get_runtime == nullptr || max_memory == nullptr || env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        LOG(FATAL) << "Failed to resolve java.lang.Runtime heap limit methods";
+    }
+
+    jobject runtime = env->CallStaticObjectMethod(runtime_class, get_runtime);
+    if (runtime == nullptr || env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        LOG(FATAL) << "Failed to get java.lang.Runtime instance";
+    }
+    Defer delete_runtime {[&]() { env->DeleteLocalRef(runtime); }};
+
+    max_jvm_heap_memory_size_ = env->CallLongMethod(runtime, max_memory);
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        LOG(FATAL) << "Failed to query JVM max heap size";
+    }
+    if (max_jvm_heap_memory_size_ <= 0) {
+        LOG(FATAL) << "Invalid JVM max heap size: " << max_jvm_heap_memory_size_;
+    }
+    LOG(INFO) << "JVM max heap size is " << max_jvm_heap_memory_size_;
 }
 
 size_t Util::get_max_jni_heap_memory_size() {
-#if defined(USE_LIBHDFS3) || defined(BE_TEST)
+#if defined(BE_TEST)
     return std::numeric_limits<size_t>::max();
 #else
-    static std::once_flag _parse_max_heap_memory_size_from_jvm_flag;
-    std::call_once(_parse_max_heap_memory_size_from_jvm_flag, _parse_max_heap_memory_size_from_jvm);
+    static std::once_flag query_max_heap_memory_size_from_jvm_flag;
+    std::call_once(query_max_heap_memory_size_from_jvm_flag, _query_max_heap_memory_size_from_jvm);
     return max_jvm_heap_memory_size_;
 #endif
 }

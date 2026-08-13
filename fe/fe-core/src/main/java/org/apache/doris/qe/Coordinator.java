@@ -1999,6 +1999,9 @@ public class Coordinator implements CoordInterface {
                 if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
                     exchangeInstances = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
                 }
+                exchangeInstances = limitExchangeInstances(
+                        exchangeInstances, fragment.getSink() == null
+                                ? Integer.MAX_VALUE : fragment.getSink().getWriterInstanceLimit());
                 // when we use nested loop join do right outer / semi / anti join, the instance must be 1.
                 boolean isNereids = context != null && context.getState().isNereids();
                 if (!isNereids && leftMostNode.getNumInstances() == 1) {
@@ -2171,6 +2174,15 @@ public class Coordinator implements CoordInterface {
             }
         }
         return maxParaIndex;
+    }
+
+    @VisibleForTesting
+    static int limitExchangeInstances(int exchangeInstances, int writerInstanceLimit) {
+        if (writerInstanceLimit == Integer.MAX_VALUE) {
+            return exchangeInstances;
+        }
+        return exchangeInstances <= 0
+                ? writerInstanceLimit : Math.min(exchangeInstances, writerInstanceLimit);
     }
 
     private TNetworkAddress getGroupCommitBackend(Map<TNetworkAddress, Long> addressToBackendID) {

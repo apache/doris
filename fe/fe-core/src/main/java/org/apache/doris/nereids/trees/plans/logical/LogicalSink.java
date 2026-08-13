@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -54,6 +55,11 @@ public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     public abstract LogicalSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs);
+
+    /** Child outputs that must survive column pruning for sink routing or metadata. */
+    public List<ExprId> getRequiredChildOutputExprIds() {
+        return ImmutableList.of();
+    }
 
     @Override
     public List<? extends Expression> getExpressions() {

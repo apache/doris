@@ -48,6 +48,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.ExternalWriterParallelismPolicy;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
@@ -618,6 +619,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         IcebergTableSink sink = new IcebergTableSink(
                 (IcebergExternalTable) icebergTableSink.getTargetTable(),
                 icebergTableSink.getTargetIcebergTable());
+        sink.setWriterParallelism(ExternalWriterParallelismPolicy.plan(
+                icebergTableSink.getWriteDistributionPlan(), icebergTableSink.child().getStats(),
+                writerCapacity(rootFragment)));
         rootFragment.setSink(sink);
         sink.setOutputExprs(outputExprs);
         return rootFragment;
@@ -633,12 +637,26 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         PaimonTableSink sink = new PaimonTableSink(paimonTableSink.getWriteTarget());
         sink.setCols(paimonTableSink.getCols());
+        sink.setWriterParallelism(ExternalWriterParallelismPolicy.plan(
+                paimonTableSink.getWriteDistributionPlan(), paimonTableSink.child().getStats(),
+                writerCapacity(rootFragment)));
         rootFragment.setSink(sink);
         sink.setOutputExprs(outputExprs);
-        if (paimonTableSink.requiresSingleWriter()) {
-            rootFragment.setForceSingleInstance();
-        }
         return rootFragment;
+    }
+
+    private int writerCapacity(PlanFragment fragment) {
+        if (!fragment.isPartitioned()) {
+            return 1;
+        }
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return Math.max(1, fragment.getParallelExecNum());
+        }
+        int exchangeInstanceParallel = connectContext.getSessionVariable()
+                .getExchangeInstanceParallel();
+        return exchangeInstanceParallel > 0
+                ? exchangeInstanceParallel : connectContext.getTotalInstanceNum();
     }
 
     @Override

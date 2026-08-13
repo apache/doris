@@ -50,7 +50,9 @@ import java.util.Set;
  * metadata, Hadoop authentication config, transaction identity, write mode,
  * and sink column names.
  *
- * v1: single-writer architecture; partition/bucket routing delegated to SDK.
+ * Fixed-bucket writes use native Paimon routing expressions and a standard hash exchange. Bucket
+ * modes that need stateful assignment retain a single-writer execution path until the assigner
+ * stage exists.
  */
 public class PaimonTableSink extends BaseExternalTableDataSink {
     private final PaimonExternalTable targetTable;
@@ -90,6 +92,7 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
             return strBuilder.toString();
         }
         strBuilder.append(prefix).append("  table: ").append(targetTable.getName()).append("\n");
+        appendWriterParallelismExplain(strBuilder, prefix);
         return strBuilder.toString();
     }
 

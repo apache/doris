@@ -66,6 +66,11 @@ public abstract class DataSink {
 
     public abstract DataPartition getOutputPartition();
 
+    /** Maximum number of fragment instances allowed to own external writer state. */
+    public int getWriterInstanceLimit() {
+        return Integer.MAX_VALUE;
+    }
+
     public static DataSink createDataSink(TableIf table) throws AnalysisException {
         if (table instanceof MysqlTable) {
             return new MysqlTableSink((MysqlTable) table);

@@ -22,13 +22,10 @@ import org.apache.paimon.memory.MemorySegment;
 
 import java.nio.ByteBuffer;
 
-/**
- * Paimon write-buffer pool backed by memory allocated and tracked by Doris BE.
- *
- * <p>This class only adapts the Paimon page interface to the BE allocator. The native memory
- * manager owns every returned page and releases them after the Java writer has closed.
- */
+/** Paimon write-buffer pool backed by memory allocated and tracked by Doris BE. */
 final class DorisMemorySegmentPool extends AbstractMemorySegmentPool {
+    static final int MIN_REQUIRED_PAGES = 3;
+
     private final long nativeMemoryManager;
 
     DorisMemorySegmentPool(long maxMemory, int pageSize, long nativeMemoryManager) {
@@ -36,10 +33,11 @@ final class DorisMemorySegmentPool extends AbstractMemorySegmentPool {
         if (nativeMemoryManager == 0) {
             throw new IllegalArgumentException("Doris native memory manager must not be null");
         }
-        if (maxMemory < pageSize) {
+        if (pageSize <= 0 || maxMemory / pageSize < MIN_REQUIRED_PAGES) {
             throw new IllegalArgumentException(
-                    "Doris-managed Paimon memory pool must contain at least one page: maxMemory="
-                            + maxMemory + ", pageSize=" + pageSize);
+                    "Doris-managed Paimon memory pool must contain at least "
+                            + MIN_REQUIRED_PAGES + " pages: maxMemory=" + maxMemory
+                            + ", pageSize=" + pageSize);
         }
         this.nativeMemoryManager = nativeMemoryManager;
     }
@@ -50,7 +48,8 @@ final class DorisMemorySegmentPool extends AbstractMemorySegmentPool {
                 PaimonJniWriter.allocatePaimonMemoryPage(nativeMemoryManager, pageSize);
         if (buffer == null) {
             throw new OutOfMemoryError(
-                    "Doris failed to allocate a native Paimon memory page of " + pageSize + " bytes");
+                    "Doris failed to allocate a native Paimon memory page of "
+                            + pageSize + " bytes");
         }
         return MemorySegment.wrapOffHeapMemory(buffer);
     }

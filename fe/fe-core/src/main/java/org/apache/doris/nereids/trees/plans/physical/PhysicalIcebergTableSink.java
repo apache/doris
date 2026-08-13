@@ -18,13 +18,14 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.datasource.ExternalWriteDistributionPlan;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -32,20 +33,16 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
-import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.types.Types;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /** physical iceberg sink */
 public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
     private final Table targetIcebergTable;
+    private final ExternalWriteDistributionPlan writeDistributionPlan;
 
     /**
      * constructor
@@ -59,6 +56,7 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
         this(database, targetTable, targetIcebergTable, cols, outputExprs, groupExpression, logicalProperties,
+                ExternalWriteDistributionPlan.singleWriter("Iceberg write distribution is not planned"),
                 PhysicalProperties.GATHER, null, child);
     }
 
@@ -72,6 +70,7 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     List<NamedExpression> outputExprs,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
+                                    ExternalWriteDistributionPlan writeDistributionPlan,
                                     PhysicalProperties physicalProperties,
                                     Statistics statistics,
                                     CHILD_TYPE child) {
@@ -79,6 +78,8 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                 logicalProperties, physicalProperties, statistics, child);
         this.targetIcebergTable = Objects.requireNonNull(
                 targetIcebergTable, "targetIcebergTable != null in PhysicalIcebergTableSink");
+        this.writeDistributionPlan = Objects.requireNonNull(
+                writeDistributionPlan, "writeDistributionPlan != null in PhysicalIcebergTableSink");
     }
 
     @Override
@@ -86,7 +87,8 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
                 targetIcebergTable, cols, outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                getLogicalProperties(), writeDistributionPlan,
+                physicalProperties, statistics, children.get(0));
     }
 
     @Override
@@ -98,7 +100,8 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
-                targetIcebergTable, cols, outputExprs, groupExpression, getLogicalProperties(), child());
+                targetIcebergTable, cols, outputExprs, groupExpression, getLogicalProperties(),
+                writeDistributionPlan, PhysicalProperties.GATHER, null, child());
     }
 
     @Override
@@ -106,7 +109,8 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
-                targetIcebergTable, cols, outputExprs, groupExpression, logicalProperties.get(), children.get(0));
+                targetIcebergTable, cols, outputExprs, groupExpression, logicalProperties.get(),
+                writeDistributionPlan, PhysicalProperties.GATHER, null, children.get(0));
     }
 
     @Override
@@ -114,11 +118,15 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
                 targetIcebergTable, cols, outputExprs, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, child());
+                writeDistributionPlan, physicalProperties, statistics, child());
     }
 
     public Table getTargetIcebergTable() {
         return targetIcebergTable;
+    }
+
+    public ExternalWriteDistributionPlan getWriteDistributionPlan() {
+        return writeDistributionPlan;
     }
 
     /**
@@ -135,31 +143,19 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
             return PhysicalProperties.GATHER;
         }
 
-        Set<String> partitionNames = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        for (PartitionField field : targetIcebergTable.spec().fields()) {
-            Types.NestedField sourceField = targetIcebergTable.schema().findField(field.sourceId());
-            if (sourceField != null) {
-                partitionNames.add(sourceField.name());
-            }
+        if (writeDistributionPlan.isSingleWriter()) {
+            return PhysicalProperties.GATHER;
         }
-        if (!partitionNames.isEmpty()) {
-            List<Integer> columnIdx = new ArrayList<>();
-            // Sink columns are bound from targetIcebergTable; using refreshable table metadata
-            // here could shuffle rows with a different partition spec than the writer serializes.
-            for (int i = 0; i < child().getOutput().size(); i++) {
-                if (partitionNames.contains(child().getOutput().get(i).getName())) {
-                    columnIdx.add(i);
-                }
-            }
-            // mapping partition id
-            List<ExprId> exprIds = columnIdx.stream()
-                    .map(idx -> child().getOutput().get(idx).getExprId())
-                    .collect(Collectors.toList());
-            DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
-                    = new DistributionSpecHiveTableSinkHashPartitioned();
-            shuffleInfo.setOutputColExprIds(exprIds);
-            return new PhysicalProperties(shuffleInfo);
+        if (writeDistributionPlan.isRandom()) {
+            return PhysicalProperties.SINK_RANDOM_PARTITIONED;
         }
-        return PhysicalProperties.SINK_RANDOM_PARTITIONED;
+        if (writeDistributionPlan.isAdaptiveHash()) {
+            DistributionSpecHiveTableSinkHashPartitioned distributionSpec =
+                    new DistributionSpecHiveTableSinkHashPartitioned();
+            distributionSpec.setOutputColExprIds(writeDistributionPlan.getRoutingExprIds());
+            return new PhysicalProperties(distributionSpec);
+        }
+        return PhysicalProperties.createHash(
+                writeDistributionPlan.getRoutingExprIds(), ShuffleType.REQUIRE);
     }
 }

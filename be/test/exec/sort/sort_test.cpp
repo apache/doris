@@ -58,9 +58,9 @@ public:
 
         switch (sort_type) {
         case TestSortType::FULL_SORT:
-            sorter = FullSorter::create_unique(ordering_expr_ctxs, limit, offset, &pool,
-                                               is_asc_order, nulls_first, *row_desc, &_state,
-                                               nullptr);
+            sorter = FullSorter::create_unique(
+                    ordering_expr_ctxs, limit, offset, &pool, is_asc_order, nulls_first,
+                    Block(VectorizedUtils::create_empty_block(*row_desc)), &_state, nullptr);
             break;
         case TestSortType::TOPN_SORT:
             sorter = TopNSorter::create_unique(ordering_expr_ctxs, limit, offset, &pool,
@@ -191,7 +191,8 @@ TEST_F(SortTest, test_sorter) {
 
     MockRuntimeState _state;
     sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order, nulls_first,
-                                       *row_desc, &_state, nullptr);
+                                       Block(VectorizedUtils::create_empty_block(*row_desc)),
+                                       &_state, nullptr);
 
     {
         Block src_block = ColumnHelper::create_block<DataTypeInt64>({4, 1, 2}, {10, 1, 3});

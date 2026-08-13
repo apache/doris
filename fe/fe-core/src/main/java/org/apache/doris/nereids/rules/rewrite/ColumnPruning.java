@@ -251,7 +251,10 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     @Override
     public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, PruneContext context) {
-        return pruneChildren(logicalSink, context.requiredSlotsIds);
+        RoaringBitmap requiredSlotsIds = context.requiredSlotsIds.clone();
+        logicalSink.getRequiredChildOutputExprIds()
+                .forEach(exprId -> requiredSlotsIds.add(exprId.asInt()));
+        return pruneChildren(logicalSink, requiredSlotsIds);
     }
 
     // the backend not support filter(project(agg)), so we can not prune the key set in the agg,

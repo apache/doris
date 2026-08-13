@@ -65,7 +65,8 @@ struct FullSorterTest : public testing::Test {
 
 TEST_F(FullSorterTest, test_full_sorter1) {
     sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order, nulls_first,
-                                       *row_desc, &_state, nullptr);
+                                       Block(VectorizedUtils::create_empty_block(*row_desc)),
+                                       &_state, nullptr);
 
     Block block1 = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
     Block block2 = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});
@@ -77,7 +78,8 @@ TEST_F(FullSorterTest, test_full_sorter1) {
 
 TEST_F(FullSorterTest, test_full_sorter2) {
     sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order, nulls_first,
-                                       *row_desc, &_state, nullptr);
+                                       Block(VectorizedUtils::create_empty_block(*row_desc)),
+                                       &_state, nullptr);
     {
         Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
         EXPECT_TRUE(sorter->append_block(&block).ok());
@@ -94,9 +96,28 @@ TEST_F(FullSorterTest, test_full_sorter2) {
     std::cout << sorter->get_reserve_mem_size(&_state, false) << std::endl;
 }
 
+TEST_F(FullSorterTest, test_block_header_schema) {
+    Block writer_block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
+    sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order, nulls_first,
+                                       writer_block, &_state, nullptr);
+
+    EXPECT_TRUE(sorter->append_block(&writer_block).ok());
+
+    Block mismatched_block = ColumnHelper::create_block<DataTypeInt64>({4, 5, 6});
+    mismatched_block.insert(
+            ColumnWithTypeAndName(ColumnHelper::create_column<DataTypeInt64>({7, 8, 9}),
+                                  std::make_shared<DataTypeInt64>(), "extra"));
+    Status status = sorter->append_block(&mismatched_block);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find(
+                      "Sorter input column count 2 does not match schema column count 1"),
+              std::string::npos);
+}
+
 TEST_F(FullSorterTest, test_full_sorter3) {
     sorter = FullSorter::create_unique(ordering_expr_ctxs, 3, 3, &pool, is_asc_order, nulls_first,
-                                       *row_desc, &_state, nullptr);
+                                       Block(VectorizedUtils::create_empty_block(*row_desc)),
+                                       &_state, nullptr);
     sorter->init_profile(&_profile);
     {
         Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});

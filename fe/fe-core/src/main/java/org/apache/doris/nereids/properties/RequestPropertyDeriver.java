@@ -167,11 +167,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalIcebergTableSink(
             PhysicalIcebergTableSink<? extends Plan> icebergTableSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
-            addRequestPropertyToChildren(PhysicalProperties.ANY);
-        } else {
-            addRequestPropertyToChildren(icebergTableSink.getRequirePhysicalProperties());
-        }
+        addRequestPropertyToChildren(icebergTableSink.getRequirePhysicalProperties());
         return null;
     }
 

@@ -54,11 +54,13 @@ class MergeSorterState {
 
 public:
     MergeSorterState(const RowDescriptor& row_desc, int64_t offset)
-            // create_empty_block should ignore invalid slots, unsorted_block
-            // should be same structure with arrival block from child node
-            // since block from child node may ignored these slots
             : _unsorted_block(Block::create_unique(VectorizedUtils::create_empty_block(row_desc))),
               _offset(offset) {}
+
+    // Initialize from the schema of blocks consumed by the sorter. Use this overload when a
+    // fragment RowDescriptor may contain expression inputs that are projected out before sorting.
+    MergeSorterState(const Block& block_header, int64_t offset)
+            : _unsorted_block(Block::create_unique(block_header.clone_empty())), _offset(offset) {}
 
     ~MergeSorterState() = default;
 
@@ -182,7 +184,7 @@ class FullSorter final : public Sorter {
 public:
     FullSorter(const VExprContextSPtrs& ordering_expr_ctxs, int64_t limit, int64_t offset,
                ObjectPool* pool, std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
-               const RowDescriptor& row_desc, RuntimeState* state, RuntimeProfile* profile);
+               const Block& block_header, RuntimeState* state, RuntimeProfile* profile);
 
     ~FullSorter() override = default;
 

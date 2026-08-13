@@ -28,11 +28,17 @@ import java.util.Collections;
 public class PaimonJniWriterTest {
 
     @Test
-    public void testManagedMemoryPoolRequiresAtLeastOnePage() {
+    public void testManagedMemoryPoolRequiresAtLeastThreePages() {
         IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class,
-                () -> new DorisMemorySegmentPool(32 * 1024, 64 * 1024, 1L));
-        Assertions.assertTrue(exception.getMessage().contains("at least one page"));
+                () -> new DorisMemorySegmentPool(2 * 64 * 1024, 64 * 1024, 1L));
+        Assertions.assertTrue(exception.getMessage().contains("at least 3 pages"));
+    }
+
+    @Test
+    public void testManagedMemoryPoolAcceptsThreePages() {
+        Assertions.assertDoesNotThrow(
+                () -> new DorisMemorySegmentPool(3 * 64 * 1024, 64 * 1024, 1L));
     }
 
     @Test

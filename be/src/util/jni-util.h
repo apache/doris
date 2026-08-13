@@ -1158,7 +1158,7 @@ public:
     static Status Init();
 
 private:
-    static void _parse_max_heap_memory_size_from_jvm();
+    static void _query_max_heap_memory_size_from_jvm();
 
     static Status _init_collect_class() WARN_UNUSED_RESULT;
     static Status _init_register_natives() WARN_UNUSED_RESULT;
